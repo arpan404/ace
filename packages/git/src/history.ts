@@ -171,33 +171,39 @@ export async function fileBlame(
   const head = await resolveHeadOrNull(repository, root, options.signal);
   if (!head) return { head: null, commits: [], lines: [], capped: false };
 
-  const output = await repository.cli.call(
-    root,
-    [
-      "-c",
-      "core.quotePath=false",
-      "blame",
-      "--porcelain",
-      "-L",
-      `${startLine},${endLine}`,
-      "--",
-      path,
-    ],
-    {
-      allowFailure: true,
-      captureBytes: maxBytes,
-      ...(options.signal ? { signal: options.signal } : {}),
-    },
-  );
+  const blame = (end: number) =>
+    repository.cli.call(
+      root,
+      [
+        "-c",
+        "core.quotePath=false",
+        "blame",
+        "--porcelain",
+        "-L",
+        `${startLine},${end}`,
+        "--",
+        path,
+      ],
+      {
+        allowFailure: true,
+        captureBytes: maxBytes,
+        ...(options.signal ? { signal: options.signal } : {}),
+      },
+    );
+
+  let output = await blame(endLine);
+  // The range reaches past the file's end on disk (an unsaved buffer can be longer): blame the
+  // lines that exist instead of failing the whole range.
+  const fileLines = output.exitCode === 0 ? undefined : linesInFile(output.stderr);
+  if (fileLines !== undefined) {
+    if (fileLines < startLine) return { head, commits: [], lines: [], capped: false };
+    output = await blame(fileLines);
+  }
 
   if (output.exitCode !== 0) {
     const stderr = output.stderr.toLowerCase();
-    // Untracked file or requested range starts past the file's end: not a fatal error.
-    if (
-      stderr.includes("no such path") ||
-      stderr.includes("has only") ||
-      stderr.includes("outside repository")
-    ) {
+    // An untracked file or one outside the repository has no history: not an error.
+    if (stderr.includes("no such path") || stderr.includes("outside repository")) {
       return { head, commits: [], lines: [], capped: false };
     }
     throw new GitError("git_failed", output.stderr.trim() || "git blame failed");
@@ -213,6 +219,12 @@ export async function fileBlame(
     lines: parsed.lines,
     capped,
   };
+}
+
+/** The line count git names when a blame range starts or ends past the file's end. */
+function linesInFile(stderr: string): number | undefined {
+  const match = /has only (\d+) lines?/.exec(stderr);
+  return match ? Number(match[1]) : undefined;
 }
 
 /**

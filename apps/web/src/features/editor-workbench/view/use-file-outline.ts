@@ -13,13 +13,15 @@ interface CacheEntry {
 
 const emptySymbols: readonly OutlineSymbol[] = [];
 
-/**
- * Shared LRU cache of parsed outlines, keyed by buffer identity + document contentId + language.
- * Breadcrumbs, Outline, and Go to symbol read from the same cache so a file is parsed once per
- * settled edit, never once per consumer.
+/*
+ * One outline per buffer, shared by the breadcrumbs, the Outline view and Go to symbol, so a file
+ * is read once per settled edit, never once per consumer. Typing does not emit buffer events (a
+ * view's own edits are silent), so the view reports edits here through `noteBufferEdited`.
  */
 const cache = new Map<TextBuffer, CacheEntry>();
+const pending = new Map<TextBuffer, string>();
 const listeners = new Set<() => void>();
+const editListeners = new WeakMap<TextBuffer, Set<() => void>>();
 
 function notify(): void {
   for (const listener of listeners) listener();
@@ -40,15 +42,36 @@ function setCached(buffer: TextBuffer, key: string, symbols: readonly OutlineSym
   notify();
 }
 
+/** A view typed into `buffer`: outlines of it are read again once typing pauses. */
+export function noteBufferEdited(buffer: TextBuffer): void {
+  const heard = editListeners.get(buffer);
+  if (heard) for (const listener of heard) listener();
+}
+
+function onEdits(buffer: TextBuffer, listener: () => void): () => void {
+  let heard = editListeners.get(buffer);
+  if (!heard) {
+    heard = new Set();
+    editListeners.set(buffer, heard);
+  }
+  heard.add(listener);
+  return () => void heard.delete(listener);
+}
+
+function stampOf(buffer: TextBuffer, language: string | undefined): string | undefined {
+  const doc = buffer.document();
+  if (!doc) return undefined;
+  return `${doc.contentId()}\u0000${language ?? ""}`;
+}
+
 export interface FileOutlineState {
   symbols: readonly OutlineSymbol[];
-  loading: boolean;
 }
 
 /**
- * Computes and caches document symbols for `buffer` off the main thread in the editor worker.
- * Runs immediately when a file opens or switches, and waits for a typing pause (`debounceMs`)
- * after edits so big files never re-parse per keystroke.
+ * Document symbols for `buffer`, read off the main thread in the editor worker. The first read of
+ * a file runs at once; after an edit it waits for a typing pause (`debounceMs`), so a big file is
+ * never read per keystroke. A consumer re-renders only when a new outline lands.
  */
 export function useFileOutline(
   buffer: TextBuffer | undefined,
@@ -58,64 +81,55 @@ export function useFileOutline(
   const debounceMs = options?.debounceMs ?? outlineDebounceMs;
   const port = options?.port ?? outlinePort();
 
-  // Track buffer readiness & contentId changes without reading full text on every keystroke.
-  const stamp = useSyncExternalStore(
-    (changed) => (buffer ? buffer.subscribe(changed) : () => {}),
-    () => {
-      if (!buffer) return undefined;
-      const doc = buffer.document();
-      if (!doc) return undefined;
-      return `${buffer.key.root}:${buffer.key.path}:${doc.contentId()}:${languageOrPath ?? ""}`;
-    },
-  );
-
   const cached = useSyncExternalStore(subscribeCache, () =>
     buffer ? cache.get(buffer) : undefined,
   );
 
   useEffect(() => {
-    if (!buffer || !stamp) return;
-    const existing = cache.get(buffer);
-    if (existing?.key === stamp) return;
+    if (!buffer) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let disposed = false;
 
-    let cancelled = false;
-    // First parse for a newly opened file runs right away; edits wait for a typing pause.
-    const delay = existing ? debounceMs : 0;
-
-    const run = () => {
+    const read = () => {
+      timer = undefined;
       const doc = buffer.document();
-      if (cancelled || !doc) return;
-      const liveStamp = `${buffer.key.root}:${buffer.key.path}:${doc.contentId()}:${languageOrPath ?? ""}`;
-      if (liveStamp !== stamp) return;
-      const text = doc.text();
-      void port.extract(text, languageOrPath).then(
+      const stamp = stampOf(buffer, languageOrPath);
+      if (disposed || !doc || !stamp) return;
+      if (cache.get(buffer)?.key === stamp || pending.get(buffer) === stamp) return;
+      pending.set(buffer, stamp);
+      void port.extract(doc.text(), languageOrPath).then(
         (symbols) => {
-          if (cancelled) return;
+          if (pending.get(buffer) === stamp) pending.delete(buffer);
+          // A newer edit already superseded this read: its own read will land.
+          if (stampOf(buffer, languageOrPath) !== stamp && cache.has(buffer)) return;
           setCached(buffer, stamp, symbols);
         },
         () => {
-          // On unexpected failure, keep last known symbols rather than clearing the Outline.
+          // Keep the last outline rather than clearing it on an unexpected failure.
+          if (pending.get(buffer) === stamp) pending.delete(buffer);
         },
       );
     };
 
-    if (delay === 0) {
-      run();
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const timer = setTimeout(run, delay);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
+    const changed = () => {
+      const stamp = stampOf(buffer, languageOrPath);
+      if (!stamp || cache.get(buffer)?.key === stamp) return;
+      if (timer !== undefined) clearTimeout(timer);
+      // A file with no outline yet is read now; an edited one waits for the typing pause.
+      if (!cache.has(buffer)) read();
+      else timer = setTimeout(read, debounceMs);
     };
-  }, [buffer, stamp, languageOrPath, port, debounceMs]);
 
-  if (!buffer || !stamp) return { symbols: emptySymbols, loading: false };
-  return {
-    symbols: cached?.symbols ?? emptySymbols,
-    loading: cached?.key !== stamp,
-  };
+    changed();
+    const offBuffer = buffer.subscribe(changed);
+    const offEdits = onEdits(buffer, changed);
+    return () => {
+      disposed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      offBuffer();
+      offEdits();
+    };
+  }, [buffer, languageOrPath, port, debounceMs]);
+
+  return { symbols: buffer ? (cached?.symbols ?? emptySymbols) : emptySymbols };
 }

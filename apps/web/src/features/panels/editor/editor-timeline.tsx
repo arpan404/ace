@@ -1,4 +1,4 @@
-import { useClient } from "@ace/client-react";
+import { useClient, useThreadMeta } from "@ace/client-react";
 import { CaretDownIcon, CaretRightIcon, CheckIcon, CopyIcon, GitCommitIcon } from "@ace/icons";
 import type { GitLogEntry } from "@ace/protocol";
 import { useEffect, useState } from "react";
@@ -40,7 +40,9 @@ export function EditorTimeline(props: {
 }) {
   const { threadId, path, open, onOpenChange, activeCommitSha, onOpenCommit } = props;
   const client = useClient();
-  const requestKey = open && path !== undefined ? `${threadId}:${path}` : undefined;
+  // A new commit moves HEAD: the history is read again.
+  const head = useThreadMeta(threadId)?.details?.head ?? "";
+  const requestKey = open && path !== undefined ? `${threadId}:${path}:${head}` : undefined;
   const [data, setData] = useState<TimelineData | undefined>(undefined);
   const [copiedSha, setCopiedSha] = useState<string | undefined>(undefined);
 
@@ -64,7 +66,7 @@ export function EditorTimeline(props: {
           loadingMore: false,
         });
       },
-      (err: unknown) => {
+      () => {
         if (controller.signal.aborted) return;
         setData({
           key: requestKey,
@@ -72,7 +74,7 @@ export function EditorTimeline(props: {
           hasMore: false,
           nextSkip: 0,
           capped: false,
-          error: err instanceof Error ? err.message : "Couldn't load file history.",
+          error: "Couldn't read this file's history.",
           loadingMore: false,
         });
       },
@@ -109,12 +111,12 @@ export function EditorTimeline(props: {
             : prev,
         );
       },
-      (err: unknown) => {
+      () => {
         setData((prev) =>
           prev && prev.key === requestKey
             ? {
                 ...prev,
-                error: err instanceof Error ? err.message : "Couldn't load more commits.",
+                error: "Couldn't read older commits.",
                 loadingMore: false,
               }
             : prev,
@@ -256,9 +258,9 @@ export function EditorTimeline(props: {
                   );
                 })}
               </ul>
-              {active.capped && (
+              {active.capped && !active.hasMore && (
                 <p className="px-3 pt-1 text-[11px] text-subtle-foreground">
-                  History output reached the page limit.
+                  Older commits are too long to list here.
                 </p>
               )}
               {active.hasMore && (

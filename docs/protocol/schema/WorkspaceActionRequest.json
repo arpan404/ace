@@ -1076,6 +1076,9 @@
         },
         {
           "properties": {
+            "commit": {
+              "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+            },
             "expected": {
               "maxLength": 128,
               "minLength": 1,
@@ -1105,6 +1108,71 @@
             "threadId"
           ],
           "type": "object"
+        },
+        {
+          "properties": {
+            "limit": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "git.log",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+            },
+            "skip": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "endLine": {
+              "exclusiveMinimum": 0,
+              "maximum": 10000000,
+              "type": "integer"
+            },
+            "op": {
+              "const": "git.blame",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+            },
+            "startLine": {
+              "exclusiveMinimum": 0,
+              "maximum": 10000000,
+              "type": "integer"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "path",
+            "startLine",
+            "endLine"
+          ],
+          "type": "object",
+          "x-ace-constraint": "endLine >= startLine and endLine - startLine + 1 <= 500."
         },
         {
           "$ref": "https://ace.local/protocol/v1/GitConflictsOperation.json"

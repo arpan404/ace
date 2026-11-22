@@ -447,6 +447,93 @@
           "type": "object"
         },
         {
+          "properties": {
+            "capped": {
+              "type": "boolean"
+            },
+            "entries": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitLogEntry.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "hasMore": {
+              "type": "boolean"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "gitLog",
+              "type": "string"
+            },
+            "nextSkip": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "entries",
+            "hasMore",
+            "capped",
+            "head"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capped": {
+              "type": "boolean"
+            },
+            "commits": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitBlameCommit.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "gitBlame",
+              "type": "string"
+            },
+            "lines": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/GitBlameLine.json"
+              },
+              "maxItems": 500,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "head",
+            "commits",
+            "lines",
+            "capped"
+          ],
+          "type": "object"
+        },
+        {
           "$ref": "https://ace.local/protocol/v1/GitConflictsResult.json"
         },
         {

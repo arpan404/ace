@@ -104,11 +104,7 @@ import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
-import {
-  EditorBlameHostContext,
-  useEditorBlameHost,
-  useInlineBlame,
-} from "./use-inline-blame.tsx";
+import { EditorBlameHostContext, useEditorBlameHost, useInlineBlame } from "./use-inline-blame.tsx";
 import { useChangeGutter } from "./use-change-gutter.tsx";
 import { useTurnReview } from "./use-turn-review.tsx";
 import { ReviewIdle } from "./hunk-peek.tsx";
@@ -487,10 +483,7 @@ export function EditorPanel(props: TabViewProps) {
     },
     [setCommitDiff],
   );
-  const blameHost = useMemo(
-    () => ({ statusStore, openCommitDiff }),
-    [statusStore, openCommitDiff],
-  );
+  const blameHost = useMemo(() => ({ statusStore, openCommitDiff }), [statusStore, openCommitDiff]);
   const activeCommitSha =
     commitDiff && commitDiff.group === focused.id && commitDiff.activePath === focused.active
       ? commitDiff.target.sha
@@ -574,52 +567,52 @@ export function EditorPanel(props: TabViewProps) {
             <EditorBlameHostContext value={blameHost}>
               <EditorPanelContext value={saving}>
                 <Editor
-                layout={layout}
-                onLayoutChange={change}
-                newGroupId={groupIds(layout)}
-                buffers={buffers}
-                statusNotice={notice}
-                onConfirmClose={(refs) => void confirmClose(host, refs)}
-                renderCompare={renderCompare}
-                onQuickOpen={() => quickOpen.set(() => threadId)}
-                onRevealSymbol={(group, path, symbol) => {
-                  setCommitDiff(undefined);
-                  revealSymbol(group, path, symbol);
-                }}
-                renderOverlay={
-                  commitDiff
-                    ? (group, path) =>
-                        commitDiff.group === group && commitDiff.activePath === path ? (
-                          <Suspense fallback={null}>
-                            <EditorCommitCompare
-                              threadId={threadId}
-                              target={commitDiff.target}
-                              onClose={() => setCommitDiff(undefined)}
-                            />
-                          </Suspense>
-                        ) : null
-                    : undefined
-                }
-                statusStore={statusStore}
-                renderEditor={editorFor(threadId)}
-                renderViewer={viewerFor(threadId)}
-                tabMenuItems={menuFor(threadId)}
-                threadId={threadId}
-                onNeedRoom={onNeedRoom}
-                paneCap={paneCap}
-                room={editorRoom}
-                explorerToggle={
-                  !explorerShown && (
-                    <IconButton
-                      label="Show files"
-                      shortcut="editor.explorer"
-                      size="sm"
-                      icon={SidebarSimpleIcon}
-                      onClick={() => setExplorer({ open: true })}
-                    />
-                  )
-                }
-              />
+                  layout={layout}
+                  onLayoutChange={change}
+                  newGroupId={groupIds(layout)}
+                  buffers={buffers}
+                  statusNotice={notice}
+                  onConfirmClose={(refs) => void confirmClose(host, refs)}
+                  renderCompare={renderCompare}
+                  onQuickOpen={() => quickOpen.set(() => threadId)}
+                  onRevealSymbol={(group, path, symbol) => {
+                    setCommitDiff(undefined);
+                    revealSymbol(group, path, symbol);
+                  }}
+                  renderOverlay={
+                    commitDiff
+                      ? (group, path) =>
+                          commitDiff.group === group && commitDiff.activePath === path ? (
+                            <Suspense fallback={null}>
+                              <EditorCommitCompare
+                                threadId={threadId}
+                                target={commitDiff.target}
+                                onClose={() => setCommitDiff(undefined)}
+                              />
+                            </Suspense>
+                          ) : null
+                      : undefined
+                  }
+                  statusStore={statusStore}
+                  renderEditor={editorFor(threadId)}
+                  renderViewer={viewerFor(threadId)}
+                  tabMenuItems={menuFor(threadId)}
+                  threadId={threadId}
+                  onNeedRoom={onNeedRoom}
+                  paneCap={paneCap}
+                  room={editorRoom}
+                  explorerToggle={
+                    !explorerShown && (
+                      <IconButton
+                        label="Show files"
+                        shortcut="editor.explorer"
+                        size="sm"
+                        icon={SidebarSimpleIcon}
+                        onClick={() => setExplorer({ open: true })}
+                      />
+                    )
+                  }
+                />
               </EditorPanelContext>
             </EditorBlameHostContext>
             {recent !== undefined && recentTabs.length > 0 && (

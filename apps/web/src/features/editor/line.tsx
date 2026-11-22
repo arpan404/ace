@@ -150,6 +150,7 @@ export const EditorLine = memo(function EditorLine(props: {
       </span>
       {props.endNote && props.lastRow !== false ? (
         <span
+          role="presentation"
           data-part="caret-annotation"
           onPointerDown={(event) => event.stopPropagation()}
           onMouseDown={(event) => event.stopPropagation()}

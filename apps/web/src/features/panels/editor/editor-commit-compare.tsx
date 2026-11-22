@@ -21,7 +21,7 @@ interface CommitDiffState {
   truncated: boolean;
   nextOffset: number | undefined;
   validator: string | undefined;
-  error: string | undefined;
+  failed: boolean;
   loadingMore: boolean;
 }
 
@@ -60,11 +60,11 @@ export function EditorCommitCompare(props: {
           truncated: result.truncated,
           nextOffset: result.nextOffset,
           validator: result.validator,
-          error: undefined,
+          failed: false,
           loadingMore: false,
         });
       },
-      (err: unknown) => {
+      () => {
         if (controller.signal.aborted) return;
         setState({
           key: requestKey,
@@ -72,7 +72,7 @@ export function EditorCommitCompare(props: {
           truncated: false,
           nextOffset: undefined,
           validator: undefined,
-          error: err instanceof Error ? err.message : "Could not load commit diff.",
+          failed: true,
           loadingMore: false,
         });
       },
@@ -108,12 +108,12 @@ export function EditorCommitCompare(props: {
             : prev,
         );
       },
-      (err: unknown) => {
+      () => {
         setState((prev) =>
           prev && prev.key === requestKey
             ? {
                 ...prev,
-                error: err instanceof Error ? err.message : "Could not load more diff.",
+                failed: true,
                 loadingMore: false,
               }
             : prev,
@@ -218,12 +218,11 @@ export function EditorCommitCompare(props: {
           aria-busy="true"
         >
           <Spinner />
-          Loading commit diff…
+          Reading changes…
         </div>
-      ) : active.error ? (
+      ) : active.failed ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-xs text-muted-foreground">
-          <p>Couldn&apos;t load changes for {target.shortSha}.</p>
-          <p className="text-subtle-foreground">{active.error}</p>
+          <p>Couldn&apos;t read the changes in {target.shortSha}.</p>
         </div>
       ) : diff ? (
         <>
@@ -238,7 +237,7 @@ export function EditorCommitCompare(props: {
           />
           {active.truncated && (
             <div className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-subtle-foreground">
-              <span>Diff output was truncated.</span>
+              <span>This change is long; the rest is not shown yet.</span>
               {active.nextOffset !== undefined && (
                 <Button
                   size="sm"

@@ -11,12 +11,15 @@ import { Breadcrumbs } from "@/features/editor-workbench/view/breadcrumbs.tsx";
 import { EditorOutline } from "./editor-outline.tsx";
 import { GoToSymbolDialog } from "./go-to-symbol.tsx";
 import { editorKeys } from "./editor-keys.ts";
+import { noteBufferEdited } from "@/features/editor-workbench/view/use-file-outline.ts";
 
 afterEach(cleanup);
 
-function fakeBuffer(path: string, text: string): TextBuffer {
+function fakeBuffer(path: string, initial: string): TextBuffer & { type(next: string): void } {
+  let text = initial;
+  let content = 1;
   const doc = {
-    contentId: () => 1,
+    contentId: () => content,
     text: () => text,
   };
   return {
@@ -47,6 +50,10 @@ function fakeBuffer(path: string, text: string): TextBuffer {
     discard: async () => {},
     saveStamp: () => undefined,
     reload: async () => {},
+    type(next: string) {
+      text = next;
+      content++;
+    },
   };
 }
 
@@ -156,6 +163,36 @@ describe("EditorOutline", () => {
     });
     expect(screen.getByRole("button", { name: /activateTab/ })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /alphaHelper/ })).toBeNull();
+  });
+});
+
+describe("EditorOutline while typing", () => {
+  test("shows a newly typed symbol once typing pauses, not on each keystroke", async () => {
+    const buffer = fakeBuffer("src/typing.ts", "export function first() {}\n");
+    const status = createStatusStore();
+    status.report("g1", reportAt(1));
+    render(
+      <EditorOutline
+        path="src/typing.ts"
+        buffer={buffer}
+        focusedGroupId="g1"
+        statusStore={status}
+        open
+        onOpenChange={() => {}}
+        sort="position"
+        onSortChange={() => {}}
+        onReveal={() => {}}
+      />,
+    );
+    await screen.findByRole("button", { name: /first/ });
+
+    for (const name of ["s", "se", "second"]) {
+      buffer.type(`export function first() {}\nexport function ${name}() {}\n`);
+      act(() => noteBufferEdited(buffer));
+    }
+    // Mid-typing the outline still shows the last settled read.
+    expect(screen.queryByRole("button", { name: /second/ })).toBeNull();
+    expect(await screen.findByRole("button", { name: /second/ })).toBeTruthy();
   });
 });
 

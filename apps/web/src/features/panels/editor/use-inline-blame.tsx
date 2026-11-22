@@ -8,6 +8,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -157,6 +158,17 @@ export function useInlineBlame(input: {
     return entry ? `${entry.fetchedChunks.size}:${entry.lines.size}` : "";
   });
 
+  // One abort scope per file version: scrolling never cancels a read still on screen, while a
+  // save, a new HEAD, another file or turning blame off drops what is in flight.
+  const scope = useRef<{ key: string; controller: AbortController } | undefined>(undefined);
+  useEffect(
+    () => () => {
+      scope.current?.controller.abort();
+      scope.current = undefined;
+    },
+    [enabled, cacheKey],
+  );
+
   useEffect(() => {
     if (!enabled || !visible) return;
     const entry = getOrCreateCache(cacheKey);
@@ -167,68 +179,64 @@ export function useInlineBlame(input: {
       visible.lineCount,
     ).filter((chunk) => !entry.inflightChunks.has(chunk.index));
     if (missing.length === 0) return;
-
-    const controller = new AbortController();
+    if (scope.current?.key !== cacheKey) {
+      scope.current?.controller.abort();
+      scope.current = { key: cacheKey, controller: new AbortController() };
+    }
+    const { signal } = scope.current.controller;
     for (const chunk of missing) {
       entry.inflightChunks.add(chunk.index);
-      void readGitBlame(
-        client,
-        threadId,
-        path,
-        chunk.startLine,
-        chunk.endLine,
-        controller.signal,
-      ).then(
+      const settle = () => {
+        entry.inflightChunks.delete(chunk.index);
+        if (signal.aborted) return false;
+        // A failed read is not asked again for this file version: no request storm on scroll.
+        entry.fetchedChunks.add(chunk.index);
+        return true;
+      };
+      void readGitBlame(client, threadId, path, chunk.startLine, chunk.endLine, signal).then(
         (result) => {
-          entry.inflightChunks.delete(chunk.index);
-          if (controller.signal.aborted) return;
+          if (!settle()) return;
           for (const commit of result.commits) entry.commits.set(commit.sha, commit);
           for (const item of result.lines) entry.lines.set(item.line, item.sha);
-          entry.fetchedChunks.add(chunk.index);
           notifyCache();
         },
         () => {
-          entry.inflightChunks.delete(chunk.index);
+          if (settle()) notifyCache();
         },
       );
     }
-    return () => {
-      controller.abort();
-      for (const chunk of missing) entry.inflightChunks.delete(chunk.index);
-    };
   }, [enabled, client, threadId, path, cacheKey, visible]);
 
   const [now] = useState(() => (input.now ?? Date.now)());
 
-  const attribution = useMemo<BlameAttribution | undefined>(() => {
-    if (!enabled || caretLine === undefined) return undefined;
-    // Reading `cacheTick` ensures we recompute when visible blame chunks arrive.
-    void cacheTick;
-    const entry = blameCache.get(cacheKey);
-    const lineSha = entry?.lines.get(caretLine);
-    return resolveCaretBlame({
-      caretLine,
-      agentBlocks,
-      marks,
-      lineSha,
-      commits: entry?.commits ?? emptyCommits,
-      now,
-    });
-  }, [enabled, caretLine, cacheTick, cacheKey, agentBlocks, marks, now]);
+  // Recomputed when the caret moves or a chunk lands (`cacheTick`); it is a few map reads.
+  const entry = cacheTick === "" ? undefined : blameCache.get(cacheKey);
+  const attribution: BlameAttribution | undefined =
+    enabled && caretLine !== undefined
+      ? resolveCaretBlame({
+          caretLine,
+          agentBlocks,
+          marks,
+          lineSha: entry?.lines.get(caretLine),
+          commits: entry?.commits ?? emptyCommits,
+          now,
+        })
+      : undefined;
 
+  const label = attribution?.label;
+  const kind = attribution?.kind;
+  const sha = attribution?.kind === "commit" ? attribution.commit.sha : undefined;
+  // Keyed on what the badge shows, so the caret line's row redraws only when its words change.
   const caretAnnotation = useMemo(() => {
-    if (!enabled || caretLine === undefined || !attribution) return undefined;
+    if (caretLine === undefined || !attribution) return undefined;
     return {
       line: caretLine,
       content: (
-        <InlineBlameBadge
-          path={path}
-          attribution={attribution}
-          onOpenCommit={onOpenCommit}
-        />
+        <InlineBlameBadge path={path} attribution={attribution} onOpenCommit={onOpenCommit} />
       ),
     };
-  }, [enabled, caretLine, attribution, path, onOpenCommit]);
+    // oxlint-disable-next-line react/exhaustive-deps -- `attribution` is rebuilt each render; its words are the identity.
+  }, [caretLine, label, kind, sha, path, onOpenCommit]);
 
   return { onVisibleRange, caretAnnotation };
 }

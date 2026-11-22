@@ -44,7 +44,7 @@ function makeFakeBuffer(path: string, initialVersion = "v1") {
     }),
     baseText: () => "",
     subscribe: (listener) => {
-      const wrap = () => listener({ kind: "saved", version });
+      const wrap = () => listener({ type: "state" });
       listeners.add(wrap);
       return () => void listeners.delete(wrap);
     },
@@ -162,7 +162,6 @@ describe("Inline git blame", () => {
   test("shows committed, uncommitted, and agent lines on the caret line, caches across keystrokes, and recomputes on save or HEAD change", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitBlame(threadId, "src/app.ts", {
-      head: headSha,
       commits: [
         {
           sha: headSha,

@@ -211,6 +211,18 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
   });
   expect(pastEof).toEqual({ head, commits: [], lines: [], capped: false });
 
+  // A range that runs past the end (an unsaved buffer can be longer) blames the lines that exist
+  const overEnd = await service.fileBlame({
+    worktree: repo,
+    path: "safe.ts",
+    startLine: 1,
+    endLine: 120,
+  });
+  expect(overEnd.lines).toEqual([
+    { line: 1, sha: head },
+    { line: 2, sha: head },
+  ]);
+
   // Non-repository folder fails with typed not_a_repo error
   const plain = await scratch();
   await put(plain, "notes.txt", "hello\n");
