@@ -1,12 +1,19 @@
 import SwiftUI
 
-/// Task: what the bot is for, in the person's words; it opens to edit.
+/// Task: what the bot is for, in the person's words; it opens to edit. A bot from a package
+/// says which one above it (`SpadeProfilePackage`), and its earlier versions fold under it. A
+/// packaged bot's declared effects follow as its Security section.
 struct SpadeProfileTask<Editor: View>: View {
     let task: String
     @ViewBuilder let edit: (String) -> Editor
+    @Environment(\.spadeProfileScope) private var scope
+    @State private var package: SpadePackageLine?
 
     var body: some View {
         Section("Task") {
+            if let scope, let package {
+                SpadeProfilePackage(scope: scope, line: package, changed: readPackage)
+            }
             NavigationLink { edit(task) } label: {
                 Text(task.isEmpty ? "What this bot is for, in your words" : task)
                     .aceFont(AceDesign.TextRole.message)
@@ -14,7 +21,20 @@ struct SpadeProfileTask<Editor: View>: View {
                     .lineLimit(8)
             }
             .accessibilityIdentifier("spade.profile.task")
+            if let scope { SpadeTaskHistory(scope: scope, task: task) }
         }
+        .task(id: scope?.agent) { await readPackage() }
+        if let scope, let effects = package?.effects, !effects.isEmpty {
+            SpadeProfileEffects(scope: scope, effects: effects, changed: readPackage)
+        }
+    }
+
+    /// The package line and its effects, read as the profile opens and after anything that
+    /// changes them; a read that failed keeps what showed.
+    private func readPackage() async {
+        guard let scope else { return }
+        let answer = await scope.client.spadePackage(scope.agent)
+        if answer.ok { package = answer.package }
     }
 }
 

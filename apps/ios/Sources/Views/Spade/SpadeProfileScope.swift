@@ -9,6 +9,8 @@ struct SpadeProfileScope {
     let agent: String
     /// The bot's name, for the words the sections say.
     let name: String
+    /// The machine it runs on, where a Marketplace review says it installs.
+    let machine: String
 }
 
 extension EnvironmentValues {
