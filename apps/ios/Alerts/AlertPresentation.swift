@@ -30,6 +30,7 @@ extension AlertContent {
     func fill(_ content: UNMutableNotificationContent) {
         content.title = title
         content.body = body
+        if let space { content.subtitle = space }
         content.threadIdentifier = threadIdentifier
         if !threadId.isEmpty { content.targetContentIdentifier = threadId }
         content.categoryIdentifier = category

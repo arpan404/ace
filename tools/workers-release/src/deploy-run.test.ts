@@ -257,24 +257,9 @@ describe("a Worker release", () => {
 
   it("refuses an environment whose database ids are still placeholders", async () => {
     const worker = new FakeWorker(old);
-    const databases = [
-      { binding: "ACCOUNTS", database_id: "REPLACE-WITH-ace-accounts-staging-ID" },
-    ];
+    const databases = [{ binding: "ACCOUNTS", database_id: "REPLACE-WITH-ace-accounts-ID" }];
     const result = await runDeploy(input({ databases }), deps(worker, new Set(["new-1"])));
     expect(result.code).toBe(exitCodes.unchanged);
     expect(worker.liveId).toBe("old");
-  });
-
-  it("holds production until staging runs the same release", async () => {
-    const worker = new FakeWorker(old);
-    const staging = new FakeWorker(old);
-    const waiting = await runDeploy(input(), deps(worker, new Set(["new-1"]), { staging }));
-    expect(waiting.code).toBe(exitCodes.unchanged);
-    expect(worker.liveId).toBe("old");
-
-    await staging.deploy(release);
-    const going = await runDeploy(input(), deps(worker, new Set(["new-1"]), { staging }));
-    expect(going.code).toBe(exitCodes.deployed);
-    expect(worker.liveId).toBe("new-1");
   });
 });

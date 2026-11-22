@@ -6,10 +6,17 @@ import {
   groupsOf,
   keepTab,
   activateTab,
+  splitSide,
   type EditorLayout,
+  type Room,
   type TabRef,
 } from "@ace/ui-core/editor-workbench";
-import type { EditorBuffers } from "@/features/editor-workbench/index.ts";
+import {
+  shownVersion,
+  type EditorBuffers,
+  type SaveStamp,
+  type TextBuffer,
+} from "@/features/editor-workbench/index.ts";
 import { groupIds, openPaths } from "./editor-layout.ts";
 import { askReplace, askUnsaved } from "./unsaved-prompt.tsx";
 
@@ -32,9 +39,17 @@ export interface EditorActionsHost {
   problem(problem: SaveProblem | "offline"): void;
   /** The person saved `path` (auto save resumes for a file it had stopped on). */
   saved?(path: string): void;
+  /**
+   * Files the person saved while offline, each with the buffer and what it held at that Save:
+   * saved once the daemon is back only while it holds exactly that.
+   */
+  queued?: Map<string, { buffer: TextBuffer; stamp: SaveStamp | undefined }>;
 }
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
+
+/** How many times Save asks again while the disk keeps moving under the question. */
+const replaceAsks = 5;
 
 /** Paths of the layout with unsaved edits now. */
 export function unsavedOf(host: EditorActionsHost): Set<string> {
@@ -46,6 +61,7 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
   const buffer = host.buffers.buffer(path);
   if (!buffer) return true;
   if (!host.online()) {
+    host.queued?.set(path, { buffer, stamp: buffer.saveStamp() });
     host.problem("offline");
     return false;
   }
@@ -56,17 +72,63 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
     return true;
   }
   if (outcome.kind === "clash") {
-    const clash = buffer.snapshot().clash;
-    const who = clash ? host.buffers.changer(clash.by)?.name : undefined;
-    const answer = await askReplace(path, who);
-    if (answer === "replace") return (await buffer.replace()).kind === "saved";
-    if (answer === "merge") await buffer.merge();
+    // Each answer is bound to the disk version it was asked about: when the agent writes again
+    // while the question is open, Replace writes nothing and the newer change is asked about.
+    for (let asked = 0; asked < replaceAsks; asked++) {
+      const clash = buffer.snapshot().clash;
+      if (!clash) return false;
+      const who = host.buffers.changer(clash.by)?.name;
+      const shown = shownVersion(clash);
+      const answer = await askReplace(path, who);
+      if (answer === "merge") await buffer.merge();
+      if (answer !== "replace") return false;
+      const replaced = await buffer.replace(shown);
+      if (replaced.kind === "saved") {
+        host.problem(undefined);
+        host.saved?.(path);
+        return true;
+      }
+      if (replaced.kind !== "clash") {
+        if (replaced.kind === "failed") host.problem({ path, message: replaced.message });
+        return false;
+      }
+    }
     return false;
   }
   if (outcome.kind === "unanswered")
     host.problem({ path, message: `Answer each conflicting block in ${fileName(path)} first.` });
   if (outcome.kind === "failed") host.problem({ path, message: outcome.message });
   return false;
+}
+
+/**
+ * The daemon is back: saves the files the person saved while it was away, and only those: an
+ * unsaved file they didn't save (a Revert waiting for its own Save) stays unsaved.
+ */
+export async function saveQueued(host: EditorActionsHost): Promise<void> {
+  const queued = [...(host.queued ?? [])];
+  host.queued?.clear();
+  for (const [path, asked] of queued) {
+    const buffer = host.buffers.buffer(path);
+    const now = buffer?.saveStamp();
+    const same =
+      buffer === asked.buffer &&
+      now !== undefined &&
+      asked.stamp !== undefined &&
+      now.document === asked.stamp.document &&
+      now.contentId === asked.stamp.contentId &&
+      now.reverts === asked.stamp.reverts;
+    // Changed since that Save (typing, a Revert, a reload): it saved other text. Nothing is
+    // written; the file waits for a fresh Save.
+    if (!same) {
+      host.problem({
+        path,
+        message: `${fileName(path)} changed after you saved it offline. Save again.`,
+      });
+      continue;
+    }
+    await saveFile(host, path);
+  }
 }
 
 /** Save every unsaved open file. */
@@ -114,14 +176,23 @@ export function allTabs(layout: EditorLayout): TabRef[] {
   );
 }
 
-/** A second view of the focused editor beside (or under) it. */
-export function splitFocused(layout: EditorLayout, side: "right" | "down"): EditorLayout {
+/**
+ * A second view of the focused editor beside (or under) it, by the same rules as the strip's
+ * Split right: a pane that couldn't sit beside goes below (`splitSide` in `room`), and at `cap`
+ * panes nothing is made.
+ */
+export function splitFocused(
+  layout: EditorLayout,
+  side: "right" | "down",
+  room: Room,
+  cap: number,
+): EditorLayout {
   const group = focusedGroup(layout);
-  if (group.active === undefined) return layout;
+  if (group.active === undefined || groupsOf(layout).length >= cap) return layout;
   return copyTab(
     layout,
     { group: group.id, path: group.active },
-    { kind: "side", group: group.id, side },
+    { kind: "side", group: group.id, side: splitSide(layout, group.id, side, room) },
     groupIds(layout),
   );
 }

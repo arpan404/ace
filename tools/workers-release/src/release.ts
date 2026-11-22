@@ -5,7 +5,7 @@ import { z } from "zod";
  * this release is in, what to do out. The shell in deploy-run.ts asks Cloudflare and acts.
  */
 
-export const environments = ["staging", "production"] as const;
+export const environments = ["production"] as const;
 export type Environment = (typeof environments)[number];
 
 /**
@@ -87,12 +87,6 @@ export function decideStart(live: Live, release: Release): StartDecision {
         reason: `traffic is split between ${live.versionIds.join(" and ")}; finish or roll back that deployment first`,
       };
   }
-}
-
-/** Production waits for staging to run this release (unless told otherwise). */
-export function stagingGate(staging: Live, release: Release): string | undefined {
-  if (staging.kind === "single" && isRelease(staging.version, release)) return undefined;
-  return `staging isn't running ${release.tag} (${release.commit.slice(0, 12)}); deploy staging first`;
 }
 
 export type AfterDeploy =

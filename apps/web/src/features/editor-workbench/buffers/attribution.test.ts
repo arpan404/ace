@@ -41,6 +41,11 @@ describe("who changed a file on disk", () => {
       [call({ threadId: "fix", threadTitle: "Fix relay loop", at: 97_000 }), call({})],
       here,
     ],
+    [
+      "this thread's agent is named with the turn that made the call",
+      [call({ turn: 2 })],
+      { ...here, turn: 2 },
+    ],
     ["an absolute path inside the checkout matches", [call({ path: "/repo/src/store.ts" })], here],
     ["a ./ prefix and doubled slashes match", [call({ path: "./src//store.ts" })], here],
     [

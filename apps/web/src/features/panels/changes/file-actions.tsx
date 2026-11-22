@@ -4,6 +4,7 @@ import {
   CheckSquareIcon,
   CopyIcon,
   DotsThreeIcon,
+  NotePencilIcon,
   SquareIcon,
 } from "@ace/icons";
 import { Icon } from "@/components/icon.tsx";
@@ -13,6 +14,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
 import { EditorIcon } from "@/components/editor-icon.tsx";
 import { useOpenInEditor } from "@/lib/open-in-editor.ts";
+import { useReviewInEditor } from "@/lib/workspace/index.ts";
 
 /**
  * The end of a file's header: Viewed (folds the file and remembers this version of its diff as
@@ -22,6 +24,8 @@ import { useOpenInEditor } from "@/lib/open-in-editor.ts";
 export function FileActions(props: {
   threadId: string;
   path: string;
+  /** The turn the diff shows, for Review in editor; unset on the uncommitted scope. */
+  turn?: string | undefined;
   /** Absent where a scope has no review (uncommitted changes): no Viewed toggle. */
   viewed?: boolean | undefined;
   open: boolean;
@@ -49,6 +53,9 @@ export function FileActions(props: {
           }
         />
         <MenuContent align="end">
+          {props.turn !== undefined && (
+            <ReviewInEditorItem threadId={props.threadId} path={props.path} turn={props.turn} />
+          )}
           <OpenInEditorItem threadId={props.threadId} path={props.path} />
           <MenuItem icon={<CopyIcon aria-hidden size={16} />} onClick={copy}>
             Copy path
@@ -85,6 +92,19 @@ function ViewedToggle(props: { viewed: boolean; onViewed(viewed: boolean): void 
       <Icon icon={props.viewed ? CheckSquareIcon : SquareIcon} size={14} active={props.viewed} />
       Viewed
     </button>
+  );
+}
+
+/** The turn's hunks of this file, inline in ace's editor to keep, revert or comment on. */
+function ReviewInEditorItem(props: { threadId: string; path: string; turn: string }) {
+  const review = useReviewInEditor(props.threadId);
+  return (
+    <MenuItem
+      icon={<NotePencilIcon aria-hidden size={16} />}
+      onClick={() => review(props.path, props.turn)}
+    >
+      Review in editor
+    </MenuItem>
   );
 }
 

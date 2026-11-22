@@ -34,8 +34,11 @@ export interface FilePort {
   write(key: BufferKey, text: string, expected: string | null): Promise<WriteResult>;
 }
 
-/** Unsaved text kept on the device, with the version and text it started from. */
-export type Draft = Omit<MigratedDraft, "path">;
+/**
+ * Unsaved text kept on the device, with the version and text it started from, and whether a
+ * Revert in it waits for the person's own Save (so a reload never lets auto save write it).
+ */
+export type Draft = Omit<MigratedDraft, "path"> & { manualSave?: boolean | undefined };
 
 /**
  * Device storage for drafts (IndexedDB in the app). A failed write rejects. Puts and deletes
@@ -93,7 +96,14 @@ export type Clash =
       chunks: readonly MergeChunk[];
       /** One per conflicting block, in order; undefined until answered. */
       answers: readonly (Answer | undefined)[];
+      /** Every block is answered and the result is landing: choices wait until it has. */
+      applying?: true | undefined;
     };
+
+/** The disk version a clash shows the person: what a Replace of it is confirmed against. */
+export function shownVersion(clash: Clash): string | null {
+  return clash.kind === "deleted" ? null : clash.theirs.version;
+}
 
 /** What a view reads to draw a buffer's state. */
 export interface BufferSnapshot {
@@ -104,6 +114,11 @@ export interface BufferSnapshot {
   /** False when the draft could not be stored on the device (storage full or unavailable). */
   draftKept: boolean;
   saving: boolean;
+  /**
+   * A Revert landed: only the person's own Save writes the file now (auto save leaves it), until
+   * they save or the text is read again.
+   */
+  manualSave: boolean;
   /** The disk version the buffer is based on. */
   version: string | undefined;
 }
@@ -115,7 +130,13 @@ export type BufferEvent =
    * The registry replaced text in the document (a reload, a merge or a resolved conflict): a view
    * re-reads its rows and colours. Never sent for the view's own edits.
    */
-  | { type: "replaced"; reason: "reload" | "merge" }
+  | {
+      type: "replaced";
+      reason: "reload" | "merge";
+      /** The document's text just before, and the whole-line changes that turned it into now. */
+      before: string;
+      changes: readonly LineChange[];
+    }
   /** The document was created or freed. */
   | { type: "document" };
 
@@ -129,6 +150,8 @@ export type SaveOutcome =
   | { kind: "unanswered" }
   /** No text to save yet (loading, freed, unreadable). */
   | { kind: "unavailable" }
+  /** An auto save of a file a Revert changed: only the person's own Save writes it. */
+  | { kind: "manual" }
   | { kind: "failed"; message: string };
 
 /** A mounted view's edit path: runs `run` on the document the way the view's own edits run. */
@@ -164,12 +187,25 @@ export interface TextBuffer {
   edited(): void;
   /**
    * Lands whole-line changes the person asked for (a hunk revert) as one undoable edit through a
-   * mounted view, leaving the buffer unsaved. False when there is no document.
+   * mounted view, leaving the buffer unsaved. With `manualSave`, the file waits for the person's
+   * own Save: it is marked before the edit runs, so the view's edit callbacks already see it.
+   * False when there is no document.
    */
-  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean;
-  save(): Promise<SaveOutcome>;
-  /** The explicit answer to a clash on save: write the buffer over the disk's version. */
-  replace(): Promise<SaveOutcome>;
+  editLines(
+    changes: readonly { start: number; end: number; text: string }[],
+    options?: { manualSave?: boolean },
+  ): boolean;
+  /**
+   * Writes the buffer through its version. `by` says who asked: an auto save never writes a
+   * file a Revert changed, and only the person's Save that wrote every Revert ends that wait.
+   */
+  save(by?: "person" | "auto"): Promise<SaveOutcome>;
+  /**
+   * The explicit answer to a clash on save: write the buffer over the disk version the person
+   * was shown (`over`, from `shownVersion`; null for a deleted file). If the disk has moved on
+   * since, nothing is written and the outcome is a clash: the newer change needs its own answer.
+   */
+  replace(over: string | null): Promise<SaveOutcome>;
   /** Spec 46 Merge: a clean merge lands as one undoable step, unsaved; overlaps become a conflict. */
   merge(): Promise<void>;
   /**
@@ -179,12 +215,30 @@ export interface TextBuffer {
   keepMine(): Promise<void>;
   /** Compare's Take theirs: the disk's text lands as one undoable step and the buffer is clean. */
   takeTheirs(): Promise<void>;
-  /** Answers conflicting block `index`; the last answer applies the resolved text. */
-  answer(index: number, answer: Answer): Promise<void>;
+  /**
+   * Answers conflicting block `index` of the conflict `of` (the clash the person was shown); the
+   * last answer applies the resolved text. Ignored while answers are landing, or once `of` is no
+   * longer the buffer's clash.
+   */
+  answer(index: number, answer: Answer, of: Clash | undefined): Promise<void>;
+  /** Answers every block of the conflict `of` with one choice, in one step. */
+  answerAll(answer: Answer, of: Clash | undefined): Promise<void>;
   /** Drops unsaved edits and the draft, and reads the disk again. */
   discard(): Promise<void>;
+  /**
+   * What a Save would write now: the document, its content and how many Reverts it holds. A
+   * save asked for earlier (offline) runs only while this is unchanged.
+   */
+  saveStamp(): SaveStamp | undefined;
   /** Reads the file again after a load failure or an eviction. */
   reload(): Promise<void>;
+}
+
+/** What a Save was asked for: compared by identity of document and by content and Reverts. */
+export interface SaveStamp {
+  document: object;
+  contentId: number;
+  reverts: number;
 }
 
 /** A view's or tab's hold on a buffer. */

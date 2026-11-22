@@ -17,6 +17,7 @@ import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as SpadeRouteImport } from "./routes/spade"
+import { Route as StoreRouteImport } from "./routes/store"
 import { Route as TrayRouteImport } from "./routes/tray"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
@@ -120,6 +121,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SpadeRoute = SpadeRouteImport.update({
   id: "/spade",
   path: "/spade",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StoreRoute = StoreRouteImport.update({
+  id: "/store",
+  path: "/store",
   getParentRoute: () => rootRouteImport,
 } as any)
 const TrayRoute = TrayRouteImport.update({
@@ -469,6 +475,7 @@ export interface FileRoutesByFullPath {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
@@ -538,6 +545,7 @@ export interface FileRoutesByTo {
   "/market": typeof MarketRoute
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
@@ -614,6 +622,7 @@ export interface FileRoutesById {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
@@ -691,6 +700,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/archived"
@@ -760,6 +770,7 @@ export interface FileRouteTypes {
     | "/market"
     | "/pair"
     | "/setup"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/archived"
@@ -835,6 +846,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/_home/archived"
@@ -911,6 +923,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   SpadeRoute: typeof SpadeRouteWithChildren
+  StoreRoute: typeof StoreRoute
   TrayRoute: typeof TrayRoute
   UsageRoute: typeof UsageRoute
 }
@@ -971,6 +984,13 @@ declare module "@tanstack/react-router" {
       path: "/spade"
       fullPath: "/spade"
       preLoaderRoute: typeof SpadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/store": {
+      id: "/store"
+      path: "/store"
+      fullPath: "/store"
+      preLoaderRoute: typeof StoreRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/tray": {
@@ -1611,6 +1631,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
   SpadeRoute: SpadeRouteWithChildren,
+  StoreRoute: StoreRoute,
   TrayRoute: TrayRoute,
   UsageRoute: UsageRoute,
 }

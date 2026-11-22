@@ -75,7 +75,7 @@ test("the entry's action is Get, Update or Installed by what this machine holds"
 });
 
 test.each([
-  ["unavailable", "read", "The marketplace can't be reached right now."],
+  ["unavailable", "read", "The Store can't be reached right now."],
   ["not_found", "remove", "It isn't installed anymore."],
   ["not_found", "read", "This entry isn't listed anymore."],
   ["invalid", "add", "That isn't a git catalog's https address."],

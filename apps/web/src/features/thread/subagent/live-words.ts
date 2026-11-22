@@ -1,6 +1,4 @@
-import type { AgentStatus } from "@ace/protocol";
 import {
-  describeActivity,
   diskWaitDetail,
   queuedDetail,
   queuedSlotFragment,
@@ -16,16 +14,6 @@ import type { Live } from "@/lib/live-connection.ts";
  * isn't current. The `ace/live-actions` lint rule keeps the ui-core formatters these wrap to
  * files named live-words.ts.
  */
-
-/** What a working subagent does now ("running bun test"); nothing once idle or while not current. */
-export function subagentStep(
-  live: Live,
-  status: AgentStatus,
-  toolTitle: string | undefined,
-): string | undefined {
-  if (!live.current || status.state === "idle") return undefined;
-  return describeActivity(status, toolTitle);
-}
 
 /**
  * How a subagent went, in its bar: the stale words while not current (no ticking time, no

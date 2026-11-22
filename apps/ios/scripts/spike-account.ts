@@ -15,7 +15,20 @@ export const spikeAccountMachineIds = {
   studio: "S".repeat(52),
 };
 
-type Logged = { kind: "forget"; hostId: string } | { kind: "signOut" } | { kind: "delete" };
+type Logged =
+  | { kind: "forget"; hostId: string }
+  | { kind: "signOut" }
+  | { kind: "delete" }
+  | { kind: "createOrg"; name: string }
+  | { kind: "leave"; org: string };
+interface Org {
+  id: string;
+  name: string;
+  role: string;
+  plan: "team" | "pilot";
+  directoryManaged: boolean;
+  hosts: string[];
+}
 interface Machine {
   hostId: string;
   name: string;
@@ -23,12 +36,23 @@ interface Machine {
   lastSeenAt: number;
 }
 
+/** An organization as `GET /v1/orgs` lists it, without the fixture's own host list. */
+const view = (org: Org) => ({
+  id: org.id,
+  name: org.name,
+  role: org.role,
+  plan: org.plan,
+  directoryManaged: org.directoryManaged,
+});
+
 const account = { id: "acct_spike", email: "ada@example.com", name: "Ada Lovelace" };
 const minute = 60_000;
 const day = 86_400_000;
 
 export class SpikeAccount {
   private machines: Machine[] = [];
+  /** The person's organizations (ADR 0206 §1.4); none unless `ACE_IOS_SPIKE_ORG_HOSTS` names Acme's. */
+  private orgs: Org[] = [];
   private signedIn = true;
   private log: Logged[] = [];
 
@@ -50,7 +74,8 @@ export class SpikeAccount {
     const owned =
       path === "/v1/account" ||
       path.startsWith("/v1/account/session") ||
-      path.startsWith("/v1/machines");
+      path.startsWith("/v1/machines") ||
+      path.startsWith("/v1/orgs");
     if (!owned) return;
     const authorized =
       this.signedIn && request.headers.get("authorization") === `Bearer ${spikeAccountToken}`;
@@ -70,6 +95,8 @@ export class SpikeAccount {
     }
     if (path === "/v1/machines" && request.method === "GET")
       return Response.json({ machines: this.machines });
+    const orgs = await this.orgRoutes(request, path);
+    if (orgs) return orgs;
     const forget = /^\/v1\/machines\/([A-Z2-7]{52})$/.exec(path)?.[1];
     if (forget && request.method === "DELETE") {
       this.log.push({ kind: "forget", hostId: forget });
@@ -79,10 +106,83 @@ export class SpikeAccount {
     return Response.json({}, { status: 404 });
   }
 
+  /** `/v1/orgs…`: the list, a new one, an organization's hosts and members, and Leave. */
+  private async orgRoutes(request: Request, path: string): Promise<Response | undefined> {
+    if (path === "/v1/orgs" && request.method === "GET")
+      return Response.json({ orgs: this.orgs.map(view) });
+    if (path === "/v1/orgs" && request.method === "POST") {
+      const { name } = (await request.json()) as { name: string };
+      const org: Org = {
+        id: `org_new${this.orgs.length}`,
+        name,
+        role: "owner",
+        plan: "team",
+        directoryManaged: false,
+        hosts: [],
+      };
+      this.log.push({ kind: "createOrg", name });
+      this.orgs.push(org);
+      return Response.json(view(org));
+    }
+    const [, id, part, member] = /^\/v1\/orgs\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/.exec(path) ?? [];
+    const org = this.orgs.find((each) => each.id === id);
+    if (!id) return;
+    if (!org) return Response.json({ error: "not_member" }, { status: 403 });
+    if (part === "hosts" && request.method === "GET")
+      return Response.json({
+        machines: org.hosts.map((hostId) => ({
+          hostId,
+          name: "acme-build",
+          platform: "linux",
+          lastSeenAt: this.now(),
+        })),
+      });
+    if (part === "members" && !member && request.method === "GET")
+      return Response.json({
+        members: [
+          {
+            account: account.id,
+            email: account.email,
+            name: account.name,
+            role: org.role,
+            status: "active",
+            directoryManaged: false,
+          },
+          {
+            account: "acct_dana",
+            email: "dana@acme.example",
+            name: "Dana Kim",
+            role: "owner",
+            status: "active",
+            directoryManaged: false,
+          },
+        ],
+      });
+    if (part === "members" && member === account.id && request.method === "DELETE") {
+      this.log.push({ kind: "leave", org: org.id });
+      this.orgs = this.orgs.filter((each) => each.id !== org.id);
+      return Response.json({});
+    }
+    return Response.json({ error: "not_found" }, { status: 404 });
+  }
+
   private reset() {
     const now = this.now();
     this.signedIn = true;
     this.log = [];
+    const hosts = process.env.ACE_IOS_SPIKE_ORG_HOSTS?.split(",").filter(Boolean) ?? [];
+    this.orgs = hosts.length
+      ? [
+          {
+            id: "org_acme",
+            name: "Acme Robotics",
+            role: "admin",
+            plan: "team",
+            directoryManaged: false,
+            hosts,
+          },
+        ]
+      : [];
     this.machines = [
       {
         hostId: spikeAccountMachineIds.laptop,

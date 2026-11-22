@@ -1,15 +1,12 @@
 import {
   askingLabel,
-  livePlanStep,
   subagentBranchStates,
   timedWords,
   waitingOnSubagentsLabel,
-  workingSubagentsText,
   type TurnActivity,
 } from "@ace/ui-core";
 import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useTreeWork } from "@/features/panels/index.ts";
-import { useShownPlans } from "@/lib/use-plans.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
 import { StatusGlyph } from "@/components/status-glyph.tsx";
@@ -39,11 +36,9 @@ export function LiveHead(props: { threadId: string }) {
     turn?.tone === "needs-you" && descendant?.kind && turn.asker === descendant.name
       ? { ...turn, label: askingLabel(descendant.kind) }
       : turn;
-  const plans = useShownPlans(props.threadId);
   // A lost connection is the header's to say: no live line here. A copy catching up or read
   // from disk shows its live line, which then says "Syncing…" (`useTurnActivity`), not a turn.
   const live = useLiveConnection();
-  const progress = plans[0] ? livePlanStep(plans[0].progress) : undefined;
   const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
   // A pause is the turn's own row; a lost connection is the header's to say; what the agent
   // only waits on is the composer's strip, with its Stop; a question the agent asked is its own
@@ -59,21 +54,20 @@ export function LiveHead(props: { threadId: string }) {
   // The status line stays a live region of its own; its text can be selected.
   return (
     <div role="group" aria-label="Turn in progress" className="min-w-0">
-      <ActivityLine activity={activity} progress={progress} subagents={subagents} />
+      <ActivityLine activity={activity} subagents={subagents} />
       <div aria-hidden className={underline} />
     </div>
   );
 }
 
 /**
- * The live line, muted text with no glyph: `Working for 1m 14s`; `Waiting for 2 subagents ·
- * 1m 14s` while the agent only waits on its subagents; `(!) Waiting for your answer`
+ * The live line, muted text with no glyph and nothing after the time: `Working for 1m 14s`;
+ * `Waiting for 2 subagents` while the agent only waits on its subagents; `(!) Waiting for your answer`
  * while the person is asked (the request itself is in the composer's strip); a held line as it
  * is; a usage-limit pause as a quiet row.
  */
 export function ActivityLine(props: {
   activity: TurnActivity;
-  progress?: string | undefined;
   /** Subagents still working, by the shared rule; the activity's own count otherwise. */
   subagents?: number | undefined;
 }) {
@@ -103,29 +97,22 @@ export function ActivityLine(props: {
     <p
       role="status"
       aria-label={label}
-      aria-description={activity.tone === "working" ? activity.current : undefined}
       data-part="working-line"
       data-state={activity.tone === "working" ? "working" : "waiting"}
       className="@container/live flex min-h-8 min-w-0 items-center text-ui text-muted-foreground"
     >
       {activity.tone === "working" ? (
-        // Words and time only: the moving glyph is the sidebar's, not the transcript's.
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span className="shrink-0">
-            {activity.elapsedFrom === undefined ? (
-              working
-            ) : (
-              <>
-                {`${timedWords(working)} `}
-                <ElapsedTime from={activity.elapsedFrom} />
-              </>
-            )}
-          </span>
-          <Context
-            activity={activity}
-            progress={props.progress}
-            subagents={activity.waitingOnSubagents ? 0 : subagents}
-          />
+        // Words and time only, never the current action, plan step or counts: those are the
+        // work log's and the Summary's. The moving glyph is the sidebar's, not the transcript's.
+        <span className="min-w-0 truncate">
+          {activity.elapsedFrom === undefined ? (
+            working
+          ) : (
+            <>
+              {`${timedWords(working)} `}
+              <ElapsedTime from={activity.elapsedFrom} />
+            </>
+          )}
         </span>
       ) : activity.tone === "needs-you" ? (
         // Waiting on the person outranks working: never "Working", no timer. The request
@@ -149,36 +136,4 @@ function useWorkingSubagents(threadId: string, fallback: number | undefined): nu
   const { agents, work } = useTreeWork(threadId);
   const states = subagentBranchStates(agents, work);
   return states.length ? states.filter((state) => state === "working").length : (fallback ?? 0);
-}
-
-/**
- * What else the whole tree is doing, quietly after the time: the current action or plan step, the subagents
- * still working ("2 subagents working", in the block's words) unless the label already counts
- * them, background commands.
- */
-function Context(props: {
-  activity: TurnActivity;
-  progress: string | undefined;
-  subagents: number;
-}) {
-  const { activity } = props;
-  const commands = activity.backgroundCommands;
-  const parts = [
-    activity.current ?? props.progress,
-    props.subagents ? workingSubagentsText(props.subagents) : undefined,
-  ].filter(Boolean);
-  if (!parts.length && !commands) return null;
-  return (
-    <span className="min-w-0 truncate">
-      {` · ${parts.join(" · ")}`}
-      {commands ? (
-        <>
-          {parts.length ? " · " : ""}
-          {commands} {/* A narrow column says "1 command": the line keeps its counts whole. */}
-          <span className="@max-[30rem]/live:hidden">background </span>
-          {commands === 1 ? "command" : "commands"}
-        </>
-      ) : null}
-    </span>
-  );
 }

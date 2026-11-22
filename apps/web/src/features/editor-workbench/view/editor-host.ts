@@ -1,6 +1,6 @@
 import type { LineMark } from "@ace/ui-core";
 import type { ReactNode } from "react";
-import type { EditorLayer, EditorStatus, EditorStatusActions } from "@/features/editor";
+import type { AgentMark, EditorLayer, EditorStatus, EditorStatusActions } from "@/features/editor";
 import type { TextBuffer } from "../buffers/index.ts";
 import type { EditorBuffers } from "./editor-buffers.ts";
 
@@ -46,17 +46,19 @@ export interface BufferEditorProps {
   reveal?: EditorReveal | undefined;
   onRevealed?: ((token: number) => void) | undefined;
   /**
-   * The file's lines changed since the last commit (spec 44), drawn while the buffer has no
-   * unsaved edits; while it has, the gutter marks the person's own lines against the saved text.
+   * The text's lines changed since the last commit (spec 44), kept live as the person types;
+   * unset, the gutter marks the person's unsaved lines against the saved text.
    */
   marks?: ReadonlyMap<number, LineMark> | undefined;
+  /** Lines agents wrote, in the gutter's working colour with the agent's mark (spec 43). */
+  agentMarks?: readonly AgentMark[] | undefined;
   /** Drawn over the text: the thread's code annotations (`useEditorAnnotations`). */
   layer?: EditorLayer | undefined;
   /** How the text looks (Settings › Editor); the code editor's defaults where unset. */
   look?: EditorLook | undefined;
-  /** A press on a change mark (1-based line), while the file has no unsaved edits. */
+  /** A press on a change mark (1-based line). */
   onMarkClick?: ((line: number) => void) | undefined;
-  /** An inline block under a line (a change's diff), while the file has no unsaved edits. */
+  /** An inline block under a line (a change's diff). */
   peek?: { after: number; content: ReactNode } | undefined;
   /** The person typed in this view (auto save waits for a pause). */
   onEdited?: (() => void) | undefined;

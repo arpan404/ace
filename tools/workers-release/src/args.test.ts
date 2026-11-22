@@ -7,36 +7,31 @@ describe("deploy arguments", () => {
       workers: ["cloud", "market"],
       environment: "production",
       version: "v1.2.0",
-      skipStagingCheck: false,
     });
   });
 
-  it("deploys one Worker, untagged, to staging", () => {
-    expect(parseArguments(["market", "staging"])).toEqual({
+  it("deploys one Worker, untagged, to production", () => {
+    expect(parseArguments(["market", "production"])).toEqual({
       workers: ["market"],
-      environment: "staging",
+      environment: "production",
       version: undefined,
-      skipStagingCheck: false,
     });
   });
 
-  it("takes --version=<tag> and the staging check override", () => {
-    expect(
-      parseArguments(["cloud", "production", "--version=v2.0.0", "--skip-staging-check"]),
-    ).toMatchObject({ version: "v2.0.0", skipStagingCheck: true });
+  it("takes --version=<tag>", () => {
+    expect(parseArguments(["cloud", "production", "--version=v2.0.0"])).toMatchObject({
+      version: "v2.0.0",
+    });
   });
 
   it.each([
     [["cloud"], 'unknown environment ""'],
-    [["relay", "staging"], 'unknown Worker "relay"'],
+    [["relay", "production"], 'unknown Worker "relay"'],
     [["cloud", "prod"], 'unknown environment "prod"'],
-    [["cloud", "staging", "--version"], "--version needs a tag"],
-    [["cloud", "staging", "--force"], "unknown option --force"],
-    [
-      ["cloud", "staging", "--skip-staging-check"],
-      "--skip-staging-check only applies to production",
-    ],
-    [["cloud", "staging", "extra"], "unexpected extra"],
+    [["cloud", "staging"], 'unknown environment "staging"'],
+    [["cloud", "production", "--version"], "--version needs a tag"],
+    [["cloud", "production", "--force"], "unknown option --force"],
+    [["cloud", "production", "extra"], "unexpected extra"],
   ])("refuses %j", (argv, message) => {
     expect(parseArguments(argv)).toBe(message);
   });
