@@ -213,6 +213,12 @@ export class Snapshot {
     this.deadlines ??= new DeadlineIndex(this.state);
     return this.deadlines.next(providerDeadline);
   }
+  setSilenceMs(silenceMs: number): boolean {
+    if (this.state.config.silenceMs === silenceMs) return false;
+    this.state.config.silenceMs = silenceMs;
+    this.deadlines = undefined;
+    return true;
+  }
   updateDeadlines(facts: readonly Fact[], events: readonly EventPayload[], now: number): void {
     const rolledBack = this.deadlineObservedAt !== undefined && now < this.deadlineObservedAt;
     this.deadlineObservedAt = now;

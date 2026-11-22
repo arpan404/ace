@@ -6,6 +6,7 @@ import {
 } from "@ace/protocol";
 import { createEngineThread } from "./create-thread.ts";
 import type { EngineRepository } from "./repository.ts";
+import { defaultSilenceMs } from "./silence.ts";
 
 export interface GuestThreadInput {
   id: ThreadId;
@@ -44,7 +45,7 @@ export class GuestThreads {
         selection: { provider: input.provider, options: ExecutionOptions.parse({}) },
         cwd: input.cwd,
         at: this.now(),
-        silenceMs: 60_000,
+        silenceMs: defaultSilenceMs,
         client: {
           details: {
             workspace: {

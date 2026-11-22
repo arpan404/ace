@@ -9,6 +9,8 @@ export const settingDescriptions: Readonly<Partial<Record<string, string>>> = {
   "market.askBeforeAgentPublish":
     "An agent's publish to the marketplace waits in its thread until you answer it.",
   "threads.forkOnSwitch": "The original thread stays as it was.",
+  "threads.unresponsiveAfter":
+    "How long an agent can stay silent before ace warns it stopped responding.",
   "threads.settleOnClose": "Closed without merging.",
   "generation.autoDraftCommits": "Drafted from your changes.",
   "automations.enabled": "Scheduled automations run on this machine.",

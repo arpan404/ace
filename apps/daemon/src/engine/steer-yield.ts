@@ -70,9 +70,11 @@ export function yieldInFlight(state: ThreadState, yielded: SteerYield | undefine
  * the background where the session can (`backgrounds`), else by interrupting the turn (`yield`)
  * and going in as its next input. Where the provider's steer would cut into the command, only a
  * person's steer goes in; anything else waits for the command to end. Where the provider's
- * steer restarts the turn (Cursor), anything but a person's steer waits for the turn to end, so
- * another agent's message never stops the work. While an interrupt winds down, every steer waits
- * for that turn to end.
+ * steer restarts the turn (Cursor, ACP), anything but a person's steer waits for the turn to end,
+ * so another agent's message never stops the work. For `steerViaCancel` sessions (ACP), the
+ * steering lane only cancels the running turn (`yield`); once idle, the sends lane delivers the
+ * prompt so the steering lane stays free to cancel that turn on a later steer. While an interrupt
+ * winds down, every steer waits for that turn to end.
  */
 export function steerRoute(
   steer: { person: boolean },
@@ -84,8 +86,10 @@ export function steerRoute(
   if (yieldInFlight(state, yielded)) return undefined;
   const run = rootRun(state);
   if (!steer.person && steerRestartsTurn(capabilities) && run !== undefined) return undefined;
-  if (session.steerViaCancel && run !== undefined)
+  if (session.steerViaCancel) {
+    if (run === undefined) return undefined;
     return yielded?.run === run ? undefined : "yield";
+  }
   if (!hasRunningForegroundCommand(state)) return "native";
   if (!steerWaitsForTools(capabilities)) return steer.person ? "native" : undefined;
   if (!steer.person || session.backgroundTools) return "native";
