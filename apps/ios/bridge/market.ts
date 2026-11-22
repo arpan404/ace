@@ -23,6 +23,7 @@ import {
 } from "./market-home.ts";
 import { confirmedAnswer, confirmingRead } from "./market-confirm.ts";
 import { installedAnswer } from "./market-installed.ts";
+import { installedRow } from "./market-rows.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
 import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
 import { personRefusal } from "./market-person.ts";
@@ -389,7 +390,7 @@ export class NativeMarket {
       );
     // The daemon's answer to turning a skill on names nothing: the row is read from what's there.
     if (result.op === "done" && !result.installed && operation.op === "turnOnForBots")
-      return this.#confirm(operation, step, signal);
+      return { ok: true, offline: false, installed: await this.#skillRow(operation.name, signal) };
     const answer = shaped(operation, result, {
       now: this.#now(),
       installed: installed ? await installed : undefined,
@@ -415,6 +416,17 @@ export class NativeMarket {
     } catch {
       return undefined;
     }
+  }
+
+  /**
+   * A skill's row as the machine holds it now, after a change it said was done: the version
+   * turned on, or a newer one installed since, which waits for bots again. Null when it can't be
+   * read or is gone; the change still stands.
+   */
+  async #skillRow(name: string, signal: AbortSignal) {
+    const installed = await this.#readInstalled(signal);
+    const item = installed?.find((each) => each.type === "spade-skill" && each.name === name);
+    return item ? installedRow(item) : null;
   }
 
   #offline(key: string | undefined): object {

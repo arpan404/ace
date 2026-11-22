@@ -66,12 +66,15 @@ async function market(standing: PairedStanding | undefined) {
     get state() {
       return client.state;
     },
-    request: ((message: { operation: { op: string } }, wait: unknown) => {
+    request: (async (message: { operation: { op: string } }, wait: unknown) => {
       sent.push(message.operation.op);
-      return client.request(message as never, wait as never);
+      const reply = await client.request(message as never, wait as never);
+      if (message.operation.op === "turnOnForBots") hooks.afterTurnOn?.();
+      return reply;
     }) as typeof client.request,
   };
   const facts = { standing };
+  const hooks: { afterTurnOn?: () => void } = {};
   const service = new NativeMarket(
     owner,
     () => 6_000,
@@ -88,7 +91,7 @@ async function market(standing: PairedStanding | undefined) {
       }),
       new AbortController().signal,
     )) as Record<string, unknown>;
-  return { ask, daemon, sent, facts };
+  return { ask, daemon, sent, facts, hooks };
 }
 
 const turnOn = { op: "turnOnForBots", name: "waiting", hash };
@@ -183,5 +186,20 @@ test("a market that wants a person's grant for a phone change sends the person t
     code: "person_grant",
     message: "The market needs the person",
   };
-  expect(await ask(turnOn)).toMatchObject({ ok: false, code: "person_grant", way: "computer" });
+  expect(await ask(turnOn)).toMatchObject({
+    ok: false,
+    code: "person_grant",
+    message: "Turn this on from ace on your computer.",
+    way: "computer",
+  });
+});
+
+test("a newer version landing just after the turn on reads as turned on, then shows the newer one", async () => {
+  const { ask, daemon, hooks } = await market("proven");
+  const newer = { ...waiting, version: "1.1.0", hash: "e".repeat(64), botsApproved: false };
+  hooks.afterTurnOn = () => daemon.seedServices({ marketplace: { installed: [newer] } });
+  expect(await ask(turnOn)).toMatchObject({
+    ok: true,
+    installed: { name: "waiting", hash: "e".repeat(64), waitsForBots: true },
+  });
 });

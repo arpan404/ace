@@ -33,6 +33,11 @@ export interface PersonFacts {
   readonly confirmed: boolean;
 }
 
+const computer: Readonly<Record<string, string>> = {
+  install: "Install this from ace on your computer.",
+  turnOnForBots: "Turn this on from ace on your computer.",
+};
+
 const pairAgain: Readonly<Record<string, string>> = {
   install: "Pair this iPhone again to install here.",
   turnOnForBots: "Pair this iPhone again to turn this on here.",
@@ -41,7 +46,12 @@ const pairAgain: Readonly<Record<string, string>> = {
 /** `refusal` as the phone offers it, when it was refused for the person's standing. */
 export function personRefusal<T extends StandingRefusal>(refusal: T, facts: PersonFacts): T {
   if (refusal.way !== "confirm") return refusal;
-  if (refusal.code === "person_grant") return { ...refusal, way: "computer" };
+  if (refusal.code === "person_grant")
+    return {
+      ...refusal,
+      message: computer[facts.op] ?? "Do this from ace on your computer.",
+      way: "computer",
+    };
   if (facts.standing === "missing")
     return {
       ...refusal,
