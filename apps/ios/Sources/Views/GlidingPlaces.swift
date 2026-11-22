@@ -8,6 +8,13 @@ import SwiftUI
 /// a new press catches the fill wherever it is. Under Reduce Motion the fill never travels: it
 /// fades from one place to the next.
 ///
+/// On iOS 26 the fill is Liquid Glass, as the system's tab bar draws its selection: a tinted glass
+/// pill behind the chosen place at rest, which a press morphs into a clear, swollen lens over the
+/// places, magnifying the glyph and name under it as it slides, and which morphs back into the
+/// pill on the place picked (`GlassPlaces`). The bar's own glass stays outside that container:
+/// in one container the two shapes would melt into one and the lens would vanish into the bar.
+/// Reduce Transparency and Translucency off keep the solid fill.
+///
 /// The finger stays in this view's own gesture state, so a slide redraws only the bar and never
 /// writes the model; the place is chosen once, on release. Every place is the same width.
 struct GlidingPlaces<Place: View>: View {
@@ -30,6 +37,8 @@ struct GlidingPlaces<Place: View>: View {
     /// Counts places picked through VoiceOver, so they get the selection haptic a finger does.
     @State private var accessibilityPicks = 0
     @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.aceSolidSurfaces) private var solid
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     init(places: [InboxTab], chosen: InboxTab, spacing: CGFloat,
          @ViewBuilder place: @escaping (InboxTab, _ lit: Bool) -> Place,
@@ -47,6 +56,35 @@ struct GlidingPlaces<Place: View>: View {
         let glide = TabGlide(count: places.count, width: width, spacing: spacing)
         let chosenIndex = places.firstIndex(of: chosen) ?? 0
         let lit = finger.map(glide.index(at:)) ?? chosenIndex
+        let offset = finger.map(glide.offset(following:)) ?? glide.offset(of: chosenIndex)
+        Group {
+            if glass {
+                if #available(iOS 26, *) {
+                    GlassPlaces(row: row(lit: lit), lens: row(lit: lit).accessibilityHidden(true),
+                                slot: glide.slot, width: glide.width, offset: offset,
+                                pressed: finger != nil, chosen: chosenIndex)
+                } else {
+                    row(lit: lit).background(alignment: .leading) { fill(glide, lit: lit, chosen: chosenIndex) }
+                }
+            } else {
+                row(lit: lit).background(alignment: .leading) { fill(glide, lit: lit, chosen: chosenIndex) }
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        .padding(Self.inset)
+        .contentShape(AceShape.capsule)
+        .gesture(slide(glide, chosen: chosenIndex))
+        // A selection tap for each place the finger passes, and for a tap's press; none for a
+        // place chosen elsewhere.
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: lit) { _, _ in finger != nil }
+        .sensoryFeedback(AceDesign.Haptic.tab, trigger: accessibilityPicks)
+    }
+
+    /// The fill is glass unless the person asked for solid surfaces or less motion: a lens that
+    /// travels is motion, so Reduce Motion keeps the fading fill.
+    private var glass: Bool { !solid && !reduceTransparency && !reduceMotion }
+
+    private func row(lit: Int) -> some View {
         HStack(spacing: spacing) {
             ForEach(Array(places.enumerated()), id: \.element) { index, item in
                 place(item, index == lit)
@@ -57,15 +95,6 @@ struct GlidingPlaces<Place: View>: View {
                     }
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        .background(alignment: .leading) { fill(glide, lit: lit, chosen: chosenIndex) }
-        .padding(Self.inset)
-        .contentShape(AceShape.capsule)
-        .gesture(slide(glide, chosen: chosenIndex))
-        // A selection tap for each place the finger passes, and for a tap's press; none for a
-        // place chosen elsewhere.
-        .sensoryFeedback(AceDesign.Haptic.tab, trigger: lit) { _, _ in finger != nil }
-        .sensoryFeedback(AceDesign.Haptic.tab, trigger: accessibilityPicks)
     }
 
     @ViewBuilder private func fill(_ glide: TabGlide, lit: Int, chosen: Int) -> some View {
