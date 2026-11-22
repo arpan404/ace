@@ -5,7 +5,7 @@ import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process
 import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
 import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
 import { systemListing } from "@ace/provider-kit/process-listing";
-import { verifyWindowsRecovery } from "./process-recovery.ts";
+import { verifyRecovery } from "./process-recovery.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
@@ -319,10 +319,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   try {
     inventory.recover();
-    if (process.platform === "win32") {
-      // The engine decides what the previous run left running only once ended processes are
-      // verifiably gone; anything unproven is reported as such, never as stopped.
-      const recovery = await verifyWindowsRecovery(inventory);
+    {
+      // The engine decides what the previous run left running, and reads any provider store it
+      // wrote, only once ended processes are verifiably gone: a SIGKILLed group can still be
+      // running, mid-write, when recover() returns. Anything unproven is reported as such.
+      const recovery = await verifyRecovery(
+        process.platform === "win32" ? { recover: () => inventory.recoverWindows() } : inventory,
+      );
       if (!recovery.verified) {
         log.log(
           "warn",
