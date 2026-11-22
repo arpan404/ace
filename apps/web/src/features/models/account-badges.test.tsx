@@ -60,14 +60,13 @@ test("a single account omits an unnecessary picker badge and keeps its composer 
   await closeModelControl();
 });
 
-test("the composer names the account in words, and the provider mark carries no letter", async () => {
+test("the composer shows a separate account marker only when the provider has multiple accounts", async () => {
   const app = harness();
   await open(app);
   const selector = screen.getByRole("button", { name: /^Model: Opus 5.5, Personal/ });
   expect(within(selector).getByRole("img", { name: "Claude Code · Personal" }).textContent).toBe(
-    "",
+    "P",
   );
-  expect(within(selector).getByText("Personal", { exact: true })).toBeTruthy();
   await closeModelControl();
 });
 
@@ -203,7 +202,7 @@ test("account badges take up to two letters or a curated icon, never an emoji", 
 });
 
 test.each([1, 2])(
-  "the composer names the account only with multiple provider accounts (%s)",
+  "the composer's account marker appears only with multiple provider accounts (%s)",
   async (count) => {
     const app = harness();
     if (count === 1) {
@@ -227,7 +226,7 @@ test.each([1, 2])(
     await app.open(`/t/${thread}`);
     const chip = await screen.findByRole("button", { name: /^Model: Opus 5.5, Personal/ });
     await waitFor(() => {
-      const marker = within(chip).queryByText("Personal", { exact: true });
+      const marker = within(chip).queryByText("P", { exact: true });
       if (count === 1) expect(marker).toBeNull();
       else expect(marker).toBeTruthy();
     });

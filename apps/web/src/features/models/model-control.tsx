@@ -1,8 +1,6 @@
 import "@/styles/model-control.css";
-import type { ProviderKind } from "@ace/protocol";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { effortLabel, effortShortLabel, providerAccount, speedLabel } from "@ace/ui-core";
-import { useAccountViews } from "@/lib/account-views.ts";
+import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
 import { CaretDownIcon, ClockIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -96,15 +94,14 @@ export function ModelControl(props: {
               provider={view.provider}
               instance={view.instance ?? view.account}
               size={14}
+              // A compact composer keeps the room for the model's name.
+              accountLabel={!props.compact}
             />
           )}
           {!view.label && view.catalog === "loading" && <Spinner />}
           <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
             {view.label ?? view.placeholder}
           </span>
-          {view.provider && !props.compact && (
-            <AccountName provider={view.provider} instance={view.instance ?? view.account} />
-          )}
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
           )}
@@ -202,12 +199,4 @@ function ModelTip(props: { label: string; disabled: boolean; children: ReactElem
       <TooltipContent side="top">{props.label}</TooltipContent>
     </Tooltip>
   );
-}
-
-/** The account in words beside the model's name: only where it is not the default one. */
-function AccountName(props: { provider: ProviderKind; instance: string | undefined }) {
-  const accounts = useAccountViews();
-  const { account, bubble } = providerAccount(accounts.data, props);
-  if (!bubble || !account) return null;
-  return <span className="min-w-0 shrink truncate text-muted-foreground">{account.label}</span>;
 }
