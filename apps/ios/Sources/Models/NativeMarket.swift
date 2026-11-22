@@ -201,7 +201,16 @@ struct MarketEntryPage: Decodable, Equatable {
         let verified: Bool
         let byAce: Bool
         let reviewed: Bool
+        let supported: Bool
+        /// The first listing picture's hash, read with `marketPicture`.
+        let picture: String?
         let description: String
+        /// "By ace" or "Verified" beside the publisher; nil for neither.
+        let publisherMark: String?
+        /// "Reviewed by ace" or "Not reviewed by ace".
+        let reviewMark: String
+        /// Where it is listed: "market.acehq.dev", or a git catalog's address.
+        let sourceText: String
         /// `install`, `update`, `installed` or `none`.
         let action: String
         /// "Get", "Update", "Installed"; nil when there is nothing to do.
@@ -210,12 +219,23 @@ struct MarketEntryPage: Decodable, Equatable {
         let downloadsText: String
         let versions: [Version]
         let installed: MarketInstall?
+        /// An installed Suit: "Wear it from ace on your computer."
+        let installedNote: String?
+        /// The remove confirmation's title and line, naming what goes; nil when not installed.
+        let removeQuestion: String?
+        let removeLine: String?
+        /// "Turn back on" (or "Resume") for a withdrawn or turned-off install.
+        let turnOnWord: String?
+        /// A withdrawn install comes back only through this question, as Installed asks it.
+        let turnOnAsk: MarketInstalledItem.Ask?
+        var key: MarketEntryKey { MarketEntryKey(source: source, type: type, name: name) }
     }
     let offline: Bool
     let entry: Entry
 }
 
-/// A review held on the daemon from `prepare` until Install or Cancel.
+/// A review held on the daemon from `prepare` until Install or Cancel, with its words written
+/// (`bridge/market-review.ts`). Its sections by type are in `MarketReviewSections.swift`.
 struct MarketReview: Decodable, Equatable {
     let id: String
     let hash: String
@@ -223,26 +243,47 @@ struct MarketReview: Decodable, Equatable {
     let name: String
     let title: String
     let version: String
+    /// "Get Inbox", "Update Inbox", "Roll back Inbox".
+    let heading: String
+    /// Install's word: "Get", "Update" or "Roll back"; `pendingWord` while it runs.
+    let action: String
+    let pendingWord: String
+    /// "Bot · Mira · 1.0.0".
+    let byLine: String
     let publisher: String?
     let signed: Bool
+    let signedText: String
     let reviewed: Bool
     let reviewMark: String
+    /// "Read what it does before you install it." when ace hasn't reviewed it.
+    let reviewNote: String?
     let updates: String?
+    /// What it can do, in plain sentences, as the entry page says them.
     let canDo: [String]
-    let findings: [String]
+    /// Where it is from, what it replaces, what it can do and expects to spend.
+    let facts: [String]
+    /// Every finding of the device's scan, blocks first.
+    let findings: [MarketFinding]
     /// Why nothing can be installed; no Install when set.
     let blocked: String?
-    /// A recipe's need switches as they start (required on, optional off).
-    let needs: [String: Bool]
     /// How many rows its pages hold.
     let items: Int
+    /// "Install this from your computer." for an install refused for standing the phone can't prove.
+    let standingSentence: String?
+    let suit: MarketReviewSuit?
+    let plugin: MarketReviewPlugin?
+    let bot: MarketReviewBot?
+    /// The switches as the review starts them.
+    let choices: MarketChoices
 }
 struct MarketPrepared: Decodable { let review: MarketReview }
-/// One page of a review's rows, kept raw: slice 3 draws each kind.
+/// One page of a review's rows.
 struct MarketReviewPage: Decodable {
     let review: MarketReview
-    let items: [ServiceValue]
+    let rows: [MarketReviewRow]
     let nextOffset: Int?
+    /// No page comes after this one.
+    let complete: Bool
 }
 
 struct MarketInstalledList: Decodable, Equatable {

@@ -9,6 +9,8 @@ import SwiftUI
 /// message is sent to it (`SpadeNewBotProgress`).
 struct SpadeNewBotSheet: View {
     let client: ClientModel
+    /// The machine a bot from the marketplace installs onto, by name.
+    var machineName = "your machine"
     /// The bot was made: its conversation opens.
     let made: (String) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -71,6 +73,18 @@ struct SpadeNewBotSheet: View {
                         ForEach(templates) { templateRow($0) }
                     } header: {
                         InsetHeader("Or start from a template")
+                    }
+                }
+                if madeAlready == nil {
+                    Section {
+                        // The marketplace's bots, ready-made, installed through their review.
+                        NavigationLink {
+                            MarketBrowseView(model: client, page: .search(type: "spade-bot"), machineName: machineName)
+                        } label: {
+                            InsetRow("From the marketplace", icon: .storefront)
+                        }
+                        .disabled(making)
+                        .accessibilityIdentifier("spade.newbot.market")
                     }
                 }
                 if madeAlready == nil, let setting = offer?.model, let groups = offer?.groups, !groups.isEmpty {

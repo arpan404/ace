@@ -24,6 +24,7 @@ import {
 import { confirmedAnswer, confirmingRead } from "./market-confirm.ts";
 import { installedAnswer } from "./market-installed.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
+import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
 import type { BrowseWords } from "./market-actions.ts";
 
 /*
@@ -180,6 +181,18 @@ export function refusalAnswer(code: string, step: MarketStep, detail: RefusalDet
   };
 }
 
+/** An install the bridge kept back (`HeldReviews`): the daemon's sentence where it has one. */
+function heldRefusal(refusal: HeldRefusal) {
+  if (!refusal.message) return refusalAnswer(refusal.code, "install");
+  return {
+    ok: false as const,
+    offline: false,
+    code: refusal.code,
+    message: refusal.message,
+    way: null,
+  };
+}
+
 const offlineWrite = {
   ok: false as const,
   offline: true,
@@ -213,7 +226,12 @@ const unknownOutcome = (step: MarketStep) => ({
 });
 
 /** The daemon's result as the phone's answer, or undefined when it answered something else. */
-function shaped(op: V1Op, result: MarketResult, words: BrowseWords): object | undefined {
+function shaped(
+  operation: MarketOperation,
+  result: MarketResult,
+  words: BrowseWords,
+): object | undefined {
+  const op = operation.op;
   switch (result.op) {
     case "discover":
       return op === "discover" ? discoverAnswer(result, words) : undefined;
@@ -234,7 +252,7 @@ function shaped(op: V1Op, result: MarketResult, words: BrowseWords): object | un
     case "review":
       return op.startsWith("prepare") ? reviewAnswer(result) : undefined;
     case "reviewPage":
-      return op === "readReview" ? reviewPageAnswer(result) : undefined;
+      return operation.op === "readReview" ? reviewPageAnswer(result, operation.offset) : undefined;
     case "installed":
       return op === "installed" ? installedAnswer(result) : undefined;
     case "done":
@@ -277,6 +295,8 @@ export class NativeMarket {
   readonly #pause: (ms: number, signal: AbortSignal) => Promise<void>;
   /** Each kept read's last answer, by its operation, the least recently used let go first. */
   readonly #last = new LruCache<string, object>({ maxEntries: keptAnswers });
+  /** The reviews open on the machine, which Install is checked against before it is sent. */
+  readonly #held = new HeldReviews();
   readonly #botName: (id: string) => string | undefined;
   constructor(
     owner: Owner,
@@ -290,10 +310,30 @@ export class NativeMarket {
     this.#botName = botName;
   }
 
+  /** Whether the machine no longer holds review `id`: reading it answers expired or not found. */
+  async #swept(id: string, signal: AbortSignal): Promise<boolean> {
+    const probe: MarketOperation = { op: "readReview", id, offset: 0 };
+    try {
+      const { result } = await this.#owner.request(
+        { type: "marketplace.request", operation: probe },
+        { ...wait, signal },
+      );
+      this.#held.heard(probe, result);
+      return result.op === "error" && (result.code === "expired" || result.code === "not_found");
+    } catch {
+      return false;
+    }
+  }
+
   async answer(request: NativeMarketRequest, signal: AbortSignal): Promise<object> {
-    const { operation } = request;
+    let { operation } = request;
     if (!isV1(operation.op)) return refusalAnswer("invalid", "read");
     const op = operation.op;
+    if (operation.op === "install") {
+      const held = this.#held.install(operation);
+      if ("refuse" in held) return heldRefusal(held.refuse);
+      operation = held.send;
+    }
     const key = kept.has(op) ? JSON.stringify(operation) : undefined;
     const step = stepOf(op);
     const changes = step !== "read" && step !== "review";
@@ -312,16 +352,31 @@ export class NativeMarket {
       if (!(error instanceof ClientError) || error.code === "aborted") throw error;
       if (!unreachable.has(error.code)) return refusalAnswer("failed", step);
       // Sent, then the reply was lost: the change may have happened. Ask what's there now.
-      if (changes) return this.#confirm(operation, step, signal);
+      if (changes) {
+        const outcome = await this.#confirm(operation, step, signal);
+        // An install found landed is done: its review is no longer held.
+        if (outcome.ok && operation.op === "install") this.#held.heard(operation, { op: "done" });
+        return outcome;
+      }
       return this.#offline(key);
     }
+    this.#held.heard(operation, result);
+    if (
+      result.op === "error" &&
+      operation.op === "install" &&
+      wayOf(result.code) === "confirm" &&
+      (await this.#swept(operation.id, signal))
+    )
+      // The standing gate answered before the review was looked up, and the review is gone:
+      // the way out is to review it again, not to confirm who installs a review nobody holds.
+      return refusalAnswer("expired", "install");
     if (result.op === "error")
       return refusalAnswer(result.code, step, {
         op,
         message: result.message,
         ...(result.scan ? { scan: result.scan } : {}),
       });
-    const answer = shaped(op, result, {
+    const answer = shaped(operation, result, {
       now: this.#now(),
       installed: installed ? await installed : undefined,
       botName: this.#botName,

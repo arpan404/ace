@@ -299,6 +299,7 @@ test("an install whose reply was lost after the machine finished it reads as ins
     name: "harbour-dusk",
   });
   const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
   expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
     ok: true,
     offline: false,
@@ -315,6 +316,7 @@ test("an install whose reply was lost before it reached the machine says it didn
     name: "harbour-dusk",
   });
   const review = prepared.review as { id: string; hash: string };
+  await ask({ op: "readReview", id: review.id });
   expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
     ok: false,
     code: "failed",

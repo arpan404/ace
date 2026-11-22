@@ -197,6 +197,11 @@ export class FakeMarketplaceWire {
     if (seed.pick) this.pick.seed(seed.pick);
   }
 
+  /** Drops a held review, as the daemon does once it is 30 minutes old. */
+  sweep(id: string): void {
+    this.#reviews.delete(id);
+  }
+
   /** Hears `marketplace.changed` after installs and removals. */
   subscribe(listener: (message: MarketServerMessage) => void): () => void {
     this.#listeners.add(listener);
@@ -391,6 +396,8 @@ export class FakeMarketplaceWire {
         };
       }
       case "install": {
+        // The machine checks who may install before it looks the review up, as the daemon does.
+        if (this.refuseInstall) return this.refuseInstall;
         const stored = this.#reviews.get(operation.id);
         if (!stored)
           return {
@@ -406,7 +413,6 @@ export class FakeMarketplaceWire {
           };
         if (stored.review.blocked)
           return { op: "error", code: "refused", message: stored.review.blocked };
-        if (this.refuseInstall) return this.refuseInstall;
         const { review } = stored;
         const acceptance = { review, choices: operation.choices };
         this.accepted.push(acceptance);

@@ -30,8 +30,8 @@ export function installedAnswer(result: Result<"installed">) {
   };
 }
 
-/** One installed entry as Installed's row. */
-function installedItem(item: MarketInstalled) {
+/** One installed entry as Installed's row; the entry page asks its questions in these words. */
+export function installedItem(item: MarketInstalled) {
   const update = offeredUpdate(item) ?? null;
   const row = installedRow({ ...item, update: update ?? undefined });
   const bot = row.bot !== null;

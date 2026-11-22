@@ -31,6 +31,38 @@ export function needDefaults(needs: readonly MarketNeed[]): Record<string, boole
   return Object.fromEntries(needs.map((need) => [need.key, need.required]));
 }
 
+/** What Install does on this review: a first install, an update, or a linked bot going back. */
+export function reviewAction(review: MarketReview): "Get" | "Update" | "Roll back" {
+  const moving = review.body.type === "spade-bot" ? review.body.update : undefined;
+  if (moving?.rollback) return "Roll back";
+  return moving || review.updates ? "Update" : "Get";
+}
+
+/** The review's title: "Get Inbox", "Update Inbox", "Roll back Inbox". */
+export const reviewHeading = (review: MarketReview): string =>
+  `${reviewAction(review)} ${review.title}`;
+
+/** "From market.acehq.dev, reviewed by ace." */
+export function reviewFromLine(review: MarketReview): string {
+  const from = review.from ? review.from.replace(/^https:\/\//, "") : "market.acehq.dev";
+  return `From ${from}${review.reviewed || review.byAce ? ", reviewed by ace" : ""}.`;
+}
+
+/** What an update or a rollback does to the version in use; undefined for a first install. */
+export function replacesLine(review: MarketReview): string | undefined {
+  const moving = review.body.type === "spade-bot" ? review.body.update : undefined;
+  if (moving?.rollback)
+    return `Goes back to version ${review.version} from ${review.updates ?? "the one it has"}, from the copy kept on this machine.`;
+  if (moving) return `Replaces version ${review.updates ?? ""}, which stays until you update.`;
+  if (review.updates) return `Replaces version ${review.updates}, which stays until you install.`;
+  return undefined;
+}
+
+/** Why Install waits while required apps are off: "Inbox can't work without Gmail and Slack." */
+export function missingNeedsSentence(title: string, labels: readonly string[]): string | undefined {
+  return labels.length ? `${title} can't work without ${labels.join(" and ")}.` : undefined;
+}
+
 /** What one review's body lets the entry do, as plain sentences. */
 export function canDoSentences(review: MarketReview): string[] {
   const body = review.body;
