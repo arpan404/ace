@@ -362,7 +362,7 @@ Nothing else is the person:
 
 ## Amendment 1 (2026-11-21): the owner's own machine asks once
 
-Revised after the security review of #2533.
+Revised after two rounds of security review of #2533.
 
 ### What went wrong
 
@@ -396,7 +396,8 @@ token, an MCP lease or a provider process. Everything else gets out of the way.
    order, naming
    - the account and the device (the SHA-256 of the key's public point);
    - the purpose (`standing` or `enroll` today) and the action (`socket` today);
-   - the target (here, the tagged sockets) and the audience (the daemon's relay host id);
+   - the target (here, a digest of the tagged connections) and the audience (the daemon's relay
+     host id);
    - the verifier's single-use nonce, and when it was made and ends (a minute at most).
 
    The key signs nothing that doesn't parse as a statement for its own account and device. Any
@@ -404,38 +405,60 @@ token, an MCP lease or a provider process. Everything else gets out of the way.
 
 3. **Main owns the exchange.** A window can only ask main "prove me" or "enroll", naming the
    account backend. It never hands main a challenge, a socket or an account.
-   - Main adds a header (`x-ace-app-socket`) to every WebSocket upgrade from the app's default
-     session to the daemon on this computer, with a fresh random tag. A page can't read or set
-     that header; main strips any it tries. The agents' browser and visualizations run in other
-     partitions and are never tagged.
-   - The daemon keeps each tag for the socket that first came with it, and a tag names one
-     socket, ever. A tagged loopback socket on the host credential says so in its welcome
-     (`standingAppSocket`), and only such a socket counts main's proof as its own.
-   - To prove, main fetches a challenge itself over HTTP with the host token
-     (`POST /v1/standing/app/challenge`). It checks that the host matches the relay host id it
-     read from the home, signs a `standing` statement for the tags it made, and sends it
-     (`POST /v1/standing/app/prove`).
-   - The daemon checks the statement:
-     - it is genuine, live and canonical;
-     - the nonce is unused;
-     - the account is the owner and the audience is this host;
-     - the key is enrolled.
+   - **Tags.** Main adds a header (`x-ace-app-socket`) only to WebSocket upgrades to the daemon's
+     exact transport address, from a page at the app's own origin, in the app's default session.
+     The agents' browser and visualizations run in other partitions. A page can't read or set the
+     header; main strips any it tries. A tag carries when main made it, and the daemon takes it
+     only within a minute of that. The daemon remembers every tag it took until the tag can't be
+     fresh again, so a tag names one socket ever and a replay never replaces a live socket.
+   - **The daemon proves who it is.** Main fetches each challenge itself over HTTP with the host
+     token, with no redirects followed (`POST /v1/standing/app/challenge`). It sends a fresh
+     ephemeral X25519 key and its tags. The daemon answers with:
+     - a single-use nonce, its host and owner;
+     - for each tag that names a live socket, that connection's own nonce;
+     - an HMAC over all of it, keyed by the X25519 secret between its relay key and main's
+       ephemeral key.
 
-     It then gives the person's standing to the sockets with those tags, for as long as each
-     socket lasts, under this owner.
-4. **Enrolling is a separate kind of proof.** App proofs are recorded as `app`, apart from the
-   grant proofs recorded as `account`.
-   - Enrolling a key (`POST /v1/standing/app/key`, an `enroll` statement signed by the new key)
-     takes a tagged socket that proved the owner's grant (§3). The grant comes from the window's
-     own browser-signed-in session. An app proof never counts for this.
-   - Main also enrolls only within ten minutes of a browser sign-in writing a session to it. The
-     backend's grants carry no sign-in time yet, so "fresh" is checked by main, not the daemon.
-   - A socket proven with the key can't enroll another key. "Let it go" and joining an
-     organization still take an `account` proof.
-5. **Revocation.**
-   - Signing out of the app revokes the key at the daemon (`DELETE /v1/standing/app/key`). That
-     ends the standing it gave on open sockets, and main forgets the key.
-   - A sign-in under another session revokes the key made under the one before.
+     Main checks the HMAC against the relay key it pinned, in its sealed store, at the first
+     enrollment. A later enrollment never moves the pin, whatever the home's key file says.
+
+   - **Statements name connections.** Main signs a `standing` statement whose target is a digest
+     of the challenge's `tag~connection` pairs. It sends the pairs beside it, at most 16 per
+     statement (`APP_STANDING_MAX_SOCKETS`), in batches (`POST /v1/standing/app/prove`).
+   - **What the daemon checks:**
+     - the statement is genuine, live and canonical, and its nonce unused;
+     - its account is the owner and its audience is this host;
+     - its key is enrolled, and the digest matches the pairs;
+     - each pair's tag still names the very connection it names.
+
+     It then gives those sockets the person's standing, for as long as each lasts, under this
+     owner.
+4. **Enrolling needs the backend's word on a fresh sign-in.** App proofs are recorded as `app`,
+   apart from the grant proofs recorded as `account`. Enrolling a key
+   (`POST /v1/standing/app/key`, an `enroll` statement signed by the new key) takes both of
+   these:
+   - a grant ace's account backend minted from the person's own session (`market-publish`, kind
+     `device`). It carries `authAt`, the time that session signed in through the browser, which
+     must be within the last ten minutes. Its `action` names this daemon, this key and this
+     challenge's nonce (`ace-enroll-device/v1 <host> <device> <nonce>`), so it enrolls nothing
+     else, once. The daemon reads it with the keys it pins, from ace's backend or the one it is
+     signed in to;
+   - one of the statement's sockets having proved the owner's grant on itself.
+
+   A socket proven with the key can't enroll another key, and an app proof never counts for
+   enrolling. Main tries to enroll only within ten minutes of a new session arriving: rewriting
+   the session it already has is no sign-in. "Let it go" and joining an organization still take
+   an `account` proof.
+
+5. **Revocation is durable.**
+   - Signing out moves the key out of use and its public half into a pending list, in the same
+     sealed write. Main sends `DELETE /v1/standing/app/key` and keeps the revocation until the
+     daemon acknowledges it, trying again when the app starts and before every step. The daemon
+     revoking it ends the standing it gave on open sockets.
+   - Proofs, enrollments, sign-ins and sign-outs run one at a time in main, so an enrollment in
+     flight finishes before a sign-out revokes it.
+   - A new session revokes the key made under the one before, and enrolling replaces a key only
+     after revoking the old one.
    - A change of owner drops every enrolled key with the owner file.
 6. **Only where the store holds.** Main keeps a key only when all of these hold
    (`app-standing-gate.ts`):
@@ -490,11 +513,21 @@ Within that limit:
   process, sandboxed or not):
   - It can't enroll a key: that takes a socket that proved the owner's grant.
   - It can't make a statement: that takes the key, which only main holds.
-  - It can't aim one of main's statements at its own socket: main names only tags it made and
-    never shows a page, and a tag binds the first socket that came with it.
+  - It can't aim one of main's statements at its own socket. Main names only tags it made and
+    never shows a page; a tag binds the first socket that came with it, within a minute of when
+    main made it; and a statement names that very connection's nonce.
   - Reading `ace-owner.json` gives only public keys. A captured statement is spent by its nonce,
     and a statement for another daemon, account or lifetime is refused.
   - It can revoke the owner's key (`DELETE`): that only takes standing away.
+- **Held against a process holding the person's session but no fresh sign-in** (on Linux or
+  Windows, read from the keyring): it can prove per socket with the session's grants, as before
+  this amendment. It can't enroll a key of its own: the backend's grant carries the session's
+  own sign-in time, so that works only within ten minutes of the person's real browser sign-in
+  (a residual window).
+- **Held against something answering at the daemon's address without the relay key:** it can't
+  produce the possession proof against the key main pinned, so main sends it no statement and no
+  enrollment. Something holding the relay key itself (read from `ACE_HOME`) can still answer as
+  the daemon; answering at the daemon's address is out of scope (§Threat model).
 - **Held against a renderer under someone else's control:** it can ask main to prove the app's
   own sockets, which it already uses. It can't get a statement for any other socket. The
   renderer still holds the window's session, so it can act as the person on its own socket, as
@@ -522,5 +555,9 @@ Within that limit:
 - `packages/client/src/spade-person-only.test.ts`: route parity with Spade's guarded handlers.
 - `apps/web/src/features/spade/spade-transport.test.ts`: every person-only route goes through
   the daemon in the desktop app.
+- `apps/daemon/src/account-access/app-standing.test.ts`: stale and reused tags, connection
+  nonces, the batch limit, and enrollment only with the backend's word on a recent sign-in.
+- `apps/desktop/src/main/app-standing.test.ts`: possession against the pin, batches, rewrites
+  that aren't sign-ins, durable revocation after an enrollment in flight.
 - `packages/account-grant/src/person-statement.test.ts`, `apps/desktop/src/main/standing-key.test.ts`,
   `app-standing.test.ts` (desktop), `app-standing-gate.test.ts`, `apps/web/src/boot/app-standing.test.ts`.
