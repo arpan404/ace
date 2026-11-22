@@ -159,6 +159,24 @@ describe("Inline git blame", () => {
     expect(blameCalls).toHaveLength(0);
   });
 
+  test("a file git has no history for says it is not committed yet", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    const { buffer } = makeFakeBuffer("src/app.ts");
+    const statusStore = createStatusStore();
+    statusStore.report("g1", statusAt(3));
+
+    render(
+      <ClientProvider client={client}>
+        <BlameProbe enabled buffer={buffer} head={headSha} statusStore={statusStore} />
+      </ClientProvider>,
+    );
+
+    expect(await screen.findByText("You · not committed yet")).toBeTruthy();
+  });
+
   test("shows committed, uncommitted, and agent lines on the caret line, caches across keystrokes, and recomputes on save or HEAD change", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitBlame(threadId, "src/app.ts", {

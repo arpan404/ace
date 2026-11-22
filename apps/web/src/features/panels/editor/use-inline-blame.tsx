@@ -198,6 +198,11 @@ export function useInlineBlame(input: {
           if (!settle()) return;
           for (const commit of result.commits) entry.commits.set(commit.sha, commit);
           for (const item of result.lines) entry.lines.set(item.line, item.sha);
+          // A line git has no history for (an untracked file, past the end on disk) is not
+          // committed yet; a capped read proves nothing about the lines it left out.
+          if (!result.capped)
+            for (let line = chunk.startLine; line <= chunk.endLine; line++)
+              if (!entry.lines.has(line)) entry.lines.set(line, null);
           notifyCache();
         },
         () => {
