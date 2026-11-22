@@ -73,11 +73,9 @@ export function GroupView(props: {
       data-group-id={group.id}
       data-focused={props.focused ? "" : undefined}
       data-folded={props.folded ? "" : undefined}
-      className={cn(
-        "flex min-h-0 min-w-0 flex-col bg-background",
-        props.folded ? "flex-none" : "flex-1",
-        sceneThrough,
-      )}
+      // Its wrapper in the split sets its height (a folded pane's is its strip's); across, it
+      // always fills.
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col bg-background", sceneThrough)}
       onFocusCapture={actions.focus}
       onPointerDownCapture={actions.focus}
     >

@@ -261,6 +261,9 @@ test("stacked panes without room open the focused one and fold the rest to their
   editorSize(500, 600);
   await mountEditor(fourStacked());
   expect(open()).toEqual([false, true, false, false]);
+  // The open pane takes all the room the strips leave: its share is the whole, theirs none.
+  const slots = [1, 2, 3, 4].map((n) => region(n).parentElement?.style.flexGrow);
+  expect(slots).toEqual(["0", "1", "0", "0"]);
   // Every pane is still on screen, at least as its strip.
   expect([1, 2, 3, 4].map((n) => tabNames(n)[0])).toEqual(["g1.ts", "g2.ts", "g3.ts", "g4.ts"]);
 });
