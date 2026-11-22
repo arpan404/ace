@@ -1,5 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { spadeExchange, type SpadeExchange } from "@ace/client/spade-http";
+import { spadePersonOnlyRoute } from "@ace/client/spade-person-only";
+import { spadeRefusal } from "@ace/ui-core/spade-chat";
 import { SpadeDaemonLive, type SpadeLiveEnd, type SpadeLiveSink } from "@ace/client/spade-live";
 import { isStandingRefusal, withStanding } from "@/boot/person-standing.ts";
 import { desktopSpade, type DesktopSpade, type DirectAnswer } from "./desktop-spade.ts";
@@ -32,18 +34,19 @@ export interface TransportDeps {
 }
 
 /**
- * A change only the person may make (ADR 0163 amendment 2, ADR 0187): raising how a bot decides,
- * and accepting a bot moving here. Spade takes it only with the daemon's stamp, so it never goes
- * the desktop's direct way.
+ * A change only the person may make (ADR 0163 amendment 2, ADR 0171 amendment 7, ADR 0187):
+ * raising how a bot decides, turning a Permission on, loosening its sandbox, network, grants or
+ * apps, accepting a bot moving here. Spade takes it only with the daemon's stamp, so it never
+ * goes the desktop's direct way. The daemon stamps from the same list.
  */
 export function spadePersonOnly(method: string, path: string): boolean {
-  if (method !== "PUT") return false;
-  const bare = path.split("?")[0] ?? "";
-  return (
-    bare === "/v1/security/autonomy" ||
-    /^\/v1\/agents\/[^/]+\/security\/autonomy$/.test(bare) ||
-    /^\/v1\/moves\/[^/]+\/accept$/.test(bare)
-  );
+  return spadePersonOnlyRoute(method, path) !== undefined;
+}
+
+/** Spade, asked directly, refused a change for want of the person's stamp. */
+function refusedUnstamped(reply: SpadeReply): boolean {
+  if (reply.kind !== "response" || reply.status !== 403 || !("text" in reply.body)) return false;
+  return isStandingRefusal(spadeRefusal(reply.status, reply.body.text));
 }
 
 /**
@@ -104,7 +107,9 @@ export class SpadeTransport {
       (await this.path()) === "direct"
     ) {
       const reply = await this.direct(exchange, options.signal);
-      if (reply) return reply;
+      // A change Spade wants the person's stamp on that this list doesn't name yet goes again
+      // the daemon's way, which stamps it: it was refused, so nothing was made twice.
+      if (reply && !refusedUnstamped(reply)) return reply;
     }
     const answer = await withStanding(
       this.client,
