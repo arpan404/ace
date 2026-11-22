@@ -28,6 +28,8 @@ export interface EngineOptions {
    * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.
    */
   cursorReconcileRetryMs?: readonly number[];
+  /** Schedules the tries of a reconcile's failed-turn write (cursor-reconcile.ts); the clock's by default. */
+  cursorFailureTimer?: (run: () => void, ms: number) => () => void;
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
   /**
    * Settles once provider CLIs have been read. Restart recovery waits for it, so whether an

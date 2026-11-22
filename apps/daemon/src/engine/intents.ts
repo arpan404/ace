@@ -238,7 +238,9 @@ export class IntentStore {
       `SELECT ${columns},payload FROM intents WHERE thread_id=? AND uncertain=1 AND acknowledged=0 AND kind IN (${deliveryKinds}) ORDER BY id LIMIT 16`,
     )
       .all(id)
-      .map((row) => ({ ...header(row), command: Command.parse(JSON.parse(String(row.payload))) }));
+      .map((row) =>
+        Object.assign(header(row), { command: Command.parse(JSON.parse(String(row.payload))) }),
+      );
   }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(

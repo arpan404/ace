@@ -38,7 +38,7 @@ import { ProviderKind, ThreadId } from "@ace/protocol";
 import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
-import { CursorReconciles } from "./cursor-reconcile.ts";
+import { CursorReconciles, reconcileOptions } from "./cursor-reconcile.ts";
 import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
@@ -128,11 +128,11 @@ export class Engine {
       open: (actor) => this.sessions.openToReconcile(actor),
       close: (actor) => this.sessions.close(actor, "idle"),
       wake: (id) => this.wake(id),
-      ...(this.reconcileRetryMs ? { retryMs: this.reconcileRetryMs } : {}),
+      ...this.reconcileOptions,
       freshSession: (id, error) => this.transitions.startFreshSession(id, error),
     }),
   );
-  private reconcileRetryMs: readonly number[] | undefined;
+  private reconcileOptions: ReturnType<typeof reconcileOptions> = {};
   /** The idle sweep of Cursor threads' settled frames: a bounded batch every 30 s (ADR 0170). */
   private cancelSweep: (() => void) | undefined;
   private sweep = () => {
@@ -204,7 +204,7 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
-    this.reconcileRetryMs = options.cursorReconcileRetryMs;
+    this.reconcileOptions = reconcileOptions(options);
     this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
     // Without the check nothing is proven gone: a send in doubt is never sent again by itself.
     if (options.cursorPreviousProcessesGone)

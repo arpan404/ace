@@ -39,6 +39,18 @@ export interface ReconcileDependencies {
   freshSession?(id: ThreadId, error: unknown): boolean;
   /** Waits between opens of a busy store; the turn shows working meanwhile. */
   retryMs?: readonly number[];
+  /** Schedules the tries of a failed turn's write; the clock's timer by default. */
+  failureTimer?: (run: () => void, ms: number) => () => void;
+}
+/** What of the engine's options a reconcile takes. */
+export function reconcileOptions(options: {
+  cursorReconcileRetryMs?: readonly number[];
+  cursorFailureTimer?: (run: () => void, ms: number) => () => void;
+}): Pick<ReconcileDependencies, "retryMs" | "failureTimer"> {
+  return {
+    ...(options.cursorReconcileRetryMs ? { retryMs: options.cursorReconcileRetryMs } : {}),
+    ...(options.cursorFailureTimer ? { failureTimer: options.cursorFailureTimer } : {}),
+  };
 }
 /** About 12 s in all, doubling from a tenth of a second. */
 export const busyRetryMs: readonly number[] = [100, 200, 400, 800, 1600, 3200, 6000];
@@ -263,14 +275,20 @@ export class CursorReconciles {
    * lanes stay shut and its queue held meanwhile; a flush doesn't wait on it.
    */
   private retry(id: ThreadId, waits: Generator<number>): void {
+    // A closed engine schedules nothing, however late its last reconcile ends.
+    if (this.closed) return;
     const deps = this.dependencies();
     const wait = waits.next().value ?? 60_000;
-    const cancel = deps.clock.setTimer(() => {
+    const schedule = deps.failureTimer ?? ((run, ms) => deps.clock.setTimer(run, ms));
+    const cancel = schedule(() => {
       this.pending.delete(cancel);
       if (this.closed) return;
       try {
         endFailed(this.dependencies(), id);
-      } catch {
+      } catch (unwritten) {
+        // Each failure is reported as the first was, so a full disk is heard as one (ADR 0176)
+        // even when the first try met a busy store.
+        this.report(new FailureUnwritten(undefined, unwritten));
         this.retry(id, waits);
         return;
       }

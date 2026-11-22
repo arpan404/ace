@@ -10,6 +10,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command, ThreadId } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
 import { sessionStoreBusy } from "@ace/provider-kit/open-error";
+import { isDiskFull } from "../sqlite-failure.ts";
 
 const deliver = (context: SessionContext, value: CursorEnvelope, seq: number) => {
   const payload = new ProviderPayload(JSON.stringify(value));
@@ -62,8 +63,13 @@ async function crashAt(
     noAdmission?: boolean;
     /** The re-sent message never reaches Cursor: the host attempts it and nothing follows. */
     resendStalls?: boolean;
-    /** Once the busy opens run out, the disk is full for `forMs`, then clears. */
-    fullAfterBusy?: { forMs: number };
+    /**
+     * Once the busy opens run out, from the reconcile's own write of the failed turn on, each of
+     * the engine's transactions fails with the code this gives (none: it goes through).
+     */
+    failAfterBusy?: () => string | undefined;
+    /** The engine closes while the reconcile waits on a busy store. */
+    closeWhileBusy?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -135,25 +141,34 @@ async function crashAt(
       reading = false;
     }
   };
-  if (host.fullAfterBusy) {
+  if (host.failAfterBusy) {
     const atomic = store.atomic.bind(store);
-    // From the reconcile's own write of the failed turn on (the session's open failure writes
-    // first), every transaction finds the disk full until it clears.
+    const fails = host.failAfterBusy;
+    // The session's own open failure writes first; the reconcile's write comes after it.
     let skip = -1;
-    let clearsAt = 0;
-    const fullFor = host.fullAfterBusy.forMs;
     diskFull = () => (skip = 1);
     store.atomic = ((run: Parameters<typeof atomic>[0]) => {
       if (skip > 0) skip--;
-      else if (skip === 0) {
-        skip = -1;
-        clearsAt = Date.now() + fullFor;
+      else if (skip === 0 && !reading) {
+        const code = fails();
+        if (code)
+          throw Object.assign(
+            new Error(code === "SQLITE_FULL" ? "database or disk is full" : "database is locked"),
+            { code },
+          );
       }
-      if (!reading && Date.now() < clearsAt)
-        throw Object.assign(new Error("database or disk is full"), { code: "SQLITE_FULL" });
       return atomic(run);
     }) as typeof store.atomic;
   }
+  /** The waits the failed turn's write was scheduled on, and running the next one. */
+  const failureTimers: { ms: number; run: () => void; cancelled: boolean }[] = [];
+  const failureTimer = (run: () => void, ms: number) => {
+    const timer = { ms, run, cancelled: false };
+    failureTimers.push(timer);
+    return () => (timer.cancelled = true);
+  };
+  const errors: unknown[] = [];
+  let closing: Promise<void> | undefined;
   const registry = new AdapterRegistry();
   const opened: SessionContext["resume"][] = [];
   const sent: string[] = [];
@@ -167,7 +182,12 @@ async function crashAt(
         opened.push(context.resume);
         if (openFails) throw new Error("Cursor SDK host could not start");
         if (busy-- > 0) {
-          if (host.fullAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
+          if (host.failAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
+          if (host.closeWhileBusy && !closing) {
+            diskFull();
+            // A close that meets the full disk itself is not what this checks.
+            closing = engine.close().catch(() => {});
+          }
           whileBusy.push(store.getThread(threadId)?.status.state);
           if (host.resumeWhileBusy) pressResume();
           // As the Cursor adapter marks it (store-fence.ts).
@@ -259,6 +279,8 @@ async function crashAt(
     registry,
     selectInstance: () => "account-a",
     ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
+    cursorFailureTimer: failureTimer,
+    onError: (error) => errors.push(error),
     // Whether the last run's process groups are proven gone (by default they are).
     cursorPreviousProcessesGone: async () => {
       if (!host.runAppearsDuringProof) return host.verified ?? true;
@@ -284,7 +306,11 @@ async function crashAt(
     );
     if (!accepted.ok) throw new Error(`Resume refused: ${accepted.error}`);
   };
-  await engine.flush();
+  if (host.closeWhileBusy) {
+    // Until the closed engine's reconcile has given up on its write.
+    await expect.poll(() => errors.length, { timeout: 4_000 }).toBeGreaterThan(0);
+    await closing;
+  } else await engine.flush();
   const held = read(() => engine.queue(threadId));
   const runs = read(() =>
     store
@@ -327,13 +353,23 @@ async function crashAt(
           .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : [])),
       ),
     queueAfter: () => read(() => engine.queue(threadId)),
+    failureTimers,
+    errors,
+    /** Runs the next scheduled try of the failed turn's write; its wait. */
+    nextFailureTry() {
+      const timer = failureTimers.find((pending) => !pending.cancelled);
+      if (!timer) throw new Error("No try of the failed turn's write is scheduled");
+      timer.cancelled = true;
+      timer.run();
+      return timer.ms;
+    },
     whileBusy,
     opened,
     sent,
     userTexts,
     items: read(() => store.readItems(threadId, store.headSeq() + 1, 200).items),
     async [Symbol.asyncDispose]() {
-      await engine.close();
+      await (host.closeWhileBusy ? engine.close().catch(() => {}) : engine.close());
       store.close();
       await rm(root, { recursive: true, force: true });
     },
@@ -635,18 +671,66 @@ it("a Resume pressed while the reconcile waits on a busy store leaves one reconc
   expect(crash.statusAfter()).toBe("done");
 });
 
-it("a reconcile whose failure can't be written while the disk is full writes it once space is back", async () => {
+it("a failed turn that can't be written while the disk stays full is tried again on a capped backoff until it lands", async () => {
+  let full = true;
   await using crash = await crashAt("admitted", {
     resume: false,
     busyOpens: 100,
     retryMs: [10, 10],
-    // Well past the busy-store backoff (20 ms in all here).
-    fullAfterBusy: { forMs: 300 },
+    failAfterBusy: () => (full ? "SQLITE_FULL" : undefined),
   });
-  await expect.poll(() => crash.runsAfter(), { timeout: 4_000 }).toEqual(["failed"]);
+  // The engine's flush came back with the disk still full: it doesn't wait on the retries.
+  expect(full).toBe(true);
+  expect(crash.runsAfter()).toEqual([]);
+  // Well past 60 s of waits, every try fails and the next is scheduled, never more than 60 s on.
+  const waits: number[] = [];
+  for (let tries = 0; tries < 12; tries++) waits.push(crash.nextFailureTry());
+  expect(waits).toEqual([10, 10, 20, 40, 80, 160, 320, 640, 1280, 2560, 5120, 10240]);
+  for (let tries = 0; tries < 6; tries++) waits.push(crash.nextFailureTry());
+  expect(waits.slice(-4)).toEqual([60_000, 60_000, 60_000, 60_000]);
+  expect(crash.runsAfter()).toEqual([]);
+  expect(crash.queueAfter()).toMatchObject({ paused: true, reason: "restart" });
+  // Space comes back: the next try writes it, and nothing more is scheduled.
+  full = false;
+  crash.nextFailureTry();
+  expect(crash.runsAfter()).toEqual(["failed"]);
   expect(crash.statusAfter()).not.toBe("working");
   expect(crash.queueAfter()).toMatchObject({ paused: true, reason: "restart" });
+  expect(crash.failureTimers.filter((timer) => !timer.cancelled)).toEqual([]);
   expect(crash.sent).toEqual([]);
+});
+
+it("a retry that meets a full disk after a busy one reports the full disk, as the first failure would", async () => {
+  let tries = 0;
+  await using crash = await crashAt("admitted", {
+    resume: false,
+    busyOpens: 100,
+    retryMs: [10, 10],
+    // The reconcile's write and its first rewrite meet a busy store; the first retry, a full disk.
+    failAfterBusy: () => {
+      const n = tries++;
+      return n < 2 ? "SQLITE_BUSY" : n < 3 ? "SQLITE_FULL" : undefined;
+    },
+  });
+  // What the reconcile itself reported was the busy store only.
+  expect(crash.errors.some((error) => isDiskFull(error))).toBe(false);
+  crash.nextFailureTry();
+  crash.nextFailureTry();
+  expect(crash.runsAfter()).toEqual(["failed"]);
+  // Each failed write reached the engine's error report, the daemon's full-disk path.
+  expect(crash.errors.some((error) => isDiskFull(error))).toBe(true);
+});
+
+it("a reconcile that fails its write after the engine closed schedules nothing", async () => {
+  await using crash = await crashAt("admitted", {
+    resume: false,
+    busyOpens: 100,
+    retryMs: [10, 10],
+    failAfterBusy: () => "SQLITE_FULL",
+    closeWhileBusy: true,
+  });
+  expect(crash.errors.length).toBeGreaterThan(0);
+  expect(crash.failureTimers).toEqual([]);
 });
 
 it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {
