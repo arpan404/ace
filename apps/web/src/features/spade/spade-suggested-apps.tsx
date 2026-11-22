@@ -142,6 +142,8 @@ function SuggestedApp(props: {
           <Button
             size="sm"
             variant="ghost"
+            // The word, not its pill, on the rows' right edge.
+            className="-mr-2.5"
             aria-label={`Use ${entry.name}`}
             onClick={() => props.connected && void give(props.connected)}
           >
@@ -151,6 +153,8 @@ function SuggestedApp(props: {
           <Button
             size="sm"
             variant="ghost"
+            // The word, not its pill, on the rows' right edge.
+            className="-mr-2.5"
             aria-label={`Connect ${entry.name}`}
             disabled={busy}
             onClick={() => void flow.start({ catalogue: entry.id })}
@@ -158,7 +162,7 @@ function SuggestedApp(props: {
             Connect
           </Button>
         ) : entry.ready === "key" && key === undefined ? (
-          <Button size="sm" variant="ghost" onClick={() => setKey("")}>
+          <Button size="sm" variant="ghost" className="-mr-2.5" onClick={() => setKey("")}>
             Add a key
           </Button>
         ) : null}

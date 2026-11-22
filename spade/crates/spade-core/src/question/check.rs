@@ -295,12 +295,15 @@ fn check_one(kind: &Kind, answer: &Value) -> Result<Value, String> {
         Kind::Text { .. } => text(answer).map(Value::String),
         Kind::Connect(_) => Err(super::connect::ANSWERED_BY_CONNECTING.to_owned()),
         Kind::Suggest(_) => Err(super::suggest::ANSWERED_BY_INSTALLING.to_owned()),
-        Kind::Choice { options, other } => {
-            let picked = answer.as_str().ok_or("the answer is one option's label.")?;
+        // The card always offers the person's own words ("Something else…"), whether or not
+        // the bot set `other`: their own text is an answer, kept as they wrote it.
+        Kind::Choice { options, .. } => {
+            let picked = answer
+                .as_str()
+                .ok_or("the answer is one option's label, or their own words.")?;
             match label(options, picked) {
                 Some(label) => Ok(Value::String(label)),
-                None if *other => text(answer).map(Value::String),
-                None => Err(format!("\"{}\" is not one of its options.", picked.trim())),
+                None => text(answer).map(Value::String),
             }
         }
         Kind::Choices {
@@ -323,17 +326,12 @@ fn check_one(kind: &Kind, answer: &Value) -> Result<Value, String> {
                         return Err(format!("\"{}\" is picked twice.", options[at].label));
                     }
                     Some(at) => chosen.push(at),
-                    None if *other && own.is_none() => own = Some(text(pick)?),
-                    None if *other => return Err("only one answer of your own.".to_owned()),
-                    None => {
-                        return Err(format!(
-                            "\"{}\" is not one of its options.",
-                            text_picked.trim()
-                        ));
-                    }
+                    None if own.is_none() => own = Some(text(pick)?),
+                    None => return Err("only one answer of your own.".to_owned()),
                 }
             }
-            let most = options.len() + usize::from(*other);
+            // Their own words count as one more pick, `other` set or not.
+            let most = options.len() + usize::from(*other || own.is_some());
             let (least, most) = (min.unwrap_or(1), max.unwrap_or(most));
             let picks = chosen.len() + usize::from(own.is_some());
             if picks < least || picks > most {

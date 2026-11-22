@@ -209,8 +209,16 @@ fn each_kinds_answer_is_checked_and_refusals_name_the_question() {
         answers[at] = answer;
         check_answers(&card, &answers).refusal()
     };
-    let unknown = with(0, json!("Middle"));
-    assert!(unknown.starts_with("Question 1:") && unknown.contains("not one of its options"));
+    // Their own words are an answer even where the bot didn't set `other`, kept as written.
+    let own = json!(["Middle", ["Bag", "Lounge"], 3.0, true, "2026-02-28"]);
+    assert_eq!(
+        Value::Array(check_answers(&card, own.as_array().sure()).sure()),
+        json!(["Middle", ["Bag", "Lounge"], 3, true, "2026-02-28"]),
+        "own words stand as the answer, and count as one more pick, last"
+    );
+    assert!(with(1, json!(["Lounge", "Spa"])).contains("only one answer of your own"));
+    let unknown = with(0, json!(3));
+    assert!(unknown.starts_with("Question 1:") && unknown.contains("their own words"));
     let too_many = with(1, json!(["Bag", "Meal", "Wifi"]));
     assert!(
         too_many.starts_with("Question 2:") && too_many.contains("pick 1 to 2"),
