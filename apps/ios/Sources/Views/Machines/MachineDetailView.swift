@@ -11,6 +11,7 @@ struct MachineDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var enteringCode = false
     @State private var code = ""
+    @State private var pairingAgain: String?
 
     private var client: ClientModel? { inbox.client(hostId) }
 
@@ -28,6 +29,7 @@ struct MachineDetailView: View {
             MachineManageSection(inbox: inbox, machines: machines, hostId: hostId, name: facts.name) { dismiss() }
         }
         .insetGroupedList()
+        .pairAgainDialog($pairingAgain, machines: machines, inbox: inbox)
         .navigationTitle(facts.name).navigationBarTitleDisplayMode(.inline)
         .task(id: hostId) { client?.refreshMachine() }
         .refreshable { client?.refreshMachine() }
@@ -68,6 +70,9 @@ struct MachineDetailView: View {
             }
             if let update = client?.appUpdate, update.known { MachineAppUpdateRow(update: update) }
             problem(facts)
+            if facts.withoutStanding, machines != nil {
+                StandingMissingRow(name: facts.name) { pairingAgain = hostId }
+            }
             if let client, client.admission?.known == true { MachineAdmissionRow(model: client) }
         }
         .insetRowBackground()

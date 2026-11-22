@@ -104,6 +104,14 @@ import Foundation
         #expect(model.thread?.id == "b")
         #expect(model.thread?.items.isEmpty == true)
     }
+    @Test func aPairedMachineSaysWhetherItTookThisPhonesStanding() throws {
+        let model = ClientModel(now: { 0 })
+        #expect(model.standing == nil)
+        model.receive(try frame([["type": "standing", "state": "missing"]]))
+        #expect(model.standing == .missing)
+        model.receive(try frame([["type": "standing", "state": "proven"]]))
+        #expect(model.standing == .proven)
+    }
     @Test func corruptUpdatesLeaveTheLastVisibleFactsIntact() throws {
         let model = ClientModel(now: { 0 })
         model.open("a")

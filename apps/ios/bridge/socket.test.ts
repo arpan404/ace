@@ -29,6 +29,26 @@ test("a native close with only a code reaches the client without a reason", () =
   expect(socket.closes).toEqual([[4003, undefined]]);
 });
 
+test("a paired socket hears only Swift's verdict on its own standing proof", () => {
+  let id = "";
+  native.socket = (socket, action) => {
+    if (action === "open") id = socket;
+  };
+  const heard: string[] = [];
+  const messages: string[] = [];
+  const transport = nativeTransport(undefined, undefined, (standing) => heard.push(standing));
+  transport.open({ open() {}, message: (text) => messages.push(text), close() {} });
+  socketEvent(id, "standing", "proven");
+  socketEvent(id, "standing", "missing");
+  // Anything else Swift could say is no verdict; the SDK never sees any of it as a message.
+  socketEvent(id, "standing", "person");
+  expect(heard).toEqual(["proven", "missing"]);
+  expect(messages).toEqual([]);
+  socketEvent(id, "close", "1006");
+  socketEvent(id, "standing", "proven");
+  expect(heard).toEqual(["proven", "missing"]);
+});
+
 test("a media connection opens natively at its address, sends its hello as bytes and hears text", () => {
   const asked: [string, string, string][] = [];
   native.socket = (id, action, value) => asked.push([id, action, value]);

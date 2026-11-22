@@ -82,7 +82,7 @@ async function access(json: string): Promise<AccessResult> {
     },
     secrets,
   );
-  return performAccess({ http: nativeHttp, directory, identity: readIdentity }, JSON.parse(json));
+  return performAccess({ directory, identity: readIdentity }, JSON.parse(json));
 }
 
 /** Entry point for pairing and machine-directory runtimes; the result ends the VM's work. */
