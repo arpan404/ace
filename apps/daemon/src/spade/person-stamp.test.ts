@@ -209,3 +209,44 @@ test("a change that may loosen what a bot may do is stamped over the bytes Spade
   ] as const)
     expect(personOnlyWrite(method, path, json({})), `${method} ${path}`).toBeUndefined();
 });
+
+test("starting a ChatGPT sign-in, signing an account out and removing one are the person's", () => {
+  const cases: [string, string, Buffer | undefined, unknown][] = [
+    [
+      "POST",
+      "/v1/accounts/chatgpt",
+      json({ method: "browser", terms_read: true }),
+      { target: "accounts", value: "chatgpt_sign_in:browser:" },
+    ],
+    [
+      "POST",
+      "/v1/accounts/chatgpt",
+      json({ method: "device", terms_read: true, account: "chatgpt-2" }),
+      { target: "accounts", value: "chatgpt_sign_in:device:chatgpt-2" },
+    ],
+    // A body Spade won't take is never stamped, so never forwarded.
+    ["POST", "/v1/accounts/chatgpt", json({ method: "carrier-pigeon" }), undefined],
+    ["POST", "/v1/accounts/chatgpt", json({ method: "browser", account: "../x" }), undefined],
+    [
+      "POST",
+      "/v1/endpoints/chatgpt/sign-out",
+      undefined,
+      { target: "account:chatgpt", value: "sign_out" },
+    ],
+    // Removing a key account needs no stamp: Spade decides, so it goes either way.
+    [
+      "DELETE",
+      "/v1/endpoints/chatgpt-2",
+      undefined,
+      { target: "account:chatgpt-2", value: "remove", optional: true },
+    ],
+    // Reading, renaming and the sign-in's own progress stay the window's.
+    ["GET", "/v1/endpoints/chatgpt", undefined, undefined],
+    ["PATCH", "/v1/endpoints/chatgpt", json({ name: "Work" }), undefined],
+    ["DELETE", "/v1/accounts/chatgpt/flow-1", undefined, undefined],
+  ];
+  for (const [method, path, body, expected] of cases)
+    expect(personOnlyWrite(method, path, body), `${method} ${path}`).toEqual(expected);
+  expect(personOnlyRoute("POST", "/v1/accounts/chatgpt")).toBe("sign-in");
+  expect(personOnlyRoute("DELETE", "/v1/endpoints/openai")).toBe("remove-account:openai");
+});

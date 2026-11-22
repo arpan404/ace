@@ -340,7 +340,10 @@ carries the key.
 
 and the answer has `sign_in: ["chatgpt"]`, the sign-ins this Spade can run. The account id is the
 reference's first part (`work/gpt-5.5`, `chatgpt-2/gpt-5.5`): unique across providers and never
-changed; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A second account from a
+changed; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
+takes only a new name: any other change is refused (`400`), so its token never goes anywhere but
+where it was issued for. The model client also sends a sign-in's token only to the ChatGPT
+backend's origin, whatever address an account says. A second account from a
 preset is `POST /v1/endpoints {preset, name}` as before; its id is a slug of the name.
 
 **Signing in to ChatGPT.** `POST /v1/accounts/chatgpt {method, terms_read, account?}` starts a
@@ -353,8 +356,20 @@ signed-out `chatgpt` account to sign back in. It answers `201 {flow}`, where `fl
 `{id, method, state, url, user_code, endpoint, error}`; `409` while the callback port is taken
 (use `device`). `GET /v1/accounts/chatgpt/{flow}` reads it again: `state` is `waiting`, then
 `done` (with `endpoint`, the account as `GET /v1/models` lists it), `failed` (with `error`, one
-line) or `cancelled`. `DELETE /v1/accounts/chatgpt/{flow}` cancels a waiting sign-in. A sign-in
-waits at most 15 minutes. Signing in with a ChatGPT account already added renews that account.
+line) or `cancelled`; once it ends, `url` and `user_code` are `null`. `DELETE
+/v1/accounts/chatgpt/{flow}` cancels a waiting sign-in; once its code is traded it is being kept
+and can no longer be cancelled. One sign-in runs at a time: starting one cancels a waiting one. A
+sign-in waits at most 15 minutes, or until the device code ends if the server says sooner; a
+`slow_down` answer adds five seconds to the polling interval. Signing in with a ChatGPT account
+already added renews that account. The ID token decides the account only once its `iss` is
+OpenAI's sign-in, its `aud` is this client and it hasn't ended, and the access token may not name
+another account; otherwise the sign-in fails and nothing is kept.
+
+**The person's say.** Starting a sign-in, signing an account out and removing a `chatgpt` account
+need the person's stamp (`x-ace-person`, ADR 0171 amendment 7), which ace's daemon makes only for
+a window that proved it is theirs; without it Spade answers `403`. The stamp's target and value:
+`accounts` and `chatgpt_sign_in:<method>:<account or empty>`; `account:<id>` and `sign_out`;
+`account:<id>` and `remove`. Removing a key account needs none.
 
 `POST /v1/endpoints/{id}/sign-out` deletes a `chatgpt` account's tokens from the keychain and
 answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay. `DELETE
@@ -362,7 +377,11 @@ answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay.
 
 A ChatGPT account's calls go to `https://chatgpt.com/backend-api/codex/responses` (streamed,
 `store: false`) with its access token and `chatgpt-account-id`; its live models are
-`GET …/codex/models`. The access token is refreshed when it has under five minutes left. A refresh
+`GET …/codex/models`. The access token is refreshed when it has under five minutes left. A `401`
+before anything streamed refreshes the token once (however many calls report the same token) and
+sends the call once more on the same account. Failures on a signed-in account read only as an
+allowlisted line (the usage refusal, `the ChatGPT backend refused the call (<status>)`, or that it
+could not be reached), never anything the backend sent back. A refresh
 the server refuses signs the account out ("This ChatGPT account is signed out. Sign in again in
 Settings › Spade › Models."). A usage limit ends the call with one line naming the reset time
 when the server gives one.

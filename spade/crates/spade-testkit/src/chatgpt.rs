@@ -3,7 +3,7 @@
 //! one ChatGPT account. It records what it was asked, and can refuse a refresh token.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::extract::State;
@@ -36,6 +36,17 @@ struct Seen {
     traded: Mutex<Vec<(String, String)>>,
     exp: AtomicI64,
     account: Mutex<(String, String)>,
+    issuer: Mutex<String>,
+    /// Milliseconds each refresh waits before it answers.
+    refresh_hold_ms: AtomicU64,
+    /// The device code's next poll is answered `slow_down`.
+    slow_down: AtomicBool,
+    /// The device code is never approved.
+    never: AtomicBool,
+    /// `expires_in` sent with the device code, when set.
+    device_lasts: AtomicU64,
+    /// Sign-ins' access tokens name this account instead.
+    access_account: Mutex<Option<String>>,
 }
 
 /// The fake sign-in server.
@@ -63,6 +74,7 @@ impl FakeSignIn {
             .with_state(seen.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let issuer = format!("http://{}", listener.local_addr()?);
+        *seen.issuer.lock().unwrap_or_else(|p| p.into_inner()) = issuer.clone();
         tokio::spawn(async move { axum::serve(listener, app).await });
         Ok(Self {
             issuer,
@@ -109,6 +121,32 @@ impl FakeSignIn {
             .clone()
     }
 
+    /// Each refresh waits this long before it answers.
+    pub fn hold_refreshes(&self, hold: std::time::Duration) {
+        let ms = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
+        self.seen.refresh_hold_ms.store(ms, Ordering::SeqCst);
+    }
+
+    /// The device code's next poll is told to slow down.
+    pub fn slow_down_once(&self) {
+        self.seen.slow_down.store(true, Ordering::SeqCst);
+    }
+
+    /// The device code is never approved, and lasts `seconds` as the server says.
+    pub fn device_never_approved(&self, seconds: u64) {
+        self.seen.never.store(true, Ordering::SeqCst);
+        self.seen.device_lasts.store(seconds, Ordering::SeqCst);
+    }
+
+    /// Sign-ins' access tokens name `account` from now on, whatever the ID token says.
+    pub fn access_names(&self, account: &str) {
+        *self
+            .seen
+            .access_account
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(account.to_owned());
+    }
+
     /// Polls of the device code so far.
     pub fn polls(&self) -> usize {
         self.seen.polls.load(Ordering::SeqCst)
@@ -126,12 +164,27 @@ fn tokens(seen: &Seen, n: usize) -> Value {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .clone();
+    let issuer = seen
+        .issuer
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+    let access_account = seen
+        .access_account
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone()
+        .unwrap_or_else(|| account.clone());
     json!({
         "id_token": unsigned(&json!({
+            "iss": issuer, "aud": "client-1", "exp": 4_000_000_000_i64,
             "email": email,
             AUTH: { "chatgpt_account_id": account, "chatgpt_plan_type": "plus" }
         })),
-        "access_token": unsigned(&json!({ "n": n, "exp": seen.exp.load(Ordering::SeqCst) })),
+        "access_token": unsigned(&json!({
+            "n": n, "exp": seen.exp.load(Ordering::SeqCst),
+            AUTH: { "chatgpt_account_id": access_account }
+        })),
         "refresh_token": format!("refresh-{n}"),
     })
 }
@@ -173,6 +226,10 @@ async fn token(State(seen): State<Arc<Seen>>, headers: HeaderMap, body: String) 
         )
             .into_response();
     }
+    let hold = seen.refresh_hold_ms.load(Ordering::SeqCst);
+    if hold > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
+    }
     let mut refreshes = seen.refreshes.lock().unwrap_or_else(|p| p.into_inner());
     refreshes.push(refresh);
     let n = 100 + refreshes.len();
@@ -203,8 +260,13 @@ fn decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-async fn usercode() -> Json<Value> {
-    Json(json!({ "device_auth_id": "dev-1", "user_code": "ABCD-1234", "interval": "1" }))
+async fn usercode(State(seen): State<Arc<Seen>>) -> Json<Value> {
+    let mut code = json!({ "device_auth_id": "dev-1", "user_code": "ABCD-1234", "interval": "1" });
+    let lasts = seen.device_lasts.load(Ordering::SeqCst);
+    if lasts > 0 {
+        code["expires_in"] = json!(lasts);
+    }
+    Json(code)
 }
 
 async fn device_token(State(seen): State<Arc<Seen>>, Json(asked): Json<Value>) -> Response {
@@ -212,8 +274,15 @@ async fn device_token(State(seen): State<Arc<Seen>>, Json(asked): Json<Value>) -
         return StatusCode::BAD_REQUEST.into_response();
     }
     // The first poll finds the person not done yet.
-    if seen.polls.fetch_add(1, Ordering::SeqCst) == 0 {
+    if seen.polls.fetch_add(1, Ordering::SeqCst) == 0 || seen.never.load(Ordering::SeqCst) {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    if seen.slow_down.swap(false, Ordering::SeqCst) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "slow_down" })),
+        )
+            .into_response();
     }
     Json(json!({
         "authorization_code": "device-code",

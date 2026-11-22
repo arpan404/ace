@@ -1,9 +1,12 @@
 //! `/v1/accounts/chatgpt` and `/v1/endpoints/{id}/sign-out` (ADR 0214; docs/agents.md,
-//! "Providers and accounts"). No route returns a token.
+//! "Providers and accounts"). No route returns a token. Starting a sign-in, signing out and
+//! removing a signed-in account are the person's alone: Spade's bearer token can't tell them
+//! from another process that holds it, so each needs the person's stamp (`x-ace-person`), which
+//! ace's daemon makes only for a window that proved it is theirs (ADR 0171, amendment 7).
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -35,7 +38,38 @@ fn flow_json(state: &AppState, flow: &FlowView) -> Value {
     out
 }
 
-pub(super) async fn start(State(state): State<AppState>, Body(body): Body<Start>) -> Response {
+/// Whether the request carries the person's stamp on `value` for account `target`
+/// (`account:<id>`; `accounts` for a new sign-in). The stamp is used up.
+pub(super) fn person_says(
+    state: &AppState,
+    headers: &HeaderMap,
+    target: &str,
+    value: &str,
+) -> bool {
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|v| v.to_str().ok());
+    let target = if target == "accounts" {
+        target.to_owned()
+    } else {
+        format!("account:{target}")
+    };
+    state.engine.person_says(stamp, &target, value)
+}
+
+pub(super) async fn start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Body(body): Body<Start>,
+) -> Response {
+    let value = format!(
+        "chatgpt_sign_in:{}:{}",
+        body.method,
+        body.account.as_deref().unwrap_or("")
+    );
+    if !person_says(&state, &headers, "accounts", &value) {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
     match state
         .engine
         .start_chatgpt_sign_in(&body.method, body.terms_read, body.account)
@@ -66,7 +100,14 @@ pub(super) async fn cancel(State(state): State<AppState>, Path(flow): Path<Strin
     }
 }
 
-pub(super) async fn sign_out(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub(super) async fn sign_out(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !person_says(&state, &headers, &id, "sign_out") {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
     match state.engine.sign_out(&id).await {
         Ok(view) => {
             off_thread(move || {

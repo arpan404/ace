@@ -53,17 +53,42 @@ export function spadeLooseningRoute(
 const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
 const botPermissions = /^\/v1\/agents\/([^/?#]+)\/security\/permissions$/;
 const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
+const account = /^\/v1\/endpoints\/([^/?#]+)$/;
+const accountSignOut = /^\/v1\/endpoints\/([^/?#]+)\/sign-out$/;
+
+/**
+ * A change to Spade's provider accounts only the person may make (ADR 0214): starting a ChatGPT
+ * sign-in (`sign-in`), signing an account out (`sign-out:<id>`), removing an account
+ * (`remove-account:<id>`; Spade needs the stamp only for a signed-in one).
+ */
+function accountRoute(method: string, bare: string): string | undefined {
+  if (method === "POST" && bare === "/v1/accounts/chatgpt") return "sign-in";
+  const out = method === "POST" ? accountSignOut.exec(bare)?.[1] : undefined;
+  if (out !== undefined) {
+    const id = decoded(out);
+    return id === undefined ? undefined : `sign-out:${id}`;
+  }
+  const removed = method === "DELETE" ? account.exec(bare)?.[1] : undefined;
+  if (removed !== undefined) {
+    const id = decoded(removed);
+    return id === undefined ? undefined : `remove-account:${id}`;
+  }
+  return undefined;
+}
 
 /**
  * The route a change only the person may make goes to, whatever its body: `loosen:<target>`,
  * `machine` (how bots decide), `main-host`, `permissions:<bot or machine>`, `never-apps`,
- * `move:<id>` or a bot's id (how it decides). Undefined for every other request.
+ * `move:<id>`, a bot's id (how it decides), or one of [accountRoute]'s. Undefined for every
+ * other request.
  */
 export function spadePersonOnlyRoute(method: string, path: string): string | undefined {
   const loosening = spadeLooseningRoute(method, path);
   if (loosening) return `loosen:${loosening.target}`;
-  if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
+  const accounts = accountRoute(method, bare);
+  if (accounts) return accounts;
+  if (method !== "PUT") return undefined;
   if (bare === "/v1/security/autonomy") return "machine";
   if (bare === "/v1/main/host") return "main-host";
   if (bare === "/v1/security/permissions") return "permissions:machine";

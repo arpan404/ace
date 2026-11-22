@@ -174,6 +174,8 @@ pub struct DeviceCode {
     pub user_code: String,
     pub url: String,
     pub interval: Duration,
+    /// How long the code lasts, when the server says.
+    pub expires_in: Option<Duration>,
 }
 
 /// Asks for a device code.
@@ -223,11 +225,20 @@ pub async fn device_code(
         })
         .unwrap_or(5)
         .clamp(1, 60);
+    let expires_in = value
+        .get("expires_in")
+        .and_then(|v| {
+            v.as_u64()
+                .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+        })
+        .filter(|s| *s > 0)
+        .map(Duration::from_secs);
     Ok(DeviceCode {
         device_auth_id,
         user_code,
         url: format!("{}/codex/device", config.issuer),
         interval: Duration::from_secs(interval),
+        expires_in,
     })
 }
 
@@ -236,6 +247,8 @@ pub async fn device_code(
 pub enum Poll {
     /// The person hasn't finished yet.
     Waiting,
+    /// Not yet, and the server asks Spade to ask less often.
+    SlowDown,
     /// They did: the code to trade, with the verifier the server made for it.
     Approved { code: String, verifier: String },
 }
@@ -258,15 +271,22 @@ pub async fn poll_device(
             ))
         })?;
     let (status, body) = read(response).await?;
-    // Not finished yet reads as 403 or 404.
+    // Not finished yet reads as 403 or 404, or as the device-grant codes (RFC 8628 §3.5).
     if matches!(status.as_u16(), 403 | 404) {
         return Ok(Poll::Waiting);
     }
     if !status.is_success() {
-        return Err(OauthError::Failed(format!(
-            "OpenAI's sign-in refused the device code ({})",
-            status.as_u16()
-        )));
+        return match error_code(&body).as_deref() {
+            Some("authorization_pending") => Ok(Poll::Waiting),
+            Some("slow_down") => Ok(Poll::SlowDown),
+            Some("expired_token") => Err(OauthError::Failed(
+                "the sign-in code expired; start the sign-in again".to_owned(),
+            )),
+            _ => Err(OauthError::Failed(format!(
+                "OpenAI's sign-in refused the device code ({})",
+                status.as_u16()
+            ))),
+        };
     }
     let value: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let text = |key: &str| value.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -316,10 +336,24 @@ fn error_code(body: &[u8]) -> Option<String> {
     code.as_str().map(str::to_owned)
 }
 
-/// The server's error code, as `: code`, never anything else it sent (it may echo a secret).
+/// The OAuth error codes ever repeated to the person (RFC 6749 §5.2, RFC 8628 §3.5).
+const KNOWN_CODES: [&str; 9] = [
+    "invalid_request",
+    "invalid_client",
+    "invalid_grant",
+    "unauthorized_client",
+    "unsupported_grant_type",
+    "invalid_scope",
+    "access_denied",
+    "expired_token",
+    "server_error",
+];
+
+/// The server's error code, as `: code`, only when it is a known OAuth code: anything else it
+/// sent may echo a secret.
 fn said(body: &[u8]) -> String {
     error_code(body)
-        .filter(|c| c.len() <= 60 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_'))
+        .filter(|c| KNOWN_CODES.contains(&c.as_str()))
         .map(|c| format!(": {c}"))
         .unwrap_or_default()
 }
@@ -331,5 +365,23 @@ fn kind(error: &reqwest::Error) -> &'static str {
         "the connection failed"
     } else {
         "the request failed"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_known_oauth_code_is_repeated_never_anything_the_server_echoed() {
+        assert_eq!(said(br#"{"error":"invalid_grant"}"#), ": invalid_grant");
+        assert_eq!(
+            said(br#"{"error":{"code":"access_denied"}}"#),
+            ": access_denied"
+        );
+        // A short token-like value the server sent back is never repeated.
+        assert_eq!(said(br#"{"error":"rt_9f8e7d6c5b4a"}"#), "");
+        assert_eq!(said(br#"{"code":"refresh-1"}"#), "");
+        assert_eq!(said(b"<html>"), "");
     }
 }

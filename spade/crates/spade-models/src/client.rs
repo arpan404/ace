@@ -4,6 +4,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
+use futures_util::stream::BoxStream;
 use futures_util::{Stream, StreamExt};
 use genai::chat::{
     ChatMessage, ChatOptions, ChatRequest, ChatStreamEvent, ContentPart, MessageContent, Tool,
@@ -42,13 +43,27 @@ pub struct Models {
 pub type BearerFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
 
 /// Finds a signed-in account's access token by account (endpoint) id, refreshing it when it is
-/// about to end. Tokens are never printed.
+/// about to end, and a new one when the backend refused one. A token only ever goes to
+/// `backend`'s origin, whatever address the account says. Tokens are never printed.
 #[derive(Clone)]
-pub struct Bearers(Arc<dyn Fn(String) -> BearerFuture + Send + Sync>);
+pub struct Bearers {
+    backend: String,
+    find: Arc<dyn Fn(String) -> BearerFuture + Send + Sync>,
+    rejected: Arc<dyn Fn(String, String) -> BearerFuture + Send + Sync>,
+}
 
 impl Bearers {
-    pub fn new(find: impl Fn(String) -> BearerFuture + Send + Sync + 'static) -> Self {
-        Self(Arc::new(find))
+    /// `find(account)` and `rejected(account, refused token)`, for calls to `backend` only.
+    pub fn new(
+        backend: impl Into<String>,
+        find: impl Fn(String) -> BearerFuture + Send + Sync + 'static,
+        rejected: impl Fn(String, String) -> BearerFuture + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            backend: backend.into(),
+            find: Arc::new(find),
+            rejected: Arc::new(rejected),
+        }
     }
 }
 
@@ -68,6 +83,8 @@ struct Call {
     options: ChatOptions,
     /// The endpoint answers only streamed requests (a ChatGPT account).
     streamed_only: bool,
+    /// For a signed-in account: it, and the token this call carries.
+    signed: Option<(Endpoint, String)>,
 }
 
 impl Models {
@@ -110,20 +127,47 @@ impl Models {
         *self.bearers.write().unwrap_or_else(|p| p.into_inner()) = Some(bearers);
     }
 
-    /// The access token for a signed-in account, or why there is none.
-    async fn bearer(&self, endpoint: &Endpoint) -> Result<String, ModelError> {
-        let find = self
+    /// Where a signed-in account's token may go, checked against its address: never anywhere
+    /// but the backend it was issued for.
+    fn bearers_for(&self, endpoint: &Endpoint) -> Result<Bearers, ModelError> {
+        let refuse = |message: &str| ModelError::SignIn {
+            endpoint: endpoint.id.clone(),
+            message: message.to_owned(),
+        };
+        let bearers = self
             .bearers
             .read()
             .unwrap_or_else(|p| p.into_inner())
-            .clone();
-        let Some(find) = find else {
-            return Err(ModelError::SignIn {
+            .clone()
+            .ok_or_else(|| refuse("this Spade cannot use sign-in accounts"))?;
+        if !crate::base_url::same_origin(&endpoint.base_url, &bearers.backend) {
+            return Err(refuse(
+                "this account's address is not the ChatGPT backend, so its sign-in is not sent there",
+            ));
+        }
+        Ok(bearers)
+    }
+
+    /// The access token for a signed-in account, or why there is none.
+    async fn bearer(&self, endpoint: &Endpoint) -> Result<String, ModelError> {
+        let bearers = self.bearers_for(endpoint)?;
+        (bearers.find)(endpoint.id.clone())
+            .await
+            .map_err(|message| ModelError::SignIn {
                 endpoint: endpoint.id.clone(),
-                message: "this Spade cannot use sign-in accounts".to_owned(),
-            });
-        };
-        (find.0)(endpoint.id.clone())
+                message,
+            })
+    }
+
+    /// After the backend refused `token`: a new token for the account (refreshed once, however
+    /// many calls report the same refusal).
+    async fn bearer_after_rejection(
+        &self,
+        endpoint: &Endpoint,
+        token: &str,
+    ) -> Result<String, ModelError> {
+        let bearers = self.bearers_for(endpoint)?;
+        (bearers.rejected)(endpoint.id.clone(), token.to_owned())
             .await
             .map_err(|message| ModelError::SignIn {
                 endpoint: endpoint.id.clone(),
@@ -276,9 +320,8 @@ impl Models {
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
         let call = self.call(reference, prompt).await?;
         if call.streamed_only {
-            let reference = call.reference.clone();
-            let stream = self.open_stream(call, prompt, None).await?;
-            return fold(reference, stream).await;
+            let stream = self.signed_stream(call, prompt, None).await?;
+            return fold(reference.to_owned(), stream).await;
         }
         let response = self
             .client
@@ -323,13 +366,12 @@ impl Models {
     {
         let call = self.call(reference, prompt).await?;
         if call.streamed_only {
-            let reference = call.reference.clone();
             let stream = self
-                .open_stream(call, prompt, Some(typed::spec::<T>()?.into()))
+                .signed_stream(call, prompt, Some(typed::spec::<T>()?.into()))
                 .await?;
-            let reply = fold(reference.clone(), stream).await?;
+            let reply = fold(reference.to_owned(), stream).await?;
             return Ok(Generated {
-                value: typed::parse(&reference, &reply.text)
+                value: typed::parse(reference, &reply.text)
                     .map_err(|e| error::charged(e, reply.usage))?,
                 usage: reply.usage,
             });
@@ -358,7 +400,52 @@ impl Models {
         prompt: &Prompt,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
         let call = self.call(reference, prompt).await?;
-        self.open_stream(call, prompt, None).await
+        if call.streamed_only {
+            return self.signed_stream(call, prompt, None).await;
+        }
+        Ok(self.open_stream(call, prompt, None).await?.boxed())
+    }
+
+    /// A signed-in account's stream. A refusal with `401` before anything streamed gets the
+    /// account a new token once (refreshed once, however many calls report it), and the call is
+    /// sent again once on the same account.
+    async fn signed_stream(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+        format: Option<genai::chat::ChatResponseFormat>,
+    ) -> Result<BoxStream<'static, Result<Delta, ModelError>>, ModelError> {
+        let reference = call.reference.clone();
+        let signed = call.signed.clone();
+        match self.peeked(call, prompt, format.clone()).await {
+            Err(error) if error.status() == Some(401) => {
+                let Some((endpoint, token)) = signed else {
+                    return Err(error);
+                };
+                self.bearer_after_rejection(&endpoint, &token).await?;
+                let again = self.call(&reference, prompt).await?;
+                self.peeked(again, prompt, format).await
+            }
+            other => other,
+        }
+    }
+
+    /// A stream whose first item is already read: a refusal before anything streamed comes back
+    /// as the error itself.
+    async fn peeked(
+        &self,
+        call: Call,
+        prompt: &Prompt,
+        format: Option<genai::chat::ChatResponseFormat>,
+    ) -> Result<BoxStream<'static, Result<Delta, ModelError>>, ModelError> {
+        let mut stream = self.open_stream(call, prompt, format).await?.boxed();
+        match stream.next().await {
+            None => Ok(futures_util::stream::empty().boxed()),
+            Some(Err(error)) if !error.may_have_billed() => Err(error),
+            Some(first) => Ok(futures_util::stream::once(std::future::ready(first))
+                .chain(stream)
+                .boxed()),
+        }
     }
 
     async fn open_stream(
@@ -367,6 +454,7 @@ impl Models {
         prompt: &Prompt,
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<impl Stream<Item = Result<Delta, ModelError>> + Send + use<>, ModelError> {
+        let signed = call.signed.is_some();
         let mut options = call.options;
         if let Some(format) = format {
             options = options.with_response_format(format);
@@ -384,7 +472,7 @@ impl Models {
                 Some(&options),
             )
             .await
-            .map_err(|error| failure::read(&call.reference, &error, false))?;
+            .map_err(|error| failure::read_as(&call.reference, &error, false, signed))?;
         let reference = call.reference;
         // Whether the endpoint began a successful answer: a failure before that never reached a
         // model and may be sent again; one after it is the model's.
@@ -421,7 +509,9 @@ impl Models {
                     }
                     // Start, heartbeats and partial tool-call chunks carry nothing the caller needs.
                     Ok(_) => None,
-                    Err(error) => Some(vec![Err(failure::read(&reference, &error, answered))]),
+                    Err(error) => Some(vec![Err(failure::read_as(
+                        &reference, &error, answered, signed,
+                    ))]),
                 };
                 std::future::ready(delta)
             })
@@ -440,6 +530,9 @@ impl Models {
             None => None,
         };
         let streamed_only = signed.is_some();
+        let token = signed
+            .as_ref()
+            .map(|(token, _)| (endpoint.clone(), token.clone()));
         let auth = if let Some((token, _)) = &signed {
             AuthData::from_single(token.clone())
         } else if endpoint.needs_key {
@@ -478,6 +571,7 @@ impl Models {
             },
             options,
             streamed_only,
+            signed: token,
         })
     }
 }

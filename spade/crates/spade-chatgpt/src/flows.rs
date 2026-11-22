@@ -63,6 +63,8 @@ pub struct FlowView {
 struct Flow {
     view: FlowView,
     task: Option<tokio::task::AbortHandle>,
+    /// Its sign-in is being kept as an account: it can no longer be cancelled.
+    committing: bool,
     /// Order started, so the oldest ended ones are dropped first.
     started: u64,
 }
@@ -75,6 +77,11 @@ pub struct Flows {
     random: Arc<dyn Random>,
     open: Mutex<HashMap<String, Flow>>,
     count: std::sync::atomic::AtomicU64,
+    /// Held while a sign-in starts, from cancelling the waiting one to registering the new one,
+    /// so two starts never both find nothing waiting.
+    starting: tokio::sync::Mutex<()>,
+    /// Held while a finished sign-in is kept as an account, so two never pick the same id.
+    keeping: tokio::sync::Mutex<()>,
 }
 
 impl Flows {
@@ -84,6 +91,8 @@ impl Flows {
             random,
             open: Mutex::default(),
             count: Default::default(),
+            starting: tokio::sync::Mutex::default(),
+            keeping: tokio::sync::Mutex::default(),
         })
     }
 
@@ -91,8 +100,14 @@ impl Flows {
         &self.accounts
     }
 
+    /// Held by whoever keeps a finished sign-in as an account, for as long as that takes.
+    pub async fn keeping(&self) -> tokio::sync::MutexGuard<'_, ()> {
+        self.keeping.lock().await
+    }
+
     /// Starts a sign-in. Fails, with one line, when the port is taken, the device code can't be
-    /// had, or there is no keychain to keep the result in.
+    /// had, or there is no keychain to keep the result in. Starts one at a time: each cancels the
+    /// waiting one before it registers itself.
     pub async fn start(
         self: &Arc<Self>,
         method: Method,
@@ -104,10 +119,12 @@ impl Flows {
                     .to_owned(),
             );
         }
+        let _starting = self.starting.lock().await;
         self.cancel_waiting();
         let id = pkce::random_value(self.random.as_ref())?;
         let config = self.accounts.config().clone();
         let http = self.accounts.http().clone();
+        let expect = (config.clone(), self.accounts.now());
         let (view, work): (FlowView, BoxFuture<'static, Result<SignedIn, String>>) = match method {
             Method::Browser => {
                 let listener = loopback::bind(config.callback_port).await?;
@@ -122,7 +139,7 @@ impl Flows {
                     let tokens = oauth::exchange(&http, &config, &code, &redirect, &verifier)
                         .await
                         .map_err(line)?;
-                    signed_in(tokens)
+                    signed_in(tokens, &expect)
                 });
                 (waiting(&id, method, url, None), work)
             }
@@ -135,20 +152,14 @@ impl Flows {
                     Some(device.user_code.clone()),
                 );
                 let work = Box::pin(async move {
-                    loop {
-                        tokio::time::sleep(device.interval).await;
-                        if let Poll::Approved { code, verifier } =
-                            oauth::poll_device(&http, &config, &device)
-                                .await
-                                .map_err(line)?
-                        {
-                            let redirect = oauth::device_redirect(&config);
-                            let tokens =
-                                oauth::exchange(&http, &config, &code, &redirect, &verifier)
-                                    .await
-                                    .map_err(line)?;
-                            return signed_in(tokens);
-                        }
+                    let lasts = device.expires_in;
+                    let polling = poll_until_approved(http, config, device, expect);
+                    match lasts {
+                        // The code ends when the server said, if sooner than the sign-in's wait.
+                        Some(lasts) => tokio::time::timeout(lasts, polling)
+                            .await
+                            .map_err(|_| EXPIRED.to_owned())?,
+                        None => polling.await,
                     }
                 });
                 (view, work)
@@ -161,7 +172,11 @@ impl Flows {
             let outcome = match tokio::time::timeout(wait, work).await {
                 Err(_) => Err("the sign-in waited too long; start it again".to_owned()),
                 Ok(Err(error)) => Err(error),
-                Ok(Ok(done)) => finish(done).await,
+                // From here it is kept, whatever cancels: a cancel that won already ended it.
+                Ok(Ok(done)) if flows.commit(&flow_id) => tokio::spawn(finish(done))
+                    .await
+                    .unwrap_or_else(|_| Err("keeping the account stopped".to_owned())),
+                Ok(Ok(_)) => return,
             };
             flows.end(&flow_id, outcome);
         });
@@ -173,9 +188,10 @@ impl Flows {
         let entry = open.entry(id).or_insert(Flow {
             view: view.clone(),
             task: None,
+            committing: false,
             started,
         });
-        if entry.view.state == "waiting" {
+        if entry.view.state == "waiting" && !entry.committing {
             entry.task = Some(task.abort_handle());
         }
         let shown = entry.view.clone();
@@ -192,14 +208,52 @@ impl Flows {
     /// Cancels a waiting sign-in. Returns whether it was waiting.
     pub fn cancel(&self, id: &str) -> bool {
         let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(flow) = open.get_mut(id).filter(|f| f.view.state == "waiting") else {
+        let Some(flow) = open
+            .get_mut(id)
+            .filter(|f| f.view.state == "waiting" && !f.committing)
+        else {
             return false;
         };
         if let Some(task) = flow.task.take() {
             task.abort();
         }
         flow.view.state = "cancelled";
+        flow.view.url = None;
+        flow.view.user_code = None;
         true
+    }
+
+    /// Marks a finished sign-in as being kept, unless it was cancelled first.
+    fn commit(&self, id: &str) -> bool {
+        let mut open = self.open.lock().unwrap_or_else(|p| p.into_inner());
+        match open.get_mut(id) {
+            Some(flow) if flow.view.state == "waiting" => {
+                flow.committing = true;
+                true
+            }
+            // Ended before it was registered: nothing could have cancelled it yet.
+            None => {
+                open.insert(
+                    id.to_owned(),
+                    Flow {
+                        view: FlowView {
+                            id: id.to_owned(),
+                            method: Method::Browser,
+                            state: "waiting",
+                            url: None,
+                            user_code: None,
+                            endpoint: None,
+                            error: None,
+                        },
+                        task: None,
+                        committing: true,
+                        started: 0,
+                    },
+                );
+                true
+            }
+            Some(_) => false,
+        }
     }
 
     fn cancel_waiting(&self) {
@@ -228,12 +282,17 @@ impl Flows {
                 error: None,
             },
             task: None,
+            committing: false,
             started: 0,
         });
         if flow.view.state != "waiting" {
             return;
         }
         flow.task = None;
+        flow.committing = false;
+        // The link and code are of no use once it ends.
+        flow.view.url = None;
+        flow.view.user_code = None;
         match outcome {
             Ok(endpoint) => {
                 flow.view.state = "done";
@@ -259,10 +318,49 @@ fn waiting(id: &str, method: Method, url: String, user_code: Option<String>) -> 
     }
 }
 
-fn signed_in(tokens: Tokens) -> Result<SignedIn, String> {
-    let account = claims::account(tokens.id_token.as_deref(), &tokens.access_token)
-        .ok_or_else(|| "this sign-in names no ChatGPT account".to_owned())?;
+/// A sign-in's tokens, once its ID token is checked (`expect`: the config, and when it started).
+fn signed_in(tokens: Tokens, expect: &(crate::Config, i64)) -> Result<SignedIn, String> {
+    let (config, now) = expect;
+    let account = claims::account(
+        tokens.id_token.as_deref(),
+        &tokens.access_token,
+        claims::Expect {
+            issuer: &config.issuer,
+            client_id: &config.client_id,
+            now: *now,
+        },
+    )?;
     Ok(SignedIn { tokens, account })
+}
+
+const EXPIRED: &str = "the sign-in code expired; start the sign-in again";
+
+/// Polls a device code until the person approves it, slowing down when the server asks.
+async fn poll_until_approved(
+    http: reqwest::Client,
+    config: crate::Config,
+    device: oauth::DeviceCode,
+    expect: (crate::Config, i64),
+) -> Result<SignedIn, String> {
+    let mut interval = device.interval;
+    loop {
+        tokio::time::sleep(interval).await;
+        match oauth::poll_device(&http, &config, &device)
+            .await
+            .map_err(line)?
+        {
+            Poll::Waiting => {}
+            // Asked to slow down: five seconds more each time (RFC 8628 §3.5).
+            Poll::SlowDown => interval += std::time::Duration::from_secs(5),
+            Poll::Approved { code, verifier } => {
+                let redirect = oauth::device_redirect(&config);
+                let tokens = oauth::exchange(&http, &config, &code, &redirect, &verifier)
+                    .await
+                    .map_err(line)?;
+                return signed_in(tokens, &expect);
+            }
+        }
+    }
 }
 
 fn line(error: OauthError) -> String {

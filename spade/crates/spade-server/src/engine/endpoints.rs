@@ -406,6 +406,14 @@ impl Engine {
         // block), then written under it only if the endpoint is still as read; else decided again.
         for _ in 0..5 {
             let before = self.endpoint_view(id)?.stored;
+            // A sign-in account's address and settings are the sign-in's: only its name changes,
+            // so its token never goes anywhere but where it was issued for.
+            if before.sign_in.is_some() && !renames_only(&input) {
+                return Err(invalid(
+                    "only a signed-in account's name can change; its address and settings are \
+                     the sign-in's",
+                ));
+            }
             let mut stored = before.clone();
             apply(&mut stored, input.clone())?;
             self.check_host_change(id, &before, &stored)?;
@@ -781,6 +789,16 @@ fn first_model(endpoints: &[Endpoint], usable: impl Fn(&Endpoint) -> bool) -> St
                 .map(|m| format!("{}/{}", e.id, m.id))
         })
         .unwrap_or_default()
+}
+
+/// Whether `input` changes nothing but the name.
+fn renames_only(input: &EndpointInput) -> bool {
+    input.format.is_none()
+        && input.base_url.is_none()
+        && input.headers.is_none()
+        && input.session_header.is_none()
+        && input.needs_key.is_none()
+        && input.preset.is_none()
 }
 
 /// Applies `input` to `stored`, checking every field.

@@ -50,6 +50,53 @@ pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelEr
     }
 }
 
+/// [`read`], for a call that carried a signed-in account's token when `signed`: then the line says
+/// only what an allowlist names (a usage refusal, the status, or that it could not be reached),
+/// never anything the backend sent, which may echo the token.
+pub(crate) fn read_as(
+    model: &str,
+    error: &genai::Error,
+    answered: bool,
+    signed: bool,
+) -> ModelError {
+    let read = read(model, error, answered);
+    if !signed {
+        return read;
+    }
+    let line = |status: Option<u16>| match status {
+        Some(status) => format!("the ChatGPT backend refused the call ({status})"),
+        None => "the ChatGPT backend could not be reached".to_owned(),
+    };
+    match read {
+        // Already one of the allowlisted usage lines.
+        ModelError::Unanswered { ref message, .. }
+            if refused_body(error)
+                .and_then(crate::chatgpt::usage_line)
+                .is_some_and(|l| &l == message) =>
+        {
+            read
+        }
+        ModelError::Unanswered {
+            model,
+            transient,
+            retry_after,
+            status,
+            ..
+        } => ModelError::Unanswered {
+            model,
+            message: line(status),
+            transient,
+            retry_after,
+            status,
+        },
+        ModelError::Provider { model, .. } => ModelError::Provider {
+            model,
+            message: "the ChatGPT backend's answer failed".to_owned(),
+        },
+        other => other,
+    }
+}
+
 /// The body an endpoint refused a call with, when the error carries it.
 fn refused_body(error: &genai::Error) -> Option<&str> {
     match error {

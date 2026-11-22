@@ -34,21 +34,37 @@ impl Engine {
         }
         let engine: Weak<Self> = Arc::downgrade(self);
         let accounts = flows.accounts().clone();
-        self.models.set_bearers(Bearers::new(move |id| {
-            let (engine, accounts) = (engine.clone(), accounts.clone());
-            Box::pin(async move {
-                match accounts.bearer(&id).await {
-                    Ok(token) => Ok(token),
-                    Err(BearerError::SignedOut(line)) => {
-                        if let Some(engine) = engine.upgrade() {
-                            let _ = engine.mark_signed_in(&id, false);
-                        }
-                        Err(line)
+        let backend = accounts.config().backend.clone();
+        // A refused refresh signs the account out, here as in Settings.
+        let answer =
+            move |engine: Weak<Self>, id: String, got: Result<String, BearerError>| match got {
+                Ok(token) => Ok(token),
+                Err(BearerError::SignedOut(line)) => {
+                    if let Some(engine) = engine.upgrade() {
+                        let _ = engine.mark_signed_in(&id, false);
                     }
-                    Err(BearerError::Failed(line)) => Err(line),
+                    Err(line)
                 }
-            })
-        }));
+                Err(BearerError::Failed(line)) => Err(line),
+            };
+        let (find_engine, find_accounts) = (engine.clone(), accounts.clone());
+        self.models.set_bearers(Bearers::new(
+            backend,
+            move |id| {
+                let (engine, accounts) = (find_engine.clone(), find_accounts.clone());
+                Box::pin(async move {
+                    let got = accounts.bearer(&id).await;
+                    answer(engine, id, got)
+                })
+            },
+            move |id, rejected| {
+                let (engine, accounts) = (engine.clone(), accounts.clone());
+                Box::pin(async move {
+                    let got = accounts.bearer_after_rejection(&id, &rejected).await;
+                    answer(engine, id, got)
+                })
+            },
+        ));
     }
 
     /// Starts a ChatGPT sign-in: a new account, or `account` signed back in. Refused unless the
@@ -115,6 +131,11 @@ impl Engine {
         }
     }
 
+    /// Whether account `id` signs in (a ChatGPT account) rather than using a key.
+    pub fn signs_in(&self, id: &str) -> bool {
+        self.stored_endpoint(id).is_ok_and(|e| e.sign_in.is_some())
+    }
+
     /// Names of the bots whose model is on account `id`.
     pub fn bots_on(&self, id: &str) -> Vec<String> {
         self.store.agents_using_endpoint(id).unwrap_or_default()
@@ -150,14 +171,18 @@ impl Engine {
             .ok_or(EndpointError::NotFound)
     }
 
-    /// Removes a deleted account's sign-in tokens; they go before its row.
+    /// Removes a deleted account's sign-in tokens, before its row and its id go: from memory and
+    /// the keychain, under the account's own lock, so a refresh or sign-in under way finishes
+    /// first and can't write them back. Blocking code only (it waits on that lock).
     pub(super) fn forget_sign_in(&self, id: &str) -> Result<(), EndpointError> {
-        if let Some(keychain) = &self.keychain {
-            keychain
-                .delete_sign_in(id)
-                .map_err(|e| EndpointError::Keychain(e.to_string()))?;
-        }
-        Ok(())
+        let forgot = match self.sign_ins.get() {
+            Some(flows) => flows.accounts().forget_now(id).map_err(|e| e.to_string()),
+            None => match &self.keychain {
+                Some(keychain) => keychain.delete_sign_in(id).map_err(|e| e.to_string()),
+                None => Ok(false),
+            },
+        };
+        forgot.map(|_| ()).map_err(EndpointError::Keychain)
     }
 
     fn stored_endpoint(&self, id: &str) -> Result<StoredEndpoint, EndpointError> {
@@ -197,31 +222,17 @@ impl Engine {
     }
 
     /// Keeps a finished sign-in: renews the account already added for this ChatGPT account (or
-    /// the one being signed back in), else adds one. Its id, or why not in one line.
+    /// the one being signed back in), else adds one. Its id, or why not in one line. One at a
+    /// time; a new account's row (its id) is taken before its tokens are written, so no other
+    /// account's tokens are ever replaced or erased.
     async fn keep_sign_in(&self, wanted: Option<String>, done: SignedIn) -> Result<String, String> {
-        let endpoints = self.store.endpoints().map_err(|e| e.to_string())?;
-        let same = |e: &StoredEndpoint| {
-            e.sign_in
-                .as_ref()
-                .is_some_and(|s| s.kind == CHATGPT && s.account_id == done.account.account_id)
-        };
-        let existing = match &wanted {
-            Some(id) => {
-                let row = endpoints
-                    .iter()
-                    .find(|e| &e.id == id)
-                    .ok_or("the account was removed while signing in")?;
-                if !same(row) {
-                    let who = done.account.email.as_deref().unwrap_or("another account");
-                    return Err(format!(
-                        "you signed in as {who}, not as {}; add it as a new account instead",
-                        row.name
-                    ));
-                }
-                Some(row.clone())
-            }
-            None => endpoints.iter().find(|e| same(e)).cloned(),
-        };
+        let flows = self
+            .sign_ins
+            .get()
+            .ok_or("this Spade cannot sign in to ChatGPT")?
+            .clone();
+        let _keeping = flows.keeping().await;
+        let accounts = flows.accounts().clone();
         let facts = StoredSignIn {
             kind: CHATGPT.to_owned(),
             account_id: done.account.account_id.clone(),
@@ -229,30 +240,80 @@ impl Engine {
             plan: done.account.plan.clone(),
             signed_in: true,
         };
-        let accounts = self
-            .sign_ins
-            .get()
-            .ok_or("this Spade cannot sign in to ChatGPT")?
-            .accounts()
-            .clone();
-        if let Some(mut row) = existing {
-            accounts
-                .keep(&row.id, &done.tokens)
-                .await
-                .map_err(|e| e.to_string())?;
+        let (id, added) = self.reserve_sign_in(wanted.as_deref(), &done, &accounts)?;
+        if let Err(error) = accounts.keep(&id, &done.tokens).await {
+            if added {
+                let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+                let _ = self.store.delete_endpoint(&id);
+                let _ = self.sync_endpoints();
+            }
+            return Err(error.to_string());
+        }
+        let kept = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            row.sign_in = Some(facts);
-            self.store
-                .update_endpoint(&row)
-                .map_err(|e| e.to_string())?;
-            self.sync_endpoints().map_err(|e| e.to_string())?;
-            return Ok(row.id);
+            match self
+                .store
+                .endpoints()
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .find(|e| e.id == id)
+            {
+                Some(mut row) if !self.retiring(&id) => {
+                    row.sign_in = Some(facts);
+                    self.store
+                        .update_endpoint(&row)
+                        .map_err(|e| e.to_string())?;
+                    self.sync_endpoints().map_err(|e| e.to_string())?;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if !kept {
+            // Removed while it signed in: the tokens just kept go too.
+            let _ = accounts.forget(&id).await;
+            return Err("the account was removed while signing in".to_owned());
+        }
+        if added {
+            self.save_listed_models(&id).await;
+        }
+        Ok(id)
+    }
+
+    /// The account a finished sign-in goes to, and whether it is new: the one being signed back
+    /// in, the one already added for this ChatGPT account, else a new row, signed out until its
+    /// tokens are kept, under a free id taken now.
+    fn reserve_sign_in(
+        &self,
+        wanted: Option<&str>,
+        done: &SignedIn,
+        accounts: &spade_chatgpt::Accounts,
+    ) -> Result<(String, bool), String> {
+        let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let endpoints = self.store.endpoints().map_err(|e| e.to_string())?;
+        let same = |e: &StoredEndpoint| {
+            e.sign_in
+                .as_ref()
+                .is_some_and(|s| s.kind == CHATGPT && s.account_id == done.account.account_id)
+        };
+        if let Some(id) = wanted {
+            let row = endpoints
+                .iter()
+                .find(|e| e.id == id && !self.retiring(id))
+                .ok_or("the account was removed while signing in")?;
+            if !same(row) {
+                let who = done.account.email.as_deref().unwrap_or("another account");
+                return Err(format!(
+                    "you signed in as {who}, not as {}; add it as a new account instead",
+                    row.name
+                ));
+            }
+            return Ok((row.id.clone(), false));
+        }
+        if let Some(row) = endpoints.iter().find(|e| same(e) && !self.retiring(&e.id)) {
+            return Ok((row.id.clone(), false));
         }
         let id = self.free_sign_in_id(&endpoints);
-        accounts
-            .keep(&id, &done.tokens)
-            .await
-            .map_err(|e| e.to_string())?;
         let name: String = done
             .account
             .email
@@ -272,21 +333,20 @@ impl Engine {
             key_env: None,
             preset: None,
             created_ms: self.now_ms(),
-            sign_in: Some(facts),
+            sign_in: Some(StoredSignIn {
+                kind: CHATGPT.to_owned(),
+                account_id: done.account.account_id.clone(),
+                email: done.account.email.clone(),
+                plan: done.account.plan.clone(),
+                signed_in: false,
+            }),
             models: Vec::new(),
         };
-        {
-            let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if let Err(error) = self.store.insert_endpoint(&row) {
-                drop(_endpoints);
-                // Its id was taken meanwhile: the tokens kept for it go again.
-                let _ = accounts.forget(&id).await;
-                return Err(error.to_string());
-            }
-            self.sync_endpoints().map_err(|e| e.to_string())?;
-        }
-        self.save_listed_models(&id).await;
-        Ok(id)
+        self.store
+            .insert_endpoint(&row)
+            .map_err(|e| e.to_string())?;
+        self.sync_endpoints().map_err(|e| e.to_string())?;
+        Ok((id, true))
     }
 
     /// Saves the models a new account lists for itself, so it starts with what it may use. A

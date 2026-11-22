@@ -16,7 +16,7 @@ serde_json.workspace = true
 spade-connect = { path = "../spade-connect" }
 spade-keys = { path = "../spade-keys" }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "time", "rt", "net", "io-util"] }
+tokio = { workspace = true, features = ["sync", "time", "rt", "net", "io-util", "macros"] }
 tracing.workspace = true
 url = "2"
 

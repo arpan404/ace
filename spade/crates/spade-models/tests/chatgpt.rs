@@ -4,12 +4,13 @@
 
 use std::sync::{Arc, Mutex};
 
+use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use spade_models::{
     Bearers, Catalog, Endpoint, Format, Keys, Model, ModelError, Models, Prompt, SignIn,
 };
-use spade_testkit::{FakeProvider, Seen};
+use spade_testkit::{FakeProvider, Script, Seen};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -30,30 +31,62 @@ fn account(root: &str) -> Endpoint {
     }
 }
 
-/// A client whose only account is the fake's, with `token` as its access token (none: signed
-/// out). Records which accounts asked for a token.
-fn models(
-    fake: &FakeProvider,
-    token: Option<&'static str>,
-) -> Result<(Models, Arc<Mutex<Vec<String>>>)> {
+/// A client whose only account is at `root`, with `token` as its access token (none: signed out),
+/// whose tokens may go to `backend`. A refused token is replaced by `<token>-new`. Records which
+/// accounts asked for a token, and the tokens reported refused.
+struct Client {
+    models: Models,
+    asked: Arc<Mutex<Vec<String>>>,
+    rejected: Arc<Mutex<Vec<String>>>,
+}
+
+fn client_for(root: &str, backend: &str, token: Option<&'static str>) -> Result<Client> {
     let models = Models::new(
         Catalog::from_json(r#"{"endpoints":[]}"#)?,
         Keys::new(|_| None),
         "1.2.3",
     )?;
-    models.set_endpoints(vec![account(&fake.root)]);
+    models.set_endpoints(vec![account(root)]);
     let asked = Arc::new(Mutex::new(Vec::new()));
-    let log = asked.clone();
-    models.set_bearers(Bearers::new(move |id| {
-        log.lock().unwrap_or_else(|p| p.into_inner()).push(id);
-        Box::pin(async move {
-            token.map(str::to_owned).ok_or_else(|| {
-                "This ChatGPT account is signed out. Sign in again in Settings › Spade › Models."
-                    .to_owned()
+    let rejected = Arc::new(Mutex::new(Vec::new()));
+    let current = Arc::new(Mutex::new(token.map(str::to_owned)));
+    let (log, now) = (asked.clone(), current.clone());
+    let (refused, renewed) = (rejected.clone(), current);
+    models.set_bearers(Bearers::new(
+        backend,
+        move |id| {
+            log.lock().unwrap_or_else(|p| p.into_inner()).push(id);
+            let token = now.lock().unwrap_or_else(|p| p.into_inner()).clone();
+            Box::pin(async move {
+                token.ok_or_else(|| {
+                    "This ChatGPT account is signed out. Sign in again in Settings › Spade › Models."
+                        .to_owned()
+                })
             })
-        })
-    }));
-    Ok((models, asked))
+        },
+        move |_id, token| {
+            refused
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(token.clone());
+            let next = format!("{token}-new");
+            *renewed.lock().unwrap_or_else(|p| p.into_inner()) = Some(next.clone());
+            Box::pin(async move { Ok(next) })
+        },
+    ));
+    Ok(Client {
+        models,
+        asked,
+        rejected,
+    })
+}
+
+fn models(
+    fake: &FakeProvider,
+    token: Option<&'static str>,
+) -> Result<(Models, Arc<Mutex<Vec<String>>>)> {
+    let client = client_for(&fake.root, &fake.root, token)?;
+    Ok((client.models, client.asked))
 }
 
 fn header(seen: &Seen, name: &str) -> Option<String> {
@@ -126,5 +159,142 @@ async fn a_signed_out_account_fails_with_one_line_and_sends_nothing() -> Result 
     );
     assert!(!error.may_have_billed());
     assert!(fake.seen().is_empty());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_sign_in_is_never_sent_to_an_address_other_than_the_backend() -> Result {
+    let fake = FakeProvider::start("never").await?;
+    let client = client_for(
+        &fake.root,
+        "https://chatgpt.example/backend/",
+        Some("access-1"),
+    )?;
+    let error = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await
+        .err()
+        .ok_or("the call should fail")?;
+    assert!(matches!(error, ModelError::SignIn { .. }), "{error:?}");
+    let listed = client.models.list("chatgpt").await;
+    assert!(listed.is_err());
+    assert!(fake.seen().is_empty(), "nothing reached the other address");
+    assert!(
+        client
+            .asked
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_empty(),
+        "no token was even looked up"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_token_gets_one_new_token_and_the_call_is_sent_once_more() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(401), Script::reply("ok")]).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let reply = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await?;
+    assert_eq!(reply.text, "ok");
+    let seen = fake.seen();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(
+        header(&seen[1], "authorization").as_deref(),
+        Some("Bearer access-1-new")
+    );
+    assert_eq!(
+        *client.rejected.lock().unwrap_or_else(|p| p.into_inner()),
+        vec!["access-1".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_second_refusal_ends_the_call_without_a_third_try() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(401), Script::failing(401)]).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let mut stream = match client
+        .models
+        .stream("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await
+    {
+        Ok(stream) => Box::pin(stream),
+        Err(error) => {
+            assert_eq!(error.status(), Some(401));
+            assert_eq!(fake.seen().len(), 2);
+            return Ok(());
+        }
+    };
+    let first = stream.next().await;
+    assert!(
+        matches!(first, Some(Err(ref e)) if e.status() == Some(401)),
+        "{first:?}"
+    );
+    assert_eq!(fake.seen().len(), 2);
+    assert_eq!(
+        client
+            .rejected
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len(),
+        1
+    );
+    Ok(())
+}
+
+/// Refuses every call with a body that repeats the request's own `Authorization` header.
+async fn echoing() -> Result<String> {
+    use axum::http::{HeaderMap, StatusCode};
+    let app = axum::Router::new().route(
+        "/{*path}",
+        axum::routing::post(|headers: HeaderMap| async move {
+            let sent = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            (
+                StatusCode::BAD_REQUEST,
+                format!(r#"{{"error":{{"message":"bad token {sent}","code":"{sent}"}}}}"#),
+            )
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(root)
+}
+
+#[tokio::test]
+async fn a_backend_error_that_echoes_the_token_never_carries_it_into_spades_error() -> Result {
+    let root = echoing().await?;
+    let client = client_for(&root, &root, Some("secret-access-token-77"))?;
+    for result in [
+        client
+            .models
+            .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+            .await
+            .err(),
+        client
+            .models
+            .stream("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+            .await
+            .err(),
+    ] {
+        let error = result.ok_or("the call should fail")?;
+        let shown = format!("{error} {error:?}");
+        assert!(!shown.contains("secret-access-token-77"), "{shown}");
+        assert_eq!(error.status(), Some(400));
+        assert!(
+            shown.contains("the ChatGPT backend refused the call (400)"),
+            "{shown}"
+        );
+    }
     Ok(())
 }

@@ -1290,6 +1290,20 @@ pub fn guarded(method: &str, path: &str, body: Option<&[u8]>) -> Option<(String,
         ("PUT", ["v1", "agents", bot, "package", "effects"]) => {
             Some(((*bot).to_owned(), format!("package_effect:{digest}")))
         }
+        // ADR 0214: a ChatGPT sign-in, signing an account out, removing an account.
+        ("POST", ["v1", "accounts", "chatgpt"]) => {
+            let asked: Value = serde_json::from_slice(body.unwrap_or_default()).ok()?;
+            let method = asked.get("method")?.as_str()?;
+            let account = asked.get("account").and_then(Value::as_str).unwrap_or("");
+            Some((
+                "accounts".to_owned(),
+                format!("chatgpt_sign_in:{method}:{account}"),
+            ))
+        }
+        ("POST", ["v1", "endpoints", id, "sign-out"]) => {
+            Some((format!("account:{id}"), "sign_out".to_owned()))
+        }
+        ("DELETE", ["v1", "endpoints", id]) => Some((format!("account:{id}"), "remove".to_owned())),
         _ => None,
     }
 }

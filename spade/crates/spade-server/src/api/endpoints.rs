@@ -266,7 +266,23 @@ pub(super) async fn update(
 }
 
 /// Deletes an endpoint no agent uses, its key in the keychain first.
-pub(super) async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+pub(super) async fn delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    // Removing a signed-in account is the person's alone (ADR 0214): their stamp, as the daemon
+    // makes it for a window that proved it is theirs. A key account needs none.
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|v| v.to_str().ok());
+    if state.engine.signs_in(&id)
+        && !state
+            .engine
+            .person_says(stamp, &format!("account:{id}"), "remove")
+    {
+        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
+    }
     off_thread(move || match state.engine.delete_endpoint(&id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => endpoint_problem(&error),
@@ -444,8 +460,11 @@ pub(super) async fn update_local(state: State<AppState>, body: Body<EndpointBody
     update(state, Path(LOCAL.to_owned()), body).await
 }
 
-pub(super) async fn delete_local(state: State<AppState>) -> Response {
-    delete(state, Path(LOCAL.to_owned())).await
+pub(super) async fn delete_local(
+    state: State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> Response {
+    delete(state, Path(LOCAL.to_owned()), headers).await
 }
 
 pub(super) async fn live_local(state: State<AppState>) -> Response {

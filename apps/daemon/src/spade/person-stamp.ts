@@ -58,6 +58,8 @@ export function personOnlyWrite(
   if (target === undefined) return undefined;
   if (target.startsWith("move:")) return moveAcceptWrite(target, body);
   if (target === "main-host") return hostWrite(target, body);
+  const accounts = accountWrite(target, body);
+  if (accounts !== null) return accounts;
   // Only Spade can tell whether these loosen anything (ADR 0171, amendment 7).
   const optional = (write: PersonOnlyWrite | undefined) =>
     write && { ...write, optional: true as const };
@@ -175,6 +177,45 @@ function neverAppsWrite(body: Buffer | undefined): PersonOnlyWrite | undefined {
   const apps: unknown = Reflect.get(value, "apps");
   if (!Array.isArray(apps) || !apps.every((app) => typeof app === "string")) return undefined;
   return { target: "machine", value: `never_apps:${apps.join(listSeparator)}` };
+}
+
+/**
+ * A change to Spade's provider accounts (ADR 0214): starting a ChatGPT sign-in (the method, and
+ * the account signed back in, if any), signing an account out, removing one. Removing a key
+ * account needs no stamp, so removal is stamped when the caller proved their standing and else
+ * forwarded for Spade to decide. `null` for a route that isn't one of these; undefined for a
+ * body Spade won't take.
+ */
+function accountWrite(
+  target: string,
+  body: Buffer | undefined,
+): PersonOnlyWrite | undefined | null {
+  if (target === "sign-in") {
+    const value = parsed(body);
+    if (value === null || typeof value !== "object") return undefined;
+    const method: unknown = Reflect.get(value, "method");
+    const account: unknown = Reflect.get(value, "account");
+    if (method !== "browser" && method !== "device") return undefined;
+    if (
+      account !== undefined &&
+      account !== null &&
+      (typeof account !== "string" || !plainId.test(account))
+    )
+      return undefined;
+    const named = typeof account === "string" ? account : "";
+    return { target: "accounts", value: `chatgpt_sign_in:${method}:${named}` };
+  }
+  for (const [prefix, value] of [
+    ["sign-out:", "sign_out"],
+    ["remove-account:", "remove"],
+  ] as const) {
+    if (!target.startsWith(prefix)) continue;
+    const id = target.slice(prefix.length);
+    if (!plainId.test(id)) return undefined;
+    const write: PersonOnlyWrite = { target: `account:${id}`, value };
+    return value === "remove" ? { ...write, optional: true } : write;
+  }
+  return null;
 }
 
 function parsed(body: Buffer | undefined): unknown {

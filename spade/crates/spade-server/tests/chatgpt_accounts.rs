@@ -14,7 +14,7 @@ use spade_testkit::{FakeSignIn, Script};
 use support::{Result, Spade};
 
 /// Sets up sign-ins against `fake`, with calls going to the fake model endpoint.
-fn sign_ins(spade: &Spade, fake: &FakeSignIn) -> Result {
+fn sign_ins(spade: &Spade, fake: &FakeSignIn) -> Result<Arc<Accounts>> {
     let config = Config {
         issuer: fake.issuer.clone(),
         client_id: fake.client_id.clone(),
@@ -23,12 +23,16 @@ fn sign_ins(spade: &Spade, fake: &FakeSignIn) -> Result {
         wait: Duration::from_secs(20),
         backend: spade.fake.root.clone(),
     };
-    let accounts = Accounts::new(Some(spade.keys.clone()), config, Arc::new(|| 1_000))?;
+    let accounts = Arc::new(Accounts::new(
+        Some(spade.keys.clone()),
+        config,
+        Arc::new(|| 1_000),
+    )?);
     spade.engine.set_sign_ins(Flows::new(
-        Arc::new(accounts),
+        accounts.clone(),
         Arc::new(spade_connect::OsRandom),
     ));
-    Ok(())
+    Ok(accounts)
 }
 
 fn query(url: &str, name: &str) -> String {
@@ -227,5 +231,118 @@ async fn signing_out_keeps_the_account_and_removing_it_takes_its_tokens() -> Res
     assert_eq!(spade.delete("/v1/endpoints/chatgpt").await?.0, 204);
     assert_eq!(spade.keys.sign_in_secret("chatgpt", "refresh")?, None);
     assert_eq!(spade.keys.sign_in_secret("chatgpt", "access")?, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_signed_in_accounts_address_and_settings_never_change_only_its_name() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    for change in [
+        json!({ "base_url": "https://collector.example/v1/" }),
+        json!({ "base_url": "https://collector.example/v1/", "headers": {} }),
+        json!({ "headers": { "x-team": "blue" } }),
+        json!({ "format": "openai-chat" }),
+        json!({ "needs_key": true }),
+        json!({ "name": "Work", "base_url": "https://collector.example/v1/" }),
+    ] {
+        let (status, body) = spade.patch("/v1/endpoints/chatgpt", change.clone()).await?;
+        assert_eq!(status, 400, "{change}: {body}");
+    }
+    let shown = account(&spade, "chatgpt").await?;
+    assert_eq!(shown["base_url"], spade.fake.root.as_str());
+    assert_eq!(shown["name"], "sam@example.com");
+    let (status, _) = spade
+        .patch("/v1/endpoints/chatgpt", json!({ "name": "Work" }))
+        .await?;
+    assert_eq!(status, 200);
+    Ok(())
+}
+
+#[tokio::test]
+async fn removing_an_account_while_its_token_refreshes_leaves_no_token_behind() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let accounts = sign_ins(&spade, &fake)?;
+    // Its access token ends within five minutes of the clock: the next use refreshes it.
+    fake.expires_at(1_100);
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    fake.hold_refreshes(Duration::from_millis(600));
+    let before = fake.refreshes().len();
+    let refreshing = {
+        let accounts = accounts.clone();
+        tokio::spawn(async move { accounts.bearer("chatgpt").await })
+    };
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let (status, body) = spade.delete("/v1/endpoints/chatgpt").await?;
+    assert_eq!(status, 204, "{body}");
+    let _ = refreshing.await?;
+    assert_eq!(
+        fake.refreshes().len(),
+        before + 1,
+        "the refresh was under way"
+    );
+    assert_eq!(spade.keys.sign_in_secret("chatgpt", "refresh")?, None);
+    assert_eq!(spade.keys.sign_in_secret("chatgpt", "access")?, None);
+    assert!(
+        matches!(
+            accounts.bearer("chatgpt").await,
+            Err(spade_chatgpt::BearerError::SignedOut(_))
+        ),
+        "nothing is left in memory either"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_removed_accounts_token_is_not_left_in_memory() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let accounts = sign_ins(&spade, &fake)?;
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    accounts.bearer("chatgpt").await?;
+    assert_eq!(spade.delete("/v1/endpoints/chatgpt").await?.0, 204);
+    assert!(matches!(
+        accounts.bearer("chatgpt").await,
+        Err(spade_chatgpt::BearerError::SignedOut(_))
+    ));
+    Ok(())
+}
+
+#[tokio::test]
+async fn without_the_persons_stamp_no_sign_in_starts_and_no_signed_in_account_goes() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+
+    // What any other holder of Spade's token sends: no stamp of the person's.
+    let start = json!({ "method": "device", "terms_read": true });
+    let (status, _) = spade.post_unstamped("/v1/accounts/chatgpt", start).await?;
+    assert_eq!(status, 403);
+    assert_eq!(fake.polls(), 0, "no sign-in was started");
+    let (status, _) = spade
+        .post_unstamped("/v1/endpoints/chatgpt/sign-out", json!({}))
+        .await?;
+    assert_eq!(status, 403);
+    assert_eq!(
+        spade.delete_unstamped("/v1/endpoints/chatgpt").await?.0,
+        403
+    );
+    let still = account(&spade, "chatgpt").await?;
+    assert_eq!(still["account"]["signed_in"], true);
+    assert!(spade.keys.sign_in_secret("chatgpt", "refresh")?.is_some());
+
+    // A key account is still the window's to remove.
+    let (status, _) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": "Spare", "format": "openai-chat", "base_url": "https://spare.example/v1" }),
+        )
+        .await?;
+    assert_eq!(status, 201);
+    assert_eq!(spade.delete_unstamped("/v1/endpoints/spare").await?.0, 204);
     Ok(())
 }
