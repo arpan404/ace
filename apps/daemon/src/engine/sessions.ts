@@ -1,4 +1,4 @@
-import { requeueNeedsProof, settleCursorAttempt } from "./cursor-attempt.ts";
+import { mayRequeue, requeueNeedsProof, settleCursorAttempt } from "./cursor-attempt.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
@@ -475,6 +475,13 @@ export class Sessions {
         backend === "cursor-sdk"
           ? await this.dependencies.repo.recovery.restore(actor.id, actor.translator)
           : undefined;
+      // Proven before the host reads Cursor's store: a dying host may still be creating the
+      // attempted send's run, and only a read made after its processes are gone is final.
+      const provenGone =
+        unsettled?.attempt?.commandId &&
+        mayRequeue(this.dependencies.repo, actor.id, unsettled.attempt.commandId)
+          ? ((await this.dependencies.processesGone?.()) ?? false)
+          : undefined;
       // The previous provider process is gone: work that lived inside it has stopped.
       actor.apply([
         ...settleSessionBoundTasks(
@@ -777,10 +784,10 @@ export class Sessions {
       });
       // After the transition state above is stored: settling may clear the handoff it holds.
       if ((session.backend ?? backend) === "cursor-sdk") {
-        // A send read as never admitted goes again only once the last run's processes are
-        // proven gone: a dying host may still have been creating its run. Asked only then.
+        // A send read as never admitted goes again only when the read came after the last
+        // run's processes were proven gone (above); otherwise it stays uncertain.
         const gone = requeueNeedsProof(this.dependencies.repo, actor.id)
-          ? ((await this.dependencies.processesGone?.()) ?? false)
+          ? provenGone === true
           : true;
         this.dependencies.repo.store.atomic(() =>
           settleCursorAttempt(

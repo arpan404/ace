@@ -16,8 +16,12 @@ import type { EngineRepository } from "./repository.ts";
 export function requeueNeedsProof(repo: EngineRepository, id: ThreadId): boolean {
   const admission = repo.recovery.lastAdmission(id);
   if (!admission?.commandId || admission.admitted) return false;
-  if (!repo.pending.uncertainSend(id, admission.commandId)) return false;
-  return !repo.recovery.admissionRecorded(id, admission.commandId);
+  return mayRequeue(repo, id, admission.commandId);
+}
+/** True when an attempted send, read back as never admitted, would be sent again. */
+export function mayRequeue(repo: EngineRepository, id: ThreadId, commandId: string): boolean {
+  if (!repo.pending.uncertainSend(id, commandId)) return false;
+  return !repo.recovery.admissionRecorded(id, commandId);
 }
 
 export function settleCursorAttempt(

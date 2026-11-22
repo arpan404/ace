@@ -44,7 +44,6 @@ export type Recovered =
 type Recover = OpenOptions["recover"];
 type Limits = OpenOptions["limits"];
 
-
 /**
  * The run an attempted send created, found from the agent record, not the run history: the SDK
  * creates a run by pointing the agent's `activeRunId` at it and stamping the agent's

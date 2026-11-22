@@ -42,6 +42,8 @@ async function crashAt(
     retryMs?: number[];
     /** Cursor's store has a run for the attempted send (it was created before the crash). */
     attemptAdmitted?: boolean;
+    /** The dying host creates the attempted send's run while the process check waits. */
+    runAppearsDuringProof?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -50,6 +52,7 @@ async function crashAt(
 ) {
   const { stored = "finished", openFails = false, resume = true, attemptAdmitted = false } = host;
   let busy = host.busyOpens ?? 0;
+  let runCreated = false;
   /** The thread's state each time an open found the store busy. */
   const whileBusy: (string | undefined)[] = [];
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
@@ -114,7 +117,7 @@ async function crashAt(
         await emit("open", { cwd: root, model: "composer-2.5" });
         // As the host does: what the daemon's record lacks is read back from Cursor's store.
         const unsettled = context.resume?.unsettled;
-        if (unsettled?.attempt && attemptAdmitted) {
+        if (unsettled?.attempt && (attemptAdmitted || runCreated)) {
           await emit(
             "admission",
             { ...unsettled.attempt, admitted: true, nativeRunId: "run-1" },
@@ -171,7 +174,13 @@ async function crashAt(
     selectInstance: () => "account-a",
     ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
     // Whether the last run's process groups are proven gone (by default they are).
-    cursorPreviousProcessesGone: async () => host.verified ?? true,
+    cursorPreviousProcessesGone: async () => {
+      if (!host.runAppearsDuringProof) return host.verified ?? true;
+      // The old host is still exiting: it makes the run, then its groups are gone.
+      await new Promise((settle) => setTimeout(settle, 20));
+      runCreated = true;
+      return true;
+    },
   });
   await engine.flush();
   const held = engine.queue(threadId);
@@ -436,6 +445,14 @@ it("a send Cursor had already made a run for is acknowledged on reopen, never he
   expect(
     crash.items.some((item) => item.type === "notice" && item.code === "delivery_uncertain"),
   ).toBe(false);
+});
+
+it("a send whose run the dying host made during the process check is acknowledged, never sent again", async () => {
+  await using crash = await crashAt("attempted", { runAppearsDuringProof: true, resume: false });
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: false, pendingCount: 0 });
+  expect(JSON.stringify(crash.items)).toContain("answered before the crash");
+  expect(crash.statusAfter()).toBe("done");
 });
 
 it("a busy Cursor store at reconcile is tried again, and the thread shows working until it reads", async () => {
