@@ -60,6 +60,8 @@ export interface OrgHostLinkOptions {
   /** Runs `callback` after `ms`; the stop it answers cancels it. */
   delay: (callback: () => void, ms: number) => () => void;
   intervals?: Partial<typeof orgHostIntervals>;
+  /** Hears each policy the backend served this host, before it is offered to Spade. */
+  onPolicy?: (policy: AceOrgPolicyVersion) => void;
   log?: (error: Error) => void;
 }
 
@@ -193,6 +195,7 @@ export function orgHostLink(options: OrgHostLinkOptions) {
       throw new Error(`The organization's policy didn't come (${fetched.status}).`);
     const policy = AceOrgPolicyVersion.parse(fetched.body);
     lastPolicyAt = options.now();
+    if (policy.org === org) options.onPolicy?.(policy);
     if (policy.org !== org || !newerPolicy(held, policy)) return;
     const offered = await spadeCall(spade, "PUT", "/v1/org/policy", policy);
     // 409: not newer (another round offered it first) or a statement Spade won't verify, which

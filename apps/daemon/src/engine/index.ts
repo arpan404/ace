@@ -10,7 +10,7 @@ import { activeRun, delegationsInFlight, turnOrigin } from "./turn-origin.ts";
 import { adoptImportedThread } from "./imported-thread.ts";
 import { GuestThreads } from "./guest-threads.ts";
 import { HostThreads } from "./host-threads.ts";
-import { ThreadLiveness, type LiveWork } from "./thread-liveness.ts";
+import { ThreadLiveness, type LiveWork, type OwnerStop } from "./thread-liveness.ts";
 import type { EngineOptions } from "./engine-options.ts";
 import { reclaimIdleSlot } from "./slot-reclaim.ts";
 import { EngineModels } from "./models.ts";
@@ -1041,6 +1041,7 @@ export class Engine {
   stopForCancellation(id: ThreadId): Promise<void> {
     return this.liveness.stopCancelled(id);
   }
+  stopForOwner = (id: ThreadId, failure: OwnerStop) => this.liveness.stopForOwner(id, failure);
   private deletionPolicy?: (id: ThreadId, commandId: string) => void;
   bindDeletionPolicy(policy: (id: ThreadId, commandId: string) => void): void {
     this.deletionPolicy = policy;

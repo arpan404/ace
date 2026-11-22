@@ -75,7 +75,8 @@ it("an org host's roster is signed for it, and a removal gives it a higher versi
   // the host's own credential for another host id.
   expect((await api.call(ownerToken, "GET", rosterPath(org, box.hostId))).status).toBe(403);
   expect((await api.call(box.credential, "GET", rosterPath(org, box.hostId))).status).toBe(403);
-  expect((await api.call(undefined, "GET", rosterPath(org, box.hostId))).status).toBe(401);
+  const unsigned = await fetch(`${worker.http}${rosterPath(org, box.hostId)}`);
+  expect(unsigned.status).toBe(401);
   const elsewhere = "A".repeat(52);
   expect((await api.call(credential, "GET", rosterPath(org, elsewhere))).status).toBe(403);
 });

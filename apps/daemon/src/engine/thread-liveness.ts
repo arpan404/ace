@@ -193,6 +193,30 @@ export class ThreadLiveness {
     };
     return this.stopOwned(id, markCancelled);
   }
+  /**
+   * Stops a thread whose owner may no longer run work here (ADR 0209 §7): an org host's member
+   * was revoked or their lease ran out. Not the owner's Stop: what was unsettled ends as failed
+   * with `failure.title` as its reason, recorded before the session closes, so the thread never
+   * reads done and its stopped queue waits for the owner to resume it.
+   */
+  stopForOwner(id: ThreadId, failure: OwnerStop): Promise<void> {
+    if (!this.unfinished(id)) return this.stop(id);
+    if (!this.ports.repo.state(id)) return Promise.resolve();
+    return this.stopOwned(id, () => {
+      const { repo, clock } = this.ports;
+      repo.queue.set(
+        id,
+        { paused: true, reason: "stopped", resumeAt: null, timerAction: null },
+        clock.now(),
+      );
+      repo.queue.set(id, { lastFailure: failure }, clock.now());
+      repo.apply(
+        id,
+        [{ type: "process.exited", deliberate: false, message: failure.title }],
+        clock.now(),
+      );
+    });
+  }
   private async stopOwned(id: ThreadId, beforeExit: () => void): Promise<void> {
     const { repo, sessions, clock } = this.ports;
     if (!repo.state(id)) return;
@@ -228,6 +252,9 @@ export class ThreadLiveness {
     repo.release(id);
   }
 }
+
+/** Why a thread's owner may no longer run work here, shown as its failure (ADR 0209 §7). */
+export type OwnerStop = { code: string; title: string };
 
 /**
  * A thread with no running session: settle what its dead provider left behind. True when that

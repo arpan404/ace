@@ -64,6 +64,7 @@ import {
   GRANT_EXPIRED_REASON,
 } from "./account-access/grant-lease.ts";
 import { admitCommand } from "./socket-commands.ts";
+import { startMemberWork } from "./member-work/wire.ts";
 import { startOrgHost } from "./org-host/wire.ts";
 import { startRegistrySigner } from "./org-registry/wire.ts";
 import { isPing, closeRecord, clientAgent, type ClosePeer } from "./socket-liveness.ts";
@@ -322,15 +323,20 @@ export async function startServer(options: ServerOptions): Promise<{
   // they hold the current machine code; an account change closes every path at once (ADR 0114).
   // Not as a revocation: the client reconnects and its next hello gets the refusal that fits.
   const accountSockets = new Map<MainSocket, () => boolean>();
-  const stopAccountChange = options.machineAccount?.onChange(() => {
+  const recheckAccountSockets = () => {
     for (const [socket, admitted] of accountSockets)
       if (!admitted()) {
         cleanups.get(socket)?.();
         closer.gracefulClose(socket, ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON);
       }
-  });
+  };
+  const stopAccountChange = options.machineAccount?.onChange(recheckAccountSockets);
+  // Members' rosters, leases and contained work on an org host (ADR 0209 §7); a member a roster
+  // revokes loses their open sockets at once, as an account change closes them.
+  const memberWork = startMemberWork(options);
+  const stopMemberRevoked = memberWork?.onRevoked(recheckAccountSockets);
   // An org host keeps its Spade bound, on its policy and its audit log forwarded (ADR 0206).
-  const orgHost = startOrgHost(options);
+  const orgHost = startOrgHost(options, memberWork);
   // An org host whose keychain holds its registry's key signs what waits there (ADR 0206 §5.2).
   const registrySigner = startRegistrySigner(options);
   const createServiceSessions = createSocketRegistry();
@@ -752,7 +758,17 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
-        if (accountAdmitted) accountSockets.set(socket, accountAdmitted);
+        if (accountAdmitted) {
+          const admitted = accountAdmitted;
+          const admittedAccount = accountId;
+          // On an org host, a member a roster revoked keeps no socket (never on a personal one).
+          accountSockets.set(
+            socket,
+            () =>
+              admitted() &&
+              (admittedAccount === undefined || memberWork?.revoked(admittedAccount) !== true),
+          );
+        }
         // An NK account session holds its grant as an XX one does: the welcome's `grantTtlMs`
         // starts the client's keeper, and the hold is a timer released with the socket.
         if (relayed) holdGrant(relayed.grantExpiresAt, actor);
@@ -1164,6 +1180,8 @@ export async function startServer(options: ServerOptions): Promise<{
     stopReplaced();
     stopAccountChange?.();
     void orgHost?.close();
+    stopMemberRevoked?.();
+    void memberWork?.close();
     registrySigner?.stop();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -1217,6 +1235,8 @@ export async function startServer(options: ServerOptions): Promise<{
         stopReplaced();
         stopAccountChange?.();
         void orgHost?.close();
+        stopMemberRevoked?.();
+        void memberWork?.close();
         registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();
