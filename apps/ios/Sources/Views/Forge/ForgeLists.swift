@@ -23,7 +23,7 @@ struct ForgePullsList: View {
 
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No pull requests match",
-                       icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
+                       icon: .gitPullRequest, failure: model.failure, stale: model.stale, hasMore: (model.list?.more ?? false) && model.screens < forgeMaxScreens,
                        loading: model.loading, notes: model.list?.failed ?? [],
                        machine: ForgeMachineRecovery(client: client, pair: pair, openMachines: openMachines), noun: "Pull requests",
                        refresh: refresh, more: more) {
@@ -86,7 +86,7 @@ struct ForgeIssuesList: View {
 
     var body: some View {
         ForgeListFrame(loaded: model.list != nil, empty: model.list?.groups.isEmpty ?? true, emptyTitle: "No issues match",
-                       icon: .record, failure: model.failure, stale: model.stale, hasMore: model.list?.more ?? false,
+                       icon: .record, failure: model.failure, stale: model.stale, hasMore: (model.list?.more ?? false) && model.screens < forgeMaxScreens,
                        loading: model.loading, notes: model.list?.failed ?? [], machine: machine, noun: "Issues",
                        refresh: refresh, more: more) {
             if let scope = model.scope { ForEach(model.list?.groups ?? []) { group in

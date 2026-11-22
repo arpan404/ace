@@ -74,8 +74,8 @@ import Testing
         }
         let stop = model.watchRead(Self.list)
         // The reply goes out from the dispatch, which runs once the waiter is registered.
-        let first = try reply("native-1")
-        _ = try await model.services.wait(id: "native-1") { model.receive(first); return true }
+        let own = try reply("native-1")
+        _ = try await model.services.wait(id: "native-1") { model.receive(own); return true }
         #expect(model.lateKept(Self.list) == 0)
 
         // Replacing the entry after nothing waits for it moves the revision each time.
