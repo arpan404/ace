@@ -329,16 +329,19 @@ it("an earlier build's send in doubt gives up its run search at the budget and s
   }
 });
 
+/** A partial update of call "rd" reading `path`. */
+const partial = (path: string) => ({
+  type: "partial-tool-call",
+  callId: "rd",
+  toolCall: { type: "read", args: { path } },
+});
+const shortened = (found: Recovered[]) => found.filter((item) => item.kind === "recovered");
+
 it("a shortened stored copy is matched only to the committed update it shortens", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-shortened-")));
   try {
     const store = await storeWith(root, [{ runId: "run", status: "finished" }]);
     const long = `a.ts${"x".repeat(600)}`;
-    const partial = (path: string) => ({
-      type: "partial-tool-call",
-      callId: "rd",
-      toolCall: { type: "read", args: { path } },
-    });
     // Cursor's store holds a shortened copy of partial B; ace committed partial A, or B.
     await store.runEvents.append({
       runId: "run",
@@ -356,7 +359,6 @@ it("a shortened stored copy is matched only to the committed update it shortens"
         },
       },
     });
-    const shortened = (found: Recovered[]) => found.filter((item) => item.kind === "recovered");
     const afterA = await recover(root, store, {
       runs: [{ runId: "run", through: 0, pending: [updateIdentity(partial("a")) ?? ""] }],
     });
