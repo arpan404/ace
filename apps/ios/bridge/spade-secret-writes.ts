@@ -1,7 +1,7 @@
 import { SpadeRequestError } from "@ace/ui-core/spade-chat";
 
 /*
- * Writes that carry a secret from the phone: an endpoint's key, the Brave Search key, and an
+ * Writes that carry a secret from the phone: an endpoint's key and an
  * app's token. Spade's own words never reach the phone on these: a refusal could quote what it
  * was sent, and a key must never come back (ADR 0119). Each failure is said in fixed words,
  * chosen by what Spade's status means. Pure.
@@ -38,7 +38,7 @@ export function secretRefusal(write: SecretWrite, error: unknown): SecretRefusal
   return say(`Spade couldn't keep the ${write.thing}. Try again.`);
 }
 
-/** Keeping a key for an endpoint or for Brave Search. */
+/** Keeping a key for an endpoint. */
 export const keepKey: SecretWrite = {
   kind: "keep",
   title: "Couldn't keep the key",

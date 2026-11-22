@@ -30,14 +30,6 @@ extension ClientModel {
     func spadeSettingsRemove(endpoint: String) async -> SpadeSettings.Answer {
         await spadeSettings(["type": "spade.settings.endpoint.remove", "endpoint": endpoint], failing: "Couldn't remove it")
     }
-    func spadeSettingsSearxng(_ url: String?) async -> SpadeSettings.Answer {
-        await spadeSettings(["type": "spade.settings.searxng", "url": url.map { $0 as Any } ?? NSNull()],
-                            failing: "Couldn't save the address")
-    }
-    func spadeSettingsBrave(key: String?) async -> SpadeSettings.Answer {
-        await spadeSettings(["type": "spade.settings.brave", "key": key.map { $0 as Any } ?? NSNull()],
-                            failing: key == nil ? "Couldn't remove the key" : "Couldn't keep the key")
-    }
     func spadeSettingsDisconnect(_ connector: String) async -> SpadeSettings.Answer {
         await spadeSettings(["type": "spade.settings.disconnect", "connector": connector], failing: "Couldn't disconnect it")
     }

@@ -34,10 +34,13 @@ Spade is one of ace's places. It adds no navigation of its own.
   Disconnect. A bot's Apps (in Details) offer Use <App> for apps connected already and the apps
   that fit its task, each a click from connected.
 - **Settings › Spade.** General (run, model for new bots, fast, review, transcription, speech,
-  Speak replies and voice, notifications, spending), Models, Web search, Apps. Notifications
-  (ADR 0195): Notify me, Do not disturb, Quiet hours, Interruptions an hour and a day, Morning
-  brief (its time, the bots and clubs it covers, a rewrite with the fast model) and Unusual
-  spending, each a switch that applies at once.
+  Speak replies and voice, notifications, spending, ace search), Models, Apps, Security.
+  Notifications (ADR 0195): Notify me, Do not disturb, Quiet hours, Interruptions an hour and a
+  day, Morning brief (its time, the bots and clubs it covers, a rewrite with the fast model) and
+  Unusual spending, each a switch that applies at once. Under spending, one quiet line counts
+  this month's ace searches against the allowance ("ace search: 312 of 1,000 searches this
+  month"), or says "Sign in to ace to search the web." when signed out, and is absent when Spade
+  can't say (ADR 0210). Web search has no settings page: bots search through ace only.
 
 ## 2. List
 

@@ -2,10 +2,11 @@ import type { ClientCore } from "@ace/client";
 import {
   parseSpadeConnectors,
   parseSpadeModels,
-  parseSpadeSearchSettings,
+  parseSpadeSearchUsage,
   parseSpadeSkillStore,
   parseSpadeSubscriptions,
   spadePresetChoices,
+  spadeSearchUsageLine,
   spadeSetupSentence,
   spadeSubscriptionSources,
   type SpadeModelSources,
@@ -19,12 +20,10 @@ import {
   spadeModelRoles,
   spadeModelSetting,
   spadeModelsPage,
-  spadeSearchPage,
   type SpadeAppsPageRow,
   type SpadeModelGroupRow,
   type SpadeModelSettingRow,
   type SpadeModelsPageRow,
-  type SpadeSearchPageRow,
 } from "./spade-settings-rows.ts";
 import { appName, reconnectApp } from "./spade-reconnect.ts";
 import { keepKey, keepToken, removeKey, secretRefusal } from "./spade-secret-writes.ts";
@@ -44,7 +43,7 @@ const key = z.string().trim().min(1).max(8_192);
 export const spadeSettingsRequests = [
   z.object({
     type: z.literal("spade.settings.read"),
-    page: z.enum(["general", "models", "search", "apps"]),
+    page: z.enum(["general", "models", "apps"]),
   }),
   /** Run Spade on this machine, or stop it: the global setting, admin only. */
   z.object({ type: z.literal("spade.settings.run"), on: z.boolean() }),
@@ -53,11 +52,6 @@ export const spadeSettingsRequests = [
   z.object({ type: z.literal("spade.settings.key"), endpoint: id, key: key.nullable() }),
   z.object({ type: z.literal("spade.settings.endpoint.add"), preset: id }),
   z.object({ type: z.literal("spade.settings.endpoint.remove"), endpoint: id }),
-  z.object({
-    type: z.literal("spade.settings.searxng"),
-    url: z.string().trim().max(2_048).nullable(),
-  }),
-  z.object({ type: z.literal("spade.settings.brave"), key: key.nullable() }),
   z.object({ type: z.literal("spade.settings.disconnect"), connector: id }),
   /** Sign an app in again: with a token pasted on the phone, or by signing in again. */
   z.object({
@@ -75,6 +69,8 @@ export interface SpadeGeneralPageRow {
   models: SpadeModelSettingRow[];
   groups: SpadeModelGroupRow[];
   more: number;
+  /** This month's ace searches, or the sign-in sentence; null when Spade can't say (ADR 0210). */
+  search: string | null;
 }
 
 type Line = ReturnType<typeof spadePlaceLine>;
@@ -89,7 +85,6 @@ export type SpadeSettingsAnswer =
     } & (
       | { general: SpadeGeneralPageRow }
       | { models: SpadeModelsPageRow }
-      | { search: SpadeSearchPageRow }
       | { apps: SpadeAppsPageRow }
       | Record<never, never>
     ));
@@ -144,8 +139,7 @@ export async function answerSpadeSettings(
   ask: Ask,
   signal: AbortSignal,
 ): Promise<SpadeSettingsAnswer> {
-  const page = (name: "general" | "models" | "search" | "apps") =>
-    readPage(spade, name, ask, deps.now());
+  const page = (name: "general" | "models" | "apps") => readPage(spade, name, ask, deps.now());
   /**
    * A change, then the page as it now is. A failed change says why (`fail`); one that went
    * through says so even when the page can't be read again, so nothing is sent twice.
@@ -202,24 +196,6 @@ export async function answerSpadeSettings(
         () => ask("DELETE", `/v1/endpoints/${segment(request.endpoint)}`),
         "models",
       );
-    case "spade.settings.searxng":
-      return write(
-        plain("Couldn't save the address"),
-        () => ask("PUT", "/v1/search", { searxng_url: request.url || null }),
-        "search",
-      );
-    case "spade.settings.brave":
-      return request.key === null
-        ? write(
-            (e) => secretRefusal(removeKey, e),
-            () => ask("DELETE", "/v1/search/brave-key"),
-            "search",
-          )
-        : write(
-            (e) => secretRefusal(keepKey, e),
-            () => ask("PUT", "/v1/search/brave-key", { key: request.key }),
-            "search",
-          );
     case "spade.settings.disconnect":
       return write(
         plain("Couldn't disconnect it"),
@@ -262,7 +238,7 @@ async function addFromPreset(ask: Ask, presetId: string) {
 
 async function readPage(
   spade: NativeSpade,
-  name: "general" | "models" | "search" | "apps",
+  name: "general" | "models" | "apps",
   ask: Ask,
   now: number,
 ): Promise<SpadeSettingsAnswer> {
@@ -270,25 +246,29 @@ async function readPage(
   const line = spadePlaceLine(status, enabled);
   if (name === "general" && !line.ready) {
     const run = { on: enabled ?? null, line: enabled === false ? null : line.sentence };
-    return { ok: true, line, general: { run, models: [], groups: [], more: 0 } };
+    return { ok: true, line, general: { run, models: [], groups: [], more: 0, search: null } };
   }
   // The other pages need Spade answering: the phone says why it isn't, once.
   if (!line.ready) return { ok: true, line };
   try {
     switch (name) {
       case "general": {
-        const { models, sources } = await readModelSources(ask);
+        const [{ models, sources }, search] = await Promise.all([
+          readModelSources(ask),
+          // An older Spade has no count; the page shows without it.
+          ask("GET", "/v1/usage/search").then(
+            (body) => spadeSearchUsageLine(parseSpadeSearchUsage(body)) ?? null,
+            () => null,
+          ),
+        ]);
         const run = { on: enabled ?? null, line: (status && spadeSetupSentence(status)) ?? null };
         const rows = spadeModelRoles.map((role) => spadeModelSetting(role, models, sources));
-        return { ok: true, line, general: { run, models: rows, ...spadeModelChoices(sources) } };
+        const choices = spadeModelChoices(sources);
+        return { ok: true, line, general: { run, models: rows, ...choices, search } };
       }
       case "models": {
         const models = sure(parseSpadeModels(await ask("GET", "/v1/models")), "models");
         return { ok: true, line, models: spadeModelsPage(models) };
-      }
-      case "search": {
-        const search = sure(parseSpadeSearchSettings(await ask("GET", "/v1/search")), "web search");
-        return { ok: true, line, search: spadeSearchPage(search) };
       }
       case "apps": {
         const [connectors, store] = await Promise.all([
