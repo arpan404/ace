@@ -1,4 +1,6 @@
+import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { folderLabel } from "./folder-label.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
 /**
@@ -46,24 +48,37 @@ export function MiddleName(props: {
 }
 
 /**
- * Plain text cut in the middle (a folder's path): the head gives way to "…" first and the last
- * `tail` characters stay. With no room even for them, the tail clips as well ("…/wor…"), so the
- * text is never cut off without a mark or dropped.
+ * A folder beside a file name, in the form `folderLabel` picks for the room it has: whole leading
+ * folders drop first, then "…/" and the nearest folder, then that name cut at its end; with no
+ * room for 4 of its letters, nothing (the row's title keeps the path). Until it has measured, the
+ * whole folder shows.
  */
-export function MiddleText(props: {
-  text: string;
-  tail: number;
-  part?: string;
-  className?: string;
-}) {
-  const { head, end } = split(props.text, props.tail);
+export function FolderLabel(props: { folder: string; part?: string; className?: string }) {
+  const [box, setBox] = useState<HTMLSpanElement | null>(null);
+  const [label, setLabel] = useState<string | undefined>(undefined);
+  const { folder } = props;
+  useLayoutEffect(() => {
+    if (!box || typeof ResizeObserver === "undefined") return;
+    const context = document.createElement("canvas").getContext("2d");
+    if (!context) return;
+    // Called on observe and on every resize: the label for the room the row leaves.
+    const observer = new ResizeObserver(() => {
+      // Built from its parts: the `font` shorthand reads empty where variants are set.
+      const style = getComputedStyle(box);
+      context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.letterSpacing = style.letterSpacing;
+      setLabel(folderLabel(folder, box.clientWidth, (text) => context.measureText(text).width));
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [box, folder]);
   return (
-    <span data-part={props.part} className={cn("flex min-w-0 overflow-hidden", props.className)}>
-      {/* The head takes nearly all of a shortfall, down to room for its "…". */}
-      <span className="min-w-[0.85em] shrink-[1000] truncate whitespace-pre">{head}</span>
-      {/* Then the tail clips too. Its factor stays 1: flex applies only part of the shortfall
-          when the shrinking items' factors sum to less than 1. */}
-      {end && <span className="min-w-0 truncate whitespace-pre">{end}</span>}
+    <span
+      ref={setBox}
+      data-part={props.part}
+      className={cn("block min-w-0 flex-1 truncate whitespace-pre", props.className)}
+    >
+      {label ?? folder}
     </span>
   );
 }

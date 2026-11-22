@@ -9,8 +9,8 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
-import { MiddleText } from "@/features/panels/files/middle-name.tsx";
-import { fileName, folderOf, folderTail } from "./paths.ts";
+import { FolderLabel } from "@/features/panels/files/middle-name.tsx";
+import { fileName, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
 /**
@@ -116,11 +116,7 @@ function OpenEditorRow(props: {
       >
         <span className={cn("shrink-0", tab.preview && "italic")}>{name}</span>
         {folderOf(tab.path) && (
-          <MiddleText
-            text={folderOf(tab.path)}
-            tail={folderTail(folderOf(tab.path))}
-            className="flex-1 text-xs text-subtle-foreground"
-          />
+          <FolderLabel folder={folderOf(tab.path)} className="text-xs text-subtle-foreground" />
         )}
       </button>
       <TabSlot
