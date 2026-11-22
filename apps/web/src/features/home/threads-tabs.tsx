@@ -66,7 +66,9 @@ export function ThreadsTabs(props: {
               onClick={() => props.onTab(id)}
               className={cn(
                 "flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-meta font-medium transition-colors duration-(--motion-fast) focus-ring-inset",
-                current ? "bg-active text-foreground" : "text-subtle-foreground hover:text-foreground",
+                current
+                  ? "bg-active text-foreground"
+                  : "text-subtle-foreground hover:text-foreground",
               )}
             >
               {label}

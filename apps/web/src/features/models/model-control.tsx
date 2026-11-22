@@ -114,9 +114,7 @@ export function ModelControl(props: {
             {view.label ?? view.placeholder}
           </span>
           {accountName && !props.compact && (
-            <span className="min-w-0 shrink truncate text-muted-foreground">
-              {accountName}
-            </span>
+            <span className="min-w-0 shrink truncate text-muted-foreground">{accountName}</span>
           )}
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>

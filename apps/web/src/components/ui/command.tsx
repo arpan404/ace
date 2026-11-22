@@ -101,7 +101,7 @@ const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
 function CommandSearchRow(props: {
   /** The quiet Close word; none leaves closing to Esc. */
-  closeLabel?: string;
+  closeLabel?: string | undefined;
   children: React.ReactNode;
   /** In place of the magnifier: a palette step's Back button. */
   leading?: React.ReactNode;

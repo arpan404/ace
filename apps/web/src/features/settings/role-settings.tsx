@@ -102,9 +102,7 @@ function RoleRow(props: { role: RunRole }) {
               aria-label={`${row.title}: ${label}`}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
-                {provider && (
-                  <ProviderAccountIcon provider={provider} size={14} />
-                )}
+                {provider && <ProviderAccountIcon provider={provider} size={14} />}
                 <span className="truncate">{label}</span>
               </span>
               <CaretDownIcon aria-hidden size={12} className="text-subtle-foreground" />

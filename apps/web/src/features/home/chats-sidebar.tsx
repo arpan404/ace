@@ -57,7 +57,9 @@ export function ChatsSidebar() {
         query={query}
         onQuery={setQuery}
         lead={machines.length > 1 ? <ChatsFilter /> : undefined}
-        actions={<IconButton icon={NotePencilIcon} label="New chat" size="panel" onClick={newChat} />}
+        actions={
+          <IconButton icon={NotePencilIcon} label="New chat" size="panel" onClick={newChat} />
+        }
       />
       <nav aria-label="Chats" className="flex min-h-0 flex-1 flex-col">
         {/* A chat not sent yet waits on top, as Threads keeps its own drafts. */}
