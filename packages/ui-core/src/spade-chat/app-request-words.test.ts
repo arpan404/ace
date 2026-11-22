@@ -67,14 +67,15 @@ test("requests one app made together read as one sentence, the calls listed unde
   expect(mixed.sentence).toBe("Quill wants to do 3 things in Notion.");
 });
 
+const ask = (callId: string, name: string, state = "open") => ({
+  kind: "ask",
+  key: callId,
+  callId,
+  name,
+  state,
+});
+
 test("three open requests to one app in a row become one group; others stay apart", () => {
-  const ask = (callId: string, name: string, state = "open") => ({
-    kind: "ask",
-    key: callId,
-    callId,
-    name,
-    state,
-  });
   const words = { kind: "text", key: "t" };
   const grouped = spadeGroupAppRequests([
     words,

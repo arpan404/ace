@@ -16,21 +16,21 @@ import { addGrant, securityKey } from "./spade-security-api.ts";
 export function useAppAlways(botId: string) {
   const client = useSpadeClient();
   const cache = useQueryClient();
-  const [waiting, setWaiting] = useState<{ app: string; then(): void }>();
+  const [waiting, setWaiting] = useState<{ app: string; next(): void }>();
   const [problem, setProblem] = useState<string>();
   const grant = async (app: string) => {
     await addGrant(client, botId, { kind: "app", app, writes: true });
     await cache.invalidateQueries({ queryKey: securityKey });
   };
-  const allow = async (app: string, then: () => void): Promise<boolean> => {
+  const allow = async (app: string, next: () => void): Promise<boolean> => {
     setProblem(undefined);
     try {
       await grant(app);
-      then();
+      next();
       return true;
     } catch (error) {
       const message = fault(error);
-      if (isStandingRefusal(message)) setWaiting({ app, then });
+      if (isStandingRefusal(message)) setWaiting({ app, next });
       else setProblem(message);
       return false;
     }
@@ -39,9 +39,9 @@ export function useAppAlways(botId: string) {
     <ConfirmPerson
       client={client}
       onConfirmed={() => {
-        const { app, then } = waiting;
+        const { app, next } = waiting;
         setWaiting(undefined);
-        void allow(app, then);
+        void allow(app, next);
       }}
     />
   ) : problem ? (

@@ -668,7 +668,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
           ...(event.stopped ? { stopped: event.stopped } : {}),
-          ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
+          ...((event.ask === "drive" || event.ask === "app") && event.app
+            ? { app: event.app }
+            : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];

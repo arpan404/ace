@@ -371,7 +371,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox" | "drive",
+    ask: "undeclared" | "outside_sandbox" | "drive" | "app",
     app?: string,
   ): void {
     this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });
@@ -409,6 +409,30 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...(call.app === undefined ? {} : { app: call.app }),
       ...(call.stopped === undefined ? {} : { stopped: call.stopped }),
     });
+    this.status(agent, "waiting", "Waiting for you");
+  }
+
+  /** One reply making several calls of a connected app at once, each asking (`ask: app`). */
+  askApp(
+    agent: FakeSpadeAgent,
+    app: string,
+    calls: { callId: string; name: string; args: unknown; reason?: string }[],
+  ) {
+    const id = `r${++this.sequence}`;
+    this.store(agent.conversation, { type: "reply_started", reply: id });
+    const made = calls.map((call) => ({ id: call.callId, name: call.name }));
+    this.store(agent.conversation, { type: "step_finished", reply: id, text: "", calls: made });
+    for (const { callId, name, args, reason } of calls)
+      this.store(agent.conversation, {
+        type: "approval_requested",
+        reply: id,
+        call_id: callId,
+        name,
+        arguments: args,
+        ask: "app",
+        app,
+        ...(reason ? { reviewer_reason: reason } : {}),
+      });
     this.status(agent, "waiting", "Waiting for you");
   }
 
