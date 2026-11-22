@@ -118,36 +118,44 @@ conversation always misses; every later call misses only on its new tail. The ru
 
 ## Web search
 
-`web_search` tries, in order, and takes the first that answers:
+`web_search` (ADR 0210) tries, in order, and takes the first that answers:
 
-1. The model endpoint's own built-in search, for models marked `web-search` on an Anthropic
-   Messages or OpenAI Responses endpoint: one call with the server web search tool
-   (`web_search_20250305`) or the Responses `web_search` tool, admitted against the caps like any
-   model call. Its results and citations are read leniently (unknown blocks are skipped) and come
-   back as the model's short answer and its numbered sources. It is paid for its tokens plus the
-   model's `per_search` price for each search the endpoint billed. If it fails, the next ones are
-   tried.
-2. The person's own SearXNG: the address set in Settings › Spade › Web search, else the one in
-   `config/search.json`. Free, no key, run by them. Its `settings.yml` must allow the `json`
-   format.
-3. Brave Search with the person's key, set in the same settings and kept in the OS keychain
-   (ADR 0119) under account `search:brave`, apart from model endpoints' keys; else
-   `BRAVE_API_KEY`. Brave gives $5 of searches a month free.
+1. **ace search**: `POST {cloud}/v1/search` on ace cloud (`https://cloud.acehq.dev`;
+   `SPADE_CLOUD_URL` in development, `off` turns it off), with the person's ace account grant
+   Spade already holds in memory for the sign-in broker (`Authorization: Bearer`, `ace-client:
+   spade/<version>`). No secret is stored. The query is trimmed and cut to 400 characters; at
+   most 10 results. Only `https`, or `http` on this machine; redirects are never followed. The
+   answer `{results: [{url, title, snippet, site}], provider, usage}` is read leniently (items
+   without a string `url` are skipped, missing text becomes empty, unknown fields are ignored)
+   up to 256 KiB, and every result keeps its link for the bot to cite.
+2. **The model endpoint's own built-in search**, for models marked `web-search` on an Anthropic
+   Messages or OpenAI Responses endpoint, when ace search refused, failed, is waiting or the
+   person is signed out: one call with the server web search tool (`web_search_20250305`) or the
+   Responses `web_search` tool, admitted against the caps like any model call. Its results and
+   citations are read leniently and come back as the model's short answer and its numbered
+   sources. It is paid for its tokens plus the model's `per_search` price for each search the
+   endpoint billed.
+3. Otherwise **one plain sentence**: "Sign in to ace to search the web." (signed out, or the
+   cloud answered `401`/`403`), "ace search is resting today." (`error: "resting"`), or a
+   refusal's own `reason` (trimmed, plain text, at most 200 characters).
 
-When none of these is set up (no SearXNG answers where Spade looks and no Brave key), the result
-starts with "No web search is set up." and tells the bot to point the person at Settings › Spade ›
-Web search in one sentence; the app shows a quiet line under the reply with a text button that
-opens that setting. The settings API: `GET /v1/search` (`searxng_url`, `brave_key_set`,
-`brave_key_source` (`keychain`, `environment` or null), `keychain`; never the key), `PUT /v1/search {searxng_url}` (`http` or `https`, `null` forgets
-it), `PUT`/`DELETE /v1/search/brave-key {key}`. 4. If all of those fail, an ace agent on the cheapest available provider CLI (for example Claude
-Haiku through Claude Code) runs the search with that CLI's own web tool, on the person's
-subscription, and returns results with sources. Needs CLI brains.
+After a `429`, Spade doesn't ask ace search again until `Retry-After` has passed (a day at most;
+missing or garbled means 60 seconds); after a failure (`502`, `503`, any other answer, a timeout
+or no connection), not for 30 seconds. While it waits, the refusal's sentence is the answer and no
+request is made. The clock is injected, so tests move it.
+
+There is no search setting. The person's own SearXNG and Brave key are gone: an old
+`search.json` in the data folder and a stored `searxng_url` setting are left where they are and
+ignored, and a Brave key in the keychain (`search:brave`) is no longer read. `GET
+/v1/usage/search` answers `{signed_in, used, allowance, resets_at}` for the line in Settings ›
+Spade › General: Spade asks ace cloud's `GET /v1/search/usage` with the grant (5 s), mapping
+`month.used`, `month.allowance` and `resetsAt`. Signed out gives `signed_in: false` and nulls; a
+cloud that is away gives `signed_in: true` and nulls.
 
 Never by reading search engines' result pages directly: it breaks their terms, trips their bot
 detection and can get the person's address blocked. `web_fetch` of a known URL is a plain HTTP
-call Spade makes itself. `spade-search` (owner, 2026-11-10: SearXNG and Brave only for now) gives
-clean title, address and snippet, drops repeats, caps results at 20, and skips a backend that
-fails, times out or has no key, with a reason that never carries the key.
+call Spade makes itself. `spade-search` gives clean title, address, snippet and site, drops
+repeats, and caps results at 10.
 
 `spade-fetch` is `web_fetch`. Pages are untrusted and may try to steer the agent, so it fetches
 http and https only, resolves the host itself and refuses loopback, private, link-local (cloud

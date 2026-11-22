@@ -43,7 +43,7 @@ crates/
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
   spade-keys/      endpoint API keys in the OS keychain (ADR 0119)
-  spade-search/    web search: your own SearXNG, then Brave with your key
+  spade-search/    web search through ace cloud (ADR 0210)
   spade-ace/       ace's tools (MCP client of the daemon) and skill library (skills.request)
   spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses
   spade-server/    local API and reply engine (in progress)
@@ -51,7 +51,6 @@ crates/
   spade-testkit/   test-only fake model endpoint (all three formats)
 config/
   models.json      presets, built into the binary
-  search.json      search backends, tried in order
 docs/
   design.md        features, architecture, decisions, build order
   chat-core.md     step 1 contract: events, API, live stream, spending
