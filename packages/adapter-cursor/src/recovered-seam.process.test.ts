@@ -4,7 +4,7 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { apply, createThreadState } from "@ace/core";
+import { apply, createThreadState, deriveThreadStatus } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
 import {
   HostRuntime,
@@ -96,7 +96,14 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
 type Order = "callback-first" | "write-first";
 
 /** A fake SDK whose runs write the store as SDK 1.0.35 does, in either order per update. */
-function fakeSdk(order: Order, dropAppend?: number): RuntimeSdkBoundary {
+function fakeSdk(
+  order: Order,
+  dropAppend?: number,
+  run: { updates: Record<string, unknown>[]; result: string; lostFrom?: number } = {
+    updates,
+    result: "All good good here.",
+  },
+): RuntimeSdkBoundary {
   let store: LocalAgentStore | undefined;
   const append = (runId: string, message: unknown) =>
     store!.runEvents.append({
@@ -138,17 +145,19 @@ function fakeSdk(order: Order, dropAppend?: number): RuntimeSdkBoundary {
           run_id: runId,
           status: "RUNNING",
         });
-        for (const [index, update] of updates.entries()) {
+        for (const [index, update] of run.updates.entries()) {
           // The SDK swallows a failed write: that update's event is simply never stored.
-          const message = index === dropAppend ? undefined : stored(update, runId);
+          const lost =
+            index === dropAppend || (run.lostFrom !== undefined && index >= run.lostFrom);
+          const message = lost ? undefined : stored(update, runId);
           if (order === "write-first" && message) await append(runId, message);
           await options?.onDelta?.({ update });
           if (order === "callback-first" && message) await append(runId, message);
         }
-        const run = await store!.runs.get({ agentId: "agent", runId });
-        if (run)
+        const record = await store!.runs.get({ agentId: "agent", runId });
+        if (record)
           await store!.runs.update({
-            run: { ...run, status: "finished", result: "All good good here." },
+            run: { ...record, status: "finished", result: run.result },
           });
         const ended = await store!.agents.get({ agentId: "agent" });
         if (ended)
@@ -233,7 +242,7 @@ function transcript(frames: CursorEnvelope[]) {
       return [`tool ${item.call.kind} ${item.call.status} ${JSON.stringify(item.call.detail)}`];
     return [];
   });
-  return { shown: shownItems, notices };
+  return { shown: shownItems, notices, status: deriveThreadStatus(state).state };
 }
 
 const limits = CursorLimitsSchema.parse({});
@@ -396,6 +405,50 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
     expect(
       after.notices.filter((text) => text.includes("began before ace was updated")),
     ).toHaveLength(1);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("a finished turn's long saved answer comes back whole, past the frame preview", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-long-")));
+  try {
+    // The answer streams in two parts; ace has the first, and the SDK lost every later write.
+    const rest = "y".repeat(80 * 1024);
+    const answer = `Start: ${rest}`;
+    const boundary = fakeSdk("callback-first", undefined, {
+      updates: [
+        { type: "text-delta", text: "Start: " },
+        { type: "text-delta", text: rest },
+      ],
+      result: answer,
+      lostFrom: 1,
+    });
+    const frames = await host(boundary, home, "live", async (runtime, published) => {
+      await runtime.open({
+        threadId: "seam",
+        cwd: home,
+        generation: "live",
+        policy: "full-access",
+        limits,
+      });
+      await runtime.send({
+        operationId: "op",
+        commandId: "op",
+        segment: 0,
+        input: [{ type: "text", text: "go" }],
+      });
+      await expect.poll(() => published().some((frame) => frame.kind === "result")).toBe(true);
+    });
+    const live = frames.filter((frame) => frame.kind !== "result");
+    // The daemon died once it had the first part.
+    const cut = live.findIndex((frame) => JSON.stringify(frame.body).includes("Start: ")) + 1;
+    const committed = live.slice(0, cut);
+    const after = transcript([...committed, ...(await reopen(boundary, home, committed, 1))]);
+    const answers = after.shown.filter((line) => line.startsWith("assistant: "));
+    expect(answers.at(-1)?.length).toBe(`assistant: ${answer}`.length);
+    expect(answers.at(-1)).toBe(`assistant: ${answer}`);
+    expect(after.status).toBe("done");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

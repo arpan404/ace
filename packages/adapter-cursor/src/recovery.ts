@@ -38,6 +38,7 @@ export type Recovered =
       offset: string;
       pending: string[];
     }
+  | { kind: "recovered-result"; body: { text: string }; runId: string }
   | { kind: "recovery"; body: Record<string, unknown>; runId: string };
 
 type Recover = OpenOptions["recover"];
@@ -84,6 +85,23 @@ async function attemptedRun(
     cursor = page.nextCursor;
   } while (cursor);
   return undefined;
+}
+
+/** A saved answer's parts: small enough for any frame, and the most ace shows of one. */
+const resultPart = 8_000;
+const resultCap = 4 * 1024 * 1024;
+function resultParts(result: string): { texts: string[]; cut: boolean } {
+  const shown = result.slice(0, resultCap);
+  const texts: string[] = [];
+  for (let at = 0; at < shown.length;) {
+    let end = Math.min(shown.length, at + resultPart);
+    // Never between the halves of a surrogate pair.
+    const code = shown.charCodeAt(end - 1);
+    if (end < shown.length && code >= 0xd800 && code <= 0xdbff) end++;
+    texts.push(shown.slice(at, end));
+    at = end;
+  }
+  return { texts, cut: result.length > resultCap };
 }
 
 /** A stored event's SDK message; any other payload as it is, never dropped. */
@@ -251,6 +269,11 @@ export async function recoverCursorCheckpoint(
       await tail(store, run.runId, seen, options.limits, (message, seq, offset, pending) =>
         push({ kind: "recovered", body: message, runId: run.runId, seq, offset, pending }),
       );
+    // The saved answer goes in parts no frame previews or clips, then the outcome says so.
+    const saved = run.status === "finished" && run.result ? run.result : undefined;
+    const parts = saved ? resultParts(saved) : undefined;
+    for (const text of parts?.texts ?? [])
+      push({ kind: "recovered-result", body: { text }, runId: run.runId });
     push({
       kind: "recovery",
       runId: run.runId,
@@ -258,7 +281,8 @@ export async function recoverCursorCheckpoint(
         nativeStatus: run.status,
         interrupted,
         outcome: interrupted ? "interrupted_by_daemon_restart" : run.status,
-        ...(run.status === "finished" && run.result ? { result: run.result } : {}),
+        ...(parts ? { resultParts: parts.texts.length } : {}),
+        ...(parts?.cut ? { resultCut: true } : {}),
         ...(run.status === "error" && run.error ? { error: run.error } : {}),
         ...(seen.legacy ? { tailOmitted: true } : {}),
       },

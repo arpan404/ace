@@ -51,6 +51,8 @@ export class CursorTranslator implements Translator {
   private sawText = false;
   /** The text of the turn's last answer so far: root text since its last tool call. */
   private answer = "";
+  /** A recovered run's saved answer, as its parts arrive (recovery.ts). */
+  private saved = "";
   /** Whether anything of the open turn came back from Cursor's store, and what never can. */
   private recoveredAny = false;
   private gaps = new Set<string>();
@@ -146,6 +148,8 @@ export class CursorTranslator implements Translator {
     namespace: string,
   ): Fact[] {
     if (event.kind === "open") {
+      // A saved answer comes whole from one host's reopen: parts an earlier one sent are void.
+      this.saved = "";
       this.rootSeen = true;
       this.cwd = string(body.cwd) ?? "";
       const model = string(body.model);
@@ -207,6 +211,10 @@ export class CursorTranslator implements Translator {
       if (gap && this.gaps.size < 4) this.gaps.add(gap);
       const update = storedUpdate(event.body);
       return update ? this.delta(update, this.root, this.turnNamespace, 0) : [];
+    }
+    if (event.kind === "recovered-result") {
+      if (this.saved.length < 4 * 1024 * 1024) this.saved += string(body.text) ?? "";
+      return [];
     }
     if (event.kind === "recovery") return this.recover(event, body);
     if (event.kind === "snapshot")
@@ -463,7 +471,9 @@ export class CursorTranslator implements Translator {
    */
   private recover(event: CursorEnvelope, body: Record<string, unknown>): Fact[] {
     const status = string(body.nativeStatus) ?? "unknown";
-    const result = string(body.result);
+    // The saved answer in parts, or whole from an earlier build's frame.
+    const result = typeof body.resultParts === "number" ? this.saved : string(body.result);
+    this.saved = "";
     // The stored result is the turn's final answer: whatever of it was never shown is shown,
     // so a finished turn never ends on a fragment.
     const shown = this.answer;
@@ -519,6 +529,16 @@ export class CursorTranslator implements Translator {
         "cursor.recovered",
       ),
       ...fromResult,
+      ...(body.resultCut === true
+        ? [
+            this.notice(
+              "Cursor's saved answer is longer than ace shows; it is cut after the first 4 MiB.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
+        : []),
       ...[...this.gaps].map((gap) => this.notice(gap, event, "info", "cursor.recovered")),
       ...(body.tailOmitted === true
         ? [

@@ -182,3 +182,22 @@ test("a finished turn whose answer ace showed whole repeats nothing from Cursor'
   expect(t.notices().join(" ")).not.toContain("Cursor's saved result");
   expect(t.status()).toBe("done");
 });
+
+test("a saved answer past the cap says once that it is cut, and the turn still ends done", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  const after = { generation: "host2", operationId: "open", runId: "run" };
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  t.frame("recovered-result", { text: "first part " }, after);
+  t.frame("recovered-result", { text: "second part" }, after);
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, resultParts: 2, resultCut: true },
+    after,
+  );
+  expect(t.text("assistant")).toEqual(["first part second part"]);
+  expect(t.notices().filter((text) => text.includes("it is cut"))).toHaveLength(1);
+  expect(t.status()).toBe("done");
+});

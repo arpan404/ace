@@ -205,11 +205,15 @@ it("a run that finished just before the daemon crashed comes back finished, with
     });
     expect(cancelled).toEqual([]);
     expect(texts(found)).toEqual(["missed"]);
-    expect(found.at(-1)).toMatchObject({
-      kind: "recovery",
-      runId: "run",
-      body: { nativeStatus: "finished", interrupted: false, result: "the answer" },
-    });
+    // The saved answer comes in its own parts, ahead of the outcome.
+    expect(found.slice(-2)).toMatchObject([
+      { kind: "recovered-result", runId: "run", body: { text: "the answer" } },
+      {
+        kind: "recovery",
+        runId: "run",
+        body: { nativeStatus: "finished", interrupted: false, resultParts: 1 },
+      },
+    ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
