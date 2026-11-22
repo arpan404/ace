@@ -23,11 +23,13 @@ struct FilesScreen: View {
     let subtitle: String
     /// Puts `@path` into the message being written and goes back to it; nil where nothing is sent.
     let mention: ((ComposerMention) -> Void)?
+    /// A folder (ending in "/") to open in the tree once it first lists, as a file's breadcrumb asks.
+    var folder: String?
     @Environment(\.scenePhase) private var scenePhase
     /// Whether this Files screen is on screen (not covered by a pushed file or the background).
     @State private var isPresented = false
-    /// Whether the bridge is counting this screen as showing the tree.
-    @State private var shown = false
+    /// The bridge counting this screen as showing the tree, until the background or a pop.
+    @State private var watch = FilesTreeWatch()
     @State private var query = ""
     @State private var searching = false
     @State private var searchScope = FilesSearchScope.names
@@ -46,7 +48,8 @@ struct FilesScreen: View {
     @State private var uploading = false
     @State private var importProblem: String?
 
-    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?) {
+    init(model: ClientModel, scope: FilesScope, subtitle: String, mention: ((ComposerMention) -> Void)?, folder: String? = nil) {
+        self.folder = folder
         self.model = model
         self.scope = scope
         self.subtitle = subtitle
@@ -83,22 +86,18 @@ struct FilesScreen: View {
             model.watchFileMemory(scope)
             isPresented = true
             // Opening this screen lists its tree; coming back from a pushed file keeps the rows.
-            if !shown {
-                shown = true
-                model.showFilesTree(scope)
+            if !watch.isShown {
+                watch.show(model, scope)
+                if let folder { reveal(folder) }
             }
         }
         .onDisappear { isPresented = false }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 // Only the background stops the tree: a pushed file leaves it warm for the return.
-                if shown {
-                    shown = false
-                    model.hideFilesTree(scope)
-                }
-            } else if phase == .active, isPresented, !shown {
-                shown = true
-                model.showFilesTree(scope)
+                watch.stop()
+            } else if phase == .active, isPresented, !watch.isShown {
+                watch.show(model, scope)
             }
         }
         .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in
@@ -113,7 +112,8 @@ struct FilesScreen: View {
         } message: { Text(importProblem ?? "") }
         .task(id: "\(query)|\(searchScope)") { await search() }
         .navigationDestination(item: $opened) { target in
-            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 })
+            FileScreen(model: model, scope: scope, target: target, mention: mention, deleted: { actions.strip = $0 },
+                       openFolder: { folder in reveal(folder); opened = nil })
         }
         .navigationDestination(isPresented: $showTrash) { RecentlyDeletedView(model: model, scope: scope) }
         .modifier(FileActionPrompts(actions: actions))
