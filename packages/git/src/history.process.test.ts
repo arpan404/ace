@@ -2,7 +2,9 @@ import { mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { spawnSync } from "node:child_process";
 import { GitCli } from "./cli.ts";
+import { ReadGate } from "./read-gate.ts";
 import { GitService } from "./index.ts";
 import { git, put, repository, scratch } from "./test-repo.ts";
 
@@ -220,6 +222,54 @@ test.skipIf(process.platform === "win32")(
       });
       expect(out.truncated).toBe(true);
       expect(await exits(await writtenPid(file))).toBe(true);
+    }
+  },
+);
+
+/** Whether `pid` is a running process (a zombie has exited; it only waits to be reaped). */
+function running(pid: number): boolean {
+  const state = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  const stat = state.stdout.trim();
+  return stat !== "" && !stat.startsWith("Z");
+}
+
+test.skipIf(process.platform === "win32")(
+  "a cancelled read keeps its place in the gate until its descendant has exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    const gate = new ReadGate(1);
+    // A group that takes a moment to go: the kill reaches it 300 ms after it is sent.
+    const cli = new GitCli({
+      processRuntime: {
+        signalGroup: (pid, signal) =>
+          void setTimeout(() => {
+            try {
+              process.kill(-pid, signal);
+            } catch {
+              // Already gone.
+            }
+          }, 300),
+      },
+    });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("sleep 60", background);
+      const controller = new AbortController();
+      const first = gate.run(
+        () =>
+          cli.call(repo, args, {
+            captureBytes: 4096,
+            stopAtCapture: true,
+            stopAfterMs: 60_000,
+            signal: controller.signal,
+          }),
+        undefined,
+      );
+      const pid = await writtenPid(file);
+      // The next read waits for the slot; when it gets it, the cancelled read's helper is gone.
+      const next = gate.run(async () => running(pid));
+      controller.abort();
+      await expect(first).rejects.toMatchObject({ code: "git_cancelled" });
+      expect(await next).toBe(false);
     }
   },
 );

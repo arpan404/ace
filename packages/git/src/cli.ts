@@ -761,6 +761,8 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
+      // A bounded read (`stopAtCapture`, `stopAfterMs`) settles only once its group is gone.
+      const bounded = options.stopAtCapture === true || options.stopAfterMs !== undefined;
       // The caller has all it asked for (`stopAtCapture`, `stopAfterMs`): stop Git, keep output.
       let enough: "capture" | "budget" | undefined;
       const enoughOutput = (reason: "capture" | "budget"): Output => ({
@@ -806,6 +808,10 @@ export class GitCli {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
           void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else if (bounded) {
+          // A bounded read that was cancelled or failed holds its place the same way.
+          const ended = failure;
+          void groupGone(this.runtime, pid).then(() => reject(ended));
         } else reject(failure);
       };
       const kill = () => {
@@ -866,6 +872,10 @@ export class GitCli {
           // Held until the group is gone, so whoever limits these reads counts it until then.
           const output = enoughOutput(enough);
           void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else if (bounded) {
+          // A bounded read that was cancelled or failed holds its place the same way.
+          const ended = failure;
+          void groupGone(this.runtime, pid).then(() => reject(ended));
         } else reject(failure);
       };
       const cancel = () => {
