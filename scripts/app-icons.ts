@@ -49,9 +49,13 @@ const marks: Record<string, Mark> = {
   close: { none: kit("close.com (brand)") },
   cloudflare: { simple: "cloudflare" },
   cloudinary: { simple: "cloudinary" },
+  coda: { simple: "coda" },
   contentful: { simple: "contentful" },
   datadog: { simple: "datadog" },
+  digitalocean: { simple: "digitalocean" },
+  docusign: { none: kit("docusign.com (brand)") },
   dropbox: { simple: "dropbox" },
+  egnyte: { simple: "egnyte" },
   figma: { simple: "figma" },
   fireflies: { none: kit("fireflies.ai (press)") },
   framer: { simple: "framer" },
@@ -70,12 +74,19 @@ const marks: Record<string, Mark> = {
   granola: { none: kit("granola.ai (press)") },
   guru: { none: kit("getguru.com (brand)") },
   helpscout: { simple: "helpscout" },
+  heroku: { none: kit("heroku.com (brand)") },
   hex: {
     maker: "hex.svg",
     source: "Hex's site icon, https://hex.tech/favicon.svg",
   },
+  honeycomb: { none: kit("honeycomb.io (brand)") },
   hubspot: { simple: "hubspot" },
   huggingface: { simple: "huggingface" },
+  "incident-io": {
+    maker: "incident-io.svg",
+    source: "Incident.io brand kit, https://incident.io/brand/resources/incidentio-brand-svgs.zip",
+    guidelines: "https://incident.io/brand",
+  },
   intercom: { simple: "intercom" },
   jam: {
     maker: "jam.svg",
@@ -88,6 +99,7 @@ const marks: Record<string, Mark> = {
   linear: { simple: "linear" },
   lucid: { simple: "lucid" },
   make: { simple: "make" },
+  meltwater: { none: kit("meltwater.com (brand)") },
   mercury: {
     maker: "mercury.svg",
     source: "Mercury's site icon, https://mercury.com/icon.svg",
@@ -99,6 +111,7 @@ const marks: Record<string, Mark> = {
   neon: { simple: "neon" },
   netlify: { simple: "netlify" },
   notion: { simple: "notion" },
+  otter: { none: kit("otter.ai (press)") },
   pagerduty: { simple: "pagerduty" },
   paypal: { simple: "paypal" },
   pipedrive: { none: kit("pipedrive.com/en/brand") },
@@ -116,7 +129,12 @@ const marks: Record<string, Mark> = {
     source: "Rootly's site icon, https://rootly.com/brand/favicon.svg",
   },
   sanity: { simple: "sanity" },
+  semgrep: {
+    maker: "semgrep.svg",
+    source: "Semgrep site favicon, https://semgrep.dev/build/assets/favicon-CIx-xpG_.svg",
+  },
   sentry: { simple: "sentry" },
+  shortcut: { simple: "shortcut" },
   slack: {
     maker: "slack.svg",
     source:
@@ -128,6 +146,7 @@ const marks: Record<string, Mark> = {
     source:
       "Smartsheet's pinned-tab icon, https://www.smartsheet.com/sites/default/files/favicons/safari-pinned-tab.svg",
   },
+  "sp-global": { none: kit("spglobal.com (brand)") },
   square: { simple: "square" },
   stripe: { simple: "stripe" },
   supabase: { simple: "supabase" },
@@ -136,6 +155,7 @@ const marks: Record<string, Mark> = {
     source: "Tally's site icon, https://tally.so/favicon.svg",
   },
   todoist: { simple: "todoist" },
+  typeform: { simple: "typeform" },
   vercel: { simple: "vercel" },
   webflow: { simple: "webflow" },
   wix: { simple: "wix" },
