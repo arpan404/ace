@@ -227,3 +227,57 @@ test("a 3 MiB saved answer after 2 MiB of it streamed adds only the rest, never 
   expect(t.notices().join(" ")).toContain("The end of this answer is from Cursor's saved result");
   expect(t.status()).toBe("done");
 });
+
+test("a cut saved answer shorter than what streamed but different from its first character is shown whole, with notes", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  // 3 MiB of ASCII streamed before the crash.
+  const streamed = "a".repeat(3 * 1024 * 1024);
+  for (let at = 0; at < streamed.length; at += 64 * 1024)
+    t.frame("delta", { type: "text-delta", text: streamed.slice(at, at + 64 * 1024) });
+  // Cursor saved something else: over 4 MiB of "é", cut at 4 MiB, fewer code units than streamed.
+  const saved = "é".repeat(2 * 1024 * 1024);
+  const after = { generation: "host2", operationId: "open", runId: "run" };
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  let parts = 0;
+  for (let at = 0; at < saved.length; at += 8_000, parts++)
+    t.frame("recovered-result", { text: saved.slice(at, at + 8_000) }, after);
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, resultParts: parts, resultCut: true },
+    after,
+  );
+  expect(t.text("assistant")).toEqual([streamed, saved]);
+  const notes = t.notices().join(" | ");
+  expect(notes).toContain(
+    "The answer above is Cursor's saved result for this turn; what ace showed of it as it streamed differs.",
+  );
+  expect(notes).toContain("it is cut after the first 4 MiB");
+  expect(t.status()).toBe("done");
+});
+
+test("a cut saved answer that is the start of what streamed adds nothing", () => {
+  const t = thread();
+  t.frame("open", { cwd: "/w" });
+  t.frame("send", { input: [{ type: "text", text: "go" }] });
+  t.frame("segment", { nativeRunId: "run" }, { runId: "run" });
+  const streamed = "é".repeat(2 * 1024 * 1024 + 5000);
+  for (let at = 0; at < streamed.length; at += 64 * 1024)
+    t.frame("delta", { type: "text-delta", text: streamed.slice(at, at + 64 * 1024) });
+  const saved = streamed.slice(0, 2 * 1024 * 1024);
+  const after = { generation: "host2", operationId: "open", runId: "run" };
+  t.frame("open", { cwd: "/w" }, { generation: "host2", operationId: "open" });
+  let parts = 0;
+  for (let at = 0; at < saved.length; at += 8_000, parts++)
+    t.frame("recovered-result", { text: saved.slice(at, at + 8_000) }, after);
+  t.frame(
+    "recovery",
+    { nativeStatus: "finished", interrupted: false, resultParts: parts, resultCut: true },
+    after,
+  );
+  expect(t.text("assistant")).toEqual([streamed]);
+  expect(t.notices().join(" | ")).not.toContain("differs");
+  expect(t.status()).toBe("done");
+});
