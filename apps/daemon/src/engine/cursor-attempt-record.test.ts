@@ -278,3 +278,24 @@ test("the idle sweep finds threads with frames to delete without reading every t
   expect(plan.join("\n")).not.toMatch(/SCAN engine_state_records/);
   expect(plan.join("\n")).not.toMatch(/engine_state_records/);
 });
+
+test.each([
+  // The send is the 4,096th newest frame: read, and nothing after it says Cursor had it.
+  [4095, false],
+  // The 4,097th: past the frames read, so a send can't be ruled out, and none is sent again.
+  [4096, true],
+])(
+  "an earlier build's send with %i newer frames is read from its frames, or held as past them",
+  async (newer, held) => {
+    const h = await thread();
+    h.store.atomic(() => {
+      storeFrame(h, 1, "open");
+      storeFrame(h, 2, "send", "old");
+      for (let seq = 3; seq < 3 + newer; seq++) storeFrame(h, seq, "host-output", "other");
+    });
+    const recovery = new ProviderRecovery(h.store);
+    expect(recovery.attempted(h.id, "send-1")).toBe(true);
+    expect(recovery.admissionRecorded(h.id, "send-1")).toBe(held);
+    expect(recovery.unknownAttempt(h.id)).toBe(held);
+  },
+);
