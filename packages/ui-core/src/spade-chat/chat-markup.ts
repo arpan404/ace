@@ -85,10 +85,9 @@ function segments(text: string, live: boolean): SpadeChatSegment[] {
       .join("\n\n");
     return words ? [{ kind: "msg", text: words, ...(live ? { open: true } : {}) }] : [];
   }
-  const kept = out
-    .map((segment) => ({ ...segment, text: segment.text.trim() }))
-    .filter((segment) => segment.text !== "");
-  return capped(kept);
+  // Each segment is this call's own: trimmed in place.
+  for (const segment of out) segment.text = segment.text.trim();
+  return capped(out.filter((segment) => segment.text !== ""));
 }
 
 function segmentOf(
@@ -280,6 +279,10 @@ function readTag(text: string, at: number): { token: Token; end: number } | "par
   return undefined;
 }
 
+/** Where an unquoted attribute name or value stops. */
+const stop = (char: string | undefined) =>
+  char === undefined || char === " " || char === "\t" || char === ">" || char === "\n";
+
 /** A tag's attributes from `at` to its `>`: on one line, quoted or not. */
 function readAttrs(
   text: string,
@@ -287,8 +290,6 @@ function readAttrs(
 ): { attrs: Map<string, string>; end: number } | "partial" | undefined {
   const attrs = new Map<string, string>();
   let i = at;
-  const stop = (char: string | undefined) =>
-    char === undefined || char === " " || char === "\t" || char === ">" || char === "\n";
   while (i < text.length) {
     const char = text[i];
     if (char === "\n") return undefined;

@@ -344,11 +344,11 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
     if (row.kind !== "member") return row;
     const before = flat[index - 1];
     const after = flat[index + 1];
-    return {
-      ...row,
+    // Each row is this view's own: where it sits in its run is set in place.
+    return Object.assign(row, {
       first: before?.kind !== "member" || !sameBot(before.bot, row.bot),
       last: after?.kind !== "member" || !sameBot(after.bot, row.bot),
-    };
+    });
   });
   const asked = Array.from(state.asks.values(), (open) => open.to);
   return {
