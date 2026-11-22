@@ -22,10 +22,15 @@ const lookups = new Set([
   "show",
 ]);
 
-/** A tool's name in lower-case words: `list_shared_pages`, `notion-search`, `listSharedPages`. */
+/**
+ * A tool's or argument's name in lower-case words, split as Spade's gate splits them: at anything
+ * not a letter or digit, at camelCase, and between letters and digits.
+ */
 function words(name: string): string[] {
   return name
     .replaceAll(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replaceAll(/([A-Za-z])([0-9])/g, "$1 $2")
+    .replaceAll(/([0-9])([A-Za-z])/g, "$1 $2")
     .split(/[^A-Za-z0-9]+/)
     .filter(Boolean)
     .map((word) => word.toLowerCase());
@@ -88,8 +93,23 @@ export function spadeAppToolPhrase(tool: string, app: string, effect?: string): 
 /** "list your shared Notion pages" → "List your shared Notion pages". */
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** Arguments that name who or where a call reaches: every one of them is listed. */
-const reachKeys = new Set([
+/**
+ * Words in an argument's name that say who or where a call reaches, as Spade's gate reads them
+ * (`spade_core::effect::shape`'s destination words): every argument named with one is listed,
+ * its name split the gate's way (`bcc_recipients`, `ccList`, `toAddresses`).
+ */
+const reachWords = new Set([
+  "url",
+  "urls",
+  "uri",
+  "uris",
+  "href",
+  "host",
+  "hostname",
+  "domain",
+  "endpoint",
+  "webhook",
+  "callback",
   "to",
   "recipient",
   "recipients",
@@ -97,13 +117,27 @@ const reachKeys = new Set([
   "emails",
   "cc",
   "bcc",
-  "url",
-  "uri",
-  "host",
-  "endpoint",
-  "webhook",
   "phone",
+  "destination",
 ]);
+
+/** The same destinations inside a longer word, as the gate finds them. */
+const reachStems = ["webhook", "endpoint", "callback", "recipient", "hostname"];
+
+/** Whether an argument named `key` names who or where a call reaches. */
+function reaches(key: string): boolean {
+  const said = words(key);
+  const joined = key.toLowerCase();
+  return (
+    said.some((word) => reachWords.has(word)) || reachStems.some((stem) => joined.includes(stem))
+  );
+}
+
+/** Deeper than this an argument isn't walked; what lies there is said to be hidden. */
+const deepest = 64;
+
+/** Where a value was cut off for depth. */
+const hidden = "more, nested too deep to show";
 
 /** Arguments that name the page or thing a call acts on, when it reaches no one: the first. */
 const placeKeys = [
@@ -117,9 +151,16 @@ const placeKeys = [
   "name",
 ];
 
-/** Every plain word in a value: text, numbers, a person's email (else name), any depth. */
+/**
+ * Every plain word in a value: text and numbers at any depth. In an object, every address it
+ * holds, nested ones included; its name only when it holds none (a person's name beside their
+ * address hides nothing, a group's name beside its members' addresses hides none of them).
+ */
 function plainWords(value: unknown, out: string[], depth = 0): void {
-  if (depth > 8) return;
+  if (depth > deepest) {
+    out.push(hidden);
+    return;
+  }
   if (typeof value === "string") {
     if (value.trim()) out.push(value.trim());
     return;
@@ -134,17 +175,20 @@ function plainWords(value: unknown, out: string[], depth = 0): void {
   }
   const fields = spadeRecord(value);
   if (!fields) return;
-  const person = fields.email ?? fields.address ?? fields.name;
-  if (typeof person === "string" && person.trim()) {
-    out.push(person.trim());
-    return;
-  }
-  for (const inner of Object.values(fields)) plainWords(inner, out, depth + 1);
+  const found: string[] = [];
+  for (const [key, inner] of Object.entries(fields))
+    if (!["name", "display_name", "displayname", "label"].includes(key.toLowerCase()))
+      plainWords(inner, found, depth + 1);
+  if (found.length) out.push(...found);
+  else plainWords(fields.name ?? fields.display_name ?? fields.label, out, depth + 1);
 }
 
 /** Everyone and everywhere a call reaches, at any depth of its arguments, in order. */
 function reached(args: unknown, out: string[], depth = 0): void {
-  if (depth > 8) return;
+  if (depth > deepest) {
+    out.push(hidden);
+    return;
+  }
   if (Array.isArray(args)) {
     for (const item of args) reached(item, out, depth + 1);
     return;
@@ -152,7 +196,7 @@ function reached(args: unknown, out: string[], depth = 0): void {
   const fields = spadeRecord(args);
   if (!fields) return;
   for (const [key, value] of Object.entries(fields)) {
-    if (reachKeys.has(key.toLowerCase())) plainWords(value, out);
+    if (reaches(key)) plainWords(value, out, depth + 1);
     else if (typeof value === "object" && value !== null) reached(value, out, depth + 1);
   }
 }

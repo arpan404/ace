@@ -163,3 +163,30 @@ test("one app request alone is its own card, headed by the gate's effect", () =>
   expect(single("change_access")).toBe("Quill wants to change who has access in Notion.");
   expect(single(undefined)).toBe("Quill wants to use Notion in a way it doesn't declare.");
 });
+
+/** The summary target of one send the gate read as one, with `args`. */
+const target = (args: unknown) =>
+  spadeAppRequestGroup("Quill", "Gmail", [
+    { tool: "notify", effect: "send_as_person", arguments: args },
+  ]).lines[0]?.target;
+
+test("every nested recipient is named: beside a name, past eight levels, under compound keys", () => {
+  // A name beside nested addresses hides none of them.
+  expect(
+    target({ to: { name: "Team", members: [{ email: "a@x.test" }, { email: "b@x.test" }] } }),
+  ).toBe("a@x.test, b@x.test");
+  // Deeper than eight levels still counts.
+  let deep: unknown = { bcc: "deep@evil.test" };
+  for (let at = 0; at < 12; at++) deep = { inner: deep };
+  expect(target(deep)).toBe("deep@evil.test");
+  // Keys split as the gate splits them: bcc_recipients, ccList, toAddresses, notifyEmails.
+  expect(
+    target({
+      bcc_recipients: ["one@x.test"],
+      ccList: ["two@x.test"],
+      toAddresses: ["three@x.test"],
+      notifyEmails: "four@x.test",
+      webhookUrl: "https://hook.evil.test",
+    }),
+  ).toBe("one@x.test, two@x.test, three@x.test, four@x.test, https://hook.evil.test");
+});
