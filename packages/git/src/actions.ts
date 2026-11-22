@@ -3,9 +3,9 @@ import { writingContext } from "./writing-context.ts";
 import { z } from "zod";
 import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
-import { GitError, type PushOptions } from "./types.ts";
+import { GitError, type PushOptions, type ReviewedFile } from "./types.ts";
 import { excludeAcePrivate, personPathspecs } from "./ace-private.ts";
-import { indexFingerprint } from "./index-fingerprint.ts";
+import { reviewedCommit } from "./reviewed-commit.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -41,6 +41,10 @@ export async function commitChanges(
     amend?: boolean | undefined;
     /** The `indexFingerprint` the person reviewed; the commit is refused if the index moved. */
     expectedIndex?: string | undefined;
+    /** Commit-all of exactly these reviewed files (each refused if its fingerprint moved). */
+    reviewed?: readonly ReviewedFile[] | undefined;
+    /** Amend even though a remote already has the commit. */
+    amendPublished?: boolean | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -58,12 +62,33 @@ export async function commitChanges(
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
     if (options.amend && info.head === null)
       throw new GitError("unborn_head", "Cannot amend before the first commit");
-    if (
-      options.expectedIndex !== undefined &&
-      (await read(() => indexFingerprint(repository, root, info.head))) !== options.expectedIndex
-    )
-      throw new GitError("index_moved", failureMessage("index_moved"));
     const status = await read(() => repository.status(root));
+    if (options.expectedIndex !== undefined || options.reviewed !== undefined) {
+      if (status.conflicted.length)
+        throw new GitError("conflicts", "Resolve conflicts before committing");
+      if (options.draftFingerprint) {
+        const drafted = options.reviewed
+          ? options.reviewed.map((file) => file.path)
+          : status.staged.map((entry) => entry.path);
+        if (
+          !drafted.length ||
+          (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
+            .fingerprint !== options.draftFingerprint
+        )
+          throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
+      }
+      return reviewedCommit(repository, {
+        root,
+        message,
+        head: info.head,
+        amend: Boolean(options.amend),
+        amendPublished: Boolean(options.amendPublished),
+        expectedIndex: options.expectedIndex,
+        reviewed: options.reviewed,
+        beforeCommit: options.beforeCommit,
+        read,
+      });
+    }
     if (options.draftFingerprint) {
       // A staged-only commit's draft was written for the staged files.
       const drafted =

@@ -1038,6 +1038,8 @@ export class WorkspaceRuntime {
             stagedOnly: p.stagedOnly,
             amend: p.amend,
             expectedIndex: p.expectedIndex,
+            reviewed: p.reviewed,
+            amendPublished: p.amendPublished,
             draftFingerprint: p.draftFingerprint,
           }),
         );

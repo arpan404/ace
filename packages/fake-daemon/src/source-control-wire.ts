@@ -297,6 +297,17 @@ export class FakeSourceControlWire {
     const state = this.ensure(threadId, fallbackFiles);
     if (payload.expectedIndex !== undefined && payload.expectedIndex !== indexOf(state))
       return { ok: false, error: "git_index_moved" };
+    // Like the daemon: a commit a remote already has (here: nothing ahead of it) is not
+    // rewritten without the person's say-so.
+    if (payload.amend && !payload.amendPublished && state.ahead === 0)
+      return { ok: false, error: "git_amend_published" };
+    if (payload.reviewed) {
+      const shown = new Map(
+        [...state.unstaged, ...state.untracked].map((entry) => [entry.path, entry.fingerprint]),
+      );
+      if (payload.reviewed.some((file) => shown.get(file.path) !== file.fingerprint))
+        return { ok: false, error: "git_changed_since_review" };
+    }
     state.indexVersion += 1;
     if (state.conflicted.length > 0) return { ok: false, error: "git_conflicts" };
     if (payload.amend && !thread?.details?.head) return { ok: false, error: "git_unborn_head" };
@@ -305,8 +316,8 @@ export class FakeSourceControlWire {
         return { ok: false, error: "git_nothing_to_commit" };
       }
       state.staged = [];
-    } else if (payload.paths) {
-      const named = new Set(payload.paths);
+    } else if (payload.paths || payload.reviewed) {
+      const named = new Set(payload.reviewed?.map((file) => file.path) ?? payload.paths);
       state.staged = state.staged.filter((entry) => !named.has(entry.path));
       state.unstaged = state.unstaged.filter((entry) => !named.has(entry.path));
       state.untracked = state.untracked.filter((entry) => !named.has(entry.path));

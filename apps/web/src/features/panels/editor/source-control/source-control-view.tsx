@@ -85,7 +85,7 @@ export function SourceControlView(props: {
   });
 
   const [discardRequest, setDiscardRequest] = useState<DiscardRequest | undefined>(undefined);
-  const [amendAsk, setAmendAsk] = useState<string | undefined>(undefined);
+  const [amendAsk, setAmendAsk] = useState(false);
   const [clearingLock, setClearingLock] = useState(false);
 
   // Cancel any in-flight commit message generation when switching threads or unmounting.
@@ -195,31 +195,36 @@ export function SourceControlView(props: {
     void cancelCommitDraft(client, threadId, active.id);
   };
 
-  const handleCommit = async (mode: CommitMode, confirmed = false) => {
+  const handleCommit = async (mode: CommitMode, amendPublished = false) => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    // Amending a commit the remote already has rewrites published history: ask first.
-    if (mode === "amend" && !confirmed && sc.status?.upstream && sc.ahead === 0) {
-      setAmendAsk(sc.status.upstream);
+    const stagedOnly = sc.sections.staged.length > 0;
+    const committed = await sc.runAction("commit", async () => {
+      try {
+        return await commitChanges(client, threadId, {
+          message: trimmed,
+          expectedHead: sc.head,
+          // Bound to what the person reviewed: the staged index as read, or exactly the changes
+          // shown, each with the fingerprint the status gave it.
+          ...(stagedOnly
+            ? { expectedIndex: sc.status?.index, stagedOnly: true }
+            : sc.sections.changes.length > 0
+              ? { reviewed: sc.sections.changes }
+              : {}),
+          amend: mode === "amend",
+          amendPublished,
+          draftFingerprint,
+        });
+      } catch (error) {
+        // A remote already has the commit: amending rewrites published history, so ask first.
+        if (sourceControlErrorCode(error) === "git_amend_published") return "ask" as const;
+        throw error;
+      }
+    });
+    if (committed === "ask") {
+      setAmendAsk(true);
       return;
     }
-    const stagedOnly = sc.sections.staged.length > 0;
-    const committed = await sc.runAction("commit", () =>
-      commitChanges(client, threadId, {
-        message: trimmed,
-        expectedHead: sc.head,
-        // Bound to what the person reviewed: the index as read, or exactly the changes shown.
-        expectedIndex: sc.status?.index,
-        paths: stagedOnly
-          ? undefined
-          : sc.sections.changes.flatMap((item) =>
-              item.oldPath ? [item.path, item.oldPath] : [item.path],
-            ),
-        stagedOnly,
-        amend: mode === "amend",
-        draftFingerprint,
-      }),
-    );
     if (!committed) return;
     // The commit landed: its message is spent even if the push below fails.
     setMessage("");
@@ -522,10 +527,9 @@ export function SourceControlView(props: {
 
       {amendAsk && (
         <AmendDialog
-          upstream={amendAsk}
-          onCancel={() => setAmendAsk(undefined)}
+          onCancel={() => setAmendAsk(false)}
           onConfirm={() => {
-            setAmendAsk(undefined);
+            setAmendAsk(false);
             void handleCommit("amend", true);
           }}
         />

@@ -302,6 +302,8 @@ export class GitService {
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
     expectedIndex?: string | undefined;
+    reviewed?: readonly ReviewedFile[] | undefined;
+    amendPublished?: boolean | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }

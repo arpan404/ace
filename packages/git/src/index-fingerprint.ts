@@ -10,6 +10,7 @@ export async function indexFingerprint(
   repository: Repository,
   root: string,
   head: string | null,
+  env?: Record<string, string>,
 ): Promise<string> {
   const base =
     head ??
@@ -21,7 +22,7 @@ export async function indexFingerprint(
   const listed = await repository.cli.call(
     root,
     ["diff-index", "--cached", "--raw", "-z", "--no-renames", "--no-abbrev", base, "--"],
-    { captureBytes: 16 * 1024 * 1024 },
+    { captureBytes: 16 * 1024 * 1024, ...(env ? { env } : {}) },
   );
   return createHash("sha256")
     .update(head ?? "unborn")

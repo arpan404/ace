@@ -377,6 +377,17 @@ export const WorkspaceCommands = [
       .string()
       .regex(/^[a-f0-9]{64}$/)
       .optional(),
+    /**
+     * Commit exactly these reviewed files with the fingerprints the status showed, built from
+     * HEAD in a temporary index; refused (`git_changed_since_review`) if any of them moved.
+     */
+    reviewed: z
+      .array(z.object({ path: repoPath, fingerprint: z.string().min(1).max(200) }))
+      .min(1)
+      .max(2 * gitStatusLimit)
+      .optional(),
+    /** Amend even though a remote already has the commit (refused as `git_amend_published`). */
+    amendPublished: z.boolean().optional(),
   }),
   ...GitSourceControlCommands,
   z.object({

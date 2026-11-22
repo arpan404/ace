@@ -48,6 +48,9 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   path_outside_repo: "Path is outside the repository",
   changed_since_review: "A file changed after you reviewed it; look again before discarding",
   path_occupied: "Another file already uses that name",
+  amend_published: "A remote already has this commit; amending rewrites it",
+  private_path_staged:
+    "ace's own Recently deleted files are staged; unstage them before committing",
   index_moved: "The staged changes moved after you reviewed them; look again before committing",
   untracked_overwritten:
     "Files Git doesn't track, or ignores, would be overwritten; move them first",

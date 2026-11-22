@@ -539,6 +539,134 @@ describe("source control git operations", () => {
     }
   });
 
+  it("commit-all commits the reviewed bytes and refuses a file changed since review", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "reviewed\n");
+      await writeFile(join(repo, "new.txt"), "new\n");
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      let status = await git.sourceControlStatus(repo);
+      await writeFile(join(repo, "a.txt"), "edited after review\n");
+      await expectGitError(
+        git.commit({
+          worktree: repo,
+          message: "all",
+          expectedHead: head,
+          reviewed: [reviewed(status, "a.txt"), reviewed(status, "new.txt")],
+        }),
+        "changed_since_review",
+      );
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+
+      status = await git.sourceControlStatus(repo);
+      await git.commit({
+        worktree: repo,
+        message: "all",
+        expectedHead: head,
+        reviewed: [reviewed(status, "a.txt"), reviewed(status, "new.txt")],
+      });
+      expect(runGit(repo, ["show", "HEAD:a.txt"])).toBe("edited after review");
+      expect(runGit(repo, ["show", "HEAD:new.txt"])).toBe("new");
+      expect(runGit(repo, ["status", "--porcelain"])).toBe("");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("a commit whose HEAD moves underneath it is undone and refused", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      // The person's pre-commit hook commits something else first: HEAD moves mid-commit.
+      await writeFile(
+        join(repo, ".git", "hooks", "pre-commit"),
+        [
+          "#!/bin/sh",
+          "unset GIT_INDEX_FILE",
+          'next=$(git commit-tree "$(git rev-parse HEAD^{tree})" -p HEAD -m sneaky)',
+          'git update-ref HEAD "$next"',
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      await writeFile(join(repo, "a.txt"), "mine\n");
+      await git.stage({ worktree: repo, paths: ["a.txt"] });
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      const status = await git.sourceControlStatus(repo);
+      await expectGitError(
+        git.asPerson(() =>
+          git.commit({
+            worktree: repo,
+            message: "mine",
+            expectedHead: head,
+            stagedOnly: true,
+            expectedIndex: status.index,
+          }),
+        ),
+        "head_moved",
+      );
+      // The other commit stands; ours never landed on top of it.
+      expect(runGit(repo, ["log", "-1", "--format=%s"])).toBe("sneaky");
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("a.txt");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("refuses to commit ace's private entries that were already staged", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await mkdir(join(repo, ".ace-upload-trash-3"), { recursive: true });
+      await writeFile(join(repo, ".ace-upload-trash-3", "x.txt"), "deleted\n");
+      runGit(repo, ["add", "-f", ".ace-upload-trash-3/x.txt"]);
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      const status = await git.sourceControlStatus(repo);
+      await expectGitError(
+        git.commit({
+          worktree: repo,
+          message: "oops",
+          expectedHead: head,
+          stagedOnly: true,
+          expectedIndex: status.index,
+        }),
+        "private_path_staged",
+      );
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("amending a commit any remote already has asks first, even without an upstream", async () => {
+    const { local } = await createRepoWithRemote();
+    const git = new GitService({ transportProtocols: ["file"] });
+    try {
+      runGit(local, ["switch", "-q", "-c", "topic"]);
+      // Pushed, but no upstream is set for the branch.
+      runGit(local, ["push", "-q", "origin", "topic"]);
+      const head = runGit(local, ["rev-parse", "HEAD"]);
+      const status = await git.sourceControlStatus(local);
+      const amend = (amendPublished: boolean) =>
+        git.commit({
+          worktree: local,
+          message: "reworded",
+          expectedHead: head,
+          stagedOnly: true,
+          amend: true,
+          expectedIndex: status.index,
+          amendPublished,
+        });
+      await expectGitError(amend(false), "amend_published");
+      expect(runGit(local, ["rev-parse", "HEAD"])).toBe(head);
+      await amend(true);
+      expect(runGit(local, ["log", "-1", "--format=%s"])).toBe("reworded");
+    } finally {
+      await git.close();
+    }
+  });
+
   it("a conflicted stash pop keeps the stash and leaves the conflict in the index", async () => {
     const repo = await createRepo();
     const git = new GitService();

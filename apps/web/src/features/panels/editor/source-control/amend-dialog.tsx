@@ -12,15 +12,15 @@ import {
  * Asked before amending a commit the remote already has: amending rewrites it, so the branch then
  * needs a force push and anyone who pulled it sees history change.
  */
-export function AmendDialog(props: { upstream: string; onCancel(): void; onConfirm(): void }) {
+export function AmendDialog(props: { onCancel(): void; onConfirm(): void }) {
   return (
     <Dialog open onOpenChange={(open) => !open && props.onCancel()}>
       <DialogContent material="glass">
         <DialogHeader>
           <DialogTitle>Amend a pushed commit?</DialogTitle>
           <DialogDescription>
-            The last commit is already on {props.upstream}. Amending rewrites it, so pushing
-            afterwards needs a force push.
+            A remote already has the last commit. Amending rewrites it, so pushing afterwards needs
+            a force push.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>

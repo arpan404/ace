@@ -164,9 +164,10 @@ export function commitChanges(
     message: string;
     expectedHead: string | null;
     expectedIndex?: string | undefined;
-    paths?: readonly string[] | undefined;
+    reviewed?: readonly { path: string; fingerprint: string }[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
+    amendPublished?: boolean | undefined;
     draftFingerprint?: string | undefined;
   },
 ): Promise<CommandResult> {
@@ -176,9 +177,17 @@ export function commitChanges(
     message: options.message,
     expectedHead: options.expectedHead,
     ...(options.expectedIndex ? { expectedIndex: options.expectedIndex } : {}),
-    ...(options.paths?.length ? { paths: [...options.paths] } : {}),
+    ...(options.reviewed?.length
+      ? {
+          reviewed: options.reviewed.map((file) => ({
+            path: file.path,
+            fingerprint: file.fingerprint,
+          })),
+        }
+      : {}),
     ...(options.stagedOnly ? { stagedOnly: true } : {}),
     ...(options.amend ? { amend: true } : {}),
+    ...(options.amendPublished ? { amendPublished: true } : {}),
     ...(options.draftFingerprint ? { draftFingerprint: options.draftFingerprint } : {}),
   });
 }

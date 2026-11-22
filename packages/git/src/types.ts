@@ -133,6 +133,8 @@ export type GitErrorCode =
   | "path_occupied"
   | "untracked_overwritten"
   | "index_moved"
+  | "amend_published"
+  | "private_path_staged"
   | GitFailureCode;
 
 /**

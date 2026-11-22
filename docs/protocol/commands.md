@@ -969,6 +969,8 @@ Example:
 | stagedOnly | no | boolean |  |
 | amend | no | boolean |  |
 | expectedIndex | no | string | {"pattern":"^[a-f0-9]{64}$"} |
+| reviewed | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."},"fingerprint":{"type":"string","minLength":1,"maxLength":200}},"required":["path","fingerprint"]}} |
+| amendPublished | no | boolean |  |
 
 Example:
 
