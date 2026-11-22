@@ -47,7 +47,7 @@ export function RunsWithRows(props: {
   const machineName = props.host.machine.primary ? "This machine" : props.host.machine.name;
   return (
     <>
-      <SettingRow title="Model" density="compact" inline>
+      <SettingRow title="Model" density="compact">
         <SpadeModelPicker
           label="Model"
           subscriptions
@@ -57,7 +57,7 @@ export function RunsWithRows(props: {
           onChange={(next) => props.onModel(next === props.newBotModel ? "" : next)}
         />
       </SettingRow>
-      <SettingRow title="Machine" density="compact" inline>
+      <SettingRow title="Machine" density="compact">
         {props.hosts.length > 1 ? (
           <Menu>
             <MenuTrigger aria-label={`Machine: ${machineName}`} className={quiet}>
