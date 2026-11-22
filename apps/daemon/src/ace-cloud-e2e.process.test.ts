@@ -3,13 +3,14 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { connectClientViaRelay } from "@ace/relay";
+import { connectClientViaRelay, type RelayedClientChannel } from "@ace/relay";
+import { GrantKeySet, encodeBase64url, standingProofText } from "@ace/account-grant";
 import { Client } from "@ace/client";
 import { browserDeviceSocket } from "@ace/client/devices";
 import { aceAccountClient } from "@ace/client/ace-account";
 import { MachineDirectory } from "@ace/client/machines";
 import { MachinePool } from "@ace/client-worker/machines";
-import { DeviceCredential, DeviceId, PairingResponse } from "@ace/protocol";
+import { DeviceCredential, DeviceId, PairingResponse, type ServerMessage } from "@ace/protocol";
 import { SettingsService } from "@ace/settings";
 import {
   fakeWorkos,
@@ -28,6 +29,7 @@ import { message } from "./payload-test-support.ts";
 import type { CommandHandler } from "./commands.ts";
 import { machineAccount, type MachineAccount } from "./account-access/machine-account.ts";
 import { relayKeysFor } from "./account-access/relay-host-id.ts";
+import { hostId as hostIdOf } from "@ace/secure-channel";
 
 // ace's hosted relay end to end: a real daemon and real clients through the Cloudflare Worker
 // under Miniflare (local D1, its admission rules and Durable Object), signing in through the
@@ -35,9 +37,12 @@ import { relayKeysFor } from "./account-access/relay-host-id.ts";
 
 let workos: Awaited<ReturnType<typeof fakeWorkos>>;
 let worker: Awaited<ReturnType<typeof startRelayWorker>>;
+/** The Worker's grant keys, which each daemon here trusts as a build pins its own. */
+let personKeys: GrantKeySet;
 beforeAll(async () => {
   workos = await fakeWorkos();
   worker = await startRelayWorker({ workosUrl: workos.url });
+  personKeys = GrantKeySet.parse(await (await fetch(`${worker.http}/v1/keys`)).json());
 });
 afterAll(async () => {
   await worker?.close();
@@ -129,6 +134,7 @@ async function hostedDaemon(direct = false) {
     (store) => {
       account = machineAccount({
         relayKeys: () => relayKeysFor(home),
+        personKeys,
         dataDir: home,
         codes: store.machineCodes,
         fetch: globalThis.fetch,
@@ -146,7 +152,7 @@ async function hostedDaemon(direct = false) {
   if (!account) throw new Error("Machine account missing");
   const machine = account;
   cleanup.push(() => machine.close());
-  return { f, account: machine, fingerprint: identity?.fingerprint };
+  return { f, account: machine, home, fingerprint: identity?.fingerprint };
 }
 
 const accounts = () => aceAccountClient({ origin: worker.http, fetch: globalThis.fetch });
@@ -350,4 +356,111 @@ it("a running daemon forgotten from its account registers again and is listed, a
   expect(
     (await accounts().machines(session.token, signal())).map((machine) => machine.hostId),
   ).not.toContain(hostId);
+});
+
+/** The daemon's next message of `type` on a relayed channel. */
+async function answer<T extends ServerMessage["type"]>(channel: RelayedClientChannel, type: T) {
+  for (;;) {
+    const message = await channel.receive();
+    if (message.type === type) return message as Extract<ServerMessage, { type: T }>;
+  }
+}
+
+it("a phone on the account proves the person's standing on its own relayed socket, and that proof proves nothing on another", async () => {
+  const { f, account, home } = await hostedDaemon();
+  const session = await signInThroughWorker(worker.http, workos, owner);
+  // The app hands its daemon an enrollment ticket, never its session (ADR 0190 §8).
+  await account.load();
+  const hostId = hostIdOf((await relayKeysFor(home)).publicKey);
+  const { ticket } = await accounts().machineEnrollment(session.token, hostId, signal());
+  await account.handover(worker.http, { ticket });
+  await expect.poll(() => f.server.relayHostId, { timeout: 10_000 }).toBe(hostId);
+
+  // The phone's in-memory key, and a socket through ace's relay with the person's grant for it.
+  const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, false, [
+    "sign",
+  ]);
+  const key = encodeBase64url(new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)));
+  const sign = async (text: string) =>
+    encodeBase64url(
+      new Uint8Array(
+        await crypto.subtle.sign(
+          { name: "ECDSA", hash: "SHA-256" },
+          pair.privateKey,
+          new TextEncoder().encode(text),
+        ),
+      ),
+    );
+  const relayed = async () => {
+    const minted = await accounts().grant(
+      session.token,
+      { kind: "device", subject: "phone", host: hostId, key },
+      signal(),
+    );
+    const channel = await connectClientViaRelay({
+      relayUrl: worker.relayUrl,
+      hostId,
+      pinnedFingerprint: hostId,
+      grant: minted.token,
+    });
+    cleanup.push(() => channel.close());
+    await channel.send({
+      type: "hello",
+      protocolVersion: 1,
+      deviceId: DeviceId.parse("phone"),
+      grant: minted.token,
+    });
+    const welcome = await answer(channel, "welcome");
+    if (!minted.standing || !welcome.standingNonce || welcome.standingHost !== hostId)
+      throw new Error("No standing challenge on the relayed socket");
+    return {
+      channel,
+      grant: minted.standing,
+      nonce: welcome.standingNonce,
+      binding: encodeBase64url(channel.channelBinding),
+    };
+  };
+  const proves = async (channel: RelayedClientChannel, grant: string, proof: string) => {
+    await channel.send({ type: "account.standing", requestId: "standing", grant, proof });
+    return (await answer(channel, "account.standing.result")).result.ok;
+  };
+  const changesGuardedSetting = async (channel: RelayedClientChannel) => {
+    await channel.send({
+      type: "settings.set",
+      requestId: "ask",
+      key: "market.askBeforeAgentPublish",
+      value: false,
+      layer: { kind: "global" },
+    });
+    return (await answer(channel, "settings.result")).ok;
+  };
+  const proofFor = (socket: Awaited<ReturnType<typeof relayed>>, binding: string | undefined) =>
+    sign(standingProofText({ host: hostId, nonce: socket.nonce, binding, grant: socket.grant }));
+
+  const phone = await relayed();
+  // A proof that names no channel, as a direct socket's would, proves nothing over the relay.
+  expect(await proves(phone.channel, phone.grant, await proofFor(phone, undefined))).toBe(false);
+  expect(await changesGuardedSetting(phone.channel)).toBe(false);
+  // Signed over this stream's own handshake hash, it proves the person here.
+  const proof = await proofFor(phone, phone.binding);
+  expect(await proves(phone.channel, phone.grant, proof)).toBe(true);
+  expect(await changesGuardedSetting(phone.channel)).toBe(true);
+
+  // The same grant and proof, sent on another relayed socket, prove nothing there: another
+  // nonce and another handshake hash.
+  const other = await relayed();
+  expect(other.binding).not.toBe(phone.binding);
+  expect(await proves(other.channel, phone.grant, proof)).toBe(false);
+  // Nor does a proof with this socket's nonce but the first stream's binding, as whoever
+  // answered the phone as this host would relay it.
+  const elsewhere = await sign(
+    standingProofText({
+      host: hostId,
+      nonce: other.nonce,
+      binding: phone.binding,
+      grant: other.grant,
+    }),
+  );
+  expect(await proves(other.channel, other.grant, elsewhere)).toBe(false);
+  expect(await changesGuardedSetting(other.channel)).toBe(false);
 });
