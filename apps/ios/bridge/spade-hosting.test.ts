@@ -79,3 +79,48 @@ test("a machine that drops keeps its bots listed as away, never still working, a
     await new Promise((resolve) => setTimeout(resolve, 50));
   expect(busy()?.state).toBe("working");
 }, 20_000);
+
+test("after a reconnect a machine's last rows stay unconfirmed until its bots read again, never Working", async () => {
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { api, daemon, patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Busy", state: "working", status: "Reading" });
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.watch", on: true });
+  const busy = () => patches.state?.list.rows?.find((row) => row.name === "Busy");
+  await until(() => busy()?.state === "working");
+  daemon.refuseConnections(true);
+  await until(() => busy()?.state === "off");
+
+  // It finishes while the machine is away, and once back its Spade won't list the bots.
+  api.status(bot, "idle", null);
+  let refused = 0;
+  daemon.spade.serve({
+    answer: (request) => {
+      if (request.path !== "/v1/agents") return api.answer(request);
+      refused++;
+      return { status: 500, body: "{}" };
+    },
+    open: (path) => api.open(path),
+  });
+  const seen: string[] = [];
+  const put = patches.put.bind(patches);
+  patches.put = (key, read) => {
+    put(key, read);
+    const row = busy();
+    if (row) seen.push(`${row.state}: ${row.line}`);
+  };
+  daemon.refuseConnections(false);
+
+  const tries = () => refused;
+  for (let waited = 0; tries() < 2 && waited < 15_000; waited += 50)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  expect(refused).toBeGreaterThanOrEqual(2);
+  expect(seen.filter((line) => !line.startsWith("off: "))).toEqual([]);
+  expect(busy()?.line).toMatch(/^Couldn't confirm/);
+
+  // A read that lands on the new connection shows the bot as it is now.
+  daemon.spade.serve(api);
+  spade.handle({ type: "spade.refresh" });
+  await until(() => busy()?.state === "rest");
+}, 25_000);

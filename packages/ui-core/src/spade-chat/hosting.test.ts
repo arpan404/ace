@@ -102,3 +102,11 @@ test("before any host choice, Spade is the oldest main of the machines answering
   expect(spadeShownMain([main("b", 5), main("a", 5)], [])?.machine).toBe("a");
   expect(spadeShownMain([main("laptop", 1, false)], [])).toBeUndefined();
 });
+
+test("two mains as old as each other break the tie by host id, the same on every client", () => {
+  // Web keys its own machine `primary`; the host ids are what every client sees alike.
+  const own = { machine: "primary", host: "zeta", createdAt: 5, answering: true };
+  const studio = { machine: "studio", host: "alpha", createdAt: 5, answering: true };
+  expect(spadeShownMain([own, studio], [])?.machine).toBe("studio");
+  expect(spadeShownMain([studio, own], [])?.machine).toBe("studio");
+});

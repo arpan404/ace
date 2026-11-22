@@ -45,7 +45,8 @@ enum SpadeRoster {
             shown = mains.first { $0.host == choice.host }?.entry
         } else {
             shown = mains.filter { $0.answering }.min { a, b in
-                a.created != b.created ? a.created < b.created : jsBefore(a.entry.machine, b.entry.machine)
+                // As old as each other: the lower host id, as `spadeShownMain` breaks the tie.
+                a.created != b.created ? a.created < b.created : jsBefore(a.host ?? a.entry.machine, b.host ?? b.entry.machine)
             }?.entry
         }
         let ordered = rest.enumerated().sorted { a, b in
