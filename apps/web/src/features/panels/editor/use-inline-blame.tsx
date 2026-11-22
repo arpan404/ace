@@ -52,6 +52,8 @@ interface BlameFileCache {
   fetchedChunks: Set<number>;
   /** Reads of a chunk that ended without a complete answer (failed or capped). */
   attempts: Map<number, number>;
+  /** Bumped when a retry falls due, so panes look again without being scrolled. */
+  retries: number;
   /** Fetched chunks, oldest first: past `maxChunksPerFile` the oldest is let go. */
   chunkOrder: number[];
 }
@@ -59,6 +61,24 @@ interface BlameFileCache {
 const maxCachedFiles = 24;
 /** Reads of one chunk that may end without a complete answer before it is left unblamed. */
 export const maxChunkAttempts = 3;
+/** The wait before trying a chunk again after its nth incomplete read. */
+export const chunkRetryDelaysMs = [300, 1_200] as const;
+
+/**
+ * Counts an incomplete read of `chunk` and, while tries remain, schedules another: the retry is
+ * published (`retries`) only after the read's own waiters have let go of it.
+ */
+function noteIncomplete(entry: BlameFileCache, chunk: number): void {
+  const attempts = (entry.attempts.get(chunk) ?? 0) + 1;
+  entry.attempts.set(chunk, attempts);
+  const delay = chunkRetryDelaysMs[attempts - 1];
+  if (attempts >= maxChunkAttempts || delay === undefined) return;
+  setTimeout(() => {
+    entry.retries++;
+    notifyCache();
+  }, delay);
+}
+
 /** One read per chunk, shared by every pane showing it; each pane waits on its own signal. */
 const chunkReads = new SharedWork<void>();
 /** Committed lines kept per file: `maxChunksPerFile` × `blameChunkSize`. */
@@ -87,6 +107,7 @@ function getOrCreateCache(key: string): BlameFileCache {
     lines: new Map(),
     fetchedChunks: new Set(),
     attempts: new Map(),
+    retries: 0,
     chunkOrder: [],
   };
   blameCache.set(key, entry);
@@ -222,7 +243,7 @@ export function useInlineBlame(input: {
   const cacheTick = useSyncExternalStore(subscribeCache, () => {
     const entry = cacheKey === undefined ? undefined : blameCache.get(cacheKey);
     return entry
-      ? `${entry.fetchedChunks.size}:${entry.lines.size}:${entry.chunkOrder.at(-1)}`
+      ? `${entry.fetchedChunks.size}:${entry.lines.size}:${entry.chunkOrder.at(-1)}:${entry.retries}`
       : "";
   });
 
@@ -263,9 +284,8 @@ export function useInlineBlame(input: {
           (result) => {
             for (const info of result.commits) entry.commits.set(info.sha, info);
             for (const item of result.lines) entry.lines.set(item.line, item.sha);
-            if (result.capped) {
-              entry.attempts.set(chunk.index, (entry.attempts.get(chunk.index) ?? 0) + 1);
-            } else {
+            if (result.capped) noteIncomplete(entry, chunk.index);
+            else {
               // A line git has no history for at the commit (an untracked file) is not
               // committed yet; only a complete answer can say so.
               for (let line = chunk.startLine; line <= chunk.endLine; line++)
@@ -275,18 +295,14 @@ export function useInlineBlame(input: {
             notifyCache();
           },
           (error: unknown) => {
-            if (!signal.aborted)
-              entry.attempts.set(chunk.index, (entry.attempts.get(chunk.index) ?? 0) + 1);
+            // A read every pane left (aborted) was not an attempt.
+            if (!signal.aborted) noteIncomplete(entry, chunk.index);
             throw error;
           },
         );
       void chunkReads.join(`${cacheKey}\u0000${chunk.index}`, read, own.controller.signal).then(
         () => own.joined.delete(chunk.index),
-        () => {
-          own.joined.delete(chunk.index);
-          // Another try, while tries remain, the next time this pane looks.
-          if (!own.controller.signal.aborted) notifyCache();
-        },
+        () => own.joined.delete(chunk.index),
       );
     }
   }, [enabled, client, threadId, path, commit, cacheKey, visible, hunks, cacheTick]);

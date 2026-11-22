@@ -435,12 +435,12 @@ describe("Inline git blame", () => {
     expect(onOpenCommit).toHaveBeenCalledWith(expect.objectContaining({ sha: nextHeadSha, path }));
   });
 
-  test("a partial answer is asked again a bounded number of times and never shown as uncommitted", async () => {
+  test("a pane held still tries a partial answer again, at most three times, never as uncommitted", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitBlame(threadId, path, { commits: [], lines: [], capped: true });
     const { client, blameRequests } = await connected(daemon);
     const { typing, gutter, statusStore } = setup();
-    const probe = (first: number) => (
+    render(
       <ClientProvider client={client}>
         <BlameProbe
           enabled
@@ -448,19 +448,54 @@ describe("Inline git blame", () => {
           commit={headSha}
           gutter={gutter.gutter}
           statusStore={statusStore}
-          first={first}
         />
-      </ClientProvider>
+      </ClientProvider>,
     );
-    const view = render(probe(1));
-    for (let first = 2; first < 12; first++) {
-      await waitFor(() => expect(blameRequests().length).toBeGreaterThan(0));
-      await act(async () => {});
-      view.rerender(probe(first));
-    }
-    await act(async () => {});
-    expect(blameRequests().length).toBe(3);
+    await waitFor(() => expect(blameRequests()).toHaveLength(3), { timeout: 5_000 });
+    // No fourth try, however long the pane stays.
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    expect(blameRequests()).toHaveLength(3);
     expect(screen.queryByText("You · not committed yet")).toBeNull();
+  }, 15_000);
+
+  test("a pane held still shows the author after one transient failure", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitBlame(threadId, path, {
+      commits: [author(headSha, "Sam", "After a retry")],
+      lines: [{ line: 1, sha: headSha }],
+    });
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    const original = client.request.bind(client);
+    let asked = 0;
+    vi.spyOn(client, "request").mockImplementation(async (request, options) => {
+      if (request.type === "workspace.request" && request.operation.op === "git.blame") {
+        asked++;
+        if (asked === 1) throw new Error("git_timeout");
+      }
+      return original(request, options);
+    });
+    const { typing, gutter, statusStore } = setup();
+    render(
+      <ClientProvider client={client}>
+        <BlameProbe
+          enabled
+          buffer={typing.buffer}
+          commit={headSha}
+          gutter={gutter.gutter}
+          statusStore={statusStore}
+        />
+      </ClientProvider>,
+    );
+    expect(
+      await screen.findByRole(
+        "button",
+        { name: "Sam, 3 days ago · After a retry" },
+        { timeout: 5_000 },
+      ),
+    ).toBeTruthy();
+    expect(asked).toBe(2);
   }, 15_000);
 
   test("a pane that closes does not strand another pane waiting on the same blame", async () => {
