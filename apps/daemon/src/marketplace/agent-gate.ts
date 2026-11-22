@@ -14,6 +14,7 @@ const agentOperations: ReadonlySet<MarketOperation["op"]> = new Set<MarketOperat
   "search",
   "home",
   "read",
+  "look",
   "prepare",
   "prepareUpdate",
   "readReview",
