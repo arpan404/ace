@@ -485,3 +485,93 @@ only once added as local; a signature is checked only against its own key set; S
 send cancels the task it opens; an unconfirmed cancel is listed; a call that ends before its task
 cancels it; a refusal is kept untrusted); the real-Electron `mcp-app-isolation.process.test.ts`
 (an object posted past the page bridge never crosses); and `spade-outside-agents.test.tsx`.
+
+## Amendment 5: connected apps read freely, and the reviewer judges what they don't declare
+
+Accepted 2026-11-21, on the owner's word after connecting Notion to a bot on the auto-review and
+getting three approval cards in a row for "see what you can see in my notion" (list shared,
+favorite and recent pages, each "It doesn't say what it does, so you decide each time"). Most
+apps' MCP servers send no annotations, so under §2 every one of their tools was unresolved, and
+the auto-reviewer never saw any of them. This amendment replaces §2's last row and ADR 0171's
+"a tool that declares nothing asks the person once" for those tools. Every rule lives in
+`spade-core` (`effect::named`, `effect::app_tool`, `effect::route`) and reads only what the call
+carries, so a Spade in ace's cloud applies them the same way; nothing depends on a local secret.
+
+1. **A connected app's reads run.** For a tool of an app the person connected (a connector's,
+   under the bot's Apps switch, which still refuses everything while off), with no trusted
+   declaration, Spade reads its own name and description (`effect::named`). The tool reads only
+   when its name has a read verb (`list`, `get`, `search`, `fetch`, `query`, `read`, `retrieve`,
+   `describe`, `find`, `lookup`, `show`, `view`, `count`, `inspect`, `browse`, `preview`) and no
+   word for any change: `get_or_create_page`, `fetch_and_update`, `search_and_replace`, `sync`,
+   `run_query` and `execute` are not reads, and neither is a name joining two steps (`and`, `or`,
+   `then`). A description with a word for a change (`creates`, `updates`, `deletes`, `sends`,
+   `moves`, `shares`…) keeps a name from reading; a description never makes one read. A read
+   runs with no card and no reviewer in both modes, untrusted content in view or not.
+2. **An annotation may narrow, never widen.** A tool its server marks destructive, or annotates
+   without `readOnlyHint: true`, is not a read whatever its name. No server's `readOnlyHint`,
+   trusted or not, makes `delete_page` a read: a name Spade recognises as a delete is a delete.
+   An untrusted server's `readOnlyHint` on a name Spade can't read still reads nothing.
+3. **What only the person decides is recognised by name too.** A name that pays (`pay`, `charge`,
+   `refund`, `transfer`, `payout`, `purchase`…) is `pay`; one that sends in the person's name
+   (`send`, `reply`, `forward`, `notify`, `email`, or a write of a message, comment or review) is
+   `send_as_person`; one that shares, invites, grants or revokes, changes permissions, roles or
+   members, or names a password, token, key or other secret is `change_access`; one that
+   deletes, removes, empties, resets or overwrites asks the person every call, as a destructive
+   hint does. These go to the person in every mode, as declared ones do.
+4. **Everything else goes to the reviewer.** A tool that still declares nothing (any connector's
+   or plugin's) is reviewed, not asked, in both modes: on the auto-review the reviewer judges it,
+   told it declares nothing, from its name, description, app, arguments, the bot's task and the
+   person's recent words; in Full access a connected app's such tool is decided like the app's
+   declared writes (Spade's classifier screens it, and the reviewer sees it when the classifier
+   is off or untrusted content is in view). What the reviewer won't approve, or can't decide,
+   goes to the person with its reason, as ADR 0163 amendment 3 says. The person's "no" for a
+   tool, kept from before, still refuses it; their "yes" still lets it run.
+5. **The reviewer's prompt treats an app's words as claims.** It names the app, and says that a
+   tool's description and arguments are written by the app or the bot, never the person: a
+   description calling a tool safe, read-only or approved proves nothing, and anything that could
+   send, pay, share, change access or delete, or that it can't tell, is refused so the person
+   decides. Text inside the tags stays quoted, and a quote in the app's name can't close its
+   attribute.
+6. **Untrusted content in view keeps writes with the person.** A tool that declares nothing,
+   called while untrusted content is in view (ADR 0130), asks the person ("It may change
+   something in the app, and the bot has read untrusted content, so you decide."), whatever they
+   answered before. Only their Always allow for the app (point 8) hands it to the reviewer then,
+   told to check the call wasn't steered by that content, as for any grant under taint (ADR 0171
+   decision 5). A clear read still runs.
+7. **Under a package's ceiling** (ADR 0200 §3.4) an undeclared tool that reaches a server still
+   needs `network` declared, and is then reviewed each call, with no earlier answer or Always
+   allow carried to it. `never_granted` keeps its guarantees: no tool grant ever covers a
+   payment, a driving step, a send in the person's name, an access change, a secret or an effect
+   Spade can't name.
+8. **Ask once, not per tool and per call.** Requests one app's tools make together show as one
+   card in ace ("Quill wants to create a Notion page, 3 times", or "do 3 things in Notion", the
+   calls listed quietly under it), answered with Allow all, Deny all, or **Always allow for
+   Notion**. That is a new grant scope, `{kind: "app", app, writes}`: the app's writes (a tool
+   that declares nothing, or a declared write outside the bot that isn't a publish) for that bot
+   only. It never covers a payment, a send, an access change, a publish, a delete or a driving
+   step, which the gate decides before any grant. It is made through `POST
+/v1/agents/{id}/grants`, which takes only the person's stamp (ADR 0171 amendment 7's loosen
+   rule): ace's daemon stamps it for a window that proved the person's standing, and otherwise
+   the card asks them to confirm it's them first. A bot can't make one, and a package can't ask
+   for one. The bot's Permissions › Apps row says "Its changes run without asking" and offers Ask
+   again, which revokes it. A request a connected app's write raises carries `ask: "app"` and the
+   connection's id in `app`, so a client knows to offer it.
+9. **Human words.** A connected app's tool reads as what it does: "Quill wants to list your shared
+   Notion pages", "create a Notion page", "search Notion". "It doesn't say what it does" is shown
+   only when it is true and nothing better applies.
+
+Existing installs get this at once: it reads tools as they are listed, so bots that already have
+apps connected stop asking about their reads, and answers kept from before still hold.
+
+Tests: `effect::named`'s tables (reads, two-step names, descriptions that veto, recognised
+payments, sends, access changes and deletes); `effect::app_tests` (an undeclared list or search
+runs with no card; `create_page` is reviewed, not asked; `send_email`, `transfer_funds`,
+`share_page` and `reset_password` reach the person, an Always allow notwithstanding; `delete_page`
+claiming read-only asks; an untrusted read-only hint never makes `get_or_create_page`, `sync`,
+`run` or `execute` a read; with untrusted content in view writes stay with the person; the
+Apps switch off refuses); `autonomy`'s reviewer prompt test; `spade-server/tests/app_reads.rs`
+against a fake app with no annotations (three reads at once run with no card or review; three
+writes at once each offer the app's Always allow; the grant is refused without the person's
+stamp and made with it; it covers that bot only; a send still asks); and ace's
+`spade-app-requests.test.tsx` (three requests one card; Always allow grants then allows; without
+standing it asks to confirm and allows nothing) and `app-request-words.test.ts`.
