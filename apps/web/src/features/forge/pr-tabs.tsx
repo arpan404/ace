@@ -9,7 +9,6 @@ import {
 import { Tabs, TabsList, TabsTab, TabsPanel } from "@/components/ui/tabs.tsx";
 import { sceneBar } from "@/components/ui/rules.ts";
 import { cn } from "@/lib/cn.ts";
-import { part } from "@/lib/suit-part.ts";
 
 export type PrTab = "summary" | "timeline" | "code" | "checks";
 
@@ -85,6 +84,7 @@ export function PrTabs(props: {
         <div
           className={cn(
             "flex items-center justify-between gap-2 px-[var(--forge-gutter,1rem)]",
+            page && "pt-4 pb-2",
             props.readable,
           )}
         >
@@ -94,9 +94,8 @@ export function PrTabs(props: {
                 {names[tab]}
                 {!!props.counts[tab] && (
                   <span
-                    {...part("badge")}
                     aria-hidden
-                    className="ml-0.5 inline-flex h-4.5 min-w-5 items-center justify-center rounded-full bg-fill-strong px-1.5 text-xs font-normal text-muted-foreground tabular-nums"
+                    className="text-xs font-normal text-subtle-foreground tabular-nums"
                   >
                     {props.counts[tab]}
                   </span>

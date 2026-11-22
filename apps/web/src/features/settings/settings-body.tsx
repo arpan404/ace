@@ -76,7 +76,7 @@ export function SettingsBody(props: {
                 {...part("page-header")}
                 className={cn(
                   "flex min-h-8 flex-wrap items-center gap-x-3 gap-y-2",
-                  props.tabs ? "mb-3" : "mb-7",
+                  props.tabs ? "mb-0" : "mb-7",
                 )}
               >
                 {props.icon}
@@ -99,7 +99,7 @@ export function SettingsBody(props: {
                   </div>
                 )}
               </div>
-              {props.tabs && <div className="mb-6">{props.tabs}</div>}
+              {props.tabs && <div className="mb-5">{props.tabs}</div>}
               <div
                 {...part("page-body")}
                 // A new page or machine starts its content over, with one short rise.
