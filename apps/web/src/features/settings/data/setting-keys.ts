@@ -18,6 +18,8 @@ export const SortBy = SettingsValues.shape["threads.sortBy"];
 export type SortBy = z.infer<typeof SortBy>;
 export const FollowUp = z.enum(["queue", "steer"]);
 export type FollowUp = z.infer<typeof FollowUp>;
+export const UnresponsiveAfter = SettingsValues.shape["threads.unresponsiveAfter"];
+export type UnresponsiveAfter = z.infer<typeof UnresponsiveAfter>;
 
 export type LimitPolicy = z.infer<typeof LimitPolicy>;
 
@@ -58,6 +60,7 @@ export const settingKeys = {
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
   settleOnClose: setting("threads.settleOnClose", z.boolean(), false),
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
+  unresponsiveAfter: setting("threads.unresponsiveAfter", UnresponsiveAfter, "5m"),
   forkOnSwitch: setting("threads.forkOnSwitch", z.boolean(), false),
   automations: setting("automations.enabled", z.boolean(), false),
   betaSpade: setting("beta.spade", z.boolean(), false),

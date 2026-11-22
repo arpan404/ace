@@ -11,6 +11,18 @@ const Fields = z.object({
   message: z.string().optional().catch(undefined),
 });
 
+/**
+ * The code of an open failure whose provider-private saved session can never be opened again
+ * (too large, fenced, unverifiable). The engine continues the thread in a fresh session with
+ * ace's own context (ADR 0211) instead of retrying the same failure.
+ */
+export const sessionStoreUnusable = "session_store_unusable";
+/**
+ * The code of an open failure whose saved session is held by another writer for now (SQLite
+ * busy or locked). It passes; the engine may try again, bounded, and never starts fresh for it.
+ */
+export const sessionStoreBusy = "session_store_busy";
+
 /** Only sanitized fields survive the provider boundary; no raw cause or stack is retained. */
 export class SessionOpenError extends Error {
   readonly code: string;

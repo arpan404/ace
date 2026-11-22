@@ -55,7 +55,7 @@ async fn an_attached_image_is_stored_once_shown_to_the_model_and_served_back() -
     );
 
     let sent = spade.fake.seen()[0].body["messages"][1]["content"].clone();
-    assert_eq!(sent[0]["text"], "What is this?");
+    assert_eq!(sent[0]["text"], "[m1] What is this?");
     assert_eq!(
         sent[1]["image_url"]["url"],
         format!("data:image/png;base64,{encoded}")

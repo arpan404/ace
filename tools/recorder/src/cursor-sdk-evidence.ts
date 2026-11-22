@@ -22,7 +22,6 @@ export const CursorSdkObservation = z.object({
   status: ThreadStatus,
   frames: z.number().int().nonnegative(),
   bytes: z.number().int().nonnegative(),
-  lastBoundaryOffset: z.number().int().nonnegative(),
   observedKinds: z.array(z.string().max(128)).max(2048),
   children: z
     .array(
@@ -47,7 +46,6 @@ export class CursorSdkEvidence {
   private kinds = new Set<string>();
   private frames = 0;
   private bytes = 0;
-  lastBoundaryOffset = 0;
   throughSeq = 0;
   textObserved = false;
   toolObserved = false;
@@ -82,7 +80,6 @@ export class CursorSdkEvidence {
     }
     this.frames++;
     this.bytes += size;
-    this.lastBoundaryOffset = Math.max(this.lastBoundaryOffset, event.boundaryOffset ?? 0);
     const update = Update.safeParse(event.body);
     if (["delta", "delta-chunk"].includes(event.kind) && update.success) {
       if (update.data.type === "text-delta") this.textObserved = true;
@@ -110,7 +107,6 @@ export class CursorSdkEvidence {
       status: this.status,
       frames: this.frames,
       bytes: this.bytes,
-      lastBoundaryOffset: this.lastBoundaryOffset,
       observedKinds: [...this.kinds],
       children: Object.values(this.state.agents)
         .filter((record) => record.agent.origin === "provider_subagent")

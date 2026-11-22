@@ -237,13 +237,10 @@ export function UsagePage() {
           className="@container/usage mx-auto px-4 pt-6 pb-20 sm:px-10"
           style={{ maxWidth: 960 }}
         >
-          <div {...part("page-header")} className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
-            <h2
-              {...part("page-title")}
-              className="mr-auto text-2xl leading-8 font-semibold tracking-title"
-            >
-              Usage
-            </h2>
+          <div
+            {...part("page-header")}
+            className="flex flex-wrap items-baseline justify-end gap-x-3 gap-y-2"
+          >
             <FilterMenu
               label="Machine"
               value={environmentId}

@@ -13,6 +13,8 @@ import {
   type MentionMember,
 } from "@/features/thread/index.ts";
 import { prepareSpadeFiles, type SpadeMessage } from "./spade-attachments.ts";
+import { ReplyStrip } from "./spade-chat-replies.tsx";
+import type { SpadeQuote } from "@ace/ui-core/spade-chat";
 import { MicButton, TalkLine, useSpadeVoice, VoiceButton, VoiceStrip } from "./spade-mic.tsx";
 import { onPushToTalk, reportPushToTalk, type PushPhase } from "@/boot/desktop-push-to-talk.ts";
 import { useTalkMode } from "./spade-talk-mode.ts";
@@ -58,6 +60,8 @@ export function SpadeComposer(props: {
    * quoted before their words when it goes.
    */
   quote?: { text: string; onRemove(): void } | undefined;
+  /** The message the person replies to (ADR 0212 §4): its strip above the field, sent with it. */
+  replying?: { quote: SpadeQuote; onClear(): void } | undefined;
   /** What sits under the capsule: a new bot's templates and its More settings. */
   below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
@@ -125,6 +129,12 @@ export function SpadeComposer(props: {
   const main = props.main === true;
   useEffect(() => (main ? onPushToTalk((phase) => pressed(phase)) : undefined), [main]);
   const quoted = props.quote?.text;
+  const replying = props.replying;
+  // Replying puts the caret in the field.
+  const replyingTo = replying?.quote.id;
+  useEffect(() => {
+    if (replyingTo) composer.current?.focus();
+  }, [replyingTo]);
   // Esc twice stops, as in a thread: the first press only says so above the field.
   const onStop = props.onStop;
   const { armed, stopKey } = useStopKey(
@@ -155,8 +165,10 @@ export function SpadeComposer(props: {
         documents,
         voice: recording,
         ...(draft.devices?.length ? { devices: draft.devices } : {}),
+        ...(replying ? { replyTo: replying.quote } : {}),
       });
       if (quoted && words) props.quote?.onRemove();
+      replying?.onClear();
       draft.files.release();
       if (recording) voice.remove();
       return true;
@@ -217,6 +229,12 @@ export function SpadeComposer(props: {
           shortPlaceholder={`Message ${props.name}`}
           sendBlocked={blocked ? { reason: blocked, describedBy: reason } : undefined}
           trailing={<MicButton voice={voice} />}
+          // The message being replied to, inside the composer above the words (ADR 0212 §4).
+          heading={
+            replying && (
+              <ReplyStrip quote={replying.quote} botName={props.name} onClear={replying.onClear} />
+            )
+          }
           idleAction={<VoiceButton name={props.name} talk={talk} voice={voice} />}
           attached={
             <>

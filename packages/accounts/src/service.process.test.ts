@@ -311,3 +311,46 @@ test("account sessions and ACP environments launch on the PATH the daemon settle
     registry.close();
   }
 });
+
+test("account sessions preserve cancel-based steering and startup selection metadata", async () => {
+  const request = await homes("codex");
+  const registry = await openRegistry(join(request.to.homeDir, "accounts.sqlite"));
+  await registry.register(request.to);
+  const service = new AccountService({ registry, now: () => 1, timeZone: "UTC", env: {} });
+  let mode = "default";
+  const adapter: ProviderAdapter = {
+    provider: "codex",
+    ...unused,
+    openSession: async () => ({
+      nativeSessionId: "cancel-steer-session",
+      steerViaCancel: true as const,
+      refusedOptions: ["effort"],
+      get permissionMode() {
+        return mode;
+      },
+      send: async () => {},
+      interrupt: async () => {},
+      resolve: async () => {},
+      stopTask: async () => {},
+      close: async () => {},
+    }),
+  };
+  try {
+    const opened = await service.openSession(adapter, context, {
+      instanceId: request.to.id,
+      role: "worker",
+      estimatedLoad: 1,
+    });
+    try {
+      expect(opened.session.steerViaCancel).toBe(true);
+      expect(opened.session.refusedOptions).toEqual(["effort"]);
+      expect(opened.session.permissionMode).toBe("default");
+      mode = "yolo";
+      expect(opened.session.permissionMode).toBe("yolo");
+    } finally {
+      await opened.session.close("idle");
+    }
+  } finally {
+    registry.close();
+  }
+});

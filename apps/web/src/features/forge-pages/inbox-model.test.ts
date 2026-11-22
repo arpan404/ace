@@ -5,6 +5,7 @@ import {
   inboxGroups,
   inboxPollMs,
   inboxProjects,
+  inboxReasonWords,
   inboxRepositoriesOf,
   inboxSettledMs,
   type InboxProjectRepositories,
@@ -12,6 +13,25 @@ import {
 } from "./inbox-model.ts";
 
 const list = { host: "github.com", items: [], pollSeconds: 90, unchanged: false };
+
+test("each notification reason reads as short plain words, and an unknown code keeps its shape", () => {
+  const cases: [string, string][] = [
+    ["review_requested", "Review requested"],
+    ["assign", "Assigned to you"],
+    ["ci_activity", "Checks"],
+    ["comment", "New comment"],
+    ["team_mention", "Your team was mentioned"],
+    ["subscribed", "Watching"],
+    ["author", "Your pull request"],
+    ["state_change", "Status changed"],
+    ["manual", "Saved"],
+    ["approval_requested", "Approval needed"],
+    ["security_advisory_credit", "Security"],
+    ["deployment_status", "Deployment status"],
+    ["some-new_reason", "Some new reason"],
+  ];
+  for (const [code, words] of cases) expect(inboxReasonWords(code)).toBe(words);
+});
 
 test("the inbox polls at GitHub's interval, waits longer after a rate limit or lost connection, and longest after a refusal", () => {
   expect(inboxPollMs(list, undefined)).toBe(90_000);

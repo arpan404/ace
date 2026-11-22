@@ -921,6 +921,20 @@
           "minItems": 1,
           "type": "array"
         },
+        "stageListed": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Repository-relative path without NUL bytes."
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "stagedOnly": {
+          "type": "boolean"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -934,6 +948,81 @@
         "threadId",
         "message",
         "expectedHead"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Repository-relative path without NUL bytes."
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "paths": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Repository-relative path without NUL bytes."
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.unstage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "remote": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.fetch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
       ],
       "type": "object"
     },

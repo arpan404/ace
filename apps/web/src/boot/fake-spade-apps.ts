@@ -272,6 +272,8 @@ export function seedFakeApps(here: FakeSpadeApi) {
     last_used_ms: Date.now() - 3 * 3_600_000,
   });
   here.connectors.access.set("inbox", { all: false, connectors: ["github", "slack"] });
+  // Apps that fit a bot's task, so a bot's Permissions shows its suggestions.
+  here.connectors.fits = ["slack", "google-calendar", "dropbox", "gmail"];
   (globalThis as { aceFakeConnectors?: unknown }).aceFakeConnectors = here.connectors;
 
   const bot = here.addAgent({

@@ -52,27 +52,29 @@ export function InstalledPage() {
     <div className="mk-inner" data-width="read">
       {all.length === 0 ? (
         <Shelf title="Installed">
-          <p className="st-line">What you get from the Store shows here.</p>
+          <p className="st-line">What you get from the Marketplace shows here.</p>
         </Shelf>
       ) : (
-        <>
-          <Shelf title={updates.length === 1 ? "1 update" : `${updates.length || "No"} updates`}>
-            {updates.length ? (
-              <ul className="mk-rows" aria-label="Updates">
-                {updates.map(row)}
-              </ul>
-            ) : (
-              <p className="st-line">Everything is up to date. ace checks once a day.</p>
-            )}
-          </Shelf>
-          {rest.length > 0 && (
-            <Shelf title="Installed">
-              <ul className="mk-rows" aria-label="Installed">
-                {rest.map(row)}
-              </ul>
-            </Shelf>
+        <Shelf title="Installed">
+          {/* The update count is a quiet line under the title, never the title. */}
+          <p className="st-line">
+            {updates.length === 0
+              ? "Everything is up to date. ace checks once a day."
+              : updates.length === 1
+                ? "1 update"
+                : `${updates.length} updates`}
+          </p>
+          {updates.length > 0 && (
+            <ul className="mk-rows" aria-label="Updates">
+              {updates.map(row)}
+            </ul>
           )}
-        </>
+          {rest.length > 0 && (
+            <ul className="mk-rows" aria-label="Installed">
+              {rest.map(row)}
+            </ul>
+          )}
+        </Shelf>
       )}
       {yours.length > 0 && (
         <Shelf title="Your apps" all={() => nav.go("apps")}>
@@ -83,7 +85,7 @@ export function InstalledPage() {
           </StoreRows>
         </Shelf>
       )}
-      <div className="st-section">
+      <div className="mt-8">
         <button
           type="button"
           {...part("link")}

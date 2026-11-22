@@ -76,7 +76,7 @@ describe("the list row of an open conversation", () => {
   test("shows waiting on you while a question is open, though the roster still says thinking", () => {
     const c = asking();
     const roster = listed({ state: "working", status: "Thinking" });
-    expect(row(roster, c)).toEqual({ state: "needs-you", line: "Asked you a question" });
+    expect(row(roster, c)).toEqual({ state: "needs-you", line: "Needs you" });
   });
 
   test("works again as soon as the person answers, though the roster still says asked", () => {
@@ -128,7 +128,7 @@ describe("the list row of an open conversation", () => {
 describe("the working line's clock", () => {
   test("stops while the bot waits on the person and counts only its own work after", () => {
     const c = asking();
-    expect(c.view().working).toMatchObject({ label: "Waiting for you", moving: false });
+    expect(c.view().working).toMatchObject({ label: "Needs you", moving: false });
     // The person took 45s to answer: the clock reads as if the turn began 45s later.
     c.stored(50_000, {
       type: "question_answered",

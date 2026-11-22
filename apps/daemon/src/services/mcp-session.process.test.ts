@@ -319,3 +319,24 @@ it("fresh session identity stays unconfirmed through the MCP wrapper until nativ
   confirmed = true;
   expect(session.sessionConfirmed).toBe(true);
 });
+
+it("preserves cancel-based steering and startup selection metadata through the MCP wrapper", async () => {
+  const h = await setup();
+  const original = h.adapter.openSession;
+  let mode = "default";
+  h.adapter.openSession = async (ctx) => ({
+    ...(await original(ctx)),
+    steerViaCancel: true as const,
+    refusedOptions: ["effort"],
+    get permissionMode() {
+      return mode;
+    },
+  });
+  const session = await h.open();
+  cleanup.push(() => session.close("shutdown"));
+  expect(session.steerViaCancel).toBe(true);
+  expect(session.refusedOptions).toEqual(["effort"]);
+  expect(session.permissionMode).toBe("default");
+  mode = "yolo";
+  expect(session.permissionMode).toBe("yolo");
+});

@@ -1,12 +1,14 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { setShowWork } from "./spade-show-work.ts";
 import { openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
 test("a note says where it came from, and everything from that source can be forgotten", async () => {
+  setShowWork(true);
   const { spade } = await spadeApp("/spade/travel", (api) => {
     withEndpoint(api);
     api.addAgent({
@@ -60,6 +62,7 @@ test("a note says where it came from, and everything from that source can be for
 });
 
 test("Correct this under a reply opens that same note right there to rewrite", async () => {
+  setShowWork(true);
   const { spade } = await spadeApp("/spade/travel", (api) => {
     withEndpoint(api);
     api.addAgent({

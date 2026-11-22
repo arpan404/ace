@@ -66,10 +66,10 @@ fn a_turn_with_tools_reads_as_calls_then_results_then_the_answer() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Weather?",
-            "spade:Checking.:c1",
+            "person:[m1] Weather?",
+            "spade:<msg id=\"m3\">Checking.</msg>:c1",
             "result:c1:12C",
-            "spade:It is 12C.:"
+            "spade:<msg id=\"m5\">It is 12C.</msg>:"
         ]
     );
 }
@@ -87,11 +87,11 @@ fn a_message_steered_in_while_tools_run_comes_after_their_results() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Find flights",
+            "person:[m1] Find flights",
             "spade::c1,c2",
             "result:c1:A",
             "result:c2:B",
-            "person:Only morning ones"
+            "person:[m5] Only morning ones"
         ]
     );
 }
@@ -108,10 +108,10 @@ fn calls_left_without_results_when_a_turn_stops_are_answered_not_run() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Do it",
+            "person:[m1] Do it",
             "spade::c1",
             &format!("result:c1:{NOT_RUN}"),
-            "person:Never mind"
+            "person:[m5] Never mind"
         ]
     );
 }
@@ -135,7 +135,7 @@ fn a_call_that_started_but_never_finished_is_reported_as_unknown_not_unrun() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Email Sam".to_owned(),
+            "person:[m1] Email Sam".to_owned(),
             "spade::c1,c2".to_owned(),
             format!("result:c1:{MAYBE_RAN}"),
             format!("result:c2:{NOT_RUN}"),
@@ -153,7 +153,10 @@ fn text_received_before_a_stop_is_kept_once() {
     ];
     assert_eq!(
         shape(&messages(&events)),
-        vec!["person:Tell me", "spade:Partial answer:"]
+        vec![
+            "person:[m1] Tell me",
+            "spade:<msg id=\"m4\">Partial answer</msg>:"
+        ]
     );
 }
 
@@ -176,12 +179,15 @@ fn a_failed_reply_keeps_its_unfinished_words_until_the_person_tries_again() {
     ];
     assert_eq!(
         shape(&messages(&events)),
-        vec!["person:Plan my week", "spade:Monday::"]
+        vec![
+            "person:[m1] Plan my week",
+            "spade:<msg id=\"m3\">Monday:</msg>:"
+        ]
     );
     // Tried again, the new reply answers in its place: the model never reads the old words.
     events.push(Event::Known(Known::ReplyRetried { reply: "r1".into() }));
     events.push(Event::reply_started("r2", "m"));
-    assert_eq!(shape(&messages(&events)), vec!["person:Plan my week"]);
+    assert_eq!(shape(&messages(&events)), vec!["person:[m1] Plan my week"]);
 }
 
 #[test]
@@ -197,12 +203,15 @@ fn stored_context_rides_with_its_message_and_messages_in_a_row_join() {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         }),
         Event::user_message("Short please"),
     ];
     assert_eq!(
         shape(&messages(&events)),
-        vec!["person:<context>\nToday is Monday.\n</context>\n\nPlan my day\n\nShort please"]
+        vec![
+            "person:<context>\nToday is Monday.\n</context>\n\n[m1] Plan my day\n\n[m2] Short please"
+        ]
     );
 }
 
@@ -458,7 +467,7 @@ fn a_job_result_arriving_while_tools_run_waits_for_their_results() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Research and check mail",
+            "person:[m1] Research and check mail",
             "spade::c1",
             "result:c1:No mail",
             "person:<job_result job=\"j1\" tool=\"research\" status=\"ok\">\nThree options\n</job_result>"
@@ -561,9 +570,9 @@ fn a_message_that_arrived_while_a_step_was_answered_reads_after_that_step() {
     assert_eq!(
         shape(&messages(&events)),
         vec![
-            "person:Find flights",
-            "spade:Looking.:",
-            "person:Only mornings"
+            "person:[m1] Find flights",
+            "spade:<msg id=\"m4\">Looking.</msg>:",
+            "person:[m3] Only mornings"
         ]
     );
 }
@@ -600,6 +609,7 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
         from_routine: None,
         from_group: None,
         from_thread: None,
+        reply_to: None,
     })];
     let shown = messages_with(&events, &Shelf);
     let Some(Message::Person { text, images }) = shown.first() else {
@@ -609,7 +619,7 @@ fn attached_images_are_shown_when_available_and_described_when_not() {
     assert_eq!(images[0].media_type, "image/png");
     assert_eq!(
         text,
-        "Compare these\n\n[The person attached an image (image/png), but the image is no longer stored.]"
+        "[m1] Compare these\n\n[The person attached an image (image/png), but the image is no longer stored.]"
     );
     let described = messages(&events);
     assert!(
@@ -649,11 +659,11 @@ fn images_a_tool_returned_follow_the_steps_results_before_steered_messages() {
     assert_eq!(
         shape(&shown),
         vec![
-            "person:Show me the page",
+            "person:[m1] Show me the page",
             "spade::c1,c2",
             "result:c1:Took a screenshot.",
             "result:c2:Page text",
-            "person:[Images returned by browser_screenshot]\n\nZoom in"
+            "person:[Images returned by browser_screenshot]\n\n[m5] Zoom in"
         ]
     );
     assert!(matches!(shown.last(), Some(Message::Person { images, .. }) if images.len() == 1));
@@ -687,6 +697,7 @@ fn older_images_are_left_out_in_steps_so_the_prompt_start_stays_cached() {
                 from_routine: None,
                 from_group: None,
                 from_thread: None,
+                reply_to: None,
             })
         })
         .collect();
@@ -719,6 +730,7 @@ fn image_turn(n: usize) -> [Event; 2] {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         }),
         step(&format!("r{n}"), "seen", &[]),
     ]
@@ -828,6 +840,7 @@ fn a_message_from_another_bot_reads_as_one_not_as_the_person() {
         from_routine: None,
         from_group: None,
         from_thread: None,
+        reply_to: None,
     })];
     let sent = messages(&events);
     assert!(matches!(
@@ -856,6 +869,7 @@ fn a_turn_a_bot_started_or_steered_is_untrusted() {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         })
     };
     let registry = Registry::new(Vec::new());

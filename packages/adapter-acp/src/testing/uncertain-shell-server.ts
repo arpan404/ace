@@ -28,6 +28,8 @@ const askShell = (id: number) => {
 /** The prompt waiting on an answer to request 101 before it ends. */
 let gatedPrompt: unknown;
 let heldPrompt: unknown;
+let heldTool = "held";
+let heldCount = 0;
 createInterface({ input: process.stdin }).on("line", (line) => {
   const frame = object(JSON.parse(line));
   const params = object(frame["params"]);
@@ -60,11 +62,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const text = string(object(list(params["prompt"])[0])["text"]);
     if (heldPrompt !== undefined) {
       send({ id: frame["id"], error: { code: -32603, message: "Overlapping prompt" } });
-    } else if (text === "hold-for-steer") {
+    } else if (text === "hold-for-steer" || text.startsWith("hold-for-steer:")) {
       heldPrompt = frame["id"];
+      heldTool = text === "hold-for-steer" ? "held" : `held-${++heldCount}`;
       update({
         sessionUpdate: "tool_call",
-        toolCallId: "held",
+        toolCallId: heldTool,
         kind: "read",
         status: "in_progress",
       });
@@ -117,10 +120,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       send({ id: frame["id"], error: { code: -32603, message: "Internal error" } });
     } else send({ id: frame["id"], result: { stopReason: "end_turn" } });
   } else if (frame["method"] === "session/cancel" && heldPrompt !== undefined) {
+    const promptId = heldPrompt;
+    const toolId = heldTool;
     setTimeout(() => {
-      update({ sessionUpdate: "tool_call_update", toolCallId: "held", status: "cancelled" });
-      send({ id: heldPrompt, result: { stopReason: "cancelled" } });
-      heldPrompt = undefined;
+      update({ sessionUpdate: "tool_call_update", toolCallId: toolId, status: "cancelled" });
+      send({ id: promptId, result: { stopReason: "cancelled" } });
+      if (heldPrompt === promptId) heldPrompt = undefined;
     }, 25);
   } else if (frame["id"] === 101 && Object.hasOwn(frame, "result")) {
     send({ id: gatedPrompt, result: { stopReason: "end_turn" } });

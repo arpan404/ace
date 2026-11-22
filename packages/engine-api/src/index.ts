@@ -161,11 +161,39 @@ export interface SessionContext {
   /** Required by the engine; omitted only by legacy direct callers. */
   permissionMode?: PermissionMode;
   runtimePolicy?: "restricted" | "full-access";
+  /**
+   * Daemon-owned, never from wire data (ADR 0211): which generation of the thread's
+   * provider-private session store to use. Absent is the first. ace moves a thread to the next
+   * one when its saved session can't be opened again; earlier generations are kept, not deleted.
+   */
+  storeGeneration?: number;
   resume?: {
     nativeSessionId: string;
     backend?: ProviderBackend;
     instanceId?: string;
-    afterFrameOffset?: number;
+    /**
+     * Daemon-owned, from its own committed frames (ADR 0043, amendment of 2026-11-22): the runs
+     * the open turn started and never saw end, each with the last SDK-stored event ace's frames
+     * cover (and the one after it, when ace committed that event's update), and a send the host
+     * attempted with no admission evidence yet.
+     */
+    unsettled?: {
+      runs: {
+        runId: string;
+        through: number;
+        afterOffset?: string;
+        pending?: string[];
+        legacy?: boolean;
+      }[];
+      attempt?: {
+        operationId: string;
+        commandId?: string;
+        segment: number;
+        at: number;
+        runFramed?: boolean;
+        runId?: string;
+      };
+    };
   };
   /** Persist selection before host admission and native identity before publishing its open frame. */
   onSessionIdentity?(identity: {

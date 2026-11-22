@@ -98,7 +98,7 @@
       "type": "string"
     },
     "maxCheckpointMb": {
-      "maximum": 256,
+      "maximum": 65536,
       "minimum": 1,
       "type": "integer"
     },

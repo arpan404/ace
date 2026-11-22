@@ -94,7 +94,9 @@ fn last_of<'a>(len: usize, at: impl Fn(usize) -> (&'a Event, i64, i64)) -> Optio
             Known::ReplyFinished { text, .. }
             | Known::ReplyStopped { text, .. }
             | Known::ReplyFailed { text, .. }
-            | Known::ReplyInterrupted { text, .. } => (true, text.clone(), None),
+            | Known::ReplyInterrupted { text, .. } => {
+                (true, spade_core::chat_markup::plain(text), None)
+            }
             _ => return None,
         };
         let text = preview(&text, PREVIEW);
@@ -302,6 +304,21 @@ mod tests {
         assert_eq!(
             last.map(|m| (m.by_agent, m.text)),
             Some((true, "Found code Two options.".to_owned()))
+        );
+        // A reply in several messages (ADR 0212) previews as its words, not its tags.
+        events.push(at(
+            5,
+            Event::Known(Known::ReplyFinished {
+                reply: "r2".into(),
+                text: "<msg>Found 3.</msg>\n<msg reply=\"m1\">Cheapest is 9:10.</msg>".into(),
+                input_tokens: None,
+                output_tokens: None,
+                cost_micros: 0,
+            }),
+        ));
+        assert_eq!(
+            last_message(&events).map(|m| m.text),
+            Some("Found 3. Cheapest is 9:10.".to_owned())
         );
     }
 

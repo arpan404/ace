@@ -8,11 +8,19 @@ import type {
   SpadeStoppedKind,
 } from "./wire.ts";
 import { spadeHelperTask, spadeHelperTool } from "./helper-words.ts";
+import { spadeContractAsk } from "./contract-words.ts";
 import {
-  spadeContractAsk,
-  spadeContractResult,
-  type SpadeContractOutcome,
-} from "./contract-words.ts";
+  spadeBotMessageTool,
+  spadeContractAsked,
+  spadeContractCalled,
+  spadeContractFinished,
+  spadeContractEnded,
+  spadeTalkFinished,
+  spadeTalkStarted,
+  type SpadeContractAsked,
+  type SpadeContractEntry,
+  type SpadeTalkEntry,
+} from "./bot-talk.ts";
 import {
   spadeCardQuestions,
   spadeConnectOf,
@@ -36,6 +44,9 @@ import {
   type SpadeStepWeight,
 } from "./step-facts.ts";
 import type { SpadeRefusedHost } from "./wire.ts";
+import { spadeMessageId } from "./chat-markup.ts";
+import { spadeSameMessage as sameMessage } from "./pending-match.ts";
+import type { SpadeReplyTo } from "./replies.ts";
 
 /** A background job: the tool it runs and, for a delegation, how many tasks it handed out. */
 export interface SpadeJob {
@@ -43,6 +54,8 @@ export interface SpadeJob {
   agents: number | undefined;
   /** The reply that started it, whose Stop also stops it. */
   reply: string;
+  /** When it started (ms), for the working line's clock when no reply is open; unknown at 0. */
+  startedAt?: number | undefined;
 }
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
@@ -81,7 +94,8 @@ export type SpadeCallState =
   | "refused";
 
 export type SpadeReplyPart =
-  | { kind: "text"; key: string; text: string }
+  /** `seq`: the stored event holding the words, which names its messages (ADR 0212 §3). */
+  | { kind: "text"; key: string; text: string; seq?: number }
   | {
       kind: "call";
       key: string;
@@ -181,8 +195,8 @@ export type SpadeEntry =
       /** A voice message's recording; `text` is its transcript. */
       voice?: SpadeVoiceRef;
       pending?: true;
-      /** Sent by another bot, not the person. */
-      fromAgent?: { id: string; name: string };
+      /** Sent by another bot, not the person; with the contract call it delivers, if one. */
+      fromAgent?: { id: string; name: string; contract?: SpadeContractAsked };
       /** Fired by one of the bot's routines or its heartbeat, not the person. */
       fromRoutine?: { id: string; name: string; label: string; heartbeat: boolean };
       /** Sent here from a group the bot is in (ADR 0132). */
@@ -193,6 +207,10 @@ export type SpadeEntry =
       at?: number;
       /** The notes Spade recalled for it, by id: what the reply to it had in mind (ADR 0128). */
       recalled?: readonly string[];
+      /** Its message id (ADR 0212 §3); a message not stored yet has none. */
+      id?: string;
+      /** The message it replies to (ADR 0212 §4). */
+      replyTo?: SpadeReplyTo;
     }
   | SpadeReplyEntry
   /** The model now reads a summary of what came before. */
@@ -235,21 +253,10 @@ export type SpadeEntry =
       result: string;
       at?: number;
     }
-  /**
-   * A call this bot made to another bot's contract (ADR 0200 §7): one line where it was made,
-   * settled in place when its result arrives. `result` is the output's fields, or why not.
-   */
-  | {
-      kind: "contract";
-      key: string;
-      job: string;
-      bot: string;
-      machine?: string | undefined;
-      contract: string;
-      outcome: SpadeContractOutcome | undefined;
-      result: string;
-      at?: number;
-    }
+  /** A call this bot made to another bot's contract (ADR 0200 §7), settled in place. */
+  | SpadeContractEntry
+  /** The messages one turn sent another bot, with their replies, as one card (`bot-talk.ts`). */
+  | SpadeTalkEntry
   /** The person handed the computer back: Spade's narration, and the names as plain data. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
   /** A card asked outside the open reply: where it arrived. */
@@ -288,7 +295,7 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
-export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
+export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive" | "app";
 
 /** Whether the person's answer to a request `stopped` asked holds for that call only. */
 export const spadeAnsweredOnce = (stopped: SpadeStoppedKind | undefined): boolean =>
@@ -306,8 +313,15 @@ export interface SpadeRequest {
   ask?: SpadeAskKind;
   /** Which of Spade's judges put it to the person, when one did. */
   stopped?: SpadeStoppedKind;
-  /** For a driving step, the app or site its "always" allows for the bot. */
+  /**
+   * For a driving step, the app or site its "always" allows for the bot; for a connected app's
+   * write (`ask: "app"`), the connection whose writes the person may allow always.
+   */
   app?: string;
+  /** What the gate read the call as doing (`read`, `network`, `send_as_person`…); absent: undeclared. */
+  effect?: string;
+  /** For a connected app's tool, the definition the person is shown. */
+  definition?: string;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
@@ -327,6 +341,8 @@ export interface SpadeApproval {
   ask?: SpadeAskKind;
   stopped?: SpadeStoppedKind;
   app?: string;
+  effect?: string;
+  definition?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
 }
@@ -410,6 +426,7 @@ export interface SpadePendingMessage {
   images: readonly SpadeImageRef[];
   documents?: readonly SpadeDocumentRef[];
   voice?: SpadeVoiceRef;
+  replyTo?: SpadeReplyTo;
 }
 
 export type SpadeFoldInput =
@@ -422,6 +439,7 @@ export type SpadeFoldInput =
       images?: readonly SpadeImageRef[];
       documents?: readonly SpadeDocumentRef[];
       voice?: SpadeVoiceRef;
+      replyTo?: SpadeReplyTo;
     }
   | { kind: "refused"; key: string };
 
@@ -476,6 +494,7 @@ export function foldSpade(state: SpadeConversationState, input: SpadeFoldInput):
           images: input.images ?? [],
           ...(input.documents?.length ? { documents: input.documents } : {}),
           ...(input.voice ? { voice: input.voice } : {}),
+          ...(input.replyTo ? { replyTo: input.replyTo } : {}),
         },
       ];
       return true;
@@ -550,7 +569,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     (quiet) => steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
     (call, worker) =>
       spadeJoinWorkers(state.entries, call, worker) ||
-      steer(state, { kind: "workers", key, call, workers: [worker], ...stamp(stored) }),
+      steer(state, {
+        kind: "workers",
+        key,
+        call,
+        workers: [worker],
+        ...(state.open ? { reply: state.open.reply } : {}),
+        ...stamp(stored),
+      }),
   );
   if (capability !== undefined) return capability;
   switch (event.type) {
@@ -576,7 +602,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         ...(event.documents.length ? { documents: event.documents } : {}),
         ...(event.voice ? { voice: event.voice } : {}),
         ...(event.from_agent
-          ? { fromAgent: { id: event.from_agent.id, name: event.from_agent.name } }
+          ? {
+              fromAgent: {
+                id: event.from_agent.id,
+                name: event.from_agent.name,
+                ...(event.from_agent.contract
+                  ? { contract: spadeContractAsked(event.from_agent.contract) }
+                  : {}),
+              },
+            }
           : {}),
         ...(event.from_routine ? { fromRoutine: event.from_routine } : {}),
         ...(event.from_group
@@ -593,6 +627,12 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           : {}),
         ...recalledOf(event.context),
         ...stamp(stored),
+        // The person's words and another bot's (not a contract call) are messages the person can
+        // reply to (ADR 0212 §4); a routine's or a club's relayed ones aren't.
+        ...(event.from_routine || event.from_group || event.from_agent?.contract
+          ? {}
+          : { id: spadeMessageId(stored.seq) }),
+        ...(event.reply_to ? { replyTo: event.reply_to } : {}),
       });
       return true;
     }
@@ -634,7 +674,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         live: "",
         parts: [
           ...entry.parts,
-          ...(event.text.trim() ? [{ kind: "text" as const, key, text: event.text }] : []),
+          ...(event.text.trim()
+            ? [{ kind: "text" as const, key, text: event.text, seq: stored.seq }]
+            : []),
           ...event.calls.map((call) => {
             const { detail, weight } = spadeStepFacts(call.name, call.arguments);
             return {
@@ -662,7 +704,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           reason: event.reviewer_reason || state.reviews.get(event.call_id),
           ...(event.ask ? { ask: event.ask } : {}),
           ...(event.stopped ? { stopped: event.stopped } : {}),
-          ...(event.ask === "drive" && event.app ? { app: event.app } : {}),
+          ...((event.ask === "drive" || event.ask === "app") && event.app
+            ? { app: event.app }
+            : {}),
+          ...(event.effect ? { effect: event.effect } : {}),
+          ...(event.tool_key && event.ask !== "undeclared" ? { definition: event.tool_key } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
         },
       ];
@@ -675,6 +721,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...request,
           reason: asked.reason,
           ...(asked.stopped ? { stopped: asked.stopped } : {}),
+          ...(asked.effect ? { effect: asked.effect } : {}),
+          ...(asked.definition ? { definition: asked.definition } : {}),
           answer: undefined,
           always: false,
         }))
@@ -689,6 +737,8 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(asked.ask ? { ask: asked.ask } : {}),
           ...(asked.stopped ? { stopped: asked.stopped } : {}),
           ...(asked.app ? { app: asked.app } : {}),
+          ...(asked.effect ? { effect: asked.effect } : {}),
+          ...(asked.definition ? { definition: asked.definition } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
           answer: undefined,
           always: false,
@@ -850,7 +900,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       if (state.question?.callId === event.call_id) state.question = undefined;
       state.forLater.delete(event.call_id);
       return updateQuestion(state, event.call_id, (card) => ({ ...card, standing: "dismissed" }));
-    case "job_started":
+    case "job_started": {
+      // A message to another bot: its turn's card with that bot, where the first was sent.
+      const talk =
+        event.name === spadeBotMessageTool && spadeTalkStarted(state, key, event, stored);
+      if (talk) steer(state, talk);
       if (event.name === spadeHelperTool)
         // Its line, where it started: the reply's later words read below it.
         steer(state, {
@@ -866,20 +920,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         name: event.name,
         agents: delegatedTasks(state.calls.get(event.job)?.arguments),
         reply: event.reply,
+        ...(stored.at > 0 ? { startedAt: stored.at } : {}),
       });
       return true;
+    }
+    case "contract_ended":
+      return spadeContractEnded(state.entries, event);
     case "contract_called":
-      steer(state, {
-        kind: "contract",
-        key,
-        job: event.job,
-        bot: event.name || "Another bot",
-        ...(event.machine_name ? { machine: event.machine_name } : {}),
-        contract: event.contract,
-        outcome: undefined,
-        result: "",
-        ...stamp(stored),
-      });
+      steer(state, spadeContractCalled(key, event, stamp(stored).at, state));
       return true;
     case "job_finished": {
       state.jobs.delete(event.job);
@@ -895,20 +943,11 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         state.entries[at] = { ...line, outcome, result: event.content ?? "" };
         return true;
       }
-      // A contract call's line settles with what came back; its result opens a reply, as any.
-      const call = state.entries.findIndex(
-        (entry) => entry.kind === "contract" && entry.job === event.job,
-      );
-      const asked = state.entries[call];
-      if (asked?.kind === "contract") {
-        const read = spadeContractResult(event.content ?? "");
-        state.entries[call] = {
-          ...asked,
-          outcome: stopped ? "stopped" : read.outcome,
-          result: read.result,
-        };
-        return true;
-      }
+      // A contract call's or a message's card settles with what came back; that result opens
+      // a reply, as any.
+      const end = { job: event.job, content: event.content ?? "", stopped, at: stamp(stored).at };
+      if (spadeContractFinished(state.entries, end)) return true;
+      if (spadeTalkFinished(state.entries, { ...end, error: event.is_error === true })) return true;
       // Its result goes to Spade like a message: what Spade says about it reads below it.
       steer(state, { kind: "job", key, name: event.name, outcome, files: event.files });
       return true;
@@ -930,9 +969,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       return true;
     }
     case "reply_finished":
-      return closeReply(state, event.reply, { kind: "finished" }, event.text);
+      return closeReply(state, event.reply, { kind: "finished" }, event.text, stored.seq);
     case "reply_stopped":
-      return closeReply(state, event.reply, { kind: "stopped" }, event.text);
+      return closeReply(state, event.reply, { kind: "stopped" }, event.text, stored.seq);
     case "reply_failed":
       return closeReply(
         state,
@@ -944,9 +983,10 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           endpoint: event.endpoint ?? undefined,
         },
         event.text,
+        stored.seq,
       );
     case "reply_interrupted":
-      return closeReply(state, event.reply, { kind: "interrupted" }, event.text);
+      return closeReply(state, event.reply, { kind: "interrupted" }, event.text, stored.seq);
     case "reply_retried": {
       // The next reply answers the same turn in its place: the failure goes, and so do the words
       // its failed call left unfinished (no step stored them), which the model no longer reads
@@ -1085,39 +1125,6 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
     }
   }
 }
-
-const sameImages = (a: readonly SpadeImageRef[], b: readonly SpadeImageRef[]) =>
-  a.length === b.length && a.every((image, index) => image.sha256 === b[index]?.sha256);
-
-/** The same file: by hash when both know it, else by name and size. */
-const sameDocument = (a: SpadeDocumentRef, b: SpadeDocumentRef) =>
-  a.sha256 && b.sha256 ? a.sha256 === b.sha256 : a.name === b.name && a.bytes === b.bytes;
-
-const sameDocuments = (a: readonly SpadeDocumentRef[], b: readonly SpadeDocumentRef[]) =>
-  a.length === b.length && a.every((document, index) => sameDocumentAt(document, b[index]));
-const sameDocumentAt = (a: SpadeDocumentRef, b: SpadeDocumentRef | undefined) =>
-  b !== undefined && sameDocument(a, b);
-
-/** Both carry no recording, or the same one (by hash when both know it, else by size). */
-const sameVoice = (a: SpadeVoiceRef | undefined, b: SpadeVoiceRef | undefined) =>
-  a === undefined || b === undefined
-    ? a === b
-    : a.sha256 && b.sha256
-      ? a.sha256 === b.sha256
-      : a.bytes === b.bytes;
-
-/**
- * Whether Spade's stored `event` is the person's pending `message`: the same words, images,
- * documents and recording. A stored message that only shares the words is another one.
- */
-const sameMessage = (
-  message: SpadePendingMessage,
-  event: Extract<SpadeKnownEvent, { type: "user_message" }>,
-) =>
-  message.text === event.text &&
-  sameImages(message.images, event.images) &&
-  sameDocuments(message.documents ?? [], event.documents) &&
-  sameVoice(message.voice, event.voice);
 
 /**
  * A message while a reply is open steers it: the reply carries on under the message, so what
@@ -1409,9 +1416,10 @@ function closeReply(
   reply: string,
   end: SpadeReplyEnd,
   text: string,
+  seq: number,
 ): boolean {
   if (state.open?.reply !== reply) return false;
-  closeOpen(state, end, text);
+  closeOpen(state, end, text, seq);
   return true;
 }
 
@@ -1432,7 +1440,7 @@ function lastWords(state: SpadeConversationState, index: number, reply: string) 
  * End the open reply. A finished reply's text repeats its last step's, already shown; any other
  * end carries the open step's words, which no step stored.
  */
-function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: string) {
+function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: string, seq?: number) {
   const open = state.open;
   if (!open) return;
   const entry = state.entries[open.index];
@@ -1441,7 +1449,15 @@ function closeOpen(state: SpadeConversationState, end: SpadeReplyEnd, text: stri
     const last = lastWords(state, open.index, entry.reply);
     const words = end.kind === "finished" ? (last?.text === text ? "" : text) : text || entry.live;
     const parts: SpadeReplyPart[] = words.trim()
-      ? [...entry.parts, { kind: "text", key: `${entry.key}:end`, text: words }]
+      ? [
+          ...entry.parts,
+          {
+            kind: "text",
+            key: `${entry.key}:end`,
+            text: words,
+            ...(seq === undefined ? {} : { seq }),
+          },
+        ]
       : entry.parts.slice();
     state.entries[open.index] = { ...entry, parts, live: "", end };
   }

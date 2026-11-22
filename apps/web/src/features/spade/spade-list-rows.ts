@@ -52,12 +52,24 @@ function makerOf(bot: RosterBot, byKey: ReadonlyMap<string, RosterBot>): RosterB
   return bot.parent ? byKey.get(`${bot.machine.key}/${bot.parent.id}`) : undefined;
 }
 
+/** One row per bot on a machine: the first of a repeated id stands, so no bot opens from two rows. */
+function uniqueBots(bots: readonly RosterBot[]): RosterBot[] {
+  const seen = new Set<string>();
+  return bots.filter((bot) => {
+    const key = botKey(bot);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Spade, the main bot, first as an ordinary row, then the rest by state, newest first. */
 function topLevel(
-  bots: readonly RosterBot[],
+  allBots: readonly RosterBot[],
   groups: readonly RosterGroup[],
   missing: SpadeGoalMissing | undefined,
 ): SpadeListEntry[] {
+  const bots = uniqueBots(allBots);
   const others: SpadeListEntry[] = [
     ...bots.filter((bot) => bot.kind !== "main").map((bot) => botEntry(bot, missing)),
     ...groups.map((group) => ({
@@ -91,11 +103,12 @@ export function spadeFlatEntries(
  * carries the rest in its own state. A worker whose maker isn't in the list shows as any bot.
  */
 export function spadeListEntries(
-  bots: readonly RosterBot[],
+  allBots: readonly RosterBot[],
   groups: readonly RosterGroup[],
   open?: string,
   missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
+  const bots = uniqueBots(allBots);
   const byKey = new Map(bots.map((bot) => [botKey(bot), bot]));
   const workersOf = new Map<string, RosterBot[]>();
   const roots: RosterBot[] = [];

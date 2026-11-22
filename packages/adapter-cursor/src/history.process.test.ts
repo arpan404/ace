@@ -114,7 +114,7 @@ it("refuses oversized checkpoints before the SDK can materialize the conversatio
         },
         home,
       ),
-    ).rejects.toThrow("exceeds recovery budget");
+    ).rejects.toThrow("exceeds its budget");
     await expect(
       snapshotInHost(
         sdk,

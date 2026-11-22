@@ -103,6 +103,50 @@ test("Next and Send say what a question still needs, and Spade's refusal turns t
   ).toBe("4");
 });
 
+test("Something else… answers a choice question in the person's own words, offered or not", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", [
+      { prompt: "Window or aisle?", kind: "choice", options: ["Window", "Aisle"] },
+    ]),
+  );
+  const asked = await card("Travel asks: Window or aisle?");
+  // Nothing is said about what's missing before the person tries to send.
+  expect(asked.queryByRole("alert")).toBeNull();
+  await userEvent.click(asked.getByRole("radio", { name: "Window" }));
+  // The digit after the options opens the field, and typing replaces the pick.
+  await userEvent.keyboard("3");
+  const own = asked.getByRole("textbox", { name: "Window or aisle?: your own answer" });
+  await waitFor(() => expect(document.activeElement).toBe(own));
+  expect(asked.getByRole("radio", { name: "Window" }).getAttribute("aria-checked")).toBe("false");
+  await userEvent.type(own, "Middle, near the front");
+  await userEvent.click(asked.getByRole("button", { name: "Send" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", path)).toEqual([{ answers: ["Middle, near the front"] }]),
+  );
+  const settled = await cardWith("Travel asks: Window or aisle?", "Middle, near the front");
+  expect(settled.getByRole("article", { name: "You" }).textContent).toBe("Middle, near the front");
+});
+
+test("on a question of several picks, own words count as one more pick", async () => {
+  const { spade } = await spadeApp("/spade/travel", (api) =>
+    api.card(travel(api), "q1", [
+      { prompt: "Which meals?", kind: "choices", options: ["Breakfast", "Lunch", "Dinner"] },
+    ]),
+  );
+  const asked = await card("Travel asks: Which meals?");
+  await userEvent.click(asked.getByRole("checkbox", { name: "Dinner" }));
+  await userEvent.click(asked.getByRole("checkbox", { name: "Something else" }));
+  await userEvent.type(
+    asked.getByRole("textbox", { name: "Which meals?: your own answer" }),
+    "Brunch",
+  );
+  expect(asked.getByText("2 of 4 picked")).toBeTruthy();
+  await userEvent.click(asked.getByRole("button", { name: "Send" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", path)).toEqual([{ answers: [["Dinner", "Brunch"]] }]),
+  );
+});
+
 test("checks count against the most a question takes", async () => {
   const { spade } = await spadeApp("/spade/travel", (api) =>
     api.card(travel(api), "q1", [

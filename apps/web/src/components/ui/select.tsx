@@ -1,9 +1,10 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretDownIcon, CheckIcon } from "@ace/icons";
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useFloatingMaterial } from "./floating-material.tsx";
 import { layers, menuItem, menuLabel, popupFrame } from "./menu-styles.ts";
+import { SelectSizesToOptions } from "./select-width.tsx";
 
 /** The quiet filled control every picker opens from: Select, DatePicker, TimePicker. */
 export const selectTrigger = cn(
@@ -49,6 +50,12 @@ function Select<T extends string>(props: {
   "aria-describedby"?: string | undefined;
 }) {
   const material = useFloatingMaterial();
+  // A settings row asks its selects to fit their longest option; one given its own width keeps it.
+  const sized = useContext(SelectSizesToOptions) && props.className === undefined;
+  const longest = props.options.reduce(
+    (widest, option) => (option.label.length > widest.length ? option.label : widest),
+    "",
+  );
   return (
     <SelectPrimitive.Root
       items={props.options}
@@ -72,12 +79,20 @@ function Select<T extends string>(props: {
         className={cn(
           selectTrigger,
           // A minimum only for the default size: a Select given a width follows its column.
-          props.className ?? "min-w-36",
+          props.className ??
+            (sized ? "w-auto max-w-full min-w-(--setting-select-width)" : "min-w-36"),
         )}
       >
         <span className="inline-flex min-w-0 items-center gap-2">
           {props.options.find((option) => option.value === props.value)?.icon}
           <SelectPrimitive.Value className="truncate" />
+          {sized && (
+            // The longest option sets the width, so no choice cuts its own words off; the
+            // trigger's max-width keeps it inside the column.
+            <span aria-hidden className="invisible h-0 min-w-max overflow-hidden whitespace-nowrap">
+              {longest}
+            </span>
+          )}
         </span>
         <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--motion-base) ease-spring in-data-popup-open:rotate-180">
           <CaretDownIcon aria-hidden size={12} />

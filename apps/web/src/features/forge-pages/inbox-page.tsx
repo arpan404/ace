@@ -19,6 +19,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { markAllReadWrites } from "@ace/ui-core";
 import { repositoryFromParam, repositoryParam } from "@/lib/pull-request-route.ts";
 import { useClock } from "@/lib/time.ts";
+import { FilterMenus, type FilterSection } from "./filters-menu.tsx";
 import { ForgeList } from "./forge-list.tsx";
 import { inboxKey, useInboxPages, useInboxWrites } from "./inbox-data.ts";
 import {
@@ -31,7 +32,6 @@ import {
 } from "./inbox-model.ts";
 import { useInboxRepositories } from "./inbox-projects.ts";
 import { InboxRow } from "./inbox-row.tsx";
-import { InboxSide } from "./inbox-side.tsx";
 import { ListFrame } from "./list-frame.tsx";
 import { RowsSkeleton } from "./list-skeletons.tsx";
 import { useProjectChoice } from "./project-choice.ts";
@@ -39,7 +39,6 @@ import { ProjectMenu } from "./project-menu.tsx";
 import { QueryField } from "./query-field.tsx";
 import { inboxQueryText, inboxSearchOf } from "./query-text.ts";
 import { countWords, StateToggles } from "./quick-views.tsx";
-import { TriageKeys } from "./triage-keys.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 type Write = "read" | "done" | "unsubscribe";
@@ -66,6 +65,53 @@ function seenRows(cache: QueryClient, project: string | undefined): ForgeInboxRo
 }
 
 const groupWords = { date: "Date", repo: "Repository" } as const;
+
+/** Why a notification reached the person, as GitHub names the reasons. */
+const reasonChoices = [
+  { value: "", label: "Any reason" },
+  { value: "assign", label: "Assigned" },
+  { value: "participating", label: "Participating" },
+  { value: "mention", label: "Mentioned" },
+  { value: "team_mention", label: "Team mentioned" },
+  { value: "review_requested", label: "Review requested" },
+] as const;
+
+/** The inbox's filters, as the page's two filter menus instead of a column of its own. */
+function inboxSections(
+  search: InboxSearch,
+  repositories: readonly { id: string; count: number }[],
+  onSearch: (patch: Partial<InboxSearch>) => void,
+): FilterSection[] {
+  const reason = search.only === "participating" ? "participating" : (search.reason ?? "");
+  return [
+    {
+      kind: "one",
+      id: "reason",
+      label: "Reason",
+      value: reason,
+      choices: [...reasonChoices],
+      onChange: (value) =>
+        onSearch({
+          reason: value && value !== "participating" ? value : undefined,
+          only: value === "participating" ? "participating" : undefined,
+        }),
+    },
+    {
+      kind: "one",
+      id: "repository",
+      label: "Repository",
+      value: search.repo ?? "",
+      choices: [
+        { value: "", label: "Any repository" },
+        ...repositories.map((repository) => ({
+          value: repository.id,
+          label: repository.id.split("/").slice(1).join("/"),
+        })),
+      ],
+      onChange: (value) => onSearch({ repo: value || undefined }),
+    },
+  ];
+}
 
 /** GitHub's "Group by: Date ⌄" choice over the rows. */
 function GroupBy(props: { value: "date" | "repo"; onValue(value: "date" | "repo"): void }) {
@@ -94,10 +140,11 @@ function GroupBy(props: { value: "date" | "repo"; onValue(value: "date" | "repo"
 }
 
 /**
- * The person's GitHub notifications, laid out as GitHub's own inbox: the filter column on the
- * left; the filter line and Group by over one box whose header selects rows for Mark as read,
- * Mark as done and Unsubscribe. Pull requests and issues open as ace's own pages; everything
- * else opens on GitHub. Opening a row marks it read. j/k move, e marks done, m unsubscribes.
+ * The person's GitHub notifications, laid out as GitHub's own inbox: the views, the filter line
+ * and Group by over one flat list whose header selects rows for Mark as read, Mark as done and
+ * Unsubscribe; the reason and repository filters sit there too. Pull requests and issues open as
+ * ace's own pages; everything else opens on GitHub. Opening a row marks it read. j/k move,
+ * e marks done, m unsubscribes.
  */
 export function InboxPage(props: {
   search: InboxSearch;
@@ -224,6 +271,9 @@ export function InboxPage(props: {
           {selected.length ? `${selected.length} selected` : "Select all"}
         </span>
       </span>
+      <FilterMenus
+        sections={inboxSections(search, repositoryCounts(known, search.repo), onSearch)}
+      />
       {selected.length > 0 ? (
         <span role="group" aria-label="Selected notifications" className="flex flex-wrap gap-1">
           <Button size="sm" onClick={() => bulk("read")}>
@@ -239,7 +289,7 @@ export function InboxPage(props: {
       ) : (
         unread &&
         writes.ready && (
-          <Button size="sm" className="ml-auto" onClick={() => void readAll()}>
+          <Button size="sm" onClick={() => void readAll()}>
             Mark all read
           </Button>
         )
@@ -253,14 +303,6 @@ export function InboxPage(props: {
         address={listAddress}
         ready={list.rows.length > 0}
         bar={bar}
-        side={
-          <InboxSide
-            search={search}
-            unread={unreadEverywhere}
-            repositories={repositoryCounts(known, search.repo)}
-            onSearch={onSearch}
-          />
-        }
         strip={
           // The rows on show are an earlier answer: say so once, with the way to ask again.
           list.error && list.first ? (
@@ -279,7 +321,6 @@ export function InboxPage(props: {
           ) : null
         }
         header={header}
-        footer={list.rows.length > 0 && writes.ready ? <TriageKeys /> : null}
       >
         {!project ? (
           choice.loaded && (

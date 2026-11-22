@@ -192,7 +192,7 @@ describe("what stays open", () => {
     expect(c.view().approvals).toEqual([
       expect.objectContaining({ callId: "c1", sentence: "Spade wants to send an email." }),
     ]);
-    expect(c.view().working).toMatchObject({ label: "Waiting for you", moving: false });
+    expect(c.view().working).toMatchObject({ label: "Needs you", moving: false });
     expect(c.view().busy).toBe(true);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "c1", allowed: false });
     expect(c.view().approvals).toEqual([]);
@@ -208,7 +208,7 @@ describe("what stays open", () => {
     expect(c.view()).toMatchObject({
       answering: false,
       busy: true,
-      working: { label: "Researching in the background", since: undefined },
+      working: { label: "Researching in the background", since: expect.any(Number) },
     });
     c.stored({ type: "job_finished", job: "j1", name: "research", content: "done" });
     expect(c.view()).toMatchObject({ busy: false, working: undefined });
@@ -362,7 +362,7 @@ describe("the Spade API's later details", () => {
     });
     // The stored copy carries when Spade stored it.
     expect(c.view().entries).toEqual([
-      { kind: "user", key: "s1", text: "", images: [image], at: 1000 },
+      { kind: "user", key: "s1", text: "", images: [image], at: 1000, id: "m1" },
     ]);
   });
 
@@ -454,7 +454,7 @@ describe("delegation", () => {
     expect(c.view()).toMatchObject({
       answering: false,
       busy: true,
-      working: { label: "Waiting for 2 agents", since: undefined },
+      working: { label: "Waiting for 2 agents", since: expect.any(Number) },
     });
     c.stored({ type: "job_finished", job: "c1", name: "delegate", content: "done" });
     expect(c.view()).toMatchObject({ busy: false, working: undefined });

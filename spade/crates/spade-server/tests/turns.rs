@@ -200,7 +200,12 @@ async fn a_message_sent_while_a_tool_runs_is_seen_by_the_next_step() -> Result {
         })
         .unwrap_or_default();
     assert_eq!(roles, vec!["system", "user", "assistant", "tool", "user"]);
-    assert_eq!(second[4]["content"], "Only mornings");
+    // The person's words, after their message id (ADR 0212).
+    let words = second[4]["content"].as_str().unwrap_or_default();
+    assert!(
+        words.starts_with("[m") && words.ends_with("] Only mornings"),
+        "{words}"
+    );
     Ok(())
 }
 
@@ -493,9 +498,14 @@ async fn a_message_sent_while_the_model_streams_its_answer_is_answered_in_that_t
     );
     let second = &spade.fake.seen()[1].body["messages"];
     let last = second.as_array().and_then(|m| m.last()).cloned();
-    assert_eq!(
-        last.map(|m| (m["role"].clone(), m["content"].clone())),
-        Some((json!("user"), json!("Only mornings"))),
+    let (role, words) = last.map_or_else(Default::default, |m| {
+        (
+            m["role"].clone(),
+            m["content"].as_str().unwrap_or_default().to_owned(),
+        )
+    });
+    assert!(
+        role == "user" && words.starts_with("[m") && words.ends_with("] Only mornings"),
         "the late message comes after the answer it interrupted: {second}"
     );
     Ok(())

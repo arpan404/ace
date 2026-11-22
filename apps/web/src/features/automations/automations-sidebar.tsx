@@ -1,13 +1,7 @@
 import { PlusIcon } from "@ace/icons";
 import { Link, useParams } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import {
-  panelIconButton,
-  panelLabel,
-  PanelNoMatch,
-  PanelRowBody,
-  panelRow,
-} from "@/components/ui/panel.tsx";
+import { panelIconButton, panelLabel, PanelNoMatch, panelRow } from "@/components/ui/panel.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
@@ -28,13 +22,13 @@ const rowKey = (entry: ListRow) =>
   entry.kind === "label" ? `label:${entry.label}` : `${entry.row.owner ?? ""}:${entry.row.id}`;
 
 /** A label is a 28px line with the gap above it; a row is one `--row-height` line and 1px. */
-const estimateOf = (entry: ListRow) => (entry.kind === "row" ? 37 : entry.first ? 32 : 48);
+const estimateOf = (entry: ListRow) => (entry.kind === "row" ? 53 : entry.first ? 32 : 48);
 
 /**
  * Automations' panel: its title row (New automation, then the magnifier that opens "Search
  * automations" in place once there is one), then Upcoming (soonest first), Paused, and the ones
- * agents made in threads. Each row is one line:
- * its title, then a status word when it needs a look and when it runs next.
+ * agents made in threads. Each row is its title, with a status word when it needs a look and
+ * when it runs next under it.
  */
 export function AutomationsSidebar() {
   const list = useAutomationLists();
@@ -95,7 +89,7 @@ export function AutomationsSidebar() {
   );
 }
 
-/** One automation on one line: its title, then its status word and when it runs, quieter. */
+/** One automation: its title, and under it its status word and when it runs, quieter. */
 function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
   const { row } = props;
   const meta = `${row.status ? `${row.status.word} · ` : ""}${row.detail}`;
@@ -105,27 +99,28 @@ function AutomationRow(props: { row: SidebarRow; selected: boolean }) {
       params={{ automationId: row.id }}
       aria-current={props.selected ? "page" : undefined}
       title={`${row.title}\n${meta}`}
-      {...panelRow()}
+      {...panelRow("h-auto flex-col items-start justify-center gap-0 py-1.5")}
       data-state={props.selected ? "active" : undefined}
     >
-      <PanelRowBody
-        title={row.title}
-        quiet={row.paused}
-        trailing={
-          <span className="max-w-[45%] shrink-0 truncate text-meta text-muted-foreground">
-            {row.status &&
-              (row.status.tone === "idle" ? (
-                row.status.word
-              ) : (
-                <span data-tone={row.status.tone} className="font-medium text-(--tone-text)">
-                  {row.status.word}
-                </span>
-              ))}
-            {row.status && " · "}
-            {row.detail}
-          </span>
-        }
-      />
+      <span
+        data-view-row-title=""
+        className={cn("w-full min-w-0 truncate", row.paused && "text-muted-foreground")}
+      >
+        {row.title}
+      </span>
+      {/* Its status and when it runs sit under the name, so neither is cut to fit beside it. */}
+      <span className="w-full min-w-0 truncate text-meta text-muted-foreground">
+        {row.status &&
+          (row.status.tone === "idle" ? (
+            row.status.word
+          ) : (
+            <span data-tone={row.status.tone} className="font-medium text-(--tone-text)">
+              {row.status.word}
+            </span>
+          ))}
+        {row.status && " · "}
+        {row.detail}
+      </span>
     </Link>
   );
 }

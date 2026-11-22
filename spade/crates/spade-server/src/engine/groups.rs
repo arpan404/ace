@@ -425,7 +425,7 @@ impl Engine {
         let last_message = stored.iter().rev().find_map(|e| match &e.event {
             Event::Known(Known::GroupMessage { text, from, .. }) => Some(GroupLast {
                 from: from.clone(),
-                text: roster::preview(text, roster::PREVIEW),
+                text: roster::preview(&spade_core::chat_markup::plain(text), roster::PREVIEW),
                 at_ms: e.at_ms,
                 seq: e.seq,
             }),

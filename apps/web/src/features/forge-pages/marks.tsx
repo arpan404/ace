@@ -121,8 +121,8 @@ export function ChecksMark(props: { ci: ForgePrRow["ci"]; local?: LocalCheckResu
 }
 
 /**
- * Labels as pills in their own colour: a wash of it behind, the colour mixed toward the text so
- * it reads on any theme. A label without a colour is a plain hairline pill.
+ * Labels as quiet neutral chips: a faint wash and muted ink, the same in every row. A label's
+ * own colour belongs to its forge page; here the list reads state, not decoration.
  */
 export function LabelPills(props: {
   names: readonly string[];
@@ -130,30 +130,15 @@ export function LabelPills(props: {
 }) {
   return (
     <>
-      {props.names.map((name) => {
-        const color = props.colors?.[name];
-        return (
-          <span
-            key={name}
-            {...part("label-chip")}
-            style={
-              color
-                ? {
-                    color: `color-mix(in oklab, #${color} 55%, var(--foreground))`,
-                    backgroundColor: `color-mix(in oklab, #${color} 18%, transparent)`,
-                    borderColor: `color-mix(in oklab, #${color} 45%, transparent)`,
-                  }
-                : undefined
-            }
-            className={cn(
-              "ml-1 inline-flex h-[18px] max-w-48 shrink-0 items-center truncate rounded-full border px-[7px] align-[1px] text-xs leading-none font-medium",
-              !color && "border-border text-muted-foreground",
-            )}
-          >
-            {name}
-          </span>
-        );
-      })}
+      {props.names.map((name) => (
+        <span
+          key={name}
+          {...part("label-chip")}
+          className="ml-1 inline-flex h-[18px] max-w-48 shrink-0 items-center truncate rounded-xs bg-fill px-[7px] align-[1px] text-xs leading-none font-medium text-muted-foreground"
+        >
+          {name}
+        </span>
+      ))}
     </>
   );
 }

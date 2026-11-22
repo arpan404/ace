@@ -9,7 +9,7 @@ import Testing
         let frame = """
         [{"type":"spade.order","conversation":"c1","order":["s1","s3"]},
          {"type":"spade.row","conversation":"c1","key":"s1","row":{"kind":"person","text":"Research the notes","sending":false,"attached":null}},
-         {"type":"spade.row","conversation":"c1","key":"s3","row":{"kind":"workers","title":"Started 2 agents","workers":[
+         {"type":"spade.row","conversation":"c1","key":"s3","row":{"kind":"workers","title":"2 subagents running","workers":[
            {"id":"t1","name":"Planner","kind":"ace","thread":"t1","asking":["t1","t1-child"],"conversation":null,"tone":"needs-you","line":"Waiting for you to approve its plan"},
            {"id":"b1","name":"Scout","kind":"bot","thread":null,"conversation":"c9","tone":"working","line":"Running"}]}}]
         """
@@ -23,7 +23,7 @@ import Testing
             return
         }
         #expect(model.order == ["s1", "s3"])
-        #expect(workers.title == "Started 2 agents")
+        #expect(workers.title == "2 subagents running")
         #expect(workers.workers.map(\.tone) == ["needs-you", "working"])
         #expect(workers.workers.map(\.thread) == ["t1", nil])
         #expect(workers.workers.map(\.conversation) == [nil, "c9"])

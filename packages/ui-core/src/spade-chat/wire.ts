@@ -5,6 +5,7 @@ import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
 import { spadePanelEvents } from "./panels.ts";
 import { spadeNoticeEvents } from "./notices.ts";
+import { spadeReplyToField } from "./replies.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -115,6 +116,8 @@ const known = z.discriminatedUnion("type", [
     voice: spadeVoiceField,
     /** What Spade fixed with it: the time, and the notes it recalled (`- [n_…] text`). */
     context: z.string().nullish().catch(undefined),
+    /** The message it replies to, as Spade stored it (ADR 0212 §4). */
+    reply_to: spadeReplyToField,
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -158,13 +161,24 @@ const known = z.discriminatedUnion("type", [
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
     /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
-    ask: z.enum(["undeclared", "outside_sandbox", "drive"]).nullish().catch(undefined),
+    ask: z.enum(["undeclared", "outside_sandbox", "drive", "app"]).nullish().catch(undefined),
     /**
      * Which of Spade's judges stopped the call and put it to the person (ADR 0163, amendment 3);
      * missing on older events and other requests, or a word this client doesn't know.
      */
     stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
-    /** A driving step's app or site its "always" allows for the bot, when it may be allowed. */
+    /** What the gate read the call as doing (ADR 0202, amendment 5): a request is headed by it. */
+    effect: z.string().min(1).max(40).nullish().catch(undefined),
+    /**
+     * For a connected app's tool, the definition (a digest of its name, description and input)
+     * the person is shown; an app's Always allow is pinned to it. An undeclared tool's request
+     * from an older Spade carries the tool's identity here instead.
+     */
+    tool_key: z.string().min(1).max(400).nullish().catch(undefined),
+    /**
+     * A driving step's app or site its "always" allows for the bot, when it may be allowed; for a
+     * connected app's write (`ask: app`), the connection whose writes the person may allow always.
+     */
     app: z.string().min(1).max(200).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */
     helper: z
@@ -299,6 +313,15 @@ const known = z.discriminatedUnion("type", [
     name: z.string().catch(""),
     machine_name: z.string().nullish().catch(undefined),
     contract: z.string(),
+  }),
+  /** A contract call made to this bot ended: its output fit, or it never did (ADR 0200 §7). */
+  z.object({
+    type: z.literal("contract_ended"),
+    call: z.string(),
+    status: z.enum(["returned", "failed", "stopped"]).catch("failed"),
+    output: z.unknown().optional(),
+    problems: z.array(z.string()).catch([]).default([]),
+    why: z.string().catch("").default(""),
   }),
   z.object({
     type: z.literal("job_finished"),

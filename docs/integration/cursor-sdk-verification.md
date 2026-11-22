@@ -50,10 +50,9 @@ Additional continuation behavior guards (all need run at merge):
 - Default SDK admission enters accounts ownership with its original home before thread/auth requests; configured SDK launch environment remains separate from ambient credentials.
 - Selected account identity survives registry restart; thread creation pins it before asynchronous dispatch and honors an explicit override.
 - Official SQLite checkpoints and native run identity survive close/reopen; existing SDK JSONL remains readable and conflicting/partial formats preserve their source.
-- A real killed daemon resumes its pinned native/account identity, recovers a journal delta that missed ace's commit, skips a repeated committed delta and preserves identical messages in separate turns.
-- Callback boundary offsets never become durable SDK ObserveRun offsets, including after journal recovery.
+- A real killed daemon resumes its pinned native/account identity and preserves identical messages in separate turns. Since ADR 0043's 2026-11-22 amendment there is no ace journal: a cut-off run's missing tail is read from the SDK's run events after the daemon's last committed `streamSeq` and marked recovered, and a run that finished just before the crash ends with its stored result.
 - Native queued/running records become interrupted after restart without resending input or changing already completed outcomes.
-- Torn journals, torn legacy native records and cursors beyond their journal refuse recovery without truncating evidence; metadata without native conversation state requires explicit handoff.
+- Torn legacy native records refuse recovery without truncating evidence; metadata without native conversation state requires explicit handoff. An old `ace-boundary.ndjson`, torn or not, is ignored.
 - Oversized native checkpoint writes visibly fence further writes while retaining the previous checkpoint.
 - Late failed tools settle their original call and surviving-work marker without splitting replacement text or ending the logical steering run; authoritative success clears execution uncertainty.
 - An old segment's callback/checkpoint overflow fences the shared host instead of letting replacement execution continue.
@@ -61,10 +60,9 @@ Additional continuation behavior guards (all need run at merge):
 Review-round behavior guards, all need run at merge:
 
 - Foreground child success closes child text and preserves an unresolved nested shell before core end-turn cleanup; the tree remains waiting.
-- Aggregate checkpoint admission rejects a one-MiB write into a 7.9-MiB store without changing the previous checkpoint bytes.
-- Concurrent reservations admit only the write that fits, and a rejected SQLite replacement preserves the checkpoint through close/reopen.
+- The checkpoint size is checked at open and turn end from `index.db` and the agent's `store.db` (with `-wal`); over the budget hands off to a fresh session (ADR 0211). Per-write quota reservations were removed on 2026-11-22.
 - CLI creation of a fresh SDK account receives the daemon browser challenge, polls completion and keeps the registered home, without persisting the challenge.
-- Recovery reads its committed ObserveRun cursor and emits only the later native event, even when subsequent Send callbacks have larger boundary offsets.
+- Opening a long thread reads only the runs its open turn left unfinished, never the run history.
 - Live shell output is visible before completion; final stdout overlap is not appended twice, and nonzero exit stays failed.
 - The public SDK host admits a megabyte tool result through bounded frames; the engine stores complete output and raw provenance in SQLite chunks and rejects cross-thread chunk access.
 - Large text deltas retain complete content through ordered chunks; raw redaction excludes cross-chunk sentinel secrets and numeric secret fields while preserving usage counters and refusing getters.
@@ -77,8 +75,7 @@ Verifier-round behavior guards, all **not executed (tests run at merge)**:
 - Surviving child chunks from an older steering segment remain attributed while the replacement root stays active; deeper data remains raw evidence with a visibility notice.
 - Text-only child completion closes its message before the root result, independently of shell/tool boundaries.
 - Public session send waits across two independent host round trips with the engine commit blocked; only a durable ACK releases send.
-- Concurrent journal callbacks reach one blocked durability barrier together; neither resolves early, backlog is refused, and shutdown drains/recovery retains both ordered offsets.
-- Oversized journal groups refuse before any write, fence later admission and preserve the previous recoverable bytes.
+- A burst of text deltas reaches the daemon as a few batched frames, with tool starts and first thoughts not delayed.
 - The SDK recorder rejects absent approval, unverified Auto-review and missing MCP setup before capture/provider admission.
 - Approved synthetic recorder workflows retain selected HOME/policy/model, redact catalog sentinel keys, resume the same checkpoint and fork a fresh identity while preserving source observations.
 - Root result alone cannot complete a recording with unresolved background work; auth challenges/channels are excluded, repeated close is safe, and an already-finished root cannot spend another steering turn automatically.
@@ -133,9 +130,9 @@ Merge integration guards, all need run at merge:
 29. Delete credentials before the login worker exits: ordered sign-out outcomes assertion.
 30. Remove login expiration: cancelled/not-found state and challenge exclusion assertions.
 31. Resolve the account at async dispatch instead of command acceptance: selected/explicit account edge assertions.
-32. Replay a committed journal delta again: killed-daemon transcript assertion.
-33. Skip the journal delta missing from ace's commit: recovered complete text assertion.
-34. Feed callback positions into SDK ObserveRun: native offset independence assertion.
+32. Recover a cut-off run's tail from before the daemon's last committed `streamSeq`: no repeated text assertion.
+33. Drop the recovered tail or its recovered label: recovered text and label assertions.
+34. Re-read every past run on open: run-history read count assertion.
 35. Mark finished native runs interrupted: completed native outcome assertion.
 36. Reuse a partial/conflicting native store as a fresh SQLite checkpoint: source-preservation refusal assertions.
 37. Admit an oversized native checkpoint blob: prior checkpoint preservation and visible fence assertions.
@@ -189,8 +186,8 @@ Merge integration guards, all need run at merge:
 73. Fence surviving old-segment child chunks: complete child text with the replacement root still active.
 74. Remove child-terminal transcript closure: text-only message becomes complete before the root result.
 75. Restore per-callback fsync for concurrent admission: both real file rows must reach the first blocked durability barrier.
-76. Resolve a journal group before fsync: no callback may release across the independent file-I/O round trip.
-77. Check group quota after writing: prior journal bytes and recovery remain unchanged.
+76. Delay a tool start or a first thought behind the delta batch window: immediate-flush assertion.
+77. Fence on an old `ace-boundary.ndjson`: the thread opens and sends.
 78. Drop accepted callbacks during close: both commits and reopened offsets must survive shutdown drain.
 79. Skip host/session storage ACK waiting: the second independent host probe must still report no ACK while the engine commit is blocked.
 80. Bypass recorder approval: public API must return the authorization schema error and create no capture.
@@ -216,9 +213,7 @@ These are designed mutation cases, not evidence that executed mutations were kil
 
 `packages/adapter-cursor/bench/translate.ts` measures admitted delta translation
 without accumulated transcript scans; `bench/ipc.ts` covers payload admission and
-shared writer backpressure. `bench/checkpoints.ts` measures callback journal
-sequential/group-commit fsync/replay with a retained handle and the production `boundedCheckpointStore`
-decorator, sharing its quota with the journal. `bench/body-stream.ts` measures
+shared writer backpressure. `bench/frames.ts` measures the per-delta host cost with batching. `bench/body-stream.ts` measures
 redacted raw JSON, output and one-level child text/thinking preparation. `bench/children.ts` exercises
 owner-indexed child terminal preservation; `apps/daemon/bench/cursor-raw.ts`
 measures the shared SQLite append/read path. `tools/recorder/bench/cursor-sdk.ts`
@@ -273,10 +268,10 @@ rate-limit scenario is proposed.
   documentation artifacts; verification beyond the permitted static checks stays
   deferred to merge.
 - New SDK threads use the public transactional SQLite store. Existing SDK JSONL
-  stores keep their format. Redacted callback journals commit before IPC and ace
-  commits its cursor atomically with canonical facts. Pure translation hydration
-  and journal replay own canonical content; native durable observations and
-  positional snapshots remain bounded evidence, never text-equality guesses.
+  stores keep their format. The daemon's committed frames are ace's only record
+  (ADR 0043, amendment of 2026-11-22); a crash's missing tail comes from the SDK's
+  own run events, labelled recovered. Positional snapshots remain bounded
+  evidence, never text-equality guesses.
 - Native active runs reconcile before continuation, and ace marks crash-live runs
   failed/interrupted with actionable uncertain-delivery notices. Input is retained
   without automatic resend. Native store cancellation cannot prove that provider

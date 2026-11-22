@@ -12,25 +12,20 @@ const barLabels = {
 
 /**
  * A list page (Pull requests, Issues, Inbox) laid out the way GitHub lays out its own: a bar
- * with the project menu, the search line and the page's one action; then one bordered,
- * rounded box whose header row holds the state toggles and filter menus, with the rows inside
- * it. The inbox puts its filter column to the left of the box. The page keeps to the same
- * centred column as a pull request's page, so every Code review page lines up.
+ * with the project menu, the search line and the page's one action; then the filter row and the
+ * rows beneath it, flat on the page's gutter with a hairline between them. The page keeps to the
+ * same centred column as a pull request's page, so every Code review page lines up.
  */
 export function ListFrame(props: {
   kind: "inbox" | "pulls" | "issues";
-  /** The bar over the box: project menu, search line, actions. */
+  /** The bar over the rows: project menu, search line, actions. */
   bar: ReactNode;
   /** Status lines under the bar (the merge strip, a partial answer). */
   strip?: ReactNode;
-  /** The inbox's filter column, left of the box on a wide page. */
-  side?: ReactNode;
-  /** The box's header row: state toggles on the left, menus on the right. */
+  /** The filter row: state toggles on the left, menus on the right. */
   header: ReactNode;
-  /** Under the box: Load more. */
+  /** Under the rows: Load more. */
   after?: ReactNode;
-  /** A line pinned at the foot of the page (the inbox's keys). */
-  footer?: ReactNode;
   /** The list's address (filters, sort, search): where it was scrolled is kept per address. */
   address: string;
   /** Its rows are on screen, so a kept position can be restored. */
@@ -58,38 +53,17 @@ export function ListFrame(props: {
           {props.bar}
         </div>
         {props.strip}
-        <div className="flex min-w-0 items-start gap-6 pt-4">
-          {props.side && (
-            <aside
-              {...part("page-section", undefined, "filters")}
-              aria-label="Notification filters"
-              className="sticky top-4 hidden w-52 shrink-0 @min-[52rem]/page:block"
-            >
-              {props.side}
-            </aside>
-          )}
-          <div className="min-w-0 flex-1">
-            <section {...part("card")} className="rounded-lg border border-border">
-              <div
-                {...part("filter-bar")}
-                className="sticky top-0 z-[2] flex min-h-12 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-t-lg border-b border-border bg-muted px-2 py-1.5"
-              >
-                {props.header}
-              </div>
-              {props.children}
-            </section>
-            {props.after}
+        <div className="min-w-0 pt-4">
+          <div
+            {...part("filter-bar")}
+            className="sticky top-0 z-[2] flex min-h-12 min-w-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border bg-background px-2 py-1.5"
+          >
+            {props.header}
           </div>
+          {props.children}
+          {props.after}
         </div>
       </div>
-      {props.footer && (
-        <div
-          {...part("page-section", undefined, "footer")}
-          className="sticky bottom-0 z-[2] border-t border-border bg-background"
-        >
-          <div className={cn(pageColumn, "px-(--forge-gutter)")}>{props.footer}</div>
-        </div>
-      )}
     </div>
   );
 }

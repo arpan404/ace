@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
+import { inboxReasonWords } from "./inbox-model.ts";
 import { InboxTypeIcon } from "./marks.tsx";
 import { Ago, onModifiedClick, RowShell } from "./row-parts.tsx";
 
@@ -22,9 +23,6 @@ export interface InboxRowTarget {
 /** The notification's subject as a Suit variant: `pull-request`, `issue`, `check-suite`. */
 const subjectVariant = (type: string) =>
   type.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase() || undefined;
-
-/** GitHub's reason as it says it in the list: "review requested", "ci activity". */
-const reasonWords = (reason: string) => reason.replace(/[_-]+/g, " ").toLowerCase();
 
 /**
  * One notification, as GitHub lists it: its box, the unread dot, the subject's mark; then
@@ -131,7 +129,7 @@ export function InboxRow(props: {
           </Link>
         )}
         <span className="hidden shrink-0 text-xs text-muted-foreground @min-[34rem]/list:inline">
-          {reasonWords(row.reason)}
+          {inboxReasonWords(row.reason)}
         </span>
         <span className="flex w-24 shrink-0 items-center justify-end text-xs text-muted-foreground">
           <span className="tabular-nums group-focus-within/row:hidden group-hover/row:hidden">

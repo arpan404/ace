@@ -7,20 +7,26 @@ test("source control explains a chosen account mismatch and lets the person reco
   const app = harness({ throughWorker: true });
   await app.open("/settings/source-control");
   expect(await screen.findByText("Signed in as ada")).toBeTruthy();
-  // Nothing to save until a preference changes.
-  expect(screen.getByRole("button", { name: "Save preferences" })).toHaveProperty("disabled", true);
-  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
-  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo{Enter}");
   expect(await screen.findByText(/gh auth switch --hostname github.com --user octo/)).toBeTruthy();
   expect(screen.getByText("Signed in as ada, expected octo")).toBeTruthy();
   await userEvent.clear(screen.getByRole("textbox", { name: "Expected account" }));
-  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "ada");
-  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "ada{Enter}");
   expect(await screen.findByText("Signed in as ada")).toBeTruthy();
   expect(screen.queryByText(/gh auth switch/)).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Rescan" }));
   expect(await screen.findByText("Signed in as ada")).toBeTruthy();
   expect(screen.getByText(/API sign-in does not verify Git clone/)).toBeTruthy();
+});
+
+test("source control applies a field when it loses focus, with no Save button", async () => {
+  const app = harness({ throughWorker: true });
+  await app.open("/settings/source-control");
+  await screen.findByText("Signed in as ada");
+  expect(screen.queryByRole("button", { name: /^Save/ })).toBeNull();
+  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
+  await userEvent.click(screen.getByRole("heading", { name: "Preferences" }));
+  expect(await screen.findByText(/gh auth switch --hostname github.com --user octo/)).toBeTruthy();
 });
 
 test("source control follows the machine picked in Settings, and reconnecting replaces its saved preferences", async () => {
@@ -160,8 +166,7 @@ test("a second GitHub host is managed on its own", async () => {
     "value",
     "ghe.example.com",
   );
-  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
-  await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+  await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo{Enter}");
   await screen.findByText("ghe.example.com · octo");
   // github.com is untouched and still the host whose status is shown.
   expect(screen.getByText("Signed in as ada")).toBeTruthy();
@@ -233,10 +238,9 @@ async function addHost(name: string) {
   await userEvent.click(await screen.findByRole("menuitem", { name }));
 }
 
-/** The Preferences form's own Save host button, not the Git hosts menu's Add host. */
+/** Applies the Preferences draft: leaving a field saves it, as Enter does. */
 function submitHost() {
-  const form = screen.getByRole("region", { name: "Preferences" });
-  return userEvent.click(within(form).getByRole("button", { name: "Save host" }));
+  return userEvent.keyboard("{Enter}");
 }
 
 /** Rows the page scrolled to; jsdom has no scrolling of its own. */

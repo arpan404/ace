@@ -1076,6 +1076,9 @@
         },
         {
           "properties": {
+            "commit": {
+              "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+            },
             "expected": {
               "maxLength": 128,
               "minLength": 1,
@@ -1096,6 +1099,13 @@
             "path": {
               "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
             },
+            "stage": {
+              "enum": [
+                "staged",
+                "unstaged"
+              ],
+              "type": "string"
+            },
             "threadId": {
               "$ref": "https://ace.local/protocol/v1/ThreadId.json"
             }
@@ -1103,6 +1113,26 @@
           "required": [
             "op",
             "threadId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "git.log",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "path"
           ],
           "type": "object"
         },

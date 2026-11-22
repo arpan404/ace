@@ -9,6 +9,7 @@ import { discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorTranslator } from "./translator.ts";
 import type { readCursorSnapshot } from "./history.ts";
 import { CursorHostSlots } from "./slots.ts";
+import { markStoreUnusable } from "./store-fence.ts";
 import { Limits, type CursorLimits } from "./contracts.ts";
 import { addShippedSkills, mirrorCursorUserConfig } from "./user-settings.ts";
 import { linkUserKeychains, userToolEnv, writeGitIncludes } from "./user-tools.ts";
@@ -156,9 +157,13 @@ export function createCursorAdapter(
               threadId: context.threadId,
               agentId: context.resume.nativeSessionId,
               cwd: context.cwd,
+              ...(context.storeGeneration ? { checkpointGeneration: context.storeGeneration } : {}),
             },
             context.signal,
-          );
+          ).catch((error: unknown) => {
+            // A saved session that can never open again is the engine's to replace (ADR 0211).
+            throw markStoreUnusable(error);
+          });
         }
         const { openCursorSession } = await import("./session.ts");
         const opened = await openCursorSession(
@@ -184,7 +189,9 @@ export function createCursorAdapter(
             ...(lease ? { mcp: lease.connection } : {}),
             ...(lease?.instructions ? { instructions: lease.instructions } : {}),
           },
-        );
+        ).catch((error: unknown) => {
+          throw markStoreUnusable(error);
+        });
         session = {
           ...opened,
           close: async (reason) => {

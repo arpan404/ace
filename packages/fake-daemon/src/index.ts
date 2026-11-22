@@ -160,6 +160,7 @@ export {
   withLongAutomations,
 } from "./scenarios/long-lists.ts";
 export { FakeSpadeApi } from "./spade-api.ts";
+export { fakeAskApp, type FakeAppAsk } from "./spade-app-asks.ts";
 export type { FakeSpadeAccess, FakeSpadeOrgBinding } from "./spade-org.ts";
 export { FakeSpadeWork, type FakeSpadeTask } from "./spade-work.ts";
 /** A file's revision as the fake Spade reads and checks it (cowork saves send it as `base`). */
@@ -177,3 +178,4 @@ export type { FakeSpadeGroup, FakeSpadeGroupMember } from "./spade-teams.ts";
 export type { FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 export { queuedDelegation, queuedDelegationIds } from "./scenarios/queued-delegation.ts";
 export { FakeMediaConnections, fakeMediaInstance, fakeMediaScheme } from "./media-connections.ts";
+export type { FakeSourceControlSeed } from "./source-control-wire.ts";

@@ -394,6 +394,7 @@ impl Engine {
             helper: None,
             launch: Some(Authorized::Contained),
             stopped: None,
+            effect: None,
         });
         match self.record_unless_stopped(at.conversation, at.reply, &asked) {
             Ok(true) => {}

@@ -108,6 +108,11 @@ const copy: Record<string, string> = {
   git_protected_branch: "The remote protects that branch: push to a new branch and open a PR.",
   git_pr_head_unavailable:
     "The pull request's branch can't be pushed from here: add a remote for its repository, or its fork was deleted.",
+  git_no_upstream: "This repository has no remote to fetch from.",
+  git_path_outside_repo: "That path is outside the repository and can't be changed.",
+  git_staged_meanwhile: "Something was staged meanwhile. Review and commit again.",
+  git_private_path_staged:
+    "ace's own Recently deleted files are staged. Unstage them, then commit.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
   // host refuses gets its own code so the fix names what changed.
   forge_cli:

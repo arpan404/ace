@@ -30,7 +30,7 @@ import { userTransportConfig } from "./transport-config.ts";
 import { hooksInsideCheckout } from "./reviewer-hooks.ts";
 import { hooksInsideWindowsCheckout } from "./reviewer-hooks-identity.ts";
 import { Readable, type Writable } from "node:stream";
-import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
+import { drainProcessExit, groupGone, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
@@ -66,6 +66,20 @@ interface CallOptions {
   consume?: (chunk: Buffer) => void;
   /** This call's deadline, instead of the service's `timeoutMs`. */
   timeoutMs?: number;
+  /**
+   * A read-only call whose output past `captureBytes` is not wanted: once the capture is full
+   * Git's process tree is stopped and the call resolves with what was captured (`truncated`),
+   * after its process group is gone (bounded), so a limit on concurrent reads holds until then.
+   * POSIX: the whole group is killed, even after Git itself exited; a descendant that left the
+   * group (setsid) is not reached. Windows: the call's job ends the tree when Git was adopted
+   * into one, else `taskkill /T` does, which cannot reach a descendant that already escaped.
+   */
+  stopAtCapture?: boolean;
+  /**
+   * A read-only call's work budget: after this long Git's process tree is stopped and the call
+   * resolves with what was captured so far (`truncated`), instead of failing.
+   */
+  stopAfterMs?: number;
 }
 
 export interface Output {
@@ -73,11 +87,15 @@ export interface Output {
   stderr: string;
   exitCode: number;
   truncated: boolean;
+  /** Why ace stopped Git (`stopAtCapture`, `stopAfterMs`); absent when Git ended by itself. */
+  stopped?: "capture" | "budget";
 }
 
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
+  /** Calls made inside `bounded()`: each settles only once its process group is gone. */
+  private readonly boundedReads = new AsyncLocalStorage<true>();
   private readonly executionPolicy = new AsyncLocalStorage<
     "non-executing" | { protocols: readonly string[] }
   >();
@@ -233,6 +251,16 @@ export class GitCli {
         }),
       this.leaseProbe,
     );
+  }
+
+  /**
+   * Runs `work` as one bounded read: every Git process it starts, a preflight included, settles
+   * (resolves, fails or is cancelled) only once its process group is gone, so a limit on
+   * concurrent reads keeps counting it until then. POSIX only: on Windows there is no group to
+   * watch and settling is immediate (the job or `taskkill /T` ends the tree).
+   */
+  bounded<T>(work: () => Promise<T>): Promise<T> {
+    return this.boundedReads.run(true, work);
   }
 
   protectWorktree(path: string): void {
@@ -745,6 +773,21 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
+      // A bounded read (`stopAtCapture`, `stopAfterMs`, `bounded()`) settles only once its
+      // group is gone.
+      const bounded =
+        options.stopAtCapture === true ||
+        options.stopAfterMs !== undefined ||
+        this.boundedReads.getStore() === true;
+      // The caller has all it asked for (`stopAtCapture`, `stopAfterMs`): stop Git, keep output.
+      let enough: "capture" | "budget" | undefined;
+      const enoughOutput = (reason: "capture" | "budget"): Output => ({
+        stdout: Buffer.concat(chunks),
+        stderr: Buffer.concat(errors).toString("utf8"),
+        exitCode: 0,
+        truncated: true,
+        stopped: reason,
+      });
       // Windows: the call's job holds Git and everything it started. Once it is empty the
       // receipt is confirmed, and its leases retire as a POSIX call's do once its group is gone.
       const killContained = (call: GitJob, leader: number) => {
@@ -777,7 +820,15 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        reject(failure);
+        if (enough && !failure) {
+          // Held until the group is gone, so whoever limits these reads counts it until then.
+          const output = enoughOutput(enough);
+          void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else if (bounded) {
+          // A bounded read that was cancelled or failed holds its place the same way.
+          const ended = failure;
+          void groupGone(this.runtime, pid).then(() => reject(ended));
+        } else reject(failure);
       };
       const kill = () => {
         if (stopped) return;
@@ -833,7 +884,15 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        reject(failure);
+        if (enough && !failure) {
+          // Held until the group is gone, so whoever limits these reads counts it until then.
+          const output = enoughOutput(enough);
+          void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else if (bounded) {
+          // A bounded read that was cancelled or failed holds its place the same way.
+          const ended = failure;
+          void groupGone(this.runtime, pid).then(() => reject(ended));
+        } else reject(failure);
       };
       const cancel = () => {
         failure ??= new GitError("git_closed", "Git service closed");
@@ -850,6 +909,14 @@ export class GitCli {
         failure = toGitError(error);
         kill();
       };
+      const cancelBudget =
+        options.stopAfterMs === undefined
+          ? undefined
+          : this.runtime.scheduleTimeout(() => {
+              if (failure || settled) return;
+              enough = "budget";
+              kill();
+            }, options.stopAfterMs);
       const deadline = options.timeoutMs ?? this.timeoutMs;
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
         fail(new GitError("git_timeout", `Git exceeded ${deadline}ms`, { args }));
@@ -878,9 +945,14 @@ export class GitCli {
         captured += Math.min(remaining, chunk.length);
         if (chunk.length > remaining) {
           truncated = true;
-          if (options.captureBytes === undefined) {
+          if (options.captureBytes === undefined)
             fail(new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args }));
-          }
+        }
+        // At the cap itself: nothing past it is wanted, and Git may go quiet rather than end.
+        if (options.stopAtCapture && captured >= limit && !failure && !enough) {
+          truncated = true;
+          enough = "capture";
+          kill();
         }
       };
       const stderrData = (chunk: Buffer) => {
@@ -908,6 +980,7 @@ export class GitCli {
       child.on("error", spawnError);
       const detach = () => {
         cancelDeadline();
+        cancelBudget?.();
         this.cancellations.delete(cancel);
         options.signal?.removeEventListener("abort", abort);
         if (options.input instanceof Readable) {
@@ -935,6 +1008,17 @@ export class GitCli {
             new GitError("git_failed", "Git terminated by signal", { signal, stderr: tail.text() }),
           );
           return;
+        }
+        // A bounded read that ended by itself may still have left a helper in its group: it is
+        // ended, and the read settles once the group is gone, as a stopped read does.
+        if (bounded && pid && this.runtime.platform !== "win32") {
+          try {
+            if (this.runtime.groupAlive(pid)) this.runtime.signalGroup(pid, "SIGKILL");
+          } catch {
+            // Gone already.
+          }
+          await groupGone(this.runtime, pid);
+          if (settled) return;
         }
         detach();
         settled = true;

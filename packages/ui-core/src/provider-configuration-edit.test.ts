@@ -83,8 +83,8 @@ describe("provider preferences", () => {
     expect(cleared.change({ provider: "codex", binaryPath: "/x" })).toEqual({ provider: "codex" });
   });
 
-  it("takes a checkpoint budget from 1 to 256 whole megabytes only", () => {
-    for (const typed of ["0", "257", "1.5", "lots"])
+  it("takes a checkpoint budget from 1 to 65536 whole megabytes only", () => {
+    for (const typed of ["0", "65537", "1.5", "lots"])
       expect(checkpointChange(typed)).toMatchObject({ ok: false });
     const set = checkpointChange("128");
     if (!set.ok) throw new Error("expected a valid change");

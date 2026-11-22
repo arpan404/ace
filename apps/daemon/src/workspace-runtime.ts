@@ -65,6 +65,7 @@ import { listClientRuns } from "./run-client-storage.ts";
 import { AsyncCommands } from "./async-commands.ts";
 import type { Store } from "./store.ts";
 import { systemCredentials } from "./credential-runtime.ts";
+import { isSourceControlCommand, runSourceControlCommand } from "./workspace-source-control.ts";
 
 export interface WorkspaceRuntimeOptions {
   /** Why the thread opens no terminal now: it is moving to another machine (ADR 0191). */
@@ -394,6 +395,15 @@ export class WorkspaceRuntime {
   onTerminalOpened(listener: (threadId: ThreadId, terminalId: string) => void): () => void {
     this.opened.add(listener);
     return () => this.opened.delete(listener);
+  }
+  /**
+   * Name ace's private entries (uploads, Recently deleted) in every known project's local Git
+   * exclude, one project at a time, so a Files delete never leaves one a terminal could stage.
+   * Run once after startup, off the open path; a folder that isn't a repository is skipped.
+   */
+  async excludePrivateEntries(): Promise<void> {
+    for (const root of this.store.workspaceReservations.knownRoots())
+      await this.git.excludeAcePrivate(root).catch(() => {});
   }
   /** Threads with an open terminal, where a person may commit outside any agent turn. */
   terminalThreads(): ThreadId[] {
@@ -808,31 +818,64 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
+      const from =
+        op.stage === "unstaged"
+          ? ({ kind: "index" } as const)
+          : ({ kind: "commit", ref: "HEAD" } as const);
+      const to =
+        op.stage === "staged" ? ({ kind: "index" } as const) : ({ kind: "working-tree" } as const);
       if (op.path === undefined) {
+        if (op.commit !== undefined)
+          throw new GitError("invalid_argument", "Commit diff requires a path");
         const diff = await this.git.diff({
           worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
+          from,
+          to,
           maxPatchBytes: 262144,
         });
         if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
         return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
       }
       const paths = [op.path, ...(op.from ? [op.from] : [])];
-      const key = JSON.stringify([op.threadId, root, paths]);
-      const file = await this.filePatches.read(key, op.expected, async () => {
-        const diff = await this.git.diff({
-          worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
-          maxPatchBytes: filePatchBytes,
-          paths,
-        });
-        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-        return { patch: diff.patch, truncated: diff.truncated };
-      });
+      const key = JSON.stringify([op.threadId, root, op.commit ?? null, op.stage ?? "all", paths]);
+      // Each page waits on its own signal; git stops once no page still wants its answer.
+      const file = await this.filePatches.read(
+        key,
+        op.expected,
+        async (stop) => {
+          const diff =
+            op.commit !== undefined
+              ? await this.git.diffCommit({
+                  worktree: root,
+                  commit: op.commit,
+                  paths,
+                  maxPatchBytes: filePatchBytes,
+                  signal: stop,
+                })
+              : await this.git.diff({
+                  worktree: root,
+                  from,
+                  to,
+                  maxPatchBytes: filePatchBytes,
+                  paths,
+                });
+          if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+          return { patch: diff.patch, truncated: diff.truncated };
+        },
+        signal,
+      );
       const page = diffPage(file.patch, file.truncated, op.offset ?? 0);
       return wrap({ kind: "gitDiff", ...page, validator: file.validator });
+    }
+    if (op.op === "git.log") {
+      const root = this.root(op.threadId);
+      const log = await this.git.fileLog({
+        worktree: root,
+        path: op.path,
+        signal,
+      });
+      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+      return wrap({ kind: "gitLog", ...log });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);
@@ -842,11 +885,24 @@ export class WorkspaceRuntime {
         : undefined;
       // Awaited below; a failed file read must not leave it unhandled.
       void reviewer?.catch(() => {});
-      const { files, truncated } = await this.git.changedFiles(root, gitStatusLimit);
-      // A commit made after this read must not reuse an older HEAD as its expected one.
-      const head = await this.git.resolveCommit({ worktree: root, ref: "HEAD" }).catch(() => null);
+      const state = await this.git.sourceControlStatus(root, gitStatusLimit);
       const hooks = reviewer ? await reviewer : "run";
-      return wrap({ kind: "gitStatus", truncated, files, head, hooks });
+      return wrap({
+        kind: "gitStatus",
+        truncated: state.truncated,
+        files: state.files,
+        head: state.head,
+        hooks,
+        staged: state.staged,
+        unstaged: state.unstaged,
+        untracked: state.untracked,
+        conflicted: state.conflicted,
+        branch: state.branch,
+        detached: state.detached,
+        upstream: state.upstream,
+        ahead: state.ahead,
+        behind: state.behind,
+      });
     }
     return wrap({
       kind: "pr",
@@ -982,19 +1038,33 @@ export class WorkspaceRuntime {
           p.pr,
           p.step,
         );
-      if (p.type === "git.commit")
-        return {
-          ok: true,
-          commit: await asPerson(() =>
-            this.git.commit({
-              worktree: cwd,
-              message: p.message,
-              expectedHead: p.expectedHead,
-              paths: p.paths,
-              draftFingerprint: p.draftFingerprint,
-            }),
-          ),
-        };
+      if (p.type === "git.commit") {
+        const commit = await asPerson(() =>
+          this.git.commit({
+            worktree: cwd,
+            message: p.message,
+            expectedHead: p.expectedHead,
+            paths: p.paths,
+            stagedOnly: p.stagedOnly,
+            stageListed: p.stageListed,
+            draftFingerprint: p.draftFingerprint,
+          }),
+        );
+        await this.details(threadId).catch(() => {});
+        return { ok: true, commit };
+      }
+      if (isSourceControlCommand(p)) {
+        return runSourceControlCommand(
+          {
+            git: this.git,
+            cwd,
+            refreshDetails: async () => {
+              await this.details(threadId);
+            },
+          },
+          p,
+        );
+      }
       if (p.type === "git.push") {
         try {
           // Only the push itself is the person's; reading the checkout stays ace's own.
@@ -1011,6 +1081,7 @@ export class WorkspaceRuntime {
           if (!remoteHead) throw error;
           return { ok: false, error: actionErrorCode(error), remoteHead };
         }
+        await this.details(threadId).catch(() => {});
         return { ok: true };
       }
       if (p.type === "workspace.editor.open") {

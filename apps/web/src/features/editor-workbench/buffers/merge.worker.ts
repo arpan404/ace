@@ -9,7 +9,7 @@ const ready = init({ module: glue });
 serveOffThread(
   (input) => MergeJob.parse(input),
   async (job) => {
-    await ready;
+    if (job.op !== "outline") await ready;
     return runMergeJob(job);
   },
 );

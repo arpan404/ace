@@ -125,7 +125,8 @@ export function historyPage(
 
 /** UTF-16 units of a text the daemon previews in a tail (`text-preview.ts`). */
 const stepPreviewUnits = 4096;
-const utf8 = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+const encoder = new TextEncoder();
+const utf8 = (value: unknown) => encoder.encode(JSON.stringify(value)).length;
 
 /**
  * A subscribe's `tail`, as the daemon cuts it (`item-store.ts` `tail`): the newest items of the

@@ -17,6 +17,7 @@ import type { Sessions } from "./sessions.ts";
 import { validateCitations } from "./transition-history.ts";
 import { lateForkHistoryFacts } from "./fork-history.ts";
 import { abandonReturn, planCrossProvider, type CrossProviderPlan } from "./provider-return.ts";
+import { startFreshSession } from "./store-handoff.ts";
 import { routeAccountChange } from "./account-route.ts";
 import { admitTransitionMetadata } from "./transition-state.ts";
 import { acpAgentRequired, switchNeedsNewThread } from "./failure-copy.ts";
@@ -492,6 +493,10 @@ export class ThreadTransitions {
   abandonReturn(id: ThreadId, error: unknown): boolean {
     return abandonReturn(this.repo, id, error, this.now());
   }
+  /** The saved session can never open again: true when the thread now opens fresh instead. */
+  startFreshSession(id: ThreadId, error: unknown, pendingCommandId?: string): boolean {
+    return startFreshSession(this.repo, id, error, this.now(), pendingCommandId);
+  }
   async freezeForkSource(source: ThreadId, fork: ThreadId): Promise<void> {
     const metadata = this.repo.transitions.get(fork);
     if (metadata.fork?.point.type !== "end") return;
@@ -500,11 +505,6 @@ export class ThreadTransitions {
     await this.closeThread(source);
   }
   delivered(id: ThreadId): void {
-    const metadata = this.repo.transitions.get(id);
-    delete metadata.handoff;
-    delete metadata.marker;
-    delete metadata.fallback;
-    metadata.context = [];
-    this.repo.transitions.set(id, metadata);
+    this.repo.transitions.delivered(id);
   }
 }

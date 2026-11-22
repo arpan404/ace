@@ -4,6 +4,8 @@ import { z } from "zod";
 import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
+import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
+import { validateRepoPaths } from "./source-control-ops.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -35,6 +37,13 @@ export async function commitChanges(
     expectedHead: string | null;
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
+    /** Commit the index as it is: what the person staged, nothing more. */
+    stagedOnly?: boolean | undefined;
+    /**
+     * Stage all and commit: with nothing staged now (else `staged_meanwhile`), stage exactly
+     * these listed paths, then commit the index.
+     */
+    stageListed?: readonly string[] | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -46,36 +55,73 @@ export async function commitChanges(
   // ace's own reads keep the checkout's protections; `add` and `commit` are the person's.
   const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
   const root = await read(() => repository.root(options.worktree));
+  const listed = options.stageListed ? validateRepoPaths(root, options.stageListed) : undefined;
   return repository.serial(root, async () => {
     const info = await read(() => repository.info(root));
     if (info.head !== expected)
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
+    const status = await read(() => repository.status(root));
     if (options.draftFingerprint) {
+      // A staged-only commit's draft was written for the staged files.
+      const drafted =
+        paths?.data ??
+        listed ??
+        (options.stagedOnly ? status.staged.map((entry) => entry.path) : undefined);
       if (
-        !paths ||
-        (await read(() => writingContext(repository, root, { kind: "commit", paths: paths.data })))
+        !drafted?.length ||
+        (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
           .fingerprint !== options.draftFingerprint
       )
         throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
     }
-    const status = await read(() => repository.status(root));
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
+    if (status.staged.some((entry) => isAcePrivate(entry.path)))
+      throw new GitError("private_path_staged", failureMessage("private_path_staged"));
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
-    const named = paths ? [...new Set(paths.data)] : ["."];
-    // Stage what the working tree changed among them; a path already staged (a rename's old
-    // name, a staged deletion) is in no worktree and `git add` would refuse it.
-    const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
-    const staging = paths ? named.filter((path) => changed.has(path)) : named;
-    if (staging.length)
-      await repository.cli.call(root, ["add", "--all", "--", ...staging], {
-        write: true,
-        beforeSpawn: options.beforeCommit,
-        timeoutMs: longWriteTimeoutMs,
-        captureBytes: 65536,
-        env: literal,
-      });
+    if (listed) {
+      // The view listed these with nothing staged. Anything staged since (an agent's partial
+      // hunk) would be replaced by `git add`: refuse, and let the person look again.
+      if (status.staged.length > 0)
+        throw new GitError("staged_meanwhile", failureMessage("staged_meanwhile"));
+      await excludeAcePrivate(repository, root);
+      await repository.cli.call(
+        root,
+        ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        {
+          write: true,
+          beforeSpawn: options.beforeCommit,
+          timeoutMs: longWriteTimeoutMs,
+          captureBytes: 65536,
+          input: `${personPathspecs(listed).join("\0")}\0`,
+        },
+      );
+    } else if (options.stagedOnly && !paths) {
+      if (status.staged.length === 0)
+        throw new GitError("nothing_to_commit", "There is nothing staged to commit");
+    } else {
+      const named = paths ? [...new Set(paths.data)] : ["."];
+      // Stage what the working tree changed among them; a path already staged (a rename's old
+      // name, a staged deletion) is in no worktree and `git add` would refuse it.
+      const changed = new Set([...status.unstaged.map((entry) => entry.path), ...status.untracked]);
+      const staging = paths ? named.filter((path) => changed.has(path)) : named;
+      // Commit-all stages `.`: ace's own `.ace-upload-*` entries (Recently deleted) stay out.
+      await excludeAcePrivate(repository, root);
+      if (staging.length)
+        await repository.cli.call(
+          root,
+          ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+          {
+            write: true,
+            beforeSpawn: options.beforeCommit,
+            timeoutMs: longWriteTimeoutMs,
+            captureBytes: 65536,
+            input: `${personPathspecs(staging).join("\0")}\0`,
+          },
+        );
+    }
+    const named = paths ? [...new Set(paths.data)] : [];
     await repository.cli.call(
       root,
       ["commit", "--file=-", ...(paths ? ["--only", "--", ...named] : [])],

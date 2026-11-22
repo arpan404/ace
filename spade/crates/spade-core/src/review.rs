@@ -230,6 +230,7 @@ mod tests {
             from_routine: None,
             from_group: None,
             from_thread: None,
+            reply_to: None,
         });
         let events = vec![
             Event::user_message("one"),

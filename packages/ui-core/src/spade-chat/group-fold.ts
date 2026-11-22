@@ -2,6 +2,15 @@ import { z } from "zod";
 import type { SpadeFoldInput } from "./fold.ts";
 import { spadeGroupBotShape, type SpadeGroupBot } from "./groups.ts";
 import type { SpadeStored } from "./wire.ts";
+import { spadeChatSegments, spadeMessageId } from "./chat-markup.ts";
+import { spadeDocCard, spadeLongWords, type SpadeDocCard } from "./documents-in-chat.ts";
+import {
+  spadeQuoteOf,
+  spadeReplyToField,
+  spadeSaid,
+  type SpadeQuote,
+  type SpadeReplyTo,
+} from "./replies.ts";
 
 /*
  * A group's conversation as the person sees it (ADR 0132, spade/docs/teams.md "Group events"):
@@ -28,6 +37,8 @@ const groupEvent = z.discriminatedUnion("type", [
       })
       .nullish()
       .catch(undefined),
+    /** The message the person's replies to, as Spade stored it (ADR 0212 §4). */
+    reply_to: spadeReplyToField,
   }),
   z.object({
     type: z.literal("group_asked"),
@@ -61,8 +72,12 @@ export type SpadeGroupItem =
       key: string;
       text: string;
       fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
+      /** Its message id, once stored (ADR 0212 §3). */
+      id?: string;
+      replyTo?: SpadeReplyTo | undefined;
     }
-  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string }
+  /** `seq`: the stored event, which names the messages its words hold (ADR 0212 §3). */
+  | { kind: "member"; key: string; bot: SpadeGroupBot; text: string; seq?: number }
   /** A handoff, a queued ask, one that failed, Stop: a short muted line. */
   | { kind: "line"; key: string; text: string };
 
@@ -72,7 +87,7 @@ export interface SpadeGroupState {
   caughtUp: boolean;
   items: SpadeGroupItem[];
   /** Messages sent from here that Spade hasn't stored yet. */
-  pending: { key: string; text: string }[];
+  pending: { key: string; text: string; replyTo?: SpadeReplyTo | undefined }[];
   /** Asks still open, by ask id, in the order they were made. */
   asks: Map<string, { run: string; to: SpadeGroupBot }>;
   /** The group's state and few words, from the live stream's `status` frames. */
@@ -108,7 +123,10 @@ export function foldSpadeGroup(state: SpadeGroupState, input: SpadeFoldInput): b
     case "stored":
       return foldStored(state, input.stored);
     case "sent":
-      state.pending = [...state.pending, { key: input.key, text: input.text }];
+      state.pending = [
+        ...state.pending,
+        { key: input.key, text: input.text, ...(input.replyTo ? { replyTo: input.replyTo } : {}) },
+      ];
       return true;
     case "refused": {
       const before = state.pending.length;
@@ -162,14 +180,15 @@ function foldStored(state: SpadeGroupState, stored: SpadeStored): boolean {
   const raw = stored.event.type === "unknown" ? stored.event.raw : undefined;
   const parsed = groupEvent.safeParse(raw);
   if (!parsed.success) return firstLoad;
-  return foldEvent(state, parsed.data, `s${stored.seq}`) || firstLoad;
+  return foldEvent(state, parsed.data, stored.seq) || firstLoad;
 }
 
-function foldEvent(state: SpadeGroupState, event: GroupEvent, key: string): boolean {
+function foldEvent(state: SpadeGroupState, event: GroupEvent, seq: number): boolean {
+  const key = `s${seq}`;
   switch (event.type) {
     case "group_message": {
       if (event.from) {
-        state.items.push({ kind: "member", key, bot: event.from, text: event.text });
+        state.items.push({ kind: "member", key, bot: event.from, text: event.text, seq });
         return true;
       }
       const mine = state.pending.findIndex((message) => message.text === event.text);
@@ -178,6 +197,8 @@ function foldEvent(state: SpadeGroupState, event: GroupEvent, key: string): bool
         kind: "person",
         key,
         text: event.text,
+        id: spadeMessageId(seq),
+        ...(event.reply_to ? { replyTo: event.reply_to } : {}),
         ...(event.thread
           ? {
               fromThread: {
@@ -244,12 +265,20 @@ export type SpadeGroupRow =
       sending: boolean;
       /** Written in an ace thread (ADR 0198): the line above links back to it. */
       fromThread?: { id: string; title: string; machine?: string | undefined } | undefined;
+      /** Its message id, once stored: what Reply quotes (ADR 0212). */
+      id?: string;
+      /** The message it replies to. */
+      quote?: SpadeQuote;
     }
   | {
       kind: "member";
       key: string;
       bot: SpadeGroupBot;
       text: string;
+      id?: string;
+      quote?: SpadeQuote;
+      /** Long words as a document card (ADR 0212 §5). */
+      doc?: SpadeDocCard;
       /** First of a run of consecutive messages from this bot: its name shows above. */
       first: boolean;
       /** Last of the run: its face shows beside. */
@@ -275,31 +304,51 @@ export interface SpadeGroupView {
 }
 
 export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
-  const items: SpadeGroupItem[] = [...state.items];
-  for (const message of state.pending)
-    items.push({ kind: "person", key: message.key, text: message.text });
-  const rows = items.map((item, index): SpadeGroupRow => {
+  const said = spadeSaid();
+  // Each member's words as the messages they hold (ADR 0212 §2), one row each.
+  const flat: (
+    | SpadeGroupRow
+    | Omit<Extract<SpadeGroupRow, { kind: "member" }>, "first" | "last">
+  )[] = [];
+  state.items.forEach((item) => {
+    if (item.kind === "line") return flat.push(item);
     if (item.kind === "person") {
-      const row: SpadeGroupRow = {
-        kind: "person",
-        key: item.key,
-        text: item.text,
-        sending: index >= state.items.length,
-      };
-      if (item.fromThread) row.fromThread = item.fromThread;
-      return row;
+      if (item.id) said.add(item.id, item.text, { kind: "person" });
+      return flat.push(personRow(item, false));
     }
-    if (item.kind === "line") return item;
-    const before = items[index - 1];
-    const after = items[index + 1];
-    return {
-      kind: "member",
-      key: item.key,
-      bot: item.bot,
-      text: item.text,
-      first: before?.kind !== "member" || !sameBot(before.bot, item.bot),
-      last: after?.kind !== "member" || !sameBot(after.bot, item.bot),
-    };
+    spadeChatSegments(item.text).forEach((segment, index) => {
+      const id = item.seq === undefined ? undefined : spadeMessageId(item.seq, index);
+      const quote = segment.reply === undefined ? undefined : said.quote(segment.reply);
+      const long = segment.kind === "msg" ? spadeLongWords(segment.text) : undefined;
+      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : long?.doc;
+      flat.push({
+        kind: "member",
+        key: index ? `${item.key}:${index + 1}` : item.key,
+        bot: item.bot,
+        text: segment.kind === "doc" ? "" : (long?.summary ?? segment.text),
+        ...(id ? { id } : {}),
+        ...(quote ? { quote } : {}),
+        ...(doc ? { doc } : {}),
+      });
+      if (id) said.add(id, segment.title ?? segment.text, { kind: "member", name: item.bot.name });
+    });
+  });
+  for (const message of state.pending)
+    flat.push(
+      personRow(
+        { kind: "person", key: message.key, text: message.text, replyTo: message.replyTo },
+        true,
+      ),
+    );
+  const rows = flat.map((row, index): SpadeGroupRow => {
+    if (row.kind !== "member") return row;
+    const before = flat[index - 1];
+    const after = flat[index + 1];
+    // Each row is this view's own: where it sits in its run is set in place.
+    return Object.assign(row, {
+      first: before?.kind !== "member" || !sameBot(before.bot, row.bot),
+      last: after?.kind !== "member" || !sameBot(after.bot, row.bot),
+    });
   });
   const asked = Array.from(state.asks.values(), (open) => open.to);
   return {
@@ -327,4 +376,21 @@ export function spadeGroupWaiting(
   const waiting = view.waitingMember;
   if (view.state !== "waiting" || !waiting) return undefined;
   return members.find((bot) => sameBot(bot, waiting)) ?? waiting;
+}
+
+/** The person's message as its row: sent or still going, quoting what it replies to. */
+function personRow(
+  item: Extract<SpadeGroupItem, { kind: "person" }>,
+  sending: boolean,
+): Extract<SpadeGroupRow, { kind: "person" }> {
+  const row: Extract<SpadeGroupRow, { kind: "person" }> = {
+    kind: "person",
+    key: item.key,
+    text: item.text,
+    sending,
+  };
+  if (item.fromThread) row.fromThread = item.fromThread;
+  if (item.id) row.id = item.id;
+  if (item.replyTo) row.quote = spadeQuoteOf(item.replyTo);
+  return row;
 }

@@ -56,6 +56,32 @@ Steering is the default: a `user_message` sent while a reply is open joins that 
 stored at once, and the next model call in the turn (after the current call ends, or at the next
 tool step) sees it, so the turn carries on instead of ending.
 
+## Messages, ids and replies
+
+[ADR 0212](../../docs/adr/0212-spade-bots-text-in-short-messages.md). A bot's text may hold
+`<msg>…</msg>` (one chat bubble each, `reply="m7"` to quote message m7) and
+`<doc title="…">…</doc>` (long content, shown as a document card). Text with no tags is one
+message, as before. `spade_core::chat_markup` parses it (`parse`, and `parse_live` for text still
+streaming); the TypeScript client has the same parser, and both run
+[chat-markup.cases.json](chat-markup.cases.json).
+
+- **Ids.** A message's id is `m<seq>`, the seq of the event holding it (the person's
+  `user_message`, a club's `group_message`, the `step_finished` or reply end holding the bot's
+  words), and `m<seq>.<n>` for the n-th message of that text from the second on. The model reads
+  the person's messages as `[m12] …` and its own past words re-rendered with ids
+  (`<msg id="m30.2">…</msg>`, `chat_markup::for_model`). Messages relayed from a club, another
+  bot or a routine carry no id.
+- **Replies.** `POST …/messages` and `POST /v1/groups/{id}/messages` take `reply_to: "m12"`. Spade
+  looks the id up in that conversation and stores what it quoted on the message:
+  `"reply_to": {"id": "m12", "text": "…", "mine": false, "name": "Quill"}` (`text` cut to 280
+  characters, `mine` when the person wrote it, `name` the bot that wrote it in a club). An id that
+  names nothing is dropped and the message is sent as typed; a stored `reply_to` that can't be
+  read is ignored. The model reads `[m14] (replying to your message m12: "…")` before the
+  person's words; a club member reads `(replying to Quill's message: "…")`.
+- **Plain text.** Wherever a bot's words leave the chat as plain text (the list row's last line,
+  a club's last line, an answer to another bot or an ace thread, a helper's result, speech, the
+  heartbeat's quiet check) the markup is removed first (`chat_markup::plain`).
+
 ## Storage
 
 Everything is in one SQLite file, `spade.sqlite`, in WAL mode. The server opens several `Store`s
@@ -81,7 +107,7 @@ startup, so only processes that can read the person's files can talk to Spade.
 | `GET /v1/conversations`                     |           | `[{id, title, updated_at, answering}]`, newest first                                                |
 | `POST /v1/conversations`                    |           | `410`: each agent has one conversation, created with it ([agents.md](agents.md))                    |
 | `GET /v1/conversations/{id}/events?after=N` |           | `[{seq, at, event}]` after `seq` N                                                                  |
-| `POST /v1/conversations/{id}/messages`      | `{text}`  | `202`; while a reply is open the message steers it                                                  |
+| `POST /v1/conversations/{id}/messages`      | `{text, reply_to?}` | `202`; while a reply is open the message steers it; `reply_to`: Messages, ids and replies above |
 | `POST /v1/conversations/{id}/stop`          |           | `202`; `404` when nothing is answering                                                              |
 | `POST /v1/conversations/{id}/retry`         | `{reply}` | `202`: Try again, below; `409` when `reply` isn't the last reply or didn't fail, or a reply is open |
 | `GET /v1/conversations/{id}/live?after=N`   |           | Server-sent events, below                                                                           |
