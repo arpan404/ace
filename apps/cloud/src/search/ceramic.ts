@@ -27,11 +27,31 @@ const MOST_SNIPPET = 500;
 const FRESH_DAYS: Record<Freshness, number> = { day: 1, week: 7, month: 31, year: 366 };
 
 /**
- * The gateway's answers that say it turned the call away before sending it to Ceramic, so
- * nothing was billed: its key or permission refused, or no such gateway. Any other answer, or no
- * answer, may have been billed.
+ * The gateway's own error codes that say it turned the call away before sending it to Ceramic,
+ * so nothing was billed. Cloudflare's binding contract (Agents › Web search, "Handle errors"):
+ * "Every error has a code: the API's own code when it sends one, such as
+ * web_search_payment_required, or one derived from the HTTP status". The codes derived from a
+ * status prove nothing about where the call stopped, so they, any HTTP status alone, and no
+ * answer at all keep the reservation. `web_search_unsupported_runtime` is the runtime refusing
+ * before any request (Workers binding docs).
  */
-const REFUSED_BEFORE_SENDING = new Set([401, 403, 404]);
+const NOT_SENT = new Set(["web_search_payment_required", "web_search_unsupported_runtime"]);
+/** The most of an error answer read for its code. */
+const MOST_ERROR_BYTES = 16 * 1024;
+
+/** The error codes an answer's body or a thrown error carries, read leniently. */
+function codesIn(value: unknown): string[] {
+  if (typeof value !== "object" || value === null) return [];
+  const fields = value as Record<string, unknown>;
+  const codes: string[] = [];
+  if (typeof fields.code === "string") codes.push(fields.code);
+  if (typeof fields.error === "string") codes.push(fields.error);
+  else codes.push(...codesIn(fields.error));
+  if (Array.isArray(fields.errors)) for (const each of fields.errors) codes.push(...codesIn(each));
+  return codes;
+}
+
+const provesNotSent = (codes: string[]) => codes.some((code) => NOT_SENT.has(code));
 
 /**
  * Why Ceramic gave nothing usable: a short code, never the query or the answer. `billed` is
@@ -40,6 +60,7 @@ const REFUSED_BEFORE_SENDING = new Set([401, 403, 404]);
 export class CeramicFailed extends Error {
   override name = "CeramicFailed";
   readonly billed: boolean;
+  /** Billed unless the gateway's own code proved otherwise: unknown billing keeps it. */
   constructor(code: string, billed = true) {
     super(code);
     this.billed = billed;
@@ -137,15 +158,17 @@ export async function searchCeramic(
   let response: Response;
   try {
     response = await ai.websearch({ gatewayId, query, provider: "ceramic", limit });
-  } catch {
-    throw new CeramicFailed("binding_failed");
+  } catch (error) {
+    throw new CeramicFailed("binding_failed", !provesNotSent(codesIn(error)));
   }
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
-    throw new CeramicFailed(
-      `http_${response.status}`,
-      !REFUSED_BEFORE_SENDING.has(response.status),
-    );
+    let body: unknown;
+    try {
+      body = JSON.parse(await boundedText(response, MOST_ERROR_BYTES));
+    } catch {
+      body = undefined;
+    }
+    throw new CeramicFailed(`http_${response.status}`, !provesNotSent(codesIn(body)));
   }
   let body: unknown;
   try {

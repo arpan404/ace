@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { grantPublicKey, signCloudGrant } from "@ace/account-grant";
+import { machineCredentialStore } from "../account/credentials.ts";
+import { sealer } from "../account/crypto.ts";
+import { sessionStore } from "../account/sessions.ts";
 import { sqliteD1 } from "../testing/sqlite-d1.ts";
 import { searchCounters } from "./counters.ts";
 import { DEFAULT_LIMITS } from "./limits.ts";
@@ -67,6 +70,8 @@ export function world(
     ai?: false;
     accountBurst?: number;
     gatewaySafe?: () => Promise<boolean>;
+    /** `ACE_SEARCH_ENABLED`: false is the kill switch. */
+    enabled?: boolean;
   } = {},
 ) {
   const { db, sqlite, interrupt } = sqliteD1();
@@ -97,7 +102,8 @@ export function world(
               },
             },
           },
-    gateway: { safe: options.gatewaySafe ?? (async () => true) },
+    gateway: { safe: async () => (options.gatewaySafe ? options.gatewaySafe() : true) },
+    enabled: options.enabled ?? true,
     limits: { ...DEFAULT_LIMITS, ...options.limits },
     repeats: repeatGuard({ now: () => clock, salt: new Uint8Array(32).fill(1) }),
     now: () => clock,
@@ -137,6 +143,41 @@ export function world(
       )
       .run(`credential-${account}-${hostId}`, session, hostId, account, clock + 30 * DAY, clock);
     return grant(account, hostId);
+  };
+
+  const sessions = sessionStore(
+    db,
+    sealer("ab".repeat(32), (length) => new Uint8Array(length).fill(3)),
+    () => "lease",
+  );
+  const credentials = machineCredentialStore(db);
+  /**
+   * `ace login` on machine `hostId` (ADR 0190): the session it signed in with is exchanged for a
+   * machine credential that becomes its sole holder, and the session's own token is retired, in
+   * the batch the exchange route runs. Answers a grant, and the revocation of that credential.
+   */
+  const soleExchange = async (account: string, hostId: string) => {
+    const session = `login-${account}-${hostId}`;
+    sqlite
+      .prepare(
+        "INSERT INTO sessions (token, account, refresh, expires, standing) VALUES (?, ?, 'sealed', ?, 'person')",
+      )
+      .run(
+        session,
+        JSON.stringify({ id: account, email: `${account}@example.com` }),
+        clock + 30 * DAY,
+      );
+    const credential = `sole-${account}-${hostId}`;
+    await db.batch([
+      credentials.inserting(
+        credential,
+        { session, hostId, accountId: account, expiresAt: clock + 30 * DAY, sole: true },
+        clock,
+        { session },
+      ),
+      sessions.retiring(session),
+    ]);
+    return { grant: () => grant(account, hostId), revoke: () => credentials.remove(credential) };
   };
 
   const search = (
@@ -180,6 +221,7 @@ export function world(
     usage,
     grant,
     spade,
+    soleExchange,
     registered,
     counts,
     interrupt,

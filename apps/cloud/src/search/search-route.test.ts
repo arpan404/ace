@@ -55,8 +55,47 @@ describe("who may search", () => {
 
     const other = w.spade("user_ann", HOST_B);
     expect((await w.search(fresh(), { token: other })).status).toBe(200);
-    w.sqlite.prepare("UPDATE sessions SET retired = 1 WHERE token LIKE ?").run(`%${HOST_B}`);
+    // Signed out: the session is gone. (Retired alone isn't ended: see the sole exchange.)
+    w.sqlite.prepare("DELETE FROM sessions WHERE token LIKE ?").run(`%${HOST_B}`);
     expect((await w.search(fresh(), { token: other })).status).toBe(403);
+
+    const third = w.spade("user_ann", "C".repeat(52));
+    w.sqlite
+      .prepare("UPDATE sessions SET expires = ? WHERE token LIKE ?")
+      .run(w.at(), `%${"C".repeat(52)}`);
+    expect((await w.search(fresh(), { token: third })).status).toBe(403);
+  });
+
+  it("serves a machine `ace login` exchanged its session for, and stops once that credential is revoked", async () => {
+    const w = world();
+    const machine = await w.soleExchange("user_ann", HOST_B);
+    // The session's own token is retired now; the machine credential lives on it.
+    expect(
+      w.sqlite.prepare("SELECT retired FROM sessions WHERE token LIKE 'login-%'").get(),
+    ).toEqual({ retired: 1 });
+    expect((await w.search(fresh(), { token: machine.grant() })).status).toBe(200);
+    await machine.revoke();
+    expect((await w.search(fresh(), { token: machine.grant() })).status).toBe(403);
+  });
+
+  it("a sign-out after authentication but before admission stops the search at admission", async () => {
+    let signOut = () => {};
+    const w = world({
+      // The gateway's check runs between authentication and the reservation.
+      gatewaySafe: async () => {
+        signOut();
+        return true;
+      },
+    });
+    const grant = w.spade("user_ann", HOST_A);
+    signOut = () => {
+      w.sqlite.prepare("DELETE FROM machine_credentials WHERE host_id = ?").run(HOST_A);
+    };
+    const response = await w.search(fresh(), { token: grant });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "machine_unknown" });
+    expect(w.asked).toHaveLength(0);
+    expect(w.counts()).toBe("[]");
   });
 
   it("refuses no credential, a bare machine credential, a bad, expired or general grant, and any Origin", async () => {
@@ -126,12 +165,33 @@ describe("Ceramic and what it costs", () => {
     expect(w.asked.map((asked) => asked.provider)).toEqual(Array(5).fill("ceramic"));
   });
 
-  it("gives the reservation back only when the gateway turned the call away before sending it", async () => {
+  it("keeps the reservation on a 401, 403 or 404 that may have come from past the gateway", async () => {
     const w = world();
     for (const status of [401, 403, 404]) {
-      w.answerWith(() => Response.json({ success: false }, { status }));
+      w.answerWith(() => Response.json({ error: { code: "provider_refused" } }, { status }));
       expect((await w.search(fresh())).status).toBe(502);
     }
+    expect(await used(await w.usage())).toBe(3);
+  });
+
+  it("gives the reservation back only on the gateway's own codes that prove nothing was sent", async () => {
+    const w = world();
+    w.answerWith(() =>
+      Response.json(
+        {
+          success: false,
+          errors: [{ code: "web_search_payment_required", message: "Add credits" }],
+        },
+        { status: 402 },
+      ),
+    );
+    expect((await w.search(fresh())).status).toBe(502);
+    w.answerWith(() => {
+      throw Object.assign(new Error("update the runtime"), {
+        code: "web_search_unsupported_runtime",
+      });
+    });
+    expect((await w.search(fresh())).status).toBe(502);
     expect(await used(await w.usage())).toBe(0);
   });
 
@@ -185,6 +245,23 @@ describe("the gateway", () => {
     expect(await response.json()).toEqual({ error: "search_unavailable" });
     expect(w.asked).toHaveLength(0);
     expect(w.counts()).toBe("[]");
+  });
+
+  it("the kill switch stops search before anything is sent or counted", async () => {
+    let checked = false;
+    const w = world({
+      enabled: false,
+      gatewaySafe: async () => {
+        checked = true;
+        return true;
+      },
+    });
+    const response = await w.search(fresh());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "search_unavailable" });
+    expect(w.asked).toHaveLength(0);
+    expect(w.counts()).toBe("[]");
+    expect(checked).toBe(false);
   });
 
   it("answers search_unavailable until the AI binding and gateway are configured", async () => {

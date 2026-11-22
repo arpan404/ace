@@ -32,6 +32,8 @@ export interface Env extends LimitVars {
   AI?: Ai;
   /** The AI Gateway ace search bills (ADR 0210 §2). Unset: the route answers 503. */
   ACE_SEARCH_GATEWAY?: string;
+  /** `false` turns ace search off at once: the kill switch (ADR 0210 §4). Unset or else: on. */
+  ACE_SEARCH_ENABLED?: string;
   /** The Cloudflare account id and an AI Gateway Read token, to read the gateway's settings. */
   ACE_SEARCH_CF_ACCOUNT_ID?: string;
   ACE_SEARCH_CF_API_TOKEN?: string;

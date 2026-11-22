@@ -39,6 +39,8 @@ export type SearchDeps = {
   ai: { binding: WebSearchBinding; gatewayId: string } | undefined;
   /** Whether the gateway keeps nothing (logs, Logpush, cache): no query is sent until it does. */
   gateway: Pick<GatewayCheck, "safe">;
+  /** `ACE_SEARCH_ENABLED`: false is the kill switch, turned before the gateway's settings change. */
+  enabled: boolean;
   limits: SearchLimits;
   repeats: RepeatGuard;
   now: () => number;
@@ -96,7 +98,7 @@ export function searchRoutes(deps: SearchDeps) {
    */
   async function admit(request: Request): Promise<Searcher | Response> {
     if (request.headers.has("Origin")) return fail(403, "spade_only");
-    if (!deps.ai) return fail(503, "search_unavailable");
+    if (!deps.enabled || !deps.ai) return fail(503, "search_unavailable");
     if (await deps.burst.address(deps.addressOf(request)))
       return refuse("search_busy", BURST_SECONDS);
     return searcher(request);
@@ -129,7 +131,14 @@ export function searchRoutes(deps: SearchDeps) {
       const at = now();
       const young = isNewAccount(await counters.firstSeen(who.account), at, limits.newAccountDays);
       const taking: Counter[] = countersFor(who, limits, at, young);
-      const taken = await counters.take(taking);
+      // The machine is checked again inside the reservation: a sign-out since authentication
+      // stops the search here, before anything is sent.
+      const taken = await counters.take(taking, {
+        account: who.account,
+        machine: who.machine,
+        now: at,
+      });
+      if (!taken.taken && taken.machineGone) return fail(403, "machine_unknown");
       if (!taken.taken) {
         const full = taken.full;
         deps.log({ search: full?.refusal ?? "search_busy" });

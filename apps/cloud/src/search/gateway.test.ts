@@ -81,3 +81,33 @@ it("notices logging turned on within minutes, and the token never reaches a log"
   expect(await c.gateway.safe()).toBe(false);
   expect(c.logs.join(" ")).not.toContain("cf-token-secret");
 });
+
+it("concurrent checks share one reading, so an older answer can't land after a newer one", async () => {
+  let reads = 0;
+  const c = check({
+    answer: async () => {
+      reads++;
+      // The first reading is slow and safe; any second one would be quick and refuse.
+      if (reads === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return settings(keepsNothing);
+      }
+      return settings({ ...keepsNothing, collect_logs: true });
+    },
+  });
+  const answers = await Promise.all(Array.from({ length: 10 }, () => c.gateway.safe()));
+  expect(new Set(answers)).toEqual(new Set([true]));
+  expect(c.asked).toHaveLength(1);
+});
+
+it("once seen keeping logs, stays refused while the settings can't be read, whatever the owner said", async () => {
+  let answer: () => Response = () => settings({ ...keepsNothing, collect_logs: true });
+  const c = check({ answer: () => answer(), verifiedByHand: true });
+  expect(await c.gateway.safe()).toBe(false);
+  answer = () => new Response("unavailable", { status: 503 });
+  c.advance(2 * 60_000);
+  expect(await c.gateway.safe()).toBe(false);
+  answer = () => settings(keepsNothing);
+  c.advance(2 * 60_000);
+  expect(await c.gateway.safe()).toBe(true);
+});

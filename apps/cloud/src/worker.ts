@@ -122,6 +122,8 @@ function accounts(env: Env) {
           now: () => Date.now(),
           log: (outcome) => console.log(JSON.stringify({ search: outcome })),
         }),
+        // The kill switch: off before anyone changes the gateway's settings (ADR 0210 §4).
+        enabled: env.ACE_SEARCH_ENABLED?.trim().toLowerCase() !== "false",
         limits: readLimits(env),
         addressOf: rateKey,
         burst: {

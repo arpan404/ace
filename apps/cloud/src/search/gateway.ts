@@ -40,6 +40,8 @@ export function gatewayCheck(deps: {
   log: (outcome: GatewayOutcome) => void;
 }) {
   let reading: { safe: boolean; until: number } | undefined;
+  let inflight: Promise<boolean> | undefined;
+  let keepsLogs = false;
 
   /** The gateway's settings: true when it keeps nothing, false when it keeps something. */
   async function read(api: { accountId: string; token: string }): Promise<boolean | undefined> {
@@ -61,24 +63,38 @@ export function gatewayCheck(deps: {
     }
   }
 
+  /**
+   * One reading at a time: every caller waiting meanwhile shares it, so an answer that started
+   * earlier can never land after, and replace, a later one.
+   */
+  async function refresh(now: number): Promise<boolean> {
+    const settings = deps.api ? await read(deps.api) : undefined;
+    // Seen keeping logs, the gateway stays refused until a reading shows it keeps nothing: a
+    // reading that fails says nothing new, and the owner's word can't outweigh what was seen.
+    if (settings !== undefined) keepsLogs = !settings;
+    let safe: boolean;
+    if (keepsLogs) {
+      deps.log("gateway_keeps_logs");
+      safe = false;
+    } else if (settings === true) {
+      safe = true;
+    } else {
+      safe = deps.verifiedByHand;
+      if (!safe) deps.log("gateway_unchecked");
+    }
+    reading = { safe, until: now + (safe ? GOOD_FOR_MS : REFUSED_FOR_MS) };
+    return safe;
+  }
+
   return {
     /** Whether ace search may send queries through the gateway now. */
     async safe(): Promise<boolean> {
       const now = deps.now();
       if (reading && now < reading.until) return reading.safe;
-      const settings = deps.api ? await read(deps.api) : undefined;
-      let safe: boolean;
-      if (settings === false) {
-        deps.log("gateway_keeps_logs");
-        safe = false;
-      } else if (settings === true) {
-        safe = true;
-      } else {
-        safe = deps.verifiedByHand;
-        if (!safe) deps.log("gateway_unchecked");
-      }
-      reading = { safe, until: now + (safe ? GOOD_FOR_MS : REFUSED_FOR_MS) };
-      return safe;
+      inflight ??= refresh(now).finally(() => {
+        inflight = undefined;
+      });
+      return inflight;
     },
   };
 }

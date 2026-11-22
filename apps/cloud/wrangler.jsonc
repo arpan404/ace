@@ -109,6 +109,8 @@
         // ACE_SEARCH_CF_API_TOKEN secrets (AI Gateway Read) and searches only while they hold.
         // Without them it searches only if ACE_SEARCH_GATEWAY_VERIFIED is "logs-off-cache-off",
         // the owner's word that they checked by hand. The limits are the defaults written out.
+        // The kill switch: set "false" and deploy before changing the gateway's settings.
+        "ACE_SEARCH_ENABLED": "true",
         "ACE_SEARCH_GATEWAY": "ace-search",
         "ACE_SEARCH_MONTHLY": "1000",
         "ACE_SEARCH_NEW_ACCOUNT_MONTHLY": "100",
