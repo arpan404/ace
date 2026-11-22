@@ -6,7 +6,7 @@ import { setUp } from "./spade-test-host.ts";
 /*
  * Settings › Spade's writes when something goes wrong: a key's failure never carries Spade's own
  * words (they could echo the key), a write that went through says so even when the page can't
- * be read again, a Brave key says where it comes from, and an app whose sign-in ended can be
+ * be read again, and an app whose sign-in ended can be
  * reconnected from the phone, or the phone says plainly where it can be.
  */
 
@@ -66,20 +66,6 @@ test("a key Spade refuses is said in fixed words, never in Spade's, which could 
   expect(JSON.stringify([kept, removed])).not.toContain(key);
 });
 
-test("a Brave key refused for want of a keychain says so, in fixed words", async () => {
-  const { ask, api, daemon } = await ready();
-  const key = "brave-leaky-secret";
-  stage(daemon, api, (r) => r.path === "/v1/search/brave-key", { status: 503, body: echo(key) });
-
-  const answer = await ask({ type: "spade.settings.brave", key });
-
-  expect(answer).toEqual({
-    ok: false,
-    title: "Couldn't keep the key",
-    message: "This machine has no keychain to keep keys in.",
-  });
-});
-
 test("a key kept while the page can't be read again says it was saved, so it isn't pasted twice", async () => {
   const { ask, api, daemon } = await ready();
   stage(daemon, api, (r) => r.method === "GET" && r.path === "/v1/models", {
@@ -95,30 +81,6 @@ test("a key kept while the page can't be read again says it was saved, so it isn
   });
   expect("models" in answer).toBe(false);
   expect(api.endpoints[0]?.key_set).toBe(true);
-});
-
-test("a Brave key from the environment says so, and only a keychain key offers Remove", async () => {
-  const { ask } = await ready((fake) => {
-    fake.search.braveEnv = true;
-  });
-
-  const fromEnv = await ask({ type: "spade.settings.read", page: "search" });
-  if (!("search" in fromEnv)) throw new Error(JSON.stringify(fromEnv));
-  expect(fromEnv.search.brave).toEqual({
-    set: true,
-    words: "From environment",
-    canSet: true,
-    canRemove: false,
-  });
-
-  const kept = await ask({ type: "spade.settings.brave", key: "brave-1" });
-  if (!("search" in kept)) throw new Error(JSON.stringify(kept));
-  expect(kept.search.brave).toEqual({
-    set: true,
-    words: "In keychain",
-    canSet: true,
-    canRemove: true,
-  });
 });
 
 const apps = (fake: FakeSpadeApi) => {

@@ -5,13 +5,12 @@ import Foundation
 /// key's value: Spade only says whether one is set and where it comes from (ADR 0119).
 enum SpadeSettings {
     enum Page: String, CaseIterable, Identifiable, Sendable {
-        case general, models, search, apps
+        case general, models, apps
         var id: String { rawValue }
         var title: String {
             switch self {
             case .general: "General"
             case .models: "Models and keys"
-            case .search: "Web search"
             case .apps: "Apps"
             }
         }
@@ -20,7 +19,6 @@ enum SpadeSettings {
             switch self {
             case .general: .gear
             case .models: .key
-            case .search: .globe
             case .apps: .puzzlePiece
             }
         }
@@ -55,6 +53,8 @@ enum SpadeSettings {
         let groups: [Group]
         /// Models left out so the page fits one frame.
         let more: Int
+        /// This month's ace searches, or the sign-in sentence; nil when Spade can't say.
+        var search: String? = nil
     }
     struct Key: Decodable, Equatable, Sendable {
         let words: String
@@ -79,18 +79,6 @@ enum SpadeSettings {
         let presets: [Preset]
         let keychain: Bool
         let note: String
-    }
-    struct Brave: Decodable, Equatable, Sendable {
-        let set: Bool
-        let words: String
-        let canSet: Bool
-        /// Only a key in the keychain can be removed here; one from the environment stays.
-        let canRemove: Bool
-    }
-    struct Search: Decodable, Equatable, Sendable {
-        let searxng: String?
-        let brave: Brave
-        let keychain: Bool
     }
     /// A device sign-in waiting on the person: the code, and the page to enter it on.
     struct Device: Decodable, Equatable, Sendable {
@@ -128,14 +116,13 @@ enum SpadeSettings {
         var notice: String? = nil
         let general: General?
         let models: Models?
-        let search: Search?
         let apps: Apps?
 
         static func failed(_ title: String, _ message: String?) -> Answer {
-            Answer(ok: false, title: title, message: message, line: nil, general: nil, models: nil, search: nil, apps: nil)
+            Answer(ok: false, title: title, message: message, line: nil, general: nil, models: nil, apps: nil)
         }
         /// It carries a page to show, not only Spade's state or a word.
-        var hasPage: Bool { general != nil || models != nil || search != nil || apps != nil }
+        var hasPage: Bool { general != nil || models != nil || apps != nil }
         /// Why it failed, in one line; nil when it went.
         var problem: String? {
             guard !ok else { return nil }

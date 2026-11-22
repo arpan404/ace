@@ -6,7 +6,7 @@ import {
   parseSpadeEndpoint,
   parseSpadeLiveModels,
   parseSpadeModels,
-  parseSpadeSearchSettings,
+  parseSpadeSearchUsage,
   parseSpadeSubscriptions,
   parseSpadeTaskHistory,
   parseSpadeUndone,
@@ -16,6 +16,7 @@ import {
   type SpadeFormat,
   type SpadeModelInfo,
   type SpadeModels,
+  type SpadeSearchUsage,
   type SpadeSubscription,
   type SpadeTaskVersion,
 } from "@ace/ui-core/spade-chat";
@@ -24,6 +25,7 @@ import {
   spadeBody,
   spadeHttp,
   spadePostBlob,
+  SpadeRequestError,
   type SpadeTarget,
 } from "./spade-requests.ts";
 
@@ -343,23 +345,20 @@ export async function transcribe(
   return sure(parseSpadeTranscription(body), "transcription");
 }
 
-/** Web search's settings: the person's SearXNG address and whether a Brave key is stored. */
-export async function readSearchSettings(target: SpadeTarget, options: Signal = {}) {
-  const body = await spadeHttp(target, "GET", "/v1/search", options);
-  return sure(parseSpadeSearchSettings(body), "web search settings");
-}
-
-/** The person's own SearXNG; null forgets it. Answers the settings as they now are. */
-export async function setSearxngUrl(target: SpadeTarget, url: string | null) {
-  const body = await spadeHttp(target, "PUT", "/v1/search", { body: { searxng_url: url } });
-  return sure(parseSpadeSearchSettings(body), "web search settings");
-}
-
-/** The Brave Search key, kept in the OS keychain by Spade (ADR 0119). */
-export async function setBraveKey(target: SpadeTarget, key: string): Promise<void> {
-  await spadeHttp(target, "PUT", "/v1/search/brave-key", { body: { key } });
-}
-
-export async function removeBraveKey(target: SpadeTarget): Promise<void> {
-  await spadeHttp(target, "DELETE", "/v1/search/brave-key");
+/**
+ * This month's ace searches (ADR 0210 §6), or null when Spade can't say: an older Spade without
+ * the route, or an answer that doesn't parse.
+ */
+export async function readSearchUsage(
+  target: SpadeTarget,
+  options: Signal = {},
+): Promise<SpadeSearchUsage | null> {
+  try {
+    return (
+      parseSpadeSearchUsage(await spadeHttp(target, "GET", "/v1/usage/search", options)) ?? null
+    );
+  } catch (error) {
+    if (error instanceof SpadeRequestError && error.status === 404) return null;
+    throw error;
+  }
 }

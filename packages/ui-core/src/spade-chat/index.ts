@@ -35,7 +35,7 @@ export * from "./activity.ts";
 export * from "./subscriptions.ts";
 export * from "./groups.ts";
 export * from "./group-fold.ts";
-export * from "./web-search.ts";
+export * from "./search-usage.ts";
 export * from "./computer.ts";
 export * from "./request-words.ts";
 export * from "./questions.ts";
