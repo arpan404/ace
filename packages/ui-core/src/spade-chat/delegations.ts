@@ -24,6 +24,8 @@ export interface SpadeWorkersEntry {
   /** The call that started them; empty from a Spade that doesn't say. */
   call: string;
   workers: readonly SpadeStartedWorker[];
+  /** The reply (turn) that started them, when one was open: its card holds them. */
+  reply?: string;
   at?: number;
 }
 

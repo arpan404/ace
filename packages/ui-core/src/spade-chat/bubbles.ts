@@ -13,7 +13,8 @@ import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts"
 import type { SpadeView } from "./view.ts";
 import type { SpadeFailureKind, SpadeStoppedKind } from "./wire.ts";
 import { spadeHelperLine } from "./helper-words.ts";
-import { spadeContractLine } from "./contract-words.ts";
+import type { SpadeContractAsked, SpadeContractEntry, SpadeTalkEntry } from "./bot-talk.ts";
+import type { SpadeTogetherBubble } from "./together.ts";
 import type { SpadeQuiet } from "./quiet.ts";
 import { spadeReplySteps, type SpadeStep } from "./steps.ts";
 import type { SpadeTurnUndo } from "./undo.ts";
@@ -49,8 +50,17 @@ type SpadeBubbleOf =
     }
   /** One of the bot's routines fired: a small label, `Daily briefing · 9:00`. */
   | { kind: "routine"; key: string; name: string; label: string }
-  /** A message another bot sent into this conversation, labelled with the name it had. */
-  | { kind: "other"; key: string; agent: { id: string; name: string }; text: string }
+  /**
+   * A message another bot sent into this conversation, labelled "From" it with the name it had;
+   * a contract call it made reads as its card, with what this bot returned.
+   */
+  | {
+      kind: "other";
+      key: string;
+      agent: { id: string; name: string };
+      text: string;
+      contract?: SpadeContractAsked;
+    }
   | {
       kind: "bot";
       key: string;
@@ -73,6 +83,11 @@ type SpadeBubbleOf =
       keep?: string;
       /** The turn it is part of, whose work lines Show work brings back (`spadeWorkTurn`). */
       turn?: string;
+      /**
+       * The last words of a finished reply to a message another bot sent, which went back to
+       * that bot: one quiet line under it says "Replied to Quill".
+       */
+      repliedTo?: { id: string; name: string };
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -121,20 +136,25 @@ type SpadeBubbleOf =
   | { kind: "named"; key: string; name: string; face: boolean; first: boolean }
   /** The person handed the computer back: one quiet line, its names behind a disclosure. */
   | { kind: "handback"; key: string; text: string; data: readonly string[] }
-  /** A call the bot made to another bot's contract (ADR 0200 §7): its line and what came back. */
+  /**
+   * A call the bot made to another bot's contract (ADR 0200 §7), as its card
+   * (`spadeContractCard`): never hidden with the work, as it is whom the bot asked.
+   */
   | {
       kind: "contract";
       key: string;
-      /** The bot whose contract it called, by name. */
-      bot: string;
-      text: string;
-      /** The output's fields in one line, or why it failed; empty while it is open. */
-      result: string;
-      open: boolean;
+      call: Omit<SpadeContractEntry, "kind" | "key">;
       /** How it stands, in ace's words for a child (`spadeChildState`). */
       state: SubagentState;
       at?: number;
     }
+  /**
+   * The messages one turn sent another bot, with their replies, as one card (`spadeTalkCard`):
+   * never hidden with the work.
+   */
+  | ({ kind: "talk" } & Omit<SpadeTalkEntry, "kind" | "at"> & { at?: number })
+  /** A turn's talk, contract calls and started workers as one card (`spadeTogether`). */
+  | Omit<SpadeTogetherBubble, "at">
   /**
    * A helper the bot started (ADR 0152): one quiet line in Spade's words that expands to the
    * helper's own steps, read from its job's hidden conversation.
@@ -219,6 +239,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   const held: Held = { paths: [], key: undefined };
   /** The notes recalled for the latest message, until the reply to it finishes. */
   let recalled: readonly string[] = [];
+  let answering: { id: string; name: string; from: number } | undefined;
   // Since the last reply ended: whether anything arrived, and whether all of it was a heartbeat.
   // A quiet answer only to heartbeats shows as nothing, like the heartbeats themselves (ADR 0129;
   // `silent_replies` in spade-core); one that also answers anything else always shows.
@@ -294,16 +315,24 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         onlyBeats = false;
         onlyGroups = false;
       }
+      const { kind: _kind, key, at, ...call } = entry;
       bubbles.push({
         kind: "contract",
-        key: entry.key,
-        bot: entry.bot,
-        text: spadeContractLine(entry),
-        result: entry.result,
-        open: entry.outcome === undefined,
+        key,
+        call,
         state: spadeChildState(entry.outcome, false),
-        ...stamp(entry.at),
+        ...stamp(at),
       });
+      continue;
+    }
+    if (entry.kind === "talk") {
+      // Each reply reaches the bot like a message.
+      if (entry.exchanges.some((exchange) => exchange.outcome !== undefined)) {
+        inputs = true;
+        onlyBeats = false;
+        onlyGroups = false;
+      }
+      bubbles.push(entry);
       continue;
     }
     if (entry.kind === "helper") {
@@ -327,6 +356,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     }
     if (entry.kind === "user") {
       recalled = entry.recalled ?? [];
+      // A plain message from another bot is answered back to it; a contract call by its return.
+      answering =
+        entry.fromAgent && !entry.fromAgent.contract
+          ? { id: entry.fromAgent.id, name: entry.fromAgent.name, from: bubbles.length + 1 }
+          : undefined;
       inputs = true;
       onlyBeats &&= entry.fromRoutine?.heartbeat === true;
       onlyGroups &&= entry.fromGroup !== undefined;
@@ -347,8 +381,9 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
           ? {
               kind: "other",
               key: entry.key,
-              agent: entry.fromAgent,
+              agent: { id: entry.fromAgent.id, name: entry.fromAgent.name },
               text: entry.text,
+              ...(entry.fromAgent.contract ? { contract: entry.fromAgent.contract } : {}),
               ...stamp(entry.at),
             }
           : {
@@ -389,6 +424,15 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     }
     if (grouped) cardBubbles(entry, bubbles, ask);
     else if (!quiet) replyBubbles(entry, bubbles, held, ask);
+    // A finished reply's words went back to the bot that wrote: its last bubble says so.
+    if (answering && entry.end?.kind === "finished")
+      for (let at = bubbles.length - 1; at >= answering.from; at--) {
+        const bubble = bubbles[at];
+        if (bubble?.kind !== "bot") continue;
+        bubbles[at] = { ...bubble, repliedTo: { id: answering.id, name: answering.name } };
+        break;
+      }
+    if (entry.end !== undefined) answering = undefined;
     // What it had in mind, under the reply that answered the message, once it finished.
     if (!quiet && !grouped && entry.end && recalled.length) {
       bubbles.push({

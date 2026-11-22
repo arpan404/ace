@@ -50,6 +50,11 @@ export interface SpadeSubagentRowView {
   open: SpadeSubagentOpen | undefined;
   /** Shown while it waits on the person: brings its request into view, else opens it. */
   onReview: (() => void) | undefined;
+  /**
+   * What the row opens to in place, instead of going anywhere: a message's or a contract call's
+   * exchange, as a short transcript. Its caret turns down while open.
+   */
+  expand?: ReactNode;
 }
 
 const tones: Record<SpadeSubagentRowView["line"]["tone"], string> = {
@@ -78,6 +83,8 @@ export function SpadeSubagentCard(props: {
   agents: readonly SpadeSubagentSpan[];
   /** What the card reads is current: only then may it say the agents finished. */
   current: boolean;
+  /** Its first line, when it holds more than started agents (`spadeTogetherHeader`). */
+  header?: string | undefined;
   /** How long the agents have run together, beside the first line. */
   elapsed: ReactNode;
   /** The row of the agent at `at`, a `SpadeSubagentRow`. */
@@ -85,7 +92,8 @@ export function SpadeSubagentCard(props: {
 }) {
   const [open, setOpen] = useState(false);
   const states = props.agents.map((agent) => agent.state);
-  const header = spadeSubagentHeader(props.botName, states, { current: props.current });
+  const header =
+    props.header ?? spadeSubagentHeader(props.botName, states, { current: props.current });
   const needYou = props.current ? spadeSubagentsNeedYou(states) : undefined;
   const { shown, hidden } = spadeShownSubagents(states, open);
   return (
@@ -134,6 +142,7 @@ const hairline =
 
 export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
   const { row } = props;
+  const [expanded, setExpanded] = useState(false);
   const label = `Open ${row.name}${row.machine ? ` on ${row.machine}` : ""}`;
   // The whole row opens the agent: its opener covers the row, under Review.
   const opener = "absolute inset-0 rounded-lg focus-ring";
@@ -144,7 +153,15 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
       className={cn("group/row relative min-w-0", hairline)}
     >
       <div className="relative -mx-2 flex min-h-11 min-w-0 items-center gap-2.5 rounded-lg px-2 py-1 transition-colors duration-(--motion-fast) group-hover/row:bg-hover">
-        {row.open?.kind === "link" ? (
+        {row.expand ? (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Hide" : "Show"} the exchange with ${row.name}`}
+            className={opener}
+            onClick={() => setExpanded(!expanded)}
+          />
+        ) : row.open?.kind === "link" ? (
           <Link {...row.open.to} aria-label={label} className={opener} />
         ) : row.open ? (
           <button type="button" aria-label={label} className={opener} onClick={row.open.onOpen} />
@@ -185,15 +202,20 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
               Review
             </button>
           )}
-          {row.open && (
+          {(row.open || row.expand) && (
             <CaretRightIcon
               aria-hidden
               size={14}
-              className="shrink-0 text-subtle-foreground transition-colors duration-(--motion-fast) group-hover/row:text-foreground"
+              className={cn(
+                "shrink-0 text-subtle-foreground transition-[color,rotate] duration-(--motion-fast) group-hover/row:text-foreground",
+                expanded && "rotate-90",
+              )}
             />
           )}
         </div>
       </div>
+      {/* On the rows' text edge: the mark's 24px and its 10px gap. */}
+      {row.expand && expanded && <div className="pt-1 pb-3 pl-[34px]">{row.expand}</div>}
     </li>
   );
 }
@@ -214,7 +236,7 @@ function Mark(props: { row: SpadeSubagentRowView }) {
       )}
     >
       {row.kind === "bot" && row.face ? (
-        <SpadeFace avatar={row.face} size={18} />
+        <SpadeFace avatar={row.face} size={16} />
       ) : row.provider ? (
         <ProviderIcon provider={row.provider} size={16} decorative />
       ) : (
