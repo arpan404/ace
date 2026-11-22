@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitLogEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "authorEmail": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "authorName": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "authoredAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "path": {
+      "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+    },
+    "previousPath": {
+      "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+    },
+    "sha": {
+      "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+    },
+    "shortSha": {
+      "maxLength": 16,
+      "minLength": 7,
+      "type": "string"
+    },
+    "subject": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sha",
+    "shortSha",
+    "subject",
+    "authorName",
+    "authorEmail",
+    "authoredAt",
+    "path"
+  ],
+  "type": "object"
+}

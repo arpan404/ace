@@ -20,6 +20,7 @@ import { Run } from "./thread.ts";
 import { ThreadDetails } from "./thread-client.ts";
 import { BranchRef } from "./worktree-base.ts";
 import { GitConflictsCommand, GitConflictsOperation, GitConflictsResult } from "./git-conflicts.ts";
+import { CommitSha, GitHistoryOperations, GitHistoryResults } from "./git-history.ts";
 import { ReviewPath } from "./review.ts";
 const id = z.string().min(1).max(128);
 /** How far into one file's patch `git.diff` pages reach (UTF-16 code units). */
@@ -132,9 +133,12 @@ export const WorkspaceActionRequest = z.object({
       threadId: ThreadId,
       path: ReviewPath.optional(),
       from: ReviewPath.optional(),
+      /** When set (with `path`), diff that commit against its first parent instead of working tree vs HEAD. */
+      commit: CommitSha.optional(),
       offset: z.number().int().min(0).max(gitDiffFileLimit).optional(),
       expected: z.string().min(1).max(128).optional(),
     }),
+    ...GitHistoryOperations,
     GitConflictsOperation,
     z.object({
       op: z.literal("git.draft.context"),
@@ -260,6 +264,7 @@ export const WorkspaceActionResult = z.object({
       context: SourceControlContext,
     }),
     z.object({ kind: z.literal("draftCancelled") }),
+    ...GitHistoryResults,
     GitConflictsResult,
     z.object({ kind: z.literal("error"), code: z.string().max(128) }),
   ]),

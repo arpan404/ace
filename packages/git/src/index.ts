@@ -49,6 +49,14 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import {
+  diffCommit,
+  fileLog,
+  type CommitDiffOptions,
+  type FileLogOptions,
+  type FileLogResult,
+} from "./history.ts";
+import { ReadGate } from "./read-gate.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
@@ -64,7 +72,14 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
+import type {
+  ChangedFile,
+  Checkpoint,
+  DiffResult,
+  DiffSide,
+  GitOptions,
+  PushOptions,
+} from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
@@ -87,6 +102,7 @@ export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
 export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
+export type { CommitDiffOptions, FileLogOptions, FileLogResult } from "./history.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export { GitTransfer } from "./transfer-service.ts";
@@ -103,6 +119,8 @@ export type { CheckoutState } from "./transfer-checkout.ts";
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
+  /** History reads (a file's log, a commit's patch) that may run at once (`ReadGate`). */
+  private readonly historyReads = new ReadGate(2);
   /** Moving work to another machine (ADR 0101). */
   readonly transfer: GitTransfer;
 
@@ -509,6 +527,36 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
         options.paths,
       ),
+    );
+  }
+
+  /** One commit's patch for `paths` against its first parent (or the empty tree). */
+  async diffCommit(
+    options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number },
+  ): Promise<DiffResult> {
+    // The checkout's root is found inside the gate too: a cold checkout's discovery is Git work.
+    return this.historyReads.run(
+      () =>
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return diffCommit(this.repository, root, {
+            ...options,
+            maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
+          });
+        }),
+      options.signal,
+    );
+  }
+
+  /** A file's newest commits following renames, in one bounded walk. */
+  async fileLog(options: FileLogOptions): Promise<FileLogResult> {
+    return this.historyReads.run(
+      () =>
+        this.repository.cli.bounded(async () => {
+          const root = await this.repository.root(options.worktree, options.signal);
+          return fileLog(this.repository, root, options);
+        }),
+      options.signal,
     );
   }
 

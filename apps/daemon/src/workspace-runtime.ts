@@ -809,6 +809,8 @@ export class WorkspaceRuntime {
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
       if (op.path === undefined) {
+        if (op.commit !== undefined)
+          throw new GitError("invalid_argument", "Commit diff requires a path");
         const diff = await this.git.diff({
           worktree: root,
           from: { kind: "commit", ref: "HEAD" },
@@ -819,20 +821,45 @@ export class WorkspaceRuntime {
         return wrap({ kind: "gitDiff", patch: diff.patch, truncated: diff.truncated });
       }
       const paths = [op.path, ...(op.from ? [op.from] : [])];
-      const key = JSON.stringify([op.threadId, root, paths]);
-      const file = await this.filePatches.read(key, op.expected, async () => {
-        const diff = await this.git.diff({
-          worktree: root,
-          from: { kind: "commit", ref: "HEAD" },
-          to: { kind: "working-tree" },
-          maxPatchBytes: filePatchBytes,
-          paths,
-        });
-        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-        return { patch: diff.patch, truncated: diff.truncated };
-      });
+      const key = JSON.stringify([op.threadId, root, op.commit ?? null, paths]);
+      // Each page waits on its own signal; git stops once no page still wants its answer.
+      const file = await this.filePatches.read(
+        key,
+        op.expected,
+        async (stop) => {
+          const diff =
+            op.commit !== undefined
+              ? await this.git.diffCommit({
+                  worktree: root,
+                  commit: op.commit,
+                  paths,
+                  maxPatchBytes: filePatchBytes,
+                  signal: stop,
+                })
+              : await this.git.diff({
+                  worktree: root,
+                  from: { kind: "commit", ref: "HEAD" },
+                  to: { kind: "working-tree" },
+                  maxPatchBytes: filePatchBytes,
+                  paths,
+                });
+          if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+          return { patch: diff.patch, truncated: diff.truncated };
+        },
+        signal,
+      );
       const page = diffPage(file.patch, file.truncated, op.offset ?? 0);
       return wrap({ kind: "gitDiff", ...page, validator: file.validator });
+    }
+    if (op.op === "git.log") {
+      const root = this.root(op.threadId);
+      const log = await this.git.fileLog({
+        worktree: root,
+        path: op.path,
+        signal,
+      });
+      if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+      return wrap({ kind: "gitLog", ...log });
     }
     if (op.op === "git.status") {
       const root = this.root(op.threadId);

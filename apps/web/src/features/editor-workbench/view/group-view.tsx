@@ -16,8 +16,16 @@ import { MarkdownChoice, markdownShow } from "./markdown-choice.tsx";
 const MarkdownPreview = lazy(() =>
   import("./markdown-view.tsx").then((module) => ({ default: module.MarkdownPreview })),
 );
-import { dropZone, type GroupNode, type Side } from "@ace/ui-core/editor-workbench";
+import {
+  dropZone,
+  type GroupNode,
+  type OutlineSymbol,
+  type Side,
+} from "@ace/ui-core/editor-workbench";
 import { TabStrip } from "./tab-strip.tsx";
+import { useStatusReport, type StatusStore } from "./status-store.ts";
+import { useFileOutline } from "./use-file-outline.ts";
+import type { TextBuffer } from "../buffers/index.ts";
 import { sceneThrough } from "@/components/ui/rules.ts";
 
 /**
@@ -37,11 +45,17 @@ export function GroupView(props: {
   stripLead?: ReactNode;
   /** Folded to its strip in a stacked accordion (`collapsedPanes`). */
   folded?: boolean;
+  /** Pane status store so breadcrumbs follow the caret without re-rendering the group. */
+  statusStore?: StatusStore | undefined;
 }) {
   const { group, host, actions } = props;
   const path = group.active;
   const snapshot = useSnapshot(host.buffers, path);
-  const buffer = path === undefined ? undefined : host.buffers.buffer(path);
+  // Through the store, not a plain call: the compiler would otherwise keep the first render's
+  // answer (no buffer yet) for as long as `host.buffers` and `path` stay the same.
+  const buffer = useSyncExternalStore(host.buffers.subscribe, () =>
+    path === undefined ? undefined : host.buffers.buffer(path),
+  );
   const load = snapshot?.status;
   const tab = group.tabs.find((each) => each.path === path);
   const markdown = markdownShow(tab);
@@ -60,6 +74,7 @@ export function GroupView(props: {
       : undefined;
   // Overlapping blocks are answered in place of the editor until each has an answer.
   const conflict = snapshot?.clash?.kind === "conflict" ? snapshot.clash : undefined;
+  const overlay = host.renderOverlay?.(group.id, path);
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -91,9 +106,17 @@ export function GroupView(props: {
       {/* Folded in a stacked accordion: the strip alone, a click away from opening. */}
       {!props.folded && (
         <>
-          <Breadcrumbs
+          <GroupBreadcrumbs
+            groupId={group.id}
             path={path}
+            buffer={load?.kind === "ready" ? buffer : undefined}
             textStart={textStart}
+            statusStore={props.statusStore}
+            onRevealSymbol={
+              path !== undefined && host.onRevealSymbol
+                ? (symbol) => host.onRevealSymbol?.(group.id, path, symbol)
+                : undefined
+            }
             end={
               path !== undefined &&
               markdown &&
@@ -139,7 +162,9 @@ export function GroupView(props: {
               if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
             }}
           >
-            {path === undefined ? (
+            {overlay ? (
+              overlay
+            ) : path === undefined ? (
               props.last ? (
                 <NoFileOpen onQuickOpen={host.onQuickOpen} />
               ) : null
@@ -245,6 +270,39 @@ const inertActions: EditorStatusActions = {
   setLanguage: () => {},
   setWhitespace: () => {},
 };
+
+const inertStatusStore: StatusStore = {
+  report: () => {},
+  get: () => undefined,
+  subscribe: () => () => {},
+};
+
+/**
+ * A pane's breadcrumbs isolated on its status report so moving the caret updates the symbol trail
+ * without redrawing the group's strip or editor.
+ */
+function GroupBreadcrumbs(props: {
+  groupId: string;
+  path: string | undefined;
+  buffer: TextBuffer | undefined;
+  textStart: number | undefined;
+  statusStore: StatusStore | undefined;
+  onRevealSymbol?: ((symbol: OutlineSymbol) => void) | undefined;
+  end?: ReactNode;
+}) {
+  const report = useStatusReport(props.statusStore ?? inertStatusStore, props.groupId);
+  const { symbols } = useFileOutline(props.buffer, report?.status.language ?? props.path);
+  return (
+    <Breadcrumbs
+      path={props.path}
+      textStart={props.textStart}
+      symbols={symbols}
+      caretLine={report?.status.line}
+      onRevealSymbol={props.onRevealSymbol}
+      end={props.end}
+    />
+  );
+}
 
 /** The `--active` wash over the part of the group a drop would take (spec 16). */
 function DropWash(props: { zone: Zone }) {

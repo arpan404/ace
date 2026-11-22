@@ -90,6 +90,7 @@ export * from "./plugins.ts";
 
 export * from "./workspace-actions.ts";
 export * from "./git-conflicts.ts";
+export * from "./git-history.ts";
 export * from "./worktree-base.ts";
 
 export * from "./forge.ts";

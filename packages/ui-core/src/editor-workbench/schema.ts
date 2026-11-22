@@ -59,6 +59,9 @@ const Explorer = z.looseObject({
   scroll: z.catch(z.number().check(z.gte(0), z.lte(10_000_000)), 0),
   query: z.catch(z.string().check(z.maxLength(4096)), ""),
   openEditors: z.catch(z.boolean(), defaultExplorer.openEditors),
+  outlineOpen: z.optional(z.catch(z.boolean(), false)),
+  outlineSort: z.optional(z.catch(z.enum(["position", "name"]), "position")),
+  timelineOpen: z.optional(z.catch(z.boolean(), false)),
 });
 
 const Closed = z.looseObject({ group: text, index: z.catch(count, 0), tab: z.unknown() });
