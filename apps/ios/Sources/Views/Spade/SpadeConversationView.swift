@@ -16,6 +16,8 @@ struct SpadeConversationView: View {
     /// Opens another conversation over this one: a waiting member's own chat.
     var open: (SpadeRoute) -> Void = { _ in }
     @State private var problem: String?
+    /// The chat's voice messages, one playing at a time.
+    @State private var voices = SpadeVoicePlayback()
     @State private var sends = 0
     @State private var stops = 0
     /// Cards for later opened from their line or the top bar's count.
@@ -132,6 +134,7 @@ struct SpadeConversationView: View {
         .accessibilityIdentifier("spade.conversation")
         // The person's pictures open full size, read from Spade by hash.
         .modifier(MessageAttachmentRoutes(model: client, source: .spade))
+        .environment(\.spadeVoicePlayback, voices)
         // Opens at the end, and a short chat sits on the composer. Size changes (a streaming
         // reply, rows measuring, the keyboard, the composer growing) keep the bottom still only
         // while the chat follows its end; reading back, the rows on screen stay where they are.
@@ -167,7 +170,10 @@ struct SpadeConversationView: View {
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
         .sensoryFeedback(AceDesign.Haptic.stop, trigger: stops)
         .onAppear { client.spadeOpen(conversation, group: group) }
-        .onDisappear { if client.spade.opened == conversation { client.spadeOpen(nil) } }
+        .onDisappear {
+            voices.release()
+            if client.spade.opened == conversation { client.spadeOpen(nil) }
+        }
     }
 
     /// The person's scroll starts, moves on its own after the finger, or comes to rest.

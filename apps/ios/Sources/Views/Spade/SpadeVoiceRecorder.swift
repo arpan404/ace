@@ -158,100 +158,140 @@ struct SpadeMicButton: View {
     }
 }
 
-/// A voice message in the chat: Play and Pause, and its length once read. The recording is read
-/// from Spade by hash (`spade.audio`) on first Play, or at once when it is small, for its length.
+/// A voice message in the chat: Play and Pause, its size from the row while it rests and the time
+/// it is at while it plays (Spade's voice ref names no length). Nothing is read until Play: the
+/// conversation's one `SpadeVoicePlayback` reads it then, and lets it go when it ends, when
+/// another starts, or when the row leaves the screen.
 struct SpadeVoicePlay: View {
     let voice: SpadeModel.Voice
     /// The recording's bytes; nil when it couldn't be read.
     let read: (String) async -> Data?
     var onAccent = false
-    @State private var player: SpadeVoicePlayer?
-    @State private var loading = false
-    @State private var problem: String?
+    @Environment(\.spadeVoicePlayback) private var playback
 
     var body: some View {
+        let state = playback?.state(voice.ref) ?? .resting
         HStack(spacing: AceDesign.Space.related) {
-            Button { Task { await toggle() } } label: {
+            Button { playback?.toggle(voice.ref, read: read) } label: {
                 Group {
-                    if loading { ProgressView().controlSize(.small) }
-                    else { AceIcon(player?.playing == true ? .pause : .play, size: AceDesign.Size.icon, relativeTo: .body) }
+                    if state == .loading { ProgressView().controlSize(.small) }
+                    else { AceIcon(state == .playing ? .pause : .play, size: AceDesign.Size.icon, relativeTo: .body) }
                 }
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(loading)
-            .accessibilityLabel(player?.playing == true ? "Pause voice message" : "Play voice message")
+            .disabled(playback == nil || state == .loading)
+            .accessibilityLabel(state == .playing ? "Pause voice message" : "Play voice message")
             .accessibilityIdentifier("spade.voice.play")
-            Text(problem ?? player.map { SpadeComposerPicks.length($0.playing ? $0.elapsed : $0.duration) } ?? "Voice message")
-                .aceFont(AceDesign.TextRole.meta).monospacedDigit()
+            Text(line(state)).aceFont(AceDesign.TextRole.meta).monospacedDigit()
         }
         .foregroundStyle(onAccent ? AceDesign.Surface.background : AceDesign.Ink.primary)
         .padding(.trailing, AceDesign.Space.margin)
         .background(onAccent ? AceDesign.Ink.accent : AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
-        .task(id: voice.ref) { if voice.bytes > 0, voice.bytes <= Self.readAtOnce { _ = await load() } }
-        .onDisappear { player?.stop() }
+        .onDisappear { playback?.leave(voice.ref) }
     }
-    /// Recordings this small are read when shown, so their length shows before Play.
-    private static let readAtOnce = 1_000_000
 
-    private func toggle() async {
-        if let player, player.playing { player.pause(); return }
-        guard let player = await load() else { return }
-        player.play()
-    }
-    private func load() async -> SpadeVoicePlayer? {
-        if let player { return player }
-        loading = true
-        defer { loading = false }
-        guard let data = await read(voice.ref) else { problem = "Couldn't read it"; return nil }
-        guard let made = SpadeVoicePlayer(data) else { problem = "Can't play on iPhone"; return nil }
-        problem = nil
-        player = made
-        return made
+    private func line(_ state: SpadeVoicePlayback.State) -> String {
+        switch state {
+        case .playing, .paused: SpadeComposerPicks.length(playback?.elapsed ?? 0)
+        case let .failed(text): text
+        case .loading, .resting:
+            voice.bytes > 0
+                ? "Voice message · \(ByteCountFormatter.string(fromByteCount: Int64(voice.bytes), countStyle: .file))"
+                : "Voice message"
+        }
     }
 }
 
-/// One recording's playback, observed for Play and Pause and the time it is at.
-@MainActor @Observable final class SpadeVoicePlayer {
+extension EnvironmentValues {
+    /// The open conversation's voice playback; without one, Play is off.
+    @Entry var spadeVoicePlayback: SpadeVoicePlayback? = nil
+}
+
+/// A conversation's voice messages, played one at a time: at most one recording is read and held,
+/// and it goes when it ends, when another starts, or when its row leaves the screen.
+@MainActor @Observable final class SpadeVoicePlayback {
+    enum State: Equatable { case resting, loading, playing, paused, failed(String) }
+    /// The recording held, by its ref.
+    private(set) var current: String?
+    private(set) var loading: String?
     private(set) var playing = false
     private(set) var elapsed: TimeInterval = 0
-    let duration: TimeInterval
-    private let player: AVAudioPlayer
+    /// Why a recording couldn't play, by ref, until it is tried again.
+    private(set) var failures: [String: String] = [:]
+    @ObservationIgnored private var player: AVAudioPlayer?
     @ObservationIgnored private var ticking: Task<Void, Never>?
+    @ObservationIgnored private var reading: Task<Void, Never>?
 
-    init?(_ data: Data) {
-        guard let player = try? AVAudioPlayer(data: data), player.duration > 0 else { return nil }
-        self.player = player
-        duration = player.duration
+    func state(_ ref: String) -> State {
+        if loading == ref { return .loading }
+        if current == ref { return playing ? .playing : .paused }
+        if let failure = failures[ref] { return .failed(failure) }
+        return .resting
     }
-    func play() {
+
+    /// Play, Pause, or carry on from where it paused; another recording held is let go first.
+    func toggle(_ ref: String, read: @escaping @MainActor (String) async -> Data?) {
+        if current == ref, let player {
+            if playing { player.pause(); stopTicking() } else { start(player) }
+            return
+        }
+        release()
+        failures[ref] = nil
+        loading = ref
+        reading = Task { [weak self] in
+            let data = await read(ref)
+            guard let self, !Task.isCancelled, self.loading == ref else { return }
+            self.loading = nil
+            guard let data else { self.failures[ref] = "Couldn't read it"; return }
+            guard let made = try? AVAudioPlayer(data: data), made.duration > 0 else {
+                self.failures[ref] = "Can't play on iPhone"
+                return
+            }
+            self.player = made
+            self.current = ref
+            self.start(made)
+        }
+    }
+
+    /// Its row left the screen: a recording it held, or was reading, goes.
+    func leave(_ ref: String) {
+        if current == ref || loading == ref { release() }
+    }
+
+    /// Lets go of whatever is held or being read.
+    func release() {
+        reading?.cancel()
+        reading = nil
+        loading = nil
+        stopTicking()
+        player?.stop()
+        player = nil
+        current = nil
+        playing = false
+        elapsed = 0
+    }
+
+    private func start(_ player: AVAudioPlayer) {
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
         try? AVAudioSession.sharedInstance().setActive(true)
-        guard player.play() else { return }
+        guard player.play() else { release(); return }
         playing = true
         ticking?.cancel()
         ticking = Task { [weak self] in
-            while !Task.isCancelled, let self {
-                self.elapsed = self.player.currentTime
-                if !self.player.isPlaying { self.stopped(); return }
+            while !Task.isCancelled, let self, let held = self.player, held === player {
+                self.elapsed = held.currentTime
+                // Played to its end: nothing is kept.
+                if !held.isPlaying { self.release(); return }
                 try? await Task.sleep(for: .milliseconds(250))
             }
         }
     }
-    func pause() {
-        player.pause()
-        stopped()
-    }
-    func stop() {
-        player.stop()
-        player.currentTime = 0
-        stopped()
-    }
-    private func stopped() {
-        playing = false
+    private func stopTicking() {
         ticking?.cancel()
         ticking = nil
-        elapsed = player.currentTime
+        playing = false
+        elapsed = player?.currentTime ?? 0
     }
 }
