@@ -53,6 +53,11 @@ async function crashAt(
     runAppearsDuringProof?: boolean;
     /** The person presses Resume while the reconcile waits on a busy store. */
     resumeWhileBusy?: boolean;
+    /**
+     * An earlier build's journal: none of this build's records, and this many newer frames
+     * past the attempted send, more than the reopen's window reads.
+     */
+    legacyFrames?: number;
     /** The host reopens without reading back the attempt (a legacy search gave up). */
     noAdmission?: boolean;
     /** The re-sent message never reaches Cursor: the host attempts it and nothing follows. */
@@ -89,6 +94,36 @@ async function crashAt(
     await exit;
   }
   const store = new Store(path);
+  if (host.legacyFrames) {
+    store
+      .statement(
+        "DELETE FROM engine_state_records WHERE section IN ('cursorAttempt','cursorFrames','cursorRetired')",
+      )
+      .run();
+    store.atomic(() => {
+      const last = Number(
+        store.statement("SELECT MAX(seq) AS seq FROM engine_provider_frames").get()?.seq ?? 0,
+      );
+      const insert = store.statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)");
+      for (let n = 1; n <= (host.legacyFrames ?? 0); n++) {
+        const data = {
+          schemaVersion: 1,
+          generation: "old",
+          operationId: "noise",
+          segment: 0,
+          agentId: "native-agent",
+          kind: "host-output",
+          body: {},
+        };
+        insert.run(
+          threadId,
+          "host",
+          last + n,
+          JSON.stringify({ seq: last + n, t: n, dir: "recv", channel: "sdk", data }),
+        );
+      }
+    });
+  }
   let diskFull = nothing;
   // What the test reads is never refused: only the engine's own writes meet the full disk.
   let reading = false;
@@ -531,6 +566,18 @@ it("a send whose attempt the reopened host couldn't read back says ace couldn't 
     "Delivery unconfirmed: ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
   );
   expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
+  expect(crash.statusAfter()).toBe("waiting");
+});
+
+it("an earlier build's send past the frames its reopen reads is said unconfirmed, and the thread waits", async () => {
+  await using crash = await crashAt("attempted", { resume: false, legacyFrames: 4100 });
+  // The reopen read no send, so it had no attempt to ask Cursor about, and no command id.
+  expect(crash.opened[0]?.unsettled?.attempt).toBeUndefined();
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
+  expect(said(crash)).toContain(
+    "Delivery unconfirmed: ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
+  );
   expect(crash.statusAfter()).toBe("waiting");
 });
 

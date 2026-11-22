@@ -232,6 +232,14 @@ export class IntentStore {
       ? { ...header(row), command: Command.parse(JSON.parse(String(row.payload))) }
       : undefined;
   }
+  /** The thread's sends held as uncertain, oldest first, a few at most. */
+  uncertainSends(id: ThreadId): Intent[] {
+    return this.sql(
+      `SELECT ${columns},payload FROM intents WHERE thread_id=? AND uncertain=1 AND acknowledged=0 AND kind IN (${deliveryKinds}) ORDER BY id LIMIT 16`,
+    )
+      .all(id)
+      .map((row) => ({ ...header(row), command: Command.parse(JSON.parse(String(row.payload))) }));
+  }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN (${deliveryKinds}) AND delivery='queue' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,

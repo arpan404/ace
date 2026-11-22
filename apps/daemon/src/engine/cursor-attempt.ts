@@ -24,6 +24,19 @@ export function mayRequeue(repo: EngineRepository, id: ThreadId, commandId: stri
   return !repo.recovery.admissionRecorded(id, commandId);
 }
 
+/**
+ * The held sends whose fate a reopen couldn't read: the attempted one, or, for an earlier build's
+ * thread whose attempt is past the frames it kept (no command id), every send held as uncertain.
+ */
+export function inDoubt(repo: EngineRepository, id: ThreadId) {
+  const command = repo.recovery.attemptedCommand(id);
+  if (command) {
+    const intent = repo.pending.uncertainSend(id, command);
+    return intent ? [intent] : [];
+  }
+  return repo.recovery.unknownAttempt(id) ? repo.pending.uncertainSends(id) : [];
+}
+
 export function settleCursorAttempt(
   repo: EngineRepository,
   id: ThreadId,
@@ -35,10 +48,9 @@ export function settleCursorAttempt(
   if (!admission?.commandId) {
     // The host read nothing back of the attempt (an earlier build's search gave up): its fate
     // is unknown, and the thread says that, not the restart's "not sent".
-    const command = repo.recovery.attemptedCommand(id);
-    const waiting = command ? repo.pending.uncertainSend(id, command) : undefined;
-    if (!waiting) return;
-    unconfirmed(repo, id, waiting.id, at);
+    const waiting = inDoubt(repo, id);
+    if (!waiting.length) return;
+    for (const intent of waiting) unconfirmed(repo, id, intent.id, at);
     // Nothing more will come of the attempt: the thread waits on the person, not on Cursor.
     const root = repo.requireState(id).rootKey ?? "root";
     repo.apply(id, [{ type: "wake.expected", agent: root, until: at }], at);

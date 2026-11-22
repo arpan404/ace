@@ -5,7 +5,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { Recovery } from "./recovery.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { lostWork } from "./lost-work.ts";
-import { unconfirmed } from "./cursor-attempt.ts";
+import { inDoubt, unconfirmed } from "./cursor-attempt.ts";
 import { SessionOpenError, sessionStoreBusy } from "@ace/provider-kit/open-error";
 
 /*
@@ -145,9 +145,7 @@ function endFailed(deps: ReconcileDependencies, id: ThreadId): void {
   if (state.agents[state.rootKey ?? ""]?.activeRun)
     repo.store.atomic(() => repo.apply(id, restartFailure(repo, id, clock.now()), clock.now()));
   repo.store.atomic(() => {
-    const command = repo.recovery.attemptedCommand(id);
-    const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
-    if (intent) unconfirmed(repo, id, intent.id, clock.now());
+    for (const intent of inDoubt(repo, id)) unconfirmed(repo, id, intent.id, clock.now());
   });
 }
 
@@ -165,9 +163,7 @@ async function reconcileOnce(deps: ReconcileDependencies, id: ThreadId): Promise
   const fail = (actor?: ThreadActor) => {
     // A send whose fate can't be read stays held as uncertain, and the thread says so.
     repo.store.atomic(() => {
-      const command = repo.recovery.attemptedCommand(id);
-      const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
-      if (intent) unconfirmed(repo, id, intent.id, clock.now());
+      for (const intent of inDoubt(repo, id)) unconfirmed(repo, id, intent.id, clock.now());
     });
     if (!wasRunning) return;
     const facts = restartFailure(repo, id, clock.now());

@@ -272,6 +272,10 @@ export class ProviderRecovery {
       ? undefined
       : { commandId: record.commandId, admitted: record.admitted };
   }
+  /** True when an earlier build's send can't be ruled out, but which one is unknown. */
+  unknownAttempt(threadId: ThreadId): boolean {
+    return this.current(threadId)?.older === true;
+  }
   /** The command of the latest send the host attempted, if one is on record. */
   attemptedCommand(threadId: ThreadId): string | undefined {
     const record = this.current(threadId);
