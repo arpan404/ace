@@ -23,7 +23,9 @@ export type ReadFamily =
   | "verify"
   | "host"
   | "providers"
-  | "skills";
+  | "skills"
+  /** The marketplace's home, listings, entries and Installed (`market.ts`). */
+  | "market";
 
 type Raw = Record<string, unknown>;
 const Raw = z.record(z.string(), z.unknown());
@@ -61,6 +63,26 @@ const skillLookups = new Set([
   "checkUpdate",
   "prepareUpdate",
   "cancelUpdate",
+]);
+/** The phone's market reads that are kept; pictures are kept by hash, reviews never. */
+const marketReads = new Set([
+  "discover",
+  "home",
+  "search",
+  "read",
+  "publisher",
+  "sources",
+  "installed",
+]);
+/** Market operations that change nothing kept: a picture, and a review read or let go. */
+const marketLookups = new Set([
+  ...marketReads,
+  "picture",
+  "prepare",
+  "prepareUpdate",
+  "prepareRollback",
+  "readReview",
+  "cancel",
 ]);
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
@@ -119,6 +141,8 @@ export function readFamily(request: unknown): ReadFamily | undefined {
       return value.op === "library" ? "skills" : undefined;
     case "plugins.native":
       return value.op === "plugins" ? "plugins" : undefined;
+    case "market.native":
+      return marketReads.has(operation(value) ?? "") ? "market" : undefined;
     case "forge.pulls":
     case "forge.issues":
     case "forge.pull":
@@ -188,6 +212,11 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return skillLookups.has(String(value.op)) ? [] : ["skills", "catalog"];
     case "plugins.native":
       return pluginChanges.has(String(value.op)) ? ["plugins", "catalog", "skills"] : [];
+    // An install or removal changes the skills and plugins the machine lists too.
+    case "market.native":
+      return marketLookups.has(operation(value) ?? "")
+        ? []
+        : ["market", "skills", "plugins", "catalog"];
     case "prompts.request":
       return ["prompts"];
     case "provider.edit":
@@ -244,6 +273,9 @@ export function eventFamilies(type: string): readonly ReadFamily[] {
       return ["verify"];
     case "machineUpdate.changed":
       return ["host"];
+    // Installs, removals and update counts changed: the home, Installed and open entries read again.
+    case "marketplace.changed":
+      return ["market"];
     default:
       return [];
   }
@@ -257,6 +289,8 @@ export function keepable(value: unknown): boolean {
   const reply = record(value);
   if (!reply) return value !== undefined;
   if (reply.ok === false) return false;
+  // The market's last answer given again while the machine is unreachable (`market.ts`).
+  if (reply.offline === true) return false;
   const result = record(reply.result);
   if (result && (result.kind === "error" || result.ok === false)) return false;
   const response = record(reply.response);
