@@ -582,7 +582,7 @@ test("each app shows its own mark, and a server added by address its first lette
   await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });
 
-test("with the Store on, Connect an app opens its Apps, the one catalogue", async () => {
+test("with the Marketplace on, Connect an app opens its Apps, the one catalogue", async () => {
   const history = createMemoryHistory({ initialEntries: ["/settings/spade/apps"] });
   await spadeApp("/settings/spade/apps", seed, {
     history,

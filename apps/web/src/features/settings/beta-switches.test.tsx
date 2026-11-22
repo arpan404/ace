@@ -10,22 +10,22 @@ const rail = () => screen.getByRole("navigation", { name: "App" });
 const marketplaceOff = (daemon: FakeDaemon) =>
   daemon.services.settings.write("beta.marketplace", false);
 
-test("the Store switch on Settings › Beta saves the setting and hides or shows its rail place", async () => {
+test("the Marketplace switch on Settings › Beta saves the setting and hides or shows its rail place", async () => {
   const app = harness();
   await app.open("/settings/beta");
-  const toggle = await screen.findByRole("switch", { name: "Store" });
+  const toggle = await screen.findByRole("switch", { name: "Marketplace" });
   await waitFor(() => expect(toggle.getAttribute("aria-checked")).toBe("true"));
-  expect(within(rail()).getByRole("button", { name: "Store" })).toBeTruthy();
+  expect(within(rail()).getByRole("button", { name: "Marketplace" })).toBeTruthy();
 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
-  await waitFor(() => expect(within(rail()).queryByRole("button", { name: "Store" })).toBeNull());
+  await waitFor(() => expect(within(rail()).queryByRole("button", { name: "Marketplace" })).toBeNull());
 
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(true));
-  expect(await within(rail()).findByRole("button", { name: "Store" })).toBeTruthy();
+  expect(await within(rail()).findByRole("button", { name: "Marketplace" })).toBeTruthy();
 });
 
 test("Ask me before agents publish starts off and saves the person's choice", async () => {
@@ -60,25 +60,25 @@ test("the Spade switch on Settings › Beta saves the setting and swaps Spade's 
   expect(await within(rail()).findByRole("link", { name: "Spade" })).toBeTruthy();
 });
 
-test("a Store address opens its page only while the Store is on", async () => {
+test("a Store address opens its page only while the Marketplace is on", async () => {
   for (const turnedOn of [true, false]) {
     const history = createMemoryHistory({ initialEntries: ["/chats?store=installed"] });
     const app = harness({ history });
     if (!turnedOn) marketplaceOff(app.daemon);
     const view = await app.open("/chats?store=installed");
     await screen.findByRole("navigation", { name: "App" });
-    if (turnedOn) expect(await screen.findByRole("region", { name: "Store" })).toBeTruthy();
+    if (turnedOn) expect(await screen.findByRole("region", { name: "Marketplace" })).toBeTruthy();
     else {
       // Its setting has been read: the rail has no Store, and no page opened.
       await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
       await new Promise((resolve) => setTimeout(resolve, 200));
-      expect(screen.queryByRole("region", { name: "Store" })).toBeNull();
+      expect(screen.queryByRole("region", { name: "Marketplace" })).toBeNull();
     }
     view.unmount();
   }
 });
 
-test("Appearance offers More Suits only while the Store is on", async () => {
+test("Appearance offers More Suits only while the Marketplace is on", async () => {
   const on = harness();
   const shown = await on.open("/settings/appearance");
   expect(await screen.findByRole("button", { name: "More Suits" })).toBeTruthy();
@@ -91,14 +91,14 @@ test("Appearance offers More Suits only while the Store is on", async () => {
   expect(screen.queryByRole("button", { name: "More Suits" })).toBeNull();
 });
 
-test("the Skills Add menu offers the Store only while it is on", async () => {
+test("the Skills Add menu offers the Marketplace only while it is on", async () => {
   for (const turnedOn of [true, false]) {
     const app = harness();
     if (!turnedOn) marketplaceOff(app.daemon);
     const view = await app.open("/skills");
     await userEvent.click(await screen.findByRole("button", { name: "Add a skill" }));
     expect(await screen.findByRole("menuitem", { name: /Install a plugin/ })).toBeTruthy();
-    const item = screen.queryByRole("menuitem", { name: "From the Store" });
+    const item = screen.queryByRole("menuitem", { name: "From the Marketplace" });
     expect(item !== null).toBe(turnedOn);
     view.unmount();
   }
@@ -111,12 +111,12 @@ const appsButton = async () => {
   return within(toolbar).queryByRole("button", { name: "Apps, plugins and skills" });
 };
 
-test("Spade's list has no apps button: the Store opens from the rail", async () => {
+test("Spade's list has no apps button: the Marketplace opens from the rail", async () => {
   await spadeApp("/spade", () => {});
   expect(await appsButton()).toBeNull();
 });
 
-test("New bot offers bots from the Store only while it is on", async () => {
+test("New bot offers bots from the Marketplace only while it is on", async () => {
   for (const turnedOn of [true, false]) {
     await spadeApp(
       "/spade",
@@ -135,10 +135,10 @@ test("New bot offers bots from the Store only while it is on", async () => {
       turnedOn ? {} : { daemon: marketplaceOff },
     );
     await openNew("New bot");
-    // Where a bot starts from, which ends with the way to the Store.
+    // Where a bot starts from, which ends with the way to the Marketplace.
     const start = within(await screen.findByRole("region", { name: "Start from" }));
     expect(await start.findByRole("button", { name: /^Morning digest/ })).toBeTruthy();
-    const link = start.queryByRole("button", { name: "Store" });
+    const link = start.queryByRole("button", { name: "Marketplace" });
     expect(link !== null).toBe(turnedOn);
     cleanup();
   }
@@ -146,15 +146,15 @@ test("New bot offers bots from the Store only while it is on", async () => {
 
 /** The palette's Go to command (Settings › Beta's row also matches the word). */
 const option = () =>
-  screen.queryAllByRole("option").find((each) => each.textContent === "StoreGo to");
+  screen.queryAllByRole("option").find((each) => each.textContent === "MarketplaceGo to");
 
-test("the command palette goes to the Store only while it is on", async () => {
+test("the command palette goes to the Marketplace only while it is on", async () => {
   for (const turnedOn of [true, false]) {
     const app = harness();
     if (!turnedOn) marketplaceOff(app.daemon);
     const view = await app.open("/chats");
     await screen.findByRole("navigation", { name: "App" });
-    if (turnedOn) await within(rail()).findByRole("button", { name: "Store" });
+    if (turnedOn) await within(rail()).findByRole("button", { name: "Marketplace" });
     await userEvent.keyboard("{Meta>}k{/Meta}");
     const search = await screen.findByRole(
       "combobox",
@@ -167,7 +167,7 @@ test("the command palette goes to the Store only while it is on", async () => {
       await waitFor(() => expect(option()).toBeDefined());
       const command = option();
       if (command) await userEvent.click(command);
-      expect(await screen.findByRole("region", { name: "Store" })).toBeTruthy();
+      expect(await screen.findByRole("region", { name: "Marketplace" })).toBeTruthy();
     } else {
       // Settings › Beta has been read (Appearance's own link waits on it the same way).
       await waitFor(() => expect(screen.getAllByRole("option").length).toBeGreaterThan(0));

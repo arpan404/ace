@@ -52,7 +52,7 @@
     .mk-stack,
     .mk-offline {
       --mk-gutter: 32px;
-      --mk-display: 36px;
+      --mk-display: var(--text-2xl);
       --mk-section-gap: 48px;
     }
     .mk-bar {
@@ -223,8 +223,8 @@
     .mk-offline {
       --mk-gutter: 16px;
       --mk-section-gap: 40px;
-      --mk-display: 30px;
-      --mk-display-sm: 26px;
+      --mk-display: var(--text-2xl);
+      --mk-display-sm: var(--text-xl);
     }
     .mk-bar {
       grid-template-columns: minmax(0, 1fr) auto auto;

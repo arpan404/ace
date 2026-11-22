@@ -162,7 +162,7 @@ export function StartFrom(props: {
             >
               <StoreIcon size={20} />
             </span>
-            Store
+            Marketplace
           </button>
         </li>
       )}

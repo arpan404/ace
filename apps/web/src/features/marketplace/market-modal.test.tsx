@@ -33,7 +33,7 @@ test("search narrows the marketplace to what matches, and Esc clears it first", 
     within(market).getByRole<HTMLInputElement>("searchbox", { name: "Search bots, apps and more" })
       .value,
   ).toBe("");
-  expect(screen.getByRole("region", { name: "Store" })).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Marketplace" })).toBeTruthy();
 });
 
 test("Try it dresses the whole app in the Suit, and Undo puts the person's look back", async () => {
