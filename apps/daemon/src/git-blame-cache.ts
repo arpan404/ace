@@ -48,7 +48,8 @@ export class GitBlameCache {
       key,
       (stop) =>
         load(stop).then((value) => {
-          this.#put(key, value);
+          // A capped answer (byte cap, work budget) is partial: kept, it would hide lines.
+          if (!value.capped) this.#put(key, value);
           return value;
         }),
       signal,

@@ -134,3 +134,28 @@ test("git is stopped once every caller of a blame has gone", async () => {
   await expect(read).rejects.toThrow();
   expect(gitSignal?.aborted).toBe(true);
 });
+
+test("a capped blame is not kept: the next read asks git again", async () => {
+  const cache = new GitBlameCache(() => 0);
+  let loads = 0;
+  const load = async () => {
+    loads++;
+    return { ...sampleBlame("e".repeat(40), 1), capped: loads === 1 };
+  };
+  expect((await cache.read("k", load)).capped).toBe(true);
+  expect((await cache.read("k", load)).capped).toBe(false);
+  await cache.read("k", load);
+  expect(loads).toBe(2);
+});
+
+test("a failed blame is not kept", async () => {
+  const cache = new GitBlameCache(() => 0);
+  let loads = 0;
+  const load = async () => {
+    loads++;
+    if (loads === 1) throw new Error("objects_not_available");
+    return sampleBlame("f".repeat(40), 1);
+  };
+  await expect(cache.read("k", load)).rejects.toThrow();
+  expect((await cache.read("k", load)).lines).toHaveLength(1);
+});

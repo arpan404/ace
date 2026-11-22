@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rename } from "node:fs/promises";
+import { mkdtemp, readFile, rename, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -169,6 +169,28 @@ test("fileBlame blames a range at the commit it is given, and stops at its caps"
   });
   expect(capped.capped).toBe(true);
   expect(capped.lines.length).toBeLessThan(4);
+});
+
+test("fileBlame fails, rather than answering 'no such file', when Git cannot read the objects", async () => {
+  const repo = await repository({ "app.ts": "one\ntwo\n" });
+  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+  const blob = (await git(repo, "rev-parse", "HEAD:app.ts")).toString().trim();
+  const objects = (await git(repo, "rev-parse", "--git-path", "objects")).toString().trim();
+  await rm(join(repo, objects, blob.slice(0, 2), blob.slice(2)));
+  await expect(
+    service.fileBlame({ worktree: repo, path: "app.ts", commit: head, startLine: 1, endLine: 2 }),
+  ).rejects.toBeInstanceOf(Error);
+
+  // A commit the repository does not have is an error too, not an empty file.
+  await expect(
+    service.fileBlame({
+      worktree: repo,
+      path: "app.ts",
+      commit: "e".repeat(40),
+      startLine: 1,
+      endLine: 2,
+    }),
+  ).rejects.toBeInstanceOf(Error);
 });
 
 test("fileBlame refuses a file too large to blame", async () => {

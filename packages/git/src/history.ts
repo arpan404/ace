@@ -185,6 +185,41 @@ export async function fileLog(
   return { entries, hasMore, ...(next ? { next } : {}), capped, head };
 }
 
+/**
+ * The blob `path` names in `commit`, or undefined when the commit (readable) has no file there.
+ * A commit or tree Git cannot read is an error, never "no such file": that answer would be
+ * shown, and kept, as lines not committed yet.
+ */
+async function blobAt(
+  repository: Repository,
+  root: string,
+  commit: string,
+  path: string,
+  signal: AbortSignal | undefined,
+): Promise<string | undefined> {
+  const exists = await repository.cli.call(root, ["cat-file", "-e", `${commit}^{commit}`], {
+    allowFailure: true,
+    captureBytes: 64,
+    ...(signal ? { signal } : {}),
+  });
+  if (exists.exitCode !== 0)
+    throw new GitError("objects_not_available", `Git could not read commit ${commit}`);
+  const listed = await repository.cli.call(
+    root,
+    ["--literal-pathspecs", "ls-tree", "-z", "--full-tree", commit, "--", path],
+    { allowFailure: true, captureBytes: 64 * 1024, ...(signal ? { signal } : {}) },
+  );
+  if (listed.exitCode !== 0)
+    throw new GitError("objects_not_available", `Git could not read ${path} at ${commit}`);
+  for (const record of listed.stdout.toString("utf8").split("\0")) {
+    const tab = record.indexOf("\t");
+    if (tab < 0 || record.slice(tab + 1) !== path) continue;
+    const [, type, oid] = record.slice(0, tab).split(" ");
+    return type === "blob" && oid ? oid : undefined;
+  }
+  return undefined;
+}
+
 /** The line count git names when a blame range starts or ends past the file's end. */
 function linesInFile(stderr: string): number | undefined {
   const match = /has only (\d+) lines?/.exec(stderr);
@@ -220,13 +255,16 @@ export async function fileBlame(
     throw new GitError("invalid_argument", "maxBytes must be a positive integer");
   const none: FileBlameResult = { head: commit, commits: [], lines: [], capped: false };
 
-  const size = await repository.cli.call(root, ["cat-file", "-s", `${commit}:${path}`], {
+  const blob = await blobAt(repository, root, commit, path, signal);
+  // The commit has no such file (untracked, or added since): an answer, not a failure.
+  if (blob === undefined) return none;
+  const size = await repository.cli.call(root, ["cat-file", "-s", blob], {
     allowFailure: true,
     captureBytes: 64,
     ...(signal ? { signal } : {}),
   });
-  // The commit has no such file (untracked, added since, or a missing commit's object).
-  if (size.exitCode !== 0) return none;
+  if (size.exitCode !== 0)
+    throw new GitError("objects_not_available", `Git could not read ${path} at ${commit}`);
   if (Number(textOutput(size)) > maxFileBytes)
     throw new GitError("file_too_large", `${path} is too large to blame`);
 
