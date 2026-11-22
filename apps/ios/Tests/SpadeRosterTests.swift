@@ -37,13 +37,23 @@ import Testing
             // An older main on a machine that doesn't answer now isn't chosen.
             ([machine("laptop", bots: [main("laptop", created: 9)]),
               machine("server", answering: false, bots: [main("server", created: 1, state: "off")])], "laptop/main-laptop"),
-            // As old as each other: the machine key decides, as on the web.
+            // As old as each other: the host id decides, as on the web.
             ([machine("b", bots: [main("b", created: 5)]), machine("a", bots: [main("a", created: 5)])], "a/main-a"),
             ([machine("server", answering: false, bots: [main("server", created: 1, state: "off")])], nil),
         ]
         for (machines, shown) in cases {
             #expect(SpadeRoster.merge(machines).first { $0.bot.main }?.id == shown)
         }
+    }
+
+    @Test func twoMainsAsOldAsEachOtherBreakTheTieByHostIdNotByTheInboxKey() {
+        // The inbox keys sort one way and the host ids the other: the host id decides.
+        let first = SpadeRoster.Machine(key: "a-inbox", name: "A", host: "zeta", answering: true, record: nil,
+                                        bots: [main("a", created: 5)])
+        let second = SpadeRoster.Machine(key: "b-inbox", name: "B", host: "alpha", answering: true, record: nil,
+                                         bots: [main("b", created: 5)])
+        #expect(SpadeRoster.merge([first, second]).first?.id == "b-inbox/main-b")
+        #expect(SpadeRoster.merge([second, first]).first?.id == "b-inbox/main-b")
     }
 
     @Test func theNewestChoiceWinsByVersionThenTimeThenHost() {
