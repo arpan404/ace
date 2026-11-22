@@ -103,7 +103,8 @@ describe("Web APIs backed by the host", () => {
     const armed: { id: string; delay: number; callback: () => void }[] = [];
     const host = {
       ...createNodeHost(),
-      timer: (id: string, delay: number, callback: () => void) => armed.push({ id, delay, callback }),
+      timer: (id: string, delay: number, callback: () => void) =>
+        armed.push({ id, delay, callback }),
       cancelTimer: (id: string) => {
         const at = armed.findIndex((timer) => timer.id === id);
         if (at >= 0) armed.splice(at, 1);
