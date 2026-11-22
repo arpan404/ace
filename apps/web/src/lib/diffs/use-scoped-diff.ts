@@ -48,6 +48,8 @@ export function useScopedDiff(threadId: string, tabKey?: string) {
   };
   return {
     scope,
+    /** The one turn shown (the last one for "last"); undefined for all turns or the working tree. */
+    turnId: resolved.turn?.id,
     setScope,
     edited,
     files,

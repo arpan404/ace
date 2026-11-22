@@ -1,4 +1,5 @@
-import { fileChanges, type Turn } from "@ace/ui-core";
+import { ProviderKind } from "@ace/protocol";
+import { fileChanges, providerDisplayName, type Turn } from "@ace/ui-core";
 import type { Author, EditCall } from "@/features/editor-workbench/index.ts";
 
 /*
@@ -7,6 +8,10 @@ import type { Author, EditCall } from "@/features/editor-workbench/index.ts";
  * editors row and the status line's "Claude Code changed 2 open files" with Next change. Pure:
  * the panel feeds it disk changes, what is on screen, and the turn's edit calls.
  */
+
+/** The provider behind an agent's display name ("Claude Code" is claude), for its mark. */
+export const providerOf = (agent: string): ProviderKind | undefined =>
+  ProviderKind.options.find((kind) => providerDisplayName(kind) === agent);
 
 /** A change someone can be named for. */
 export type NamedAuthor = Exclude<Author, { kind: "unknown" }>;
@@ -89,7 +94,7 @@ export function editCallsOf(
       const at = Math.min(edit.createdAt, firstSeen(edit.id));
       for (const change of fileChanges(edit))
         for (const path of change.movePath ? [change.path, change.movePath] : [change.path])
-          calls.push({ ...thread, path, at });
+          calls.push({ ...thread, path, at, turn: turn.number });
     }
   return calls;
 }
@@ -166,4 +171,36 @@ export function treeMarks(input: {
     marks.set(path, { author, at: Number.isFinite(newest) ? newest : input.now });
   }
   return marks;
+}
+
+const compare = (a: readonly [number, number], b: readonly [number, number]) =>
+  a[0] - b[0] || a[1] - b[1];
+
+/** A place Next change goes: an agent's block in an open file. */
+export interface ChangeStop {
+  path: string;
+  /** 0-based line the block starts on. */
+  line: number;
+}
+
+/**
+ * Next change (⌥F5) through the agents' blocks across open files, in open order then line order,
+ * from `at` (the last stop, or the shown file's top); ⇧ goes back. Wraps; undefined with none.
+ */
+export function stepAgentChange(
+  open: readonly string[],
+  blocksOf: (path: string) => readonly { start: number }[],
+  at: { path: string | undefined; line: number },
+  direction: 1 | -1 = 1,
+): ChangeStop | undefined {
+  const stops: ChangeStop[] = [];
+  for (const path of open)
+    for (const start of new Set(blocksOf(path).map((block) => block.start)))
+      stops.push({ path, line: start });
+  if (stops.length === 0) return undefined;
+  const order = (stop: ChangeStop) => [open.indexOf(stop.path), stop.line] as const;
+  const here = [at.path === undefined ? -1 : open.indexOf(at.path), at.line] as const;
+  const sorted = stops.toSorted((a, b) => compare(order(a), order(b)));
+  if (direction === 1) return sorted.find((stop) => compare(order(stop), here) > 0) ?? sorted[0];
+  return sorted.findLast((stop) => compare(order(stop), here) < 0) ?? sorted.at(-1);
 }

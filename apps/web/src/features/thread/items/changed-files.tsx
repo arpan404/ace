@@ -1,4 +1,4 @@
-import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { useReviewInEditor, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import type { ThreadReader } from "@ace/client";
 import { useThread } from "@ace/client-react";
 import { changedFileChips, fileChanges, fileChipName, rootRunOf, type Turn } from "@ace/ui-core";
@@ -36,7 +36,8 @@ const chip =
 
 /**
  * The files a turn changed, as wrapping chips: each file's name with its `+N −M`, then "+2 more".
- * A chip opens Changes on that turn with its file in view; "+N more" opens the turn's changes.
+ * A chip opens Changes on that turn with its file in view; "+N more" opens the turn's changes;
+ * Review in editor steps through the turn's hunks inline in the editor, file after file.
  */
 export function ChangedFiles(props: { threadId: string; itemIds: readonly string[] }) {
   const edits = useItemsSelect(props.threadId, props.itemIds, selectEdits, sameEdits) ?? none;
@@ -49,6 +50,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
     [first],
   );
   const turn = useThread(props.threadId, [`item:${first}`, "agents"], readTurn, Object.is);
+  const review = useReviewInEditor(props.threadId);
   if (!files.length) return null;
   const scope = turn ? { scope: turn } : {};
   const open = (path?: string) =>
@@ -76,6 +78,15 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
           className="h-7 px-1 font-mono text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
         >
           +{more} more
+        </button>
+      )}
+      {turn && files[0] && (
+        <button
+          type="button"
+          onClick={() => files[0] && review(files[0].path, turn)}
+          className="h-7 px-1 text-xs text-subtle-foreground transition-colors duration-(--motion-fast) hover:text-foreground focus-ring"
+        >
+          Review in editor
         </button>
       )}
     </div>

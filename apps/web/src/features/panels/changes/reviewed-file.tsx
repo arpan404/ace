@@ -84,6 +84,8 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
   drafts: readonly ReviewDraft[];
   /** The comment being written, when it is on this file at this version. */
   composition: ReviewComposition | undefined;
+  /** The turn the diff shows; unset on the Uncommitted scope. */
+  turn?: string | undefined;
   /** Lines take new comments (the Uncommitted scope only). */
   commentable: boolean;
   handlers: ReviewHandlers;
@@ -110,6 +112,7 @@ export const ReviewedFile = memo(function ReviewedFile(props: {
         <FileActions
           threadId={props.threadId}
           path={file.path}
+          turn={props.turn}
           viewed={props.viewed}
           open={view.open}
           onOpen={(open) => handlers.setView(file.path, { ...view, open })}

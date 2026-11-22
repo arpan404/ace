@@ -14,11 +14,13 @@ export interface EditCall {
   path: string;
   /** When the call was reported, in ms. */
   at: number;
+  /** The thread's turn that made the call (1-based), when known. */
+  turn?: number | undefined;
 }
 
 export type Author =
   /** This thread's agent. */
-  | { kind: "agent"; agent: string; threadId: string }
+  | { kind: "agent"; agent: string; threadId: string; turn?: number | undefined }
   /** Another thread working in the same checkout. */
   | { kind: "thread"; threadId: string; title: string; agent: string }
   | { kind: "unknown" };
@@ -54,7 +56,12 @@ export function attribute(
   }
   if (!best) return { kind: "unknown" };
   if (best.threadId === change.threadId)
-    return { kind: "agent", agent: best.agent, threadId: best.threadId };
+    return {
+      kind: "agent",
+      agent: best.agent,
+      threadId: best.threadId,
+      ...(best.turn === undefined ? {} : { turn: best.turn }),
+    };
   return { kind: "thread", threadId: best.threadId, title: best.threadTitle, agent: best.agent };
 }
 
