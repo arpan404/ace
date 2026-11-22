@@ -264,6 +264,16 @@ export class WrapIndex implements RowLayout {
     return this.#hidden[this.#nodeAt(line)] === 1;
   }
 
+  /**
+   * A line's row count as known now, without measuring it: for placing things by rows (the
+   * overview ruler) during a render, where a measure would move rows unseen.
+   */
+  rowCount(line: number): number {
+    const node = this.#nodeAt(line);
+    if (node === 0) return 1;
+    return this.#hidden[node] === 1 ? 0 : this.#countOf(node);
+  }
+
   rowsOf(line: number): WrapRows {
     const node = this.#nodeAt(line);
     if (node === 0) return wholeLineRow;
@@ -576,6 +586,8 @@ export class WrapIndex implements RowLayout {
   #measure(node: number): WrapRows | undefined {
     if (this.#text.version() !== this.#version) return undefined;
     const rows = wrapLine(this.#text.line(this.#rankOf(node)), this.#columns);
+    // A count that changed moves rows: whatever is placed by them is placed again.
+    if (this.#count[node] !== rows.length) this.#revision++;
     this.#count[node] = rows.length;
     if (this.#dirty[node] === 1) {
       this.#dirty[node] = 0;

@@ -686,7 +686,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             height={Math.max(0, viewport.height)}
             revision={layout.revision()}
             rowOf={(line) => layout.startOf(line)}
-            rowsOf={(line) => layout.rowsOf(line).length}
+            rowsOf={(line) => layout.rowCount(line)}
             marks={changeMarks}
             agent={props.agentMarks}
             hits={activeQuery ? matches : noHits}
