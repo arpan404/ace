@@ -85,7 +85,12 @@ export function spadeSubagentHeader(
   const count = pluralCount(states.length, "agent");
   const ended = options.current && states.length > 0 && states.every(subagentTerminal);
   if (!ended) return `${bot} is working with ${count}`;
-  const took = options.span ? ` · ${formatSpan(options.span.startedAt, options.span.endedAt)}` : "";
+  const span = options.span;
+  // Under a second says nothing: a span only the clock's grain could measure.
+  const took =
+    span && span.endedAt - span.startedAt >= 1000
+      ? ` · ${formatSpan(span.startedAt, span.endedAt)}`
+      : "";
   return `${bot} worked with ${count}${took}`;
 }
 

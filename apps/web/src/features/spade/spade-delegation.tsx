@@ -1,30 +1,22 @@
 import type { ThreadReader } from "@ace/client";
 import type { AgentStatus } from "@ace/protocol";
 import { useThread } from "@ace/client-react";
-import { messageText, subagentMeta, subagentRunning, subagentTerminal } from "@ace/ui-core";
+import { messageText, subagentRunning } from "@ace/ui-core";
 import {
-  spadeAskingWords,
-  spadeWorkersTitle,
+  spadeSubagentStateWords,
+  spadeSubagentStep,
+  spadeSubagentTone,
   type SpadeAvatar,
   type SpadeStartedWorker,
 } from "@ace/ui-core/spade-chat";
-import { Link } from "@tanstack/react-router";
-import { useCallback, useState, type ReactNode } from "react";
-import { buttonVariants } from "@/components/ui/button.tsx";
-import {
-  AgentRowContents,
-  agentRowStyles,
-  SubagentElapsed,
-  SubagentFold,
-  SubagentSection,
-  subagentDetailLine,
-  type AgentRowParts,
-} from "@/features/thread/index.ts";
-import { cn } from "@/lib/cn.ts";
-import { useLive, type Live } from "@/lib/live-connection.ts";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useCallback, useContext, type ReactNode } from "react";
+import { SubagentElapsed, subagentDetailLine } from "@/features/thread/index.ts";
+import { useLive } from "@/lib/live-connection.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
-import { SpadeFace } from "./spade-face.tsx";
+import { CardFace } from "./spade-card.tsx";
+import { openWord, SpadeSubagentCard, SpadeSubagentRow } from "./spade-subagent-card.tsx";
 import {
   firstLine,
   useBotMachine,
@@ -33,22 +25,24 @@ import {
 } from "./use-spade-workers.ts";
 
 /*
- * The bots and ace agents a bot started (ADR 0161), in the turn that started them, drawn with
- * ace's own child rows: one row while a lone worker runs, else one "Started 4 agents" row with
- * each state's count that opens to every row. A row is its mark (a provider's, a bot's face), its
- * name, model and machine, its state in words and its last line; it opens the agent's thread (on
- * its machine) or the bot's chat. One that waits on the person offers Review, which goes to its
- * request where the chat waits on it (`SpadeWaitingWorkers`).
+ * The bots and ace agents a bot started (ADR 0161), in the turn that started them, as Spade's
+ * subagent card (`SpadeSubagentCard`): the bot's face and one sentence, then a row per worker with
+ * its state in words, what it does now, how long it has run and Open, which goes to the agent's
+ * thread (on its machine) or the bot's chat. One that waits on the person shows Review in its
+ * row, which goes to its request where the chat waits on it (`SpadeWaitingWorkers`), else opens
+ * it.
  */
 
 /** The anchor of a waiting worker's request at the chat's end. */
 export const workerRequestAnchor = (id: string) => `[data-worker-request="${CSS.escape(id)}"]`;
 
-/** Bring a waiting worker's request into view and to the keyboard. */
-export function showWorkerRequest(id: string) {
+/** Bring a waiting worker's request into view and to the keyboard; false while there is none. */
+export function showWorkerRequest(id: string): boolean {
   const card = document.querySelector<HTMLElement>(workerRequestAnchor(id));
-  card?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-  card?.focus({ preventScroll: true });
+  if (!card?.firstElementChild) return false;
+  card.scrollIntoView?.({ block: "center", behavior: "smooth" });
+  card.focus({ preventScroll: true });
+  return true;
 }
 
 export interface WorkerHandlers {
@@ -76,6 +70,8 @@ export function OnBotMachine(props: { children: (reachable: boolean) => ReactNod
 export function SpadeDelegation(props: {
   workers: readonly SpadeStartedWorker[];
   at: number | undefined;
+  /** The bot's name, for the card's first line. */
+  botName: string;
   handlers: WorkerHandlers;
 }) {
   return <OnBotMachine>{(reachable) => <Card {...props} reachable={reachable} />}</OnBotMachine>;
@@ -84,6 +80,7 @@ export function SpadeDelegation(props: {
 function Card(props: {
   workers: readonly SpadeStartedWorker[];
   at: number | undefined;
+  botName: string;
   handlers: WorkerHandlers;
   reachable: boolean;
 }) {
@@ -93,44 +90,28 @@ function Card(props: {
     props.at ?? 0,
     props.reachable,
   );
-  const [open, setOpen] = useState(false);
-  const states = entries.map((entry) => entry.state);
-  const title = spadeWorkersTitle(states);
-  const [only] = entries;
-  const single = entries.length === 1 && only && !subagentTerminal(only.state) ? only : undefined;
+  const face = useContext(CardFace);
   return (
-    <div className="w-full max-w-150 min-w-0 px-(--chat-bubble-x)">
-      <SubagentSection states={states} fresh={fresh} folded={!single} title={title}>
-        {single ? (
-          <ul aria-label="Workers" className="flex flex-col">
-            <WorkerRow
-              entry={single}
-              fresh={fresh}
-              handlers={props.handlers}
-              reachable={props.reachable}
-            />
-          </ul>
-        ) : (
-          <SubagentFold
-            entries={entries}
-            fresh={fresh}
-            open={open}
-            onToggle={() => setOpen(!open)}
-            title={title}
-          >
-            {entries.map((entry) => (
+    <div className="w-full max-w-150 min-w-0">
+      <SpadeSubagentCard
+        botName={props.botName}
+        face={face}
+        agents={entries}
+        current={fresh}
+        renderRow={(at) => {
+          const entry = entries[at];
+          return (
+            entry && (
               <WorkerRow
-                key={entry.id}
                 entry={entry}
                 fresh={fresh}
                 handlers={props.handlers}
                 reachable={props.reachable}
-                listed
               />
-            ))}
-          </SubagentFold>
-        )}
-      </SubagentSection>
+            )
+          );
+        }}
+      />
     </div>
   );
 }
@@ -183,91 +164,79 @@ interface Words {
 const sameWords = (a: Words, b: Words) =>
   a.line === b.line && a.root === b.root && a.status === b.status;
 
-/** A row's second line and what it says (`detailKind`), from ace's words for a child's. */
-function detailOf(
-  entry: SpadeWorkerEntry,
-  words: Words | undefined,
-  live: Live,
-): Pick<AgentRowParts, "detail" | "detailKind"> {
-  if (!live.current) return {};
-  if (entry.state === "human")
-    return { detail: spadeAskingWords(entry.asking), detailKind: "human" };
-  if (entry.kind === "bot")
-    return subagentTerminal(entry.state)
-      ? {}
-      : entry.status
-        ? { detail: entry.status, detailKind: "live" }
-        : {};
-  const shown = subagentDetailLine(
-    live,
-    { ...entry, agentId: words?.root, result: words?.line },
-    words?.status ? { status: words.status } : undefined,
-    undefined,
-  );
-  return { detail: shown.detail, detailKind: shown.kind };
-}
-
 function WorkerRow(props: {
   entry: SpadeWorkerEntry;
   fresh: boolean;
   handlers: WorkerHandlers;
   reachable: boolean;
-  listed?: boolean | undefined;
 }) {
   const { entry, handlers } = props;
   const live = useLive(props.fresh);
+  const navigate = useNavigate();
   const words = useAgentWords(entry.kind === "ace" && props.reachable ? entry.id : undefined);
-  const parts: AgentRowParts = {
-    mark: { provider: entry.provider, model: entry.model },
-    lead:
-      entry.kind === "bot" ? <SpadeFace avatar={handlers.face(entry.id)} size={16} /> : undefined,
-    name: entry.title,
-    meta: entry.kind === "ace" ? subagentMeta(entry) : "Bot",
-    machine: entry.machine,
-    state: entry.state,
-    live,
-    // How long it ran, or runs, as ace's own child rows say it: only while what it reads is current.
-    elapsed: live.current && (
-      <SubagentElapsed
-        startedAt={entry.startedAt}
-        endedAt={entry.endedAt}
-        running={subagentRunning(entry.state)}
-        fresh={props.fresh}
-      />
-    ),
-    ...detailOf(entry, words, live),
-  };
-  const box = cn(agentRowStyles.box, props.listed && agentRowStyles.listed);
+  // An ace agent's step or last line, as ace says it for a delegated child.
+  const detail =
+    entry.kind === "ace"
+      ? subagentDetailLine(
+          live,
+          { ...entry, agentId: words?.root, result: words?.line },
+          words?.status ? { status: words.status } : undefined,
+          undefined,
+        ).detail
+      : undefined;
+  const facts = { ...entry, detail };
   const label = `Open ${entry.title}${entry.machine ? ` on ${entry.machine}` : ""}`;
+  const openIt = () => {
+    if (entry.kind === "ace") void navigate(threadOn(entry.machineHost, entry.id));
+    else handlers.onOpenBot?.(entry.id);
+  };
   return (
-    <li data-worker={entry.id} data-subagent-state={entry.state} className="relative">
-      {entry.kind === "ace" ? (
-        <Link {...threadOn(entry.machineHost, entry.id)} aria-label={label} className={box}>
-          <AgentRowContents {...parts} />
-        </Link>
-      ) : (
-        <button
-          type="button"
-          aria-label={label}
-          className={box}
-          onClick={() => handlers.onOpenBot?.(entry.id)}
-        >
-          <AgentRowContents {...parts} />
-        </button>
-      )}
-      {live.current && entry.state === "human" && (
-        <button
-          type="button"
-          aria-label={`Review what ${entry.title} needs`}
-          onClick={() => showWorkerRequest(entry.id)}
-          className={cn(
-            buttonVariants({ variant: "secondary", size: "sm" }),
-            "absolute right-0 bottom-1 h-5 px-2 text-xs",
-          )}
-        >
-          Review
-        </button>
-      )}
-    </li>
+    <SpadeSubagentRow
+      row={{
+        id: entry.id,
+        kind: entry.kind,
+        title: entry.title,
+        state: entry.state,
+        // Only what is current says a state; else the connection's word stands in for it.
+        stateWords: live.current ? spadeSubagentStateWords(facts) : live.word,
+        tone: live.current ? spadeSubagentTone(entry.state) : "stale",
+        step: live.current ? spadeSubagentStep(facts) : undefined,
+        provider: entry.provider,
+        face: entry.kind === "bot" ? handlers.face(entry.id) : undefined,
+        machine: entry.machine,
+        elapsed: live.current && (
+          <SubagentElapsed
+            startedAt={entry.startedAt}
+            endedAt={entry.endedAt}
+            running={subagentRunning(entry.state)}
+            fresh={props.fresh}
+          />
+        ),
+        open:
+          entry.kind === "ace" ? (
+            <Link
+              {...threadOn(entry.machineHost, entry.id)}
+              aria-label={label}
+              className={openWord}
+            >
+              Open
+            </Link>
+          ) : (
+            handlers.onOpenBot && (
+              <button
+                type="button"
+                aria-label={label}
+                className={openWord}
+                onClick={() => handlers.onOpenBot?.(entry.id)}
+              >
+                Open
+              </button>
+            )
+          ),
+        onReview: () => {
+          if (!showWorkerRequest(entry.id)) openIt();
+        },
+      }}
+    />
   );
 }

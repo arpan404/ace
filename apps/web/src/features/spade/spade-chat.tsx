@@ -595,6 +595,7 @@ function RunItem(props: {
         <SpadeDelegation
           workers={item.workers}
           at={item.at}
+          botName={bot.name}
           handlers={{ bot: bot.id, face: handlers.face, onOpenBot: handlers.onOpenBot }}
         />
       );

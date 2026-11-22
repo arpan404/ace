@@ -29,6 +29,10 @@ test("the header says how long the agents took once every one ended", () => {
     spadeSubagentHeader("Quill", ["done", "failed", "done", "cancelled"], { ...current, span }),
   ).toBe("Quill worked with 4 agents · 12m");
   expect(spadeSubagentHeader("Quill", ["done"], current)).toBe("Quill worked with 1 agent");
+  const instant = { startedAt: 5, endedAt: 400 };
+  expect(spadeSubagentHeader("Quill", ["done"], { ...current, span: instant })).toBe(
+    "Quill worked with 1 agent",
+  );
 });
 
 test("a copy that isn't current never reads finished, even when every agent last said done", () => {
