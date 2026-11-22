@@ -44,11 +44,33 @@ function scaleOf(input: Pick<OverviewInput, "rows" | "viewRows" | "height">): nu
   return input.height / Math.max(1, input.rows, input.viewRows);
 }
 
+/** A run of consecutive lines with one mark, 0-based and inclusive. */
+export interface MarkRun {
+  kind: LineMark;
+  first: number;
+  last: number;
+}
+
+/** The marks as runs of consecutive lines of one kind: worked out once per set of marks. */
+export function markRuns(marks: ReadonlyMap<number, LineMark> | undefined): MarkRun[] {
+  const runs: MarkRun[] = [];
+  if (!marks) return runs;
+  for (const [line, kind] of [...marks].toSorted(([a], [b]) => a - b)) {
+    const last = runs.at(-1);
+    if (last && last.kind === kind && last.last === line - 2 && kind !== "removed") last.last++;
+    else runs.push({ kind, first: line - 1, last: line - 1 });
+  }
+  return runs;
+}
+
 /**
- * The change and find-hit lanes: at most one tick per lane per pixel. Linear in the marks and
- * hits; the caller keeps them while those and the layout's size stay the same.
+ * The change and find-hit lanes: at most one tick per lane per pixel. Linear in the runs of
+ * marks, the agents' blocks and the hits, never in the lines they cover; the caller keeps them
+ * while those and the layout stay the same.
  */
-export function laneTicks(input: Omit<OverviewInput, "caretLine">): OverviewTick[] {
+export function laneTicks(
+  input: Omit<OverviewInput, "caretLine" | "marks"> & { runs: readonly MarkRun[] },
+): OverviewTick[] {
   const scale = scaleOf(input);
   const ticks: OverviewTick[] = [];
   const taken = new Map<TickLane, Set<number>>();
@@ -64,7 +86,7 @@ export function laneTicks(input: Omit<OverviewInput, "caretLine">): OverviewTick
   // Agents' lines first: a line both an agent and the commit marked reads as the agent's.
   for (const mark of input.agent ?? [])
     add("change", "agent", mark.start, Math.max(mark.start, mark.end - 1));
-  if (input.marks) for (const [line, kind] of input.marks) add("change", kind, line - 1);
+  for (const run of input.runs) add("change", run.kind, run.first, run.last);
   for (const hit of input.hits) add("hit", "hit", hit.start.line);
   return ticks;
 }
@@ -79,6 +101,7 @@ export function caretTick(
 }
 
 export function overviewTicks(input: OverviewInput): OverviewTick[] {
+  const lanes = laneTicks({ ...input, runs: markRuns(input.marks) });
   const caret = caretTick(input);
-  return caret ? [...laneTicks(input), caret] : laneTicks(input);
+  return caret ? [...lanes, caret] : lanes;
 }
