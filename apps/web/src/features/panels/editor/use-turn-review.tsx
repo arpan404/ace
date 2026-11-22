@@ -10,7 +10,6 @@ import {
   type ChangeHunk,
   type FileDiff,
   type TurnHunk,
-  type WholeLineChange,
 } from "@ace/ui-core";
 import { workspaceRelative } from "@ace/ui-core/file-references";
 import {
@@ -38,9 +37,11 @@ import { sharedDiff } from "./gutter-store.ts";
 import {
   cachedExact,
   placeHunk,
+  mappingFor,
   singlePatch,
   turnTexts,
   type ExactHunks,
+  type Mapping,
 } from "./review-placement.ts";
 import { ReviewPeek } from "./hunk-peek.tsx";
 import type { LiveGutter } from "./live-gutter.ts";
@@ -140,7 +141,7 @@ export function useTurnReview(input: {
       .then(
         (changes) => {
           if (live && buffer.document() === doc && doc.version() === version)
-            setMapping({ doc, version, changes });
+            setMapping({ doc, version, source: turnText, changes });
         },
         () => undefined,
       );
@@ -159,7 +160,9 @@ export function useTurnReview(input: {
   ): { at: ChangeHunk; proven: boolean } | undefined => {
     const doc = buffer.document();
     if (!doc) return undefined;
-    const current = mapping && mapping.doc === doc ? mapping : undefined;
+    // Only this turn's mapping, for this document: another turn's (a switch without editing) is
+    // never used, and Revert waits for this one.
+    const current = mappingFor(mapping, doc, turnText);
     const placed = placeHunk(
       hunk,
       turnText !== undefined
@@ -289,13 +292,6 @@ export function useTurnReview(input: {
 }
 
 const noneDone: ReadonlySet<number> = new Set();
-
-/** The changes from the turn's text of the file to the text now, for one document version. */
-interface Mapping {
-  doc: object;
-  version: number;
-  changes: readonly WholeLineChange[];
-}
 
 /** Where a file's review is: the change shown, and those kept or reverted. */
 interface Progress {

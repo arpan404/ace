@@ -1,6 +1,6 @@
 import { turnHunks, diffFile, type TurnHunk } from "@ace/ui-core";
 import { expect, test } from "vitest";
-import { cachedExact, placeHunk, turnTexts } from "./review-placement.ts";
+import { cachedExact, mappingFor, placeHunk, turnTexts } from "./review-placement.ts";
 
 const rowsOf = (oldText: string, newText: string) =>
   diffFile({ path: "a.ts", changes: [{ kind: "update", path: "a.ts", oldText, newText }] }).rows;
@@ -73,4 +73,14 @@ test.each([
   },
 ])("$name", ({ changes, texts }) => {
   expect(turnTexts(changes)).toEqual(texts);
+});
+
+test("a mapping worked out from one turn's text is never used for another turn's", () => {
+  const doc = {};
+  const mapping = { doc, version: 3, source: "turn 1's text\n", changes: [] };
+  expect(mappingFor(mapping, doc, "turn 1's text\n")).toBe(mapping);
+  // Switching to another turn of the same file, without editing: same document, same version.
+  expect(mappingFor(mapping, doc, "turn 2's text\n")).toBeUndefined();
+  // Another document (the file read again) has no mapping yet either.
+  expect(mappingFor(mapping, {}, "turn 1's text\n")).toBeUndefined();
 });

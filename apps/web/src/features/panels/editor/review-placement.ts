@@ -77,3 +77,23 @@ export function singlePatch(changes: readonly FileChange[]): string | undefined 
     ? (only.diff ?? undefined)
     : undefined;
 }
+
+/** The changes from one turn's text of the file to the text now, for one document version. */
+export interface Mapping {
+  doc: object;
+  version: number;
+  /** The turn's text the changes start from: a mapping is only ever that turn's. */
+  source: string;
+  changes: readonly WholeLineChange[];
+}
+
+/** The mapping when it is for this document and this turn's text; undefined otherwise. */
+export function mappingFor(
+  mapping: Mapping | undefined,
+  doc: object,
+  source: string | undefined,
+): Mapping | undefined {
+  return mapping && mapping.doc === doc && source !== undefined && mapping.source === source
+    ? mapping
+    : undefined;
+}
