@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use spade_core::brain::CliModel;
 use spade_core::routing::{Defaults, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing};
-use spade_models::Endpoint;
+use spade_models::{Effort, Endpoint};
 use spade_store::StoreError;
 
 use super::Engine;
@@ -59,6 +59,8 @@ pub struct RolesChange {
     pub roles: BTreeMap<String, Option<Route>>,
     pub allowed: Option<Option<Vec<String>>>,
     pub escalate: Option<Option<bool>>,
+    /// An effort per role by name, `None` to clear it (ADR 0213).
+    pub efforts: BTreeMap<String, Option<String>>,
 }
 
 /// Everything a conversation's roles are resolved from.
@@ -207,6 +209,19 @@ impl Engine {
         self.facts(conversation).routing().resolve(role).model
     }
 
+    /// How hard `role`'s model thinks in `conversation` (ADR 0213).
+    pub(crate) fn role_effort(&self, conversation: &str, role: Role) -> Effort {
+        self.facts(conversation).routing().effort(role).0
+    }
+
+    /// How hard a turn's step thinks: a helper's as its bot's `helper` role, a bot's as `main`.
+    pub(crate) fn step_effort(&self, conversation: &str) -> Effort {
+        match self.helper_of(conversation) {
+            Some(helper) => self.role_effort(&helper.parent, Role::Helper),
+            None => self.role_effort(conversation, Role::Main),
+        }
+    }
+
     /// The model a compaction summary of `prompt`, built for `turn_model`, runs on (ADR 0162
     /// decision 7): the `compact` role's when its context holds the prompt and it reads what the
     /// prompt carries, and (unless the person chose it) when it costs less cold than the turn's
@@ -318,6 +333,7 @@ impl Engine {
         Ok(json!({
             "roles": routed_json(&global),
             "routes": routes_json(&global),
+            "efforts": efforts_json(&global),
             "escalate": global.escalate,
         }))
     }
@@ -334,11 +350,14 @@ impl Engine {
             .table()
             .into_iter()
             .map(|(role, choice)| {
+                let (effort, effort_source) = routing.effort(role);
                 json!({
                     "role": role.name(),
                     "model": choice.model,
                     "source": choice.source.name(),
                     "route": routing.route(role),
+                    "effort": effort.name(),
+                    "effort_source": effort_source.name(),
                 })
             })
             .collect();
@@ -347,6 +366,7 @@ impl Engine {
             "overrides": {
                 "roles": routed_json(&facts.bot),
                 "routes": routes_json(&facts.bot),
+                "efforts": efforts_json(&facts.bot),
                 "allowed": facts.bot.allowed,
                 "escalate": facts.bot.escalate,
             },
@@ -456,6 +476,24 @@ impl Engine {
         if let Some(escalate) = change.escalate {
             overrides.escalate = escalate;
         }
+        for (name, effort) in change.efforts {
+            let role = Role::parse(&name)
+                .ok_or_else(|| invalid(format!("there is no role named {name}")))?;
+            match effort {
+                Some(word) => {
+                    let effort = Effort::parse(&word).ok_or_else(|| {
+                        invalid(format!(
+                            "there is no effort named {word}; name provider, off, low, medium, \
+                             high or max"
+                        ))
+                    })?;
+                    overrides.efforts.insert(role, effort);
+                }
+                None => {
+                    overrides.efforts.remove(&role);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -520,6 +558,21 @@ fn routes_json(overrides: &Overrides) -> Value {
                     .map(|r| r.0.clone())
                     .unwrap_or_default()
             ),
+        );
+    }
+    Value::Object(map)
+}
+
+/// Every role with the effort the overrides set, `null` for none.
+fn efforts_json(overrides: &Overrides) -> Value {
+    let mut map = serde_json::Map::new();
+    for role in Role::ALL {
+        map.insert(
+            role.name().to_owned(),
+            overrides
+                .efforts
+                .get(&role)
+                .map_or(Value::Null, |e| json!(e.name())),
         );
     }
     Value::Object(map)

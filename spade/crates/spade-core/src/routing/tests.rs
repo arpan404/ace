@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use super::*;
 
@@ -268,6 +268,7 @@ fn overrides_round_trip_as_role_names() {
         roles: [(Role::Verify, Route::one("b/stronger"))].into(),
         allowed: None,
         escalate: Some(true),
+        efforts: BTreeMap::new(),
     };
     let text = serde_json::to_string(&stored).unwrap_or_default();
     assert_eq!(
@@ -415,4 +416,75 @@ fn a_model_that_cant_call_tools_serves_only_titles_and_summaries() {
     assert_eq!(routing.route(Role::Main), vec!["a/strong", "a/mid"]);
     assert_eq!(routing.route(Role::Title), vec!["local/tiny", "a/mid"]);
     assert!(routing.pick("local/tiny").is_err());
+}
+
+fn efforts(pairs: &[(Role, Effort)]) -> Overrides {
+    Overrides {
+        efforts: pairs.iter().copied().collect(),
+        ..Overrides::default()
+    }
+}
+
+fn effort_of(bot: &Overrides, global: &Overrides, role: Role) -> (Effort, Source) {
+    let models = table();
+    let defaults = Defaults::default();
+    Routing {
+        own: "a/strong",
+        bot,
+        global,
+        defaults: &defaults,
+        models: &models,
+    }
+    .effort(role)
+}
+
+#[test]
+fn turns_reviews_and_checks_think_at_medium_and_side_work_at_low_by_default() {
+    let none = Overrides::default();
+    for (role, effort) in [
+        (Role::Main, Effort::Medium),
+        (Role::Review, Effort::Medium),
+        (Role::Verify, Effort::Medium),
+        (Role::Helper, Effort::Low),
+        (Role::Compact, Effort::Low),
+        (Role::Title, Effort::Low),
+    ] {
+        assert_eq!(effort_of(&none, &none, role), (effort, Source::Default));
+    }
+}
+
+#[test]
+fn the_reviewer_thinks_at_medium_unless_the_bot_or_the_person_overrides_it() {
+    let none = Overrides::default();
+    let global = efforts(&[(Role::Review, Effort::High)]);
+    let bot = efforts(&[(Role::Review, Effort::Provider)]);
+    assert_eq!(
+        effort_of(&none, &none, Role::Review),
+        (Effort::Medium, Source::Default)
+    );
+    assert_eq!(
+        effort_of(&none, &global, Role::Review),
+        (Effort::High, Source::Global)
+    );
+    assert_eq!(
+        effort_of(&bot, &global, Role::Review),
+        (Effort::Provider, Source::Bot)
+    );
+    // Another role keeps its own default.
+    assert_eq!(
+        effort_of(&bot, &global, Role::Title),
+        (Effort::Low, Source::Default)
+    );
+}
+
+#[test]
+fn efforts_stored_by_name_read_back_and_older_overrides_read_with_none()
+-> Result<(), serde_json::Error> {
+    let stored = efforts(&[(Role::Main, Effort::Off), (Role::Verify, Effort::Max)]);
+    let json = serde_json::to_string(&stored)?;
+    assert_eq!(json, r#"{"efforts":{"main":"off","verify":"max"}}"#);
+    assert_eq!(serde_json::from_str::<Overrides>(&json)?, stored);
+    let older: Overrides = serde_json::from_str(r#"{"roles":{"title":"a/fast"}}"#)?;
+    assert!(older.efforts.is_empty());
+    Ok(())
 }

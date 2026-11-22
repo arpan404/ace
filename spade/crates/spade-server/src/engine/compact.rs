@@ -101,7 +101,15 @@ async fn run(
     // Paid for like every model call (ADR 0135).
     let hint = super::ledger::turn_hint(events);
     // The `compact` role's model when it fits and costs less (ADR 0162).
+    let turn_model = model;
     let model = &engine.compact_model(id, model, &prompt, hint);
+    // On the turn's own model it thinks as the turn did, so the request still reads the turn's
+    // cache (a changed thinking setting misses it); on the `compact` model, as that role does.
+    prompt.effort = if model == turn_model {
+        engine.step_effort(id)
+    } else {
+        engine.role_effort(id, spade_core::routing::Role::Compact)
+    };
     let admitted = engine
         .admit(id, model)
         .for_role(spade_core::routing::Role::Compact);

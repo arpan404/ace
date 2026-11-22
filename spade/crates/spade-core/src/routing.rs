@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use spade_models::Effort;
 
 use crate::brain::CliModel;
 
@@ -58,6 +59,15 @@ impl Role {
     pub fn needs_tools(self) -> bool {
         !matches!(self, Self::Title | Self::Compact)
     }
+
+    /// How hard the role's model thinks when the person chose nothing (ADR 0213): the bot's
+    /// turns, reviews and checks think at medium; helpers, summaries and titles at low.
+    pub fn default_effort(self) -> Effort {
+        match self {
+            Self::Main | Self::Review | Self::Verify => Effort::Medium,
+            Self::Helper | Self::Compact | Self::Title => Effort::Low,
+        }
+    }
 }
 
 /// The most models a role's route holds (ADR 0205 §2).
@@ -108,6 +118,9 @@ pub struct Overrides {
     /// Whether failed helper-level work reruns once on the bot's own model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escalate: Option<bool>,
+    /// How hard each role's model thinks (ADR 0213), `main` included.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub efforts: BTreeMap<Role, Effort>,
 }
 
 /// What the server knows about the person's models.
@@ -281,6 +294,15 @@ impl<M: Models> Routing<'_, M> {
             }
         }
         best.map(|(_, model)| model.clone())
+    }
+
+    /// How hard `role`'s model thinks (ADR 0213): the bot's choice, else the global one, else the
+    /// role's default. Never `Own`: an effort is not a model.
+    pub fn effort(&self, role: Role) -> (Effort, Source) {
+        [(self.bot, Source::Bot), (self.global, Source::Global)]
+            .into_iter()
+            .find_map(|(overrides, source)| overrides.efforts.get(&role).map(|e| (*e, source)))
+            .unwrap_or((role.default_effort(), Source::Default))
     }
 
     /// Every role with its model, in order.
