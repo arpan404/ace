@@ -3,6 +3,10 @@
 Status: proposed. Date: 2026-11-21. Asked for by the owner (2026-11-21: "start working on search
 engine on ace cloud integration through cloudflare ceramic ai"; then "I am using cloudflare ai
 gateway"; then "remove search engine setting pages, as we are going full on cloud").
+Amendment 1 (2026-11-22, the GPT review of #2584): grants bound to a live machine (§3), paid
+attempts keep their reservation, admission all or nothing, a coarse address limit before
+authentication, the gateway's settings checked, the repeat check best effort (§4), and no
+provider words in Spade's logs (§6).
 
 Amends:
 
@@ -55,12 +59,28 @@ second provider.
 
 ### 3. The route serves Spade's `web_search` calls, not a search API
 
-- **Who may call.** A Spade acting for a signed-in account: its cloud credential (the
-  `spade-cloud` machine grant Spade already shows the sign-in broker, ADR 0140/0141), or a machine
-  credential (ADR 0190). The existing grant and principal code reads both; there is no new scheme.
-  A browser session is refused (`403 spade_only`), as is any request carrying an `Origin` header,
-  so raw results never reach a browser page as a list. An organization's host credential (ADR 0206) is refused too: it is not a person. A cloud Spade later calls with the same credential
-  for the account it acts for.
+- **Who may call.** A Spade acting for a signed-in account, with its cloud credential: the
+  `spade-cloud` machine grant Spade already shows the sign-in broker (ADR 0140/0141), verified by
+  the existing grant code. Nothing else is accepted: no session, no bare machine credential, no
+  general machine grant, and nothing carrying an `Origin` header (`403 spade_only`), so raw
+  results never reach a browser page as a list.
+- **Bound to a live machine** (amendment 1, review of #2584). A grant counts only while the
+  machine it names (its subject) holds a live machine credential on that account (ADR 0190):
+  unexpired, not revoked, on a session still signed in and not retired, of an account with no
+  deletion recorded. This is read from D1 on every search (`machine_credentials` by host and
+  account, indexed in migration 0011), so revoking a machine's credential or signing it out stops
+  its grants at once, not when they expire. A session can mint a cloud grant naming any host id
+  through `/v1/grants`; one naming a host the account holds no live credential for opens nothing
+  here (`403 machine_unknown`), so a new subject can't dodge the machine caps. An organization's
+  host credential has no personal session behind it and is refused the same way.
+  - A daemon from before machine credentials (ADR 0190) has none, so its Spade can't use ace
+    search until the daemon updates; it falls back to the endpoint's search (§6).
+  - A separate grant purpose just for search was considered and left out: the broker grant and a
+    search grant would be minted by the same daemon and held in the same Spade process, so a leak
+    of one is a leak of the other, while the per-use binding above is what ends either at once.
+  - A hosted (cloud) Spade later needs its own authenticated identity: an authorized hosted
+    workload with its own quota, not a person's machine credential and not the per-address
+    limits. That needs its own amendment.
 - **What it answers.** `{results: [{url, title, snippet, site}], provider: "ceramic", usage}`, at
   most 10 results. Every result keeps its source link, as Cloudflare's crawler standards require:
   "Every search result must include a link to the location of the crawled content." Spade puts the
@@ -74,18 +94,18 @@ second provider.
 
 Every limit is checked by the Worker; nothing the client sends changes one. In order:
 
-| Limit                                      | Default                                                        | Where it is counted                                        | Var                                                             |
-| ------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------- | --------------------------------------------------------------- |
-| Burst per caller address                   | 30 a minute                                                    | rate-limit binding `SEARCH_ADDRESS_BURST` (namespace 1010) | binding config                                                  |
-| Burst per account                          | 10 a minute                                                    | rate-limit binding `SEARCH_ACCOUNT_BURST` (namespace 1009) | binding config                                                  |
-| Same query again                           | the 3rd identical query from an account within 60 s is refused | isolate memory, a salted digest only                       | none                                                            |
-| Global daily spend                         | $5 a day, so 20,000 searches at $0.25 per 1,000                | D1                                                         | `ACE_SEARCH_DAILY_DOLLARS`                                      |
-| Per account, monthly                       | 1,000                                                          | D1                                                         | `ACE_SEARCH_MONTHLY`                                            |
-| Per new account, monthly                   | 100 for its first 7 days                                       | D1                                                         | `ACE_SEARCH_NEW_ACCOUNT_MONTHLY`, `ACE_SEARCH_NEW_ACCOUNT_DAYS` |
-| Per account, daily                         | 100                                                            | D1                                                         | `ACE_SEARCH_DAILY`                                              |
-| Per machine, monthly                       | 500                                                            | D1                                                         | `ACE_SEARCH_MACHINE_MONTHLY`                                    |
-| Per machine, daily                         | 60                                                             | D1                                                         | `ACE_SEARCH_MACHINE_DAILY`                                      |
-| Per caller address, daily, across accounts | 300                                                            | D1                                                         | `ACE_SEARCH_ADDRESS_DAILY`                                      |
+| Limit                                             | Default                                                        | Where it is counted                                           | Var                                                             |
+| ------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------- | --------------------------------------------------------------- |
+| Coarse, per caller address, before authentication | 300 a minute                                                   | rate-limit binding `SEARCH_ADDRESS_REQUESTS` (namespace 1010) | binding config                                                  |
+| Burst per account, after authentication           | 10 a minute                                                    | rate-limit binding `SEARCH_ACCOUNT_BURST` (namespace 1009)    | binding config                                                  |
+| Same query again (best effort)                    | the 3rd identical query from an account within 60 s is refused | isolate memory, a salted digest only                          | none                                                            |
+| Global daily spend                                | $5 a day, so 20,000 searches at $0.25 per 1,000                | D1                                                            | `ACE_SEARCH_DAILY_DOLLARS`                                      |
+| Per account, monthly                              | 1,000                                                          | D1                                                            | `ACE_SEARCH_MONTHLY`                                            |
+| Per new account, monthly                          | 100 for its first 7 days                                       | D1                                                            | `ACE_SEARCH_NEW_ACCOUNT_MONTHLY`, `ACE_SEARCH_NEW_ACCOUNT_DAYS` |
+| Per account, daily                                | 100                                                            | D1                                                            | `ACE_SEARCH_DAILY`                                              |
+| Per machine, monthly                              | 500                                                            | D1                                                            | `ACE_SEARCH_MACHINE_MONTHLY`                                    |
+| Per machine, daily                                | 60                                                             | D1                                                            | `ACE_SEARCH_MACHINE_DAILY`                                      |
+| Per caller address, daily, across accounts        | 300                                                            | D1                                                            | `ACE_SEARCH_ADDRESS_DAILY`                                      |
 
 Why these numbers:
 
@@ -102,17 +122,49 @@ Why these numbers:
   registered counts as new.
 - **The global breaker** protects the owner's credit if every per-person limit fails. When it is
   reached, every account gets "ace search is resting today" until midnight UTC.
+- **The address limit before authentication is coarse** (amendment 1): it is charged before the
+  caller is known, so a tight one would let unauthenticated noise lock out everyone on a shared
+  network. The tight burst is the account's, charged after authentication.
 
 The rate-limit bindings count per Cloudflare location, which is fine for bursts. Every count that
 must hold globally lives in D1, in one table (`search_counts`: scope, period, count, expiry) with
-no query text. An address's counter is keyed by a salted digest of the address, never the address. A search takes all its counters in one D1 batch of conditional upserts, each of
-which only adds while under its cap, so concurrent searches can't overshoot. If any counter is
-full, those taken are given back and the search is refused. A search Ceramic fails is given back
-too. Expired rows are swept hourly in bounded batches (ADR 0170). An account's rows go with the
-account.
+no query text. An address's counter is keyed by a salted digest of the address, never the address.
 
-The same-query check keeps a SHA-256 digest of a random per-isolate salt, the account and the
-normalized query, for 60 seconds, in memory only. It never reaches storage or logs.
+**Admission is all or nothing** (amendment 1). A search takes all its counters in one D1
+statement: it adds one to every counter only when none is at its cap, and otherwise writes
+nothing. One statement is one transaction, so concurrent searches can't overshoot a cap, a refused
+search never briefly holds another search's counter, and a Worker cut short mid-request strands
+no increment. After a refusal the counters are read once to name the full one in the reason.
+
+**A paid attempt keeps its reservation** (amendment 1). Once the call to Ceramic is dispatched, the
+search counts against every counter, the global breaker included, whatever comes back: an
+oversized, truncated or malformed answer, a `5xx`, or a binding error whose billing is unknown.
+Only an answer that says the gateway turned the call away before sending it (`401`, `403`, `404`:
+its key, permission, or no such gateway) gives the reservation back, in one statement. Expired
+rows are swept hourly in bounded batches (ADR 0170). An account's rows go with the account.
+
+The same-query check is **best effort**: it keeps a SHA-256 digest of a random per-isolate salt,
+the account and the normalized query, for 60 seconds, in that isolate's memory only, so requests
+on other isolates or locations aren't seen together. It never reaches storage or logs. Strict
+limits are the D1 counters.
+
+**The gateway keeps nothing** (amendment 1). Web Search requests are logged by AI Gateway like any
+other while its log collection is on, which would keep raw queries, so privacy can't rest on a
+dashboard setting alone:
+
+- Search uses its own gateway, `ace-search` (`ACE_SEARCH_GATEWAY`), created with log collection,
+  Logpush and caching off.
+- With `ACE_SEARCH_CF_ACCOUNT_ID` and `ACE_SEARCH_CF_API_TOKEN` (an API token with AI Gateway
+  Read) set, the Worker reads the gateway's settings from Cloudflare's API
+  (`GET /accounts/{id}/ai-gateway/gateways/{gateway}`) on first use and every 5 minutes after (a
+  refusal is read again after a minute). It searches only while `collect_logs` is false,
+  `cache_ttl` is 0 and `logpush` isn't true. A gateway that keeps anything is refused whatever
+  else says so.
+- When the settings can't be read (no token, or the API failed), it searches only if
+  `ACE_SEARCH_GATEWAY_VERIFIED` is `logs-off-cache-off`, the owner's word that they checked by
+  hand.
+- Otherwise the route answers `503 search_unavailable` before counting anything, and Spade falls
+  back (§6). The token is never logged; the log says `gateway_keeps_logs` or `gateway_unchecked`.
 
 Every refusal is `429` with `Retry-After` and `{error, reason, retryAfter}`, where `reason` is
 one plain sentence Spade can show:
@@ -127,9 +179,9 @@ one plain sentence Spade can show:
 | `machine_spent`  | This machine has used its ace searches for now.                   | to the window's end |
 | `address_spent`  | Too many ace searches from this network today.                    | to midnight UTC     |
 
-Other answers: `401 unauthenticated`, `403 spade_only`, `400 invalid_request`,
-`502 search_failed` (Ceramic failed), and `503 search_unavailable` (no AI binding or gateway
-configured). `GET /v1/search/usage` answers the account's
+Other answers: `401 unauthenticated`, `403 spade_only`, `403 machine_unknown`,
+`400 invalid_request`, `502 search_failed` (Ceramic failed), and `503 search_unavailable` (no AI
+binding or gateway configured, or a gateway that may keep queries). `GET /v1/search/usage` answers the account's
 `{month: {used, allowance}, day: {used, cap}, resetsAt}` with the same credentials.
 
 ### 5. Terms
@@ -180,7 +232,8 @@ of providing, maintaining, developing, training and improving the Linkup Solutio
 So billing through Cloudflare doesn't lift Ceramic's terms: they apply as if ace had agreed to
 them, and Cloudflare's DPA doesn't cover the search. The Unified Billing page adds that zero data
 retention "does not control AI Gateway logging": the gateway must have log collection off, or it
-would keep queries (owner setup).
+would keep queries. The Worker checks that itself before every search (§4, "The gateway keeps
+nothing").
 
 **The owner chose to proceed on this basis** (2026-11-21: "I am using cloudflare ai gateway"),
 with the shape in §2 to §4 fitted to Ceramic's terms and the DPA as a follow-up.
@@ -209,6 +262,10 @@ works when they are signed in, and Spade has one search path to keep right. So:
   refusal's sentence is the answer, so a bot can't hammer the route.
 - **Usage.** Settings › Spade › General shows one quiet line: this month's searches against the
   allowance.
+- **Logs** (amendment 1). An endpoint's error message can echo the query, so neither ace search's
+  nor the endpoint search's failure keeps a server's words: Spade logs a fixed outcome code
+  (`ace_search_failed`, `endpoint_search_failed`), and an endpoint search failure says only its
+  HTTP status.
 
 ### 7. Phase 2: ace's own index of developer sources
 

@@ -149,19 +149,31 @@ ace search ([ADR 0210](../adr/0210-spade-searches-the-web-through-ace-cloud.md))
 `web_search` from Ceramic through an AI Gateway on the same Cloudflare account. Before the first
 deploy that carries it (a release deploys it too):
 
-1. In the Cloudflare dashboard, AI › AI Gateway, create a gateway named `ace-search` (the
-   `ACE_SEARCH_GATEWAY` var in `env.production`). In its settings, turn **log collection off**:
-   zero data retention doesn't cover the gateway's own logs, and they would keep queries.
-2. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
+1. In the Cloudflare dashboard, AI › AI Gateway, create a gateway with the id `ace-search` (the
+   `ACE_SEARCH_GATEWAY` var in `env.production`), used for nothing else. In its settings turn
+   **log collection off, Logpush off and caching off**: zero data retention doesn't cover the
+   gateway's own logs, and they would keep queries.
+2. Create an API token with **AI Gateway Read** on that account, and set it with the account id:
+
+   ```sh
+   XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put ACE_SEARCH_CF_API_TOKEN --env production
+   XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put ACE_SEARCH_CF_ACCOUNT_ID --env production
+   ```
+
+   The Worker reads the gateway's settings with them and searches only while logs, Logpush and
+   caching are off. Without them it searches only if `ACE_SEARCH_GATEWAY_VERIFIED` is set to
+   `logs-off-cache-off` in `env.production.vars`, your word that you checked by hand.
+3. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
    1,000); credits carry a 5% fee on purchase.
-3. Migration `0011_search_counts.sql` applies with the others.
+4. Migration `0011_search_counts.sql` applies with the others.
 
 The `ai` binding exists only in `env.production`. Local runs and tests have none, and the route
-answers `503 search_unavailable` there. Until the gateway exists, a deployed route answers
-`502 search_failed`, which counts nothing, and Spade falls back to the model's own search. The
-limits are the `ACE_SEARCH_*` vars in `env.production`, with the bursts in the
-`SEARCH_ACCOUNT_BURST` (1009) and `SEARCH_ADDRESS_BURST` (1010) rate limits; ADR 0210 §4 lists
-them. To stop ace search at once, set `ACE_SEARCH_DAILY_DOLLARS` to `0` and deploy.
+answers `503 search_unavailable` there. Until the gateway exists and checks out, a deployed route
+answers `503 search_unavailable`, counts nothing, and Spade falls back to the model's own search.
+The limits are the `ACE_SEARCH_*` vars in `env.production`, with the account burst in
+`SEARCH_ACCOUNT_BURST` (1009) and the coarse address limit before authentication in
+`SEARCH_ADDRESS_REQUESTS` (1010); ADR 0210 §4 lists them. To stop ace search at once, set
+`ACE_SEARCH_DAILY_DOLLARS` to `0` and deploy.
 
 ## What the database holds
 
