@@ -144,3 +144,31 @@ test("a restart in the middle of that clean-up reads only the open frame and the
   });
   expect(seen).toEqual(["open", "send"]);
 });
+
+test("a fresh session on a thread with many old frames sets them aside at once and deletes them in steps", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  recovery.captured(h.id, "open", storeFrame(h, 1, "open"), false);
+  for (let seq = 2; seq < 1200; seq++) storeFrame(h, seq, "delta");
+  recovery.reset(h.id);
+  // Nothing of the old session is read again, though its frames are not all gone yet.
+  expect(count(h)).toBe(1199);
+  const seen: string[] = [];
+  const reader = {
+    translate(input: { data: unknown }) {
+      seen.push(String((input.data as { kind?: string }).kind));
+      return [];
+    },
+    tick: () => [],
+  };
+  await recovery.restore(h.id, reader);
+  expect(seen).toEqual([]);
+  // The fresh session's frames start a new record; the old ones go a batch per commit.
+  recovery.captured(h.id, "open", storeFrame(h, 1200, "open", "fresh"), false);
+  recovery.trimStep(h.id);
+  expect(count(h)).toBe(1200 - 256);
+  for (let step = 0; step < 10; step++) recovery.trimStep(h.id);
+  expect(count(h)).toBe(1);
+  await recovery.restore(h.id, reader);
+  expect(seen).toEqual(["open"]);
+});

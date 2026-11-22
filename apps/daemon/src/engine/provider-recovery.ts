@@ -50,6 +50,8 @@ export class ProviderRecovery {
   private readFramesRecord: StatementSync;
   private writeFramesRecord: StatementSync;
   private trimFrames: StatementSync;
+  private readFrame: StatementSync;
+  private lastFrame: StatementSync;
   constructor(store: Store) {
     this.store = store;
     [
@@ -62,12 +64,14 @@ export class ProviderRecovery {
       this.readFramesRecord,
       this.writeFramesRecord,
       this.trimFrames,
+      this.readFrame,
+      this.lastFrame,
     ] = store.atomic(
       (db) =>
         [
-          // Only the latest session's open frame and the open turn's frames, deleted or not yet.
+          // A seek on the thread's index from the open turn's first frame on, never a filter.
           db.prepare(
-            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? AND (rowid>=? OR rowid=?) ORDER BY rowid LIMIT 8",
+            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
           ),
           db.prepare(
             // An earlier build's frames, with no attempt record: the newest frames only.
@@ -95,7 +99,13 @@ export class ProviderRecovery {
           db.prepare(
             "DELETE FROM engine_provider_frames WHERE rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? AND rowid<? AND rowid<>? ORDER BY rowid LIMIT 256)",
           ),
+          db.prepare(
+            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid=?",
+          ),
+          db.prepare("SELECT MAX(rowid) AS last FROM engine_provider_frames WHERE thread_id=?"),
         ] satisfies [
+          StatementSync,
+          StatementSync,
           StatementSync,
           StatementSync,
           StatementSync,
@@ -115,10 +125,18 @@ export class ProviderRecovery {
    */
   async restore(threadId: ThreadId, translator: Translator): Promise<Unsettled> {
     const unsettled = new UnsettledRuns();
-    let rowid = 0;
+    // The latest session's open frame, read by its row when the open turn began after it, then
+    // the open turn's frames: frames of settled turns still waiting to be deleted are not read.
+    const { below = 0, open } = this.frames(threadId);
+    const opened =
+      open !== undefined && open < below
+        ? this.store.atomic(() => this.readFrame.get(threadId, open))
+        : undefined;
+    let rowid = Math.max(0, below - 1);
+    let first = opened ? [opened] : undefined;
     do {
-      const { below = 0, open = 0 } = this.frames(threadId);
-      const rows = this.store.atomic(() => this.readFrames.all(threadId, rowid, below, open));
+      const rows = first ?? this.store.atomic(() => this.readFrames.all(threadId, rowid));
+      first = undefined;
       if (!rows.length) return unsettled.result();
       for (const row of rows) {
         const encoded = z.string().max(1048576).parse(row.frame);
@@ -145,6 +163,8 @@ export class ProviderRecovery {
           throw unusable(fence.data.body.message ?? "Cursor's checkpoint exceeds its budget");
         rowid = z.number().int().positive().parse(row.rowid);
       }
+      // After the open frame, on from the open turn's first frame.
+      rowid = Math.max(rowid, below - 1);
       await yieldImmediate();
     } while (rowid > 0);
     return unsettled.result();
@@ -205,16 +225,22 @@ export class ProviderRecovery {
       () => this.readOutput.get(threadId, threadId, commandId, commandId) !== undefined,
     );
   }
-  /** Forgets a session's frames (and an earlier build's boundary cursor): it starts fresh. */
+  /**
+   * Forgets a session's frames (and an earlier build's boundary cursor): the thread's next
+   * session starts fresh. Its frames are set aside at once (restore reads none of them) and
+   * deleted a bounded batch per later commit, never all in one (ADR 0170).
+   */
   reset(threadId: ThreadId): void {
     this.store.atomic(() => {
-      this.store.statement("DELETE FROM engine_provider_frames WHERE thread_id=?").run(threadId);
+      const last = Number(this.lastFrame.get(threadId)?.last ?? 0);
+      this.writeFramesRecord.run(threadId, JSON.stringify({ below: last + 1, trimmed: false }));
       this.store.statement("DELETE FROM engine_provider_cursors WHERE thread_id=?").run(threadId);
       this.store
         .statement("DELETE FROM engine_state_records WHERE thread_id=? AND section='cursorAttempt'")
         .run(threadId);
     });
   }
+
   /** Where the thread's frames stand: the latest session's open frame, and the open turn's start. */
   private frames(threadId: ThreadId): { open?: number; below?: number; trimmed?: boolean } {
     const row = this.store.atomic(() => this.readFramesRecord.get(threadId));
