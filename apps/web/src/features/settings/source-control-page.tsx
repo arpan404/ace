@@ -167,8 +167,12 @@ function MachineSourceControl({ client, machineId }: { client: ClientApi; machin
     }
     await write(next);
   };
-  const fieldCommit = (draft: { forge: ForgeKind; host: string; account: string; remote: string }) =>
-    void commit(draft);
+  const fieldCommit = (draft: {
+    forge: ForgeKind;
+    host: string;
+    account: string;
+    remote: string;
+  }) => void commit(draft);
   const resetDraft = () => {
     if (preferences) {
       edit(preferences.host);

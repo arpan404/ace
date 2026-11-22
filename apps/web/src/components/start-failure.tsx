@@ -29,12 +29,7 @@ export function StartFailure(props: {
       role={props.role}
       className={cn("flex max-w-[420px] flex-col items-center gap-2 text-center", props.className)}
     >
-      <WarningCircleIcon
-        aria-hidden
-        size={20}
-        weight="fill"
-        className="text-status-failed"
-      />
+      <WarningCircleIcon aria-hidden size={20} weight="fill" className="text-status-failed" />
       <h1 id={props.titleId} className="text-ui font-medium text-foreground">
         ace couldn't start
       </h1>
@@ -60,7 +55,9 @@ export function StartFailure(props: {
           </div>
         </details>
       )}
-      {props.actions && <div className="mt-2 flex flex-wrap justify-center gap-2">{props.actions}</div>}
+      {props.actions && (
+        <div className="mt-2 flex flex-wrap justify-center gap-2">{props.actions}</div>
+      )}
     </div>
   );
 }

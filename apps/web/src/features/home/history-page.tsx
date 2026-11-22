@@ -62,8 +62,7 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
   const found: readonly HistoryItem[] = searching ? search.matches : loaded;
   // Every chat has its own hidden project, so one "Chats" choice takes all of them.
   const items = useMemo(
-    () =>
-      props.project === chatsProject ? found.filter((item) => isChat(item.project)) : found,
+    () => (props.project === chatsProject ? found.filter((item) => isChat(item.project)) : found),
     [found, props.project, isChat],
   );
   const sections = useMemo(
@@ -196,7 +195,10 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
  * One project menu: every project with settled threads, plus one "Chats" choice for the chats'
  * own hidden projects (ADR 0099), which would otherwise list as a row of identical "Chat" chips.
  */
-function HistoryProjectFilter(props: { project: string | undefined; onProject(id?: string): void }) {
+function HistoryProjectFilter(props: {
+  project: string | undefined;
+  onProject(id?: string): void;
+}) {
   const counts = useProjects();
   const name = useProjectName();
   const isChat = useProjectDirectory().isChat;

@@ -88,7 +88,7 @@ test("History folds every chat's own project into one Chats choice", async () =>
   const choices = (await screen.findAllByRole("menuitemradio")).map(
     (choice) => choice.textContent ?? "",
   );
-  expect(choices.filter((choice) => /^Chats/.test(choice))).toHaveLength(1);
+  expect(choices.filter((choice) => choice.startsWith("Chats"))).toHaveLength(1);
   expect(choices.some((choice) => /^Chat[^s]/.test(choice))).toBe(false);
   await userEvent.click(screen.getByRole("menuitemradio", { name: /Chats\s*\d*$/ }));
   expect(await within(main).findByText("No settled chats yet.")).toBeTruthy();

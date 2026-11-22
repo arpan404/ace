@@ -86,11 +86,7 @@ test("History marks its settled list, its rows and its project filter", async ()
   await app.open("/history");
   const main = await screen.findByRole("main");
   await within(main).findByRole("link", { name: /^Bump Codex/ });
-  await waitFor(() =>
-    expect(
-      missing(["page-body", "filter-bar", "list", "list-row"]),
-    ).toEqual([]),
-  );
+  await waitFor(() => expect(missing(["page-body", "filter-bar", "list", "list-row"])).toEqual([]));
   expect(within(main).getByRole("button", { name: "Project: All projects" })).toBeTruthy();
 });
 

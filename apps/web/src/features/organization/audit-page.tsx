@@ -49,6 +49,7 @@ export function AuditPage(props: { org: AceOrgSpace }) {
   });
   const read = log.data === undefined ? undefined : readAuditLines(log.data);
   const rows = read ? read.rows.slice(-shownEntries).toReversed() : [];
+  const auditKey = read?.header?.key;
   const [error, setError] = useState("");
   const keyCopy = useCopy(() => setError("Couldn't copy the key. Try again."));
   return (
@@ -137,12 +138,8 @@ export function AuditPage(props: { org: AceOrgSpace }) {
             }
             inline
           >
-            {read.header.key && (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => keyCopy.copy(read.header.key)}
-              >
+            {auditKey && (
+              <Button size="sm" variant="ghost" onClick={() => keyCopy.copy(auditKey)}>
                 {keyCopy.copied ? "Copied" : "Copy key"}
               </Button>
             )}

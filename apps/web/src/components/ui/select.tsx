@@ -80,9 +80,7 @@ function Select<T extends string>(props: {
           selectTrigger,
           // A minimum only for the default size: a Select given a width follows its column.
           props.className ??
-            (sized
-              ? "w-auto max-w-full min-w-(--setting-select-width)"
-              : "min-w-36"),
+            (sized ? "w-auto max-w-full min-w-(--setting-select-width)" : "min-w-36"),
         )}
       >
         <span className="inline-flex min-w-0 items-center gap-2">
@@ -91,10 +89,7 @@ function Select<T extends string>(props: {
           {sized && (
             // The longest option sets the width, so no choice cuts its own words off; the
             // trigger's max-width keeps it inside the column.
-            <span
-              aria-hidden
-              className="invisible h-0 min-w-max overflow-hidden whitespace-nowrap"
-            >
+            <span aria-hidden className="invisible h-0 min-w-max overflow-hidden whitespace-nowrap">
               {longest}
             </span>
           )}
