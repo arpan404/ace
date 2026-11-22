@@ -10,6 +10,7 @@ import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
 import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
 import type { Picked } from "./thread-attachments.ts";
 import type { SpadeHostingWire } from "./spade-hosting.ts";
+import type { SpadeKeep } from "./spade-kept-events.ts";
 
 /*
  * Spade's bridge over the real SDK and an in-process fake daemon with a fake Spade behind
@@ -59,12 +60,22 @@ export class Patches {
 export async function setUp(
   seed: (spade: FakeSpadeApi, daemon: FakeDaemon) => void = () => {},
   wait: typeof later = later,
+  phone: {
+    /** The phone's snapshot store, which outlives one runtime (`memoryKeep`). */
+    keep?: SpadeKeep;
+    /** Where the runtime keeps what the next launch draws first. */
+    checkpoint?: (json: string) => void;
+    /** Whose kept state this connection sees (`KeptScope.swift`). */
+    scope?: string;
+  } = {},
+  /** The fake Spade's clock, for histories two launches must hold alike. */
+  spadeNow: () => number = () => Date.now(),
 ) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
   daemon.services.settings.write("spade.enabled", true);
   daemon.spade.status = { state: "ready", version: "0.6.0" };
-  const api = new FakeSpadeApi(daemon.spade, () => Date.now());
+  const api = new FakeSpadeApi(daemon.spade, spadeNow);
   seed(api, daemon);
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-spade-test"),
@@ -85,6 +96,7 @@ export async function setUp(
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     later: wait,
+    ...phone,
   });
   stops.push(() => spade.stop());
   spade.start();
@@ -115,6 +127,22 @@ export async function setUp(
       new AbortController().signal,
     );
   return { daemon, api, owner, spade, patches, ask, stage, staged };
+}
+
+/** The phone's snapshot store in memory, as JSON, so one launch's runtime leaves it to the next. */
+export function memoryKeep(): SpadeKeep & { held: Map<string, string> } {
+  const held = new Map<string, string>();
+  return {
+    held,
+    get: async (key) => {
+      const text = held.get(key);
+      return text === undefined ? undefined : (JSON.parse(text) as unknown);
+    },
+    set: async (key, value) => void held.set(key, JSON.stringify(value)),
+    deletePrefix: async (prefix) => {
+      for (const key of held.keys()) if (key.startsWith(prefix)) held.delete(key);
+    },
+  };
 }
 
 /** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */

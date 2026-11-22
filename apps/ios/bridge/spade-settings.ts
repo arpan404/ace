@@ -27,7 +27,8 @@ import {
 } from "./spade-settings-rows.ts";
 import { appName, reconnectApp } from "./spade-reconnect.ts";
 import { keepKey, keepToken, removeKey, secretRefusal } from "./spade-secret-writes.ts";
-import { segment, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 
 /*
  * Settings › Spade from the phone: each page read afresh, and each change written to Spade and

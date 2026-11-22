@@ -1,6 +1,7 @@
 import { SpadeRequestError } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
-import { segment, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 import { spadeRefused, spadeRequestArea, type SpadeOutcome } from "./spade-requests-area.ts";
 
 /* A group (ADR 0132): post to it, and stop its run. */

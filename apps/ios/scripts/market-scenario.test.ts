@@ -21,7 +21,11 @@ test("the spike's marketplace fills every shelf of the phone's home", async () =
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const market = new NativeMarket(client, () => now);
+  const market = new NativeMarket(
+    client,
+    () => now,
+    async () => {},
+  );
   const ask = async (operation: Record<string, unknown>) =>
     (await market.answer(
       NativeMarketRequest.parse({ type: "market.native", operation }),

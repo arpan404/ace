@@ -156,6 +156,73 @@ import Testing
         #expect(!model.inboxLoaded)
     }
 
+    @Test func theSpadeTabShowsOnAColdStartFromItsKeptStateUntilTheMachineSaysSpadeIsGone() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
+        // As the bridge keeps it (`spade-checkpoint.ts`), with a conversation it never restores.
+        let scope = try #require(try target().keptScope)
+        try InboxCheckpoint.writeSpade(try json([
+            ["type": "spade.state", "shown": true, "line": line, "host": "host",
+             "list": ["rows": [bot("Spade", main: true), bot("Research")], "failed": false]],
+            ["type": "spade.conversation", "id": "c1", "loaded": true, "answering": true],
+        ]), database: database, scope: scope)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+
+        await model.connect(target: try target(), directory: directory)
+
+        #expect(model.spade.shown == true)
+        #expect(model.spade.bots?.map(\.name) == ["Spade", "Research"])
+        #expect(model.spade.bots?.allSatisfy { $0.line == "Checking for changes" && $0.state != "working" } == true)
+        #expect(model.spade.conversation == nil)
+
+        // The runtime's first word, before the daemon has said, leaves the tab and its bots.
+        model.receive(try json([["type": "spade.state", "shown": NSNull(), "line": line, "list": ["rows": NSNull(), "failed": false]]]))
+        #expect(model.spade.shown == true)
+        #expect(model.spade.bots?.count == 2)
+
+        model.receive(try json([["type": "spade.state", "shown": false, "line": line, "list": ["rows": NSNull(), "failed": false]]]))
+        #expect(model.spade.shown == false)
+    }
+
+    @Test func anotherPrincipalsKeptSpadeNeverShowsAndIsRemoved() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let database = ClientModel.database(hostId: "host", deviceId: "device", in: directory)
+        // Kept by another account on this phone: the same machine and device, another principal.
+        let other = KeptScope.of(principal: KeptScope.account(token: "someone else"), hostId: "host")
+        try InboxCheckpoint.writeSpade(try json([
+            ["type": "spade.state", "shown": true, "line": line, "list": ["rows": [bot("Private")], "failed": false]],
+        ]), database: database, scope: other)
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+
+        await model.connect(target: try target(), directory: directory)
+
+        #expect(model.spade.shown == nil)
+        #expect(model.spade.bots == nil)
+        #expect(!FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: database, scope: other).path))
+    }
+
+    @Test func anotherRouteToTheSameMachineKeepsTheSpadeTabWhileItReconnects() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: { _, _, _, _ in StartRecorder() })
+        await model.connect(target: try target(), directory: directory)
+        model.receive(try json([["type": "spade.state", "shown": true, "line": line, "list": ["rows": [bot("Research")], "failed": false]]]))
+
+        await model.connect(target: try target(), directory: directory)
+
+        #expect(model.spade.shown == true)
+        #expect(model.spade.bots == nil, "a bot the last runtime confirmed waits to be read again")
+    }
+
+    private var line: [String: Any] { ["sentence": "Checking Spade…", "ready": false, "canTurnOn": false] }
+    private func bot(_ name: String, main: Bool = false) -> [String: Any] {
+        ["id": name, "conversation": "c-\(name)", "name": name, "main": main, "initial": String(name.prefix(1)), "group": NSNull(),
+         "faces": [["main": main, "initial": String(name.prefix(1)), "away": false]], "state": "off",
+         "line": "Checking for changes", "pinned": false]
+    }
+
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

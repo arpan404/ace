@@ -151,7 +151,7 @@ struct ConversationFeed: View {
                             .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
                     }
                     Color.clear.frame(height: extent.after).accessibilityHidden(true)
-                } else { ConversationSkeleton().padding(AceDesign.Space.margin) }
+                } else { ConversationSkeleton(opening: opening, retry: retryOpening) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
                         PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
@@ -207,6 +207,9 @@ struct ConversationFeed: View {
                 AceShape.capsule.fill(AceTheme.Colours.fill).frame(width: AceDesign.Size.tap, height: AceDesign.Space.related)
                     .padding(AceDesign.Space.margin).allowsHitTesting(false)
                     .accessibilityLabel("Loading messages").accessibilityIdentifier("transcript.paging")
+            } else if reading.thread == nil {
+                // Kept rows while the machine connects: marked over the rows, never moving them.
+                ThreadSyncingLine(opening: opening, retry: retryOpening).animation(.default, value: opening)
             }
         }
         .scrollDismissesKeyboard(.interactively)

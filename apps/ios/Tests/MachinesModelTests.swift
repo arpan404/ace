@@ -387,6 +387,27 @@ import Testing
         #expect(fixture.model.machines.map(\.hostId) == [studio])
     }
 
+    @Test func signingOutRemovesWhatTheAccountsMachinesKeptOfSpadeAndAPairedOneKeepsItsOwn() async throws {
+        let studio = String(repeating: "S", count: 52), build = String(repeating: "B", count: 52)
+        let account = FakeAccount([AceMachine(hostId: build, name: "build box", platform: "linux", lastSeenAt: 1)])
+        let fixture = try Fixture(machines: [machine(studio, device: "phone-1")], account: account)
+        defer { fixture.cleanUp() }
+        await fixture.model.load()
+        let built = ClientModel.database(hostId: build, deviceId: "ios-account-device", in: fixture.storage)
+        let paired = ClientModel.database(hostId: studio, deviceId: "phone-1", in: fixture.storage)
+        try InboxCheckpoint.writeSpade("[]", database: built, scope: "someone")
+        try InboxCheckpoint.writeSpade("[]", database: paired, scope: "phone")
+
+        account.signOut()
+        let refreshing = Task { await fixture.model.refreshAccount() }
+        for _ in 0..<50 { await Task.yield() }
+        for session in fixture.sessions.started where session.target.hostId == build { session.finishShutdown() }
+        await refreshing.value
+
+        #expect(!FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: built, scope: "someone").path))
+        #expect(FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: paired, scope: "phone").path))
+    }
+
     private func machine(_ host: String, device: String) -> MachineEntry {
         MachineEntry(hostId: host, displayName: host.capitalized, icon: nil,
                      target: .init(kind: "direct", url: "wss://100.64.0.7:4243/", fingerprint: DaemonCertificate.pin), deviceId: device)

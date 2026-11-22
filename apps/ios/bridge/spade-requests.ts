@@ -2,7 +2,8 @@ import type { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { answerSpadeNewBot, spadeNewBotRequests } from "./spade-new-bot.ts";
 import { answerSpadeSettings, spadeSettingsRequests } from "./spade-settings.ts";
-import { spadeText, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { spadeText } from "./spade-text.ts";
 import {
   answerFromAreas,
   spadeRequestArea,

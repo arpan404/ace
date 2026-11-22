@@ -1,7 +1,7 @@
 import { parseSpadeAgent, spadeAgentTaskMax } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
-import { segment } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 import { spadeRefused, spadeRequestArea, type SpadeOutcome } from "./spade-requests-area.ts";
 
 /* A bot's profile sheet: read it, and save the bot's task. */

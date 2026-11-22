@@ -2,7 +2,8 @@ import type { ClientCore } from "@ace/client";
 import type { z } from "zod";
 import type { ImageBudget } from "./image-budget.ts";
 import type { ChunkReader } from "./thread-attachments.ts";
-import { segment, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 
 /*
  * One area of what the iPhone asks of Spade (`spade-requests.ts`): its request schemas and the

@@ -299,6 +299,14 @@ import Observation
         shown = nil; line = nil; bots = nil; listFailed = false; host = nil; main = nil
         belong(to: nil)
     }
+    /// A new runtime on the same machine: as `reset`, but whether the machine shows Spade stays
+    /// until the kept state (`InboxCheckpoint`) or the daemon says otherwise, so the tab never
+    /// blinks out and back.
+    func resetKeepingTab() {
+        let kept = shown
+        reset()
+        shown = kept
+    }
 }
 
 /// What a Spade request came to (`bridge/spade-requests.ts`): done, or refused with a title and

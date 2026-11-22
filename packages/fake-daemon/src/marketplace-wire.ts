@@ -338,6 +338,27 @@ export class FakeMarketplaceWire {
           },
         };
       }
+      case "look": {
+        // What its review would show: the recipe's face, or the Suit's `suit.json` item.
+        const entry = this.#entries.get(
+          `${operation.source}:${key(operation.type, operation.name)}`,
+        );
+        if (!entry)
+          return {
+            op: "error",
+            code: "not_found",
+            message: `${operation.type}/${operation.name} isn't listed`,
+          };
+        const body = entry.review?.body;
+        const suit = entry.items?.find(
+          (item) => item.kind === "text" && item.path === "suit.json" && !item.before,
+        );
+        return {
+          op: "look",
+          ...(body?.type === "spade-bot" && body.face ? { face: body.face } : {}),
+          ...(operation.type === "suit" && suit?.kind === "text" ? { suit: suit.text } : {}),
+        };
+      }
       case "prepare":
       case "prepareRollback":
       case "prepareUpdate": {

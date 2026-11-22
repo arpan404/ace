@@ -22,7 +22,8 @@ import {
 } from "./spade-attachments.ts";
 import type { NativeAttachment } from "./native-attachment.ts";
 import { setRunning } from "./spade-settings.ts";
-import { segment, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 import {
   spadeConversationPath,
   spadeRefused,

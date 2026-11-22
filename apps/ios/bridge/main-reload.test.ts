@@ -62,6 +62,7 @@ for (const operation of [
   "storage.devices.load",
   "storage.devices.save",
   "inbox.checkpoint",
+  "spade.checkpoint",
   "snapshot.get",
   "snapshot.set",
   "snapshot.thread.get",
