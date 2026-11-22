@@ -9,7 +9,7 @@ export { SpadeNewGroupScreen } from "./spade-group-new.tsx";
 export { SpadeGroupScreen } from "./spade-group-screen.tsx";
 /** New bot, a conversation whose first message makes the bot. */
 export { NewBotStart } from "./spade-bot-start.tsx";
-/** Settings › Spade: General, Models, Web search and Apps, under `/settings/spade`. */
+/** Settings › Spade: General, Models, Apps and Security, under `/settings/spade`. */
 export { SpadeSettingsScreen, type SpadeSettingsPage } from "./spade-settings-screen.tsx";
 /** The live pictures of the bots' browsers and screens, as the app supplies them. */
 export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";
