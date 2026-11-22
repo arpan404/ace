@@ -4,7 +4,7 @@ import { GRANT_LIFETIME_MS } from "@ace/account-grant";
 import type { ServerMessage } from "@ace/protocol";
 import type { SpadeAccess } from "./services/spade-session.ts";
 import type { SpadeLink } from "./spade/link.ts";
-import { deviceKey, useAccountBackend } from "./machine-standing-test-support.ts";
+import { deviceKey, person, useAccountBackend } from "./machine-standing-test-support.ts";
 import { helloWith, mia, orgTeamHost, provesMember } from "./org-host-test-support.ts";
 
 // ADR 0209 §4.2: a Spade request or live stream is bound to the member who opened it. When their
@@ -148,6 +148,54 @@ it("a live stream ends when the member's standing lapses, though Spade keeps sen
   }
   // Frames flowed while she stood, and none came after her standing ended.
   expect(frames.length).toBeGreaterThan(0);
+  await team.home.close();
+  await slow.close();
+});
+
+it("an upload opened by one member isn't continued by another proven later on the same socket", async () => {
+  // The app on the host's own desktop proves Mia, opens an upload, then proves Pat.
+  const slow = await slowSpade(0);
+  const team = await orgTeamHost(backend, { spade: slow.spade });
+  const page = await team.home.pageSocket();
+  const prove = async (account: string, role: string) => {
+    const key = await deviceKey();
+    const grant = backend.worker.mintMember({
+      org: team.org,
+      role,
+      account,
+      subject: "device",
+      host: team.home.host,
+      key: key.raw,
+      policy: 0,
+    });
+    expect((await provesMember(page.client, page.host, page.nonce, grant, key)).ok).toBe(true);
+  };
+  await prove(mia.id, "member");
+  page.client.send({
+    type: "spade.http",
+    requestId: "upload",
+    method: "POST",
+    path: "/v1/conversations/c_1/messages",
+    encoding: "text",
+    contentType: "application/json",
+    parts: 2,
+  });
+  const by = Date.now() + 8_000;
+  for (;;) {
+    const message = await next(page.client, by);
+    if (message.type === "spade.http.open" && message.requestId === "upload") break;
+  }
+  await prove(person.id, "owner");
+  page.client.send({ type: "spade.http.part", requestId: "upload", index: 0, body: '{"text":' });
+  for (;;) {
+    const message = await next(page.client, by);
+    if (Reflect.get(message, "requestId") !== "upload") continue;
+    expect(message).toMatchObject({
+      type: "spade.http.result",
+      result: { kind: "error", code: "forbidden" },
+    });
+    break;
+  }
   await team.home.close();
   await slow.close();
 });

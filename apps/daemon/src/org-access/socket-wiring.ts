@@ -139,13 +139,13 @@ export function orgSocketPolicy(deps: {
     holder: (): string | undefined => (gate.personal() ? undefined : gate.holder()),
     /**
      * For deferred work (a command waiting in its lane): a check that holds only while the
-     * principal deciding `message` now is still the one that did, and still may. Always true on
-     * a person's machine.
+     * principal deciding `message` now is still the one that admitted it (a person's machine's
+     * included), and the policy still allows it. Stays true while the machine stays a person's.
      */
     recheck(message: { type: string }): () => boolean {
-      if (gate.personal()) return () => true;
-      const holder = gate.holder();
-      return () => gate.personal() || (gate.holder() === holder && gate.message(message).allowed);
+      // Who admitted it, in either mode: a personal admission is no allow on an org host.
+      const admitted = gate.holder();
+      return () => gate.holder() === admitted && gate.message(message).allowed;
     },
     /** Closes what the socket may no longer hold; a no-op on a person's machine. */
     revalidate(): void {

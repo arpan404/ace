@@ -48,7 +48,12 @@ export function localSpade(options: { home: string | undefined; onChange(): void
       options.home === undefined
         ? undefined
         : watch(options.home, { persistent: false }, (_event, file) => {
-            if (typeof file === "string" && file !== "ace-owner.json") return;
+            if (
+              typeof file === "string" &&
+              file !== "ace-owner.json" &&
+              file !== "ace-org-seal.json"
+            )
+              return;
             mode.changed();
             direct.modeChanged();
             options.onChange();
@@ -57,9 +62,14 @@ export function localSpade(options: { home: string | undefined; onChange(): void
   } catch {
     owner = undefined;
   }
+  // Open streams are asked again on their own clock too, so a lost watch event can't keep one
+  // forwarding (`modeChanged` ends them once the home is an organization's).
+  const revalidate = setInterval(() => direct.modeChanged(), 1_000);
+  revalidate.unref?.();
   return {
     direct,
     close: () => {
+      clearInterval(revalidate);
       owner?.close();
       endpoints.close();
     },

@@ -80,3 +80,70 @@ it("a message reaches only the agents whose trees the sender may write into", as
   );
   store.close();
 });
+
+it("a message whose sender loses write access while it is being prepared is never recorded", async () => {
+  const home = mkdtempSync(join(tmpdir(), "ace-address-"));
+  homes.push(home);
+  const store = new Store(join(home, "events.sqlite"));
+  const workspace = store.createWorkspace(join(home, "repo"), "Repo");
+  const mine = createDevThread(store, workspace);
+  const theirs = createDevThread(store, workspace);
+  const device = DeviceId.parse("phone");
+  const handled: Command[] = [];
+  let writable = true;
+  const asks = new ThreadAsks({
+    store: new ThreadAskStore(store),
+    spade: () => undefined,
+    call: async () => ({ kind: "unreachable" }) as never,
+    sign: () => undefined,
+    post: () => {},
+    hold: () => {},
+    waiting: () => {},
+    title: () => "Thread",
+    now: () => 1,
+    sleep: async () => {},
+    log: () => {},
+  });
+  const session = createThreadAddressSession({
+    options: {
+      store,
+      threadAsks: asks,
+      engine: {
+        rootAgent: () => AgentId.parse("a_root"),
+        // Its access ends while the derived message is being prepared.
+        prepareCommand: async () => {
+          writable = false;
+        },
+      },
+      handler: {
+        handle: (command: Command) => {
+          handled.push(command);
+          return { commandId: command.id, ok: true };
+        },
+      },
+    },
+    send: () => {},
+    canReadThread: () => true,
+    canWriteThread: () => writable,
+    holder: () => "member:org_acme:user_mia",
+  } as unknown as SocketContext);
+  await session.command?.accept(
+    {
+      id: CommandId.parse("cmd_late"),
+      deviceId: device,
+      payload: {
+        type: "thread.address",
+        threadId: mine.id,
+        about: "their agent",
+        input: [{ type: "text", text: "Go on." }],
+        to: [{ kind: "agent", threadId: theirs.id, title: "Their agent" }],
+        devices: [],
+        share: "message",
+        files: [],
+      },
+    },
+    device,
+  );
+  expect(handled.filter((each) => each.payload.type === "thread.send")).toEqual([]);
+  store.close();
+});

@@ -102,12 +102,14 @@ export function spadeDirect(
     attempt: (spade: LocalSpade) => Promise<T>,
     retry: (result: T) => boolean,
   ): Promise<T | undefined> {
+    // Checked before each call that leaves this process, the retry's too (ADR 0209 §3).
+    if (off()) return undefined;
     const spade = await trustedSpade();
-    if (!spade) return undefined;
+    if (!spade || off()) return undefined;
     const result = await attempt(spade);
     if (!retry(result)) return result;
     const again = await endpoints.refresh();
-    if (!again || sameSpade(spade, again) || !(await proven(again))) return result;
+    if (!again || sameSpade(spade, again) || !(await proven(again)) || off()) return result;
     return attempt(again);
   }
 
@@ -144,6 +146,9 @@ export function spadeDirect(
       (result) => result === "unreachable" || (typeof result === "object" && unauthorized(result)),
     );
     if (outcome === undefined || outcome === "unreachable") return { kind: "unreachable" };
+    // Enrolled while Spade answered: its answer isn't handed on, and as it may have reached
+    // Spade, it isn't sent again another way either.
+    if (off()) return { kind: "error", code: "failed", message: "Spade didn't answer." };
     if (outcome === "failed")
       return { kind: "error", code: "failed", message: "Spade didn't answer." };
     if (outcome.kind === "too_large")
@@ -204,6 +209,15 @@ export function spadeDirect(
           signal: stream.controller.signal,
           maxEventChars: maxSpadeResponseBytes,
           onEvent(event) {
+            // Each frame is checked as it goes: a missed watch event never lets one through.
+            if (off()) {
+              if (streams.get(streamId) === stream) {
+                streams.delete(streamId);
+                stream.controller.abort();
+                ended("unreachable");
+              }
+              return;
+            }
             framed = true;
             emit({ streamId, kind: "frame", event: event.event.slice(0, 128), data: event.data });
           },

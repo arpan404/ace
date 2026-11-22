@@ -7,9 +7,7 @@ import { supportBundleWriter } from "../files-support.ts";
 import { connectedDoctorReport } from "../diagnostics-report.ts";
 import type { ServiceContext } from "./types.ts";
 
-/** A support bundle's id says whether it holds conversations, from the moment it is made. */
-export const conversationBundle = (artifactId: string): boolean =>
-  artifactId.startsWith("local-support-");
+export { conversationBundle } from "../support-bundle-id.ts";
 
 /** A private artifact registry works before the person has added any project. */
 export async function startSupportFiles(owner: ServiceContext) {
@@ -48,8 +46,17 @@ export async function startSupportFiles(owner: ServiceContext) {
       // An organization's host hands no member content to its operator (ADR 0209 §3).
       if (includeThreads && owner.orgHost?.org() !== undefined)
         throw new FileError("FORBIDDEN", "An organization's host doesn't export conversations.");
-      pending = (async () => {
+      /**
+       * Asked as it starts and again before it is published: a bundle of conversations begun on
+       * a person's machine is never published on an organization's host (ADR 0209 §3).
+       */
+      const guard = () => {
         assertAuthorized();
+        if (includeThreads && owner.orgHost?.org() !== undefined)
+          throw new FileError("FORBIDDEN", "An organization's host doesn't export conversations.");
+      };
+      pending = (async () => {
+        guard();
         return publishArtifact(
           files,
           artifacts,
@@ -61,7 +68,7 @@ export async function startSupportFiles(owner: ServiceContext) {
             category: "support",
             write: (temporary) => writer(temporary, includeThreads),
           },
-          assertAuthorized,
+          guard,
         );
       })().finally(() => {
         pending = undefined;

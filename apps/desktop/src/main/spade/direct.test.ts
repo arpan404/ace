@@ -312,3 +312,40 @@ test("on an organization's host the direct path is off: the window goes through 
   // Spade's token went nowhere after the enrollment.
   expect(bearers).toEqual([]);
 });
+
+test("without any watch event, a frame or an answer arriving after enrollment is never handed on", async () => {
+  // ADR 0209 §3: the mode is checked at each step, not only when a change is heard.
+  let org = false;
+  const port = await fakeSpade(tokenA, (request, response) => {
+    if ((request.url ?? "").includes("/live")) {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      const tick = setInterval(() => response.write("event: message\ndata: {}\n\n"), 50);
+      response.on("close", () => clearInterval(tick));
+      return;
+    }
+    // Enrolled while Spade was answering.
+    org = true;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ secret: "member content" }));
+  });
+  const { dir, publish } = dataDir();
+  publish(port, tokenA);
+  const spade = direct(dir, () => org);
+  expect(await spade.request({ method: "GET", path: "/v1/agents" })).toMatchObject({
+    kind: "error",
+    code: "failed",
+  });
+  org = false;
+  const events: SpadeLiveEvent[] = [];
+  const ended = new Promise<void>((resolve) =>
+    spade.openLive(1, { streamId: "s1", path: "/v1/conversations/c1/live?after=0" }, (event) => {
+      events.push(event);
+      if (event.kind === "frame") org = true;
+      if (event.kind === "ended") resolve();
+    }),
+  );
+  await ended;
+  // The first frame went before enrollment; nothing after it.
+  expect(events.filter((event) => event.kind === "frame")).toHaveLength(1);
+  expect(events.at(-1)).toMatchObject({ kind: "ended", reason: "unreachable" });
+});

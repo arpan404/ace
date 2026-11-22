@@ -175,6 +175,7 @@ export function createFilesSession(context: SocketContext): SocketService {
     context.canReadThread(threadId) && context.options.store.hasLiveThread(threadId);
   const resolve = filesScope({
     authorize: (access) => context.authorize(access),
+    conversations: () => context.orgHost?.() !== true,
     threadAccess,
     connected: () => context.connected(),
     options: context.options,

@@ -111,7 +111,9 @@ export function machineOwner(dataDir: string) {
      * The owner's account id: undefined before any person's proof was taken, and on an
      * organization's host, where no person owns the machine (`org`).
      */
-    current: (): string | undefined => (owner?.kind === "person" ? owner.account : undefined),
+    current: (): string | undefined =>
+      // A person's record beside a seal (an enrollment cut off after its seal) owns nothing.
+      owner?.kind === "person" && seal === undefined ? owner.account : undefined,
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     org: (): string | undefined => (owner?.kind === "org" ? owner.org : undefined),
     /** The generation a proof starting now is checked against (`holds`, `claim`). */
@@ -126,9 +128,10 @@ export function machineOwner(dataDir: string) {
     claim(account: string, seen: number): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
-        if (owner !== undefined) return owner.kind === "person" && owner.account === account;
-        // A released organization's home stays sealed: personal use starts on a fresh home.
+        // A sealed home is an organization's, released or mid-enrollment, whatever person's
+        // record sits beside the seal: personal use starts on a fresh home.
         if (seal !== undefined) return false;
+        if (owner !== undefined) return owner.kind === "person" && owner.account === account;
         // Nothing was proven without an owner, so no standing needs to end here.
         const next: Owner = { kind: "person", account };
         await write(next);
@@ -144,6 +147,8 @@ export function machineOwner(dataDir: string) {
     enroll(account: string, org: string, seen: number, drop: () => void): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
+        // An enrollment never rewrites a seal: a sealed home isn't a person's to give.
+        if (seal !== undefined) return false;
         if (owner?.kind !== "person" || owner.account !== account) return false;
         const next: Owner = { kind: "org", org };
         await change(drop, async () => {

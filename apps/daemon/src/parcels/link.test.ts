@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MachineCallRequest, type MachinePath } from "@ace/protocol";
 import { RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure, MachineUnpaired } from "../machines/transport.ts";
@@ -123,5 +123,50 @@ describe("a parcel call from an organization's host", () => {
       kind: "refused",
     });
     expect(state.reached).toEqual([]);
+  });
+});
+
+describe("a parcel call in flight when its machine is enrolled", () => {
+  it("tries no further route, refuses to write once connected, and halts", async () => {
+    // The first route fails after enrollment: the call never moves on to another one.
+    const moved = link({
+      "https://192.168.1.20:5870/": () => {
+        moved.state.orgHost = true;
+        throw new MachineFailure("offline");
+      },
+    });
+    await expect(moved.parcels.call(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+    });
+    expect(moved.state.reached).toEqual(["https://192.168.1.20:5870/"]);
+
+    // A connected request is asked again before it writes anything.
+    const state = { orgHost: false };
+    let connectedCheck: (() => boolean) | undefined;
+    const pinned = new ParcelLink({
+      // A transport holding its connection open until its signal ends it, as a real one does.
+      pinned: (_target, _route, options) => {
+        connectedCheck = options.current;
+        return new Promise((_resolve, reject) =>
+          options.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          }),
+        );
+      },
+      relay: { call: () => Promise.resolve({ ok: true }) },
+      paths: () => [],
+      hosted: () => false,
+      current: () => true,
+      orgHost: () => state.orgHost,
+      now: () => 1000,
+    });
+    const going = pinned.call(profile, chunk, timing);
+    await vi.waitFor(() => expect(connectedCheck).toBeDefined());
+    expect(connectedCheck?.()).toBe(true);
+    state.orgHost = true;
+    expect(connectedCheck?.()).toBe(false);
+    // Enrollment halts what is still waiting on an answer.
+    pinned.halt();
+    await expect(going).rejects.toBeDefined();
   });
 });

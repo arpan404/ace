@@ -204,6 +204,8 @@ export class ParcelPuller {
           await this.refuse(profile, entry, "Its parent's machine has no room for it.", signal);
           return;
         }
+        // Enrolled while it was on its way: nothing more of it is kept or handed on.
+        if (deps.link.closed()) return;
         await deps.files.append(row.parcelId, range.offset, bytes);
         held += bytes.length;
         deps.rows.updateIn(row.parcelId, { held }, deps.now());
@@ -235,6 +237,8 @@ export class ParcelPuller {
         }
         throw error;
       }
+      // Checked once more before it lands: an organization's host publishes no arrival.
+      if (deps.link.closed()) return;
       deps.rows.updateIn(row.parcelId, { state: "delivered", held: parcel.size }, deps.now());
       const landed = deps.rows.in(row.parcelId);
       if (landed) deps.arrived(landed);

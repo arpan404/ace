@@ -295,6 +295,8 @@ export function startParcels(context: ServiceContext): void {
     // Enrolled: what was queued for other machines fails, and what came from them waits,
     // unopened, without being handed to a thread here.
     if (orgHost()) {
+      // Whatever is still waiting on another machine's answer ends now.
+      link.halt();
       quarantineOnOrgHost(rows, (parcelId, state, reason) =>
         sender.settle(parcelId, state, reason),
       );

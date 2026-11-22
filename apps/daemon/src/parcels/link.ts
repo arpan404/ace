@@ -117,9 +117,19 @@ export class ParcelLink {
       throw error;
     }
   }
+  /** Aborted at enrollment: every call still waiting on an answer ends then. */
+  readonly #halted = new AbortController();
+  /** Whether this machine is an organization's host now: nothing more is sent or taken in. */
+  closed(): boolean {
+    return this.deps.orgHost?.() === true;
+  }
+  /** Ends every call in flight, as enrollment does (ADR 0209 §4.2). */
+  halt(): void {
+    this.#halted.abort();
+  }
   /** An organization's host calls no other machine: final, so nothing retries it. */
   private refuseOnOrgHost(): void {
-    if (this.deps.orgHost?.() === true)
+    if (this.closed())
       throw new MachineFailure(
         "refused",
         "machine_forbidden",
@@ -133,8 +143,14 @@ export class ParcelLink {
     body: MachineCallRequest,
     options: { timeoutMs: number; signal?: AbortSignal },
   ): Promise<unknown> {
+    // Asked again at each route: a call enrolled mid-way moves on to no other one.
+    this.refuseOnOrgHost();
     if (!this.deps.current(profile))
       throw new MachineUnpaired("offline", undefined, "Parcel call never sent: unpaired");
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, this.#halted.signal])
+      : this.#halted.signal;
+    options = { ...options, signal };
     if (route.kind === "relay")
       return this.deps.relay.call(
         {
@@ -161,7 +177,7 @@ export class ParcelLink {
         timeoutMs: options.timeoutMs,
         ...(options.signal ? { signal: options.signal } : {}),
         // Asked again once connected, before anything is written, on whichever address.
-        current: () => this.deps.current(profile),
+        current: () => this.deps.current(profile) && !this.closed(),
         // Only the linked address shares the machine's kept-open connections.
         ...(saved && this.deps.connections ? { connections: this.deps.connections } : {}),
       },

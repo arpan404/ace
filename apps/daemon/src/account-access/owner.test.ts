@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -119,4 +119,18 @@ test("a person's machine is never sealed", async () => {
   await owner.release(() => {});
   expect(owner.sealed()).toBeUndefined();
   expect(await owner.claim("user_q", owner.generation())).toBe(true);
+});
+
+test("an enrollment cut off after its seal leaves a sealed home: its old owner neither proves nor re-enrolls", async () => {
+  // The seal was written, then the machine stopped before the owner record was replaced.
+  const { root } = await owned("user_p");
+  const sealed = JSON.stringify({ kind: "org-seal", org: "org_acme" });
+  await writeFile(join(root, "ace-org-seal.json"), sealed);
+  const owner = machineOwner(root);
+  await owner.load();
+  expect(owner.sealed()).toBe("org_acme");
+  expect(owner.current()).toBeUndefined();
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+  expect(await owner.enroll("user_p", "org_other", owner.generation(), () => {})).toBe(false);
+  expect(await readFile(join(root, "ace-org-seal.json"), "utf8")).toBe(sealed);
 });
