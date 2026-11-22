@@ -11,6 +11,8 @@
 /// before. Pure.
 struct TranscriptGrowthAnchor: Equatable, Sendable {
     private var opening = false
+    /// The bottom is held for a window growing under shown rows (`windowGrowing`), not the open.
+    private var windowHeld = false
 
     /// Size changes keep the bottom edge where it is.
     var keepsEnd: Bool { opening }
@@ -20,12 +22,33 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
         if atEnd { opening = true }
     }
 
+    /// Which edge a window growing under shown rows holds (`windowGrowing`).
+    enum Held: Equatable, Sendable { case end, topRow }
+
+    /// The live window grows under rows already shown: kept rows or the opening's tail meeting the
+    /// whole window. A feed following the end keeps its bottom still, so rows joining above never
+    /// move the newest message, until `openSettled`; one read elsewhere holds its top row.
+    mutating func windowGrowing(following: Bool) -> Held {
+        guard following else { return .topRow }
+        opening = true
+        windowHeld = true
+        return .end
+    }
+
+    /// The window's hold ended, settled or cut short by a scroll: if it was what held the bottom,
+    /// size changes keep the top again.
+    mutating func windowHoldEnded() {
+        guard windowHeld else { return }
+        windowHeld = false
+        opening = false
+    }
+
     /// The opened rows have measured: size changes keep the top again.
-    mutating func openSettled() { opening = false }
+    mutating func openSettled() { opening = false; windowHeld = false }
 
     /// The feed stopped following the end without the reader's hand (a jump, a turn key).
-    mutating func leftEnd() { opening = false }
+    mutating func leftEnd() { opening = false; windowHeld = false }
 
     /// The reader moved the feed or changed what it holds: a drag, a disclosure, the keyboard.
-    mutating func readerMoved() { opening = false }
+    mutating func readerMoved() { opening = false; windowHeld = false }
 }
