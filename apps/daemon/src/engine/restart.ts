@@ -267,6 +267,18 @@ export function recoverEngine(
           );
           return;
         }
+        // A Cursor send an earlier start left uncertain, after its reconcile may already have
+        // read Cursor's answer and died before settling it: reconcile again, which settles it.
+        if (
+          intent.status === "failed" &&
+          !intent.acknowledged &&
+          repo.backend(intent.threadId) === "cursor-sdk" &&
+          !processesUnverified &&
+          repo.pending.uncertainSend(intent.threadId, intent.commandId)
+        ) {
+          reconcile?.(intent.threadId);
+          return;
+        }
         if (intent.status === "running" || intent.awaiting) {
           if (
             [

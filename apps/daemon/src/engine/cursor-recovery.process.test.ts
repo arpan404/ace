@@ -34,6 +34,11 @@ async function crashAt(
   host: {
     /** What Cursor's store says of the cut-off run. */
     stored?: "finished" | "running";
+    /**
+     * The first reopen records what Cursor's store said and dies before settling it; the daemon
+     * then starts once more.
+     */
+    secondCrash?: boolean;
     /** Startup's proof that the previous run's processes are gone. */
     verified?: boolean;
     /** The first opens find Cursor's store busy (another writer holds it). */
@@ -127,6 +132,7 @@ async function crashAt(
           );
         } else if (unsettled?.attempt)
           await emit("admission", { ...unsettled.attempt, admitted: false });
+        if (host.secondCrash && opened.length === 1) throw new Error("Cursor SDK host died");
         for (const run of unsettled?.runs ?? []) {
           // The tail Cursor's store has past the daemon's record: the rest of the answer.
           if (stored === "finished")
@@ -166,7 +172,7 @@ async function crashAt(
     },
     { installed: true, auth: "logged_in", loginHint: "offline" },
   );
-  const engine = new Engine(store, {
+  let engine = new Engine(store, {
     registry,
     selectInstance: () => "account-a",
     ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
@@ -175,6 +181,11 @@ async function crashAt(
       : { previousProcessesVerified: Promise.resolve(host.verified) }),
   });
   await engine.flush();
+  if (host.secondCrash) {
+    await engine.close();
+    engine = new Engine(store, { registry, selectInstance: () => "account-a" });
+    await engine.flush();
+  }
   const held = engine.queue(threadId);
   const runs = store
     .readEvents({ afterSeq: 0, limit: 1000 })
@@ -476,4 +487,22 @@ it("without that proof a cut-off run fails as a restart fails it instead of read
   });
   expect(crash.opened).toEqual([]);
   expect(crash.runs).toEqual(["failed"]);
+});
+
+it("a send Cursor had is settled on the next start when the reopen that found its run died first", async () => {
+  await using crash = await crashAt("attempted", {
+    attemptAdmitted: true,
+    resume: false,
+    secondCrash: true,
+  });
+  expect(crash.opened).toHaveLength(2);
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: false, pendingCount: 0 });
+  expect(crash.held.reason).not.toBe("uncertain");
+});
+
+it("a send Cursor never had goes back in the queue on the next start when the reopen that read it died first", async () => {
+  await using crash = await crashAt("attempted", { resume: false, secondCrash: true });
+  expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
+  expect(crash.held.reason).not.toBe("uncertain");
 });
