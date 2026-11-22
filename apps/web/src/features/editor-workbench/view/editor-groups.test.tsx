@@ -169,3 +169,32 @@ test("a stored uneven split keeps its proportions, each group held to its 420px"
   expect(slots.map((slot) => slot?.style.flexGrow)).toEqual(["0.75", "0.25"]);
   expect(slots.map((slot) => slot?.style.minWidth)).toEqual(["420px", "420px"]);
 });
+
+test("more than two groups without room are switched by number, each still named in full", async () => {
+  editorSize(500);
+  const four = {
+    root: {
+      kind: "split" as const,
+      direction: "row" as const,
+      sizes: [0.25, 0.25, 0.25, 0.25],
+      children: ["g1", "g2", "g3", "g4"].map((id) => ({
+        kind: "group" as const,
+        id,
+        tabs: [tab("openai.yaml")],
+        active: "openai.yaml",
+        mru: ["openai.yaml"],
+      })),
+    },
+    focused: "g4",
+  };
+  await mountEditor(four);
+  const groups = screen.getByRole("group", { name: "Groups" });
+  const words = within(groups).getAllByRole("button");
+  expect(words.map((word) => word.textContent)).toEqual(["1", "2", "3", "4"]);
+  expect(words.map((word) => word.getAttribute("aria-label"))).toEqual([
+    "Group 1",
+    "Group 2",
+    "Group 3",
+    "Group 4",
+  ]);
+});

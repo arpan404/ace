@@ -9,7 +9,6 @@ import {
 } from "@ace/ui-core/editor-workbench";
 import { findTab, shownTab, type ScopeWorkspace } from "@ace/ui-core/workspace-tabs";
 import type { WorkspaceActions } from "./actions.ts";
-import { requestExplorer } from "./editor-explorer-ask.ts";
 import { requestReveal } from "./editor-reveal.ts";
 
 /*
@@ -139,6 +138,4 @@ export function findInEditor(target: EditorPanelTarget, query: string) {
     ...layout,
     explorer: { ...layout.explorer, open: true, side: "files", query },
   });
-  // A compact editor's overlay isn't in the layout: it hears this instead.
-  requestExplorer(target.scope);
 }

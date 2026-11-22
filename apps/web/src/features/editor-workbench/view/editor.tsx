@@ -17,9 +17,6 @@ import { SplitGrid } from "./split-grid.tsx";
 import { StatusLine } from "./status-line.tsx";
 import { createStatusStore, useStatusReport, type StatusStore } from "./status-store.ts";
 
-/** Spec 5: under this width the editor panel lays its explorer over the code. */
-export const compactBelowPx = 760;
-
 export interface EditorProps extends Omit<EditorHost, "reportStatus">, EditorLayoutProps {
   /**
    * The status line's left notice: what needs a look across open files ("Claude Code changed
@@ -83,7 +80,12 @@ export function Editor(props: EditorProps) {
       <WordChoice
         label="Groups"
         value={focused.id}
-        options={groups.map((each, index) => ({ value: each.id, label: `Group ${index + 1}` }))}
+        // Past two groups the words are their numbers, so the switcher fits a narrow strip.
+        options={groups.map((each, index) => ({
+          value: each.id,
+          label: groups.length > 2 ? `${index + 1}` : `Group ${index + 1}`,
+          name: `Group ${index + 1}`,
+        }))}
         onValueChange={(id) => onLayoutChange(focusGroup(layout, id))}
         className="mr-1 shrink-0"
       />

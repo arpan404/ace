@@ -11,7 +11,13 @@ import { part } from "@/lib/suit-part.ts";
 export function WordChoice<T extends string>(props: {
   label: string;
   value: T;
-  options: readonly { value: T; label: string; count?: number | undefined }[];
+  /** `name`: the word's accessible name when its label is shorter ("1" for "Group 1"). */
+  options: readonly {
+    value: T;
+    label: string;
+    count?: number | undefined;
+    name?: string | undefined;
+  }[];
   onValueChange(value: T): void;
   className?: string;
 }) {
@@ -33,8 +39,8 @@ export function WordChoice<T extends string>(props: {
           {...part("tab", option.value === props.value && "selected")}
           aria-label={
             option.count === undefined
-              ? undefined
-              : `${option.label} ${option.count.toLocaleString()}`
+              ? option.name
+              : `${option.name ?? option.label} ${option.count.toLocaleString()}`
           }
           className={cn(
             "group/word inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-ui whitespace-nowrap text-muted-foreground transition-colors duration-(--motion-fast) focus-ring touch-hit hover:bg-hover hover:text-foreground",
