@@ -5,9 +5,8 @@ import { CodeEditor } from "./editor.tsx";
 /* A Markdown file's source is Markdown: coloured by markit, and named so in the status line. */
 
 const coloured = () =>
-  document
-    .querySelector('[data-line="0"]')
-    ?.querySelectorAll('[style*="--source-token-light"]').length ?? 0;
+  document.querySelector('[data-line="0"]')?.querySelectorAll('[style*="--source-token-light"]')
+    .length ?? 0;
 
 test("README.md opens as coloured Markdown and the status line says Markdown", async () => {
   render(

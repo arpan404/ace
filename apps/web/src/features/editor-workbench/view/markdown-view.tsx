@@ -19,8 +19,9 @@ export function MarkdownPreview(props: {
   const { buffer, path, onStatus } = props;
   const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
   const text = useSyncExternalStore(subscribe, () => buffer.document()?.text() ?? "");
+  // A reload or a merge brings a new document: the status is read from it again.
+  const doc = useSyncExternalStore(subscribe, () => buffer.document());
   useEffect(() => {
-    const doc = buffer.document();
     if (!doc) return undefined;
     onStatus(
       editorStatus({
@@ -35,7 +36,7 @@ export function MarkdownPreview(props: {
       }),
     );
     return () => onStatus(undefined);
-  }, [buffer, path, onStatus, text]);
+  }, [doc, path, onStatus]);
   return (
     <div className="min-h-0 flex-1 overflow-auto" tabIndex={-1}>
       <article className="mx-auto w-full max-w-[760px] px-8 py-6 text-base leading-[1.6]">
