@@ -265,3 +265,21 @@ export const AceOrgSignInRequired = z.object({
   error: z.literal("org_sign_in_required"),
   org: AceOrgId,
 });
+
+/**
+ * `POST /v1/grants/standing` (ADR 0206 §6, §8.1): whoever holds an org grant (an org host with
+ * a member's grant, the market with an org market grant) asks whether it still speaks for its
+ * member. No bearer: the grant is the backend's own signature.
+ */
+export const AceOrgStandingRequest = z.object({ grant: z.string().min(1).max(8192) });
+export type AceOrgStandingRequest = z.infer<typeof AceOrgStandingRequest>;
+/**
+ * `current`: WorkOS, asked now, and the members mirror both say the grant's member is active in
+ * its organization with the role the grant carries; `role` is that role. Anything else is
+ * `current: false`, and the caller refuses what the grant was for.
+ */
+export const AceOrgStanding = z.object({
+  current: z.boolean(),
+  role: z.string().max(64).optional(),
+});
+export type AceOrgStanding = z.infer<typeof AceOrgStanding>;

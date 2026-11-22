@@ -21,7 +21,10 @@ export async function grantOrg(request: Request, context: Context): Promise<stri
     const issuer = context.env.ACE_GRANT_ISSUER ?? MARKET_GRANT_ISSUER;
     const claims = verifyMarketGrant(token, keys, context.now, issuer);
     // A grant naming one request reads nothing else.
-    return claims.action === undefined ? claims.org : undefined;
+    if (claims.action !== undefined || claims.org === undefined) return undefined;
+    // Only while it still speaks for its member: one who left, or whose role changed, reads
+    // nothing on a grant that hasn't run out yet (ADR 0206 §6).
+    return (await context.orgStanding(token))?.current === true ? claims.org : undefined;
   } catch (error) {
     if (error instanceof GrantError) return undefined;
     throw error;

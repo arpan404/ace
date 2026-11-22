@@ -25,6 +25,17 @@ export interface LineHighlighter {
 
 /** How long a change waits before the visible lines are asked for tokens again. */
 const defaultDelay = 30;
+/** Rebuilds in a row before a broken engine is left alone until the next change. */
+const maxRebuilds = 3;
+
+/** The calls this class makes on markit's highlighter; tests pass their own. */
+export interface NativeHighlighter {
+  setText(text: string): Promise<void>;
+  edit(startLine: number, removedLines: number, inserted: string[]): Promise<void>;
+  tokens(startLine: number, endLine: number): Promise<CodeToken[][]>;
+  advance(maxLines: number): Promise<boolean>;
+  free(): Promise<void> | void;
+}
 
 export interface MarkitHighlighterOptions {
   /** The debounce before a new token request; tests stretch it so old colours are observable. */
@@ -33,6 +44,8 @@ export interface MarkitHighlighterOptions {
   worker?: "shared" | "dedicated" | "inline";
   wasm?: BufferSource | WebAssembly.Module;
   grammarWasm?: BufferSource | WebAssembly.Module;
+  /** Makes the engine's highlighter; tests inject one that can fail. */
+  create?: (language: string) => NativeHighlighter;
 }
 
 /**
@@ -44,8 +57,15 @@ export interface MarkitHighlighterOptions {
 export class MarkitLineHighlighter implements LineHighlighter {
   readonly #delay: number;
   readonly #listeners = new Set<() => void>();
-  readonly #ready: Promise<void>;
-  #native: NativeLineHighlighter | undefined;
+  #ready: Promise<void>;
+  readonly #language: string | undefined;
+  readonly #options: MarkitHighlighterOptions;
+  #native: NativeHighlighter | undefined;
+  /** The whole current text, read only when the engine has to be rebuilt. */
+  #source: (() => string) | undefined;
+  /** A call failed: the engine's highlighter is gone (a restarted worker forgets it). */
+  #broken = false;
+  #rebuilds = 0;
   #queue: Promise<unknown> = Promise.resolve();
   #cache: Token[][] = [];
   #visible = { start: 0, end: 0 };
@@ -60,12 +80,18 @@ export class MarkitLineHighlighter implements LineHighlighter {
 
   constructor(language: string | undefined, options: MarkitHighlighterOptions = {}) {
     this.#delay = options.delay ?? defaultDelay;
+    this.#language = language;
+    this.#options = options;
     this.#ready = this.#open(language, options);
     this.#ready.catch(() => undefined);
   }
 
   async #open(language: string | undefined, options: MarkitHighlighterOptions): Promise<void> {
     if (!language) return;
+    if (options.create) {
+      this.#native = options.create(language);
+      return;
+    }
     let native: MarkitHighlighterOptions | undefined = options.workerURL ? options : undefined;
     if (
       options.worker !== undefined ||
@@ -80,6 +106,15 @@ export class MarkitLineHighlighter implements LineHighlighter {
     if (!native) native = { workerURL: markitWorkerPath() };
     if (this.#disposed) return;
     this.#native = new NativeLineHighlighter(language, native);
+  }
+
+  /**
+   * Follows a document: its text now, and a way to read it again if the engine loses this
+   * highlighter (markit's shared worker restarted), so colours come back instead of staying grey.
+   */
+  follow(source: () => string): void {
+    this.#source = source;
+    this.setText(source());
   }
 
   setText(text: string): void {
@@ -129,14 +164,33 @@ export class MarkitLineHighlighter implements LineHighlighter {
     this.#queue.then(() => native?.free()).catch(() => undefined);
   }
 
-  #enqueue(run: (native: NativeLineHighlighter) => Promise<void>): void {
+  #enqueue(run: (native: NativeHighlighter) => Promise<void>): void {
     this.#queue = this.#queue
       .then(async () => {
         await this.#ready;
-        if (this.#disposed || !this.#native) return;
+        if (this.#disposed || !this.#native || this.#broken) return;
         await run(this.#native);
       })
-      .catch(() => undefined);
+      .catch(() => this.#lost());
+  }
+
+  /**
+   * A call failed. With the document's text at hand, a new engine highlighter is made and given
+   * it, then the visible lines are asked again; a few failures in a row leave the plain text.
+   */
+  #lost(): void {
+    if (this.#disposed || this.#broken) return;
+    this.#broken = true;
+    const source = this.#source;
+    if (!source || this.#rebuilds >= maxRebuilds) return;
+    this.#rebuilds++;
+    const old = this.#native;
+    this.#native = undefined;
+    void Promise.resolve(old?.free()).catch(() => undefined);
+    this.#ready = this.#open(this.#language, this.#options);
+    this.#ready.catch(() => undefined);
+    this.#broken = false;
+    this.setText(source());
   }
 
   #scheduleFetch(): void {
@@ -164,11 +218,14 @@ export class MarkitLineHighlighter implements LineHighlighter {
       const tokens = await native.tokens(start, end);
       if (this.#disposed || key !== this.#requested) return;
       this.#stale = false;
+      this.#rebuilds = 0;
       for (const [index, line] of tokens.entries()) this.#cache[start + index] = line.map(toToken);
       for (const listener of this.#listeners) listener();
     } catch {
-      // Colours are a nicety: the plain text stays, and no timer retries a broken engine.
+      // The engine lost this highlighter: rebuild it from the text (a few times at most); the
+      // colours already drawn stay meanwhile.
       this.#stale = false;
+      this.#lost();
     }
   }
 
@@ -188,7 +245,7 @@ export class MarkitLineHighlighter implements LineHighlighter {
             this.#scheduleFetch();
           }
         })
-        .catch(() => undefined);
+        .catch(() => this.#lost());
     };
     this.#idle =
       typeof requestIdleCallback === "function"

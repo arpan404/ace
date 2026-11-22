@@ -66,6 +66,21 @@ describe("splits", () => {
     expect(shape(next)).toEqual({ row: ["g1", "g3", "g4"], sizes: [0.5, 0.25, 0.25] });
   });
 
+  it.each([
+    ["the first of three", "g1", [0.5, 0.25, 0.25], { row: ["g2", "g3"], sizes: [0.5, 0.5] }],
+    ["the middle of three", "g2", [0.2, 0.4, 0.4], { row: ["g1", "g3"], sizes: [1 / 3, 2 / 3] }],
+    ["the last of three", "g3", [0.25, 0.25, 0.5], { row: ["g1", "g2"], sizes: [0.5, 0.5] }],
+  ] as const)(
+    "removing %s shares its room among its neighbours by their sizes",
+    (_name, removed, sizes, expected) => {
+      const layout = layoutOf(row([group("g1", []), group("g2", []), group("g3", [])], [...sizes]));
+      const next = shape(removeGroup(layout, removed));
+      expect(next).toMatchObject({ row: expected.row });
+      const got = (next as { sizes: number[] }).sizes;
+      expected.sizes.forEach((size, index) => expect(got[index]).toBeCloseTo(size));
+    },
+  );
+
   it("removing the only group changes nothing", () => {
     const layout = emptyLayout("g1");
     expect(removeGroup(layout, "g1")).toBe(layout);

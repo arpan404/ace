@@ -17,6 +17,10 @@
           "maximum": 9007199254740991,
           "type": "integer"
         },
+        "org": {
+          "pattern": "^org_[A-Za-z0-9]{1,64}$",
+          "type": "string"
+        },
         "url": {
           "format": "ace-whatwg-url",
           "type": "string",
@@ -26,6 +30,23 @@
       "required": [
         "url",
         "expiresAt"
+      ],
+      "type": "object"
+    },
+    "loginRefused": {
+      "properties": {
+        "error": {
+          "const": "not_member",
+          "type": "string"
+        },
+        "org": {
+          "pattern": "^org_[A-Za-z0-9]{1,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org",
+        "error"
       ],
       "type": "object"
     },
@@ -114,6 +135,18 @@
         "handover"
       ],
       "type": "string"
+    },
+    "space": {
+      "properties": {
+        "org": {
+          "pattern": "^org_[A-Za-z0-9]{1,64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "org"
+      ],
+      "type": "object"
     }
   },
   "required": [

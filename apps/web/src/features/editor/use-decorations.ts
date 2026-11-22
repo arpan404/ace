@@ -1,10 +1,10 @@
 import type { EditorDocument, Range, Selection } from "@ace/editor";
 import { useMemo } from "react";
-import { guideLevels, wordAtCaret, wordOccurrences } from "./decorations.ts";
+import { guideLevels, selectionOccurrences, wordAtCaret, wordOccurrences } from "./decorations.ts";
 
 /*
  * The decorations for the lines on screen: the bracket pair at the caret (a bounded scan in the
- * core), other occurrences of the caret's word on the visible lines, and indent guide levels.
+ * core), other occurrences of the caret's word (or of one selection's text) on the visible lines, and indent guide levels.
  * Each is recomputed when the caret, the window or the text changes, and reads only what is
  * visible plus a bounded margin.
  */
@@ -36,13 +36,25 @@ export function useDecorations(options: {
     [doc, version, line, column, hasCaret],
   );
 
+  // One selection inside a line lights up the same text elsewhere, as typed, inside words too.
+  const only = selections.length === 1 ? selections[0] : undefined;
+  const anchorLine = only?.anchor.line;
+  const anchorColumn = only?.anchor.column ?? 0;
+  const sameLine = only !== undefined && !single && anchorLine === line;
   const occurrences = useMemo(() => {
+    if (sameLine) {
+      const text = lineAt(line).slice(
+        Math.min(anchorColumn, column),
+        Math.max(anchorColumn, column),
+      );
+      return selectionOccurrences(lineAt, first, last, text);
+    }
     if (!single) return [];
     const word = wordAtCaret(lineAt(line), column);
     if (!word) return [];
     const text = lineAt(line).slice(word.start, word.end);
     return wordOccurrences(lineAt, first, last, text);
-  }, [single, lineAt, line, column, first, last]);
+  }, [single, sameLine, anchorColumn, lineAt, line, column, first, last]);
 
   const guides = useMemo(
     () => guideLevels(lineAt, first, last, doc?.lenLines() ?? 0, indentSize),

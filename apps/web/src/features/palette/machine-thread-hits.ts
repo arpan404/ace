@@ -1,6 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { Machine } from "@/lib/machines.ts";
+import { spaceKey, useSpaceScope } from "@/lib/space-scope.ts";
 
 /** A thread another machine's search found for the palette's query. */
 export interface MachineThreadHit {
@@ -23,9 +24,10 @@ export function useMachineThreadHits(
   machines: readonly Machine[],
   text: string,
 ): readonly MachineThreadHit[] {
+  const space = spaceKey(useSpaceScope());
   const results = useQueries({
     queries: machines.map((machine) => ({
-      queryKey: ["palette-threads", machine.id, text],
+      queryKey: ["palette-threads", space, machine.id, text],
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         if (!machine.client) return [];
         const reply = await machine.client.request(

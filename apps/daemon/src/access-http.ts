@@ -320,7 +320,7 @@ async function accountRoute(
   if (path === "/v1/ace-account/login" && request.method === "POST") {
     const start = AceAccountLoginStart.safeParse(await body(request));
     if (!start.success) throw new AccessError(400, "Invalid ace account address");
-    return account.startLogin(start.data.origin);
+    return account.startLogin(start.data.origin, start.data.org);
   }
   if (path === "/v1/ace-account" && request.method === "PUT") {
     const handover = AceAccountHandover.safeParse(await body(request));

@@ -12,7 +12,7 @@ import {
 } from "@ace/ui-core";
 import { useCallback, useMemo } from "react";
 import { machineRow } from "@/lib/machine-threads.ts";
-import { usePrimaryMachine } from "@/lib/machines.ts";
+import { usePrimaryInSpace, usePrimaryMachine } from "@/lib/machines.ts";
 import { useIsChat, useIsChatThread } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useEntries, useEveryEntryKey, useStandingOf } from "./use-home-threads.ts";
@@ -74,7 +74,8 @@ export function useChatList(
   const isChatProject = useIsChat();
   const text = query.trim();
   const ownDevice = usePrimaryMachine().id;
-  const offDevice = !inScope(device, ownDevice);
+  const ownShown = usePrimaryInSpace();
+  const offDevice = !inScope(device, ownDevice) || !ownShown;
   const asked = useThreadHits(text);
   const found = offDevice ? noHits : asked;
   const select = useCallback(

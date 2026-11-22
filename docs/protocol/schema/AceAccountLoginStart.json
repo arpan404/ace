@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/AceAccountLoginStart.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "org": {
+      "pattern": "^org_[A-Za-z0-9]{1,64}$",
+      "type": "string"
+    },
     "origin": {
       "$ref": "https://ace.local/protocol/v1/AceAccountOrigin.json"
     }

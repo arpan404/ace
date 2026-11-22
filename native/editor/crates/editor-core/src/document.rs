@@ -24,6 +24,9 @@ pub struct Document {
     pub(crate) primary: usize,
     pub(crate) history: History,
     pub(crate) version: u64,
+    /// Which text the document holds as its history sees it: a new edit takes a fresh id, and
+    /// undo or redo gives back the id the text had, so a saved point is recognised again.
+    pub(crate) content_id: u64,
     /// The whole text, kept between finds and rebuilt when the version moves.
     pub(crate) search_text: RefCell<Option<(u64, String)>>,
     /// Whether the current next-occurrence chain started from a word under a caret.
@@ -41,6 +44,7 @@ impl Document {
             primary: 0,
             history: History::default(),
             version: 0,
+            content_id: 0,
             search_text: RefCell::new(None),
             word_chain: false,
             indent: Indent::default(),
@@ -127,6 +131,13 @@ impl Document {
     /// The number of edits applied so far. Clients use it to discard stale results.
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// Which text the document holds, as its undo history sees it. A new edit gives a fresh id
+    /// (never one used before), and undo or redo gives back the id that text had, so comparing
+    /// against the id at a save tells whether the text is back to what was saved.
+    pub fn content_id(&self) -> u64 {
+        self.content_id
     }
 
     /// The current cursors, in document order.
@@ -224,6 +235,7 @@ impl Document {
         self.selections = selections;
         self.primary = primary;
         self.word_chain = false;
+        self.content_id = entry.before_id;
         self.history.push_redo(entry);
         Some(outcome.applied)
     }
@@ -239,6 +251,7 @@ impl Document {
         self.selections = selections;
         self.primary = primary;
         self.word_chain = false;
+        self.content_id = entry.after_id;
         self.history.push_undo(entry);
         Some(outcome.applied)
     }
@@ -272,7 +285,14 @@ impl Document {
         let (after, primary) = self.normalize_selections(after, primary);
         self.primary = primary;
         self.word_chain = false;
-        if typing && self.history.absorb_typing(&forward, &after) {
+        let before_id = self.content_id;
+        // The version only rises, so no undone text ever had this id.
+        self.content_id = self.version;
+        if typing
+            && self
+                .history
+                .absorb_typing(&forward, &after, self.content_id)
+        {
             self.selections = after;
             return outcome.applied;
         }
@@ -284,6 +304,8 @@ impl Document {
                 inverse: outcome.inverse,
                 before,
                 after: entry_after,
+                before_id,
+                after_id: self.content_id,
             },
             typing,
         );

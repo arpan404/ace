@@ -33,7 +33,7 @@ export function GoToLineBar(props: {
     <div
       role="search"
       aria-label="Go to line"
-      className="flex h-9 shrink-0 items-center gap-2 border-b bg-popover px-2"
+      className="ace-floating-solid absolute top-1 right-4 z-10 flex h-9 items-center gap-2 rounded-lg px-2"
     >
       <input
         ref={input}
