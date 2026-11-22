@@ -49,4 +49,20 @@ import Testing
         #expect(anchor.windowGrowing(following: false) == .topRow)
         #expect(!anchor.keepsEnd, "the reader's row is held instead (an older page's hold)")
     }
+
+    @Test func aWindowHoldEndedByAnyScrollStopsHoldingTheBottom() {
+        // A programmatic scroll can end the hold before it settles: the bottom is let go all the
+        // same, so a later row resize doesn't pin it.
+        var anchor = TranscriptGrowthAnchor()
+        _ = anchor.windowGrowing(following: true)
+        anchor.windowHoldEnded()
+        #expect(!anchor.keepsEnd)
+    }
+
+    @Test func endingAnOlderPagesHoldLeavesTheOpeningsBottomHold() {
+        var anchor = TranscriptGrowthAnchor()
+        anchor.opened(atEnd: true)
+        anchor.windowHoldEnded()
+        #expect(anchor.keepsEnd, "only a hold the window started is let go")
+    }
 }

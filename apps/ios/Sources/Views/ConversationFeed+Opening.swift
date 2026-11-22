@@ -43,7 +43,7 @@ extension ConversationFeed {
             let placed = TranscriptSettle.opened(following: true, fromEnd: Double(intent.metrics.bottom), restoring: false)
             return settle.frame([Double(intent.metrics.height)], placed: placed, at: time)
         }) { _ in
-            growth.openSettled()
+            growth.windowHoldEnded()
             guard frozen else { return }
             surface.thaw()
             TranscriptJumpHooks.covered(false)

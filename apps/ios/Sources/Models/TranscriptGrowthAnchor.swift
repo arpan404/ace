@@ -11,6 +11,8 @@
 /// before. Pure.
 struct TranscriptGrowthAnchor: Equatable, Sendable {
     private var opening = false
+    /// The bottom is held for a window growing under shown rows (`windowGrowing`), not the open.
+    private var windowHeld = false
 
     /// Size changes keep the bottom edge where it is.
     var keepsEnd: Bool { opening }
@@ -29,15 +31,24 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
     mutating func windowGrowing(following: Bool) -> Held {
         guard following else { return .topRow }
         opening = true
+        windowHeld = true
         return .end
     }
 
+    /// The window's hold ended, settled or cut short by a scroll: if it was what held the bottom,
+    /// size changes keep the top again.
+    mutating func windowHoldEnded() {
+        guard windowHeld else { return }
+        windowHeld = false
+        opening = false
+    }
+
     /// The opened rows have measured: size changes keep the top again.
-    mutating func openSettled() { opening = false }
+    mutating func openSettled() { opening = false; windowHeld = false }
 
     /// The feed stopped following the end without the reader's hand (a jump, a turn key).
-    mutating func leftEnd() { opening = false }
+    mutating func leftEnd() { opening = false; windowHeld = false }
 
     /// The reader moved the feed or changed what it holds: a drag, a disclosure, the keyboard.
-    mutating func readerMoved() { opening = false }
+    mutating func readerMoved() { opening = false; windowHeld = false }
 }

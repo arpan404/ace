@@ -282,6 +282,8 @@ extension ConversationFeed {
     static var assistiveScrolling: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
     func endPageHold() {
         surface.stop(.page)
+        // A window's bottom hold ends with it, whatever ended it (`windowHoldEnded`).
+        growth.windowHoldEnded()
         guard surface.isFrozen else { return }
         surface.thaw()
         TranscriptJumpHooks.covered(false)
