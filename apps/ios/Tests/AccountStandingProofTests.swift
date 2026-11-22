@@ -86,6 +86,7 @@ import Testing
         #expect(StandingVerdict.renewal(remaining: 300, interval: 240) == 240)
         // A grant that ends sooner is renewed before it does, with a lead.
         #expect(StandingVerdict.renewal(remaining: 100, interval: 240) == 100 - StandingVerdict.lead)
-        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == 0)
+        // Too short to leave a lead: halfway, never at once.
+        #expect(StandingVerdict.renewal(remaining: 5, interval: 240) == 2.5)
     }
 }

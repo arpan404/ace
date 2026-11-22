@@ -1,6 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { startRelay, connectHostToRelay } from "@ace/relay";
+import { standingProofText } from "@ace/account-grant";
 import { fingerprint, keyPair } from "@ace/secure-channel";
+import { createPublicKey, randomBytes, verify } from "node:crypto";
 import type { ClientMessage } from "@ace/protocol";
 import { olderRelay, startProxy, stepOneOnly, RELAY_SHORTCUTS } from "./relay-proxy.ts";
 
@@ -17,6 +19,10 @@ import { olderRelay, startProxy, stepOneOnly, RELAY_SHORTCUTS } from "./relay-pr
  * flow control, as from the daemon; device `ios-stream` gets 8 MB of text instead of the deflated
  * message, which arrives whole only if the phone returns credit. A hello presenting the grant
  * `fixture-refused` is refused as the daemon refuses a grant it won't take: `unauthorized`.
+ * Device `ios-standing` is asked for the person's standing (ADR 0190 §3): its welcome carries a
+ * challenge, and an `account.standing` whose grant is `fixture-person.<key>` and whose proof is
+ * that P-256 key's signature over the proof text for this very socket (its nonce and handshake
+ * hash) is answered `ok`, standing for two seconds; any other proof is answered refused.
  * Device `ios-tunnel` is a tunnel connection (ADR 0194): every binary message it sends comes back
  * as the same bytes, so a round trip many flow windows long arrives only if credit flows both ways.
  *
@@ -27,6 +33,40 @@ import { olderRelay, startProxy, stepOneOnly, RELAY_SHORTCUTS } from "./relay-pr
  * answers what its connections offered (entries cut to their prefix), echoed and sent.
  */
 const out = process.argv[2] ?? "/tmp/ace-relay-fixture.json";
+/** Whether `message` is a valid proof of standing on the socket whose challenge was `nonce`. */
+function provesStanding(
+  message: { grant: string; proof: string },
+  hostId: string,
+  nonce: string,
+  binding: Uint8Array,
+): boolean {
+  const key = message.grant.startsWith("fixture-person.") && message.grant.slice(15);
+  if (!key) return false;
+  try {
+    const point = Buffer.from(key, "base64url");
+    const der = Buffer.concat([
+      Buffer.from("3059301306072a8648ce3d020106082a8648ce3d030107034200", "hex"),
+      point,
+    ]);
+    const text = standingProofText({
+      host: hostId,
+      nonce,
+      binding: Buffer.from(binding).toString("base64url"),
+      grant: message.grant,
+    });
+    return verify(
+      "sha256",
+      Buffer.from(text),
+      {
+        key: createPublicKey({ key: der, format: "der", type: "spki" }),
+        dsaEncoding: "ieee-p1363",
+      },
+      Buffer.from(message.proof, "base64url"),
+    );
+  } catch {
+    return false;
+  }
+}
 /** Text deflate can't shrink, so a stream really fills the flow window. */
 function noise(length: number): string {
   let text = "";
@@ -39,6 +79,7 @@ function noise(length: number): string {
 }
 const relay = await startRelay({ bind: "127.0.0.1" });
 const hostKeys = keyPair();
+const hostId = fingerprint(hostKeys.publicKey);
 const host = await connectHostToRelay({
   relayUrl: relay.url,
   hostKeys,
@@ -62,7 +103,19 @@ const host = await connectHostToRelay({
     channel.authorize();
     // As the daemon does: credit goes only to a hello that asked, its first before any reply.
     if (first.flowControl?.includes("credit")) channel.flowControl?.();
-    await channel.send({ type: "pong" });
+    const nonce = randomBytes(16).toString("base64url");
+    if (first.deviceId === "ios-standing")
+      await channel.sendText(
+        JSON.stringify({
+          type: "welcome",
+          hostId: "ios-fixture",
+          protocolVersion: 1,
+          headSeq: 0,
+          standingNonce: nonce,
+          standingHost: hostId,
+        }),
+      );
+    else await channel.send({ type: "pong" });
     if (first.deviceId === "ios-stream") {
       // Eight flow windows of text that won't deflate: it all arrives only if credit comes back.
       for (let index = 0; index < 40; index++)
@@ -88,6 +141,16 @@ const host = await connectHostToRelay({
     }
     for await (const message of channel as AsyncIterable<ClientMessage>) {
       if (message.type === "ping") await channel.send({ type: "pong" });
+      if (message.type === "account.standing")
+        await channel.sendText(
+          JSON.stringify({
+            type: "account.standing.result",
+            requestId: message.requestId,
+            result: provesStanding(message, hostId, nonce, channel.channelBinding)
+              ? { ok: true, until: Date.now() + 2000 }
+              : { ok: false, code: "unauthorized", message: "No" },
+          }),
+        );
     }
   },
 });

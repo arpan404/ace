@@ -110,8 +110,10 @@ enum StandingVerdict {
     static func wait(until: Date, now: Date) -> TimeInterval { max(0, until.timeIntervalSince(now)) }
     /// Seconds before an expiry that a proof is renewed, so a renewal can still arrive in time.
     static let lead: TimeInterval = 30
-    /// When to prove again: `interval` from now, or `lead` before the standing ends if that is sooner.
+    /// When to prove again: `interval` from now, or `lead` before the standing ends if that is
+    /// sooner. A standing too short to leave a lead is renewed halfway, never at once, so a
+    /// short one can't make the socket prove in a loop.
     static func renewal(remaining: TimeInterval, interval: TimeInterval) -> TimeInterval {
-        min(interval, max(0, remaining - lead))
+        remaining > 2 * lead ? min(interval, remaining - lead) : remaining / 2
     }
 }
