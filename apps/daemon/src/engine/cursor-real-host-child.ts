@@ -3,6 +3,9 @@
 // frame of the kind named by the argument returns, it writes the signal file and freezes its
 // thread, so nothing after that commit runs.
 import { writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { observeProcessGroups } from "@ace/provider-kit/process-owner";
 import { Store } from "../store.ts";
 import { Engine } from "./index.ts";
 import { AdapterRegistry } from "./registry.ts";
@@ -12,6 +15,8 @@ const [database, entry, home, sends, killAfter, signal] = process.argv.slice(2);
 if (!database || !entry || !home || !sends || !killAfter || !signal)
   throw new Error("Missing arguments");
 const store = new Store(database);
+// As the daemon does: every process group it starts is on record for the next start.
+observeProcessGroups(new ProcessInventory(join(dirname(database), "processes.sqlite")));
 const committed = () =>
   store
     .statement(
@@ -38,7 +43,7 @@ registry.register(realHostAdapter(entry, home, sends), {
   auth: "logged_in",
   loginHint: "offline",
 });
-// The last daemon was killed outright: its process groups are gone, as the check would show.
+// Boot one ran no host: nothing of it can still be running.
 const engine = new Engine(store, {
   registry,
   selectInstance: () => "account-a",

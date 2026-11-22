@@ -10,6 +10,8 @@ import { expect, it } from "vitest";
 import { Store, Engine, AdapterRegistry } from "@ace/daemon";
 import { Command } from "@ace/protocol";
 import { checkpointDirectory } from "@ace/adapter-cursor";
+import { ProcessInventory } from "@ace/provider-kit/process-inventory";
+import { previousGroupsGone } from "../cursor-process-check.ts";
 import {
   realHostAdapter,
   seedStore,
@@ -40,11 +42,25 @@ async function killedAt(script: string, args: string[]) {
 async function frozenAt(...args: [string, string, string, string, string, string]) {
   const signal = args[5];
   const child = fork(new URL("./cursor-real-host-child.ts", import.meta.url), args, {
-    stdio: ["ignore", "ignore", "inherit", "ipc"],
+    stdio: ["ignore", "ignore", "pipe", "ipc"],
   });
-  const exit = once(child, "exit");
+  let stderr = "";
+  child.stderr?.on("data", (data: Buffer) => (stderr += String(data)));
+  let exited: [number | null, NodeJS.Signals | null] | undefined;
+  const exit = once(child, "exit").then(
+    (status) => (exited = status as [number | null, NodeJS.Signals | null]),
+  );
   try {
-    await expect.poll(() => existsSync(signal), { timeout: 30_000, interval: 20 }).toBe(true);
+    // Fails at once if the daemon dies before its kill point, not at the deadline.
+    for (const deadline = Date.now() + 30_000; !existsSync(signal);) {
+      if (exited)
+        throw new Error(
+          `Boot two exited before its kill point (${exited.join(" ")}): ${stderr.slice(-4000)}`,
+        );
+      if (Date.now() > deadline)
+        throw new Error(`Boot two never reached its kill point: ${stderr}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
   } finally {
     child.kill("SIGKILL");
     await exit;
@@ -76,7 +92,27 @@ async function twoCrashes(
   else await seedStore(home, root, { status: "finished", texts: [], createdAt: 1, none: true });
   await afterSeed(checkpointDirectory(home, threadId));
   if (secondKill) await frozenAt(database, entry, home, sends, secondKill, join(root, "frozen"));
-  // Boot two's host is gone with it; nothing it sent counts for boot three.
+  // Boot two's detached host outlives its daemon by up to its grace period. As a real start
+  // does, boot three ends what the last run left and starts only once all of it is gone.
+  const inventory = new ProcessInventory(join(root, "processes.sqlite"));
+  let ended = 0;
+  for (const deadline = Date.now() + 15_000; ;) {
+    // A group still exiting can refuse the probe (EPERM on macOS): not yet proven gone.
+    const left = (() => {
+      try {
+        return inventory.recover();
+      } catch {
+        return undefined;
+      }
+    })();
+    ended += left?.removed ?? 0;
+    if (left && left.killed === 0 && left.unresolved === 0) break;
+    if (Date.now() > deadline) throw new Error("Boot two's host never went away");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  // Boot two's host was on record, so the wait above was for it.
+  if (secondKill) expect(ended).toBeGreaterThan(0);
+  // Nothing boot two's host sent counts for boot three.
   await writeFile(sends, "");
   const store = new Store(database);
   const registry = new AdapterRegistry();
@@ -85,15 +121,26 @@ async function twoCrashes(
     auth: "logged_in",
     loginHint: "offline",
   });
-  // The last daemon was killed outright: its process groups are gone, as the check would show.
   const engine = new Engine(store, {
     registry,
     selectInstance: () => "account-a",
-    cursorPreviousProcessesGone: async () => true,
+    // The daemon's own check, over the process record boot two kept.
+    cursorPreviousProcessesGone: () => previousGroupsGone(inventory),
   });
-  await engine.flush();
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  await engine.flush();
+  /** Until the thread stops working and nothing more of it is stored or sent. */
+  const settle = async () => {
+    let last = "";
+    for (const deadline = Date.now() + 20_000; ;) {
+      await engine.flush();
+      const state = store.getThread(threadId)?.status.state;
+      const now = JSON.stringify([state, store.headSeq(), (await readFile(sends, "utf8")).length]);
+      if (now === last && state !== "working") return;
+      if (Date.now() > deadline) throw new Error(`The thread never settled: ${now}`);
+      last = now;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  await settle();
   const sent = (await readFile(sends, "utf8"))
     .split("\n")
     .filter(Boolean)
@@ -138,9 +185,7 @@ async function twoCrashes(
         }),
         store,
       );
-      await engine.flush();
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      await engine.flush();
+      await settle();
       result.sent = await read();
     },
     queue: engine.queue(threadId),
@@ -152,6 +197,7 @@ async function twoCrashes(
     async [Symbol.asyncDispose]() {
       await engine.close();
       store.close();
+      inventory.close();
       await rm(root, { recursive: true, force: true });
     },
   };
