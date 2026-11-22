@@ -75,7 +75,11 @@ export async function writeCompacted(options: {
   await unlinkIfPresent(temp);
   const file = await open(
     temp,
-    constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW,
+    constants.O_CREAT |
+      constants.O_EXCL |
+      constants.O_WRONLY |
+      constants.O_APPEND |
+      constants.O_NOFOLLOW,
     0o600,
   );
   try {
@@ -101,7 +105,11 @@ export async function writeCompacted(options: {
       headerWritten = true;
     };
     if (options.bytes > 0) {
-      const stream = createReadStream(path, { start: 0, end: options.bytes - 1, highWaterMark: 65536 });
+      const stream = createReadStream(path, {
+        start: 0,
+        end: options.bytes - 1,
+        highWaterMark: 65536,
+      });
       const lines = createInterface({ input: stream, crlfDelay: Infinity });
       let count = 0;
       try {

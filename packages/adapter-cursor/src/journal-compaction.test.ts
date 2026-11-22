@@ -59,7 +59,7 @@ it("a compacted journal recovers to the same offset and replays only uncommitted
 
   const { journal: next, replayed } = await reopen(17);
   try {
-    expect(replayed).toEqual(unstored.map((value) => ({ ...value, replayed: true })));
+    expect(replayed).toEqual(unstored.map((value) => Object.assign({}, value, { replayed: true })));
     expect(next.afterObserve("run-1")).toBe("sdk-offset-7");
     expect((await next.append(frame("after"))).boundaryOffset).toBe(20);
   } finally {
@@ -92,11 +92,16 @@ it("a crash mid-compaction leaves a journal that still recovers", async () => {
   await journal.close();
   const intact = await readFile(journalPath(), "utf8");
   // A crash before the rename leaves a half-written next journal beside the old one.
-  await writeFile(`${journalPath()}.compact`, '{"aceJournal":2,"baseOffset":4,"observe":[]}\n{"tor');
+  await writeFile(
+    `${journalPath()}.compact`,
+    '{"aceJournal":2,"baseOffset":4,"observe":[]}\n{"tor',
+  );
 
   const { journal: next, replayed } = await reopen(10);
   try {
-    expect(replayed).toEqual(committed.slice(10).map((value) => ({ ...value, replayed: true })));
+    expect(replayed).toEqual(
+      committed.slice(10).map((value) => Object.assign({}, value, { replayed: true })),
+    );
     expect(await readFile(journalPath(), "utf8")).toBe(intact);
     await expect(stat(`${journalPath()}.compact`)).rejects.toThrow("ENOENT");
     expect((await next.append(frame("after"))).boundaryOffset).toBe(13);
