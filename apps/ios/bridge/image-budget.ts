@@ -29,6 +29,8 @@ export class ImageBudget {
     if (this.waiting.length || !this.fits(bytes)) await this.wait(bytes, signal);
     else this.held += bytes;
     try {
+      // Cancelled after being let in but before resuming: `finally` returns the slot.
+      signal?.throwIfAborted();
       return await read();
     } finally {
       this.held -= bytes;
