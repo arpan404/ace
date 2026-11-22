@@ -44,6 +44,12 @@ import {
   type SpadeSettingsAnswer,
 } from "./spade-settings.ts";
 import type { NativeSpade } from "./spade.ts";
+import {
+  answerSpadeAsk,
+  spadeAskRequests,
+  type NativeSpadeAskRequest,
+  type SpadeAskAnswer,
+} from "./spade-ask.ts";
 import { segment, spadeText } from "./spade-text.ts";
 
 /*
@@ -117,6 +123,8 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
   SpadeAudioRequest,
   ...spadeSettingsRequests,
   ...spadeNewBotRequests,
+  /** Siri's Ask Spade (`spade-ask.ts`). */
+  ...spadeAskRequests,
 ]);
 export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
 
@@ -128,7 +136,8 @@ type Answer =
   | { ok: true; task: string }
   | ({ ok: true } & NativeAttachment)
   | SpadeSettingsAnswer
-  | SpadeNewBotAnswer;
+  | SpadeNewBotAnswer
+  | SpadeAskAnswer;
 
 const settingsTypes = new Set<string>(spadeSettingsRequests.map((each) => each.shape.type.value));
 const newBotTypes = new Set<string>(spadeNewBotRequests.map((each) => each.shape.type.value));
@@ -136,6 +145,9 @@ const isSettings = (request: NativeSpadeRequest): request is NativeSpadeSettings
   settingsTypes.has(request.type);
 const isNewBot = (request: NativeSpadeRequest): request is NativeSpadeNewBotRequest =>
   newBotTypes.has(request.type);
+const askTypes = new Set<string>(spadeAskRequests.map((each) => each.shape.type.value));
+const isAsk = (request: NativeSpadeRequest): request is NativeSpadeAskRequest =>
+  askTypes.has(request.type);
 
 const path = (id: string) => `/v1/conversations/${segment(id)}`;
 const refused = (title: string, error: unknown): Refusal => ({
@@ -159,6 +171,7 @@ export async function answerSpade(
   ) => spadeText(owner, deps.id, method, route, body, signal, timeoutMs);
   if (isSettings(request)) return answerSpadeSettings(owner, spade, request, deps, ask, signal);
   if (isNewBot(request)) return answerSpadeNewBot(spade, request, ask);
+  if (isAsk(request)) return answerSpadeAsk(spade, request, ask, deps.now, signal);
   switch (request.type) {
     case "spade.send": {
       // Words alone show at once; a message carrying files waits until all of it is read.
