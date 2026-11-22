@@ -33,7 +33,8 @@ export function StatusLine(props: {
         </span>
       )}
       {/* The editor's line brings its own top edge and fill; inside this one they would double. */}
-      <div className="ml-auto flex min-w-0 [&>footer]:h-auto [&>footer]:border-t-0 [&>footer]:bg-transparent">
+      {/* The editor's line may shrink, so its position truncates before anything is cut off. */}
+      <div className="ml-auto flex min-w-0 overflow-hidden [&>footer]:h-auto [&>footer]:min-w-0 [&>footer]:shrink [&>footer]:border-t-0 [&>footer]:bg-transparent">
         {report && <EditorStatusLine status={report.status} actions={report.actions} />}
       </div>
     </div>
