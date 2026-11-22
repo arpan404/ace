@@ -98,6 +98,34 @@ describe("Web APIs backed by the host", () => {
     expect(ticks).toBe(3);
   });
 
+  it("never re-arms an interval faster than 1 ms, whatever delay it was given", () => {
+    // A host clock the test moves by hand: each armed timer waits for the clock to reach it.
+    const armed: { id: string; delay: number; callback: () => void }[] = [];
+    const host = {
+      ...createNodeHost(),
+      timer: (id: string, delay: number, callback: () => void) => armed.push({ id, delay, callback }),
+      cancelTimer: (id: string) => {
+        const at = armed.findIndex((timer) => timer.id === id);
+        if (at >= 0) armed.splice(at, 1);
+      },
+    };
+    const target: Record<string, unknown> = {};
+    installWebPlatform(host, target);
+    const { setInterval: every, clearInterval: stop } = target as ReturnType<typeof platform>;
+    let ticks = 0;
+    const id = every(() => ticks++, 0);
+    const delays: number[] = [];
+    for (let fire = 0; fire < 3; fire++) {
+      const timer = armed.shift();
+      if (!timer) break;
+      delays.push(timer.delay);
+      timer.callback();
+    }
+    stop(id);
+    expect(delays).toEqual([1, 1, 1]);
+    expect(ticks).toBe(3);
+  });
+
   it("passes extra arguments and reads a numeric-string delay, as the web does", async () => {
     const { setTimeout: later, setInterval: every, clearInterval: stop } = platform();
     const seen: unknown[][] = [];
