@@ -86,20 +86,22 @@ const Saved = z.record(
   }),
 );
 
+/** Every file's kept lines, read leniently: anything unreadable is nothing kept. */
+function load(): z.infer<typeof Saved> {
+  try {
+    const parsed = Saved.safeParse(JSON.parse(localStorage.getItem(storageKey) ?? "{}"));
+    return parsed.success ? parsed.data : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Agents' lines on this device (localStorage), each file's for the exact text they were measured
  * on, so a reload (from the disk or a kept draft) shows them again while that text is unchanged.
  */
 function deviceAttribution(): AttributionMemory | undefined {
   if (typeof localStorage === "undefined") return undefined;
-  const load = () => {
-    try {
-      const parsed = Saved.safeParse(JSON.parse(localStorage.getItem(storageKey) ?? "{}"));
-      return parsed.success ? parsed.data : {};
-    } catch {
-      return {};
-    }
-  };
   return {
     read: (key) => {
       const entry = load()[key];
