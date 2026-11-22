@@ -181,7 +181,7 @@ extension AceIcon {
         case star = "star"
         case stop = "stop"
         case stopCircle = "stop-circle"
-        case storefront = "storefront"
+        case store = "store"
         case sun = "sun"
         case target = "target"
         case television = "television"

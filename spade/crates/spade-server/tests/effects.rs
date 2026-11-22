@@ -1,5 +1,5 @@
-//! Decisions on effects, not words (ADR 0171), through the API: a tool that declares nothing asks
-//! the person once and Spade keeps the answer; a typed send goes to the person; a push runs within
+//! Decisions on effects, not words (ADR 0171), through the API: a tool that declares nothing goes
+//! to the reviewer on every call (ADR 0202, amendment 5); a typed send goes to the person; a push runs within
 //! its grant and goes to the person outside it; a bot set to run outside the sandbox has its
 //! commands reviewed; a per-call request to run outside runs that call once; the machine's
 //! defaults are inherited and a bot's own wins; a driving step runs under its Permissions switch
@@ -56,10 +56,9 @@ async fn until_ran(calls: &Arc<std::sync::Mutex<Vec<Value>>>, n: usize) {
 }
 
 #[tokio::test]
-async fn a_tool_that_declares_nothing_asks_once_and_spade_keeps_the_answer() -> Result {
+async fn a_tool_that_declares_nothing_goes_to_the_reviewer_on_every_call() -> Result {
     let mystery = FakeTool::new("mystery", Risk::Write, "done").unannotated_app("Does a thing");
-    let other = FakeTool::new("other", Risk::Write, "done").unannotated_app("Does another");
-    let (mysteries, others) = (mystery.calls(), other.calls());
+    let mysteries = mystery.calls();
     let spade = Spade::start(
         vec![
             Script::reply("").call("c1", "mystery", json!({})),
@@ -67,15 +66,8 @@ async fn a_tool_that_declares_nothing_asks_once_and_spade_keeps_the_answer() -> 
             Script::reply("").plain(TITLE),
             Script::reply("").call("c2", "mystery", json!({ "again": true })),
             Script::reply("Done again."),
-            Script::reply("").call("c3", "other", json!({})),
-            Script::reply("Asked."),
-            Script::reply("").call("c4", "other", json!({})),
-            Script::reply("Refused."),
         ],
-        vec![
-            Arc::new(mystery) as Arc<dyn Tool>,
-            Arc::new(other) as Arc<dyn Tool>,
-        ],
+        vec![Arc::new(mystery) as Arc<dyn Tool>],
     )
     .await?;
     let agent = spade.new_agent("Builder", "").await?;
@@ -83,46 +75,36 @@ async fn a_tool_that_declares_nothing_asks_once_and_spade_keeps_the_answer() -> 
         .as_str()
         .unwrap_or_default()
         .to_owned();
+    let judged = |events: &[Value], call: &str| {
+        events.iter().any(|e| {
+            e["type"] == "call_reviewed"
+                && e["call_id"] == call
+                && e["model"] == support::UNREACHABLE_REVIEWER
+        })
+    };
     spade.say(&conversation, "Do the thing").await?;
+    // The reviewer judges it (ADR 0202, amendment 5); this test's reviewer can't be reached, so
+    // the person decides, told why.
     let events = spade.wait_for(&conversation, "approval_requested").await?;
+    assert!(judged(&events, "c1"), "{events:?}");
     let asked = requests(&events);
-    assert_eq!(asked[0]["ask"], "undeclared", "{asked:?}");
-    assert_eq!(
-        asked[0]["reviewer_reason"],
-        "It doesn't say what it does, so you decide once for this bot."
+    assert!(asked[0]["ask"].is_null(), "{asked:?}");
+    assert!(
+        asked[0]["reviewer_reason"]
+            .as_str()
+            .is_some_and(|line| line.contains("reviewer")),
+        "{asked:?}"
     );
     answer(&spade, &conversation, "c1", json!({ "allowed": true })).await?;
     until_ran(&mysteries, 1).await;
     spade.wait_for(&conversation, "reply_finished").await?;
-    // The next call of it runs without asking.
+    // An answer for one call isn't kept for the tool: the next call is judged afresh.
     spade.say(&conversation, "Again").await?;
-    until_ran(&mysteries, 2).await;
-    assert_eq!(ran(&mysteries), 2);
     let events = spade
-        .wait_for_count(&conversation, "reply_finished", 2)
-        .await?;
-    assert_eq!(requests(&events).len(), 1, "asked once");
-    // A tool the person declined is refused from then on, without asking again.
-    spade.say(&conversation, "Try the other").await?;
-    spade
         .wait_for_count(&conversation, "approval_requested", 2)
         .await?;
-    answer(&spade, &conversation, "c3", json!({ "allowed": false })).await?;
-    spade
-        .wait_for_count(&conversation, "reply_finished", 3)
-        .await?;
-    spade.say(&conversation, "Try it once more").await?;
-    let events = spade
-        .wait_for_count(&conversation, "reply_finished", 4)
-        .await?;
-    assert_eq!(requests(&events).len(), 2, "not asked again");
-    let refused = events
-        .iter()
-        .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c4")
-        .and_then(|e| e["content"].as_str())
-        .unwrap_or_default();
-    assert!(refused.contains("declined this tool"), "{refused}");
-    assert_eq!(ran(&others), 0);
+    assert!(judged(&events, "c2"), "{events:?}");
+    assert_eq!(ran(&mysteries), 1);
     Ok(())
 }
 

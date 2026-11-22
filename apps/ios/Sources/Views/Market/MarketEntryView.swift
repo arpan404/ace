@@ -118,7 +118,7 @@ struct MarketEntryView: View {
             Image(uiImage: picture).resizable().scaledToFill()
                 .frame(width: side, height: side).clipShape(AceShape.group).accessibilityHidden(true)
         } else {
-            AceIcon(.storefront, size: AceDesign.Size.emptyIcon, relativeTo: .title2).foregroundStyle(AceDesign.Ink.muted)
+            AceIcon(.store, size: AceDesign.Size.emptyIcon, relativeTo: .title2).foregroundStyle(AceDesign.Ink.muted)
                 .frame(width: side, height: side).accessibilityHidden(true)
         }
     }

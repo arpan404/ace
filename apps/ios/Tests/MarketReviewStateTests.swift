@@ -23,7 +23,7 @@ import Testing
         return [
             "id": id, "hash": String(repeating: "a", count: 64), "type": type, "name": "inbox", "title": "Inbox",
             "version": "1.0.0", "heading": "Get Inbox", "action": "Get", "pendingWord": "Getting…", "byLine": "Bot · 1.0.0",
-            "publisher": NSNull(), "signed": true, "signedText": "Signed by the marketplace", "reviewed": true,
+            "publisher": NSNull(), "signed": true, "signedText": "Signed by the Store", "reviewed": true,
             "reviewMark": "Reviewed by ace", "reviewNote": NSNull(), "updates": NSNull(), "canDo": [], "facts": [],
             "findings": [["level": "warn", "levelWord": "Warning", "sentence": "Downloads and runs code."]],
             "blocked": blocked.map { $0 as Any } ?? NSNull(), "items": 3,
@@ -76,6 +76,72 @@ import Testing
         #expect(!state.canInstall)
         state.reachedEnd(of: review.id, shown: 3)
         #expect(state.canInstall)
+    }
+
+    @Test func loadingRowsShowOnlyWhileAPageIsBeingRead() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        // Nothing is shown yet, so the first page is read at once, with the end in view or not.
+        let first = state.beginRead(endInView: false)
+        #expect(first == 0)
+        #expect(state.loadingMore)
+        // One read at a time.
+        #expect(state.beginRead(endInView: true) == nil)
+        state.read(try Self.page(review, rows: 2, next: 2), from: 0)
+        // A page landed and nothing is being read: no loading rows, though more pages are left.
+        #expect(!state.loadingMore)
+        // The next page waits for the end to come into view, then is read.
+        #expect(state.beginRead(endInView: false) == nil)
+        #expect(!state.loadingMore)
+        #expect(state.beginRead(endInView: true) == 2)
+        #expect(state.loadingMore)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 2)
+        #expect(!state.loadingMore)
+        // Every page is read: nothing more to read, wherever the scroll is.
+        #expect(state.beginRead(endInView: true) == nil)
+        #expect(!state.loadingMore)
+    }
+
+    @Test func aFailedPageStopsLoadingAndItsProblemClearsOnceRetryReadsIt() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        _ = state.beginRead(endInView: true)
+        state.refused(Self.busy)
+        #expect(!state.loadingMore)
+        #expect(state.refusal == Self.busy)
+        // Retry reads the same page; once it lands the problem is gone.
+        #expect(state.retryRead() == 0)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 0)
+        #expect(state.refusal == nil)
+        #expect(state.rows.count == 1)
+        #expect(!state.loadingMore)
+        // A read that brings back a stale page stops loading, and the page can be read again.
+        state.opened(review)
+        _ = state.beginRead(endInView: true)
+        state.read(try Self.page(review, rows: 1, next: nil), from: 5)
+        state.readEnded()
+        #expect(!state.loadingMore)
+        #expect(state.beginRead(endInView: true) == 0)
+    }
+
+    @Test func aFailedPageIsNotReadAgainUntilThePersonRetries() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        state.read(try Self.page(review, rows: 2, next: 2), from: 0)
+        #expect(state.beginRead(endInView: true) == 2)
+        state.refused(Self.busy)
+        // The loading rows go and the end is in view again, many times over: no read goes out.
+        for _ in 0..<3 { #expect(state.beginRead(endInView: true) == nil) }
+        #expect(!state.loadingMore)
+        #expect(state.refusal == Self.busy)
+        // Retry reads that same page, once.
+        #expect(state.retryRead() == 2)
+        #expect(state.loadingMore)
+        #expect(state.retryRead() == nil)
+        #expect(state.beginRead(endInView: true) == nil)
     }
 
     @Test func theEndIsInViewOnlyWhenTheContentsLastPointIsAboveTheFoot() {

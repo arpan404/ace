@@ -52,7 +52,8 @@ struct KeyboardSettingsView: View {
     }
 
     @ViewBuilder private func row(_ entry: PhoneKeymapTable.Entry, keymap: PhoneKeymap) -> some View {
-        let keys = PhoneKeymap.format(keymap.keys(entry.id))
+        // A default a rebinding took has no keys until it gets new ones.
+        let keys = keymap.keys(entry.id).isEmpty ? "None" : PhoneKeymap.format(keymap.keys(entry.id))
         if entry.fixed {
             InsetRow(entry.label, icon: nil, value: keys)
                 .accessibilityElement(children: .combine)

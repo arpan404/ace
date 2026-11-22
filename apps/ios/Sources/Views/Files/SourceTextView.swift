@@ -9,13 +9,26 @@ struct SourceDocument: Equatable {
     let text: String
     let language: String?
     let marks: [Int: String]
+    /// The file as saved, when `text` is a draft carried over from an earlier editor: changes are
+    /// measured against it.
+    var original: String? = nil
+    /// Which file this is, when notes are kept on it: new text for the same file is followed from
+    /// the text before it, another file's never is.
+    var file: String? = nil
 }
 
-/// Lets toolbar buttons reach the text view: its find navigator and the text being edited.
+/// Lets toolbar buttons reach the text view: its find navigator, the text being edited and go to
+/// line.
 @MainActor final class SourceHandle {
     weak var view: UITextView?
     func find() { view?.findInteraction?.presentFindNavigator(showingReplace: view?.isEditable == true) }
     var text: String { view?.text ?? "" }
+    private var container: SourceContainer? { view?.superview?.superview as? SourceContainer }
+    /// Lines in the text as it is now, edits included.
+    var lineCount: Int { container?.lineStarts.count ?? 1 }
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int { container?.lineLength(line) ?? 0 }
+    func go(to target: GoToLine.Target) { container?.go(line: target.line, column: target.column) }
 }
 
 /// Source in SF Mono with line numbers in a gutter that stays put while lines scroll sideways,
@@ -35,22 +48,47 @@ struct SourceTextView: UIViewRepresentable {
     /// the selection's edit menu also offers Mention in message.
     var selected: ((ClosedRange<Int>?) -> Void)? = nil
     var mention: ((ClosedRange<Int>) -> Void)? = nil
+    /// The view is going while editable, with this text in it (a tab moved, or its group hid).
+    var left: ((String) -> Void)? = nil
+    /// The person tapped the text or began typing in it.
+    var touched: (() -> Void)? = nil
+    /// Annotate (editing) or Comment (reading) on a selection: its range, for a note on it.
+    var annotate: ((TextSpan) -> Void)? = nil
+    /// The 1-based lines a note starts on, with its number: a marker in the gutter.
+    var notes: [Int: Int] = [:]
+    /// The person typed: what the edit replaced, and the text's lines (0-based) after it.
+    var edited: ((TextReplacement, (Int) -> String) -> Void)? = nil
+    /// Other text loaded over what the view showed (nil the first time), and the new text's lines.
+    var loaded: (@MainActor ([String]?, [String]) -> Void)? = nil
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
         view.text.delegate = context.coordinator
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        view.addGestureRecognizer(tap)
         handle.view = view.text
         return view
+    }
+
+    static func dismantleUIView(_ view: SourceContainer, coordinator: Coordinator) {
+        if view.text.isEditable { coordinator.parent.left?(view.text.text) }
     }
 
     func updateUIView(_ view: SourceContainer, context: Context) {
         context.coordinator.parent = self
         handle.view = view.text
         view.text.isEditable = editable
+        if view.notes != notes { view.notes = notes; view.gutter.setNeedsDisplay() }
         if context.coordinator.key != document.key {
+            let same = !context.coordinator.key.isEmpty && document.file != nil && context.coordinator.file == document.file
+            let earlier = same ? view.text.text : nil
+            context.coordinator.file = document.file
+            if let loaded, !notes.isEmpty { Self.tell(loaded, earlier: earlier, now: document.text) }
             context.coordinator.key = document.key
-            context.coordinator.original = document.text
-            context.coordinator.wasDirty = false
+            context.coordinator.original = document.original ?? document.text
+            context.coordinator.wasDirty = document.original.map { $0 != document.text } ?? false
             view.load(document)
             if let line { view.reveal(line: line) }
         }
@@ -59,25 +97,47 @@ struct SourceTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    @MainActor final class Coordinator: NSObject, UITextViewDelegate {
+    @MainActor final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: SourceTextView
         var key = ""
+        /// The file the loaded text is (`SourceDocument.file`).
+        var file: String?
         var original = ""
         var wasDirty = false
         init(parent: SourceTextView) { self.parent = parent }
+        /// What the edit in progress replaces, measured before it lands (`textViewDidChange`).
+        var pending: TextReplacement?
         func textViewDidChange(_ textView: UITextView) {
-            (textView.superview?.superview as? SourceContainer)?.textChanged()
+            let container = textView.superview?.superview as? SourceContainer
+            container?.textChanged()
+            if let pending, let container, let edited = parent.edited { edited(pending) { container.lineText($0) } }
+            pending = nil
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
         }
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            if parent.edited != nil, let container = textView.superview?.superview as? SourceContainer {
+                pending = container.replacement(range, with: text)
+            }
+            return true
+        }
+        @objc func tapped() { parent.touched?() }
+        func textViewDidBeginEditing(_ textView: UITextView) { parent.touched?() }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard let selected = parent.selected else { return }
             selected(lines(textView))
         }
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard let mention = parent.mention, !textView.isEditable, let lines = lines(textView) else { return nil }
-            let action = UIAction(title: "Mention in message", image: UIImage(ace: .at)) { _ in mention(lines) }
-            return UIMenu(children: [action] + suggestedActions)
+            var actions: [UIMenuElement] = []
+            if let annotate = parent.annotate, let span = span(textView) {
+                actions.append(UIAction(title: textView.isEditable ? "Annotate" : "Comment", image: UIImage(ace: .notePencil)) { _ in annotate(span) })
+            }
+            if let mention = parent.mention, !textView.isEditable, let lines = lines(textView) {
+                actions.append(UIAction(title: "Mention in message", image: UIImage(ace: .at)) { _ in mention(lines) })
+            }
+            return actions.isEmpty ? nil : UIMenu(children: actions + suggestedActions)
         }
         /// The 1-based lines a non-empty selection touches while reading.
         private func lines(_ textView: UITextView) -> ClosedRange<Int>? {
@@ -105,7 +165,11 @@ final class SourceContainer: UIView {
     /// Where each line starts, in UTF-16 units, for the gutter's numbers.
     private(set) var lineStarts: [Int] = [0]
     private var longest = 0
+    /// The text's UTF-16 length; a go-to line to bring back once the keyboard resizes the view.
+    private var length = 0, revealOnResize: Int?, lastHeight: CGFloat = 0
     var marks: [Int: String] = [:]
+    /// The 1-based lines a code note starts on, with its number.
+    var notes: [Int: Int] = [:]
     var targetLine: Int?
     var wrap = false {
         didSet { if wrap != oldValue { setNeedsLayout() } }
@@ -147,14 +211,7 @@ final class SourceContainer: UIView {
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
     /// The 1-based line holding UTF-16 offset `offset`.
-    func line(at offset: Int) -> Int {
-        var low = 0, high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
-        }
-        return low + 1
-    }
+    func line(at offset: Int) -> Int { lineIndex(at: offset) + 1 }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {
@@ -192,6 +249,7 @@ final class SourceContainer: UIView {
         countLines()
         highlight.isHidden = true
         targetLine = nil
+        revealOnResize = nil
         setNeedsLayout()
         layoutIfNeeded()
         sideways.contentOffset = .zero
@@ -214,6 +272,7 @@ final class SourceContainer: UIView {
         }
         lineStarts = starts
         longest = max(widest, column)
+        length = offset
     }
 
     /// After typing: numbers and widths follow the new text.
@@ -241,7 +300,11 @@ final class SourceContainer: UIView {
         gutter.setNeedsDisplay()
         if let line = pendingLine, bounds.height > 0 {
             DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
+        } else if let line = revealOnResize, bounds.height != lastHeight {
+            revealOnResize = nil
+            DispatchQueue.main.async { [weak self] in self?.reveal(line: line); self?.revealCaret() }
         }
+        lastHeight = bounds.height
     }
 
     /// The 0-based line holding UTF-16 offset `offset`.
@@ -252,6 +315,51 @@ final class SourceContainer: UIView {
             if lineStarts[middle] <= offset { low = middle } else { high = middle - 1 }
         }
         return low
+    }
+
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int {
+        guard line > 0, line <= lineStarts.count else { return 0 }
+        let end = line < lineStarts.count ? lineStarts[line] - 1 : length
+        return max(0, end - lineStarts[line - 1])
+    }
+
+    /// Go to line: the caret lands on `line` at `column` (both 1-based, clamped to the text) and
+    /// the line scrolls into view, tinted. While editing the keyboard comes up, and the line is
+    /// brought back into view once it has made the view shorter.
+    func go(line: Int, column: Int) {
+        let line = min(max(1, line), lineStarts.count)
+        let offset = lineStarts[line - 1] + min(max(0, column - 1), lineLength(line))
+        text.selectedRange = NSRange(location: offset, length: 0)
+        if text.isEditable, !text.isFirstResponder {
+            revealOnResize = line
+            text.becomeFirstResponder()
+        }
+        reveal(line: line)
+        revealCaret()
+    }
+
+    /// After go to line: a column off screen (further down a wrapped line, or past the right edge)
+    /// scrolls into view too, clear of the gutter laid over the left edge.
+    private func revealCaret() {
+        guard let position = text.selectedTextRange?.end else { return }
+        let caret = text.caretRect(for: position)
+        guard !caret.isNull, !caret.isInfinite else { return }
+        let seen = text.bounds
+        if caret.minY < seen.minY || caret.maxY > seen.maxY {
+            let inset = text.adjustedContentInset
+            let maxY = max(-inset.top, text.contentSize.height - text.bounds.height + inset.bottom)
+            text.setContentOffset(CGPoint(x: 0, y: min(max(-inset.top, caret.midY - seen.height / 2), maxY)), animated: false)
+        }
+        // The text is as wide as its longest line inside the sideways scroller, at x 0.
+        let left = gutterWidth + AceTheme.Spacing.md
+        let from = sideways.contentOffset.x
+        if caret.minX < from + left || caret.maxX > from + sideways.bounds.width - AceTheme.Spacing.xl {
+            let maxX = max(0, sideways.contentSize.width - sideways.bounds.width)
+            let x = caret.minX - left - (sideways.bounds.width - left) / 2
+            sideways.setContentOffset(CGPoint(x: min(max(0, x), maxX), y: 0), animated: false)
+        }
+        gutter.setNeedsDisplay()
     }
 
     /// A line to reveal once the view has its size.
@@ -283,65 +391,5 @@ final class SourceContainer: UIView {
         text.backgroundColor = UIColor(AceTheme.Colours.background)
         highlight.backgroundColor = UIColor(AceDesign.Surface.lineHighlight)
         gutter.setNeedsDisplay()
-    }
-}
-
-/// The line numbers and change bars, drawn for the lines on screen only.
-final class SourceGutter: UIView {
-    weak var host: SourceContainer?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isOpaque = true
-        contentMode = .redraw
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func draw(_ rect: CGRect) {
-        UIColor(AceTheme.Colours.background).setFill()
-        UIRectFill(bounds)
-        guard let host, let layout = host.text.textLayoutManager, let content = layout.textContentManager else { return }
-        let text = host.text
-        let inset = text.textContainerInset.top
-        // Container coordinates of the gutter's top and bottom edges.
-        let top = text.contentOffset.y - inset
-        let bottom = top + bounds.height
-        let size = host.font.pointSize - 1
-        let numberFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
-        let strongFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
-        let start = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, top)))?.rangeInElement.location ?? layout.documentRange.location
-        let width = bounds.width
-        let muted = UIColor(AceTheme.Colours.subtleForeground), ink = UIColor(AceTheme.Colours.foreground)
-        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.minY > bottom { return false }
-            let line = host.lineIndex(at: content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)) + 1
-            let y = frame.minY - top
-            let firstLine = fragment.textLineFragments.first?.typographicBounds.height ?? frame.height
-            let target = host.targetLine == line
-            let label = String(line) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [.font: target ? strongFont : numberFont, .foregroundColor: target ? ink : muted]
-            let measured = label.size(withAttributes: attributes)
-            label.draw(at: CGPoint(x: width - AceTheme.Spacing.md - measured.width, y: y + (firstLine - measured.height) / 2), withAttributes: attributes)
-            switch host.marks[line] {
-            case "added", "modified":
-                UIColor(AceTheme.StatusText.done).setFill()
-                UIRectFill(CGRect(x: width - FileDiffStyle.bar, y: y, width: FileDiffStyle.bar, height: frame.height))
-            case "removed":
-                UIColor(AceTheme.StatusText.failed).setFill()
-                UIRectFill(CGRect(x: 0, y: y, width: width, height: AceDesign.Size.rail))
-            default: break
-            }
-            return true
-        }
-    }
-}
-
-extension UIColor {
-    /// "#rrggbb"; black when it doesn't parse.
-    convenience init(hex: String) {
-        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        let value = UInt32(digits, radix: 16) ?? 0
-        self.init(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 }

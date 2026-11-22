@@ -483,7 +483,7 @@ struct ThreadView: View {
                          adding: pastesAdding.count,
                          restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
-                         files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
+                         files: screen.attachments.count, filesWait: AttachmentUploads.line(screen.attachments), chips: screen.annotations.count + screen.quotes.count + model.codeNotes[thread.id].count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          listAbove: hasStrip ? stripHeight : 0,
@@ -495,7 +495,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) })
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) }, threadId: thread.id)
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)

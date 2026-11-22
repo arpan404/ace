@@ -132,8 +132,8 @@ async fn answers_breaking_the_cards_rules_are_refused_and_good_ones_resume_the_t
     let stored = spade.events(&chat).await?.len();
     for (answers, why) in [
         (
-            json!(["Middle", ["Bag"], 3]),
-            "Question 1: \"Middle\" is not one of its options.",
+            json!([3, ["Bag"], 3]),
+            "Question 1: the answer is one option's label, or their own words.",
         ),
         (
             json!(["Aisle", ["Bag", "Meal", "Wifi"], 3]),
@@ -172,7 +172,8 @@ async fn answers_breaking_the_cards_rules_are_refused_and_good_ones_resume_the_t
         &spade,
         &chat,
         "q1",
-        json!({ "answers": ["aisle", ["Wifi", "Bag"], 3.0] }),
+        // Their own words for the first, which the bot didn't offer: the card always takes them.
+        json!({ "answers": ["Middle, near the front", ["Wifi", "Bag"], 3.0] }),
     )
     .await?;
     assert_eq!(status, 202);
@@ -181,13 +182,14 @@ async fn answers_breaking_the_cards_rules_are_refused_and_good_ones_resume_the_t
     let answered = events.iter().find(|e| e["type"] == "question_answered");
     assert_eq!(
         answered.map(|e| e["answers"].clone()),
-        Some(json!(["Aisle", ["Bag", "Wifi"], 3]))
+        Some(json!(["Middle, near the front", ["Bag", "Wifi"], 3]))
     );
     let shown = last_call(&spade);
     assert!(
         shown.iter().any(|m| m
-            == "The person answered.\n\nWindow or aisle?\nAnswer: Aisle\n\nExtras?\nAnswer: \
-                Bag, Wifi\n\nHow many nights?\nAnswer: 3 nights"),
+            == "The person answered.\n\nWindow or aisle?\nAnswer: Middle, near the front (in \
+                their own words)\n\nExtras?\nAnswer: Bag, Wifi\n\nHow many nights?\nAnswer: \
+                3 nights"),
         "{shown:?}"
     );
     let (status, _) = answer(

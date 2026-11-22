@@ -2,8 +2,9 @@ import SwiftUI
 
 /// The files on the next message, in one row above the words: a picture or video as a small
 /// thumbnail of its staged bytes (a video with its length; tap to view or play it full screen),
-/// any other file, or one the bridge refused, as a chip with its name and why. Upload progress
-/// and Remove show on both.
+/// any other file, or one the bridge refused, as a chip with its name and why. Each shows its
+/// upload as a line on its bottom edge (`UploadLine`) and has Remove; under them, while Send
+/// waits for the files, the line saying so (`AttachmentUploads`).
 struct ComposerMediaStrip: View {
     let files: [AttachmentFile]
     /// Where the picked bytes were staged (`AttachMenu.staging`).
@@ -11,12 +12,25 @@ struct ComposerMediaStrip: View {
     /// Space before the first file and after the last.
     var inset: CGFloat = AceTheme.Spacing.none
     let remove: (String) -> Void
+    /// Uploads a failed file again; nil offers no Retry.
+    var retry: ((String) -> Void)? = nil
     /// Puts a pasted text file's words back in the message (`LargePaste`); nil offers nothing.
     var asText: ((String) -> Void)? = nil
     @State private var viewing: StagedMedia?
     @State private var carriedViewing: AttachmentFile?
     @Environment(\.messageAttachments) private var stored
     var body: some View {
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            strip
+            if let waits = AttachmentUploads.line(files) {
+                Text(waits).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                    .foregroundStyle(AceTheme.Colours.mutedForeground)
+                    .padding(.horizontal, inset)
+                    .accessibilityIdentifier("composer.uploadsWait")
+            }
+        }
+    }
+    private var strip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             // Spaced and padded so each thumbnail's Remove target, which reaches past its corner,
             // stays inside the row and clear of the next file.
@@ -28,7 +42,7 @@ struct ComposerMediaStrip: View {
                     } else if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
                         ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
                     } else {
-                        AttachmentChip(file: file, remove: { remove(file.id) },
+                        AttachmentChip(file: file, remove: { remove(file.id) }, retry: retry.map { retry in { retry(file.id) } },
                                        asText: asText.flatMap { asText in ComposerIntake.restorable(file, in: staging) ? { asText(file.id) } : nil },
                                        staysAttached: asText == nil ? nil : ComposerIntake.staysAttached(file, in: staging))
                     }
@@ -86,6 +100,7 @@ private struct ComposerMediaThumb: View {
     @State private var image: UIImage?
     @State private var length: String?
     @State private var unreadable = false
+    @State private var finishing = false
     private var video: Bool { file.kind == "video" }
     var body: some View {
         if unreadable { AttachmentChip(file: file, remove: remove) } else { thumb }
@@ -105,15 +120,19 @@ private struct ComposerMediaThumb: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                         .padding(AceDesign.Space.tight)
                 }
-                if file.state == "uploading" {
-                    ProgressView(value: file.progress).progressViewStyle(.linear)
-                        .tint(AceTheme.Colours.foreground)
-                        .padding(.horizontal, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.tight)
-                        .accessibilityHidden(true)
+                if finishing {
+                    AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .caption)
+                        .foregroundStyle(AceDesign.Ink.onMedia)
+                        .frame(width: AceDesign.Size.badge, height: AceDesign.Size.badge)
+                        .background(AceTheme.RowStatus.working, in: Circle())
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
                 }
+                UploadLine(state: file.state, progress: file.progress, finishing: finishing)
             }
             .frame(width: Self.side, height: Self.side)
             .clipShape(AceDesign.Shape.block)
+            .uploadFinishing(file.state, $finishing)
             .contentShape(AceDesign.Shape.block)
         }
         .buttonStyle(.plain)

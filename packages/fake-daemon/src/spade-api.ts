@@ -301,9 +301,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     return agent;
   }
 
-  /** Stores an event in a conversation and sends it to its live streams. */
-  store(conversation: string, event: Json): void {
-    const stored = this.keep(conversation, event);
+  /** Stores an event in a conversation (at `at`, else now) and sends it to its live streams. */
+  store(conversation: string, event: Json, at?: number): void {
+    const stored = this.keep(conversation, event, at);
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
   }
 
@@ -313,9 +313,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
   }
 
   /** Stores an event without sending it live, as a stream that fell behind would miss it. */
-  private keep(conversation: string, event: Json): Json {
+  private keep(conversation: string, event: Json, at: number = this.now()): Json {
     const list = this.events.get(conversation) ?? [];
-    const stored = { seq: list.length + 1, at: this.now(), event };
+    const stored = { seq: list.length + 1, at, event };
     list.push(stored);
     this.events.set(conversation, list);
     return stored;
@@ -375,7 +375,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
     callId: string,
     name: string,
     args: unknown,
-    ask: "undeclared" | "outside_sandbox" | "drive",
+    ask: "undeclared" | "outside_sandbox" | "drive" | "app",
     app?: string,
   ): void {
     this.request(agent, { callId, name, args, reply: `r${++this.sequence}`, ask, app });

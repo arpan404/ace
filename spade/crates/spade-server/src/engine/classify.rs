@@ -57,6 +57,25 @@ pub(super) struct Screening<'a> {
     /// The routing let it run counting on the screening (an app's write in Full access): if the
     /// classifier can't screen it after all, the reviewer decides instead.
     pub required: bool,
+    /// An app's tool that declares nothing (ADR 0202, amendment 5): one the classifier reads as
+    /// plausibly a payment, a send or an access change goes to the person, though it isn't sure.
+    pub unresolved: bool,
+}
+
+/// How likely a person-only effect must read for an app tool that declares nothing to go to the
+/// person rather than the reviewer: well below the classifier's own bar for raising one.
+pub(super) const PLAUSIBLE: f32 = 0.25;
+
+/// What the classifier's screen comes to for a call: for an app tool that declares nothing,
+/// a person-only effect it reads as plausible (`person`: the likeliest and how likely any is)
+/// is the person's, though it neither raised it nor abstained on it.
+pub(super) fn plausible(screen: Screen, person: (Effect, f32), unresolved: bool) -> Screen {
+    match screen {
+        Screen::Abstain | Screen::LowRisk if unresolved && person.1 >= PLAUSIBLE => {
+            Screen::Person(person.0)
+        }
+        screen => screen,
+    }
 }
 
 /// What the stored verdict of a settled call says, with the name of the overrides it runs with
@@ -226,8 +245,11 @@ impl Engine {
             return Ok(Screened::Review);
         };
         let Decision {
-            screen, hardening, ..
+            prediction,
+            screen,
+            hardening,
         } = self.decided(id, s, model, &subject);
+        let screen = plausible(screen, prediction.person_only(), s.unresolved);
         let (verdict, reason, screened) = match screen {
             Screen::Abstain => return Ok(Screened::Review),
             Screen::LowRisk => {
@@ -284,7 +306,12 @@ impl Engine {
         let (Some(model), Some(subject)) = (Model::embedded(), subject(s)) else {
             return Ok(unscreened);
         };
-        match self.decided(id, s, model, &subject).screen {
+        let decided = self.decided(id, s, model, &subject);
+        match plausible(
+            decided.screen,
+            decided.prediction.person_only(),
+            s.unresolved,
+        ) {
             Screen::Person(effect) => {
                 let line = line(effect).to_owned();
                 let screened = Screened::Ask(line.clone(), Some(effect));
@@ -441,6 +468,25 @@ impl Decisions {
         })();
         if let Err(error) = written {
             tracing::warn!(%error, "a classifier decision was not logged");
+        }
+    }
+}
+
+#[cfg(test)]
+mod plausible_tests {
+    use super::{Effect, Screen, plausible};
+
+    #[test]
+    fn an_undeclared_app_tool_that_plausibly_sends_goes_to_the_person() {
+        let send = (Effect::SendAsPerson, 0.3);
+        for screen in [Screen::Abstain, Screen::LowRisk] {
+            assert_eq!(
+                plausible(screen, send, true),
+                Screen::Person(Effect::SendAsPerson)
+            );
+            // A declared tool, or a send the classifier reads as unlikely, keeps its screen.
+            assert_eq!(plausible(screen, send, false), screen);
+            assert_eq!(plausible(screen, (Effect::Pay, 0.1), true), screen);
         }
     }
 }

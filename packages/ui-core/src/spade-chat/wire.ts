@@ -158,13 +158,24 @@ const known = z.discriminatedUnion("type", [
     /** Why the auto-review asked the person rather than approve it itself. */
     reviewer_reason: z.string().nullish().catch(undefined),
     /** Why Spade asked (ADR 0171); missing on older events, or a reason this client doesn't know. */
-    ask: z.enum(["undeclared", "outside_sandbox", "drive"]).nullish().catch(undefined),
+    ask: z.enum(["undeclared", "outside_sandbox", "drive", "app"]).nullish().catch(undefined),
     /**
      * Which of Spade's judges stopped the call and put it to the person (ADR 0163, amendment 3);
      * missing on older events and other requests, or a word this client doesn't know.
      */
     stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
-    /** A driving step's app or site its "always" allows for the bot, when it may be allowed. */
+    /** What the gate read the call as doing (ADR 0202, amendment 5): a request is headed by it. */
+    effect: z.string().min(1).max(40).nullish().catch(undefined),
+    /**
+     * For a connected app's tool, the definition (a digest of its name, description and input)
+     * the person is shown; an app's Always allow is pinned to it. An undeclared tool's request
+     * from an older Spade carries the tool's identity here instead.
+     */
+    tool_key: z.string().min(1).max(400).nullish().catch(undefined),
+    /**
+     * A driving step's app or site its "always" allows for the bot, when it may be allowed; for a
+     * connected app's write (`ask: app`), the connection whose writes the person may allow always.
+     */
     app: z.string().min(1).max(200).nullish().catch(undefined),
     /** A helper's call (ADR 0152), asked here in its bot's conversation. */
     helper: z

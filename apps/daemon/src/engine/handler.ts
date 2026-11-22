@@ -36,7 +36,7 @@ export function engineHandler(
   repo: EngineRepository,
   registry: AdapterRegistry,
   now: () => number,
-  silenceMs: number,
+  silenceMs: (workspaceId?: import("@ace/protocol").WorkspaceId) => number,
   wake: (id: ThreadId) => void,
   nextId: () => string,
   recovery: Recovery,
@@ -63,7 +63,12 @@ export function engineHandler(
       }
       if (payload.type === "thread.send" && repo.store.getThread(payload.threadId)?.imported) {
         try {
-          adoptImportedThread(repo, payload.threadId, now());
+          adoptImportedThread(
+            repo,
+            payload.threadId,
+            now(),
+            silenceMs(repo.store.getThread(payload.threadId)?.workspaceId),
+          );
         } catch {
           return { commandId: command.id, ok: false, error: "history_unavailable" };
         }
@@ -290,7 +295,7 @@ export function engineHandler(
             cwd,
             workspaceReady: Boolean(prepared),
             at,
-            silenceMs,
+            silenceMs: silenceMs(p.workspaceId),
             client: {
               ...(context.host ? { host: context.host.host, hostKey: context.host.key } : {}),
               details: {

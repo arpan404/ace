@@ -570,6 +570,7 @@ mod tests {
                 helper: None,
                 launch: None,
                 stopped: None,
+                effect: None,
             }),
         ];
         let transcript = Transcript::fold(&events);
@@ -597,6 +598,7 @@ mod tests {
                 helper: None,
                 launch: None,
                 stopped: None,
+                effect: None,
             }),
             Event::Known(Known::StopRequested {
                 reply: Some("r1".into()),
@@ -634,6 +636,7 @@ mod tests {
                 helper: None,
                 launch: None,
                 stopped: None,
+                effect: None,
             }),
             Event::Known(Known::ApprovalAnswered {
                 reply: "r1".into(),
@@ -955,6 +958,7 @@ mod tests {
                 })),
                 launch: None,
                 stopped: None,
+                effect: None,
             })
         };
         let mut events = vec![

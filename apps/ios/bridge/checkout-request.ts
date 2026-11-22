@@ -17,6 +17,8 @@ export const FilesScope = z.union([
 ]);
 export type FilesScope = z.infer<typeof FilesScope>;
 export const FilesOperation = z.discriminatedUnion("op", [
+  /** The checkout's folder on the host, so the editor can keep its groups per checkout. */
+  z.object({ op: z.literal("root") }),
   z.object({ op: z.literal("search"), query: z.string().max(128) }),
   /** Quick open: what was typed ("app.ts:12"), or nothing for recent and changed files. */
   z.object({ op: z.literal("quick"), text: z.string().max(256) }),

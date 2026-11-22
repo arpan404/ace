@@ -1,5 +1,10 @@
 import { AccessMode, KnownSpeed } from "@ace/protocol";
-import { messageQuoteLimit, otherAnswer, type QuestionDraft } from "@ace/ui-core";
+import {
+  codeAnnotationLimit,
+  messageQuoteLimit,
+  otherAnswer,
+  type QuestionDraft,
+} from "@ace/ui-core";
 import { z } from "zod";
 import { References } from "./composer-references.ts";
 import { Picked } from "./thread-attachments.ts";
@@ -195,6 +200,8 @@ export const ThreadAction = z.discriminatedUnion("type", [
     requestId,
   }),
   z.object({ type: z.literal("detach"), localId: z.string().min(1).max(64) }),
+  /** Upload again a file on the next message whose upload broke. */
+  z.object({ type: z.literal("attach.retry"), localId: z.string().min(1).max(64) }),
   /** The next message's browser annotations: remove one (the rest close ranks) or all. */
   z.object({ type: z.literal("annotation.remove"), id: z.string().min(1).max(128) }),
   z.object({ type: z.literal("annotation.clear") }),
@@ -221,6 +228,11 @@ export const ThreadAction = z.discriminatedUnion("type", [
       .max(messageQuoteLimit),
   }),
   z.object({ type: z.literal("quote.clear") }),
+  /** The phone's code notes for the next message, whole; each is read on its own. */
+  z.object({
+    type: z.literal("code.set"),
+    notes: z.array(z.unknown()).max(codeAnnotationLimit * 2),
+  }),
   /** Whether the reader sits at the transcript's live end (`thread-read-mark.ts`). */
   z.object({ type: z.literal("atEnd"), atEnd: z.boolean() }),
 ]);

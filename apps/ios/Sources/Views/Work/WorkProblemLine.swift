@@ -34,8 +34,8 @@ struct WorkProblemLine: View {
                     }
                 }
                 if let words = second, !words.isEmpty {
-                    Text(words).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .foregroundStyle(AceTheme.Colours.mutedForeground).lineLimit(2)
+                    ExpandableText(words, id: "work.problem.\(line.label)").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
                         .accessibilityIdentifier("thread.work.detail")
                 }
             }

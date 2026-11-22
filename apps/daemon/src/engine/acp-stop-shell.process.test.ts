@@ -71,7 +71,7 @@ async function antigravity(first = "antigravity-shell", beforeSend?: EngineOptio
     },
     { installed: true, auth: "logged_in", loginHint: "", version: "1.2.1" },
   );
-  const id = first === "hold-for-steer" ? startHeldPrompt() : await h.create(first);
+  const id = first.startsWith("hold-for-steer") ? startHeldPrompt() : await h.create(first);
   function startHeldPrompt() {
     const result = h.command({
       type: "thread.create",
@@ -89,7 +89,7 @@ async function antigravity(first = "antigravity-shell", beforeSend?: EngineOptio
     Object.values(h.store.snapshotThread(id).backgroundTasks).filter(
       (task) => task.status === "running",
     );
-  if (first === "hold-for-steer")
+  if (first.startsWith("hold-for-steer"))
     await expect
       .poll(() => Object.values(h.store.snapshotThread(id).items))
       .toContainEqual(
@@ -127,6 +127,96 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
     await expect
       .poll(() => sessions.map((session) => session.prompts))
       .toEqual([["hold-for-steer", "read a different file"]]);
+    expect(h.store.snapshotThread(id).runs[active.id]).toMatchObject({
+      state: "interrupted",
+      endedBy: "steer",
+    });
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
+      h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+  }
+});
+
+test("a second ACP steer cancels the turn started by the first steer", async () => {
+  const { h, id, sessions } = await antigravity("hold-for-steer:1");
+  const activeRun = () =>
+    Object.values(h.store.snapshotThread(id).runs).find((run) => run.state === "active");
+  const firstRun = activeRun();
+  if (!firstRun) throw new Error("Expected the first prompt to be active");
+
+  try {
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "hold-for-steer:2" }],
+        delivery: "steer",
+        runId: firstRun.id,
+      }).ok,
+    ).toBe(true);
+
+    // Wait for the first steer to cancel the first run and start its own running turn.
+    await expect
+      .poll(() => {
+        const run = activeRun();
+        return run && run.id !== firstRun.id ? run.id : undefined;
+      })
+      .toBeTruthy();
+    const secondRun = activeRun();
+    if (!secondRun) throw new Error("Expected the steered prompt to be active");
+
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "final steer" }],
+        delivery: "steer",
+        runId: secondRun.id,
+      }).ok,
+    ).toBe(true);
+
+    await expect
+      .poll(() => sessions.map((session) => session.prompts))
+      .toEqual([["hold-for-steer:1", "hold-for-steer:2", "final steer"]]);
+    const runs = h.store.snapshotThread(id).runs;
+    expect(runs[firstRun.id]).toMatchObject({ state: "interrupted", endedBy: "steer" });
+    expect(runs[secondRun.id]).toMatchObject({ state: "interrupted", endedBy: "steer" });
+    expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+  } finally {
+    if (activeRun()) h.command({ type: "thread.interrupt", threadId: id, cascade: true });
+  }
+});
+
+test("an ACP steer that cancels the active turn runs ahead of an earlier queued follow-up", async () => {
+  const { h, id, sessions } = await antigravity("hold-for-steer:1");
+  const active = Object.values(h.store.snapshotThread(id).runs).find(
+    (run) => run.state === "active",
+  );
+  if (!active) throw new Error("Expected the first prompt to be active");
+
+  try {
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "afterwards" }],
+        delivery: "queue",
+      }).ok,
+    ).toBe(true);
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId: id,
+        input: [{ type: "text", text: "do this first" }],
+        delivery: "steer",
+        runId: active.id,
+      }).ok,
+    ).toBe(true);
+
+    await expect
+      .poll(() => sessions.map((session) => session.prompts))
+      .toEqual([["hold-for-steer:1", "do this first", "afterwards"]]);
     expect(h.store.snapshotThread(id).runs[active.id]).toMatchObject({
       state: "interrupted",
       endedBy: "steer",

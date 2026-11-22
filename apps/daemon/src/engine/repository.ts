@@ -227,6 +227,15 @@ export class EngineRepository {
     this.requireState(id);
     return this.snapshots.get(id)?.deadline(providerDeadline);
   }
+  setSilenceMs(id: ThreadId, silenceMs: number, at: number): boolean {
+    return this.store.atomic(() => {
+      if (!this.state(id)) return false;
+      const snapshot = this.snapshots.get(id);
+      if (!snapshot || !snapshot.setSilenceMs(silenceMs)) return false;
+      this.save(snapshot.state, [], at);
+      return true;
+    });
+  }
   evict(id: ThreadId): void {
     if (this.store.hasLiveWrite(id)) return;
     this.drop(id);

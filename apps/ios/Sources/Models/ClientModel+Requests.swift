@@ -66,6 +66,8 @@ extension ClientModel {
         threadAction(["type": "detach", "localId": localId])
         AttachmentStaging().discard(localId)
     }
+    /// Upload again a file on the next message whose upload broke.
+    func retryAttachment(_ localId: String) { threadAction(["type": "attach.retry", "localId": localId]) }
     /// A settled "Worked for" log opened: read its turn's full steps; closed: let them go.
     func openSteps(ordinal: Int, block: String) { threadAction(["type": "steps.open", "ordinal": ordinal, "block": block]) }
     /// `epoch` is the generation whose log closed: the view can disappear after the person left
