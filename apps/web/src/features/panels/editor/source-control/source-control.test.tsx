@@ -308,3 +308,19 @@ test("Open changes opens the file diff in the editor via editor-compare, and Ope
     expect(within(panel).queryByRole("region", { name: "Changes in src/app.ts" })).toBeNull();
   });
 });
+
+test("a failed pull still shows what its fetch learned, alongside the error", async () => {
+  const { explorer } = await openSourceControl({
+    branch: "main",
+    branches: ["main"],
+    refs: [{ name: "main" }],
+    behind: 0,
+    pullError: "git_pull_diverged",
+    pullErrorBehind: 3,
+  });
+  await userEvent.click(await within(explorer).findByRole("button", { name: "Pull" }));
+  await waitFor(() => {
+    expect(within(explorer).getByRole("alert").textContent).toContain("diverged");
+  });
+  await within(explorer).findByRole("button", { name: "Pull (3 behind)" });
+});

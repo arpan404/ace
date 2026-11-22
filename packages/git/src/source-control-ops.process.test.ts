@@ -479,6 +479,30 @@ describe("source control git operations", () => {
     }
   });
 
+  it("a conflicted stash pop keeps the stash and leaves the conflict in the index", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "stashed line\n");
+      await git.stashPush({ worktree: repo, message: "mine" });
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("hello\n");
+      await writeFile(join(repo, "a.txt"), "committed line\n");
+      runGit(repo, ["commit", "-am", "conflicting"]);
+
+      await expectGitError(git.stashPop({ worktree: repo }), "conflicts");
+      const text = await readFile(join(repo, "a.txt"), "utf8");
+      expect(text).toContain("committed line");
+      expect(text).toContain("stashed line");
+      expect(text).toContain("<<<<<<<");
+      // Git keeps a stash it could not apply cleanly; nothing of the person's work is lost.
+      expect((await git.stashList(repo)).map((stash) => stash.message)).toEqual(["mine"]);
+      const status = await git.sourceControlStatus(repo);
+      expect(status.conflicted.map((entry) => entry.path)).toEqual(["a.txt"]);
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();

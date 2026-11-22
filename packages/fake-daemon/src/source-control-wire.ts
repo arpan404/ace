@@ -34,6 +34,8 @@ export interface FakeSourceControlSeed {
   behind?: number | undefined;
   detached?: boolean | undefined;
   pullError?: string | undefined;
+  /** What a failed pull's fetch still learned: the remote moved this far ahead. */
+  pullErrorBehind?: number | undefined;
 }
 
 interface ThreadSourceControl {
@@ -54,6 +56,7 @@ interface ThreadSourceControl {
   behind: number;
   detached: boolean;
   pullError?: string | undefined;
+  pullErrorBehind?: number | undefined;
   commits: { message: string; amend: boolean; stagedOnly: boolean; head: string }[];
   /** Bumped whenever the staged set changes, like the daemon's index fingerprint. */
   indexVersion: number;
@@ -177,6 +180,7 @@ export class FakeSourceControlWire {
     if (seed.behind !== undefined) state.behind = seed.behind;
     if (seed.detached !== undefined) state.detached = seed.detached;
     if (seed.pullError !== undefined) state.pullError = seed.pullError;
+    if (seed.pullErrorBehind !== undefined) state.pullErrorBehind = seed.pullErrorBehind;
     this.syncDetails(threadId, state);
   }
 
@@ -439,7 +443,11 @@ export class FakeSourceControlWire {
           return { ok: true };
         }
         case "git.pull": {
-          if (state.pullError) return { ok: false, error: state.pullError };
+          if (state.pullError) {
+            // A refused ff-only merge still fetched: remote refs moved, details did not.
+            if (state.pullErrorBehind !== undefined) state.behind = state.pullErrorBehind;
+            return { ok: false, error: state.pullError };
+          }
           if (!state.upstream && !payload.remote) return { ok: false, error: "git_no_upstream" };
           state.behind = 0;
           this.syncDetails(threadId, state);

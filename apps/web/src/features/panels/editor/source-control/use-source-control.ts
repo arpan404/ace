@@ -191,6 +191,8 @@ export function useSourceControl(threadId: string) {
           code: sourceControlErrorCode(error),
           message: sourceControlErrorText(error),
         });
+        // A failed pull may have fetched, a conflicted pop left unmerged files: show what's there.
+        await refresh();
         return undefined;
       } finally {
         pending.current = undefined;
