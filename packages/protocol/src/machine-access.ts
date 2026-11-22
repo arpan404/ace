@@ -159,3 +159,87 @@ export const MachineCodeResult = z.object({
   ]),
 });
 export type MachineCodeResult = z.infer<typeof MachineCodeResult>;
+
+/*
+ * The desktop app's main process and its daemon, for the person's standing on the app's own
+ * sockets (ADR 0190, amendment 1). Host token only. Main tags each WebSocket upgrade from the
+ * app's own session with a secret it never gives a page (`x-ace-app-socket`), fetches a
+ * single-use challenge, and sends a person's statement its device key signed for those tags.
+ */
+
+/** The header main adds to the app's own socket upgrades: a tag only main and the daemon see. */
+export const APP_SOCKET_HEADER = "x-ace-app-socket";
+/**
+ * A tag: when main made it (ms, so the daemon takes it only while fresh) and 32 random bytes. A
+ * tag names one socket, ever; a stale one names none.
+ */
+export const AppSocketTag = z.string().regex(/^\d{13}\.[A-Za-z0-9_-]{43}$/);
+/** The most sockets one statement proves: main sends more in batches. */
+export const APP_STANDING_MAX_SOCKETS = 16;
+const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const Proof = z.string().regex(/^[A-Za-z0-9_-]{86}$/);
+const Mac = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+/** One tagged socket, by its tag and the nonce the daemon gave that connection. */
+export const AppSocket = z.object({
+  tag: AppSocketTag,
+  connection: z.string().regex(/^[A-Za-z0-9_-]{16,64}$/),
+});
+export type AppSocket = z.infer<typeof AppSocket>;
+
+/**
+ * `POST /v1/standing/app/challenge`: main's ephemeral X25519 key, for the daemon to prove it holds
+ * the relay key main pinned, and the tags main asks about.
+ */
+export const AppStandingChallengeRequest = z.object({
+  ephemeral: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  tags: z.array(AppSocketTag).max(APP_STANDING_MAX_SOCKETS),
+});
+export type AppStandingChallengeRequest = z.infer<typeof AppStandingChallengeRequest>;
+
+/**
+ * The challenge: a single-use nonce, the host and owner a statement names, which of the asked tags
+ * name a live socket (and that connection's nonce), and `possession`, an HMAC keyed by the X25519
+ * secret between the daemon's relay key and main's ephemeral key over all of it.
+ */
+export const AppStandingChallenge = z.object({
+  nonce: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+  host: z.string().min(1).max(256),
+  /** The machine's owner, whose account the statement names; null before it has one. */
+  owner: z.string().max(256).nullable(),
+  sockets: z.array(AppSocket).max(APP_STANDING_MAX_SOCKETS),
+  possession: Mac,
+});
+export type AppStandingChallenge = z.infer<typeof AppStandingChallenge>;
+
+/**
+ * `POST /v1/standing/app/prove` (purpose `standing`) and `POST /v1/standing/app/key` (purpose
+ * `enroll`): the statement's exact text, its signature, the device key's public half and the
+ * sockets the statement's target digests. Enrolling also carries `signIn`: a grant ace's account
+ * backend signed with the session's sign-in time, naming this enrollment (ADR 0190, amendment 1).
+ */
+export const AppStandingStatement = z.object({
+  statement: z.string().min(1).max(4096),
+  proof: Proof,
+  key: PublicKey,
+  sockets: z.array(AppSocket).min(1).max(APP_STANDING_MAX_SOCKETS),
+  signIn: z.string().min(1).max(4096).optional(),
+});
+export type AppStandingStatement = z.infer<typeof AppStandingStatement>;
+
+/** The answer to either: how many of the named sockets now hold the person's standing. */
+export const AppStandingResult = z.object({ proven: z.number().int().nonnegative() });
+
+/**
+ * `DELETE /v1/standing/app/key`: signing out revokes the device key and its standing. `ephemeral`:
+ * main's fresh X25519 key, for the receipt.
+ */
+export const AppStandingRevoke = z.object({
+  key: PublicKey,
+  ephemeral: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+/**
+ * The daemon's receipt for a revocation: an HMAC keyed by the X25519 secret between its relay
+ * key and main's ephemeral key, over its host and the revoked key. Only the daemon holding the
+ * relay key main pinned can make it, so only that daemon clears a pending revocation.
+ */
+export const AppStandingRevokeReceipt = z.object({ receipt: Mac });

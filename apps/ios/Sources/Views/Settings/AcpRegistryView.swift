@@ -111,7 +111,7 @@ struct AcpRegistryView: View {
         HStack(spacing: AceDesign.Space.related) {
             if refreshing { WorkingMark(label: "Updating"); Text("Updating…") }
             else {
-                Text(refreshProblem ?? screen.age).lineLimit(1)
+                if let refreshProblem { ExpandableText(refreshProblem, id: "acp.registry.problem", lines: 1) } else { Text(screen.age).lineLimit(1) }
                 Button("Refresh") { Task { await refresh() } }.buttonStyle(.borderless).frame(minHeight: AceDesign.Size.tap)
             }
         }

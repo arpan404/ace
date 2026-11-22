@@ -5,7 +5,7 @@ import { setUp } from "./spade-test-host.ts";
 
 /*
  * Settings › Spade on the iPhone: General (Spade on or off, and the models it uses), Models and
- * keys (each endpoint and its key, ADR 0119), Web search and Apps, each read from Spade and
+ * keys (each endpoint and its key, ADR 0119) and Apps, each read from Spade and
  * written back. A key the person types goes to Spade once and never comes back.
  */
 
@@ -68,6 +68,23 @@ test("General says Spade runs here and offers every endpoint's models for each o
     },
     { label: "OpenRouter", choices: [{ value: "openrouter/kimi-k2", name: "Kimi K2" }] },
   ]);
+});
+
+test("General says this month's ace searches, the sign-in sentence signed out, or nothing", async () => {
+  const { ask, api } = await ready((fake) => {
+    fake.searchUsage = { signed_in: true, used: 312, allowance: 1000, resets_at: null };
+  });
+  const read = async () => {
+    const answer = await ask({ type: "spade.settings.read", page: "general" });
+    if (!("general" in answer)) throw new Error(JSON.stringify(answer));
+    return answer.general.search;
+  };
+  expect(await read()).toBe("ace search: 312 of 1,000 searches this month");
+  api.searchUsage = { signed_in: false, used: null, allowance: null, resets_at: null };
+  expect(await read()).toBe("Sign in to ace to search the web.");
+  // An older Spade without the count: the page still shows, without the line.
+  api.searchUsage = null;
+  expect(await read()).toBeNull();
 });
 
 test("a model chosen on the phone is the one Spade keeps, and clearing it goes back to the default", async () => {
@@ -212,35 +229,6 @@ test("an endpoint added from a preset shows with its models, and one a bot uses 
   const refused = await ask({ type: "spade.settings.endpoint.remove", endpoint: "anthropic" });
   expect(refused).toMatchObject({ ok: false, message: "Writer use this endpoint." });
   expect(api.endpoints.some((endpoint) => endpoint.id === "anthropic")).toBe(true);
-});
-
-test("Web search keeps the person's SearXNG address and a Brave key, which never comes back", async () => {
-  const { ask, api } = await ready();
-
-  const searx = await ask({ type: "spade.settings.searxng", url: "https://search.example.org" });
-  if (!("search" in searx)) throw new Error(JSON.stringify(searx));
-  expect(searx.search.searxng).toBe("https://search.example.org/");
-
-  const wrong = await ask({ type: "spade.settings.searxng", url: "search.example.org" });
-  expect(wrong).toMatchObject({
-    ok: false,
-    message: "the SearXNG address must start with http:// or https://",
-  });
-
-  const brave = await ask({ type: "spade.settings.brave", key: "brave-secret-9" });
-  if (!("search" in brave)) throw new Error(JSON.stringify(brave));
-  expect(brave.search.brave).toEqual({
-    set: true,
-    words: "In keychain",
-    canSet: true,
-    canRemove: true,
-  });
-  expect(JSON.stringify(brave)).not.toContain("brave-secret-9");
-  expect(api.search.braveKeySet).toBe(true);
-
-  const forgot = await ask({ type: "spade.settings.searxng", url: null });
-  if (!("search" in forgot)) throw new Error(JSON.stringify(forgot));
-  expect(forgot.search.searxng).toBeNull();
 });
 
 test("Apps lists each connected app with its health and the bots that use it, and disconnects one", async () => {

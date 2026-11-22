@@ -5,7 +5,7 @@ import { part } from "@/lib/suit-part.ts";
 import { useMarketInstalled, useRemove, useTurnOn } from "./market-api.ts";
 import { BotsApproval, waitsForBots } from "./market-bots-approval.tsx";
 import { Empty } from "./market-card.tsx";
-import { failureSentence, typeWord } from "./market-model.ts";
+import { failureSentence, offeredUpdate, typeWord } from "./market-model.ts";
 import { offlineTitle, useMarketNav } from "./market-nav.ts";
 import { Stage } from "./market-stage.tsx";
 import { useMarketApps } from "./market-apps.tsx";
@@ -28,7 +28,7 @@ export function installedOrder(installed: readonly MarketInstalled[]): MarketIns
 }
 
 /** An update the person accepted that waits for the bot's turn isn't offered again. */
-const offered = (item: MarketInstalled) => item.update && item.update !== item.held?.version;
+const offered = (item: MarketInstalled) => offeredUpdate(item) !== undefined;
 
 const row = (item: MarketInstalled) => (
   <InstalledRow key={`${item.type}/${item.name}/${item.target ?? ""}`} item={item} />
@@ -52,7 +52,7 @@ export function InstalledPage() {
     <div className="mk-inner" data-width="read">
       {all.length === 0 ? (
         <Shelf title="Installed">
-          <p className="st-line">What you get from the marketplace shows here.</p>
+          <p className="st-line">What you get from the Store shows here.</p>
         </Shelf>
       ) : (
         <>
@@ -106,7 +106,7 @@ function InstalledRow(props: { item: MarketInstalled }) {
   // A bot package's update or rollback moves its own bot.
   const bot = item.type === "spade-bot" && item.target ? { bot: item.target } : {};
   // An update the person accepted that waits for the bot's turn isn't offered again.
-  const update = item.update && item.update !== item.held?.version ? item.update : undefined;
+  const update = offeredUpdate(item);
   const version = update ? `${item.version} → ${update}` : item.version;
   const busy = remove.isPending || turnOn.isPending;
   // A linked bot goes back to the version it had before, from the copy kept here (ADR 0200).

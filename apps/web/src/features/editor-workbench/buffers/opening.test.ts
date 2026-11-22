@@ -29,6 +29,19 @@ describe("what a buffer opens as", () => {
       },
     ],
     [
+      "a draft holding a Revert still waits for the person's Save",
+      disk("one\n", "v1"),
+      { ...draft, manualSave: true },
+      {
+        kind: "text",
+        text: "typed\n",
+        base: { text: "one\n", version: "v1" },
+        dirty: true,
+        manualSave: true,
+        dropDraft: false,
+      },
+    ],
+    [
       "the disk text, saved, when a draft only repeats it (the draft goes)",
       disk("typed\n", "v1"),
       draft,

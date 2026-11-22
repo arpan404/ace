@@ -5,7 +5,7 @@ import { useSpadeShown } from "@/lib/spade-available.ts";
 import { PageLoading } from "./spade-settings-loading.tsx";
 
 /** Settings › Spade's pages. */
-export type SpadeSettingsPage = "general" | "models" | "search" | "apps" | "security";
+export type SpadeSettingsPage = "general" | "models" | "apps" | "security";
 
 const pages = {
   general: {
@@ -20,12 +20,6 @@ const pages = {
       import("./spade-settings-models.tsx").then((module) => ({
         default: module.SpadeModelsSettings,
       })),
-    ),
-  },
-  search: {
-    title: "Web search",
-    body: lazy(() =>
-      import("./spade-search-settings.tsx").then((module) => ({ default: module.SearchSettings })),
     ),
   },
   apps: {

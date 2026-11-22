@@ -53,7 +53,9 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/spade/running": ["/spade/running", "spade"],
   "/spade/groups/new": ["/spade/groups/new", "spade"],
   "/usage": ["/usage", "usage"],
-  "/market": ["/market", "marketplace"],
+  // Legacy redirect to /store.
+  "/market": null,
+  "/store": ["/store", "marketplace"],
   "/setup": ["/setup", "setup"],
   // Redirects to Fleet, where pairing lives.
   "/pair": null,
@@ -84,7 +86,6 @@ const addresses: Record<RouteId, readonly [address: string, page: SuitPage] | nu
   "/settings/spade/apps": ["/settings/spade/apps", "settings"],
   "/settings/spade/security": ["/settings/spade/security", "settings"],
   "/settings/spade/models": ["/settings/spade/models", "settings"],
-  "/settings/spade/search": ["/settings/spade/search", "settings"],
   "/settings/storage": ["/settings/storage", "settings"],
   "/settings/advanced": ["/settings/advanced", "settings"],
   "/settings/beta": ["/settings/beta", "settings"],

@@ -3,7 +3,7 @@ import SwiftUI
 /// The tools each paired machine offers, reached from Settings › Tools on that machine's own
 /// connection.
 enum SettingsTool: String, Hashable, CaseIterable {
-    case agents, projects, automations, usage, skills, providers, spade, sourceControl, prompts, computer, devices
+    case agents, projects, automations, usage, skills, market, providers, spade, sourceControl, prompts, computer, devices
 
     var title: String {
         switch self {
@@ -12,6 +12,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .automations: "Automations"
         case .usage: "Usage"
         case .skills: "Skills and plugins"
+        case .market: "Store"
         case .providers: "Providers"
         case .spade: "Spade"
         case .sourceControl: "Source control"
@@ -28,6 +29,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .automations: .timer
         case .usage: .chartBar
         case .skills: .sparkle
+        case .market: .store
         case .providers: .plugsConnected
         case .spade: .smiley
         case .sourceControl: .gitBranch
@@ -60,7 +62,8 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .projects: ProjectsView(model: model)
         case .automations: AutomationsView(model: model)
         case .usage: UsageView(inbox: inbox, machine: machine)
-        case .skills: SkillsLibraryView(model: model)
+        case .skills: SkillsLibraryView(model: model, machineName: inbox.name(machine))
+        case .market: MarketplaceView(inbox: inbox, machine: machine)
         case .providers: ProviderSettingsView(model: model)
         case .spade: SpadeSettingsView(client: model)
         case .sourceControl: SourceControlView(model: model)
@@ -86,6 +89,11 @@ struct SettingsTools: View {
         tool != .spade || inbox.client(hostId)?.spade.shown == true
     }
 
+    /// The Marketplace's trailing word: how many updates wait, as this phone last read them.
+    private func trailing(_ tool: SettingsTool) -> String? {
+        tool == .market ? inbox.client(hostId)?.keptMarketHome?.updatesText : nil
+    }
+
     var body: some View {
         if !inbox.sessions.isEmpty {
             Section {
@@ -99,7 +107,7 @@ struct SettingsTools: View {
                     .accessibilityIdentifier("settings.tools.machine")
                 }
                 ForEach(SettingsTool.allCases.filter { !leaving.contains($0) && shows($0) }, id: \.self) { tool in
-                    GroupLink(.tool(tool, machine: hostId)) { InsetRow(tool.shortTitle, icon: tool.icon) }
+                    GroupLink(.tool(tool, machine: hostId)) { InsetRow(tool.shortTitle, icon: tool.icon, value: trailing(tool)) }
                         .accessibilityIdentifier(tool.identifier)
                 }
             } header: {

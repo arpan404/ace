@@ -45,7 +45,7 @@ export function CatalogsPage() {
             <li key={source.id} className="mk-row">
               <span className="mk-words">
                 <span className="mk-name">
-                  {source.kind === "market" ? "ace's marketplace" : source.address}
+                  {source.kind === "market" ? "ace Store" : source.address}
                 </span>
                 <span className="mk-meta">
                   {[

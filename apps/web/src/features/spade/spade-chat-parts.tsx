@@ -109,6 +109,7 @@ export function WorkingLine(props: {
   onWatch: (() => void) | undefined;
 }) {
   const now = useSeconds(props.since !== undefined);
+  const moving = props.state === "working" || props.state === "thinking";
   return (
     <div
       role="status"
@@ -116,8 +117,12 @@ export function WorkingLine(props: {
     >
       <SpadeFace avatar={props.avatar} size={32} state={props.state} />
       <span
+        // While it works, each new phrase sweeps once in the step's light (`.step-shimmer`:
+        // three passes, then still; still under reduced motion). Plain text, never markup.
+        key={moving ? props.label : undefined}
         className={cn(
           "min-w-0 truncate text-ui text-muted-foreground",
+          moving && "step-shimmer",
           props.detail && "max-w-1/2 shrink-0",
         )}
       >
@@ -157,7 +162,8 @@ const holdFor = 450;
 
 /**
  * A bubble with its actions: the exact time, Copy and (for the bot's words, where the system can
- * speak) Read aloud, in a small pill at its foot. They come up on hover and on focus, and on a
+ * speak) Read aloud, in a small pill at its foot, in room the frame keeps for it, so it never
+ * covers what is under the bubble. They come up on hover and on focus, and on a
  * long press on touch, which a tap elsewhere puts away. Read aloud becomes Stop reading while it
  * speaks, in the bot's own voice, and leaving the chat stops it: the reading belongs to this
  * bubble.
@@ -171,6 +177,8 @@ export function BubbleFrame(props: {
   when: string | undefined;
   /** The More menu's Keep as a test, on a finished reply's last words (ADR 0204). */
   onKeep?: (() => void) | undefined;
+  /** The More menu's Show work (or Hide work, once shown): that turn's steps, under it. */
+  work?: { shown: boolean; toggle(): void } | undefined;
   side: "bot" | "mine";
   children: ReactNode;
 }) {
@@ -194,9 +202,10 @@ export function BubbleFrame(props: {
   const speak = props.speak !== undefined && canSpeakWith(voice) ? props.speak : undefined;
   const copy = props.copy;
   const onKeep = props.onKeep;
+  const work = props.work;
   const [menu, setMenu] = useState(false);
-  const any =
-    copy !== undefined || speak !== undefined || props.when !== undefined || onKeep !== undefined;
+  const more = onKeep !== undefined || work !== undefined;
+  const any = copy !== undefined || speak !== undefined || props.when !== undefined || more;
   const release = () => clearTimeout(timer.current);
   return (
     <div
@@ -206,6 +215,8 @@ export function BubbleFrame(props: {
         "group/bubble relative flex min-w-0 flex-col",
         props.side === "bot" ? "items-start" : "items-end",
         bubbleWidth[props.side],
+        // Room under the bubble for its actions: they never cover the line below it.
+        any && "pb-5",
         held && "select-none",
       )}
       onPointerDown={(event) => {
@@ -226,7 +237,8 @@ export function BubbleFrame(props: {
         <div
           data-held={held || reading || menu || undefined}
           className={cn(
-            "absolute -bottom-4.5 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
+            // Inside the frame: over the bubble's empty bottom padding and the room under it.
+            "absolute bottom-0 z-10 flex items-center gap-0.5 rounded-full bg-popover p-0.5 text-popover-foreground shadow-glass transition-opacity duration-(--motion-fast)",
             props.side === "bot" ? "right-2.5" : "left-2.5",
             "pointer-events-none opacity-0 group-hover/bubble:pointer-events-auto group-hover/bubble:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 data-held:pointer-events-auto data-held:opacity-100",
           )}
@@ -259,7 +271,7 @@ export function BubbleFrame(props: {
               onClick={() => (reading ? stopReading() : readAloud(key, speak, voice))}
             />
           )}
-          {onKeep && (
+          {more && (
             <Menu open={menu} onOpenChange={setMenu}>
               <MenuTrigger
                 render={
@@ -272,7 +284,12 @@ export function BubbleFrame(props: {
                 }
               />
               <MenuContent align="end">
-                <MenuItem onClick={onKeep}>Keep as a test</MenuItem>
+                {work && (
+                  <MenuItem onClick={work.toggle}>
+                    {work.shown ? "Hide work" : "Show work"}
+                  </MenuItem>
+                )}
+                {onKeep && <MenuItem onClick={onKeep}>Keep as a test</MenuItem>}
               </MenuContent>
             </Menu>
           )}

@@ -6,6 +6,7 @@ import { openExternal } from "@/boot/open-external.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
+import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import {
   allowApp,
@@ -25,7 +26,7 @@ const MOST = 4;
  * Apps that fit a bot's task (ADR 0131, amendment 1), each with one click to connect it: the
  * catalogue's apps Spade matches to the task by its words, no model involved. An app connected
  * already for other bots offers Use, with no new sign-in; one that takes a key shows its steps in
- * place; one not available yet says so. Connecting gives the app to `botId`, when there is one,
+ * place. Apps not available yet aren't suggested: there is nothing to do with them. Connecting gives the app to `botId`, when there is one,
  * then tells `onConnected` (which, before the bot exists, keeps it to give once it does).
  *
  * Self-contained, so a bot's settings and the new-bot flow can both show it: give it the task,
@@ -37,6 +38,7 @@ export function SuggestedApps(props: {
   onConnected?: ((connector: SpadeConnector) => void) | undefined;
   /** Its heading; "Apps that fit" unless given. */
   title?: string;
+  className?: string;
 }) {
   const fit = useAppsFit(props.task);
   const listed = useSpadeConnectors();
@@ -52,6 +54,8 @@ export function SuggestedApps(props: {
       const entry = catalogue.find((each) => each.id === id);
       return entry ? [entry] : [];
     })
+    // Only apps the person can connect now: one not available yet is nothing to act on.
+    .filter((entry) => entry.ready !== "later")
     .filter((entry) => {
       // Already the bot's: nothing to suggest.
       return !connectors.some((each) => each.catalogue === entry.id && hasIt(each));
@@ -65,7 +69,11 @@ export function SuggestedApps(props: {
     .slice(0, MOST);
   if (shown.length === 0) return null;
   return (
-    <section aria-label={props.title ?? "Apps that fit"} className="flex flex-col gap-1">
+    <section
+      aria-label={props.title ?? "Apps that fit"}
+      data-setting-slot=""
+      className={cn("flex flex-col gap-1", props.className)}
+    >
       <h3 className="text-xs font-medium text-subtle-foreground">
         {props.title ?? "Apps that fit"}
       </h3>
@@ -119,11 +127,9 @@ function SuggestedApp(props: {
   const category = spadeAppCategories.find((each) => each.id === entry.category)?.label;
   const line = props.connected
     ? "Connected for your other bots"
-    : entry.ready === "later"
-      ? "Not available yet"
-      : entry.ready === "key"
-        ? "Takes a key you make in the app"
-        : category;
+    : entry.ready === "key"
+      ? "Takes a key you make in the app"
+      : category;
   return (
     <li {...part("list-row", undefined, "suggested-app")} className="flex flex-col gap-1.5 py-2">
       <div className="flex min-h-9 items-center gap-3">
@@ -136,6 +142,8 @@ function SuggestedApp(props: {
           <Button
             size="sm"
             variant="ghost"
+            // The word, not its pill, on the rows' right edge.
+            className="-mr-2.5"
             aria-label={`Use ${entry.name}`}
             onClick={() => props.connected && void give(props.connected)}
           >
@@ -145,6 +153,8 @@ function SuggestedApp(props: {
           <Button
             size="sm"
             variant="ghost"
+            // The word, not its pill, on the rows' right edge.
+            className="-mr-2.5"
             aria-label={`Connect ${entry.name}`}
             disabled={busy}
             onClick={() => void flow.start({ catalogue: entry.id })}
@@ -152,7 +162,7 @@ function SuggestedApp(props: {
             Connect
           </Button>
         ) : entry.ready === "key" && key === undefined ? (
-          <Button size="sm" variant="ghost" onClick={() => setKey("")}>
+          <Button size="sm" variant="ghost" className="-mr-2.5" onClick={() => setKey("")}>
             Add a key
           </Button>
         ) : null}

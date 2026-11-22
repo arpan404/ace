@@ -61,6 +61,8 @@ interface Upload {
   finishDecode: () => Buffer;
   stream: SpadeUpload;
   controller: AbortController;
+  /** Who asked, bound when it opened (ADR 0209 §4.2). */
+  binding: { signal: AbortSignal; still(): boolean; release(): void };
   timer: ReturnType<typeof setTimeout>;
 }
 
@@ -71,6 +73,14 @@ interface Upload {
  */
 export function createSpadeHttp(context: {
   host(): Pick<SpadeLink, "ready"> | undefined;
+  /** On an org host: binds a request to the principal asking (ADR 0209 §4.2); its release. */
+  bindHandle?(handle: {
+    operation: "spade";
+    resource: { kind: "host" };
+    close(reason: string): void;
+  }): () => void;
+  /** On an org host: who the socket is now; undefined on a person's machine. */
+  holder?(): string | undefined;
   authorize(scope: DeviceScope): boolean;
   connected(): boolean;
   send(message: ServerMessage): void;
@@ -104,20 +114,50 @@ export function createSpadeHttp(context: {
   /** Aborted when the socket closes: its previews still waiting leave the line. */
   const closing = new AbortController();
   /** Long answers' pieces, read one at a time so no reply outgrows the socket's frame cap. */
-  const held = new Map<string, { pieces: string[]; timer: ReturnType<typeof setTimeout> }>();
+  const held = new Map<
+    string,
+    {
+      pieces: string[];
+      timer: ReturnType<typeof setTimeout>;
+      /** Its request's binding, kept registered until the pieces are read or expire. */
+      binding: Binding;
+    }
+  >();
+  /**
+   * One request, bound to who asked it (ADR 0209 §4.2): aborted once they may no longer reach
+   * Spade, and its answer sent only while the same principal still may.
+   */
+  const bind = (scope: DeviceScope) => {
+    const holder = context.holder?.();
+    const lost = new AbortController();
+    const release =
+      context.bindHandle?.({
+        operation: "spade",
+        resource: { kind: "host" },
+        close: () => lost.abort(),
+      }) ?? (() => {});
+    return {
+      signal: lost.signal,
+      still: () =>
+        !lost.signal.aborted && context.holder?.() === holder && context.authorize(scope),
+      release,
+    };
+  };
+  type Binding = ReturnType<typeof bind>;
   const release = (requestId: string) => {
     const answer = held.get(requestId);
     if (!answer) return;
     clearTimeout(answer.timer);
     held.delete(requestId);
+    answer.binding.release();
   };
-  const hold = (requestId: string, pieces: string[]) => {
+  const hold = (requestId: string, pieces: string[], binding: Binding) => {
     release(requestId);
     // The oldest goes first: a connection holds a few long answers at most.
     if (held.size >= maxHeld) release(held.keys().next().value ?? "");
     const timer = setTimeout(() => release(requestId), heldMs);
     timer.unref?.();
-    held.set(requestId, { pieces, timer });
+    held.set(requestId, { pieces, timer, binding });
   };
   const fail = (requestId: string, code: SpadeErrorCode, message: string) => {
     if (context.connected())
@@ -127,14 +167,25 @@ export function createSpadeHttp(context: {
         result: { kind: "error", code, message },
       });
   };
-  const respond = (requestId: string, answer: SpadeAnswer | undefined) => {
-    if (!context.connected()) return;
-    if (!answer) return fail(requestId, "failed", "Spade didn't answer.");
+  const respond = (requestId: string, answer: SpadeAnswer | undefined, binding: Binding) => {
+    // Every way out but a long answer's held pieces ends the binding here.
+    const done = (reply: () => void) => {
+      binding.release();
+      reply();
+    };
+    if (!context.connected()) return done(() => {});
+    // Checked again now: the standing it was asked under may have ended while Spade answered.
+    if (!binding.still())
+      return done(() =>
+        fail(requestId, "forbidden", "Your access to Spade ended before its answer came."),
+      );
+    if (!answer) return done(() => fail(requestId, "failed", "Spade didn't answer."));
     if (answer.kind === "too_large")
-      return fail(requestId, "too_large", "Spade's answer is too large to forward.");
+      return done(() => fail(requestId, "too_large", "Spade's answer is too large to forward."));
     const text = isTextContentType(answer.contentType);
     const pieces = splitBody(answer.body.toString(text ? "utf8" : "base64"), maxSpadeChunkChars);
-    if (pieces.length > 1) hold(requestId, pieces);
+    if (pieces.length > 1) hold(requestId, pieces, binding);
+    else binding.release();
     context.send({
       type: "spade.http.result",
       requestId,
@@ -158,6 +209,7 @@ export function createSpadeHttp(context: {
   const abandon = (requestId: string, code: SpadeErrorCode, message: string) => {
     const upload = drop(requestId);
     if (!upload) return;
+    upload.binding.release();
     upload.controller.abort();
     fail(requestId, code, message);
   };
@@ -200,6 +252,12 @@ export function createSpadeHttp(context: {
     if (message.parts !== undefined) return open(message);
     const admitted = admit(message);
     if (!admitted) return;
+    // Bound as it is admitted, before any stamp is awaited (ADR 0209 §4.2).
+    const binding = bind(scopeFor(message.method));
+    const refused = (code: SpadeErrorCode, text: string) => {
+      binding.release();
+      fail(message.requestId, code, text);
+    };
     let body: Buffer | undefined;
     try {
       body =
@@ -209,10 +267,10 @@ export function createSpadeHttp(context: {
             ? decodeWhole(message.body)
             : Buffer.from(message.body, "utf8");
     } catch {
-      return fail(message.requestId, "invalid_body", "The body isn't valid base64.");
+      return refused("invalid_body", "The body isn't valid base64.");
     }
     if (body && body.length > requestBodyLimit(message.method, admitted.path))
-      return fail(message.requestId, "too_large", "The body is too large for this route.");
+      return refused("too_large", "The body is too large for this route.");
     // A member's write on an organization's host carries their stamp over this very request.
     const member =
       message.method === "GET"
@@ -221,22 +279,26 @@ export function createSpadeHttp(context: {
     // Turning Full access on is the person's alone: stamped as theirs, or not forwarded. On an
     // organization's host a member asks instead, and Spade decides by its policy and their role.
     // A change only Spade can tell loosens anything goes unstamped from a caller without their
-    // standing, and Spade makes it only if it tightens (ADR 0171, amendment 7).
+    // standing, and Spade makes it only if it tightens (ADR 0171, amendment 7). The routes come
+    // from the list the app routes by (`@ace/client/spade-person-only`), checked against Spade's
+    // guarded handlers by the route parity test.
     const guarded = personOnlyWrite(message.method, admitted.path, body);
     const personal = guarded ? await context.stamp(guarded) : undefined;
     if (personal && "refused" in personal && !member && !guarded?.optional)
-      return fail(message.requestId, "forbidden", personal.refused);
+      return refused("forbidden", personal.refused);
     const stamped = personal && "stamp" in personal ? personal : undefined;
     // An answer to a shared bot's request: the member's, stamped, or not forwarded.
     const reply = answerWrite(message.method, admitted.path, body);
     const answered = reply ? await context.answerStamp?.(reply) : undefined;
-    if (answered && "refused" in answered)
-      return fail(message.requestId, "forbidden", answered.refused);
+    if (answered && "refused" in answered) return refused("forbidden", answered.refused);
     const headers = {
       ...(stamped ? { [personHeader]: stamped.stamp } : {}),
       ...(answered ? { [memberHeader]: answered.stamp } : {}),
       ...member,
     };
+    // The stamps took time: the one who asked must still be the one asking.
+    if (!binding.still())
+      return refused("forbidden", "Your access to Spade ended before this was sent.");
     const forward = (path: string, signal: AbortSignal) =>
       spadeRequest(
         admitted.connection,
@@ -247,12 +309,19 @@ export function createSpadeHttp(context: {
           ...(message.contentType ? { contentType: message.contentType } : {}),
           ...(Object.keys(headers).length ? { headers } : {}),
         },
-        { signal, maxBytes: responseBodyLimit(message.method, path) },
+        {
+          signal: AbortSignal.any([signal, binding.signal]),
+          maxBytes: responseBodyLimit(message.method, path),
+        },
       ).catch(() => undefined);
     // A picture's preview is the daemon's: Spade is asked for the image itself, in a place.
     const previewed = spadePreviewSource(message.method, admitted.path);
-    if (previewed) return respond(message.requestId, await previewOf(previewed, forward));
-    respond(message.requestId, await forward(admitted.path, AbortSignal.timeout(requestTimeoutMs)));
+    if (previewed) return respond(message.requestId, await previewOf(previewed, forward), binding);
+    respond(
+      message.requestId,
+      await forward(admitted.path, AbortSignal.timeout(requestTimeoutMs)),
+      binding,
+    );
   }
 
   /**
@@ -304,6 +373,8 @@ export function createSpadeHttp(context: {
     )
       return fail(message.requestId, "invalid_body", "Send this change in one piece.");
     const controller = new AbortController();
+    const binding = bind(scopeFor(message.method));
+    binding.signal.addEventListener("abort", () => controller.abort(), { once: true });
     const base64 = base64Stream();
     const upload: Upload = {
       method: message.method,
@@ -327,6 +398,7 @@ export function createSpadeHttp(context: {
         controller.signal,
       ),
       controller,
+      binding,
       timer: setTimeout(() => {}, 0),
     };
     uploads.set(message.requestId, upload);
@@ -341,7 +413,7 @@ export function createSpadeHttp(context: {
     if (!upload) return;
     if (message.index !== upload.next)
       return abandon(message.requestId, "invalid_body", `Part ${upload.next} was expected next.`);
-    if (!context.authorize(scopeFor(upload.method)))
+    if (!context.authorize(scopeFor(upload.method)) || !upload.binding.still())
       return abandon(message.requestId, "forbidden", "This device can't make changes in Spade.");
     let piece: Buffer;
     try {
@@ -372,7 +444,7 @@ export function createSpadeHttp(context: {
       .catch(() => undefined)
       .then((answer) => {
         clearTimeout(timeout);
-        respond(message.requestId, answer);
+        respond(message.requestId, answer, upload.binding);
       })
       // A send that fails here has no request left to answer.
       .catch(() => undefined);
@@ -380,7 +452,19 @@ export function createSpadeHttp(context: {
 
   function read(message: SpadeHttpRead) {
     if (!context.connected()) return;
-    const pieces = held.get(message.requestId)?.pieces;
+    const kept = held.get(message.requestId);
+    // A long answer's later pieces go only to whoever may still read it.
+    if (kept && !kept.binding.still()) {
+      release(message.requestId);
+      return context.send({
+        type: "spade.http.chunk",
+        requestId: message.requestId,
+        index: message.index,
+        body: "",
+        gone: true,
+      });
+    }
+    const pieces = kept?.pieces;
     const body = pieces?.[message.index];
     if (body === undefined)
       return context.send({

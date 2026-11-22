@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// One automation: when it runs and when it next starts, what needs the person, its actions as
-/// visible words (Run now, Pause or Resume, Edit, Duplicate, Delete), then its runs, newest
-/// first, each linked to the thread it ran in. Words come from the bridge; this draws and asks.
+/// visible words (Run now, Pause or Resume, Edit, Duplicate, Delete), a webhook's addresses and
+/// secret, then its runs, newest first, each linked to the thread it ran in. Words come from the bridge; this draws and asks.
 struct AutomationDetailView: View {
     let model: ClientModel
     let id: String
@@ -50,6 +50,7 @@ struct AutomationDetailView: View {
                 summary(row)
                 if let attention = row.attention { attentionSection(attention) }
                 actions(row)
+                if row.kind == "webhook" { AutomationWebhookSection(model: model, automationId: row.id, source: row.source) }
             }
             if row == nil && problem == nil { Section { SkeletonRows(count: 2, label: "Loading automation") }.insetRowBackground() }
             if let historyProblem {

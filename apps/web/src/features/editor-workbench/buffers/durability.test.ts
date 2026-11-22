@@ -171,3 +171,28 @@ describe("two quick disk writes", () => {
     expect(buffer.snapshot()).toMatchObject({ dirty: false, version: "v3" });
   });
 });
+
+describe("a Revert kept as a draft", () => {
+  it("still waits for the person's Save after a reload: no auto save writes it", async () => {
+    const disk = fakeDisk({ "store.ts": "one\ntwo\n" });
+    const drafts = memoryDrafts();
+    const first = session(disk, drafts);
+    const { buffer } = await opened(first.registry);
+    buffer.editLines([{ start: 0, end: 1, text: "ONE\n" }], { manualSave: true });
+    await first.time.advance(400);
+    await settle();
+    expect(drafts.peek(file)).toBe("ONE\ntwo\n");
+
+    // The app reloads: a new registry reads the same device's drafts.
+    const second = session(disk, drafts);
+    const again = (await opened(second.registry)).buffer;
+    expect(again.document()?.text()).toBe("ONE\ntwo\n");
+    expect(again.snapshot()).toMatchObject({ dirty: true, manualSave: true });
+
+    expect(await again.save("auto")).toEqual({ kind: "manual" });
+    expect(disk.text("store.ts")).toBe("one\ntwo\n");
+    // The person's own Save writes it and ends the wait.
+    expect(await again.save("person")).toMatchObject({ kind: "saved" });
+    expect(again.snapshot().manualSave).toBe(false);
+  });
+});

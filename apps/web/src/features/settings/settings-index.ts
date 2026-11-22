@@ -845,13 +845,22 @@ const entries = [
     id: "beta.marketplace",
     page: "/settings/beta",
     title: betaSwitches.marketplace.title,
-    keywords: ["store", "suits", "plugins", "skills", "install", "experimental", "preview"],
+    keywords: [
+      "marketplace",
+      "store",
+      "suits",
+      "plugins",
+      "skills",
+      "install",
+      "experimental",
+      "preview",
+    ],
   },
   {
     id: "market.askBeforeAgentPublish",
     page: "/settings/beta",
     title: "Ask me before agents publish",
-    keywords: ["marketplace", "publish", "agents", "approve", "permission"],
+    keywords: ["store", "marketplace", "publish", "agents", "approve", "permission"],
   },
 ] as const satisfies readonly SettingEntry[];
 

@@ -2,6 +2,7 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { setShowWork } from "./spade-show-work.ts";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -55,6 +56,7 @@ const withReply =
   };
 
 test("undoing a turn lists the files it changed first, then puts them back", async () => {
+  setShowWork(true);
   const { spade } = await spadeApp(
     "/spade/travel",
     withReply([
@@ -96,6 +98,7 @@ test("undoing a turn lists the files it changed first, then puts them back", asy
 });
 
 test("a send folds into the summary without an undo action", async () => {
+  setShowWork(true);
   await spadeApp(
     "/spade/travel",
     withReply([

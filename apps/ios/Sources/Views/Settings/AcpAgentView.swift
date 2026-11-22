@@ -149,7 +149,7 @@ struct AcpAgentView: View {
                     .foregroundStyle(install.finished && !install.succeeded ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                     .contentTransition(.opacity)
                 if let detail = install.detail {
-                    Text(detail).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted).lineLimit(1)
+                    ExpandableText(detail, id: "acp.install.detail", lines: 1).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.muted)
                 }
             }
             Spacer()

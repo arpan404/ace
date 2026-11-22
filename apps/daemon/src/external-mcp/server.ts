@@ -166,7 +166,15 @@ export async function externalMcp(context: ServiceContext) {
         "warn",
         `The outside MCP endpoint's port ${taken} is taken; it moves to a new one, and pasted client configs need the new URL from ace mcp list.`,
       ),
-    credentials: outside.principals,
+    // Outside clients' grants are the person's (ADR 0122): an organization's host has no person,
+    // so none authenticates there, on any way in (ADR 0209 §4.1).
+    credentials: {
+      authenticate: (bearer: string, resource?: string) =>
+        context.orgHost?.org() === undefined
+          ? outside.principals.authenticate(bearer, resource)
+          : undefined,
+      close: () => outside.principals.close(),
+    },
     // Loopback requests: this endpoint's own address, or the person's public URL by its Host.
     loopback: async (request, serve) => {
       const base = loopbackBase(request.headers, port, reachSettings.current().custom);

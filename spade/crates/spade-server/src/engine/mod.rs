@@ -70,6 +70,7 @@ pub mod roster;
 mod routines;
 mod routing;
 mod running;
+mod said;
 mod search;
 mod security;
 pub use code::CodeCall;
@@ -191,6 +192,8 @@ struct Live {
     hold: watch::Sender<bool>,
     /// The conversation's events while a turn runs, so each step reads only what was added.
     log: Mutex<turn_log::Log>,
+    /// The bot's own words for its open reply: the line's headline or plan step (`said`).
+    said: Mutex<said::Said>,
 }
 
 /// A conversation's events, shared without copying.
@@ -686,6 +689,14 @@ impl Engine {
     /// Sets what the running turn is doing and tells live subscribers.
     pub(crate) fn set_status(&self, id: &str, status: Option<String>) {
         let live = self.live(id);
+        let status = {
+            let mut said = live.said.lock().unwrap_or_else(|p| p.into_inner());
+            // A turn ending forgets its words; plain "Thinking" gives way to them.
+            if status.is_none() {
+                *said = said::Said::default();
+            }
+            said.over(status)
+        };
         *live.status.lock().unwrap_or_else(|p| p.into_inner()) = status;
         self.announce(id);
     }
@@ -1123,6 +1134,7 @@ impl Engine {
                     worker: Mutex::default(),
                     hold: watch::channel(false).0,
                     log: Mutex::default(),
+                    said: Mutex::default(),
                 })
             })
             .clone()

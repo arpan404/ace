@@ -78,6 +78,17 @@ describe("phone keymap", () => {
     expect(resolvePhoneKeymap("not an object").newThread).toBe("mod+n");
   });
 
+  it("gives a default's keys to a saved rebinding that already uses them", () => {
+    // Saved before Go to line shipped on ⌘L: New thread keeps ⌘L and Go to line has no keys.
+    const resolved = resolvePhoneKeymap({ newThread: "mod+l" });
+    expect(resolved.newThread).toBe("mod+l");
+    expect(resolved["editor.goToLine"]).toBe("");
+    expect(phoneKeyProblem("mod+l", "newThread", resolved)).toBeUndefined();
+    // A global rebinding works in every context, so the composer's Send yields to it too.
+    expect(resolvePhoneKeymap({ newThread: "mod+enter" }).send).toBe("");
+    expect(resolvePhoneKeymap({ searchThreads: "mod+t" }).newThread).toBe("mod+n");
+  });
+
   it("formats shortcuts as Apple keyboards print them", () => {
     expect(formatPhoneKeys("ctrl+mod+s")).toBe("⌃⌘S");
     expect(formatPhoneKeys("mod+enter")).toBe("⌘Return");

@@ -483,7 +483,7 @@ struct ThreadView: View {
                          adding: pastesAdding.count,
                          restore: restore,
                          recall: { older in await model.sentText(thread.id, older: older) },
-                         files: screen.attachments.count, chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
+                         files: screen.attachments.count, filesWait: AttachmentUploads.line(screen.attachments), chips: screen.annotations.count + screen.quotes.count + (model.sheets.chip?.count ?? 0),
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          listAbove: hasStrip ? stripHeight : 0,

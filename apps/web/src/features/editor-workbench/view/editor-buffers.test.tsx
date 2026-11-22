@@ -33,10 +33,14 @@ test("the notice appears when an agent writes a file with unsaved edits, and Mer
   editor.edit("src/a.ts", "mine");
   // The agent writes the top of the file; the person typed at its end: no overlap.
   await editor.changeOnDisk("src/a.ts", "agent again\n// src/a.ts\nline two\nagent line\n");
-  expect(screen.getByText("Claude Code also changed this file.")).toBeTruthy();
+  expect(
+    await screen.findByText(
+      "Claude Code changed line 1 while you were editing line 4. No overlap.",
+    ),
+  ).toBeTruthy();
 
   fireEvent.click(screen.getByRole("button", { name: "Merge" }));
-  await waitFor(() => expect(screen.queryByText(/also changed this file/)).toBeNull());
+  await waitFor(() => expect(screen.queryByText(/Claude Code changed/)).toBeNull());
   const merged = editor.registry.get({ root, path: "src/a.ts" })?.document()?.text() ?? "";
   expect(merged).toContain("agent again");
   expect(merged).toContain("mine");
@@ -46,7 +50,7 @@ test("a change nobody can be named for says the file changed on disk", async () 
   const editor = await mountEditor(one());
   editor.edit("src/a.ts", "mine");
   await editor.changeOnDisk("src/a.ts", "theirs\n");
-  expect(screen.getByText("This file changed on disk.")).toBeTruthy();
+  expect(await screen.findByText(/^This file changed on disk at line 1 while you/)).toBeTruthy();
 });
 
 const renderCompare = ({ path }: { path: string }) => (
@@ -68,7 +72,7 @@ test("Compare shows the host's diff in place of the editor until the change is a
   await waitFor(() =>
     expect(screen.queryByRole("region", { name: "Compare src/a.ts" })).toBeNull(),
   );
-  expect(screen.queryByText(/also changed this file/)).toBeNull();
+  expect(screen.queryByText(/Claude Code changed/)).toBeNull();
   const buffer = editor.registry.get({ root, path: "src/a.ts" });
   expect(buffer?.document()?.text()).toContain("mine");
   expect(buffer?.snapshot().dirty).toBe(true);
@@ -116,12 +120,14 @@ test("a loading file shows skeleton lines only after 150 ms, never at once", asy
   );
 });
 
-test("Open editors groups rows and offers Save all only while something is unsaved", async () => {
+test("Open editors lists files flat, panes apart by a divider, and offers Save all only while something is unsaved", async () => {
   const onSaveAll = vi.fn();
   const editor = await mountEditor(two([tab("src/a.ts")], [tab("docs/c.md")]), { onSaveAll });
   const list = screen.getByRole("region", { name: "Open editors" });
-  expect(within(list).getByText("Group 1")).toBeTruthy();
-  expect(within(list).getByText("Group 2")).toBeTruthy();
+  expect(within(list).queryByText(/Group/)).toBeNull();
+  expect(within(list).getAllByRole("separator")).toHaveLength(1);
+  expect(within(list).getByTitle("src/a.ts")).toBeTruthy();
+  expect(within(list).getByTitle("docs/c.md")).toBeTruthy();
   expect(within(list).queryByRole("button", { name: "Save all" })).toBeNull();
 
   editor.edit("docs/c.md", "typed");
@@ -148,7 +154,7 @@ test("unsaved lines keep their gutter mark when the editor shows the file again"
   fireEvent.click(within(strip(1)).getByRole("tab", { name: /a\.ts/ }));
   await waitFor(() =>
     expect(
-      editorArea(1).querySelector('[data-line="2"] [data-mark]')?.getAttribute("data-mark"),
+      editorArea(1).querySelector('[data-change-line="3"]')?.getAttribute("data-change-bar"),
     ).toBe("added"),
   );
 });

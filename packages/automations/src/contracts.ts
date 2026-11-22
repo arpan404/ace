@@ -79,6 +79,11 @@ export interface Dependencies {
 }
 export interface Admission {
   open(): boolean;
+  /**
+   * Why admission is closed when the reason isn't a pause (an organization's host, ADR 0209):
+   * what a skipped run and a refused Run now say instead of the pause's words.
+   */
+  closedReason?(): string | undefined;
   /** Calls `listener` each time admission reopens; returns the unsubscribe. */
   onReopen(listener: () => void): () => void;
 }

@@ -545,6 +545,9 @@ export class ThreadSession {
       case "detach":
         this.#tray.detach(action.localId);
         break;
+      case "attach.retry":
+        this.#tray.retry(action.localId);
+        break;
       case "fork.open":
         this.#transitions.open(action.at, action.requestId, (id, ok, message) =>
           this.#admission(id, ok, message),

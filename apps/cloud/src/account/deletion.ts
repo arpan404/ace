@@ -86,6 +86,8 @@ export function accountDeletions(db: D1Database) {
         db.prepare(`DELETE FROM logins WHERE session IN (${sessionsOf})`).bind(accountId),
         db.prepare("DELETE FROM sessions WHERE json_extract(account, '$.id') = ?").bind(accountId),
         ...rest(accountId),
+        // ace search's counts for the account (ADR 0210 §4); its machines' expire with their month.
+        db.prepare("DELETE FROM search_counts WHERE scope = ?").bind(`account:${accountId}`),
         db
           .prepare(
             "UPDATE account_deletions SET finished_at = ?, session = '' WHERE account_id = ?",

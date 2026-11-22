@@ -180,7 +180,9 @@ import XCTest
         // The answers are real buttons: each a full tap tall, none flush against another, so Deny
         // is never a hair from Allow.
         app.assertStripButtons(["approval.deny", "approval.allow_session", "approval.allow_once"])
-        // Tapping the request's words opens its details, with every option.
+        // A tap on the request opens it in place, its words whole; Details opens every option.
+        app.staticTexts["strip.sentence"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["request.details"].waitForExistence(timeout: 5))
         app.buttons["request.details"].tap()
         XCTAssertTrue(app.buttons["request.close"].waitForExistence(timeout: 10))
         screenshot("thread-approval-details")

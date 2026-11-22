@@ -6,6 +6,8 @@ import SwiftUI
 /// failure, so one list failing never hides another's or reports the wrong one.
 struct SkillsLibraryView: View {
     let model: ClientModel
+    /// The machine Browse the marketplace installs onto, by name.
+    let machineName: String
     @AppStorage("skills.project") private var projectId = ""
     @State private var projects: [NativeProject] = []
     @State private var projectProblem: String?
@@ -28,8 +30,9 @@ struct SkillsLibraryView: View {
     private static let agentsRead: [String: Any] = ["type": "plugins.native", "op": "plugins"]
     private static let catalogRead: [String: Any] = ["type": "plugins.catalog", "offset": 0, "limit": 50]
 
-    init(model: ClientModel) {
+    init(model: ClientModel, machineName: String = "your machine") {
         self.model = model
+        self.machineName = machineName
         _plugins = State(initialValue: model.kept(Self.agentsRead, as: PluginAgentsList.self)?.plugins ?? [])
         _reviews = State(initialValue: model.keptPlugin(["type": "plugins.list"], expecting: "plugins.list")?.reviews ?? [])
         let catalog = model.keptPlugin(Self.catalogRead, expecting: "plugins.catalog")
@@ -80,6 +83,13 @@ struct SkillsLibraryView: View {
                            loadMore: { Task { await readCatalog(more: true) } },
                            retryCatalog: { Task { await readCatalog(more: catalogMoreFailed) } })
             Section {
+                // More skills and plugins, from the marketplace, through their review.
+                NavigationLink {
+                    MarketBrowseView(model: model, page: .search(type: "spade-skill"), machineName: machineName)
+                } label: {
+                    InsetRow("Browse the Store", icon: .store)
+                }
+                .accessibilityIdentifier("skills.market")
                 NavigationLink { SkillDiscoveryView(model: model) } label: { InsetRow("Available CLI skills", icon: nil) }
                     .accessibilityIdentifier("skills.discovery")
             }

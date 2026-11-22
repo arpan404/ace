@@ -13,16 +13,16 @@ const withMarket = {
     daemon.seedServices({ marketplace: seed }),
 };
 
-test("the rail's Marketplace opens its page, on Home", async () => {
+test("the rail's Store opens its page, on Home", async () => {
   await openApp("/chats");
-  await userEvent.click(await screen.findByRole("button", { name: "Marketplace" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Store" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe(
     "page",
   );
 });
 
-test("New bot's From the marketplace opens its page on Bots", async () => {
+test("New bot's Store tile opens its page on Bots", async () => {
   await spadeApp(
     "/spade",
     (api) => {
@@ -41,7 +41,7 @@ test("New bot's From the marketplace opens its page on Bots", async () => {
   );
   await openNew("New bot");
   const start = within(await screen.findByRole("region", { name: "Start from" }));
-  await userEvent.click(start.getByRole("button", { name: "Marketplace" }));
+  await userEvent.click(start.getByRole("button", { name: "Store" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Bots" }).getAttribute("aria-current")).toBe(
     "page",
@@ -61,7 +61,7 @@ test("Appearance's More Suits opens its page on Looks", async () => {
 test("Skills' Add menu opens its page on Tools", async () => {
   await openApp("/skills");
   await userEvent.click(await screen.findByRole("button", { name: "Add a skill" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "From the marketplace" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "From the Store" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Tools" }).getAttribute("aria-current")).toBe(
     "page",
@@ -69,19 +69,25 @@ test("Skills' Add menu opens its page on Tools", async () => {
   expect(await within(market).findByRole("button", { name: "Triage mail" })).toBeTruthy();
 });
 
-test("a link into an entry opens its page, and ⌘[ goes back to its place", async () => {
-  const { history } = await openApp("/chats?market=bot/inbox");
+test("a link into an entry opens /store, /market redirects keeping ?at=, and ⌘[ goes back", async () => {
+  const { history } = await openApp("/chats?store=bot/inbox");
   const market = await findMarket();
   expect(await within(market).findByRole("heading", { level: 1, name: "Inbox" })).toBeTruthy();
   expect(within(market).getByRole("navigation", { name: "Back" }).textContent).toContain("Bots");
 
   await press("{Meta>}[[{/Meta}");
   expect(await within(market).findByRole("region", { name: "From publishers" })).toBeTruthy();
-  expect(history.location.pathname).toBe("/market");
+  expect(history.location.pathname).toBe("/store");
   expect(new URLSearchParams(history.location.search).get("at")).toBe("bots");
 
-  // A link followed from anywhere lands where it points, on the Marketplace's page.
+  // Legacy ?market= deep links and /market routes still land on /store at the same place.
   act(() => history.push("/chats?market=suit/harbour-dusk"));
   expect(await screen.findByRole("heading", { level: 1, name: "Harbour dusk" })).toBeTruthy();
+  expect(history.location.pathname).toBe("/store");
   expect(new URLSearchParams(history.location.search).get("at")).toBe("suit/harbour-dusk");
+
+  act(() => history.push("/market?at=bots"));
+  expect(await within(market).findByRole("region", { name: "From publishers" })).toBeTruthy();
+  expect(history.location.pathname).toBe("/store");
+  expect(new URLSearchParams(history.location.search).get("at")).toBe("bots");
 });

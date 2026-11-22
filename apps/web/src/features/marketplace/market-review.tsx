@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import type { MarketInstalled, MarketReview } from "@ace/protocol/marketplace";
+import type { MarketInstalled } from "@ace/protocol/marketplace";
 import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -23,7 +23,12 @@ import {
   findingSentences,
   installBlock,
   MarketFailure,
+  missingNeedsSentence,
   needDefaults,
+  replacesLine,
+  reviewAction,
+  reviewFromLine,
+  reviewHeading,
   typeWord,
 } from "./market-model.ts";
 import { Status } from "./market-marks.tsx";
@@ -101,12 +106,6 @@ export function ReviewPage(props: {
   );
 }
 
-/** "From market.acehq.dev, reviewed by ace." */
-function fromLine(review: MarketReview) {
-  const from = review.from ? review.from.replace(/^https:\/\//, "") : "market.acehq.dev";
-  return `From ${from}${review.reviewed || review.byAce ? ", reviewed by ace" : ""}.`;
-}
-
 function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalled | undefined }) {
   const { review, items } = props.prepared;
   // A Suit with this id is already here (built in, or made here) and wasn't installed from the
@@ -147,9 +146,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
   const missing =
     recipe?.needs.filter((need) => need.required && !needs[need.key]).map((need) => need.label) ??
     [];
-  const stuck =
-    review.blocked ??
-    (missing.length ? `${review.title} can't work without ${missing.join(" and ")}.` : undefined);
+  const stuck = review.blocked ?? missingNeedsSentence(review.title, missing);
   const run = () => {
     const input = {
       review,
@@ -181,16 +178,8 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
     ...(inLibrary
       ? [`${review.title} is already in your Suits, so there's nothing to install.`]
       : []),
-    fromLine(review),
-    ...(moving?.rollback
-      ? [
-          `Goes back to version ${review.version} from ${review.updates ?? "the one it has"}, from the copy kept on this machine.`,
-        ]
-      : moving
-        ? [`Replaces version ${review.updates ?? ""}, which stays until you update.`]
-        : review.updates
-          ? [`Replaces version ${review.updates}, which stays until you install.`]
-          : []),
+    reviewFromLine(review),
+    ...[replacesLine(review)].filter((line) => line !== undefined),
     ...(moving ? [] : canDoSentences(review)),
     ...(recipe && !moving ? limitSentences(recipe) : []),
     ...(review.deprecated ? [`Its publisher deprecated this version: ${review.deprecated}`] : []),
@@ -208,11 +197,7 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
         </span>
         <div className="st-head-words">
           <h1 {...part("page-title", undefined, "market")} className="st-title">
-            {moving?.rollback
-              ? `Roll back ${review.title}`
-              : moving || review.updates
-                ? `Update ${review.title}`
-                : `Get ${review.title}`}
+            {reviewHeading(review)}
           </h1>
           <span className="st-by">
             {[typeWord(review.type), who, review.version].filter(Boolean).join(" · ")}
@@ -291,25 +276,20 @@ function ReviewBody(props: { prepared: PreparedReview; installed: MarketInstalle
             title={nav.offline ? offlineTitle("Get") : undefined}
             onClick={run}
           >
-            {moving?.rollback
-              ? install.isPending
-                ? "Rolling back…"
-                : "Roll back"
-              : moving
-                ? install.isPending
-                  ? "Updating…"
-                  : "Update"
-                : install.isPending
-                  ? "Getting…"
-                  : review.updates
-                    ? "Update"
-                    : "Get"}
+            {install.isPending
+              ? // A replacement install that isn't a linked bot's update reads as getting it.
+                moving
+                ? pendingWords[reviewAction(review)]
+                : "Getting…"
+              : reviewAction(review)}
           </Button>
         )}
       </ReviewFoot>
     </div>
   );
 }
+
+const pendingWords = { Get: "Getting…", Update: "Updating…", "Roll back": "Rolling back…" };
 
 /** A plugin's bots: each of Spade's bots as a switch, all off until chosen. */
 function BotChoice(props: { chosen: readonly string[]; onChange(bots: readonly string[]): void }) {

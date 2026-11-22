@@ -27,7 +27,9 @@ import type { ChunkReader } from "./thread-attachments.ts";
 
 afterEach(reset);
 
-type Tray = { files: { id: string; state: string; progress: number; error: string }[] };
+type Tray = {
+  files: { id: string; state: string; progress: number; error: string; retry?: boolean }[];
+};
 const tray = () => latest("thread.attachments") as Tray | undefined;
 const staged = new Map<string, Buffer>();
 const reads: { offset: number; limit: number }[] = [];
@@ -305,4 +307,55 @@ test("a message saved after a reload takes only its own files, not ones added si
   await until(() => tray()?.files.length === 1, "the first photo gone with its message");
   expect(tray()?.files.map((file) => file.id)).toEqual(["photo-0004"]);
   visit.back();
+});
+
+test("a file whose upload broke offers Retry, and retrying sends it with the message", async () => {
+  const photo = Buffer.alloc(100 * 1024, 6);
+  staged.set("flaky-001", photo);
+  let broken = true;
+  const flaky: ChunkReader = async (localId, offset, limit) => {
+    if (broken && offset > 0) throw new Error("the staged file went away");
+    return chunks(localId, offset, limit);
+  };
+  const thread = open(connect(idle()), "files", flaky);
+  await until(() => latest("thread.controls"), "the composer");
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "flaky-001",
+      name: "flaky.png",
+      mimeType: "image/png",
+      bytes: photo.length,
+      sha256: sha(photo),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "failed", "the broken upload");
+  expect(tray()?.files[0]).toMatchObject({ retry: true });
+  broken = false;
+  thread.handle({ type: "attach.retry", localId: "flaky-001" });
+  await until(() => tray()?.files[0]?.state === "ready", "the retried upload");
+  thread.handle({ type: "send", text: "Retried", opposite: false, requestId: "m4" });
+  await until(() => commands("thread.send").length === 1, "the message");
+  expect(commands("thread.send")[0]?.context).toMatchObject({
+    attachments: [{ sha256: sha(photo) }],
+  });
+});
+
+test("a file refused for its size offers no Retry: it would be refused again", async () => {
+  const big = Buffer.alloc(2 * 1024 * 1024, 1);
+  staged.set("big-00002", big);
+  const thread = open(connect(idle()), "files", chunks);
+  await until(() => latest("thread.controls"), "the composer");
+  thread.handle({
+    type: "attach",
+    file: {
+      localId: "big-00002",
+      name: "large.png",
+      mimeType: "image/png",
+      bytes: big.length,
+      sha256: sha(big),
+    },
+  });
+  await until(() => tray()?.files[0]?.state === "failed", "the refusal");
+  expect(tray()?.files[0]).toMatchObject({ retry: false });
 });

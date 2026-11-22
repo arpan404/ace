@@ -10,5 +10,8 @@ export const shippedMarketKeys: MarketKeySet = {
   keys: [{ id: "market-1", publicKey: "kiX0JKBm0zTmab-dc65Fgdd75m5mw3ivfd3U9LPJv6Q" }],
 };
 
-/** market.acehq.dev; another origin only through the development setting. */
-export const marketOrigin = "https://market.acehq.dev";
+/** store.acehq.dev; another origin only through the development setting. */
+export const marketOrigin = "https://store.acehq.dev";
+
+/** Legacy custom domain kept attached to the same Worker for older clients. */
+export const legacyMarketOrigin = "https://market.acehq.dev";
