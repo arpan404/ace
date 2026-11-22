@@ -39,7 +39,6 @@ import {
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
-import { cn } from "@/lib/cn.ts";
 import { roomLimits } from "@/lib/shell-room.ts";
 import { editorLineHeight, useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { mentionInComposer } from "@/lib/composer-insert.ts";
