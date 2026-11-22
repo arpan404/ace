@@ -32,4 +32,21 @@ import Testing
         anchor.openSettled()
         #expect(!anchor.keepsEnd, "new rows and a later drag behave as they did before the open")
     }
+
+    @Test func freshRowsLandingUnderAReaderAtTheEndKeepTheBottomStill() {
+        // Kept rows (or the opening's tail) were shown and settled; the whole window then lands.
+        var anchor = TranscriptGrowthAnchor()
+        anchor.opened(atEnd: true)
+        anchor.openSettled()
+        #expect(anchor.windowGrowing(following: true) == .end)
+        #expect(anchor.keepsEnd, "rows joining above leave the newest message where it is")
+        anchor.openSettled()
+        #expect(!anchor.keepsEnd)
+    }
+
+    @Test func freshRowsLandingUnderAReaderInHistoryKeepTheirRowOnTop() {
+        var anchor = TranscriptGrowthAnchor()
+        #expect(anchor.windowGrowing(following: false) == .topRow)
+        #expect(!anchor.keepsEnd, "the reader's row is held instead (an older page's hold)")
+    }
 }

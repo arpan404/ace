@@ -20,6 +20,18 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
         if atEnd { opening = true }
     }
 
+    /// Which edge a window growing under shown rows holds (`windowGrowing`).
+    enum Held: Equatable, Sendable { case end, topRow }
+
+    /// The live window grows under rows already shown: kept rows or the opening's tail meeting the
+    /// whole window. A feed following the end keeps its bottom still, so rows joining above never
+    /// move the newest message, until `openSettled`; one read elsewhere holds its top row.
+    mutating func windowGrowing(following: Bool) -> Held {
+        guard following else { return .topRow }
+        opening = true
+        return .end
+    }
+
     /// The opened rows have measured: size changes keep the top again.
     mutating func openSettled() { opening = false }
 
