@@ -208,27 +208,40 @@ export class LiveGutter {
    * being the agent's, measured from here on.
    */
   keep(start: number, end: number): void {
+    // The lines are the ones of the text as it is at the press: the work is bound to it.
+    const doc = this.#buffer.document();
+    if (!doc) return;
+    const at = { doc, version: doc.version(), text: doc.text() };
     // Shown at once without them; each layer then retires them, measured afresh, in order.
     const shown = withoutLines(this.#shown, start, end);
     if (shown.length !== this.#shown.length) {
       this.#shown = shown;
       this.#publish({ ...this.#state, agent: shown });
     }
-    this.#enqueue(() => this.#retire(start, end));
+    this.#enqueue(() => this.#retire(start, end, at));
   }
 
-  /** Each layer gives up the lines that read now as `start..end`, and only those. */
-  async #retire(start: number, end: number): Promise<void> {
-    const doc = this.#buffer.document();
-    if (this.#disposed || !doc) return;
-    const text = doc.text();
+  /**
+   * Each layer gives up the lines that read as `start..end` of the text at the press, and only
+   * those. If the text moved before this ran (typing, an agent's change), the lines no longer
+   * name what was kept: nothing is retired or kept on the device, and the next pause shows the
+   * agents' lines as they are.
+   */
+  async #retire(
+    start: number,
+    end: number,
+    at: { doc: EditorDocument; version: number; text: string },
+  ): Promise<void> {
+    const stale = () =>
+      this.#disposed || this.#buffer.document() !== at.doc || at.doc.version() !== at.version;
+    if (stale()) return this.edited();
     const layers = this.#layers;
     const moved = await Promise.all(
       layers.map((layer) =>
-        layer.text === text ? [] : this.#deps.diff.lineChanges(layer.text, text),
+        layer.text === at.text ? [] : this.#deps.diff.lineChanges(layer.text, at.text),
       ),
     );
-    if (this.#disposed || this.#layers !== layers) return;
+    if (stale() || this.#layers !== layers) return this.edited();
     const retired = layers.map((layer, index) => ({
       layer: { ...layer, blocks: retireLines(layer.blocks, moved[index] ?? [], start, end) },
       changes: moved[index] ?? [],

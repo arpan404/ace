@@ -403,3 +403,21 @@ test("Keep retires only the kept lines: an edited agent line elsewhere still com
   await pause();
   expect(agentLines(gutter)).toEqual([1, 2]);
 });
+
+test("a Keep the text moved under before it ran retires nothing, never the wrong lines", async () => {
+  const { checkout, registry, buffer, gutter, pause } = await opened();
+  checkout.write("places.ts", "one\nagent a\nagent b\nagent c\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+  expect(agentLines(gutter)).toEqual([1, 2, 3]);
+
+  // Keep line 3 ("agent c"), and a line is typed at the top before the Keep's work runs.
+  gutter.keep(3, 4);
+  type(buffer, 0, "zero\none");
+  gutter.edited();
+  await pause();
+
+  // Line 3 now is "agent b": it is not retired; nothing is, and every agent line moved down one.
+  expect(agentLines(gutter)).toEqual([2, 3, 4]);
+});
