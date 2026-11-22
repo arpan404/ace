@@ -162,6 +162,8 @@ test("a bot from an ace template is offered the newer template its Spade ships, 
       },
       templateOffer: {
         package: offered,
+        // Spade always sends the recipe its replay runs on; the offer is unreadable without it.
+        recipe: {},
         plan: {
           name: "kept",
           task: "replace",
