@@ -420,7 +420,7 @@ export class Engine {
           cause: error,
         }),
       );
-    const recover = () =>
+    const recover = (unverified: boolean) =>
       recoverEngine(
         this.repo,
         this.recovery,
@@ -429,25 +429,33 @@ export class Engine {
         (id) => this.wake(id),
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
-        options.previousProcessesUnverified === true,
+        options.previousProcessesUnverified === true || unverified,
         (id) => this.reconciles.add(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (options.recovery?.preferences || options.models || options.providersActivated) {
+    if (
+      options.recovery?.preferences ||
+      options.models ||
+      options.providersActivated ||
+      options.previousProcessesVerified
+    ) {
       this.readyPromise = (async () => {
         await options.providersActivated;
+        // Nothing is failed, continued or reopened beside a process of the last run that may
+        // still run: the restart pass waits for the proof; until then cut-off turns read working.
+        const verified = await this.processesVerified;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults(unreadable);
-        if (!this.closing) recover();
+        if (!this.closing) recover(!verified);
         this.readyState = true;
         this.reconciles.start();
         for (const id of this.pendingSettles) this.stopSettled(id);
         this.pendingSettles.clear();
       })();
     } else {
-      recover();
+      recover(false);
       this.readyState = true;
       this.readyPromise = Promise.resolve();
       this.reconciles.start();

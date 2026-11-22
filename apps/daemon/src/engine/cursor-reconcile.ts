@@ -40,7 +40,13 @@ export interface ReconcileDependencies {
 export const busyRetryMs: readonly number[] = [100, 200, 400, 800, 1600, 3200, 6000];
 
 /** What a restart has always applied to cut-off Cursor work it could not reconcile. */
-function restartFailure(repo: EngineRepository, id: ThreadId, at: number): Fact[] {
+function restartFailure(
+  repo: EngineRepository,
+  id: ThreadId,
+  at: number,
+  /** Startup proved the last run's processes gone; unproven, the words say only that. */
+  confirmed = true,
+): Fact[] {
   const state = repo.requireState(id);
   const detail = lostWork(state, 0, "cursor-sdk", at);
   return [
@@ -65,7 +71,9 @@ function restartFailure(repo: EngineRepository, id: ThreadId, at: number): Fact[
     {
       type: "process.exited",
       deliberate: false,
-      message: "Daemon restarted; previous provider work stopped",
+      message: confirmed
+        ? "Daemon restarted; previous provider work stopped"
+        : "Daemon restarted; previous work could not be confirmed stopped",
     },
     { type: "queue.changed", source: "provider", count: 0 },
     interruptedNotice(state.rootKey, at, "restart"),
@@ -107,17 +115,17 @@ export async function reconcileCursorRestart(
   const { repo, clock } = deps;
   const before = repo.requireState(id);
   const wasRunning = before.agents[before.rootKey ?? ""]?.activeRun !== undefined;
-  const fail = (actor?: ThreadActor) => {
+  const fail = (actor?: ThreadActor, confirmed = true) => {
     // Nothing was running: a send whose fate can't be read stays held as uncertain.
     if (!wasRunning) return;
-    const facts = restartFailure(repo, id, clock.now());
+    const facts = restartFailure(repo, id, clock.now(), confirmed);
     if (actor) actor.apply(facts);
     else repo.store.atomic(() => repo.apply(id, facts, clock.now()));
   };
   // A host of the previous run may still be writing the store: wait for the proof it is gone.
   // Without it, the turn fails as a restart always failed it and sends stay uncertain.
   if (!((await deps.verified?.()) ?? true)) {
-    fail();
+    fail(undefined, false);
     deps.wake(id);
     return;
   }
