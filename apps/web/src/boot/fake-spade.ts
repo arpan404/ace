@@ -696,6 +696,28 @@ function seedComputers(spade: FakeSpadeApi, now: number) {
     "hotels.csv": "name,price\nCasa do Largo,178\nHotel Lusa,164\nBrasileira Suites,171\n",
     "receipts/tap-qx7k2p.txt": "TAP booking QX7K2P\n",
     "fares-checked.md": "# Fares\n\nLast checked just now: TAP €212 return.\n",
+    // A long document: wide table rows, long lines and a code block, as research notes have.
+    "research/hotel-shortlist.md": [
+      "# Hotel shortlist",
+      "",
+      "Prepared 22 November 2026. The working list lives in the trip notes; this file is the snapshot Spade compared prices against, with every source it read linked below so you can check them yourself.",
+      "",
+      "| Hotel | Area | Price per night | Rating | Cancellation | Source |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| Casa do Largo | Chiado | €178 | 9.1 | Free until 12 Nov | https://example.com/hotels/lisbon/casa-do-largo?checkin=2026-11-14&checkout=2026-11-18 |",
+      "| Hotel Lusa | Baixa | €164 | 8.7 | Non-refundable | https://example.com/hotels/lisbon/hotel-lusa?checkin=2026-11-14&checkout=2026-11-18 |",
+      "| Brasileira Suites | Chiado | €171 | 8.9 | Free until 10 Nov | https://example.com/hotels/lisbon/brasileira-suites?checkin=2026-11-14&checkout=2026-11-18 |",
+      "",
+      "## Why Casa do Largo",
+      "",
+      "- Five minutes on foot to the Rossio station for the Sintra trains on day 2.",
+      "- The only one of the three with free cancellation after the flights are booked.",
+      "",
+      "```json",
+      '{ "hotel": "Casa do Largo", "nights": 4, "total": 712, "currency": "EUR", "breakfast": true, "notes": "late check-in after 22:00 confirmed by email" }',
+      "```",
+      "",
+    ].join("\n"),
   });
   spade.files.set("flights", {
     "flights.md": "# Fares to Lisbon\n\nCheapest so far: €212 return on TAP.\n",

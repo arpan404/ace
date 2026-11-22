@@ -457,6 +457,7 @@ private struct InboxThreadCell: View {
                 case .opened: break
                 case .waiting: movedNote = MovedNote(title: "Opening on \(moved.name)", words: moved.waiting)
                 case .unpaired: movedNote = MovedNote(title: "Can't open on \(moved.name)", words: moved.unpaired)
+                case .missing: movedNote = MovedNote(title: "Can't open on \(moved.name)", words: "That thread isn't on \(moved.name) any more.")
                 }
             }
             .accessibilityIdentifier("row.openMoved")

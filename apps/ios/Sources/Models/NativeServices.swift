@@ -116,6 +116,13 @@ extension ClientModel {
     func lateKept(_ payload: [String: Any]) -> Int {
         ReadMirror.key(payload).map { reads.lateRevision($0) } ?? 0
     }
+    /// A screen is showing `payload`: until the returned closure runs, late answers to it are
+    /// tracked (`lateKept`).
+    func watchRead(_ payload: [String: Any]) -> @MainActor () -> Void {
+        guard let key = ReadMirror.key(payload) else { return {} }
+        reads.watch(key)
+        return { [reads] in reads.unwatch(key) }
+    }
     /// Moves when any kept answer of `family` goes out of date, whichever read it answered.
     func familyGeneration(_ family: String) -> Int { reads.generations[family] ?? 0 }
     private func call<T: Decodable>(_ payload: [String: Any], cache: String?, as type: T.Type, timeout: Duration) async throws -> T {

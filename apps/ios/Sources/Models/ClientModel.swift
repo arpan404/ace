@@ -238,6 +238,9 @@ import QuartzCore
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
     @ObservationIgnored private var sawConfirmedRow = false
+    /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
+    /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
+    var inboxConfirmed: Bool { inboxLoaded && sawConfirmedRow }
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()

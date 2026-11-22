@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The home screen's tabs. `compose` is New thread's glyph in the lists' top bars, never a page.
+/// The home screen's tabs. `compose` is New thread's slot in a phone's tab bar (the search role's round button) and its glyph in a regular window's list top bars, never a page.
 enum InboxTab: Hashable { case threads, chats, spade, review, search, compose }
 
 /// The home tabs in their order (Projects · Chats · Spade · Code review · Search, then compose) and

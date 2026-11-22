@@ -85,3 +85,27 @@ test("a read whose signal is already aborted never joins the line or counts its 
   expect(started).toBe(false);
   await expect(budget.run(10, async () => "whole")).resolves.toBe("whole");
 });
+
+test("a read cancelled between being let in and resuming never runs, and gives its slot back", async () => {
+  const budget = new ImageBudget(10);
+  const gate = Promise.withResolvers<void>();
+  const holder = budget.run(6, () => gate.promise);
+  const cancel = new AbortController();
+  // Cancels in the instant after the line lets the read in, before its `await` resumes.
+  const remove = cancel.signal.removeEventListener.bind(cancel.signal);
+  cancel.signal.removeEventListener = ((...args: Parameters<typeof remove>) => {
+    remove(...args);
+    cancel.abort(new Error("cancelled"));
+  }) as typeof remove;
+  let started = false;
+  const admitted = budget.run(6, async () => (started = true), cancel.signal);
+  const refused = expect(admitted).rejects.toThrow("cancelled");
+  await settled();
+
+  gate.resolve();
+  await holder;
+  await refused;
+
+  expect(started).toBe(false);
+  await expect(budget.run(10, async () => "whole")).resolves.toBe("whole");
+});

@@ -19,6 +19,18 @@ enum OpenElsewhere: Equatable {
     case waiting
     /// This phone isn't paired with that machine.
     case unpaired
+    /// That machine's list is loaded and doesn't hold the thread (it was archived or removed), so
+    /// waiting would never open it.
+    case missing
+
+    /// What Open does for a thread of a machine: `paired` is whether this phone is paired
+    /// with it, `listed` is whether its list holds the thread, `loaded` whether the machine's live list has
+    /// arrived (not a cached one).
+    static func of(paired: Bool, listed: Bool, loaded: Bool) -> OpenElsewhere {
+        guard paired else { return .unpaired }
+        if listed { return .opened }
+        return loaded ? .missing : .waiting
+    }
 }
 
 extension EnvironmentValues {
@@ -34,6 +46,8 @@ struct TransferLineView: View {
     /// After Open has gone to the work (the sheet closes).
     var opened: @MainActor @Sendable () -> Void = {}
     @Environment(\.otherMachines) private var others
+    /// Open found the thread gone from its machine.
+    @State private var missing: String?
 
     private var actions: [TransferLineRow.Action] {
         line.actions.filter { action in
@@ -44,13 +58,14 @@ struct TransferLineView: View {
     }
     var body: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
-            Text(line.words)
+            Text(missing ?? line.words)
                 .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(.regular)
                 .foregroundStyle(AceTheme.Colours.foreground)
                 .monospacedDigit()
                 .lineLimit(2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityIdentifier("transfer.words")
+                .onChange(of: line.words) { missing = nil }
             ForEach(actions) { action in
                 Button(action.label) { run(action) }
                     .buttonStyle(StripTextButtonStyle())
@@ -68,7 +83,9 @@ struct TransferLineView: View {
     private func run(_ action: TransferLineRow.Action) {
         if action.act == "open" {
             guard let target = line.open else { return }
-            if let thread = target.threadId { _ = others.open?(InboxKey(machineId: target.hostId, id: thread), opened) }
+            if let thread = target.threadId, others.open?(InboxKey(machineId: target.hostId, id: thread), opened) == .missing {
+                missing = "That thread isn't on \(others.name(target.hostId) ?? "that computer") any more."
+            }
             return
         }
         guard let transferId = line.transferId else {

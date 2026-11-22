@@ -34,6 +34,10 @@ private struct ScrollsToTop: ViewModifier {
 extension EnvironmentValues {
     /// The home tabs' re-taps (`HomeRetap`); nil outside the home screen.
     @Entry var homeRetap: HomeRetap? = nil
+    /// The home tab showing, and (set per tab's content) the place a page belongs to: only the
+    /// showing place's pages may write the shared tab bar (`TabBarPlace`).
+    @Entry var homeTab: InboxTab? = nil
+    @Entry var homePlace: InboxTab? = nil
     /// A Spade bot works on a machine that shows Spade: Spade's face at the sidebar's foot moves
     /// its eyes.
     @Entry var spadeWorking = false
