@@ -4,7 +4,10 @@ import type { OpenOptions } from "./contracts.ts";
 import { z } from "zod";
 
 const AgentIdentity = z.object({ agentId: z.string().min(1).max(512), cwd: z.string().max(4096) });
-const AgentRuns = z.object({ activeRunId: z.string().min(1).max(512).nullish() });
+const AgentRuns = z.object({
+  activeRunId: z.string().min(1).max(512).nullish(),
+  updatedAt: z.number().finite().nonnegative().catch(Number.POSITIVE_INFINITY),
+});
 const RunStatus = z.enum(["queued", "running", "finished", "error", "cancelled", "expired"]);
 const RunRecord = z.object({
   runId: z.string().min(1).max(512),
@@ -32,37 +35,47 @@ export type Recovered =
 type Recover = OpenOptions["recover"];
 type Limits = OpenOptions["limits"];
 
-/** The run an attempted send created, if the SDK has one created at or after the attempt. */
+/** How far a catalog search for an attempt's run may go before its answer is "unknown". */
+const maxCatalogRuns = 100_000;
+
+/**
+ * The run an attempted send created, found from the agent record, not the run history: the SDK
+ * creates a run by pointing the agent's `activeRunId` at it and stamping the agent's
+ * `updatedAt` (1.0.35, both stores). So an agent untouched since the attempt has no run for it,
+ * and a run still going is the active one. Only a run that both started and ended after the
+ * attempt needs the catalog, which lists oldest first; the first run created after the attempt
+ * is the one, and the search stops there. `undefined` means none; `"unknown"` means the store
+ * could not say, and the send stays uncertain.
+ */
 async function attemptedRun(
   store: LocalAgentStore,
   agentId: string,
+  agent: { activeRunId?: string | null | undefined; updatedAt: number },
   at: number,
   limits: Limits,
-): Promise<z.infer<typeof RunRecord> | undefined> {
-  // Rare: only a crash between framing the attempt and framing its admission reaches here.
+): Promise<z.infer<typeof RunRecord> | undefined | "unknown"> {
+  if (agent.updatedAt < at) return undefined;
+  if (agent.activeRunId) {
+    const active = RunRecord.nullable().parse(
+      await store.runs.get({ agentId, runId: agent.activeRunId }),
+    );
+    if (active && active.createdAt >= at) return active;
+  }
   let cursor: string | undefined;
-  let found: z.infer<typeof RunRecord> | undefined;
   let count = 0;
   do {
     const page = await store.runs.list({
       filter: { agentIds: [agentId], limit: limits.historyPageSize, ...(cursor ? { cursor } : {}) },
     });
     for (const raw of page.items) {
-      if (++count > limits.maxIdentities)
-        throw new Error("SDK recovery run inventory exceeds budget");
+      if (++count > maxCatalogRuns) return "unknown";
       const run = RunRecord.parse(raw);
-      if (
-        run.agentId === agentId &&
-        run.createdAt >= at &&
-        (!found || run.createdAt < found.createdAt)
-      )
-        found = run;
+      if (run.agentId === agentId && run.createdAt >= at) return run;
     }
-    if (page.nextCursor !== undefined && page.nextCursor === cursor)
-      throw new Error("SDK recovery catalog cursor did not advance");
+    if (page.nextCursor !== undefined && page.nextCursor === cursor) return "unknown";
     cursor = page.nextCursor;
   } while (cursor);
-  return found;
+  return undefined;
 }
 
 /** The run's stored messages after the daemon's last committed `streamSeq`. */
@@ -135,23 +148,28 @@ export async function recoverCursorCheckpoint(
     throw new Error("SDK checkpoint belongs to another workspace/agent");
   const recover = options.recover ?? { runs: [] };
   const through = new Map(recover.runs.map((run) => [run.runId, run.through]));
-  const active = AgentRuns.catch({}).parse(document).activeRunId;
+  // Unreadable, the agent counts as touched since any attempt: the catalog decides.
+  const agentRuns = AgentRuns.catch({ updatedAt: Number.POSITIVE_INFINITY }).parse(document);
+  const active = agentRuns.activeRunId;
   if (active && !through.has(active)) through.set(active, 0);
   const runs = new Map<string, z.infer<typeof RunRecord>>();
   if (recover.attempt && recover.runs.length === 0) {
     const attempt = recover.attempt;
-    const run = await attemptedRun(store, agentId, attempt.at, options.limits);
-    push({
-      kind: "admission",
-      body: {
-        operationId: attempt.operationId,
-        ...(attempt.commandId ? { commandId: attempt.commandId } : {}),
-        segment: attempt.segment,
-        admitted: run !== undefined,
-        ...(run ? { nativeRunId: run.runId } : {}),
-      },
-      ...(run ? { runId: run.runId } : {}),
-    });
+    const found = await attemptedRun(store, agentId, agentRuns, attempt.at, options.limits);
+    // Undetermined: nothing is published, so the daemon keeps the send uncertain.
+    const run = found === "unknown" ? undefined : found;
+    if (found !== "unknown")
+      push({
+        kind: "admission",
+        body: {
+          operationId: attempt.operationId,
+          ...(attempt.commandId ? { commandId: attempt.commandId } : {}),
+          segment: attempt.segment,
+          admitted: run !== undefined,
+          ...(run ? { nativeRunId: run.runId } : {}),
+        },
+        ...(run ? { runId: run.runId } : {}),
+      });
     if (run) {
       runs.set(run.runId, run);
       if (!through.has(run.runId)) through.set(run.runId, 0);

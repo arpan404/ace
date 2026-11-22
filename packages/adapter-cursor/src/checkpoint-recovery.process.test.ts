@@ -114,7 +114,8 @@ async function storeWith(
       status: active ? "running" : "idle",
       ...(active ? { activeRunId: active } : {}),
       createdAt: 1,
-      updatedAt: 1,
+      // As the SDK leaves it: stamped when it created its newest run.
+      updatedAt: runs.length ? 99 + runs.length : 1,
     },
   });
   for (const [index, run] of runs.entries()) {
@@ -234,31 +235,74 @@ it("a cut-off run is stopped before its missing tail is read back", async () => 
   }
 });
 
-it("opening a long Cursor thread does not re-read every past run", async () => {
+/** `base`, counting the catalog and event reads recovery makes. */
+function counted(base: LocalAgentStore) {
+  const reads = { runLists: 0, eventLists: 0 };
+  const store: LocalAgentStore = {
+    ...base,
+    runs: {
+      ...base.runs,
+      get: (input) => base.runs.get(input),
+      create: (input) => base.runs.create(input),
+      update: (input) => base.runs.update(input),
+      delete: (input) => base.runs.delete(input),
+      list: (input) => {
+        reads.runLists++;
+        return base.runs.list(input);
+      },
+    },
+    runEvents: {
+      ...base.runEvents,
+      list: (input) => {
+        reads.eventLists++;
+        return base.runEvents.list(input);
+      },
+      append: (input) => base.runEvents.append(input),
+      delete: (input) => base.runEvents.delete(input),
+    },
+  };
+  return { store, reads };
+}
+const longHistory = Array.from({ length: 40 }, (_, index) => ({
+  runId: `past-${index}`,
+  status: "finished" as const,
+  texts: ["old"],
+}));
+
+it("opening a long Cursor thread with a send in doubt does not read its run history", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-long-recovery-")));
   try {
-    const past = Array.from({ length: 40 }, (_, index) => ({
-      runId: `past-${index}`,
-      status: "finished" as const,
-      texts: ["old"],
-    }));
-    const base = await storeWith(root, past);
-    const read: string[] = [];
-    const store: LocalAgentStore = {
-      ...base,
-      runEvents: {
-        ...base.runEvents,
-        list: (input) => {
-          read.push(input.runId);
-          return base.runEvents.list(input);
-        },
-        append: (input) => base.runEvents.append(input),
-        delete: (input) => base.runEvents.delete(input),
-      },
-    };
-    const { found } = await recover(root, store, { runs: [] });
-    expect(found).toEqual([]);
-    expect(read).toEqual([]);
+    const { store, reads } = counted(await storeWith(root, longHistory));
+    // The agent is untouched since the attempt: Cursor made no run for it.
+    const { found } = await recover(root, store, {
+      runs: [],
+      attempt: { operationId: "op", segment: 0, at: 500 },
+    });
+    expect(found).toEqual([
+      { kind: "admission", body: { operationId: "op", segment: 0, admitted: false } },
+    ]);
+    expect(reads).toEqual({ runLists: 0, eventLists: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("a send whose run is still going after a long history is found without the catalog", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-long-active-")));
+  try {
+    const runs = [...longHistory, { runId: "live", status: "running" as const, texts: ["new"] }];
+    const { store, reads } = counted(await storeWith(root, runs, "live"));
+    const { found } = await recover(root, store, {
+      runs: [],
+      attempt: { operationId: "op", segment: 0, at: 100 + longHistory.length },
+    });
+    expect(found[0]).toMatchObject({
+      kind: "admission",
+      body: { admitted: true, nativeRunId: "live" },
+    });
+    expect(reads.runLists).toBe(0);
+    // Only the found run's own events are read.
+    expect(reads.eventLists).toBe(1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
