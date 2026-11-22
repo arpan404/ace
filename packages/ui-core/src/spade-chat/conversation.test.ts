@@ -45,9 +45,7 @@ const said = (entries: readonly SpadeEntry[]) =>
                     ? `[files ${part.paths.join(", ")}]`
                     : part.kind === "shared"
                       ? `[shared ${part.images.length + part.documents.length}]`
-                      : part.kind === "search-setup"
-                        ? "[search setup]"
-                        : part.kind === "request"
+                      : part.kind === "request"
                           ? `[asked ${part.answer ?? "open"}]`
                           : part.kind === "question"
                             ? `[question ${part.standing}]`
@@ -575,9 +573,7 @@ describe("the conversation as a chat", () => {
                 ? `remembered: ${bubble.note.text}`
                 : bubble.kind === "files"
                   ? `files: ${bubble.paths.join(", ")}`
-                  : bubble.kind === "search-setup"
-                    ? "search setup"
-                    : bubble.kind === "question"
+                  : bubble.kind === "question"
                       ? `question: ${bubble.callId}`
                       : "text" in bubble
                         ? `${bubble.kind}: ${bubble.text}`
