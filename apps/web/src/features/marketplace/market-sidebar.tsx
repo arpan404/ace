@@ -12,6 +12,7 @@ import { panelRow, PanelRowBody, PanelSearch } from "@/components/ui/panel.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import type { MarketPlace } from "./market-address.ts";
 import { useMarketInstalled } from "./market-api.ts";
+import { offeredUpdate } from "./market-model.ts";
 import { useMarketApps } from "./market-apps.tsx";
 import { useMarketNav } from "./market-nav.ts";
 import { useMarketMe } from "./market-publishing.ts";
@@ -35,7 +36,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
   const { view } = nav;
   const apps = useMarketApps();
   const installed = useMarketInstalled().data?.installed;
-  const updates = installed?.filter((item) => item.update).length ?? 0;
+  const updates = installed?.filter((item) => offeredUpdate(item)).length ?? 0;
   const { me, signedOut } = useMarketMe();
   const top = view.pages.at(-1);
   const shown = places.filter(

@@ -7,6 +7,7 @@ import {
   type MarketResult,
 } from "@ace/protocol/marketplace";
 import { privacySpans, withSentences } from "@ace/marketplace";
+import { offeredUpdate } from "@ace/ui-core/market";
 import { homeOf, publicInstall, readListed, searchListings } from "./browse.ts";
 import { applyBlocklist, turnOnUnlessBlocked } from "./blocklist.ts";
 import { discover, publisherPage, report } from "./discover.ts";
@@ -224,7 +225,7 @@ export class MarketplaceService {
     const installed = this.#installed();
     const counts = {
       installed: installed.length,
-      updates: installed.filter((item) => item.update).length,
+      updates: installed.filter((item) => offeredUpdate(item)).length,
     };
     for (const listener of this.#listeners) listener(counts);
   }

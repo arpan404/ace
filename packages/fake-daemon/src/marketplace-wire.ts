@@ -13,6 +13,7 @@ import type {
   MarketSource,
 } from "@ace/protocol/marketplace";
 import { search } from "@ace/marketplace";
+import { offeredUpdate } from "@ace/ui-core/market";
 import { FakeMarketPick, type MarketPickSeed } from "./marketplace-pick.ts";
 import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
 
@@ -207,7 +208,7 @@ export class FakeMarketplaceWire {
     const message: MarketServerMessage = {
       type: "marketplace.changed",
       installed: installed.length,
-      updates: installed.filter((item) => item.update).length,
+      updates: installed.filter((item) => offeredUpdate(item)).length,
     };
     for (const listener of this.#listeners) listener(message);
   }
@@ -297,7 +298,7 @@ export class FakeMarketplaceWire {
             ).length,
           })),
           installed: installed.length,
-          updates: installed.filter((item) => item.update).length,
+          updates: installed.filter((item) => offeredUpdate(item)).length,
         };
       }
       case "read": {
