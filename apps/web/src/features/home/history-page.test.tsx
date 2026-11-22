@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { chats, workbench } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -69,11 +69,39 @@ test("History lists settled threads by week and filters by project", async () =>
   // The rail keeps Threads current while History is open.
   expect(screen.getByRole("link", { name: "Projects" }).getAttribute("aria-current")).toBe("page");
 
-  await userEvent.click(within(main).getByRole("button", { name: "relay" }));
+  await chooseProject(main, "relay");
   await waitFor(() => expect(within(main).queryByRole("link", { name: bump })).toBeNull());
   expect(within(main).getByText("No settled threads in relay.")).toBeTruthy();
-  await userEvent.click(within(main).getByRole("button", { name: "ace" }));
+  await chooseProject(main, "ace");
   expect(await within(main).findByRole("link", { name: bump })).toBeTruthy();
-  await userEvent.click(within(main).getByRole("button", { name: "All projects" }));
+  await chooseProject(main, "All projects");
   expect(await within(main).findByRole("link", { name: bump })).toBeTruthy();
 });
+
+test("History folds every chat's own project into one Chats choice", async () => {
+  const app = settledDaysAgo(2);
+  for (const chat of chats()) app.play(chat.scenario).runUntilBlocked();
+  await openPanel(app, "/history");
+  const main = screen.getByRole("main");
+  await within(main).findByRole("link", { name: bump });
+  await userEvent.click(within(main).getByRole("button", { name: /^Project: / }));
+  const choices = (await screen.findAllByRole("menuitemradio")).map(
+    (choice) => choice.textContent ?? "",
+  );
+  expect(choices.filter((choice) => /^Chats/.test(choice))).toHaveLength(1);
+  expect(choices.some((choice) => /^Chat[^s]/.test(choice))).toBe(false);
+  await userEvent.click(screen.getByRole("menuitemradio", { name: /Chats\s*\d*$/ }));
+  expect(await within(main).findByText("No settled chats yet.")).toBeTruthy();
+});
+
+/** Picks a project from History's one project menu. */
+async function chooseProject(main: HTMLElement, name: string) {
+  // Picking a project leaves the radio menu open for the next choice.
+  if (screen.queryAllByRole("menuitemradio").length === 0) {
+    await userEvent.click(within(main).getByRole("button", { name: /^Project: / }));
+  }
+  // A project's mark puts its initials before the name in the row's text.
+  await userEvent.click(
+    await screen.findByRole("menuitemradio", { name: new RegExp(`${name}\\s*\\d*$`) }),
+  );
+}
