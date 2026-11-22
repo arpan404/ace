@@ -19,3 +19,43 @@ export function endCut(name: string, kind: "file" | "folder"): { head: string; e
     return { head: name, end: "" };
   return { head: name.slice(0, dot), end: extension };
 }
+
+/** How far past its room a name may measure and still show whole: rounding, not a real overflow. */
+const roundingSlack = 0.5;
+const ellipsis = "…";
+
+/**
+ * The label a tree row shows for `name` in `room` pixels, `measure` giving a text's width in the
+ * row's own font. A name that fits shows whole; past its room it loses letters from the end of
+ * its head behind one "…", keeping its extension (`endCut`); with no room for a letter before
+ * the extension, it is cut at its end instead.
+ */
+export function endLabel(
+  name: string,
+  kind: "file" | "folder",
+  room: number,
+  measure: (text: string) => number,
+): string {
+  if (measure(name) <= room + roundingSlack) return name;
+  const { head, end } = endCut(name, kind);
+  const kept = longestFit(head, end, room, measure);
+  if (kept > 0 || !end) return head.slice(0, kept) + ellipsis + end;
+  return name.slice(0, longestFit(name, "", room, measure)) + ellipsis;
+}
+
+/** How many of `head`'s first letters fit before "…" and `end` in `room`. */
+function longestFit(
+  head: string,
+  end: string,
+  room: number,
+  measure: (text: string) => number,
+): number {
+  let low = 0;
+  let high = head.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (measure(head.slice(0, mid) + ellipsis + end) <= room + roundingSlack) low = mid;
+    else high = mid - 1;
+  }
+  return low;
+}

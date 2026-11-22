@@ -1,4 +1,6 @@
 import { useState, type DragEvent, type KeyboardEvent } from "react";
+import { fileIcon } from "@/components/file-icon.ts";
+import { Icon } from "@/components/icon.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useAgentMark, useSnapshot, type EditorBuffers } from "./editor-buffers.ts";
 import { writeTabDrag } from "./drag.ts";
@@ -82,6 +84,7 @@ export function EditorTabView(props: {
           : "text-muted-foreground hover:bg-hover hover:text-foreground",
       )}
     >
+      <Icon icon={fileIcon(tab.path)} size={16} className="mr-0.5" />
       <span data-tab-title className={cn("max-w-[180px] truncate", tab.preview && "italic")}>
         {name}
       </span>

@@ -1,6 +1,10 @@
 import type { EntityCollection } from "@ace/protocol";
 import { entityPage as pageOf, type TooLarge } from "@ace/projection/entity-pages";
 
+// The fake world runs in the browser, which has no Node Buffer.
+const encoder = new TextEncoder();
+const utf8Bytes = (text: string) => encoder.encode(text).length;
+
 /** Whether an entity is active, as the daemon's entity window counts it. */
 function active(collection: EntityCollection, entity: unknown): boolean {
   if (typeof entity !== "object" || entity === null) return false;
@@ -43,7 +47,7 @@ export function entityPage(
     return {
       seq: index + 1,
       id: String(record.id),
-      bytes: Buffer.byteLength(json),
+      bytes: utf8Bytes(json),
       length: json.length,
       entity: () => entity,
       kind: () => (typeof record.request?.kind === "string" ? record.request.kind : undefined),
