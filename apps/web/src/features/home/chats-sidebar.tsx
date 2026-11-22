@@ -2,7 +2,9 @@ import { useSidebarLoaded } from "@ace/client-react";
 import { ChatsCircleIcon, NotePencilIcon } from "@ace/icons";
 import { useEffect, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { PanelNoMatch, PanelSearch, PanelTitleRow } from "@/components/ui/panel.tsx";
+import { PanelNoMatch } from "@/components/ui/panel.tsx";
+import { PanelTitleSearch } from "@/components/ui/panel-title-search.tsx";
+import { useMachines } from "@/lib/machines.ts";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useOrganizer, useOverlaidMachineEntries } from "@/features/organize/index.ts";
@@ -43,20 +45,21 @@ export function ChatsSidebar() {
   const loaded = useSidebarLoaded();
   const skeleton = useHeld(!loaded);
   const newChat = useNewChat();
+  const machines = useMachines();
   const [near, setNear] = useState(false);
   useOlderChats(near, device);
   const searching = query.trim().length > 0;
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <PanelTitleRow>
-        <ChatsFilter />
-        <IconButton icon={NotePencilIcon} label="New chat" size="panel" onClick={newChat} />
-      </PanelTitleRow>
-      <PanelSearch
+      <PanelTitleSearch
+        title="Chats"
         label="Search chats"
-        placeholder="Search chats"
-        value={query}
-        onValueChange={setQuery}
+        query={query}
+        onQuery={setQuery}
+        lead={machines.length > 1 ? <ChatsFilter /> : undefined}
+        actions={
+          <IconButton icon={NotePencilIcon} label="New chat" size="panel" onClick={newChat} />
+        }
       />
       <nav aria-label="Chats" className="flex min-h-0 flex-1 flex-col">
         {/* A chat not sent yet waits on top, as Threads keeps its own drafts. */}

@@ -29,8 +29,17 @@ export function fakeSpadeQuoted(
   };
   switch (event.type) {
     case "user_message": {
-      if (index > 0 || event.from_agent || event.from_routine || event.from_group) return undefined;
-      return { id, text: cut(text), mine: true };
+      if (event.from_routine || event.from_group) return undefined;
+      const agent = event.from_agent as Json | null | undefined;
+      // Another bot's message (not a contract call): the person replies to it by its name.
+      if (agent) {
+        if (agent.contract) return undefined;
+        const words = nth(text);
+        return words === undefined
+          ? undefined
+          : { id, text: cut(words), mine: false, name: String(agent.name ?? "") };
+      }
+      return index > 0 ? undefined : { id, text: cut(text), mine: true };
     }
     case "step_finished":
     case "reply_stopped":

@@ -24,6 +24,29 @@ export interface InboxSearch {
   group?: "repo" | undefined;
 }
 
+/** Each of GitHub's notification reasons in the inbox's own short words. */
+const reasonWords: Record<string, string> = {
+  review_requested: "Review requested",
+  assign: "Assigned to you",
+  ci_activity: "Checks",
+  comment: "New comment",
+  team_mention: "Your team was mentioned",
+  subscribed: "Watching",
+  author: "Your pull request",
+  state_change: "Status changed",
+  manual: "Saved",
+  approval_requested: "Approval needed",
+  security_advisory_credit: "Security",
+};
+
+/** Why a notification reached the person: the table's words, or the code in sentence case. */
+export function inboxReasonWords(reason: string): string {
+  const known = reasonWords[reason];
+  if (known) return known;
+  const words = reason.replace(/[_-]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** What GitHub is asked for: unread or all, participating, one repository. Reason is filtered here. */
 export function inboxQuery(search: InboxSearch, page: number): ForgeInboxQuery {
   const repository = repositoryFromParam(search.repo);
@@ -52,7 +75,7 @@ export function visibleRows(
 }
 
 /**
- * The repositories for the filter column: every one the rows come from (and the one picked),
+ * The repositories for the filter menu: every one the rows come from (and the one picked),
  * by name, each with its unread count.
  */
 export function repositoryCounts(

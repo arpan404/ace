@@ -72,7 +72,7 @@ export function SpadeActivity(props: { bot: RosterBot; scope: SpadeActivityScope
             {activity.hasNextPage
               ? "Nothing in the most recent part of its history."
               : props.scope === "computer"
-                ? "No computer use yet."
+                ? `${bot.name} hasn't used its computer yet.`
                 : `${bot.name} hasn't done anything yet.`}
           </ProfileEmpty>
         ) : (

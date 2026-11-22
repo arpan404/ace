@@ -57,12 +57,18 @@ export type SplitNode = GroupNode | SplitBranch;
 export interface ExplorerState {
   open: boolean;
   width: number;
-  side: "files" | "search";
+  side: "files" | "search" | "source-control";
   expanded: readonly string[];
   scroll: number;
   query: string;
   /** The Open editors section is unfolded. */
   openEditors: boolean;
+  /** The Outline section is unfolded. */
+  outlineOpen?: boolean | undefined;
+  /** Outline ordering: source position or name. */
+  outlineSort?: "position" | "name" | undefined;
+  /** The Timeline section is unfolded. */
+  timelineOpen?: boolean | undefined;
   readonly [extra: string]: unknown;
 }
 

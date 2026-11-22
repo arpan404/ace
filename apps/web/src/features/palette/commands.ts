@@ -183,12 +183,12 @@ export function usePaletteGroups(
               if (view.shortcut) command.keys = keymap[view.shortcut].keys;
               return command;
             }),
-          // The Store is a page opened via useOpenMarket.
+          // The Marketplace is a page opened via useOpenMarket.
           ...(marketplace
             ? [
                 {
                   id: "go-marketplace",
-                  label: "Store",
+                  label: "Marketplace",
                   keywords: "marketplace",
                   icon: "view",
                   run: run(() => openMarket()),

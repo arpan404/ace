@@ -58,7 +58,7 @@ export function packageSentence(link: SpadePackage, bot: string): string {
   if (link.updating) return `Updating from ${from} to ${link.updating}.`;
   const held = link.held ? ` Updates when ${bot} is done with its turn.` : "";
   if (link.source === "spade") return `From ace's ${link.name} template ${link.version}.${held}`;
-  const where = link.source === "market" ? "the Store" : "a catalog you added";
+  const where = link.source === "market" ? "the Marketplace" : "a catalog you added";
   return `From ${from} in ${where}.${held}`;
 }
 
@@ -66,8 +66,8 @@ export function ProfilePackageLine(props: { bot: RosterBot }) {
   const { bot } = props;
   const link = bot.package;
   const market = useBetaEnabled("marketplace") === true;
-  // Updates come from the Store of the machine the bot runs on.
-  // A development bot is updated from its folder, never through the Store.
+  // Updates come from the Marketplace of the machine the bot runs on.
+  // A development bot is updated from its folder, never through the Marketplace.
   const here = market && bot.machine.primary && link !== undefined && !spadeIsDevelopment(link);
   const update = useMarketUpdate(bot, here);
   const open = useOpenMarket();
@@ -99,7 +99,7 @@ export function ProfilePackageLine(props: { bot: RosterBot }) {
           )}
           {link.withdrawn && (
             <Button variant="ghost" className={pillButton} onClick={() => open("installed")}>
-              Resume in the Store
+              Resume in the Marketplace
             </Button>
           )}
         </div>

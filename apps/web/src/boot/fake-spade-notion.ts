@@ -1,4 +1,5 @@
 import { fakeAskApp, type FakeSpadeApi } from "@ace/fake-daemon";
+import { seedFakeTalk } from "./fake-spade-talk.ts";
 
 /*
  * `?fakeWorld=spade`, a connected app (ADR 0202, amendment 5): Quill has Notion, whose server
@@ -37,6 +38,8 @@ export function seedFakeNotion(here: FakeSpadeApi) {
     },
   });
   here.connectors.access.set("quill", { all: false, connectors: ["notion"] });
+  // Earlier in Quill's chat: it talked with Writing and asked Flight watcher for fares.
+  seedFakeTalk(here, quill);
   const store = (event: Record<string, unknown>) => here.store(quill.conversation, event);
   store({ type: "user_message", text: "see what you can see in my notion" });
   store({ type: "reply_started", reply: "r-quill-1" });

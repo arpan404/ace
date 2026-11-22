@@ -11,7 +11,12 @@ const cap = 262_144;
 
 export function fakeGitDiff(
   patch: string,
-  op: { path?: string | undefined; offset?: number | undefined; expected?: string | undefined },
+  op: {
+    path?: string | undefined;
+    from?: string | undefined;
+    offset?: number | undefined;
+    expected?: string | undefined;
+  },
 ):
   | { kind: "gitDiff"; patch: string; truncated: boolean; nextOffset?: number; validator?: string }
   | { kind: "error"; code: string } {
@@ -19,7 +24,13 @@ export function fakeGitDiff(
     return patch.length > cap
       ? { kind: "gitDiff", patch: patch.slice(0, cap), truncated: true }
       : { kind: "gitDiff", patch, truncated: false };
-  const text = patchSections(patch).find((section) => section.path === op.path)?.text ?? "";
+  // As the daemon does, a file's patch with `from` also holds the file it came from.
+  const text = patchSections(patch)
+    .filter(
+      (section) => section.path === op.path || (op.from !== undefined && section.path === op.from),
+    )
+    .map((section) => section.text)
+    .join("");
   const validator = contentHash(text);
   if (op.expected !== undefined && op.expected !== validator)
     return { kind: "error", code: "diff_changed" };

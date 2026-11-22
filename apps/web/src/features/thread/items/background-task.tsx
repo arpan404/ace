@@ -32,6 +32,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   // A clock disagreement with the daemon shows no age rather than a wrong one.
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
   const stopping = intent?.state === "pending" || (intent?.state === "acked" && running);
+  const canStop = running && live.canStop && task.stoppable;
   return (
     <div
       role="group"
@@ -66,30 +67,40 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           ) : (
             <code className={chip}>{command}</code>
           )}
-          {age && live.fresh && (
-            <span className="ml-auto shrink-0 pl-2 text-xs text-subtle-foreground tabular-nums">
-              {age.replace(/ \d+s$/, "")}
-            </span>
-          )}
         </span>
         {intent?.state === "failed" || error ? (
           <span role="alert" className="ml-auto shrink-0 text-xs text-status-failed">
             Couldn't stop it
           </span>
         ) : null}
-        {running && live.canStop && task.stoppable && (
-          <IconButton
-            icon={StopIcon}
-            size="sm"
-            label={stopping ? "Stopping" : "Stop background task"}
-            className="ml-auto shrink-0 opacity-0 group-hover/setting:opacity-100 group-focus-within/setting:opacity-100 pointer-coarse:opacity-100"
-            disabled={stopping}
-            onClick={() => {
-              const stop = stopTask(client, { threadId: props.threadId }, task.id, send);
-              if (stop.ok) void stop.sent.catch(() => {});
-            }}
-          />
-        )}
+        {/* The time and Stop share one trailing slot on the row's right edge: Stop takes the
+            time's place on hover, so the time lines up with every other row's end. */}
+        <span className="ml-auto grid shrink-0 items-center justify-items-end pl-2 *:col-start-1 *:row-start-1">
+          {age && live.fresh && (
+            <span
+              className={cn(
+                "text-xs text-subtle-foreground tabular-nums",
+                canStop &&
+                  "group-hover/setting:opacity-0 group-focus-within/setting:opacity-0 pointer-coarse:opacity-0",
+              )}
+            >
+              {age.replace(/ \d+s$/, "")}
+            </span>
+          )}
+          {canStop && (
+            <IconButton
+              icon={StopIcon}
+              size="sm"
+              label={stopping ? "Stopping" : "Stop background task"}
+              className="opacity-0 group-hover/setting:opacity-100 group-focus-within/setting:opacity-100 pointer-coarse:opacity-100"
+              disabled={stopping}
+              onClick={() => {
+                const stop = stopTask(client, { threadId: props.threadId }, task.id, send);
+                if (stop.ok) void stop.sent.catch(() => {});
+              }}
+            />
+          )}
+        </span>
       </div>
     </div>
   );

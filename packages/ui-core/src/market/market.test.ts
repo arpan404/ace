@@ -93,7 +93,7 @@ test("an update accepted while its bot works isn't offered again until a newer o
 });
 
 test.each([
-  ["unavailable", "read", "The Store can't be reached right now."],
+  ["unavailable", "read", "The Marketplace can't be reached right now."],
   ["not_found", "remove", "It isn't installed anymore."],
   ["not_found", "read", "This entry isn't listed anymore."],
   ["invalid", "add", "That isn't a git catalog's https address."],

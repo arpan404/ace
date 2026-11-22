@@ -93,6 +93,19 @@ fn the_persons_reply_reads_with_its_id_and_the_words_it_quotes() {
     );
 }
 
+#[test]
+fn the_persons_reply_to_another_bots_message_names_that_bot() {
+    let events = [replying(
+        Event::user_message("Skip that one"),
+        quote("m1.2", "TAP is €212.", false, Some("Quill")),
+        None,
+    )];
+    assert_eq!(
+        texts(&events),
+        vec!["[m1] (replying to Quill's message m1.2: \"TAP is €212.\")\nSkip that one".to_owned()]
+    );
+}
+
 fn trips() -> FromGroup {
     FromGroup {
         id: "g1".into(),

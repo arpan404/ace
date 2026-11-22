@@ -103,6 +103,9 @@ export function parseStatus(buffer: Buffer): {
       // inside this one as one directory entry with a trailing slash. It still makes the
       // worktree dirty; record it by its directory path.
       const path = record.slice(2);
+      // ace's files service parks uploads and Recently deleted entries under `.ace-upload-*`
+      // names inside the checkout. They are ace's own, never the person's changes.
+      if (path.split("/").some((part) => part.startsWith(".ace-upload-"))) continue;
       status.untracked.push(
         decode(pathSchema, path.endsWith("/") ? path.slice(0, -1) : path, "untracked path"),
       );

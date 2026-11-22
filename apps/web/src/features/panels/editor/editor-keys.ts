@@ -23,10 +23,12 @@ export type EditorPanelCommand =
   | "splitDown"
   | "explorer"
   | "searchFiles"
+  | "sourceControl"
   | "nextHit"
   | "previousHit"
   | "nextChange"
   | "previousChange"
+  | "goToSymbol"
   | "composer";
 
 const single: readonly [KeymapId, EditorPanelCommand][] = [
@@ -40,6 +42,8 @@ const single: readonly [KeymapId, EditorPanelCommand][] = [
   ["editor.splitDown", "splitDown"],
   ["editor.explorer", "explorer"],
   ["files.search", "searchFiles"],
+  ["editor.sourceControl", "sourceControl"],
+  ["editor.goToSymbol", "goToSymbol"],
   ["editor.composer", "composer"],
 ];
 

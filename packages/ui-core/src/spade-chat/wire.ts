@@ -314,6 +314,15 @@ const known = z.discriminatedUnion("type", [
     machine_name: z.string().nullish().catch(undefined),
     contract: z.string(),
   }),
+  /** A contract call made to this bot ended: its output fit, or it never did (ADR 0200 §7). */
+  z.object({
+    type: z.literal("contract_ended"),
+    call: z.string(),
+    status: z.enum(["returned", "failed", "stopped"]).catch("failed"),
+    output: z.unknown().optional(),
+    problems: z.array(z.string()).catch([]).default([]),
+    why: z.string().catch("").default(""),
+  }),
   z.object({
     type: z.literal("job_finished"),
     job: z.string(),

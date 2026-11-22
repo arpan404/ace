@@ -66,7 +66,8 @@ const botSide = new Set<SpadeChatItem["kind"]>([
 function senderOf(item: SpadeChatItem): string | undefined {
   if (botSide.has(item.kind)) return "bot";
   if (item.kind === "person") return "person";
-  if (item.kind === "other") return `other:${item.agent.id}`;
+  // A contract call another bot made is one compact row of its own.
+  if (item.kind === "other") return item.contract ? undefined : `other:${item.agent.id}`;
   return undefined;
 }
 

@@ -1,4 +1,4 @@
-import { CheckIcon, ClockIcon, NotePencilIcon, TrayIcon } from "@ace/icons";
+import { NotePencilIcon } from "@ace/icons";
 import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { emptyInboxLine, emptyTabTitle, tabThreads, type ThreadsTab } from "@ace/ui-core";
 import { useSidebarLoaded } from "@ace/client-react";
@@ -119,7 +119,7 @@ export function HomeSidebar() {
       </div>
       <nav
         aria-label="Projects"
-        className="relative flex min-h-0 flex-1 flex-col [&_[data-virtual-viewport]]:pb-[52px]"
+        className="relative flex min-h-0 flex-1 flex-col"
         onKeyDown={(event) => {
           const next = tabKey(event);
           if (!next) return;
@@ -127,12 +127,7 @@ export function HomeSidebar() {
           organizer.setTab(next);
         }}
       >
-        <ThreadsTabs
-          tab={tab}
-          panel={list.panel}
-          needsYou={list.needsYou}
-          onTab={(next) => organizer.setTab(next)}
-        />
+        <ThreadsTabs tab={tab} panel={list.panel} onTab={(next) => organizer.setTab(next)} />
         {loaded && (
           <Suspense fallback={null}>
             <StartedTitlePublisher.Component />
@@ -142,8 +137,7 @@ export function HomeSidebar() {
           skeleton && <ListSkeleton label="threads" shape="thread" />
         ) : empty && emptyOrg && none && !narrowed && !searching ? (
           <EmptyState
-            className="shrink-0 justify-start pt-6"
-            icon={TrayIcon}
+            variant="inline"
             title={`No projects in ${emptyOrg} yet`}
             description={`Projects on ${possessive(emptyOrg)} machines show here.`}
           />
@@ -154,8 +148,7 @@ export function HomeSidebar() {
         ) : empty ? (
           <>
             <EmptyState
-              className="shrink-0 justify-start pt-6"
-              icon={tab === "inbox" ? TrayIcon : tab === "snoozed" ? ClockIcon : CheckIcon}
+              variant="inline"
               title={emptyTabTitle(tab, narrowed, none)}
               description={
                 tab !== "inbox"

@@ -31,6 +31,7 @@ const sharing: [KeymapId, KeymapId, string][] = [
   ["files.move", "devices", "off Apple the file tree takes Ctrl+Shift+M only on a focused file"],
   ["jumpToThread", "editor.focusGroup", "the editor takes ⌘1–9 only while focus is inside it"],
   ["goSkills", "editor.saveAll", "the editor takes ⌥⌘S only while focus is inside it"],
+  ["addProject", "editor.goToSymbol", "the editor takes ⇧⌘O only while focus is inside it"],
   ["closeTab", "editor.close", "in a browser the editor takes ⌥⌘W only while focus is inside it"],
   [
     "reopenTab",

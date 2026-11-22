@@ -298,6 +298,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
       ...fields,
       id,
     };
+    // An id is one bot: seeding it again replaces it (and its conversation), never doubles it.
+    const same = this.agents.findIndex((each) => each.id === id);
+    if (same >= 0) this.agents.splice(same, 1);
     this.agents.push(agent);
     this.events.set(agent.conversation, []);
     return agent;

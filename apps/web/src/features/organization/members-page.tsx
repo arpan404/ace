@@ -87,66 +87,74 @@ export function MembersPage(props: { org: AceOrgSpace }) {
                         .join(" · ")}
                     </span>
                   </span>
-                  {current ? (
-                    <Select
-                      label={`${name}'s role`}
-                      value={current.value}
-                      options={options}
-                      disabled={change.isPending}
-                      onValueChange={(role) => {
-                        setError("");
-                        change.mutate({ account: member.account, role }, { onError: failed });
-                      }}
-                    />
-                  ) : (
-                    <span className="shrink-0 text-ui text-muted-foreground">
-                      {roleWord(member.role)}
-                    </span>
-                  )}
-                  {you ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={remove.isPending}
-                      onClick={() =>
-                        setConfirming({
-                          title: `Leave ${org.name}?`,
-                          body: `Its hosts and shared bots stay ${org.name}'s. Your own account, machines and everything on them stay as they are.`,
-                          confirm: "Leave",
-                          run: () => {
-                            setError("");
-                            remove.mutate(member.account, {
-                              onError: failed,
-                              onSuccess: () => void refresh(),
-                            });
-                          },
-                        })
-                      }
-                    >
-                      Leave
-                    </Button>
-                  ) : (
-                    canChange && (
+                  {/* One role column for everyone: a select where it can change, the word
+                      where the identity provider or the person's own membership fixes it. */}
+                  <span className="flex w-(--setting-select-width) shrink-0 items-center">
+                    {current ? (
+                      <Select
+                        label={`${name}'s role`}
+                        value={current.value}
+                        options={options}
+                        className="w-full"
+                        disabled={change.isPending}
+                        onValueChange={(role) => {
+                          setError("");
+                          change.mutate({ account: member.account, role }, { onError: failed });
+                        }}
+                      />
+                    ) : (
+                      <span className="px-2.5 text-ui text-foreground">
+                        {roleWord(member.role)}
+                      </span>
+                    )}
+                  </span>
+                  {/* One action column after the role, so every role starts on one edge. */}
+                  <span className="flex w-20 shrink-0 justify-end">
+                    {you ? (
                       <Button
                         size="sm"
                         variant="ghost"
                         disabled={remove.isPending}
                         onClick={() =>
                           setConfirming({
-                            title: `Remove ${name}?`,
-                            body: `They lose ${org.name}'s hosts and shared bots. Their own account, machines and data stay theirs, untouched.`,
-                            confirm: "Remove",
+                            title: `Leave ${org.name}?`,
+                            body: `Its hosts and shared bots stay ${org.name}'s. Your own account, machines and everything on them stay as they are.`,
+                            confirm: "Leave",
                             run: () => {
                               setError("");
-                              remove.mutate(member.account, { onError: failed });
+                              remove.mutate(member.account, {
+                                onError: failed,
+                                onSuccess: () => void refresh(),
+                              });
                             },
                           })
                         }
                       >
-                        Remove
+                        Leave
                       </Button>
-                    )
-                  )}
+                    ) : (
+                      canChange && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={remove.isPending}
+                          onClick={() =>
+                            setConfirming({
+                              title: `Remove ${name}?`,
+                              body: `They lose ${org.name}'s hosts and shared bots. Their own account, machines and data stay theirs, untouched.`,
+                              confirm: "Remove",
+                              run: () => {
+                                setError("");
+                                remove.mutate(member.account, { onError: failed });
+                              },
+                            })
+                          }
+                        >
+                          Remove
+                        </Button>
+                      )
+                    )}
+                  </span>
                 </SettingListItem>
               );
             })}
@@ -164,7 +172,7 @@ export function MembersPage(props: { org: AceOrgSpace }) {
   );
 }
 
-/** Invite by email (WorkOS sends the mail; the invitee chooses to join), and pending invitations. */
+/** Invite by email (your sign-in provider sends the mail; the invitee chooses to join). */
 function Invitations(props: { org: AceOrgSpace; options: SelectOption<AceOrgAssignableRole>[] }) {
   const { org } = props;
   const invitations = useOrgInvitations(org.id, true);
@@ -179,7 +187,7 @@ function Invitations(props: { org: AceOrgSpace; options: SelectOption<AceOrgAssi
     <SettingSection
       label="Invitations"
       anchor="org.invitations"
-      note="WorkOS sends the invitation. Nobody joins until they choose to."
+      note="Your sign-in provider sends the invitation. Nobody joins until they choose to."
     >
       <form
         className="flex min-h-(--setting-row-height) flex-wrap items-center gap-2 py-(--setting-row-y)"

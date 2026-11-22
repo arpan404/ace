@@ -185,3 +185,29 @@ describe("replies", () => {
     });
   });
 });
+
+describe("another bot's message", () => {
+  test("splits into its messages, each one the person can reply to by that bot's name", () => {
+    const c = conversation();
+    c.stored({
+      type: "user_message",
+      text: '<msg>Fares are up.</msg><msg reply="m9">TAP is €212.</msg>',
+      from_agent: { id: "quill", name: "Quill" },
+    });
+    c.stored({
+      type: "user_message",
+      text: "Skip TAP then",
+      reply_to: { id: "m1.2", text: "TAP is €212.", mine: false, name: "Quill" },
+    });
+    const bubbles = c.bubbles();
+    const others = bubbles.filter((bubble) => bubble.kind === "other");
+    // Its quote names a message of its own conversation, foreign here, so it drops.
+    expect(others.map((b) => [b.text, b.id, "quote" in b])).toEqual([
+      ["Fares are up.", "m1", false],
+      ["TAP is €212.", "m1.2", false],
+    ]);
+    expect(bubbles.find((bubble) => bubble.kind === "person")).toMatchObject({
+      quote: { id: "m1.2", who: { kind: "member", name: "Quill" }, text: "TAP is €212." },
+    });
+  });
+});

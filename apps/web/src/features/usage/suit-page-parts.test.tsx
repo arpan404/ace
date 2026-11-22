@@ -49,7 +49,6 @@ test("Usage draws its header, sections, figures, limit bars and ledger as page p
       missing([
         "page-body",
         "page-header",
-        "page-title",
         "page-toolbar",
         "page-section",
         "stat",
@@ -75,7 +74,7 @@ test("Usage draws its header, sections, figures, limit bars and ledger as page p
   expect(row.closest("[data-part=list-row]")?.getAttribute("data-state")).toBe("open");
 });
 
-test("History marks its settled list, its rows and the chosen project chip", async () => {
+test("History marks its settled list, its rows and its project filter", async () => {
   const storage = memoryKeyValue();
   storage.setItem("ace.home.organizer", JSON.stringify({ baseline: 0, project: null }));
   const app = harness({ storage });
@@ -87,13 +86,8 @@ test("History marks its settled list, its rows and the chosen project chip", asy
   await app.open("/history");
   const main = await screen.findByRole("main");
   await within(main).findByRole("link", { name: /^Bump Codex/ });
-  await waitFor(() =>
-    expect(
-      missing(["page-body", "page-title", "filter-bar", "label-chip", "list", "list-row"]),
-    ).toEqual([]),
-  );
-  const chip = (name: string) => within(main).getByRole("button", { name });
-  expect(chip("All projects").getAttribute("data-state")).toBe("selected");
+  await waitFor(() => expect(missing(["page-body", "filter-bar", "list", "list-row"])).toEqual([]));
+  expect(within(main).getByRole("button", { name: "Project: All projects" })).toBeTruthy();
 });
 
 test("the search sheet marks its results and the highlighted one as selected", async () => {

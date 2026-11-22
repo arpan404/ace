@@ -150,6 +150,25 @@ Spade is one of ace's places. It adds no navigation of its own.
   into "and 3 more", which opens; a waiting one is never folded. "Needs you" in the list and a
   notice open the chat at that request. The bot's own words about them stay as written. The words
   and rules are in `@ace/ui-core/spade-chat` (`subagent-card.ts`) for every client.
+- **Working with other bots (ADR 0127, ADR 0200 §7).** Everything one turn did with other
+  bots and agents is one card, the subagent card above, a turn apart from what is around it, and
+  never hidden with the work: the messages it sent other bots (`bot_message`), the contracts it
+  called (`contract_call`) and the agents it started. Its first line is the bot's face and one
+  sentence, "Quill worked with Writing and Flight watcher" ("is working with" while anything in it
+  is owed or at work; ace agents counted, "and 2 agents"), with the turn's time on the right. One
+  flat row per message, call or agent: the other bot's face (16px, its own colours), its name,
+  and a second line in plain words of what came back ("Replied: Three days on the river…",
+  "Cheapest fare: …"), its live working phrase in the step's light while a reply is owed, or what
+  went wrong in the failed colour ("Couldn't get the seat map: closed until check-in"). A row's
+  time shows only while it runs; one caret on the right. A message's or a call's row opens in
+  place to the exchange (what this bot sent, then what came back, each under a small name label,
+  in full) and closes again; an agent's row opens its thread or chat. In the receiver's chat a
+  bot's message is input: on the person's side, in an outline bubble rather than the accent,
+  under the sender's face and name; the finished answer that went back carries one quiet line,
+  "Replied to Quill". A contract call it was given is one compact line, "Quill asked for the
+  cheapest fare · what it returned". The first-time approval card ("Quill wants to message
+  Writing") is unchanged. The words and rules are in `@ace/ui-core/spade-chat` (`together.ts`,
+  `bot-talk.ts`) for every client.
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

@@ -15,7 +15,7 @@ const withMarket = {
 
 test("the rail's Store opens its page, on Home", async () => {
   await openApp("/chats");
-  await userEvent.click(await screen.findByRole("button", { name: "Store" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Marketplace" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Home" }).getAttribute("aria-current")).toBe(
     "page",
@@ -41,7 +41,7 @@ test("New bot's Store tile opens its page on Bots", async () => {
   );
   await openNew("New bot");
   const start = within(await screen.findByRole("region", { name: "Start from" }));
-  await userEvent.click(start.getByRole("button", { name: "Store" }));
+  await userEvent.click(start.getByRole("button", { name: "Marketplace" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Bots" }).getAttribute("aria-current")).toBe(
     "page",
@@ -61,7 +61,7 @@ test("Appearance's More Suits opens its page on Looks", async () => {
 test("Skills' Add menu opens its page on Tools", async () => {
   await openApp("/skills");
   await userEvent.click(await screen.findByRole("button", { name: "Add a skill" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "From the Store" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "From the Marketplace" }));
   const market = await findMarket();
   expect(within(market).getByRole("button", { name: "Tools" }).getAttribute("aria-current")).toBe(
     "page",

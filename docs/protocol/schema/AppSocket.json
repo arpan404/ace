@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppSocket.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "connection": {
+      "pattern": "^[A-Za-z0-9_-]{16,64}$",
+      "type": "string"
+    },
+    "tag": {
+      "$ref": "https://ace.local/protocol/v1/AppSocketTag.json"
+    }
+  },
+  "required": [
+    "tag",
+    "connection"
+  ],
+  "type": "object"
+}

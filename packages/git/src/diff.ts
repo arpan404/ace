@@ -20,13 +20,33 @@ export async function diff(
     from.kind === "working-tree" || to.kind === "working-tree"
       ? await snapshot(repository, root)
       : undefined;
+  const indexTree =
+    from.kind === "index" || to.kind === "index"
+      ? (await repository.cli.call(root, ["write-tree"], { write: true })).stdout
+          .toString("utf8")
+          .trim()
+      : undefined;
   const resolveSide = async (side: DiffSide): Promise<string> => {
     if (side.kind === "working-tree") {
       if (!live) throw new GitError("git_failed", "Missing live tree");
       return live;
     }
+    if (side.kind === "index") {
+      if (!indexTree) throw new GitError("git_failed", "Missing index tree");
+      return indexTree;
+    }
     if (side.kind === "checkpoint") return (await readCheckpoint(repository, root, side.id)).sha;
-    return repository.commit(root, side.ref);
+    try {
+      return await repository.commit(root, side.ref);
+    } catch (error) {
+      if (side.ref === "HEAD" && error instanceof GitError && error.code === "unborn_head") {
+        const empty = await repository.cli.call(root, ["hash-object", "-t", "tree", "--stdin"], {
+          input: "",
+        });
+        return empty.stdout.toString("utf8").trim();
+      }
+      throw error;
+    }
   };
   let a = await resolveSide(from);
   let b = await resolveSide(to);

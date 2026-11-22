@@ -18,7 +18,7 @@ export const spadeFormats = ["openai-chat", "openai-responses", "anthropic"] as 
 export type SpadeFormat = (typeof spadeFormats)[number];
 
 export const spadeFormatNames: Record<SpadeFormat, string> = {
-  "openai-chat": "OpenAI Chat Completions",
+  "openai-chat": "OpenAI-compatible",
   "openai-responses": "OpenAI Responses",
   anthropic: "Anthropic Messages",
 };

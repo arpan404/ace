@@ -116,6 +116,6 @@ export async function openApp(
  * Installed) and its page are both the Marketplace's.
  */
 export async function findMarket(): Promise<HTMLElement> {
-  await screen.findByRole("region", { name: "Store" });
+  await screen.findByRole("region", { name: "Marketplace" });
   return document.body;
 }

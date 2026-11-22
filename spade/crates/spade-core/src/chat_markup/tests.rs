@@ -199,3 +199,53 @@ fn a_long_quote_is_cut_to_280_characters_ending_in_an_ellipsis() {
             .ends_with('…')
     );
 }
+
+/// A message another bot sent into the conversation, as `bot_message` stores it.
+fn from_bot(text: &str, name: &str) -> Event {
+    let Event::Known(Known::UserMessage {
+        text,
+        context,
+        images,
+        documents,
+        voice,
+        from_routine,
+        from_group,
+        from_thread,
+        reply_to,
+        ..
+    }) = Event::user_message(text)
+    else {
+        unreachable!("user_message makes a user message")
+    };
+    Event::Known(Known::UserMessage {
+        text,
+        context,
+        images,
+        documents,
+        voice,
+        from_agent: Some(crate::event::FromAgent {
+            id: "quill".into(),
+            name: name.into(),
+            depth: 1,
+            machine: None,
+            contract: None,
+        }),
+        from_routine,
+        from_group,
+        from_thread,
+        reply_to,
+    })
+}
+
+#[test]
+fn a_quote_of_another_bots_message_names_that_bot() {
+    let events = vec![from_bot(
+        "<msg>Fares are up.</msg><msg>TAP is €212.</msg>",
+        "Quill",
+    )];
+    let second = quoted(&events, "m1.2").unwrap_or_else(|| panic!("Quill's second message"));
+    assert_eq!(
+        (second.text.as_str(), second.mine, second.name.as_deref()),
+        ("TAP is €212.", false, Some("Quill"))
+    );
+}

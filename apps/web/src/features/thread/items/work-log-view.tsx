@@ -1,11 +1,10 @@
-import { sectionRule } from "@/components/ui/rules.ts";
 import { StaticRow, TranscriptRow } from "./transcript-row.tsx";
 
 /**
- * A hairline under the "Worked for" line, parting the turn's work from its answer. The live
- * "Working for" line takes the same one, so the head doesn't shift when the turn settles.
+ * The room under the "Worked for" line, parting the turn's work from its answer by space, not a
+ * rule. The live "Working for" line takes the same, so the head doesn't shift when the turn settles.
  */
-export const underline = `mt-1.5 ${sectionRule}`;
+export const headGap = "mt-1.5";
 
 /*
  * A settled work log's header; `work-log.tsx` binds it to the thread. Its steps load when it
@@ -29,7 +28,7 @@ export function WorkLogHeader(props: {
         onToggle={props.onToggle}
         title={props.label}
       />
-      <div aria-hidden className={underline} />
+      <div aria-hidden className={headGap} />
     </div>
   );
 }
@@ -39,7 +38,7 @@ export function WorkLogLine(props: { label: string }) {
   return (
     <div>
       <StaticRow title={props.label} />
-      <div aria-hidden className={underline} />
+      <div aria-hidden className={headGap} />
     </div>
   );
 }

@@ -127,8 +127,7 @@ test("saving source control preferences and rescanning replace cached PR results
       seed(other, "other-pr", "Other daemon's newer result");
     });
     await userEvent.clear(screen.getByRole("textbox", { name: "Expected account" }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "other");
-    await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "other{Enter}");
     await screen.findByText(/gh auth switch --hostname github.com --user other/);
     await shown(true);
     await screen.findByText("Account B's result");
@@ -179,8 +178,7 @@ test("switching the expected GitHub account re-reads the PR panel instead of sho
     await screen.findByText("Seen as ada");
     await screen.findByText("Signed in as ada");
     act(() => titled("Seen as octo"));
-    await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo");
-    await userEvent.click(screen.getByRole("button", { name: "Save preferences" }));
+    await userEvent.type(screen.getByRole("textbox", { name: "Expected account" }), "octo{Enter}");
     expect(await screen.findByText("Seen as octo")).toBeTruthy();
     expect(screen.queryByText("Seen as ada")).toBeNull();
     // The page names both accounts, so the person knows which one to switch to.

@@ -111,7 +111,7 @@ test("an account out for the week reads out in the icon's name; the card says wh
   ).toContainEqual(["Weekly", "0"]);
   await userEvent.click(within(body as HTMLElement).getByRole("link", { name: "Open Usage ›" }));
   await waitFor(() =>
-    expect(screen.getByRole("heading", { level: 2, name: "Usage" })).toBeTruthy(),
+    expect(screen.getByRole("heading", { level: 1, name: "Usage" })).toBeTruthy(),
   );
 });
 

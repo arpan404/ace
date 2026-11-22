@@ -16,7 +16,7 @@ import type { RosterBot } from "./use-spade-roster.ts";
  */
 
 const tile =
-  "group/row flex w-16 shrink-0 flex-col items-center gap-1 rounded-lg px-1 py-1.5 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:[--row-wash:var(--hover)] aria-[current=page]:bg-active aria-[current=page]:[--row-wash:var(--active)]";
+  "group/row flex min-w-16 max-w-28 shrink-0 flex-col items-center gap-1 rounded-lg px-1 py-1.5 transition-colors duration-(--motion-fast) focus-ring hover:bg-hover hover:[--row-wash:var(--hover)] aria-[current=page]:bg-active aria-[current=page]:[--row-wash:var(--active)]";
 
 function Name(props: { name: string; state: SpadeRowState }) {
   return (

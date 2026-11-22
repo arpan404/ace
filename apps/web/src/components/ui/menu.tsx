@@ -28,10 +28,14 @@ function MenuContent({
   align = "start",
   sideOffset = 6,
   anchor,
+  collisionBoundary,
   children,
   ...props
 }: MenuPrimitive.Popup.Props &
-  Pick<MenuPrimitive.Positioner.Props, "side" | "align" | "sideOffset" | "anchor">) {
+  Pick<
+    MenuPrimitive.Positioner.Props,
+    "side" | "align" | "sideOffset" | "anchor" | "collisionBoundary"
+  >) {
   const material = useFloatingMaterial();
   return (
     <MenuPrimitive.Portal>
@@ -40,6 +44,7 @@ function MenuContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
+        {...(collisionBoundary ? { collisionBoundary } : {})}
         collisionPadding={8}
         className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >
@@ -210,7 +215,12 @@ function MenuSubTrigger({
   );
 }
 
-function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioItem.Props) {
+function MenuRadioItem({
+  className,
+  icon,
+  children,
+  ...props
+}: MenuPrimitive.RadioItem.Props & { icon?: ReactNode }) {
   return (
     <MenuPrimitive.RadioItem
       data-part="menu-item"
@@ -218,6 +228,7 @@ function MenuRadioItem({ className, children, ...props }: MenuPrimitive.RadioIte
       className={cn(menuItem, className)}
       {...props}
     >
+      {icon}
       <span className="min-w-0 flex-1 truncate">{children}</span>
       <MenuPrimitive.RadioItemIndicator className="ml-auto">
         <CheckIcon aria-hidden size={14} />

@@ -249,7 +249,11 @@ pub fn message_text(event: &Known, seq: u64) -> Option<String> {
     let typed = from_agent.is_none() && from_routine.is_none() && from_group.is_none();
     if typed {
         let quote = reply_to.as_deref().map(|to| {
-            let whose = if to.mine { "their own" } else { "your" };
+            let whose = match (&to.name, to.mine) {
+                (_, true) => "their own".to_owned(),
+                (Some(name), false) => format!("{name}'s"),
+                (None, false) => "your".to_owned(),
+            };
             format!(
                 "(replying to {whose} message {}: {})\n",
                 to.id,

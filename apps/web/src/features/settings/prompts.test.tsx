@@ -17,7 +17,7 @@ test("prompt files list their descriptions and diagnostics, and an edit is saved
   await open();
   const list = screen.getByRole("list", { name: "Prompt files" });
   expect(within(list).getByText("Explain a change in plain language")).toBeTruthy();
-  expect(within(list).getByText("Invalid frontmatter")).toBeTruthy();
+  expect(within(list).getByText("This skill's header couldn't be read")).toBeTruthy();
   expect(within(list).getByRole("button", { name: /unfinished/ })).toBeTruthy();
   await userEvent.click(within(list).getByRole("button", { name: /unfinished/ }));
   const body = await screen.findByRole("textbox", { name: "Prompt content" });
@@ -28,7 +28,7 @@ test("prompt files list their descriptions and diagnostics, and an edit is saved
   await userEvent.type(body, "Explain the selected change.");
   await userEvent.click(screen.getByRole("button", { name: "Save prompt" }));
   await screen.findByText("Prompt saved.");
-  expect(screen.queryByText("Invalid frontmatter")).toBeNull();
+  expect(screen.queryByText("This skill's header couldn't be read")).toBeNull();
   await userEvent.click(
     within(screen.getByRole("list", { name: "Prompt files" })).getByRole("button", {
       name: /unfinished/,

@@ -23,6 +23,15 @@ pub fn quote_of(event: &Event, id: &str) -> Option<ReplyTo> {
         {
             (whole(text, index)?, true, None)
         }
+        // Another bot's message in this chat (not a contract call): the person may reply to it,
+        // naming that bot.
+        Event::Known(Known::UserMessage {
+            text,
+            from_agent: Some(agent),
+            from_routine: None,
+            from_group: None,
+            ..
+        }) if agent.contract.is_none() => (nth(text, index)?, false, Some(agent.name.clone())),
         Event::Known(
             Known::StepFinished { text, .. }
             | Known::ReplyStopped { text, .. }

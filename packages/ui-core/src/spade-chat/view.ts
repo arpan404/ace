@@ -96,7 +96,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
       reply !== undefined || approvals.length > 0 || state.running.size > 0 || state.jobs.size > 0,
     working: working(
       state,
-      reply && reply.startedAt + state.waited,
+      reply ? reply.startedAt + state.waited : oldestJobStart(state),
       approvals.length > 0 || state.question !== undefined,
     ),
     // Its words only while anything is open: the line goes when the reply ends.
@@ -161,6 +161,15 @@ function questionsIn(entries: readonly SpadeEntry[], callIds: ReadonlySet<string
   return count;
 }
 
+/** When the longest-open job began, so a bot with only a background job still shows its clock. */
+function oldestJobStart(state: SpadeConversationState): number | undefined {
+  let oldest: number | undefined;
+  for (const job of state.jobs.values())
+    if (job.startedAt !== undefined && (oldest === undefined || job.startedAt < oldest))
+      oldest = job.startedAt;
+  return oldest;
+}
+
 function working(
   state: SpadeConversationState,
   since: number | undefined,
@@ -171,7 +180,7 @@ function working(
     return jobs.length ? { label: spadeJobsLine(jobs), since: undefined, moving: true } : undefined;
   const tool = [...state.running.values()].at(-1);
   if (tool) return { label: spadeToolWords(tool.name).doing, since, moving: true };
-  if (waiting) return { label: "Waiting for you", since, moving: false };
+  if (waiting) return { label: "Needs you", since, moving: false };
   if (jobs.length) return { label: spadeJobsLine(jobs), since, moving: true };
   return { label: "Working", since, moving: true };
 }

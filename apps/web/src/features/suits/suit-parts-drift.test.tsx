@@ -547,7 +547,7 @@ test("the Marketplace page names its places, titles, featured pair, stages and T
     },
   });
   await app.open("/chats?store=discover");
-  await screen.findByRole("region", { name: "Store" });
+  await screen.findByRole("region", { name: "Marketplace" });
   await waitFor(() => expect(missing(marketScreen)).toEqual([]));
 });
 

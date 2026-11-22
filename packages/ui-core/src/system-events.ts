@@ -362,6 +362,15 @@ export function promptText(input: SystemInput): string {
 }
 
 /**
+ * A delegated child's first message without ace's frame ("Role: greeter\n\nTask:\n…" is how the
+ * agent reads it): just the task, as an ordinary first message. Undefined for any other text.
+ */
+export function delegationBrief(text: string): string | undefined {
+  const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(text.trimStart());
+  return match?.[2]?.trim() || undefined;
+}
+
+/**
  * A prompt ace started a thread with that keeps its own label: a portable handoff or an
  * automation. Messages from another thread's agent are sent messages (`sentBy`), not prompts.
  */

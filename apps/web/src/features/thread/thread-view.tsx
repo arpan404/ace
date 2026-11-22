@@ -58,7 +58,7 @@ import { useHasLinkedMachines } from "@/lib/fleet-links.ts";
 import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
 import { isPendingThread } from "./composer/send-store.ts";
-import { useShownTitle } from "./lib/shown-title.ts";
+import { delegatedTitle, useShownTitle } from "./lib/shown-title.ts";
 import { DeferredComposerStrip } from "./composer/deferred-cards.ts";
 import { StartingMessage } from "./items/user-message.tsx";
 import { ActivityLine } from "./items/live-head.tsx";
@@ -210,7 +210,7 @@ function ThreadScreen(props: {
   useEffect(() => {
     void router.loadRouteChunk(router.routesById["/_home/new"])?.catch(() => {});
   }, [router]);
-  const title = useShownTitle(id, meta?.title);
+  const title = delegatedTitle(meta?.delegatedBy !== undefined, useShownTitle(id, meta?.title));
   const parented = useHasParentCrumb(id);
   const composer = useRef<ComposerHandle>(null);
   // Files dropped anywhere on the thread, or pasted outside a field, go to its composer.

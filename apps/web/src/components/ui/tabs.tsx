@@ -16,9 +16,15 @@ function TabsList({ className, ...props }: TabsPrimitive.List.Props) {
 
 /**
  * Panel tab (Changes, Preview, Agents, Terminal, Logs): 12.5/500, a flat 8% ink fill when active.
- * Hover is mostly a text change, so a hovered tab never reads as a second selected one.
+ * A page-level tab (a pull request's Summary · Timeline · Code · Checks, Fleet's views) takes the
+ * selected fill instead, as an open thread does. Hover is mostly a text change, so a hovered tab
+ * never reads as a second selected one.
  */
-function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
+function TabsTab({
+  className,
+  page,
+  ...props
+}: TabsPrimitive.Tab.Props & { page?: boolean | undefined }) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
@@ -29,7 +35,8 @@ function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
       )}
       className={cn(
         "relative inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-[color,background-color] duration-(--motion-fast) focus-ring touch-hit focus-visible:text-foreground",
-        "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:bg-foreground/8 data-active:text-foreground",
+        "hover:text-foreground hover:not-data-active:bg-foreground/3 data-active:text-foreground",
+        page ? "data-active:bg-active" : "data-active:bg-foreground/8",
         className,
       )}
       {...props}

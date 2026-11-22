@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import {
+  distinctInitials,
   projectBadge,
   projectInitials,
   projectLabel,
@@ -58,4 +59,15 @@ test("a project reads by its name, else its folder, else a readable id, and neve
   expect(projectLabel("ace")).toBe("ace");
   expect(projectLabel(uuid)).toBe("Project");
   expect(projectLabel("ws-5c99df537a9a44809f3e1dbf4327d94a")).toBe("Project");
+});
+
+test("projects listed together never share a mark: a later one takes its next distinct pair", () => {
+  expect(distinctInitials(["ace", "acme", "billing-api"])).toEqual(["AC", "AM", "BA"]);
+  expect(distinctInitials(["ace-core", "ace-cli", "ace-chat"])).toEqual(["AC", "AL", "AH"]);
+  // Same letters from different words: the second reaches into the later word.
+  expect(distinctInitials(["api-core", "arch-core"])).toEqual(["AC", "AO"]);
+});
+
+test("a name with no other pair left keeps its own initials", () => {
+  expect(distinctInitials(["ab", "ab"])).toEqual(["AB", "AB"]);
 });
