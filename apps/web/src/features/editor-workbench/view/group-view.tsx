@@ -58,6 +58,7 @@ export function GroupView(props: {
     host.renderCompare
       ? host.renderCompare
       : undefined;
+  const gitCompare = path !== undefined && !compare ? host.renderGitCompare?.(path) : undefined;
   // Overlapping blocks are answered in place of the editor until each has an answer.
   const conflict = snapshot?.clash?.kind === "conflict" ? snapshot.clash : undefined;
   const { reportStatus } = host;
@@ -145,6 +146,8 @@ export function GroupView(props: {
               ) : null
             ) : compare && buffer ? (
               compare({ path, buffer })
+            ) : gitCompare ? (
+              gitCompare
             ) : conflict && buffer ? (
               <ConflictBlocks
                 clash={conflict}

@@ -202,11 +202,11 @@ function sectionsFromState(state: State, limit: number) {
     status.untracked.map((path) => ({ path, status: "untracked" as const })),
   );
   const conflicted = byPath(
-    status.conflicted.map((entry) => ({
-      path: entry.path,
-      ...(entry.oldPath ? { from: entry.oldPath } : {}),
-      status: "conflicted" as const,
-    })),
+    status.conflicted.map((entry) =>
+      entry.oldPath
+        ? { path: entry.path, from: entry.oldPath, status: "conflicted" as const }
+        : { path: entry.path, status: "conflicted" as const },
+    ),
   );
   return {
     truncated:

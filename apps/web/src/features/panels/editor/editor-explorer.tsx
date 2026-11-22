@@ -18,6 +18,11 @@ import { FileTree } from "../files/file-tree.tsx";
 import type { RowMark } from "../files/file-tree-row.tsx";
 import type { OpenHow } from "../files/tree-commands.ts";
 import { useFileActions, type UploadState } from "../files/use-file-actions.ts";
+import {
+  SourceControlView,
+  type OpenChangesRequest,
+} from "./source-control/source-control-view.tsx";
+import { useSourceControlCount } from "./source-control/use-source-control.ts";
 
 const FileOperations = lazy(() =>
   import("../files/file-operations.tsx").then((module) => ({ default: module.FileOperations })),
@@ -43,6 +48,7 @@ export function EditorExplorer(props: {
   /** The focused editor's file, which the tree follows. */
   current: string | undefined;
   onOpen(path: string, open: ExplorerOpen): void;
+  onOpenChanges(request: OpenChangesRequest): void;
   openEditors: ReactNode;
   /** Bumped to put the keyboard in Search's field (⇧⌘F). */
   focusSearch: number;
@@ -67,6 +73,7 @@ export function EditorExplorer(props: {
     searchInput.current?.select();
   }, [focusRequest]);
   const [actionsIn, setActionsIn] = useState<HTMLElement | null>(null);
+  const sourceControlCount = useSourceControlCount(threadId, explorer.side === "source-control");
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {operation && (
@@ -95,7 +102,11 @@ export function EditorExplorer(props: {
               onClick={() => onExplorer({ open: false })}
               className="size-7 rounded-sm hover:bg-hover"
             />
-            <ExplorerSwitch side={explorer.side} onSide={(side) => onExplorer({ side })} />
+            <ExplorerSwitch
+              side={explorer.side}
+              onSide={(side) => onExplorer({ side })}
+              sourceControlCount={sourceControlCount}
+            />
           </>
         }
       >
@@ -113,6 +124,13 @@ export function EditorExplorer(props: {
             }
           />
         </>
+      ) : explorer.side === "source-control" ? (
+        <SourceControlView
+          threadId={threadId}
+          actionsIn={actionsIn}
+          onOpenFile={(path) => open(path, "keep")}
+          onOpenChanges={props.onOpenChanges}
+        />
       ) : (
         <FileTree
           actionsIn={actionsIn}

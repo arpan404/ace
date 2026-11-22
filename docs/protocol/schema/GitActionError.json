@@ -14,7 +14,14 @@
     "git_auth_failed",
     "git_failed",
     "git_dirty_worktree",
-    "git_invalid_ref"
+    "git_invalid_ref",
+    "git_branch_exists",
+    "git_pull_diverged",
+    "git_no_upstream",
+    "git_trash_unavailable",
+    "git_stash_empty",
+    "git_nothing_to_stash",
+    "git_path_outside_repo"
   ],
   "type": "string"
 }

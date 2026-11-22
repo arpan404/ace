@@ -29,6 +29,7 @@ export function actionErrorCode(error: unknown): string {
       "repository_hidden",
       "repository_unavailable",
       "git_pr_head_unavailable",
+      "git_trash_unavailable",
       "pr_checkout_changed",
       "pr_requires_worktree",
       "workspace_cleanup_required",

@@ -23,6 +23,7 @@ export type EditorPanelCommand =
   | "splitDown"
   | "explorer"
   | "searchFiles"
+  | "sourceControl"
   | "nextHit"
   | "previousHit"
   | "nextChange"
@@ -40,6 +41,7 @@ const single: readonly [KeymapId, EditorPanelCommand][] = [
   ["editor.splitDown", "splitDown"],
   ["editor.explorer", "explorer"],
   ["files.search", "searchFiles"],
+  ["editor.sourceControl", "sourceControl"],
   ["editor.composer", "composer"],
 ];
 

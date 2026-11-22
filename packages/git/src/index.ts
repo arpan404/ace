@@ -45,14 +45,12 @@ import {
   createBranch,
   discardPaths,
   fetchRemote,
-  parseStashList,
   pullBranch,
   stagePaths,
   stashList,
   stashPop,
   stashPush,
   unstagePaths,
-  validateRepoPaths,
 } from "./source-control-ops.ts";
 import {
   abortMerge,

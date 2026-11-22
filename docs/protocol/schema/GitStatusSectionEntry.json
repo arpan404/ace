@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitStatusSectionEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "from": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Repository-relative path without NUL bytes."
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Repository-relative path without NUL bytes."
+    },
+    "status": {
+      "enum": [
+        "added",
+        "modified",
+        "deleted",
+        "renamed",
+        "untracked",
+        "conflicted"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "status"
+  ],
+  "type": "object"
+}

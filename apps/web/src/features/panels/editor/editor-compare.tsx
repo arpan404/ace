@@ -1,10 +1,15 @@
-import type { FileChanges } from "@ace/ui-core";
+import { FileIcon } from "@ace/icons";
+import { gitPatchFiles, type FileChanges } from "@ace/ui-core";
 import { useEffect, useMemo, useState } from "react";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import type { EditorCompareProps, TextBuffer } from "@/features/editor-workbench/index.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { FileDiffBlock, type FileView } from "../changes/file-diff.tsx";
 import { freshView } from "../changes/file-view.ts";
 import { sceneBar } from "@/components/ui/rules.ts";
+import { readFileGitDiff } from "./source-control/source-control-source.ts";
+import { sourceControlDiffKey } from "./source-control/use-source-control.ts";
 
 /*
  * Compare (spec 46): the disk's text on the left and the unsaved buffer on the right, in the
@@ -82,6 +87,83 @@ export function EditorCompare(props: EditorCompareProps) {
         />
       ) : (
         <div className="flex-1" aria-busy="true" aria-label="Comparing" />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Source control's staged or unstaged diff for one file, rendered with the same Changes
+ * `FileDiffBlock` component inside the editor pane.
+ */
+export function GitDiffCompare(props: {
+  threadId: string;
+  path: string;
+  stage: "staged" | "unstaged";
+  oldPath?: string | undefined;
+  onOpenFile(): void;
+}) {
+  const { threadId, path, stage, oldPath } = props;
+  const query = useDaemonQuery({
+    queryKey: [...sourceControlDiffKey(threadId), path, stage, oldPath],
+    staleTime: 0,
+    retry: false,
+    read: (client, signal) =>
+      readFileGitDiff(client, threadId, { path, stage, from: oldPath }, signal),
+  });
+  const file = useMemo(() => {
+    const patch = query.data?.patch;
+    if (!patch) return undefined;
+    return gitPatchFiles(patch)[0];
+  }, [query.data?.patch]);
+  const [view, setView] = useState<FileView>(freshView);
+  const leftTitle = stage === "staged" ? "HEAD" : "Index";
+  const rightTitle = stage === "staged" ? "Staged" : "Working tree";
+
+  return (
+    <div
+      role="region"
+      aria-label={`Changes in ${path}`}
+      className="flex min-h-0 flex-1 flex-col overflow-auto"
+      tabIndex={-1}
+    >
+      <div
+        className={`sticky top-0 z-[3] grid h-7 shrink-0 grid-cols-2 border-b border-border bg-background text-xs font-medium text-muted-foreground ${sceneBar}`}
+      >
+        <span className="flex items-center px-3.5">{leftTitle}</span>
+        <span className="flex items-center justify-between border-l border-border pr-1.5 pl-3.5">
+          <span>{rightTitle}</span>
+          <IconButton
+            icon={FileIcon}
+            label="Open file"
+            size="sm"
+            onClick={props.onOpenFile}
+            className="size-5 rounded-sm hover:bg-hover"
+          />
+        </span>
+      </div>
+      {query.isPending && !query.data ? (
+        <div className="flex-1 p-3.5 text-xs text-muted-foreground" aria-busy="true">
+          Reading changes…
+        </div>
+      ) : query.isError ? (
+        <div role="alert" className="flex-1 p-3.5 text-xs text-muted-foreground">
+          Couldn&apos;t read changes for {path}.
+        </div>
+      ) : file ? (
+        <FileDiffBlock
+          file={file}
+          view={view}
+          onView={setView}
+          mode="split"
+          wrap={false}
+          highlighted={() => false}
+          renderAnnotation={() => null}
+        />
+      ) : (
+        <div className="flex-1 p-3.5 text-xs text-muted-foreground">
+          No {stage} changes in {path}.
+        </div>
       )}
     </div>
   );

@@ -75,7 +75,7 @@ export function parseStashList(output: string): GitStash[] {
     const index = Number(match[1]);
     const branchMatch = /^(?:WIP on|On) ([^:]+):\s*(.*)$/.exec(subject);
     const branch = branchMatch?.[1];
-    const message = (branchMatch ? branchMatch[2] : subject).slice(0, 1024);
+    const message = (branchMatch?.[2] ?? subject).slice(0, 1024);
     stashes.push({
       ref,
       index,
@@ -173,6 +173,10 @@ export async function discardPaths(
           if (!staged) continue;
           if (staged.indexStatus === "A" || branch.head === null) {
             unstageAdded.push(path);
+            toTrash.push(path);
+          } else if (staged.indexStatus === "R" && staged.oldPath) {
+            unstageAdded.push(path, staged.oldPath);
+            restoreFromHead.push(staged.oldPath);
             toTrash.push(path);
           } else {
             restoreFromHead.push(path);

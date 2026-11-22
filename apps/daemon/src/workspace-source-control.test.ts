@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Command, Thread, type ThreadId } from "@ace/protocol";
+import type { z } from "zod";
 import { afterEach, describe, expect, it } from "vitest";
 import { Store } from "./store.ts";
 import { WorkspaceRuntime } from "./workspace-runtime.ts";
@@ -61,7 +62,7 @@ async function setupFixture(
     ...(options.trashFile ? { trashFile: options.trashFile } : {}),
   });
   let seq = 0;
-  const cmd = (payload: Command["payload"]) =>
+  const cmd = (payload: z.input<typeof Command>["payload"]) =>
     Command.parse({
       id: `cmd-${++seq}`,
       deviceId: "dev-1",

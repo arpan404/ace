@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitStashEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "branch": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "index": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "message": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "ref": {
+      "pattern": "^stash@\\{\\d+\\}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref",
+    "index",
+    "message"
+  ],
+  "type": "object"
+}
