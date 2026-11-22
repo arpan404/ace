@@ -35,7 +35,9 @@ export function webhookAccessLine(
 export function webhookReach(runsAt: WebhookRunsAt): string {
   if (runsAt.thread) return "It runs in its agent's thread, at that thread's access.";
   if (runsAt.access === undefined) return "It runs read-only unless you change its access.";
-  return `It runs with ${accessLabel(runsAt.access)} access.`;
+  const label = accessLabel(runsAt.access);
+  // "Full access" already says access; "Read-only" doesn't.
+  return /access$/i.test(label) ? `It runs with ${label}.` : `It runs with ${label} access.`;
 }
 
 /** Said beside a secret just made: it is shown this once. */
