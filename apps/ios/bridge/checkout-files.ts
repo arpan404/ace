@@ -98,6 +98,7 @@ export class CheckoutFiles {
   }
 
   async #run(scope: Scope, op: Operation, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (op.op === "root") return { root: await this.#root(scope, signal) };
     if (op.op === "search") return this.#search(scope, op.query, signal);
     if (op.op === "quick") return this.#quick(scope, op.text, signal);
     if (op.op === "read") return this.#read(scope, op.path, signal);
@@ -446,6 +447,25 @@ export class CheckoutFiles {
         );
       return { conflict: latest.version };
     }
+  }
+
+  /** A thread's worktree (else its project's folder), or a project's folder; null if unknown. */
+  async #root(scope: Scope, signal: AbortSignal): Promise<string | null> {
+    if ("threadId" in scope) {
+      const details = this.#owner.cachedThread(scope.threadId)?.thread?.details;
+      return details?.worktree ?? details?.workspace?.path ?? null;
+    }
+    const reply = await this.#owner
+      .request(
+        {
+          type: "projects.request",
+          operation: { op: "workspace.get", workspaceId: scope.workspaceId },
+        },
+        { ...quiet, signal },
+      )
+      .catch(() => undefined);
+    const result = reply?.result;
+    return result?.kind === "project" ? result.project.path : null;
   }
 
   /**

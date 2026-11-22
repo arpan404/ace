@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon, polyline } from "../geometry.ts";
-import { line, shape } from "../parts.ts";
+import { line, shape, type Part } from "../parts.ts";
 
 /** An open folder: its front tipped forward off the back. */
-export const FolderOpenIcon = /* @__PURE__ */ glyph("FolderOpen", () => [
+export const openFolder = (): Part[] => [
   line(
     polyline([
       [2.5, 18.5],
@@ -23,4 +23,7 @@ export const FolderOpenIcon = /* @__PURE__ */ glyph("FolderOpen", () => [
       [2.5, 19.5, 2],
     ]),
   ),
-]);
+];
+
+/** An open folder. */
+export const FolderOpenIcon = /* @__PURE__ */ glyph("FolderOpen", openFolder);

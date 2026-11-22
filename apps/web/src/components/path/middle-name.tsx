@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/cn.ts";
 import { cssFont } from "@/lib/css-font.ts";
-import { endCut } from "./end-name.ts";
+import { endLabel } from "./end-name.ts";
 import { folderLabel } from "./folder-label.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
@@ -50,19 +50,47 @@ export function MiddleName(props: {
 }
 
 /**
- * A tree row's name, cut at its end when the row is too narrow: "adapter-ac…" for a folder,
- * "workspace-ta….ts" for a file, whose extension always shows (`endCut`). Pure CSS.
+ * A tree row's name, cut at its end only when it does not fit: "adapter-a…" for a folder,
+ * "workspace-ta….ts" for a file, whose extension always shows (`endLabel`). It takes the room the
+ * row leaves and measures the name in its own font with a hidden probe, so a name that fits is
+ * never cut, whatever the font, zoom or rounding; it measures again on resize and once fonts
+ * load. Until measured (or with no ResizeObserver) the whole name shows, cut by CSS if it must.
  */
 export function EndName(props: { text: string; kind: "file" | "folder"; className?: string }) {
-  const { head, end } = endCut(props.text, props.kind);
+  const { text, kind } = props;
+  const [box, setBox] = useState<HTMLSpanElement | null>(null);
+  const [probe, setProbe] = useState<HTMLSpanElement | null>(null);
+  const [label, setLabel] = useState<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!box || !probe || typeof ResizeObserver === "undefined") return;
+    const measure = (sample: string) => {
+      probe.textContent = sample;
+      return probe.getBoundingClientRect().width;
+    };
+    const update = () => {
+      setLabel(endLabel(text, kind, box.getBoundingClientRect().width, measure));
+      probe.textContent = "";
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(box);
+    document.fonts?.addEventListener("loadingdone", update);
+    return () => {
+      observer.disconnect();
+      document.fonts?.removeEventListener("loadingdone", update);
+    };
+  }, [box, probe, text, kind]);
   return (
-    <span className={cn("flex min-w-0", props.className)}>
-      <span className="min-w-0 truncate whitespace-pre">{head}</span>
-      {end && (
-        <span data-part="name-end" className="shrink-0 whitespace-pre">
-          {end}
-        </span>
+    <span
+      ref={setBox}
+      data-part="name"
+      className={cn(
+        "relative block min-w-0 flex-1 overflow-hidden whitespace-pre",
+        label === undefined ? "text-ellipsis" : "text-clip",
+        props.className,
       )}
+    >
+      {label ?? text}
+      <span ref={setProbe} aria-hidden className="invisible absolute top-0 left-0 whitespace-pre" />
     </span>
   );
 }
