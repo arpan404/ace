@@ -52,7 +52,7 @@ export function visibleRows(
 }
 
 /**
- * The repositories for the filter column: every one the rows come from (and the one picked),
+ * The repositories for the filter menu: every one the rows come from (and the one picked),
  * by name, each with its unread count.
  */
 export function repositoryCounts(

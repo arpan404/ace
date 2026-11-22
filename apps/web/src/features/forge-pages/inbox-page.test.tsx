@@ -105,13 +105,13 @@ test("selected notifications are marked done together, and the selection clears"
   expect(screen.queryByRole("group", { name: "Selected notifications" })).toBeNull();
 });
 
-test("a filter in the side column narrows the inbox to that reason", async () => {
+test("a filter menu narrows the inbox to that reason", async () => {
   const app = withInbox();
   const user = userEvent.setup();
   await app.open("/inbox?view=all");
   await waitFor(async () => expect(await rows()).toHaveLength(16));
-  const side = screen.getByRole("navigation", { name: "Notification views" });
-  await user.click(within(side).getByRole("button", { name: "Team mentioned" }));
+  await user.click(screen.getByRole("button", { name: "Reason" }));
+  await user.click(await screen.findByRole("menuitemradio", { name: "Team mentioned" }));
   await waitFor(async () => expect(await rows()).toHaveLength(2));
   expect(
     screen.getByRole<HTMLInputElement>("searchbox", { name: "Filter notifications" }).value.trim(),

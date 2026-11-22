@@ -43,7 +43,6 @@ const listPage = [
   "page-body",
   "page-toolbar",
   "search-field",
-  "card",
   "filter-bar",
   "tabs",
   "tab",
@@ -55,7 +54,7 @@ const listPage = [
 
 const pullsPage = [...listPage, "pr-row", "label-chip", "avatar"] as const;
 
-test("the pull requests list names its page, bar, box and rows", async () => {
+test("the pull requests list names its page, bar and rows", async () => {
   const app = withRepository();
   await app.open("/pulls?project=ace");
   await screen.findByRole("navigation", { name: "Pull requests" });
@@ -66,7 +65,7 @@ test("the pull requests list names its page, bar, box and rows", async () => {
 
 const issuesPage = [...listPage, "issue-row", "label-chip", "avatar"] as const;
 
-test("the issues list names its page, bar, box and rows", async () => {
+test("the issues list names its page, bar and rows", async () => {
   const app = withRepository();
   await app.open("/issues?project=ace");
   await screen.findByRole("navigation", { name: "Issues" });
@@ -76,25 +75,19 @@ test("the issues list names its page, bar, box and rows", async () => {
 const inboxPage = [
   "page-body",
   "page-toolbar",
-  "page-section",
   "search-field",
-  "card",
   "filter-bar",
   "list",
   "list-row",
-  "nav-item",
   "checkbox",
 ] as const;
 
-test("the inbox names its filter column and its notifications, unread ones as unread", async () => {
+test("the inbox names its filters and its notifications, unread ones as unread", async () => {
   const app = withRepository();
   await app.open("/inbox");
   await screen.findByRole("navigation", { name: "Notifications" });
   await waitFor(() => expect(missingIn("inbox", inboxPage)).toEqual([]));
   expect(document.querySelectorAll('[data-part="list-row"][data-state="unread"]')).toHaveLength(7);
-  expect(
-    document.querySelector('[data-part="nav-item"][data-state="active"]')?.textContent,
-  ).toMatch(/^Inbox/);
 });
 
 const issuePage = [
