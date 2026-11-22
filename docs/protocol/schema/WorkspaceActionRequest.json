@@ -1111,6 +1111,9 @@
         },
         {
           "properties": {
+            "cursor": {
+              "$ref": "https://ace.local/protocol/v1/GitLogCursor.json"
+            },
             "limit": {
               "default": 50,
               "maximum": 100,
@@ -1123,12 +1126,6 @@
             },
             "path": {
               "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
-            },
-            "skip": {
-              "default": 0,
-              "maximum": 100000,
-              "minimum": 0,
-              "type": "integer"
             },
             "threadId": {
               "$ref": "https://ace.local/protocol/v1/ThreadId.json"
@@ -1143,6 +1140,9 @@
         },
         {
           "properties": {
+            "commit": {
+              "$ref": "https://ace.local/protocol/v1/CommitSha.json"
+            },
             "endLine": {
               "exclusiveMinimum": 0,
               "maximum": 10000000,

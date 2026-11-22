@@ -1,6 +1,7 @@
 import { rename } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
+import { GitCli } from "./cli.ts";
 import { GitService } from "./index.ts";
 import { git, put, repository, scratch } from "./test-repo.ts";
 
@@ -25,11 +26,12 @@ test("fileLog follows renames, pages through commits, and reports when output hi
   await git(repo, "commit", "-m", "Touch renamed file");
   const fourthSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
 
-  const page1 = await service.fileLog({ worktree: repo, path: "renamed.ts", limit: 2, skip: 0 });
+  const page1 = await service.fileLog({ worktree: repo, path: "renamed.ts", limit: 2 });
   expect(page1.head).toBe(fourthSha);
   expect(page1.capped).toBe(false);
   expect(page1.hasMore).toBe(true);
-  expect(page1.nextSkip).toBe(2);
+  // The next page continues before the rename, at the file's name there.
+  expect(page1.next).toEqual({ after: thirdSha, path: "old.ts" });
   expect(page1.entries.map((entry) => entry.sha)).toEqual([fourthSha, thirdSha]);
   expect(page1.entries[0]?.path).toBe("renamed.ts");
   expect(page1.entries[1]).toMatchObject({
@@ -39,15 +41,20 @@ test("fileLog follows renames, pages through commits, and reports when output hi
     previousPath: "old.ts",
   });
 
+  // A commit made after the first page does not shift the next one: the cursor is pinned.
+  await put(repo, "renamed.ts", "export const a = 3;\nexport const b = 4;\n");
+  await git(repo, "add", "renamed.ts");
+  await git(repo, "commit", "-m", "Later commit");
+
   const page2 = await service.fileLog({
     worktree: repo,
     path: "renamed.ts",
     limit: 2,
-    skip: page1.nextSkip,
+    cursor: page1.next,
   });
   expect(page2.capped).toBe(false);
   expect(page2.hasMore).toBe(false);
-  expect(page2.nextSkip).toBeUndefined();
+  expect(page2.next).toBeUndefined();
   expect(page2.entries.map((entry) => entry.sha)).toEqual([secondSha, firstSha]);
   expect(page2.entries[0]?.path).toBe("old.ts");
   expect(page2.entries[1]?.path).toBe("old.ts");
@@ -60,6 +67,31 @@ test("fileLog follows renames, pages through commits, and reports when output hi
   });
   expect(capped.capped).toBe(true);
   expect(capped.entries.length).toBeLessThan(4);
+});
+
+test("a long subject before the page does not hide older commits", async () => {
+  const repo = await repository({ "a.ts": "1\n" });
+  const long = "x".repeat(3000);
+  for (const n of [2, 3, 4]) {
+    await put(repo, "a.ts", `${n}\n`);
+    await git(repo, "add", "a.ts");
+    await git(repo, "commit", "-m", n === 4 ? long : `Commit ${n}`);
+  }
+  const seen: string[] = [];
+  let cursor: { after: string; path: string } | undefined;
+  for (let page = 0; page < 6; page++) {
+    const read = await service.fileLog({
+      worktree: repo,
+      path: "a.ts",
+      limit: 1,
+      maxBytes: 3500,
+      cursor,
+    });
+    seen.push(...read.entries.map((entry) => entry.subject.slice(0, 10)));
+    if (!read.next) break;
+    cursor = read.next;
+  }
+  expect(seen).toEqual([long.slice(0, 10), "Commit 3", "Commit 2", "Initial"]);
 });
 
 test("fileLog returns an empty history on an unborn repository or untracked file", async () => {
@@ -79,7 +111,7 @@ test("fileLog returns an empty history on an unborn repository or untracked file
   expect(untracked.head).toMatch(/^[0-9a-f]{40,64}$/);
 });
 
-test("fileBlame blames only the requested line range, marks uncommitted lines null, and caps output", async () => {
+test("fileBlame blames a range at the commit it is given, and stops at its caps", async () => {
   const repo = await repository({ "app.ts": "line 1\nline 2\nline 3\nline 4\n" });
   const firstSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
 
@@ -88,12 +120,16 @@ test("fileBlame blames only the requested line range, marks uncommitted lines nu
   await git(repo, "commit", "-m", "Edit line 2");
   const secondSha = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
 
-  // Working-tree edit on line 3 (not committed yet)
-  await put(repo, "app.ts", "line 1\nline 2 edited\nline 3 dirty\nline 4\n");
+  // The working tree and later commits do not change a blame read at an explicit commit.
+  await put(repo, "app.ts", "inserted\nline 1\nline 2 edited\nline 3 dirty\nline 4\n");
+  await put(repo, "other.ts", "x\n");
+  await git(repo, "add", "other.ts");
+  await git(repo, "commit", "-m", "Unrelated");
 
   const blamed = await service.fileBlame({
     worktree: repo,
     path: "app.ts",
+    commit: secondSha,
     startLine: 2,
     endLine: 4,
   });
@@ -101,7 +137,7 @@ test("fileBlame blames only the requested line range, marks uncommitted lines nu
   expect(blamed.capped).toBe(false);
   expect(blamed.lines).toEqual([
     { line: 2, sha: secondSha },
-    { line: 3, sha: null },
+    { line: 3, sha: firstSha },
     { line: 4, sha: firstSha },
   ]);
   expect(blamed.commits.find((c) => c.sha === secondSha)).toMatchObject({
@@ -109,30 +145,57 @@ test("fileBlame blames only the requested line range, marks uncommitted lines nu
     shortSha: secondSha.slice(0, 7),
     subject: "Edit line 2",
   });
-  expect(blamed.commits.find((c) => c.sha === firstSha)).toBeDefined();
 
-  // Untracked file returns empty lines without throwing
+  // A file the commit does not have returns no lines without throwing
   await put(repo, "brand-new.ts", "hello\n");
   const untracked = await service.fileBlame({
     worktree: repo,
     path: "brand-new.ts",
+    commit: secondSha,
     startLine: 1,
     endLine: 10,
   });
-  expect(untracked.lines).toEqual([]);
-  expect(untracked.commits).toEqual([]);
-  expect(untracked.capped).toBe(false);
+  expect(untracked).toEqual({ head: secondSha, commits: [], lines: [], capped: false });
 
   // Byte cap stops cleanly and sets capped: true
   const capped = await service.fileBlame({
     worktree: repo,
     path: "app.ts",
+    commit: secondSha,
     startLine: 1,
     endLine: 4,
     maxBytes: 120,
   });
   expect(capped.capped).toBe(true);
   expect(capped.lines.length).toBeLessThan(4);
+});
+
+test("fileBlame refuses a file too large to blame", async () => {
+  const repo = await repository({ "big.txt": "line\n".repeat(10) });
+  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+  await expect(
+    service.fileBlame({
+      worktree: repo,
+      path: "big.txt",
+      commit: head,
+      startLine: 1,
+      endLine: 5,
+      maxFileBytes: 20,
+    }),
+  ).rejects.toMatchObject({ code: "file_too_large" });
+});
+
+test("a read whose capture is full stops Git instead of waiting for it to finish", async () => {
+  const repo = await repository({ "a.ts": "1\n" });
+  const started = Date.now();
+  // An alias that writes forever: only stopping the process tree ends it.
+  const out = await new GitCli({}).call(repo, ["-c", "alias.flood=!yes", "flood"], {
+    captureBytes: 4096,
+    stopAtCapture: true,
+  });
+  expect(out.truncated).toBe(true);
+  expect(out.stdout.length).toBe(4096);
+  expect(Date.now() - started).toBeLessThan(10_000);
 });
 
 test("diffCommit diffs a root commit, a regular commit, and a rename commit", async () => {
@@ -183,7 +246,7 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
       code: "invalid_argument",
     });
     await expect(
-      service.fileBlame({ worktree: repo, path: badPath, startLine: 1, endLine: 1 }),
+      service.fileBlame({ worktree: repo, path: badPath, commit: head, startLine: 1, endLine: 1 }),
     ).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(
       service.diffCommit({ worktree: repo, commit: head, paths: [badPath] }),
@@ -191,11 +254,17 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
   }
 
   await expect(
-    service.fileBlame({ worktree: repo, path: "safe.ts", startLine: 5, endLine: 2 }),
+    service.fileBlame({ worktree: repo, path: "safe.ts", commit: head, startLine: 5, endLine: 2 }),
   ).rejects.toMatchObject({ code: "invalid_argument" });
 
   await expect(
-    service.fileBlame({ worktree: repo, path: "safe.ts", startLine: 1, endLine: 600 }),
+    service.fileBlame({
+      worktree: repo,
+      path: "safe.ts",
+      commit: head,
+      startLine: 1,
+      endLine: 600,
+    }),
   ).rejects.toMatchObject({ code: "invalid_argument" });
 
   await expect(
@@ -206,6 +275,7 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
   const pastEof = await service.fileBlame({
     worktree: repo,
     path: "safe.ts",
+    commit: head,
     startLine: 50,
     endLine: 60,
   });
@@ -215,6 +285,7 @@ test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and 
   const overEnd = await service.fileBlame({
     worktree: repo,
     path: "safe.ts",
+    commit: head,
     startLine: 1,
     endLine: 120,
   });

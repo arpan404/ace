@@ -102,3 +102,35 @@ test("GitBlameCache deduplicates concurrent reads and does not cache failures", 
   const recovered = await cache.read("fail", async () => sampleBlame("2".repeat(40), 2));
   expect(recovered.lines[0]?.line).toBe(2);
 });
+
+test("a caller that gives up does not cancel the blame another caller still waits for", async () => {
+  const cache = new GitBlameCache(() => 0);
+  const answer = Promise.withResolvers<FileBlameResult>();
+  let gitSignal: AbortSignal | undefined;
+  const load = (signal: AbortSignal) => {
+    gitSignal = signal;
+    return answer.promise;
+  };
+  const leaving = new AbortController();
+  const first = cache.read("k", load, leaving.signal);
+  const second = cache.read("k", load);
+  leaving.abort();
+  await expect(first).rejects.toThrow();
+  expect(gitSignal?.aborted).toBe(false);
+  answer.resolve(sampleBlame("d".repeat(40), 4));
+  expect((await second).lines).toEqual([{ line: 4, sha: "d".repeat(40) }]);
+});
+
+test("git is stopped once every caller of a blame has gone", async () => {
+  const cache = new GitBlameCache(() => 0);
+  let gitSignal: AbortSignal | undefined;
+  const load = (signal: AbortSignal) => {
+    gitSignal = signal;
+    return new Promise<FileBlameResult>(() => {});
+  };
+  const one = new AbortController();
+  const read = cache.read("k", load, one.signal);
+  one.abort();
+  await expect(read).rejects.toThrow();
+  expect(gitSignal?.aborted).toBe(true);
+});

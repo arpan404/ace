@@ -33,12 +33,12 @@
       "sha256": "4a34aa975bbbe8db127c3bdbbf8a6078cf10c4937f2f10b311ba76b0cec78a46"
     },
     "push.md": {
-      "bytes": 136815,
-      "sha256": "78b1804c6821eef8c911086307c3a25fbc2d29760baa42defdae27bf4d3ca3b4"
+      "bytes": 136803,
+      "sha256": "9612b7e277d8ad90767195d522842a890227b3a03c184ff8d0b873111ba75991"
     },
     "requests.md": {
-      "bytes": 128995,
-      "sha256": "3add530a17999124ef75cfc5c277b29f005125003bdb2e8d344fd2b54b689328"
+      "bytes": 129061,
+      "sha256": "3f268cbba4e2e7669214e570a0e6f0c9aeeed179d2f222bf56040f339fb6a291"
     },
     "schema/AccessMode.json": {
       "bytes": 224,
@@ -2363,6 +2363,10 @@
     "schema/GitHubHost.json": {
       "bytes": 208,
       "sha256": "31586b4a169fb16763a37f41bf516e5d197ae71a38f5c3dab3abfed32ae6e916"
+    },
+    "schema/GitLogCursor.json": {
+      "bytes": 377,
+      "sha256": "6e85f1bb8ff89bc20d8ea913a390a5ac67e39fff65f3ed8b8803c15d7f1aaf0d"
     },
     "schema/GitLogEntry.json": {
       "bytes": 969,
@@ -6693,12 +6697,12 @@
       "sha256": "650d9f04b81d410f5e4592884782f30f77997fb3e628627c93421ce6a68daf85"
     },
     "schema/WorkspaceActionRequest.json": {
-      "bytes": 34368,
-      "sha256": "81b5f393e3e2948c776f08a6048087d0ba43b3be703770474885a0e7505b4e60"
+      "bytes": 34429,
+      "sha256": "002209429b8cb5b44bc0392dc798d5947cf0b6cb586fad0cc775f935679e91a1"
     },
     "schema/WorkspaceActionResult.json": {
-      "bytes": 13704,
-      "sha256": "a3dde44fbbd1e1bdcf80ce983e7017825b0a4e33bc51182ffa4ac2f2ade1bd33"
+      "bytes": 13660,
+      "sha256": "9f07d3043931066928dd76916367bc2c5b5da90b9188add102a59c99230d874a"
     },
     "schema/WorkspaceChanged.json": {
       "bytes": 635,
@@ -7025,10 +7029,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1426757,
-      "sha256": "130f9007a00ef605cd77f93d7ec1bd19805c97195fae4685d6a58265f82a6eb6"
+      "bytes": 1427202,
+      "sha256": "0105140749545ddac7dbc961ec1d54a1b163182bdf9bf7743ede0bb645176166"
     }
   },
-  "input": "f60d05065832b4e56baff99b1cb474e377f14282502bdc76e4edf4d68df9ec11",
+  "input": "0fcbf270d5be7948f4614db5ec169701be65f29872a41ba35404ac33a697ce22",
   "version": 1
 }

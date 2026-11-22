@@ -59,6 +59,7 @@ import {
   type FileLogOptions,
   type FileLogResult,
 } from "./history.ts";
+import { ReadGate } from "./read-gate.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
@@ -74,7 +75,14 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
+import type {
+  ChangedFile,
+  Checkpoint,
+  DiffResult,
+  DiffSide,
+  GitOptions,
+  PushOptions,
+} from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
@@ -101,6 +109,7 @@ export type {
   CommitDiffOptions,
   FileBlameOptions,
   FileBlameResult,
+  FileLogCursor,
   FileLogOptions,
   FileLogResult,
 } from "./history.ts";
@@ -120,6 +129,8 @@ export type { CheckoutState } from "./transfer-checkout.ts";
 export class GitService {
   private readonly repository: Repository;
   private readonly maxPatchBytes: number;
+  /** History reads (log, blame, a commit's patch) that may run at once (`ReadGate`). */
+  private readonly historyReads = new ReadGate(2);
   /** Moving work to another machine (ADR 0101). */
   readonly transfer: GitTransfer;
 
@@ -529,36 +540,31 @@ export class GitService {
     );
   }
 
-  /** Diff one commit against its first parent (or empty tree for a root commit), scoped to `paths`. */
-  async diffCommit(options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number }) {
-    const root = await this.repository.root(options.worktree);
-    return this.repository.serial(root, () =>
-      diffCommit(this.repository, root, {
-        commit: options.commit,
-        paths: options.paths,
-        maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
-      }),
+  /** One commit's patch for `paths` against its first parent (or the empty tree). */
+  async diffCommit(
+    options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number },
+  ): Promise<DiffResult> {
+    const root = await this.repository.root(options.worktree, options.signal);
+    return this.historyReads.run(
+      () =>
+        diffCommit(this.repository, root, {
+          ...options,
+          maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
+        }),
+      options.signal,
     );
   }
 
-  /** File-scoped commit history following renames, paged and bounded. */
+  /** A file's commits following renames, a page at a time (see `FileLogCursor`). */
   async fileLog(options: FileLogOptions): Promise<FileLogResult> {
     const root = await this.repository.root(options.worktree, options.signal);
-    return this.repository.serial(
-      root,
-      () => fileLog(this.repository, root, options),
-      options.signal,
-    );
+    return this.historyReads.run(() => fileLog(this.repository, root, options), options.signal);
   }
 
-  /** File-scoped porcelain blame over a bounded 1-based inclusive line range. */
+  /** Porcelain blame of a 1-based inclusive line range at one commit. */
   async fileBlame(options: FileBlameOptions): Promise<FileBlameResult> {
     const root = await this.repository.root(options.worktree, options.signal);
-    return this.repository.serial(
-      root,
-      () => fileBlame(this.repository, root, options),
-      options.signal,
-    );
+    return this.historyReads.run(() => fileBlame(this.repository, root, options), options.signal);
   }
 
   /** At most 106 lines and 8192 characters from an immutable commit or checkpoint. */

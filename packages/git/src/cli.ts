@@ -66,6 +66,16 @@ interface CallOptions {
   consume?: (chunk: Buffer) => void;
   /** This call's deadline, instead of the service's `timeoutMs`. */
   timeoutMs?: number;
+  /**
+   * A read-only call whose output past `captureBytes` is not wanted: once the capture is full
+   * Git's process tree is stopped and the call resolves with what was captured (`truncated`).
+   */
+  stopAtCapture?: boolean;
+  /**
+   * A read-only call's work budget: after this long Git's process tree is stopped and the call
+   * resolves with what was captured so far (`truncated`), instead of failing.
+   */
+  stopAfterMs?: number;
 }
 
 export interface Output {
@@ -745,6 +755,14 @@ export class GitCli {
       const ownership = captureMutationOwnership();
       let stopped = false;
       let settled = false;
+      // The caller has all it asked for (`stopAtCapture`, `stopAfterMs`): stop Git, keep output.
+      let enough = false;
+      const enoughOutput = (): Output => ({
+        stdout: Buffer.concat(chunks),
+        stderr: Buffer.concat(errors).toString("utf8"),
+        exitCode: 0,
+        truncated: true,
+      });
       // Windows: the call's job holds Git and everything it started. Once it is empty the
       // receipt is confirmed, and its leases retire as a POSIX call's do once its group is gone.
       const killContained = (call: GitJob, leader: number) => {
@@ -777,7 +795,8 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        reject(failure);
+        if (enough && !failure) resolve(enoughOutput());
+        else reject(failure);
       };
       const kill = () => {
         if (stopped) return;
@@ -833,7 +852,8 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        reject(failure);
+        if (enough && !failure) resolve(enoughOutput());
+        else reject(failure);
       };
       const cancel = () => {
         failure ??= new GitError("git_closed", "Git service closed");
@@ -850,6 +870,14 @@ export class GitCli {
         failure = toGitError(error);
         kill();
       };
+      const cancelBudget =
+        options.stopAfterMs === undefined
+          ? undefined
+          : this.runtime.scheduleTimeout(() => {
+              if (failure || settled) return;
+              enough = true;
+              kill();
+            }, options.stopAfterMs);
       const deadline = options.timeoutMs ?? this.timeoutMs;
       const cancelDeadline = this.runtime.scheduleTimeout(() => {
         fail(new GitError("git_timeout", `Git exceeded ${deadline}ms`, { args }));
@@ -880,6 +908,9 @@ export class GitCli {
           truncated = true;
           if (options.captureBytes === undefined) {
             fail(new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args }));
+          } else if (options.stopAtCapture && !failure && !enough) {
+            enough = true;
+            kill();
           }
         }
       };
@@ -908,6 +939,7 @@ export class GitCli {
       child.on("error", spawnError);
       const detach = () => {
         cancelDeadline();
+        cancelBudget?.();
         this.cancellations.delete(cancel);
         options.signal?.removeEventListener("abort", abort);
         if (options.input instanceof Readable) {

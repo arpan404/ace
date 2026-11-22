@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { gitDiffFileLimit } from "@ace/protocol";
+import { SharedWork } from "./shared-work.ts";
 
 /*
  * One file's whole working-tree patch, held briefly so its pages slice one read of git instead
@@ -47,7 +48,8 @@ export class FilePatchCache {
   #limits: FilePatchLimits;
   #held = new Map<string, Held>();
   #units = 0;
-  #loading = new Map<string, Promise<FilePatch>>();
+  /** Reads of git under way; each page waits on its own signal (`SharedWork`). */
+  #loading = new SharedWork<FilePatch>();
 
   constructor(now: () => number, limits: FilePatchLimits = filePatchLimits) {
     this.#now = now;
@@ -61,35 +63,26 @@ export class FilePatchCache {
   async read(
     key: string,
     expected: string | undefined,
-    load: () => Promise<{ patch: string; truncated: boolean }>,
+    load: (signal: AbortSignal) => Promise<{ patch: string; truncated: boolean }>,
+    signal?: AbortSignal,
   ): Promise<FilePatch> {
     if (expected !== undefined) {
       const held = this.#live(key);
       if (held?.validator === expected) return held;
     }
-    const fresh = expected === undefined ? this.#load(key, load) : this.#shared(key, load);
-    const patch = await fresh;
+    const read = (stop: AbortSignal) =>
+      load(stop).then(({ patch, truncated }) => {
+        const fresh = { patch, truncated, validator: patchValidator(patch, truncated) };
+        this.#put(key, fresh);
+        return fresh;
+      });
+    // A first page reads git again; later pages arriving together share one read.
+    const patch =
+      expected === undefined
+        ? await this.#loading.start(key, read, signal)
+        : await this.#loading.join(key, read, signal);
     if (expected !== undefined && patch.validator !== expected) throw new Error(diffChanged);
     return patch;
-  }
-
-  /** Later pages arriving together share one read of git. */
-  #shared(key: string, load: () => Promise<{ patch: string; truncated: boolean }>) {
-    return this.#loading.get(key) ?? this.#load(key, load);
-  }
-
-  #load(key: string, load: () => Promise<{ patch: string; truncated: boolean }>) {
-    const loading = load().then(({ patch, truncated }) => {
-      const read = { patch, truncated, validator: patchValidator(patch, truncated) };
-      this.#put(key, read);
-      return read;
-    });
-    this.#loading.set(key, loading);
-    const forget = () => {
-      if (this.#loading.get(key) === loading) this.#loading.delete(key);
-    };
-    loading.then(forget, forget);
-    return loading;
   }
 
   #live(key: string): Held | undefined {

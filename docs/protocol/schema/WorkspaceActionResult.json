@@ -475,10 +475,8 @@
               "const": "gitLog",
               "type": "string"
             },
-            "nextSkip": {
-              "exclusiveMinimum": 0,
-              "maximum": 9007199254740991,
-              "type": "integer"
+            "next": {
+              "$ref": "https://ace.local/protocol/v1/GitLogCursor.json"
             }
           },
           "required": [

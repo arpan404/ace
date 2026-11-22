@@ -40,8 +40,6 @@ import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { providerNotice } from "@ace/projection";
 import { existsSync } from "node:fs";
-import { realpath, stat } from "node:fs/promises";
-import { join, sep } from "node:path";
 import { GitError, GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
 import {
@@ -828,25 +826,32 @@ export class WorkspaceRuntime {
       }
       const paths = [op.path, ...(op.from ? [op.from] : [])];
       const key = JSON.stringify([op.threadId, root, op.commit ?? null, paths]);
-      const file = await this.filePatches.read(key, op.expected, async () => {
-        const diff =
-          op.commit !== undefined
-            ? await this.git.diffCommit({
-                worktree: root,
-                commit: op.commit,
-                paths,
-                maxPatchBytes: filePatchBytes,
-              })
-            : await this.git.diff({
-                worktree: root,
-                from: { kind: "commit", ref: "HEAD" },
-                to: { kind: "working-tree" },
-                maxPatchBytes: filePatchBytes,
-                paths,
-              });
-        if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
-        return { patch: diff.patch, truncated: diff.truncated };
-      });
+      // Each page waits on its own signal; git stops once no page still wants its answer.
+      const file = await this.filePatches.read(
+        key,
+        op.expected,
+        async (stop) => {
+          const diff =
+            op.commit !== undefined
+              ? await this.git.diffCommit({
+                  worktree: root,
+                  commit: op.commit,
+                  paths,
+                  maxPatchBytes: filePatchBytes,
+                  signal: stop,
+                })
+              : await this.git.diff({
+                  worktree: root,
+                  from: { kind: "commit", ref: "HEAD" },
+                  to: { kind: "working-tree" },
+                  maxPatchBytes: filePatchBytes,
+                  paths,
+                });
+          if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
+          return { patch: diff.patch, truncated: diff.truncated };
+        },
+        signal,
+      );
       const page = diffPage(file.patch, file.truncated, op.offset ?? 0);
       return wrap({ kind: "gitDiff", ...page, validator: file.validator });
     }
@@ -855,7 +860,7 @@ export class WorkspaceRuntime {
       const log = await this.git.fileLog({
         worktree: root,
         path: op.path,
-        skip: op.skip,
+        cursor: op.cursor,
         limit: op.limit,
         signal,
       });
@@ -864,29 +869,30 @@ export class WorkspaceRuntime {
     }
     if (op.op === "git.blame") {
       const root = this.root(op.threadId);
-      const stamp = await checkoutFileStamp(root, op.path);
-      const head = await this.git
-        .resolveCommit({ worktree: root, ref: "HEAD", signal })
-        .catch((error: unknown) => {
-          if (error instanceof GitError && error.code === "unborn_head") return null;
-          throw error;
-        });
-      const key = JSON.stringify([
-        root,
-        head ?? "unborn",
-        op.path,
-        stamp,
-        op.startLine,
-        op.endLine,
-      ]);
-      const blamed = await this.fileBlames.read(key, () =>
-        this.git.fileBlame({
-          worktree: root,
-          path: op.path,
-          startLine: op.startLine,
-          endLine: op.endLine,
-          signal,
-        }),
+      // Blame at one resolved commit: the answer never changes, so it is keyed on that id.
+      const commit =
+        op.commit ??
+        (await this.git
+          .resolveCommit({ worktree: root, ref: "HEAD", signal })
+          .catch((error: unknown) => {
+            if (error instanceof GitError && error.code === "unborn_head") return null;
+            throw error;
+          }));
+      if (commit === null)
+        return wrap({ kind: "gitBlame", head: null, commits: [], lines: [], capped: false });
+      const key = JSON.stringify([root, commit, op.path, op.startLine, op.endLine]);
+      const blamed = await this.fileBlames.read(
+        key,
+        (stop) =>
+          this.git.fileBlame({
+            worktree: root,
+            path: op.path,
+            commit,
+            startLine: op.startLine,
+            endLine: op.endLine,
+            signal: stop,
+          }),
+        signal,
       );
       if (this.root(op.threadId) !== root) throw new Error("workspace_root_changed");
       return wrap({ kind: "gitBlame", ...blamed });
@@ -1212,24 +1218,5 @@ function terminalAlive(terminal: Terminal): boolean {
   } catch (error) {
     // EPERM means the PID exists under another owner; only ESRCH proves it is gone.
     return !(error instanceof Error && "code" in error && error.code === "ESRCH");
-  }
-}
-
-async function checkoutFileStamp(root: string, path: string): Promise<string> {
-  const realRoot = await realpath(root);
-  const full = join(realRoot, path);
-  let resolved: string;
-  try {
-    resolved = await realpath(full);
-  } catch {
-    return "missing";
-  }
-  const prefix = realRoot.endsWith(sep) ? realRoot : `${realRoot}${sep}`;
-  if (resolved !== realRoot && !resolved.startsWith(prefix)) throw new Error("path_not_openable");
-  try {
-    const info = await stat(resolved);
-    return `${Math.trunc(info.mtimeMs)}:${info.size}`;
-  } catch {
-    return "missing";
   }
 }

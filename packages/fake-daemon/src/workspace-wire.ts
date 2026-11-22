@@ -336,8 +336,10 @@ export class FakeWorkspaceWire {
     threadId: string,
     path: string,
     data: { commits: readonly GitBlameCommit[]; lines: readonly GitBlameLine[]; capped?: boolean },
+    /** The commit this blame answers for; left out, it answers for every commit. */
+    commit?: string,
   ): void {
-    this.gitBlames.set(`${threadId}:${path}`, data);
+    this.gitBlames.set(`${threadId}:${path}:${commit ?? ""}`, data);
   }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
@@ -630,8 +632,10 @@ export class FakeWorkspaceWire {
     }
     if (op.op === "git.log") {
       const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
-      const entries = all.slice(op.skip, op.skip + op.limit);
-      const hasMore = op.skip + entries.length < all.length;
+      const from = op.cursor ? all.findIndex((entry) => entry.sha === op.cursor?.after) + 1 : 0;
+      const entries = all.slice(from, from + op.limit);
+      const hasMore = from + entries.length < all.length;
+      const last = entries.at(-1);
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
@@ -639,14 +643,19 @@ export class FakeWorkspaceWire {
           kind: "gitLog",
           entries,
           hasMore,
-          ...(hasMore ? { nextSkip: op.skip + entries.length } : {}),
+          ...(hasMore && last
+            ? { next: { after: last.sha, path: last.previousPath ?? last.path } }
+            : {}),
           capped: false,
           head: this.head(op.threadId) ?? null,
         },
       });
     }
     if (op.op === "git.blame") {
-      const seeded = this.gitBlames.get(`${op.threadId}:${op.path}`);
+      const head = op.commit ?? this.head(op.threadId) ?? null;
+      const seeded =
+        this.gitBlames.get(`${op.threadId}:${op.path}:${head ?? ""}`) ??
+        this.gitBlames.get(`${op.threadId}:${op.path}:`);
       const lines = (seeded?.lines ?? []).filter(
         (entry) => entry.line >= op.startLine && entry.line <= op.endLine,
       );
@@ -657,7 +666,7 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: {
           kind: "gitBlame",
-          head: this.head(op.threadId) ?? null,
+          head,
           commits,
           lines,
           capped: seeded?.capped ?? false,

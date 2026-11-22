@@ -10,27 +10,44 @@ import {
 import { devNull } from "node:os";
 import { patchOutput, textOutput } from "./cli.ts";
 import { hashSchema, pathSchema } from "./decode.ts";
-import { diff } from "./diff.ts";
 import { parseFileBlame, parseFileLog } from "./parse-history.ts";
 import type { Repository } from "./repository.ts";
 import { GitError, type DiffResult } from "./types.ts";
 
+/*
+ * File history reads: a file's commits (`git log --follow`), blame of a line range at one
+ * commit, and one commit's patch. Each is bounded twice: by output (Git is stopped once the
+ * capture is full) and by work (Git is stopped after a time budget and what it wrote is kept).
+ */
+
 const emptyTreeSha1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const emptyTreeSha256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
+
+/** How long one history read may make Git work before it is stopped. */
+export const historyBudgetMs = 10_000;
+/** Blame reads the whole file at every commit it walks: larger files are refused. */
+export const blameMaxFileBytes = 2 * 1024 * 1024;
+
+/** Where the next page of a file's history starts: before `after`, at the file's name there. */
+export interface FileLogCursor {
+  after: string;
+  path: string;
+}
 
 export interface FileLogOptions {
   worktree: string;
   path: string;
-  skip?: number | undefined;
+  cursor?: FileLogCursor | undefined;
   limit?: number | undefined;
   maxBytes?: number | undefined;
+  budgetMs?: number | undefined;
   signal?: AbortSignal | undefined;
 }
 
 export interface FileLogResult {
   entries: GitLogEntry[];
   hasMore: boolean;
-  nextSkip?: number;
+  next?: FileLogCursor;
   capped: boolean;
   head: string | null;
 }
@@ -38,10 +55,14 @@ export interface FileLogResult {
 export interface FileBlameOptions {
   worktree: string;
   path: string;
+  /** The commit to blame at; the result never depends on the working tree or a moving HEAD. */
+  commit: string;
   startLine: number;
   endLine: number;
   maxBytes?: number | undefined;
   maxLines?: number | undefined;
+  maxFileBytes?: number | undefined;
+  budgetMs?: number | undefined;
   signal?: AbortSignal | undefined;
 }
 
@@ -57,6 +78,8 @@ export interface CommitDiffOptions {
   commit: string;
   paths: readonly string[];
   maxPatchBytes: number;
+  budgetMs?: number | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 function validatePath(path: string): string {
@@ -65,6 +88,12 @@ function validatePath(path: string): string {
   const parsed = pathSchema.safeParse(path);
   if (!parsed.success) throw new GitError("invalid_argument", `Invalid repository path: ${path}`);
   return parsed.data;
+}
+
+function validateCommit(commit: string): string {
+  if (!hashSchema.safeParse(commit).success)
+    throw new GitError("invalid_ref", `Invalid commit id: ${commit}`);
+  return commit;
 }
 
 async function resolveHeadOrNull(
@@ -80,8 +109,24 @@ async function resolveHeadOrNull(
   }
 }
 
+/** A commit's parents (none for a root commit). */
+async function parentsOf(
+  repository: Repository,
+  root: string,
+  commit: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const out = await repository.cli.call(root, ["rev-list", "--parents", "-n", "1", commit], {
+    captureBytes: 64 * 1024,
+    ...(signal ? { signal } : {}),
+  });
+  return textOutput(out).split(" ").slice(1).filter(Boolean);
+}
+
 /**
- * File-scoped commit history following renames, bounded by entry limit and byte cap.
+ * A file's commits following renames, a page at a time. The first page starts at HEAD; each
+ * later one at the cursor the page before returned (before its last commit, at the file's name
+ * there), so a page never replays the ones before it and new commits never shift it.
  */
 export async function fileLog(
   repository: Repository,
@@ -89,22 +134,23 @@ export async function fileLog(
   options: Omit<FileLogOptions, "worktree">,
 ): Promise<FileLogResult> {
   const path = validatePath(options.path);
-  const skip = options.skip ?? 0;
   const limit = options.limit ?? 50;
   const maxBytes = options.maxBytes ?? gitLogMaxBytes;
-  if (!Number.isSafeInteger(skip) || skip < 0 || skip > 100_000)
-    throw new GitError("invalid_argument", "skip must be an integer between 0 and 100000");
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > gitLogMaxLimit)
     throw new GitError("invalid_argument", `limit must be between 1 and ${gitLogMaxLimit}`);
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw new GitError("invalid_argument", "maxBytes must be a positive integer");
+  const cursor = options.cursor && {
+    after: validateCommit(options.cursor.after),
+    path: validatePath(options.cursor.path),
+  };
 
   const head = await resolveHeadOrNull(repository, root, options.signal);
   if (!head) return { entries: [], hasMore: false, capped: false, head: null };
+  const starts = cursor ? await parentsOf(repository, root, cursor.after, options.signal) : [head];
+  if (starts.length === 0) return { entries: [], hasMore: false, capped: false, head };
+  const walkPath = cursor?.path ?? path;
 
-  // `git log --follow` only detects renames at commits it inspects; `--skip` would jump past
-  // a rename before switching paths. Bound the walk to `skip + limit + 1` and slice the page.
-  const captureLimit = skip === 0 ? maxBytes : Math.min(4 * 1024 * 1024, maxBytes + skip * 512);
   const output = await repository.cli.call(
     root,
     [
@@ -114,38 +160,41 @@ export async function fileLog(
       "--follow",
       "--name-status",
       "-z",
-      `--max-count=${skip + limit + 1}`,
+      `--max-count=${limit + 1}`,
       "--format=tformat:%x1e%H%x00%an%x00%ae%x00%at%x00%s",
-      head,
+      ...starts,
       "--",
-      `:(literal)${path}`,
+      `:(literal)${walkPath}`,
     ],
     {
-      captureBytes: captureLimit,
+      captureBytes: maxBytes,
+      stopAtCapture: true,
+      stopAfterMs: options.budgetMs ?? historyBudgetMs,
       ...(options.signal ? { signal: options.signal } : {}),
     },
   );
 
-  const parsed = parseFileLog(output.stdout, path, output.truncated);
-  const afterSkip = parsed.entries.slice(skip);
-  const hasExtra = afterSkip.length > limit;
-  const entries = hasExtra ? afterSkip.slice(0, limit) : afterSkip;
+  const parsed = parseFileLog(output.stdout, walkPath, output.truncated);
+  const hasExtra = parsed.entries.length > limit;
+  const entries = hasExtra ? parsed.entries.slice(0, limit) : parsed.entries;
   const capped = parsed.incomplete && !hasExtra;
   const hasMore = hasExtra || (capped && entries.length > 0);
-  const nextSkip = hasMore ? skip + entries.length : undefined;
+  const last = entries.at(-1);
+  const next =
+    hasMore && last ? { after: last.sha, path: last.previousPath ?? last.path } : undefined;
+  return { entries, hasMore, ...(next ? { next } : {}), capped, head };
+}
 
-  return {
-    entries,
-    hasMore,
-    ...(nextSkip !== undefined ? { nextSkip } : {}),
-    capped,
-    head,
-  };
+/** The line count git names when a blame range starts or ends past the file's end. */
+function linesInFile(stderr: string): number | undefined {
+  const match = /has only (\d+) lines?/.exec(stderr);
+  return match ? Number(match[1]) : undefined;
 }
 
 /**
- * File-scoped porcelain blame over an inclusive 1-based line range, bounded by line and byte caps.
- * Untracked files, unborn HEAD, or ranges starting past EOF return an empty line list cleanly.
+ * Porcelain blame of an inclusive 1-based line range of `path` at `commit`. A file the commit
+ * doesn't have, or a range starting past its end, returns no lines; a file over
+ * `maxFileBytes` is refused (`file_too_large`), since blame reads it at every commit it walks.
  */
 export async function fileBlame(
   repository: Repository,
@@ -153,9 +202,11 @@ export async function fileBlame(
   options: Omit<FileBlameOptions, "worktree">,
 ): Promise<FileBlameResult> {
   const path = validatePath(options.path);
+  const commit = validateCommit(options.commit);
   const maxLines = Math.min(options.maxLines ?? gitBlameMaxLines, gitBlameMaxLines);
   const maxBytes = options.maxBytes ?? gitBlameMaxBytes;
-  const { startLine, endLine } = options;
+  const maxFileBytes = options.maxFileBytes ?? blameMaxFileBytes;
+  const { startLine, endLine, signal } = options;
   if (
     !Number.isSafeInteger(startLine) ||
     !Number.isSafeInteger(endLine) ||
@@ -167,9 +218,17 @@ export async function fileBlame(
   }
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw new GitError("invalid_argument", "maxBytes must be a positive integer");
+  const none: FileBlameResult = { head: commit, commits: [], lines: [], capped: false };
 
-  const head = await resolveHeadOrNull(repository, root, options.signal);
-  if (!head) return { head: null, commits: [], lines: [], capped: false };
+  const size = await repository.cli.call(root, ["cat-file", "-s", `${commit}:${path}`], {
+    allowFailure: true,
+    captureBytes: 64,
+    ...(signal ? { signal } : {}),
+  });
+  // The commit has no such file (untracked, added since, or a missing commit's object).
+  if (size.exitCode !== 0) return none;
+  if (Number(textOutput(size)) > maxFileBytes)
+    throw new GitError("file_too_large", `${path} is too large to blame`);
 
   const blame = (end: number) =>
     repository.cli.call(
@@ -181,86 +240,54 @@ export async function fileBlame(
         "--porcelain",
         "-L",
         `${startLine},${end}`,
+        commit,
         "--",
         path,
       ],
       {
         allowFailure: true,
         captureBytes: maxBytes,
-        ...(options.signal ? { signal: options.signal } : {}),
+        stopAtCapture: true,
+        stopAfterMs: options.budgetMs ?? historyBudgetMs,
+        ...(signal ? { signal } : {}),
       },
     );
 
   let output = await blame(endLine);
-  // The range reaches past the file's end on disk (an unsaved buffer can be longer): blame the
-  // lines that exist instead of failing the whole range.
+  // The range reaches past the file's end: blame the lines that exist.
   const fileLines = output.exitCode === 0 ? undefined : linesInFile(output.stderr);
   if (fileLines !== undefined) {
-    if (fileLines < startLine) return { head, commits: [], lines: [], capped: false };
+    if (fileLines < startLine) return none;
     output = await blame(fileLines);
   }
-
   if (output.exitCode !== 0) {
-    const stderr = output.stderr.toLowerCase();
-    // An untracked file or one outside the repository has no history: not an error.
-    if (stderr.includes("no such path") || stderr.includes("outside repository")) {
-      return { head, commits: [], lines: [], capped: false };
-    }
+    if (/no such path|outside repository/i.test(output.stderr)) return none;
     throw new GitError("git_failed", output.stderr.trim() || "git blame failed");
   }
 
   const parsed = parseFileBlame(output.stdout, output.truncated, maxLines);
-  const expectedMax = endLine - startLine + 1;
-  const capped = output.truncated || (parsed.incomplete && parsed.lines.length < expectedMax);
-
-  return {
-    head,
-    commits: parsed.commits,
-    lines: parsed.lines,
-    capped,
-  };
-}
-
-/** The line count git names when a blame range starts or ends past the file's end. */
-function linesInFile(stderr: string): number | undefined {
-  const match = /has only (\d+) lines?/.exec(stderr);
-  return match ? Number(match[1]) : undefined;
+  const asked = Math.min(endLine, fileLines ?? endLine) - startLine + 1;
+  const capped = output.truncated || (parsed.incomplete && parsed.lines.length < asked);
+  return { head: commit, commits: parsed.commits, lines: parsed.lines, capped };
 }
 
 /**
- * Diff a single commit against its first parent (or the empty tree for a root commit),
- * scoped to `paths`.
+ * One commit's patch for `paths`, against its first parent (or the empty tree for a root
+ * commit). Git is stopped once the patch reaches `maxPatchBytes` or the work budget runs out.
  */
 export async function diffCommit(
   repository: Repository,
   root: string,
   options: Omit<CommitDiffOptions, "worktree">,
 ): Promise<DiffResult> {
-  if (!hashSchema.safeParse(options.commit).success)
-    throw new GitError("invalid_ref", `Invalid commit id: ${options.commit}`);
+  validateCommit(options.commit);
   if (!Number.isSafeInteger(options.maxPatchBytes) || options.maxPatchBytes < 0)
     throw new GitError("invalid_argument", "maxPatchBytes must be a non-negative integer");
   const paths = options.paths.map(validatePath);
-  const sha = await repository.commit(root, options.commit);
-
-  const parent = await repository.cli.call(root, ["rev-parse", "--verify", "--quiet", `${sha}^1`], {
-    allowFailure: true,
-  });
-  if (parent.exitCode === 0) {
-    const parentSha = textOutput(parent);
-    return diff(
-      repository,
-      root,
-      { kind: "commit", ref: parentSha },
-      { kind: "commit", ref: sha },
-      options.maxPatchBytes,
-      paths,
-    );
-  }
-
-  // Root commit has no parent: diff against Git's empty tree object.
-  const emptyTree = sha.length === 64 ? emptyTreeSha256 : emptyTreeSha1;
-  const pathspecs = paths.map((path) => `:(literal)${path}`);
+  const { signal } = options;
+  const sha = await repository.commit(root, options.commit, signal);
+  const parents = await parentsOf(repository, root, sha, signal);
+  const from = parents[0] ?? (sha.length === 64 ? emptyTreeSha256 : emptyTreeSha1);
   const orderFile = repository.cli.platform === "win32" ? "-O/dev/null" : `-O${devNull}`;
   const patch = await repository.cli.call(
     root,
@@ -286,14 +313,18 @@ export async function diffCommit(
       "--patch",
       "--unified=3",
       "--inter-hunk-context=0",
-      emptyTree,
+      from,
       sha,
       "--",
-      ...pathspecs,
+      ...paths.map((path) => `:(literal)${path}`),
     ],
-    { captureBytes: options.maxPatchBytes },
+    {
+      captureBytes: options.maxPatchBytes,
+      stopAtCapture: true,
+      stopAfterMs: options.budgetMs ?? historyBudgetMs,
+      ...(signal ? { signal } : {}),
+    },
   );
-
   return {
     entries: [],
     patch: patchOutput({

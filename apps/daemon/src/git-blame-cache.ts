@@ -1,9 +1,10 @@
 import type { FileBlameResult } from "@ace/git";
+import { SharedWork } from "./shared-work.ts";
 
 /*
- * Bounded cache for `git.blame` range reads, keyed by checkout root, HEAD, file stat stamp,
- * repository-relative path, and line range. Concurrent requests for the same range share one
- * Git invocation. Uses an injected clock for deterministic expiry.
+ * Bounded cache for `git.blame` range reads, keyed by checkout root, the commit blamed at,
+ * repository-relative path and line range: a blame at a commit never changes. Concurrent
+ * requests for the same range share one Git invocation. Uses an injected clock for expiry.
  */
 
 export interface BlameCacheLimits {
@@ -25,28 +26,33 @@ export class GitBlameCache {
   readonly #now: () => number;
   readonly #limits: BlameCacheLimits;
   readonly #held = new Map<string, HeldBlame>();
-  readonly #loading = new Map<string, Promise<FileBlameResult>>();
+  readonly #loading = new SharedWork<FileBlameResult>();
 
   constructor(now: () => number, limits: BlameCacheLimits = defaultBlameCacheLimits) {
     this.#now = now;
     this.#limits = limits;
   }
 
-  read(key: string, load: () => Promise<FileBlameResult>): Promise<FileBlameResult> {
+  /**
+   * `key`'s blame, loaded once for everyone asking together. Each caller leaves on its own
+   * signal; git is stopped only when every caller has gone.
+   */
+  async read(
+    key: string,
+    load: (signal: AbortSignal) => Promise<FileBlameResult>,
+    signal?: AbortSignal,
+  ): Promise<FileBlameResult> {
     const cached = this.#live(key);
-    if (cached) return Promise.resolve(cached);
-    const active = this.#loading.get(key);
-    if (active) return active;
-    const pending = load().then((value) => {
-      this.#put(key, value);
-      return value;
-    });
-    this.#loading.set(key, pending);
-    const forget = () => {
-      if (this.#loading.get(key) === pending) this.#loading.delete(key);
-    };
-    pending.then(forget, forget);
-    return pending;
+    if (cached) return cached;
+    return this.#loading.join(
+      key,
+      (stop) =>
+        load(stop).then((value) => {
+          this.#put(key, value);
+          return value;
+        }),
+      signal,
+    );
   }
 
   #live(key: string): FileBlameResult | undefined {

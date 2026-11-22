@@ -1,5 +1,5 @@
 import type { ClientApi } from "@ace/client";
-import { CommitSha, ReviewPath, ThreadId } from "@ace/protocol";
+import { CommitSha, ReviewPath, ThreadId, type GitLogCursor } from "@ace/protocol";
 import { CommandRefused } from "./daemon-command.ts";
 
 /** One commit opened in the read-only commit diff viewer (from Timeline or Inline Blame). */
@@ -20,7 +20,7 @@ export async function readGitLog(
   client: ClientApi,
   threadId: string,
   path: string,
-  options?: { skip?: number; limit?: number; signal?: AbortSignal },
+  options?: { cursor?: GitLogCursor | undefined; limit?: number; signal?: AbortSignal },
 ) {
   const reply = await client.request(
     {
@@ -29,7 +29,7 @@ export async function readGitLog(
         op: "git.log",
         threadId: ThreadId.parse(threadId),
         path: ReviewPath.parse(path),
-        skip: options?.skip ?? 0,
+        ...(options?.cursor ? { cursor: options.cursor } : {}),
         limit: options?.limit ?? 25,
       },
     },
@@ -39,15 +39,18 @@ export async function readGitLog(
   return reply.result;
 }
 
-/** Reads blame attribution for a bounded 1-based line range of a file via `git.blame`. */
+/**
+ * Reads blame for a bounded 1-based line range of a file at `commit` via `git.blame`. Lines are
+ * the file's lines at that commit.
+ */
 export async function readGitBlame(
   client: ClientApi,
   threadId: string,
   path: string,
-  startLine: number,
-  endLine: number,
+  range: { commit: string; startLine: number; endLine: number },
   signal?: AbortSignal,
 ) {
+  const { commit, startLine, endLine } = range;
   const reply = await client.request(
     {
       type: "workspace.request",
@@ -55,6 +58,7 @@ export async function readGitBlame(
         op: "git.blame",
         threadId: ThreadId.parse(threadId),
         path: ReviewPath.parse(path),
+        commit: CommitSha.parse(commit),
         startLine,
         endLine,
       },

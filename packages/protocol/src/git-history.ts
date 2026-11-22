@@ -44,32 +44,38 @@ export type GitBlameCommit = z.infer<typeof GitBlameCommit>;
 
 export const GitBlameLine = z.object({
   line: lineNumber,
-  /** The commit that last changed this line, or null when uncommitted in the working tree. */
+  /** The commit that last changed this line (null is kept for older daemons' uncommitted lines). */
   sha: CommitSha.nullable(),
 });
 export type GitBlameLine = z.infer<typeof GitBlameLine>;
 
+/** Where a file's next page of history starts: before `after`, at the file's name there. */
+export const GitLogCursor = z.object({ after: CommitSha, path: ReviewPath });
+export type GitLogCursor = z.infer<typeof GitLogCursor>;
+
 export const GitHistoryOperations = [
   /**
    * File-scoped commit history in the thread's checkout, following renames (`git log --follow`).
-   * Paged with `skip` and `limit`, bounded by `gitLogMaxLimit` entries and `gitLogMaxBytes` bytes.
+   * The first page starts at HEAD; a later one at the `next` cursor the page before returned.
+   * Bounded by `gitLogMaxLimit` entries, `gitLogMaxBytes` bytes and a work budget.
    */
   z.object({
     op: z.literal("git.log"),
     threadId: ThreadId,
     path: ReviewPath,
-    skip: z.number().int().min(0).max(100_000).default(0),
+    cursor: GitLogCursor.optional(),
     limit: z.number().int().min(1).max(gitLogMaxLimit).default(50),
   }),
   /**
-   * File-scoped blame for a bounded 1-based inclusive line range in the thread's checkout.
-   * Uncommitted working-tree lines carry `sha: null`.
+   * File-scoped blame of a bounded 1-based inclusive line range at `commit` (HEAD when left
+   * out, resolved once and returned as `head`). Lines are the file's lines at that commit.
    */
   z
     .object({
       op: z.literal("git.blame"),
       threadId: ThreadId,
       path: ReviewPath,
+      commit: CommitSha.optional(),
       startLine: lineNumber,
       endLine: lineNumber,
     })
@@ -88,7 +94,7 @@ export const GitHistoryResults = [
     kind: z.literal("gitLog"),
     entries: z.array(GitLogEntry).max(gitLogMaxLimit),
     hasMore: z.boolean(),
-    nextSkip: z.number().int().positive().optional(),
+    next: GitLogCursor.optional(),
     /** Output stopped at the daemon's byte or entry cap before the requested page finished. */
     capped: z.boolean(),
     head: CommitSha.nullable(),

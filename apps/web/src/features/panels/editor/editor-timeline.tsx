@@ -1,6 +1,6 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
 import { CaretDownIcon, CaretRightIcon, CheckIcon, CopyIcon, GitCommitIcon } from "@ace/icons";
-import type { GitLogEntry } from "@ace/protocol";
+import type { GitLogCursor, GitLogEntry } from "@ace/protocol";
 import { useEffect, useState } from "react";
 import {
   ContextMenu,
@@ -18,7 +18,7 @@ interface TimelineData {
   key: string;
   entries: readonly GitLogEntry[];
   hasMore: boolean;
-  nextSkip: number | undefined;
+  next: GitLogCursor | undefined;
   capped: boolean;
   error: string | undefined;
   loadingMore: boolean;
@@ -50,7 +50,6 @@ export function EditorTimeline(props: {
     if (!requestKey || path === undefined) return;
     const controller = new AbortController();
     void readGitLog(client, threadId, path, {
-      skip: 0,
       limit: pageSize,
       signal: controller.signal,
     }).then(
@@ -60,7 +59,7 @@ export function EditorTimeline(props: {
           key: requestKey,
           entries: result.entries,
           hasMore: result.hasMore,
-          nextSkip: result.nextSkip,
+          next: result.next,
           capped: result.capped,
           error: undefined,
           loadingMore: false,
@@ -72,7 +71,7 @@ export function EditorTimeline(props: {
           key: requestKey,
           entries: [],
           hasMore: false,
-          nextSkip: 0,
+          next: undefined,
           capped: false,
           error: "Couldn't read this file's history.",
           loadingMore: false,
@@ -91,12 +90,12 @@ export function EditorTimeline(props: {
       !path ||
       !requestKey ||
       !active.hasMore ||
-      active.nextSkip === undefined ||
+      active.next === undefined ||
       active.loadingMore
     )
       return;
     setData({ ...active, loadingMore: true });
-    void readGitLog(client, threadId, path, { skip: active.nextSkip, limit: pageSize }).then(
+    void readGitLog(client, threadId, path, { cursor: active.next, limit: pageSize }).then(
       (result) => {
         setData((prev) =>
           prev && prev.key === requestKey
@@ -104,7 +103,7 @@ export function EditorTimeline(props: {
                 ...prev,
                 entries: [...prev.entries, ...result.entries],
                 hasMore: result.hasMore,
-                nextSkip: result.nextSkip,
+                next: result.next,
                 capped: prev.capped || result.capped,
                 loadingMore: false,
               }
