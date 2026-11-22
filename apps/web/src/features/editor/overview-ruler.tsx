@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn.ts";
 import { changeWords } from "./change-bars.tsx";
-import { overviewTicks, type OverviewInput, type OverviewTick } from "./overview.ts";
+import { useMemo } from "react";
+import { caretTick, laneTicks, type OverviewInput, type OverviewTick } from "./overview.ts";
 
 /*
  * The overview ruler in the editor's vertical scrollbar: the whole file's changes, agents'
@@ -31,9 +32,23 @@ const tickWords = (tick: OverviewTick): string => {
   }
 };
 
-export function OverviewRuler(props: OverviewInput & { onJump(line: number): void }) {
-  "use no memo";
-  const ticks = overviewTicks(props);
+export function OverviewRuler(
+  props: OverviewInput & {
+    /** The row layout: the lanes are worked out again when it, the rows or the marks change. */
+    layoutKey: object;
+    onJump(line: number): void;
+  },
+) {
+  const { marks, agent, hits, rows, viewRows, height, layoutKey } = props;
+  // The change and hit lanes follow the marks and the layout, never the caret: a caret move
+  // draws one tick.
+  const lanes = useMemo(
+    () => laneTicks(props),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- rowOf and rowsOf read the layout, which `layoutKey` and `rows` stand for.
+    [marks, agent, hits, rows, viewRows, height, layoutKey],
+  );
+  const caret = caretTick(props);
+  const ticks = caret ? [...lanes, caret] : lanes;
   if (ticks.length === 0) return null;
   return (
     <div

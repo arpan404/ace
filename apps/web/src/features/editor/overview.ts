@@ -39,19 +39,26 @@ export interface OverviewInput {
 /** The fewest pixels a tick is drawn. */
 const least = 2;
 
-export function overviewTicks(input: OverviewInput): OverviewTick[] {
-  // A file shorter than the view maps its rows where they are drawn, not stretched to the end.
-  const span = Math.max(1, input.rows, input.viewRows);
-  const scale = input.height / span;
+/** Rows to pixels: a file shorter than the view maps its rows where they are drawn. */
+function scaleOf(input: Pick<OverviewInput, "rows" | "viewRows" | "height">): number {
+  return input.height / Math.max(1, input.rows, input.viewRows);
+}
+
+/**
+ * The change and find-hit lanes: at most one tick per lane per pixel. Linear in the marks and
+ * hits; the caller keeps them while those and the layout's size stay the same.
+ */
+export function laneTicks(input: Omit<OverviewInput, "caretLine">): OverviewTick[] {
+  const scale = scaleOf(input);
   const ticks: OverviewTick[] = [];
   const taken = new Map<TickLane, Set<number>>();
   const add = (lane: TickLane, kind: OverviewTick["kind"], line: number, last = line) => {
     const top = Math.floor(input.rowOf(line) * scale);
-    const bottom = Math.ceil((input.rowOf(last) + input.rowsOf(last)) * scale);
     let used = taken.get(lane);
     if (!used) taken.set(lane, (used = new Set()));
     if (used.has(top)) return;
     used.add(top);
+    const bottom = Math.ceil((input.rowOf(last) + input.rowsOf(last)) * scale);
     ticks.push({ lane, kind, line, top, height: Math.max(least, bottom - top) });
   };
   // Agents' lines first: a line both an agent and the commit marked reads as the agent's.
@@ -59,6 +66,19 @@ export function overviewTicks(input: OverviewInput): OverviewTick[] {
     add("change", "agent", mark.start, Math.max(mark.start, mark.end - 1));
   if (input.marks) for (const [line, kind] of input.marks) add("change", kind, line - 1);
   for (const hit of input.hits) add("hit", "hit", hit.start.line);
-  if (input.caretLine !== undefined) add("caret", "caret", input.caretLine);
   return ticks;
+}
+
+/** The caret's tick: its own lane, worked out on its own as the caret moves. */
+export function caretTick(
+  input: Pick<OverviewInput, "rows" | "viewRows" | "height" | "rowOf" | "caretLine">,
+): OverviewTick | undefined {
+  if (input.caretLine === undefined) return undefined;
+  const top = Math.floor(input.rowOf(input.caretLine) * scaleOf(input));
+  return { lane: "caret", kind: "caret", line: input.caretLine, top, height: least };
+}
+
+export function overviewTicks(input: OverviewInput): OverviewTick[] {
+  const caret = caretTick(input);
+  return caret ? [...laneTicks(input), caret] : laneTicks(input);
 }

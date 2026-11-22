@@ -664,6 +664,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
             rows={rows}
             viewRows={Math.floor(height / lineHeight)}
             height={Math.max(0, viewport.height)}
+            layoutKey={layout}
             rowOf={(line) => layout.startOf(line)}
             rowsOf={(line) => layout.rowsOf(line).length}
             marks={changeMarks}
