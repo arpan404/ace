@@ -71,7 +71,7 @@ struct AceAccountAPI: Sendable {
         let _: Ignored = try await call("machines/\(hostId)", method: "DELETE", token: token)
     }
 
-    fileprivate struct Ignored: Decodable {}
+    struct Ignored: Decodable {}
     private func call<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AccountGrantError) -> T {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/\(path)"),
@@ -158,7 +158,7 @@ extension AceAccountAPI {
     }
 
     private struct Refusal: Decodable { let error: String }
-    private func orgCall<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AceOrgError) -> T {
+    func orgCall<T: Decodable>(_ path: String, method: String, token: String, body: Data? = nil) async throws(AceOrgError) -> T {
         var request = AceCloudRequest.make(
             url: origin.appending(path: "v1/\(path)"),
             timeoutInterval: 15,
