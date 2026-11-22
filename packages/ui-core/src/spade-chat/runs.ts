@@ -57,6 +57,9 @@ const botSide = new Set<SpadeChatItem["kind"]>([
   "card",
   "notice",
   "workers",
+  // Whom the bot talked with: its own doing, so in its run.
+  "talk",
+  "contract",
 ]);
 
 /** Whose run an item belongs to, if any: "bot", another bot's id, or undefined for its own row. */

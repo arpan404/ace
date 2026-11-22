@@ -42,6 +42,7 @@ import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spa
 import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeChildRow } from "./spade-child-row.tsx";
+import { SpadeTalkItem, type SpadeTalkContext } from "./spade-talk-items.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeRequestGroup } from "./spade-request-group.tsx";
@@ -72,6 +73,8 @@ export interface ChatBot {
   others: ReadonlyMap<string, SpadeAvatar>;
   /** Every bot's name by id, for a request to message one. */
   names: ReadonlyMap<string, string>;
+  /** What each other working bot says it does now, by id, for a reply it owes this one. */
+  phrases?: ReadonlyMap<string, string> | undefined;
   /** Its task as it stands, for a request to change it. */
   task?: string | undefined;
 }
@@ -238,6 +241,14 @@ export function SpadeChat(props: {
     keep,
     profile: props.profile,
     listed: (id) => bot.names.has(id),
+    talk: {
+      self: { id: bot.id, name: bot.name, avatar: bot.avatar },
+      names: bot.names,
+      faces: bot.others,
+      phrases: bot.phrases,
+      busy: view.busy,
+      onOpenBot: props.onOpenBot,
+    },
   };
   return (
     <CardFace value={bot.avatar}>
@@ -384,6 +395,8 @@ interface Handlers {
   profile: RosterBot | undefined;
   /** Whether a bot is still in the person's list. */
   listed(id: string): boolean;
+  /** What the conversation cards read: this bot and the others it talks with. */
+  talk: SpadeTalkContext;
 }
 
 /**
@@ -401,7 +414,6 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
         ? "mt-(--chat-run-gap)"
         : "mt-(--chat-turn-gap)";
     case "helper":
-    case "contract":
     case "quiet":
     case "task-changed":
     case "named":
@@ -411,7 +423,6 @@ function spaceAbove(row: SpadeChatRow, previous: SpadeChatRow | undefined): stri
       // stack under the words they follow.
       return previous.kind === "run" ||
         previous.item.kind === "helper" ||
-        previous.item.kind === "contract" ||
         previous.item.kind === "quiet" ||
         previous.item.kind === "task-changed" ||
         previous.item.kind === "named" ||
@@ -459,7 +470,7 @@ const Row = memo(function Row(props: {
         {other && (
           <SpeakerLine
             avatar={bot.others.get(other.id) ?? parseSpadeAvatar(undefined, other.id)}
-            name={other.name}
+            name={`From ${other.name}`}
           />
         )}
         {/* Open requests one app made together answer on one card (ADR 0202, amendment 5). */}
@@ -514,6 +525,12 @@ function RunItem(props: {
       );
       return (
         <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
+          {/* Its words went back to the bot that wrote, not to the person. */}
+          {item.to && (
+            <p data-reply-to={item.to.id} className="ml-1 text-xs leading-4 text-subtle-foreground">
+              To {item.to.name}
+            </p>
+          )}
           {words ? (
             <BubbleFrame
               side="bot"
@@ -571,7 +588,12 @@ function RunItem(props: {
         </div>
       );
     }
+    case "talk":
+    case "contract":
+      return <SpadeTalkItem item={item} context={handlers.talk} />;
     case "other":
+      // A contract call another bot made reads as its card, with what this bot returned.
+      if (item.contract) return <SpadeTalkItem item={item} context={handlers.talk} />;
       return (
         <BubbleFrame
           side="bot"
@@ -812,19 +834,6 @@ function Single(props: {
         </div>
       );
     }
-    case "contract":
-      return (
-        <div className={space}>
-          <SpadeChildRow
-            name={item.bot}
-            meta="Contract"
-            state={item.state}
-            detail={item.open || !item.result ? item.text : item.result}
-            startedAt={item.at}
-            onOpen={props.handlers.onOpenWork}
-          />
-        </div>
-      );
     default:
       return null;
   }

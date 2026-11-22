@@ -61,7 +61,7 @@ import { actOnWake, useSpadeDigests } from "./spade-wakes-api.ts";
 import { panelReveal } from "@/components/ui/rules.ts";
 import { Skeleton } from "@/components/ui/skeleton.tsx";
 import { useBotPanels } from "./panels/panels-api.ts";
-import { spadePanelState } from "@ace/ui-core/spade-chat";
+import { spadePanelState, spadeWorkingPhrase } from "@ace/ui-core/spade-chat";
 
 /** A package's panel (ADR 0200 §5.2) loads its sandbox the first time one opens. */
 const BotPanelView = lazy(() =>
@@ -225,6 +225,13 @@ export function Conversation(props: {
           .map((other) => [other.id, other.avatar]),
       ),
       names: new Map(props.roster.map((other) => [other.id, other.name])),
+      phrases: new Map(
+        props.roster.flatMap((other) =>
+          other.state === "working" && other.status && !other.unavailable
+            ? [[other.id, spadeWorkingPhrase(other.status)] as const]
+            : [],
+        ),
+      ),
       task: bot.task,
     }),
     [bot, props.roster],
