@@ -360,7 +360,9 @@ Nothing else is the person:
   `fresh-sign-in.test.ts`, `directory.test.ts`, `standing-keeper.test.ts`,
   `window-session.test.ts`, `diagnostic.test.ts`.
 
-## Amendment 1 (2026-11-21): the owner's own Mac asks once
+## Amendment 1 (2026-11-21): the owner's own machine asks once
+
+Revised after the security review of #2533.
 
 ### What went wrong
 
@@ -370,98 +372,155 @@ you", and confirming changed nothing. The desktop app sends Spade requests strai
 hand-kept copy of the daemon's and named only autonomy and move acceptance. ADR 0171 amendment 7
 added the Permissions switches, the never-use list and the loosening routes to the daemon's copy
 only. They went to Spade unstamped, Spade refused them, and proving standing on the daemon socket
-couldn't help because the retry went the same direct way. Now both sides read one list
-(`@ace/client/spade-person-only`). A direct reply that is Spade's standing refusal is also sent
-again through the daemon, so a route missing from the list costs one round trip instead of a
-dead end.
+couldn't help because the retry went the same direct way.
 
-The confirm flow also opened a browser sign-in before trying anything else, even for a window that
-already held the person's session.
+Now both read one list (`@ace/client/spade-person-only`). A route parity test reads Spade's
+router and fails for any route whose handler reads the person's stamp, directly or through a
+helper, that the list doesn't name. A direct reply that is Spade's standing refusal is sent again
+through the daemon. That re-send is recovery from version skew (a newer Spade than this build's
+list), not a security control: Spade's refusal is the control.
 
-### The rule this keeps
+### The rule
 
-**An agent can never loosen its own permissions.** An agent here is anything holding only the
-daemon token, an MCP lease or a provider process. Everything else gets out of the way.
+**An agent can never loosen its own permissions.** An agent is anything holding only the daemon
+token, an MCP lease or a provider process. Everything else gets out of the way.
 
 ### Decision
 
-1. **The app's standing key.** The first time a desktop window proves the owner's grant (§3) on
-   its loopback socket, the app's main process makes a P-256 key for that account
-   (`apps/desktop/src/main/standing-key.ts`). It keeps the key encrypted with `safeStorage` in
-   `<userData>/ace-standing-key.enc`, never in `ACE_HOME`. The window registers the public half
-   (`account.owner.key`), and the daemon keeps it with the owner in `ace-owner.json`
-   (`appKeys`, at most eight).
-2. **Every window proves with it.** On each new loopback socket, the window asks main to sign
-   `appStandingText` (the host, the socket's nonce, `none` for the binding, the window's device id)
-   and sends `account.standing.app { key, proof }`. The daemon takes it only when all of these hold:
-   - the socket is on loopback with the host's credential (no relayed or paired socket);
-   - the key is one the current owner registered;
-   - the signature verifies over this socket's challenge;
-   - the machine isn't an organization's host.
+1. **A device key.** The desktop app's main process keeps one P-256 key pair per account backend,
+   sealed with `safeStorage` in `<userData>/ace-standing-key.enc` and never in `ACE_HOME`
+   (`apps/desktop/src/main/standing-key.ts`). The private half never leaves main. The key is
+   bound to the account and to the session it was enrolled under.
+2. **Person's statements.** Everything the key signs is a person's statement
+   (`@ace/account-grant/person-statement`): one canonical text, a line per field in a fixed
+   order, naming
+   - the account and the device (the SHA-256 of the key's public point);
+   - the purpose (`standing` or `enroll` today) and the action (`socket` today);
+   - the target (here, the tagged sockets) and the audience (the daemon's relay host id);
+   - the verifier's single-use nonce, and when it was made and ends (a minute at most).
 
-   The standing lasts as long as the socket, under this owner. There is no browser round trip and
-   no backend round trip, and no re-proof every few minutes.
+   The key signs nothing that doesn't parse as a statement for its own account and device. Any
+   verifier holding the account's registered public keys checks it with `verifyStatement`.
 
-3. **Main signs nothing else.** The IPC (`standing.key`, `standing.sign`) answers only the app's
-   own top-level window at the app's URL (`ipc.ts` `trusted`). It signs only text of the
-   app-standing shape (`isAppStandingText`), and only for the account the window says it is
-   signed in to. It is never a general signing oracle.
-4. **How long it lasts.** Signing out of the app (`account.write` with no token) deletes the key.
-   A different account signing in gets a new key, and the old one signs nothing. A change of owner
-   (§3a: "Let it go", the local reset, becoming an org's host) drops every app key with the owner
-   file.
-5. **No per-control re-asks.** A refused person-only change is proved again on that socket
+3. **Main owns the exchange.** A window can only ask main "prove me" or "enroll", naming the
+   account backend. It never hands main a challenge, a socket or an account.
+   - Main adds a header (`x-ace-app-socket`) to every WebSocket upgrade from the app's default
+     session to the daemon on this computer, with a fresh random tag. A page can't read or set
+     that header; main strips any it tries. The agents' browser and visualizations run in other
+     partitions and are never tagged.
+   - The daemon keeps each tag for the socket that first came with it, and a tag names one
+     socket, ever. A tagged loopback socket on the host credential says so in its welcome
+     (`standingAppSocket`), and only such a socket counts main's proof as its own.
+   - To prove, main fetches a challenge itself over HTTP with the host token
+     (`POST /v1/standing/app/challenge`). It checks that the host matches the relay host id it
+     read from the home, signs a `standing` statement for the tags it made, and sends it
+     (`POST /v1/standing/app/prove`).
+   - The daemon checks the statement:
+     - it is genuine, live and canonical;
+     - the nonce is unused;
+     - the account is the owner and the audience is this host;
+     - the key is enrolled.
+
+     It then gives the person's standing to the sockets with those tags, for as long as each
+     socket lasts, under this owner.
+4. **Enrolling is a separate kind of proof.** App proofs are recorded as `app`, apart from the
+   grant proofs recorded as `account`.
+   - Enrolling a key (`POST /v1/standing/app/key`, an `enroll` statement signed by the new key)
+     takes a tagged socket that proved the owner's grant (§3). The grant comes from the window's
+     own browser-signed-in session. An app proof never counts for this.
+   - Main also enrolls only within ten minutes of a browser sign-in writing a session to it. The
+     backend's grants carry no sign-in time yet, so "fresh" is checked by main, not the daemon.
+   - A socket proven with the key can't enroll another key. "Let it go" and joining an
+     organization still take an `account` proof.
+5. **Revocation.**
+   - Signing out of the app revokes the key at the daemon (`DELETE /v1/standing/app/key`). That
+     ends the standing it gave on open sockets, and main forgets the key.
+   - A sign-in under another session revokes the key made under the one before.
+   - A change of owner drops every enrolled key with the owner file.
+6. **Only where the store holds.** Main keeps a key only when all of these hold
+   (`app-standing-gate.ts`):
+   - the app is packaged;
+   - it runs from its default profile (no `--user-data-dir`, no `ACE_DESKTOP_USER_DATA`);
+   - no debugging switch is on;
+   - the OS store seals without plaintext (Linux `basic_text` is refused);
+   - on macOS, the running bundle meets ace's designated requirement: identifier `dev.ace.app`,
+     Developer ID, team `5J88TLUP2J` (checked with `codesign`).
+
+   Unsigned, ad-hoc and development builds prove per window, as before. A released app refuses to
+   start with Chromium's remote-debugging or inspector switches; Electron's fuses already refuse
+   run-as-Node, Node's inspector arguments and `NODE_OPTIONS`.
+
+7. **No per-control re-asks.** A refused person-only change is proven again on that socket
    (`withStanding`) and sent once more before anything is shown. Confirm it's you tries the
-   window's own proof first and opens a browser only when that fails. A window with standing never
-   sees it.
+   window's own proof first and opens a browser only when that fails. The first browser
+   Confirm it's you after this version is the one that enrolls the key.
 
 Unchanged: remote and relayed clients (one proof per socket, §3), paired devices (§7),
 organization hosts (ADR 0209), and agents.
 
+### Where this goes: account-rooted standing
+
+Spade bots will also run in ace's cloud (the hosted runner, ADR 0205), so the person's standing
+can't stay local-only. The key and the statement are shaped for that:
+
+- **The device key** is a per-device key pair whose public half the person registers with their
+  ace account (cloud.acehq.dev). The private half stays on the device.
+- **Every proof or approval is a person's statement**: signed, short-lived and bound to one
+  purpose, naming the account, the device, the action or route, the target bot and the expiry.
+- **Spade verifies statements itself**, against the account's registered device keys, locally
+  and in the cloud. The daemon becomes a relay and never a trusted stamper. That is what closes
+  #2535 (below).
+
+Not built in this amendment: cloud registration of device keys, the statement purposes for
+Spade changes, and Spade-side verification. The daemon is today's only verifier.
+
 ### Threat model
 
-**Held against the reader of §Threat model** (a process of the same user that reads any file and
-talks to any socket):
+**Read this first. Today, a person's standing for Spade changes holds against sandboxed agents
+and the app's own renderers, not against unsandboxed processes of the same user.** Spade trusts
+the daemon's stamp (`x-ace-person`, an HMAC keyed by `ACE_HOME/spade-person.key`, written in
+`local-files.ts`, read by spade-server `security/attest.rs`). Spade's bearer token is a file too.
+Any unsandboxed process of the user can read both, forge a stamp and loosen a bot without the
+person. That is pre-existing, out of scope here, and tracked in #2535. The account-rooted model
+above closes it.
 
-- `ace-owner.json` holds only public keys, so reading it proves nothing.
-- On macOS the key file is sealed with a key the Keychain releases only to ace's signed app. A
-  reader gets ciphertext.
-- A proof names one socket's nonce, so a captured proof proves nothing on another socket.
-- The daemon token, an MCP lease or a provider process can't register a key: that takes a socket
-  that already proved the owner's grant. They can't sign with the registered key either: that
-  takes main's IPC, which only the app's own window can call.
+Within that limit:
 
-The tests that guard this: `machine-owner.process.test.ts` (a token holder's own key, the
-owner's public key without its private half, a replayed proof), `spade-person-only.test.ts` and
-`standing-key.test.ts`.
-
-**What gets weaker, honestly:**
-
-- **Linux and Windows.** Secret Service and DPAPI release `safeStorage`'s key to any process of the
-  user, so a reader there can decrypt the key file and prove the person on loopback. That is the
-  same exposure the app's saved session already had (`ace-account.enc`, which can mint person's
-  grants), and it stays a residual (§Residuals). On those platforms the rule holds only for agents
-  that can't read the user's keyring, such as Spade's sandboxed commands (ADR 0167). A coding agent
-  running unsandboxed as the user can, there.
-- **macOS builds that aren't signed** (development, ad-hoc) bind the Keychain item to that
-  signature only. Released builds are signed.
-- **Longer standing.** A socket proven with the key keeps the standing until it closes, where a
-  grant ran out in minutes. Signing out deletes the key but doesn't end standing already proven
-  on an open socket; it ends when the window reloads or the socket drops.
-- **Driving the app's UI or its renderer** was already out of scope, and is not weaker: such a
-  process could already mint grants with the window's restored session.
-
-**Offline.** The window signs for the account its restored session names, and restoring checks
-the session with the backend once. A window that can't reach the backend at start falls back to
-Confirm it's you.
+- **Held against a process holding only the daemon token** (an agent's MCP lease or provider
+  process, sandboxed or not):
+  - It can't enroll a key: that takes a socket that proved the owner's grant.
+  - It can't make a statement: that takes the key, which only main holds.
+  - It can't aim one of main's statements at its own socket: main names only tags it made and
+    never shows a page, and a tag binds the first socket that came with it.
+  - Reading `ace-owner.json` gives only public keys. A captured statement is spent by its nonce,
+    and a statement for another daemon, account or lifetime is refused.
+  - It can revoke the owner's key (`DELETE`): that only takes standing away.
+- **Held against a renderer under someone else's control:** it can ask main to prove the app's
+  own sockets, which it already uses. It can't get a statement for any other socket. The
+  renderer still holds the window's session, so it can act as the person on its own socket, as
+  ADR 0190 already says (tampering with the renderer is out of scope).
+- **Held against a second app instance on another profile or with debugging:** it keeps no key
+  and refuses debugging switches. On macOS the Keychain releases the sealing key only to ace's
+  signature.
+- **Not held on Windows and Linux against an unsandboxed process of the user:** DPAPI and Secret
+  Service unseal for any process of the user, so such a process can read the key. That matches
+  the exposure of the saved session (`ace-account.enc`) and of Spade's stamp key above.
+- **Longer standing:** a socket proven with the key keeps it until the socket closes, the key is
+  revoked (sign-out) or the owner changes.
 
 ### Tests
 
-- `apps/daemon/src/machine-owner.process.test.ts`: one grant proof, then every new window proves
-  with the kept key; a daemon-token holder can neither keep a key nor prove with one, even the
-  owner's; letting the machine go ends the key.
+- `apps/daemon/src/machine-owner.process.test.ts`:
+  - one grant proof, then every tagged socket proves by main's statement alone;
+  - a daemon-token holder can't enroll, can't prove with its own key or the owner's public key,
+    can't replay or stretch a statement, and can't take a used tag;
+  - a socket proven by the key can't enroll another;
+  - signing out ends the standing on open sockets;
+  - "Let it go" ends the key.
 - `apps/daemon/src/services/spade-person-only.test.ts`: a daemon-token socket's Computer use
   switch reaches Spade unstamped.
-- `apps/web/src/features/spade/spade-transport.test.ts`: every person-only route goes through the
-  daemon in the desktop app, and a direct standing refusal is sent again that way.
-- `apps/web/src/boot/app-standing.test.ts`, `apps/desktop/src/main/standing-key.test.ts`.
+- `packages/client/src/spade-person-only.test.ts`: route parity with Spade's guarded handlers.
+- `apps/web/src/features/spade/spade-transport.test.ts`: every person-only route goes through
+  the daemon in the desktop app.
+- `packages/account-grant/src/person-statement.test.ts`, `apps/desktop/src/main/standing-key.test.ts`,
+  `app-standing.test.ts` (desktop), `app-standing-gate.test.ts`, `apps/web/src/boot/app-standing.test.ts`.

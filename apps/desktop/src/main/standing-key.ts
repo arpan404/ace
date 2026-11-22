@@ -55,6 +55,17 @@ export interface DeviceKey {
   id: string;
 }
 
+/** What a kept key is, as callers see it: never its private half. */
+async function described(held: z.infer<typeof Held>): Promise<DeviceKey> {
+  const publicKey = publicPoint(held.key);
+  return {
+    account: held.account,
+    session: held.session,
+    publicKey,
+    id: await deviceKeyId(publicKey),
+  };
+}
+
 export function standingKeys(directory: string, sealer: Sealer) {
   const path = join(directory, "ace-standing-key.enc");
   let queue: Promise<unknown> = Promise.resolve();
@@ -91,15 +102,6 @@ export function standingKeys(directory: string, sealer: Sealer) {
     await writeFile(temporary, sealer.seal(JSON.stringify(saved)), { mode: 0o600 });
     await rename(temporary, path);
   }
-  const described = async (held: z.infer<typeof Held>): Promise<DeviceKey> => {
-    const publicKey = publicPoint(held.key);
-    return {
-      account: held.account,
-      session: held.session,
-      publicKey,
-      id: await deviceKeyId(publicKey),
-    };
-  };
   return {
     /** The key kept for `origin`, if any. */
     held(origin: string): Promise<DeviceKey | undefined> {

@@ -287,12 +287,12 @@ async function mainSends(
   );
   const proof = await signer.sign(text);
   const path = purpose === "enroll" ? "/v1/standing/app/key" : "/v1/standing/app/prove";
-  const answer = await home.hostHttp("POST", path, { statement: text, proof, key });
-  return { ...answer, text, proof };
+  const sent = await home.hostHttp("POST", path, { statement: text, proof, key });
+  return { ...sent, text, proof };
 }
 
-const proven = (answer: { status: number; body: unknown }) =>
-  answer.status === 200 && (answer.body as { proven?: number }).proven;
+const proven = (reply: { status: number; body: unknown }) =>
+  reply.status === 200 && (reply.body as { proven?: number }).proven;
 
 it("after one proof of the owner's grant, the app's device key gives the app's own sockets the person's standing", async () => {
   const home = await signedInDaemon();
@@ -342,7 +342,7 @@ it("a holder of the daemon's token can't enroll a key, prove with one, or reuse 
   ])
     expect(
       await mainSends(home, "standing", [mine], app.raw, app, change).catch(() => "refused"),
-    ).toSatisfy((answer) => answer === "refused" || proven(answer as never) === 0);
+    ).toSatisfy((reply) => reply === "refused" || proven(reply as never) === 0);
   expect(await changesGuardedSetting(agent.client)).toBe(false);
   // Even a tag main used, came by somehow: a second socket with it is never the one proven.
   const copy = await home.pageSocket(mine);

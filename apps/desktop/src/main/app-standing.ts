@@ -23,6 +23,15 @@ export type DaemonHttp = (
   body?: unknown,
 ) => Promise<{ status: number; body: unknown }>;
 
+/** The daemon's challenge, from the daemon whose relay key this app read and no other. */
+async function challenge(daemon: { http: DaemonHttp; host: string }) {
+  const answer = await daemon.http("POST", "/v1/standing/app/challenge");
+  const parsed = AppStandingChallenge.safeParse(answer.body);
+  return answer.status === 200 && parsed.success && parsed.data.host === daemon.host
+    ? parsed.data
+    : undefined;
+}
+
 export function appStanding(deps: {
   keys: StandingKeys;
   /** Whether this run may keep a key (`app-standing-gate.ts`). */
@@ -42,14 +51,6 @@ export function appStanding(deps: {
 }) {
   /** When the browser last signed in, per account origin. */
   const signedInAt = new Map<string, number>();
-  const challenge = async (daemon: { http: DaemonHttp; host: string }) => {
-    const answer = await daemon.http("POST", "/v1/standing/app/challenge");
-    const parsed = AppStandingChallenge.safeParse(answer.body);
-    // Only the daemon whose relay key this app read: never one answering in its place.
-    return answer.status === 200 && parsed.success && parsed.data.host === daemon.host
-      ? parsed.data
-      : undefined;
-  };
   const send = async (
     origin: string,
     key: DeviceKey,
