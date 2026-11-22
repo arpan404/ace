@@ -138,7 +138,7 @@ struct ForgeHome: View {
         [machine, project, kind.rawValue, filter, query].joined(separator: "|")
     }
     /// The read on screen: the daemon saying it changed, or an answer kept after the screen
-    /// stopped waiting for it, reads it again. Issues and Inbox wait on the features read too.
+    /// stopped waiting for it (its stored revision, not whether one is kept), reads it again. Issues and Inbox wait on the features read too.
     private var loadKey: String {
         guard let client = session?.client, let chosen else { return listKey }
         let read = kind == .pulls
@@ -149,7 +149,7 @@ struct ForgeHome: View {
         case .issues: features?.issues == true
         case .inbox: features?.inbox == true
         }
-        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
+        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.lateKept(read))|\(ready)"
     }
 
     @ViewBuilder private var content: some View {
