@@ -117,7 +117,7 @@ extension ClientModel {
         ReadMirror.key(payload).map { reads.lateRevision($0) } ?? 0
     }
     /// A screen is showing `payload`: until the returned closure runs, late answers to it are
-    /// tracked (`lateKept`) and its generation holds still across its first answer and an eviction.
+    /// tracked (`lateKept`).
     func watchRead(_ payload: [String: Any]) -> @MainActor () -> Void {
         guard let key = ReadMirror.key(payload) else { return {} }
         reads.watch(key)

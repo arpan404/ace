@@ -73,10 +73,9 @@ import Testing
                         "value": ["result": ["kind": "list"]], "cache": ["key": key, "family": "prompts"]]])
         }
         let stop = model.watchRead(Self.list)
-        let waiting = Task { try await model.services.wait(id: "native-1") { true } }
-        while !model.services.isWaiting("native-1") { await Task.yield() }
-        model.receive(try reply("native-1"))
-        _ = try await waiting.value
+        // The reply goes out from the dispatch, which runs once the waiter is registered.
+        let first = try reply("native-1")
+        _ = try await model.services.wait(id: "native-1") { model.receive(first); return true }
         #expect(model.lateKept(Self.list) == 0)
 
         // Replacing the entry after nothing waits for it moves the revision each time.
@@ -105,19 +104,13 @@ import Testing
         #expect(model.reads.lateRevisions.isEmpty)
     }
 
-    @Test func aWatchedReadsGenerationHoldsAcrossItsFirstAnswerAndAnEviction() throws {
+    @Test func aFamilysGenerationMovesWhetherOrNotAnyAnswerOfItIsKept() throws {
         let model = ClientModel(now: { 0 })
-        let key = try #require(ReadMirror.key(Self.list))
-        model.receive(try frame([["type": "service.generations", "generations": ["prompts": 3, "reconnects": 1]]]))
-        let stop = model.watchRead(Self.list)
-        let before = model.readGeneration(Self.list)
-        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
-        #expect(model.readGeneration(Self.list) == before)
-        model.receive(try frame([["type": "service.evict", "key": key]]))
-        #expect(model.readGeneration(Self.list) == before)
-        model.receive(try frame([["type": "service.generations", "generations": ["prompts": 4, "reconnects": 1]]]))
-        #expect(model.readGeneration(Self.list) == before + 1)
-        stop()
+        let before = model.familyGeneration("forge")
+        // A "Show more" page nothing is kept for yet: the family still moves, so a screen keyed
+        // on it reads again rather than keeping rows an update made out of date.
+        model.receive(try frame([["type": "service.generations", "generations": ["forge": before + 1]]]))
+        #expect(model.familyGeneration("forge") == before + 1)
     }
 
     @Test func pullToRefreshNamesTheSameReadAsAnOrdinaryVisit() {

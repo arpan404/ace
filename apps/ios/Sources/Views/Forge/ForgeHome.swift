@@ -96,7 +96,7 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
-            .task(id: "\(session?.hostId ?? "")|\(ReadMirror.key(shownRead ?? [:]) ?? "")") { await watchShownRead() }
+            .task(id: "\(session?.hostId ?? "")|\((shownReads ?? []).compactMap { ReadMirror.key($0) }.joined())") { await watchShownReads() }
             .task(id: loadKey) { await load(fresh: false) }
             // Keyed on the project, the connection and the forge's changes, never the filter: a
             // new filter re-reading these would hide New pull request and read the list again
@@ -142,31 +142,32 @@ struct ForgeHome: View {
     /// stopped waiting for it (its stored revision, not whether one is kept), reads it again. Issues and Inbox wait on the features read too.
     private var loadKey: String {
         guard let client = session?.client, let chosen else { return listKey }
-        guard let read = shownRead else { return listKey }
+        guard let reads = shownReads else { return listKey }
         let ready = switch kind {
         case .pulls: true
         case .issues: features?.issues == true
         case .inbox: features?.inbox == true
         }
-        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.lateKept(read))|\(ready)"
+        return "\(listKey)|\(client.connection)|\(client.familyGeneration("forge"))|\(reads.map { client.lateKept($0) }.reduce(0, +))|\(ready)"
     }
 
-    /// The read the list on screen is showing, at the page count it has reached: a "Show more"
-    /// reply is kept under its own key, and a late answer there is the one to draw.
-    private var shownRead: [String: Any]? {
+    /// The reads the list on screen is made of, one per page reached: a "Show more" reply is
+    /// kept under its own key, and a late answer to any of them is the one to draw.
+    private var shownReads: [[String: Any]]? { reads(upTo: kind == .pulls ? pulls.screens : issues.screens) }
+    private func reads(upTo screens: Int) -> [[String: Any]]? {
         guard let chosen else { return nil }
         switch kind {
-        case .pulls: return ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query, screens: pulls.screens)
-        case .issues: return ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query, screens: issues.screens)
+        case .pulls: return (1...screens).map { ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query, screens: $0) }
+        case .issues: return (1...screens).map { ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query, screens: $0) }
         case .inbox: return nil
         }
     }
 
-    /// Keeps the shown read watched (late answers and a steady generation) while it is on screen.
-    private func watchShownRead() async {
-        guard let client = session?.client, let read = shownRead else { return }
-        let stop = client.watchRead(read)
-        defer { stop() }
+    /// Keeps the shown pages' reads watched while they are on screen.
+    private func watchShownReads() async {
+        guard let client = session?.client, let reads = shownReads else { return }
+        let stops = reads.map { client.watchRead($0) }
+        defer { stops.forEach { $0() } }
         while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
     }
 
@@ -369,6 +370,10 @@ struct ForgeHome: View {
 
     private func more() async {
         guard let client = session?.client, let chosen else { return }
+        // The next page is watched before it is asked for, so its reply can't land unwatched.
+        let next = (kind == .pulls ? pulls.screens : issues.screens) + 1
+        let held = (reads(upTo: next)?.last).map { client.watchRead($0) }
+        defer { held?() }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         switch kind {
         case .pulls:
