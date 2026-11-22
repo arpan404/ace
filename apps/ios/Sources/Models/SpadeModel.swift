@@ -56,6 +56,25 @@ import Observation
         let pinned: Bool
         /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
         var shared: String? = nil
+        /// Its latest activity (ms): the list across machines orders by it within a rank.
+        var at: Double? = nil
+        /// When it was made (ms): before any host choice, the oldest main shows as Spade.
+        var createdAt: Double? = nil
+        /// Its state's place in the list, lowest first (`spadeRowRank`).
+        var rank: Int? = nil
+    }
+    /// Where the person's machines chose Spade lives (ADR 0187), as one machine holds it.
+    struct HostRecord: Decodable, Equatable, Sendable {
+        /// The machine's ace host id.
+        let host: String
+        let version: Int
+        let at: Double
+        let by: String
+    }
+    /// A machine's answer about where Spade lives (`GET /v1/main`).
+    struct Main: Decodable, Equatable, Sendable {
+        /// Nil while the machine holds no choice.
+        let record: HostRecord?
     }
     struct State: Decodable, Equatable, Sendable {
         struct List: Decodable, Equatable, Sendable {
@@ -68,6 +87,10 @@ import Observation
         let shown: Bool?
         let line: Line
         let list: List
+        /// The machine's ace host id, as host records name it; nil until it has said.
+        var host: String? = nil
+        /// Nil until the machine's Spade first answers where it lives.
+        var main: Main? = nil
     }
     /// The conversation's Working line.
     struct Working: Decodable, Equatable, Sendable {
@@ -123,11 +146,19 @@ import Observation
         let title: String
         let workers: [Worker]
     }
+    /// A voice message's recording, read by its hash (`spade.audio`) to play.
+    struct Voice: Decodable, Equatable, Sendable {
+        let ref: String
+        let mimeType: String
+        let bytes: Int
+    }
     /// One bubble of the conversation.
     enum Bubble: Decodable, Equatable, Sendable {
-        /// `attached` names what isn't drawn as a picture; `images` are drawn as a thread's are.
-        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine])
-        case bot(text: String, live: Bool, end: End?)
+        /// `attached` names what isn't drawn; `images` and `files` are drawn as a thread's are,
+        /// and `voice` is a recording to play (its words are `text`).
+        case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine], files: [AttachmentLine], voice: Voice?)
+        /// `images` and `files`: what the reply's tools showed the person, after its words.
+        case bot(text: String, live: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
         /// `approvers`: on a shared bot's request, who may answer it.
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool, approvers: String?)
         case question(SpadeQuestionCard)
@@ -137,7 +168,7 @@ import Observation
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, images, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
+            case kind, text, sending, attached, images, files, voice, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -146,10 +177,14 @@ import Observation
             case "person":
                 self = .person(text: text, sending: try box.decodeIfPresent(Bool.self, forKey: .sending) ?? false,
                                attached: try box.decodeIfPresent(String.self, forKey: .attached),
-                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [])
+                               images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
+                               files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [],
+                               voice: try box.decodeIfPresent(Voice.self, forKey: .voice))
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
-                            end: try box.decodeIfPresent(End.self, forKey: .end))
+                            end: try box.decodeIfPresent(End.self, forKey: .end),
+                            images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
+                            files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [])
             case "ask":
                 self = .ask(callId: try box.decode(String.self, forKey: .callId), sentence: try box.decode(String.self, forKey: .sentence),
                             detail: try box.decodeIfPresent(String.self, forKey: .detail),
@@ -200,6 +235,10 @@ import Observation
     private(set) var line: Line?
     private(set) var bots: [Bot]?
     private(set) var listFailed = false
+    /// The machine's ace host id, once said.
+    private(set) var host: String?
+    /// Where this machine says Spade lives, kept from its last answer.
+    private(set) var main: Main?
     /// The open conversation, once the bridge has put it.
     private(set) var conversation: Conversation?
     /// The open conversation's bubbles, in order.
@@ -229,6 +268,8 @@ import Observation
             if line != next.line { line = next.line }
             if let fresh = next.list.rows, bots != fresh { bots = fresh }
             if listFailed != next.list.failed { listFailed = next.list.failed }
+            if let fresh = next.host, host != fresh { host = fresh }
+            if let fresh = next.main, main != fresh { main = fresh }
         case .conversation(let next):
             belong(to: next?.id)
             if conversation != next { conversation = next }
@@ -255,8 +296,16 @@ import Observation
     /// A new runtime: its Spade is read again. Cards (their drafts and locks) are kept here: only
     /// another machine resets them (`SpadeCards.reset`).
     func reset() {
-        shown = nil; line = nil; bots = nil; listFailed = false
+        shown = nil; line = nil; bots = nil; listFailed = false; host = nil; main = nil
         belong(to: nil)
+    }
+    /// A new runtime on the same machine: as `reset`, but whether the machine shows Spade stays
+    /// until the kept state (`InboxCheckpoint`) or the daemon says otherwise, so the tab never
+    /// blinks out and back.
+    func resetKeepingTab() {
+        let kept = shown
+        reset()
+        shown = kept
     }
 }
 

@@ -82,6 +82,9 @@ import QuartzCore
     @ObservationIgnored var onMachineIdentity: ((MachineIdentityPatch) -> Void)?
     /// Why the SDK's connection isn't ready (unreachable, revoked, pin mismatch), for a person.
     var problem: ProblemNotice?
+    /// Whether this paired machine took this phone's proof of the person's standing; nil until a
+    /// socket proved, for an account machine, and for a daemon that asks for none.
+    var standing: PairedStanding?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
     var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
     /// The person chose Not now for this ask; Machines › the machine asks again.
@@ -237,6 +240,8 @@ import QuartzCore
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
+    /// Whose kept Spade state the current connection sees (`ConnectionTarget.keptScope`).
+    @ObservationIgnored private var keptScope: String?
     /// Reads the kept inbox a connection shows first (`InboxCheckpoint.background`).
     @ObservationIgnored private let checkpoints: InboxCheckpoint.Reader
     @ObservationIgnored var metrics: SpikeMetrics?
@@ -264,7 +269,12 @@ import QuartzCore
         hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
-        browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
+        browser.forgetSaves(); computerAccess.reset(); outside.reset()
+        // Another route to the same machine, signed in as the same principal, keeps the Spade tab:
+        // it goes only when the machine says Spade is gone, never for a reconnect. Another
+        // account's never carries over.
+        if sameMachine && keptScope == target.keptScope { spade.resetKeepingTab() } else { spade.reset() }
+        keptScope = target.keptScope
         // Another machine's pages never carry over. Another route to the same machine keeps the
         // device tabs and their pages: the new runtime takes them (`restoreDeviceTabs`).
         if !sameMachine { deviceTabs.reset() }
@@ -274,7 +284,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil; sawConfirmedRow = false
+        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -283,10 +293,12 @@ import QuartzCore
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
         let restored = await checkpoints(database)
+        // The Spade tab as this principal last kept it, and no one else's (`KeptScope`).
+        let spadeKept = await InboxCheckpoint.spadeBackground(database, target.keptScope)
         restoring.end()
         // A newer connection began meanwhile: it restores its own copy.
         guard runtimeEpoch == epoch else { return }
-        apply(restored)
+        apply(restored + spadeKept)
         await closing?.value
         guard runtimeEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
@@ -590,6 +602,7 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
+            case .standing(let state): if standing != state { standing = state }
             case .machineCode(let reason, let until):
                 // Every refused retry says it again; only a change redraws.
                 let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))

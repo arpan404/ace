@@ -1,9 +1,10 @@
 import type { ClientApi } from "@ace/client";
 import {
-  newestSpadeHost,
   spadeRoster,
+  spadeShownMain,
   spadeWithLive,
   type SpadeAgent,
+  type SpadeMainOn,
   type SpadeMainState,
 } from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
@@ -110,14 +111,16 @@ export function useSpadeRoster(ready: boolean) {
   const live = useLiveRows().bots;
   const bots = useMemo(() => {
     const all: RosterBot[] = [];
+    // Each machine's main bot, the only ones the election reads, gathered as they are listed.
+    const candidates: (SpadeMainOn & { agent: RosterBot })[] = [];
     machines.forEach((machine, index) => {
       const data = results[index]?.data;
       if (!data) return;
       const spade = spadeMachineOf(machine);
       const away = !machine.client;
       const unavailable = !away && !answering[index];
-      for (const agent of data)
-        all.push({
+      for (const agent of data) {
+        const bot: RosterBot = {
           ...(away || unavailable
             ? // What a bot was doing when its Spade last answered isn't true any more.
               { ...agent, state: "idle" as const, status: undefined }
@@ -125,26 +128,23 @@ export function useSpadeRoster(ready: boolean) {
           machine: spade,
           away,
           unavailable,
-        });
+        };
+        all.push(bot);
+        if (agent.kind === "main")
+          candidates.push({
+            agent: bot,
+            machine: spade.key,
+            host: machine.id,
+            createdAt: agent.createdAt,
+            answering: answering[index] === true,
+          });
+      }
     });
-    const mainOn = (machine: Machine) =>
-      all.find((agent) => agent.kind === "main" && agent.machine.key === spadeMachineKey(machine));
     // Spade is the main bot of the machine the fleet chose, read last time if it is away now.
-    // Before any choice, the oldest main of those answering, as each machine still decides.
-    const choice = newestSpadeHost(records.map((main) => main?.host));
-    const chosen = choice && machines.find((machine) => machine.id === choice.host);
-    const shown = choice
-      ? chosen && mainOn(chosen)
-      : all
-          .filter(
-            (agent) =>
-              agent.kind === "main" &&
-              machines.some(
-                (machine, index) =>
-                  answering[index] && spadeMachineKey(machine) === agent.machine.key,
-              ),
-          )
-          .toSorted((a, b) => a.createdAt - b.createdAt || order(a.machine.key, b.machine.key))[0];
+    const shown = spadeShownMain(
+      candidates,
+      records.map((main) => main?.host),
+    )?.agent;
     return spadeRoster(all.filter((agent) => agent.kind !== "main" || agent === shown));
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- keyed by answerKey and recordKey
   }, [machines, results, answerKey, recordKey, live]);
@@ -184,8 +184,6 @@ export function useSpadeRoster(ready: boolean) {
     refetch: () => void primary?.refetch(),
   };
 }
-
-const order = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 /** Each machine and its Spade's agents while it answers, and whether every machine has. */
 export interface SpadeHosting {

@@ -4,6 +4,7 @@ export * from "./media.ts";
 export * from "./fold.ts";
 export * from "./view.ts";
 export * from "./bubbles.ts";
+export * from "./bubble-cache.ts";
 export * from "./work-lines.ts";
 export * from "./steps.ts";
 export * from "./undo.ts";

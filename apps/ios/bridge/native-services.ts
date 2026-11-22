@@ -1,3 +1,4 @@
+import { nativeChunks } from "./thread-attachments.ts";
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
 import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
 import { readSimulatorTools, SimulatorToolsRequest } from "./simulator-tools.ts";
@@ -98,6 +99,7 @@ import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeMarket, NativeMarketRequest } from "./market.ts";
+import type { PairedStanding } from "./socket.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
@@ -206,6 +208,7 @@ export class NativeServices {
     care?: HostCare,
     now: () => number = () => 0,
     automations?: NativeAutomations,
+    standing?: () => PairedStanding | undefined,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -218,7 +221,13 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
-    this.market = new NativeMarket(owner, now, undefined, (id) => this.spade?.bot(id)?.name);
+    this.market = new NativeMarket(
+      owner,
+      now,
+      undefined,
+      (id) => this.spade?.bot(id)?.name,
+      standing,
+    );
     this.automations = automations;
     this.projects = projects;
     this.inbox = inbox;
@@ -341,7 +350,12 @@ export class NativeServices {
       }
       const spadeRequest = NativeSpadeRequest.safeParse(raw);
       if (spadeRequest.success && this.spade) {
-        const deps = { id: () => host.uuid(), now: this.now, images: this.images };
+        const deps = {
+          id: () => host.uuid(),
+          now: this.now,
+          images: this.images,
+          chunks: nativeChunks,
+        };
         const outcome = await answerSpade(
           this.owner,
           this.spade,

@@ -152,6 +152,14 @@ final class SnapshotStore {
         }
         return statement
     }
+    /// Removes the Spade conversations a machine's runtimes kept (`bridge/spade-kept-events.ts`),
+    /// every principal's: signing out of the account leaves none behind. No store holds none.
+    static func forgetKeptSpade(database: URL) {
+        guard FileManager.default.fileExists(atPath: url(database: database).path),
+              let store = try? SnapshotStore(database: database, now: Date.init) else { return }
+        // Every key under `spade-events/`: "0" sorts right after "/".
+        try? store.run("DELETE FROM snapshots WHERE key >= ? AND key < ?", [.text("spade-events/"), .text("spade-events0")])
+    }
     private func run(_ sql: String, _ values: [Value]) throws {
         let statement = try prepare(sql, values)
         defer { sqlite3_finalize(statement) }

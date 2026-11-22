@@ -1,5 +1,5 @@
 import { parseSpadeConnectStart, parseSpadeConnectors } from "@ace/ui-core/spade-chat";
-import { segment } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 
 /*
  * Reconnect from Settings › Spade › Apps (docs/design/spade.md): an app whose sign-in ended signs

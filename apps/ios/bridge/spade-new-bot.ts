@@ -16,7 +16,8 @@ import {
   type SpadeModelGroupRow,
   type SpadeModelSettingRow,
 } from "./spade-settings-rows.ts";
-import { segment, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment } from "./spade-text.ts";
 
 /*
  * A new bot from the phone (ADR 0197, docs/design/spade.md §5): the person says what it should

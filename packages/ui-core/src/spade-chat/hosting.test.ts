@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { parseSpadeMain, spadeHostSync, type SpadeHostRecord } from "./index.ts";
+import { parseSpadeMain, spadeHostSync, spadeShownMain, type SpadeHostRecord } from "./index.ts";
 
 const record = (host: string, version: number, at = 1): SpadeHostRecord => ({
   host,
@@ -76,4 +76,37 @@ test("a machine's answer about its Spade reads leniently", () => {
   });
   expect(parseSpadeMain('{"host":{"host":"","version":0}}')?.host).toBeUndefined();
   expect(parseSpadeMain("nope")).toBeUndefined();
+});
+
+const main = (machine: string, createdAt: number, answering = true) => ({
+  machine,
+  host: `${machine}-host`,
+  createdAt,
+  answering,
+});
+
+test("Spade shows once, from the machine the newest host choice names, even while it is away", () => {
+  const mains = [main("laptop", 1), main("studio", 9, false)];
+  const records = [record("laptop-host", 1, 50), record("studio-host", 2, 1), undefined];
+  expect(spadeShownMain(mains, records)?.machine).toBe("studio");
+});
+
+test("a host choice naming a machine with no main listed shows no Spade rather than another's", () => {
+  expect(spadeShownMain([main("laptop", 1)], [record("studio-host", 1)])).toBeUndefined();
+});
+
+test("before any host choice, Spade is the oldest main of the machines answering", () => {
+  const mains = [main("laptop", 9), main("server", 1, false), main("studio", 5)];
+  expect(spadeShownMain(mains, [undefined, undefined])?.machine).toBe("studio");
+  // Two as old: the machine key decides, so every client picks the same one.
+  expect(spadeShownMain([main("b", 5), main("a", 5)], [])?.machine).toBe("a");
+  expect(spadeShownMain([main("laptop", 1, false)], [])).toBeUndefined();
+});
+
+test("two mains as old as each other break the tie by host id, the same on every client", () => {
+  // Web keys its own machine `primary`; the host ids are what every client sees alike.
+  const own = { machine: "primary", host: "zeta", createdAt: 5, answering: true };
+  const studio = { machine: "studio", host: "alpha", createdAt: 5, answering: true };
+  expect(spadeShownMain([own, studio], [])?.machine).toBe("studio");
+  expect(spadeShownMain([studio, own], [])?.machine).toBe("studio");
 });
