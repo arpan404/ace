@@ -8,7 +8,7 @@ import type {
 } from "@ace/protocol";
 import { ContextError, attachmentLimits, attachmentSizeProblem, expectContext } from "@ace/ui-core";
 import { z } from "zod";
-import { call, scheduler } from "./host.ts";
+import { call, host, scheduler } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { pictureLine } from "./attachment-picture.ts";
 import { ProgressThrottle } from "./progress-throttle.ts";
@@ -87,7 +87,7 @@ export class AttachmentTray {
     signal: AbortSignal,
     emit: TrayEmit,
     read: ChunkReader,
-    now: () => number = () => performance.now(),
+    now: () => number = () => host.monotonicMs(),
     set: Scheduler["set"] = (delayMs, callback) => scheduler.set(delayMs, callback),
   ) {
     this.#client = client;
