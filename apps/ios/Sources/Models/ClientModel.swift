@@ -238,9 +238,21 @@ import QuartzCore
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
     @ObservationIgnored private var sawConfirmedRow = false
+    /// The bridge says the list is the daemon's current one (`inbox.fresh`), so an empty list
+    /// counts too, and it drops back to false when the connection is lost.
+    private(set) var listFresh = false
+    /// The list holds every thread: no older page is left to load.
+    private(set) var listComplete = false
+    /// Threads outside the loaded list the bridge read by id, and whether each exists.
+    private(set) var located: [String: Bool] = [:]
     /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
     /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
-    var inboxConfirmed: Bool { inboxLoaded && sawConfirmedRow }
+    var inboxConfirmed: Bool { inboxLoaded && listFresh }
+    /// Asks the bridge to read a thread by its id, once; the answer lands in `located`.
+    func locate(_ id: String) {
+        guard located[id] == nil else { return }
+        inboxRequest(["kind": "locate", "threadId": id])
+    }
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -294,7 +306,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false
+        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false; listFresh = false; listComplete = false; located = [:]
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -570,6 +582,10 @@ import QuartzCore
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
                 historyRevision.reset()
+            case .inboxFresh(let confirmed, let complete):
+                if listFresh != confirmed { listFresh = confirmed }
+                if listComplete != complete { listComplete = complete }
+            case .inboxLocated(let id, let found): located[id] = found
             case .inbox(let id, let row):
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation

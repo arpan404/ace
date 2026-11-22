@@ -124,10 +124,12 @@ test("a retry queued before stop does not redraw after the watch restarts in the
   watch.stop();
   // The next conversation starts: the list is held again, and no worker is read from its thread,
   // so nothing but the old retry could redraw it.
-  watch.facts(
-    () => undefined,
-    () => undefined,
-  ).waiting(first);
+  watch
+    .facts(
+      () => undefined,
+      () => undefined,
+    )
+    .waiting(first);
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(changes).toBe(0);
 });
