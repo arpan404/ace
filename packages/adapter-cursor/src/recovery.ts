@@ -14,8 +14,13 @@ const RunRecord = z.object({
   runId: z.string().min(1).max(512),
   agentId: z.string().min(1).max(512),
   status: RunStatus,
-  result: z.string().max(1_048_576).nullish().catch(undefined),
-  error: z.string().max(65536).nullish().catch(undefined),
+  // Kept at any length: what ace shows of it is capped where it is shown (`resultParts`).
+  result: z.string().nullish().catch(undefined),
+  error: z
+    .string()
+    .nullish()
+    .catch(undefined)
+    .transform((error) => error?.slice(0, 65536)),
   createdAt: z.number().finite().nonnegative().catch(0),
 });
 const DurableEvent = z.object({
@@ -89,7 +94,9 @@ async function attemptedRun(
 const resultPart = 8_000;
 const resultCap = 4 * 1024 * 1024;
 function resultParts(result: string): { texts: string[]; cut: boolean } {
-  const shown = result.slice(0, resultCap);
+  // The first 4 MiB of its UTF-8, cut only between whole characters.
+  const { read } = new TextEncoder().encodeInto(result, new Uint8Array(resultCap));
+  const shown = result.slice(0, read);
   const texts: string[] = [];
   for (let at = 0; at < shown.length;) {
     let end = Math.min(shown.length, at + resultPart);
@@ -99,7 +106,7 @@ function resultParts(result: string): { texts: string[]; cut: boolean } {
     texts.push(shown.slice(at, end));
     at = end;
   }
-  return { texts, cut: result.length > resultCap };
+  return { texts, cut: read < result.length };
 }
 
 /** A stored event's SDK message; any other payload as it is, never dropped. */

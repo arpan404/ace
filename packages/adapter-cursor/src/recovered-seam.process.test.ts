@@ -410,11 +410,11 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
   }
 });
 
-it("a finished turn's long saved answer comes back whole, past the frame preview", async () => {
+/** A finished turn whose answer the SDK saved but whose later writes it lost, read back. */
+async function recoverSavedAnswer(rest: string) {
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-long-")));
   try {
     // The answer streams in two parts; ace has the first, and the SDK lost every later write.
-    const rest = "y".repeat(80 * 1024);
     const answer = `Start: ${rest}`;
     const boundary = fakeSdk("callback-first", undefined, {
       updates: [
@@ -444,12 +444,36 @@ it("a finished turn's long saved answer comes back whole, past the frame preview
     // The daemon died once it had the first part.
     const cut = live.findIndex((frame) => JSON.stringify(frame.body).includes("Start: ")) + 1;
     const committed = live.slice(0, cut);
-    const after = transcript([...committed, ...(await reopen(boundary, home, committed, 1))]);
+    const back = await reopen(boundary, home, committed, 1);
+    const after = transcript([...committed, ...back]);
     const answers = after.shown.filter((line) => line.startsWith("assistant: "));
-    expect(answers.at(-1)?.length).toBe(`assistant: ${answer}`.length);
-    expect(answers.at(-1)).toBe(`assistant: ${answer}`);
-    expect(after.status).toBe("done");
+    return { ...after, answer, last: answers.at(-1)?.slice("assistant: ".length) };
   } finally {
     await rm(home, { recursive: true, force: true });
   }
+}
+
+it("a finished turn's long saved answer comes back whole, past the frame preview", async () => {
+  const after = await recoverSavedAnswer("y".repeat(80 * 1024));
+  expect(after.last).toBe(after.answer);
+  expect(after.status).toBe("done");
+});
+
+it("a finished turn's 2 MiB saved answer in multibyte text comes back whole", async () => {
+  // Over 1 Mi characters and 2 MiB of UTF-8, in two- and four-byte characters.
+  const after = await recoverSavedAnswer(`${"é".repeat(900_000)}${"🌊".repeat(200_000)}`);
+  expect(after.last).toBe(after.answer);
+  expect(after.notices.some((text) => text.includes("cut after"))).toBe(false);
+  expect(after.status).toBe("done");
+});
+
+it("a saved answer past 4 MiB of UTF-8 is shown cut at 4 MiB, with a note saying so", async () => {
+  // 3 Mi characters, 6 MiB of UTF-8: under a cap counted in characters it would all show.
+  const after = await recoverSavedAnswer("é".repeat(3 * 1024 * 1024));
+  const bytes = new TextEncoder().encode(after.last ?? "").length;
+  expect(bytes).toBeLessThanOrEqual(4 * 1024 * 1024);
+  expect(bytes).toBeGreaterThan(4 * 1024 * 1024 - 8);
+  expect(after.answer.startsWith(after.last ?? "missing")).toBe(true);
+  expect(after.notices.some((text) => text.includes("cut after the first 4 MiB"))).toBe(true);
+  expect(after.status).toBe("done");
 });
