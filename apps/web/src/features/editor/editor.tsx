@@ -2,7 +2,15 @@
 // oxlint-disable jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- the hidden textarea takes the keyboard; the scroller handles mouse selection.
 import type { Range, Selection } from "@ace/editor";
 import { fileLanguage, pathParts } from "@ace/ui-core";
-import { useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useElementSize } from "@/lib/element-size.ts";
@@ -46,6 +54,9 @@ import { rememberColours, rememberedColours } from "./view-handoff.ts";
 import { useViewHandoff } from "./use-view-handoff.ts";
 
 const paddingRight = 24;
+/** The find widget's height with one row and with replace showing, plus a little air. */
+const findCoverFind = 44;
+const findCoverReplacing = 76;
 /** A text column narrower than this wraps by itself when the wrap setting is off. */
 const narrowColumns = 80;
 /** The gutter's right edge, where a line's fold control sits. */
@@ -270,6 +281,9 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
 
   const { announcement, announce } = useAnnouncement();
 
+  /** How much of the code's top the floating find widget covers; a find hit lands below it. */
+  const findCover = useRef(0);
+  const coveredTop = useCallback(() => findCover.current, []);
   const { caretBox, reveal } = useReveal({
     doc: state.doc,
     layout,
@@ -279,6 +293,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
     lineHeight,
     wrap,
     viewport,
+    coveredTop,
     onScroll: setScroll,
   });
 
@@ -324,6 +339,7 @@ export function CodeEditor({ ref, ...props }: CodeEditorProps) {
   });
   useLayoutEffect(() => {
     scopeRef.current = finder.mapScope;
+    findCover.current = finder.open ? (finder.replacing ? findCoverReplacing : findCoverFind) : 0;
   });
 
   const navigationKeys = useEditorKeys({

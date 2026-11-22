@@ -315,43 +315,62 @@ test("Ctrl+Alt+Down adds a cursor below off macOS", async () => {
   expect(ref.current?.selections()).toEqual([caret(0, 1), caret(1, 1)]);
 });
 
-test("the find bar takes its own row above the text, so it never covers the first lines", async () => {
-  const { box } = await openEditor({ text: "first line\nsecond line" });
+const firstRow = () => document.querySelector<HTMLElement>('[data-row="0"]');
+
+test("opening find floats it over the code without moving the text", async () => {
+  await openEditor({ text: "first line\nsecond line" });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  const before = { top: firstRow()?.style.top, parent: scroller?.parentElement };
 
   await userEvent.keyboard("{Meta>}f{/Meta}");
-  const find = await screen.findByRole("textbox", { name: "Find in file" });
-  const bar = find.closest("search");
-  const scroller = document.querySelector("[data-editor-scroller]");
-  expect(bar).toBeTruthy();
-  expect(scroller).toBeTruthy();
-  // Not drawn over the scroller: a sibling row above it, out of the text's own box.
-  expect(bar?.className).not.toMatch(/\babsolute\b/);
-  expect(bar?.contains(scroller)).toBe(false);
-  expect(bar?.parentElement?.contains(box)).toBe(true);
-  expect(bar?.parentElement?.contains(scroller)).toBe(true);
-  const box2 = scroller?.parentElement;
-  expect(box2?.contains(bar)).toBe(false);
-  expect(box2?.contains(box)).toBe(true);
+  const widget = await screen.findByRole("search", { name: "Find in file" });
+
+  // The first line keeps its place, and the scroller keeps its box: nothing was pushed down.
+  expect(firstRow()?.style.top).toBe(before.top);
+  expect(scroller?.parentElement).toBe(before.parent);
+  expect(document.querySelector("[data-editor-frame]")?.contains(widget)).toBe(true);
+  expect(widget.contains(scroller)).toBe(false);
 });
 
-test("the find bar's field sits inside the bar and only the field shows focus", async () => {
+test("a find hit under the floating widget is scrolled clear of it", async () => {
+  const lines = Array.from({ length: 200 }, (_, index) =>
+    index === 50 ? "needle" : `line ${index}`,
+  );
+  await openEditor({ text: lines.join("\n") });
+  const scroller = document.querySelector<HTMLElement>("[data-editor-scroller]");
+  if (!scroller) throw new Error("no scroller");
+  // jsdom has no layout: the scroller keeps the offset it is given, and asks are recorded.
+  let top = 50 * 22;
+  const asked: number[] = [];
+  Object.defineProperty(scroller, "scrollTop", { get: () => top, configurable: true });
+  Object.defineProperty(scroller, "clientHeight", { value: 600, configurable: true });
+  scroller.scrollTo = ((options: ScrollToOptions) => {
+    top = options.top ?? top;
+    asked.push(top);
+  }) as typeof scroller.scrollTo;
+  fireEvent.scroll(scroller);
+
+  await userEvent.keyboard("{Meta>}f{/Meta}");
+  await userEvent.type(await screen.findByRole("textbox", { name: "Find in file" }), "needle");
+  await userEvent.keyboard("{Enter}");
+
+  // Line 50 sat right at the top edge, under the widget: the view moved down enough to show it.
+  await waitFor(() => expect(asked.length).toBeGreaterThan(0));
+  expect(top).toBeLessThanOrEqual(50 * 22 - 40);
+});
+
+test("with find open, only its field shows focus", async () => {
   await openEditor({ text: "first line\nsecond line" });
 
   await userEvent.keyboard("{Meta>}f{/Meta}");
   const find = await screen.findByRole("textbox", { name: "Find in file" });
-  const bar = find.closest("search");
-  const region = screen.getByRole("region", { name: "Editor" });
+
   expect(document.activeElement).toBe(find);
-  // The field is a box inside the 36px bar, never the bar's full height: its ring stays inside.
-  expect(find.parentElement?.className).toMatch(/\bh-9\b/);
-  expect(bar?.contains(find.parentElement ?? null)).toBe(true);
-  expect(find.className).toMatch(/\bh-6\b/);
-  expect(find.className).not.toMatch(/\bh-full\b/);
-  expect(find.className).not.toMatch(/\bfocus-ring\b/);
-  // The editor's focus frame belongs to the text, not to the region that holds the bar.
-  expect(region.className).not.toMatch(/focus-within/);
-  const frame = document.querySelector("[data-editor-frame]");
-  expect(frame?.className).toMatch(/focus-within/);
-  expect(frame?.contains(bar)).toBe(false);
-  expect(frame?.contains(screen.getByRole("textbox", { name: "example.ts" }))).toBe(true);
+  // The field marks its own focus; nothing around it (the widget, the code's frame, the
+  // editor) draws a ring because focus is somewhere inside.
+  expect(find.className).toMatch(/focus-visible:/);
+  for (let node = find.parentElement; node; node = node.parentElement) {
+    expect(node.className.toString()).not.toMatch(/focus-within:/);
+    if (node.getAttribute("role") === "region") break;
+  }
 });
