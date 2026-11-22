@@ -221,9 +221,11 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     caret line; a press on a tick brings its line into view.
     44a. **Review in editor** (a turn's changed files in the transcript, a file's menu in Changes, the
     Work card's last turn) opens the file with that turn's hunks, from the same diff Changes
-    shows, found in the text as it is now. Each opens under its lines with Keep, Revert and
-    Comment (a code annotation on its lines); F7 and ⇧F7 (or the arrows) step through them and on
-    to the turn's next file; Done ends the review.
+    shows, found in the text as it is now. Each opens under its lines with Keep and Comment (a code
+    annotation on its lines); F7 and ⇧F7 (or the arrows) step through them and on to the turn's
+    next file; Done ends the review. There is no Revert in review: a client can't prove a line is
+    still the turn's (the person may have pasted a copy). Reverting a turn is a later, daemon-side
+    action that applies the turn's exact reverse patch to the exact disk version it was made on.
 45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
     2 open files") with Next change (⌥F5), which steps through the agents' blocks across open
     editors, line by line.

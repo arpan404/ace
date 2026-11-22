@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { committedFromPatch, exactPatchHunks } from "./exact-patch.ts";
+import { committedFromPatch } from "./exact-patch.ts";
 
 const section = (...lines: string[]) =>
   ["diff --git a/a.ts b/a.ts", "--- a/a.ts", "+++ b/a.ts", ...lines, ""].join("\n");
@@ -50,23 +50,7 @@ test("a patch read for another version of the file gives no committed text", () 
   expect(committedFromPatch("one\nTwo, typed\n", patch)).toBeUndefined();
 });
 
-test("a patch's hunks carry the exact committed text of each change", () => {
-  const patch = section("@@ -1,3 +1,3 @@", " one\r", "-two\r", "+TWO\r", " three\r");
-  expect(exactPatchHunks(patch)).toEqual([
-    {
-      start: 2,
-      marks: [2],
-      added: ["TWO"],
-      removed: ["two"],
-      removedText: "two\r\n",
-      above: "one",
-      below: "three",
-    },
-  ]);
-});
-
-test("a hunk cut short (fewer lines than its header counts) gives no committed text and no hunks", () => {
+test("a hunk cut short (fewer lines than its header counts) gives no committed text", () => {
   const cut = section("@@ -1,3 +1,3 @@", " one", "-two");
   expect(committedFromPatch("one\nTWO\nthree\n", cut)).toBeUndefined();
-  expect(exactPatchHunks(cut)).toEqual([]);
 });

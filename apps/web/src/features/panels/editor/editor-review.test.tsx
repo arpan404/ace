@@ -34,7 +34,7 @@ async function reviewTurnOne() {
 const view = () => screen.getByRole("region", { name: `Source of ${replayTs.path}` });
 const peekOf = () => screen.findByRole("group", { name: /^Review change at line/ });
 
-test("a turn's change opens inline, named as the agent's, and Revert puts it back unsaved", async () => {
+test("a turn's change opens inline, named as the agent's, with Keep and Comment and no Revert", async () => {
   const { app } = await reviewTurnOne();
   const peek = await peekOf();
   expect(peek.textContent).toContain("Claude Code · turn 1 · 1 of 3");
@@ -43,26 +43,10 @@ test("a turn's change opens inline, named as the agent's, and Revert puts it bac
   expect(within(view()).getAllByTitle("Claude Code changed this in turn 1").length).toBeGreaterThan(
     0,
   );
-
-  // Revert waits until the change is carried to the text now by the exact changes since the turn.
-  const revert = async () => within(await peekOf()).getByRole("button", { name: "Revert" });
-  await waitFor(async () => expect((await revert()).hasAttribute("disabled")).toBe(false));
-  await userEvent.click(await revert());
-
-  // On to the next change; that hunk went back in the editor, and nothing was written.
-  expect((await peekOf()).textContent).toContain("2 of 3");
-  expect(view().textContent).not.toContain("const COLD_START_WINDOW = 200;");
+  expect(within(peek).getByRole("button", { name: "Keep" })).toBeTruthy();
+  // Reverting a turn is the daemon's to do: the review offers no Revert, and changes nothing.
+  expect(within(peek).queryByRole("button", { name: "Revert" })).toBeNull();
   expect(await bytes(app, replayTs.path)).toBe(replayTs.afterTurn2);
-
-  // Saved, only that hunk went back: turn 2's later change is still there.
-  fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "s", ctrlKey: true });
-  // The whole file: turn 1's three added lines gone, every other byte as it was (turn 2's later
-  // change included).
-  await waitFor(async () =>
-    expect(await bytes(app, replayTs.path)).toBe(
-      replayTs.afterTurn2.replace("\n\nconst COLD_START_WINDOW = 200;\n\n", "\n"),
-    ),
-  );
 });
 
 test("Keep leaves the text as it is and goes on; F7 and ⇧F7 step; Done ends the review", async () => {

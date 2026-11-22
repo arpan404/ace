@@ -1,22 +1,17 @@
 import { useThreadField } from "@ace/client-react/thread-field";
 import {
   groupFileChanges,
-  exactPatchHunks,
-  hunksFromChanges,
-  linesOf,
+  locateHunk,
   providerDisplayName,
-  revertChange,
   turnHunks,
   type ChangeHunk,
   type FileDiff,
-  type TurnHunk,
 } from "@ace/ui-core";
 import { workspaceRelative } from "@ace/ui-core/file-references";
 import {
   useCallback,
   useEffect,
   useMemo,
-  useState,
   useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
@@ -33,24 +28,16 @@ import {
   useOpenInEditorPanel,
 } from "@/lib/workspace/index.ts";
 import { providerOf } from "./agent-changes.ts";
-import { sharedDiff } from "./gutter-store.ts";
-import {
-  cachedExact,
-  placeHunk,
-  mappingFor,
-  singlePatch,
-  turnTexts,
-  type ExactHunks,
-  type Mapping,
-} from "./review-placement.ts";
 import { ReviewPeek } from "./hunk-peek.tsx";
 import type { LiveGutter } from "./live-gutter.ts";
 
 /*
  * Reviewing an agent's turn inside the editor (docs/editor/workbench.md 43–45): the turn's hunks
  * of this file, from the same diff Changes shows, found in the file as it is now and marked in
- * the gutter. The current one opens under its lines with Keep, Revert and Comment; F7 and ⇧F7
- * (or the peek's arrows) step through them, then on to the turn's next file.
+ * the gutter. The current one opens under its lines with Keep and Comment; F7 and ⇧F7 (or the
+ * peek's arrows) step through them, then on to the turn's next file. There is no Revert here: a
+ * client can't prove a line is still the turn's (the person may have pasted a copy), so reverting
+ * a turn is left to the daemon, which can apply the exact reverse patch to the exact disk version.
  */
 
 export interface TurnReviewView {
@@ -92,88 +79,19 @@ export function useTurnReview(input: {
   );
   const own = useMemo(() => files.filter((file) => file.path === path), [files, path]);
   const diff = useFileChanges(own).files[0];
-  // The turn's hunks, exact to the byte where the turn says enough: from its before and after
-  // text (diffed by the editor core), or its one patch. Otherwise they can be read but not
-  // reverted (the diff rows carry no line endings).
-  const texts = useMemo(() => turnTexts(own[0]?.changes ?? []), [own]);
-  const patch = useMemo(() => singlePatch(own[0]?.changes ?? []), [own]);
-  const [exact, setExact] = useState<ExactHunks>();
-  useEffect(() => {
-    if (!texts) return;
-    let live = true;
-    void sharedDiff()
-      .lineChanges(texts.after, texts.before)
-      .then(
-        (changes) => {
-          const lines = linesOf(texts.after);
-          const found = hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length);
-          if (live) setExact({ before: texts.before, after: texts.after, hunks: found });
-        },
-        () => undefined,
-      );
-    return () => {
-      live = false;
-    };
-  }, [texts]);
-  const exactHunks = texts
-    ? cachedExact(exact, texts)
-    : patch !== undefined
-      ? exactPatchHunks(patch)
-      : undefined;
-  const rowHunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
-  const hunks = texts ? (exactHunks ?? []) : (exactHunks ?? rowHunks);
-  const exactKnown = exactHunks !== undefined;
-  // The file as the turn left it, when the turn recorded its text: the hunks are then carried to
-  // the text now by the exact changes between the two, never matched by their words.
-  const turnText = texts?.after;
+  const hunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
 
-  // Found again whenever the text has moved (the gutter settles after each pause in typing).
+  // Found again by their lines whenever the text has moved (the gutter settles after each pause
+  // in typing). Only to show, step through and keep: nothing here changes the text.
   const subscribe = useCallback((changed: () => void) => gutter.subscribe(changed), [gutter]);
   const marks = useSyncExternalStore(subscribe, () => gutter.state());
-  const [mapping, setMapping] = useState<Mapping>();
-  useEffect(() => {
+  const located = useMemo(() => {
     const doc = buffer.document();
-    if (turnText === undefined || !doc) return;
-    let live = true;
-    const version = doc.version();
-    void sharedDiff()
-      .lineChanges(turnText, doc.text())
-      .then(
-        (changes) => {
-          if (live && buffer.document() === doc && doc.version() === version)
-            setMapping({ doc, version, source: turnText, changes });
-        },
-        () => undefined,
-      );
-    return () => {
-      live = false;
-    };
-    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the gutter's state moves with the text: map again after each pause.
-  }, [turnText, buffer, marks]);
-  /**
-   * Where each hunk is now, and whether its origin is proven for the text as it is (so Revert may
-   * act on it): only by the exact changes since the turn's own text, never by its words.
-   */
-  const find = (
-    hunk: TurnHunk,
-    fresh: boolean,
-  ): { at: ChangeHunk; proven: boolean } | undefined => {
-    const doc = buffer.document();
-    if (!doc) return undefined;
-    // Only this turn's mapping, for this document: another turn's (a switch without editing) is
-    // never used, and Revert waits for this one.
-    const current = mappingFor(mapping, doc, turnText);
-    const placed = placeHunk(
-      hunk,
-      turnText !== undefined
-        ? { kind: "text", changes: current?.changes }
-        : { kind: "patch", lineAt: (line) => doc.line(line), lineCount: doc.lenLines() },
-    );
-    if (!placed) return undefined;
-    const proven = placed.revertable && (!fresh || current?.version === doc.version());
-    return { at: placed.at, proven };
-  };
-  const located = hunks.map((hunk) => find(hunk, false)?.at);
+    return doc
+      ? hunks.map((hunk) => locateHunk(hunk, (line) => doc.line(line), doc.lenLines()))
+      : [];
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the gutter's state moves with the text.
+  }, [hunks, buffer, marks]);
 
   // Progress lives outside the view: a tab switch or a remount comes back to the same change.
   const key = review ? `${threadId}\u0000${review.token}\u0000${path}` : "";
@@ -224,22 +142,6 @@ export function useTurnReview(input: {
     step(1, finished);
   };
   const keep = () => current && finish(current);
-  // Revert acts only on a hunk whose origin is proven for the text as it is at the press (carried
-  // by the exact changes since the turn, or found unmoved), and lands unsaved for the person's
-  // own Save; gone, edited, moved or duplicated lines revert nothing.
-  const turnHunk = hunks[index];
-  const provenNow = turnHunk && find(turnHunk, true);
-  const canRevert = exactKnown && provenNow?.proven === true;
-  const revert = () => {
-    const doc = buffer.document();
-    const found = turnHunk && find(turnHunk, true);
-    if (!doc || !exactKnown || !found?.proven) return;
-    const now = found.at;
-    const change = revertChange(now, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
-    if (!change || !buffer.editLines([change], { manualSave: true })) return;
-    gutter.edited();
-    finish(now);
-  };
   const comment =
     layer?.annotate &&
     (() =>
@@ -270,7 +172,6 @@ export function useTurnReview(input: {
               hunk={current}
               where={where}
               onKeep={keep}
-              onRevert={canRevert ? revert : undefined}
               onComment={comment || undefined}
               onStep={(direction) => step(direction)}
               onSideBySide={() => sideBySide(true)}
@@ -293,7 +194,7 @@ export function useTurnReview(input: {
 
 const noneDone: ReadonlySet<number> = new Set();
 
-/** Where a file's review is: the change shown, and those kept or reverted. */
+/** Where a file's review is: the change shown, and those kept. */
 interface Progress {
   index: number;
   done: ReadonlySet<number>;

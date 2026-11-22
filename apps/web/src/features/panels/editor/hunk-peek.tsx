@@ -98,16 +98,14 @@ export function HunkPeek(props: { hunk: ChangeHunk; onRevert(): void; onClose():
 
 /**
  * One hunk of a turn under review, under its lines: what the turn replaced and what it wrote,
- * with Keep, Revert and Comment, the previous and next change (⇧F7, F7), the turn's diff side by
- * side, and Done.
+ * with Keep and Comment, the previous and next change (⇧F7, F7), the turn's diff side by side,
+ * and Done. (Reverting a turn is the daemon's to do, against the exact disk version.)
  */
 export function ReviewPeek(props: {
   hunk: ChangeHunk;
   /** "Claude Code · turn 2 · 1 of 3". */
   where: string;
   onKeep(): void;
-  /** Unset when the change's origin can't be proven in the text now: Revert would guess. */
-  onRevert?: (() => void) | undefined;
   /** Unset while the thread has no composer to take a comment. */
   onComment?: (() => void) | undefined;
   onStep(direction: 1 | -1): void;
@@ -125,19 +123,6 @@ export function ReviewPeek(props: {
         <>
           <Button size="sm" variant="secondary" onClick={props.onKeep}>
             Keep
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!props.onRevert}
-            title={
-              props.onRevert
-                ? undefined
-                : "Revert needs the turn's own copy of the file to find these lines for sure"
-            }
-            onClick={props.onRevert}
-          >
-            Revert
           </Button>
           {props.onComment && (
             <Button size="sm" variant="ghost" onClick={props.onComment}>

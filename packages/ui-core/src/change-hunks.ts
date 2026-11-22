@@ -87,8 +87,6 @@ export function revertChange(
   hunk: ChangeHunk,
   lineAt: (line: number) => string,
   lineCount: number,
-  /** The file's own line ending, for a hunk whose exact committed text isn't known. */
-  ending: "\n" | "\r\n" = "\n",
 ): LineReplacement | undefined {
   const start = hunk.start - 1;
   const end = start + hunk.added.length;
@@ -100,7 +98,7 @@ export function revertChange(
   if (hunk.below !== undefined && (end >= lineCount || lineAt(end) !== hunk.below))
     return undefined;
   if (hunk.removedText !== undefined) return { start, end, text: hunk.removedText };
-  const text = hunk.removed.map((line) => `${line}${ending}`).join("");
+  const text = hunk.removed.map((line) => `${line}\n`).join("");
   // Lines replaced through the file's last line, which has no ending: the put-back text has none.
-  return { start, end, text: end === lineCount ? text.slice(0, -ending.length) : text };
+  return { start, end, text: end === lineCount ? text.slice(0, -1) : text };
 }
