@@ -177,6 +177,24 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
   };
 }
 
+/**
+ * "From flight-watcher 1.0.0 in the Marketplace.", and when an update waits for the bot to be
+ * still: "Updates when Flight watcher is done with its turn."
+ */
+export function spadePackageSentence(link: SpadePackage, bot: string): string {
+  if (spadeIsDevelopment(link)) {
+    const held = link.held ? ` Its latest save applies when ${bot} is done with its turn.` : "";
+    return `Updated from its package folder on this machine with ace bot dev.${held}`;
+  }
+  const from = `${link.name} ${link.version}`;
+  if (link.withdrawn) return `Paused: ${from} was withdrawn. ${link.withdrawn}`;
+  if (link.updating) return `Updating from ${from} to ${link.updating}.`;
+  const held = link.held ? ` Updates when ${bot} is done with its turn.` : "";
+  if (link.source === "spade") return `From ace's ${link.name} template ${link.version}.${held}`;
+  const where = link.source === "market" ? "the Marketplace" : "a catalog you added";
+  return `From ${from} in ${where}.${held}`;
+}
+
 const incomingShape = z.object({ incoming: z.boolean() });
 
 /**
