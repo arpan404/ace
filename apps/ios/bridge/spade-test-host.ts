@@ -114,7 +114,7 @@ export async function setUp(
       },
       new AbortController().signal,
     );
-  return { daemon, api, spade, patches, ask, stage, staged };
+  return { daemon, api, owner, spade, patches, ask, stage, staged };
 }
 
 /** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */
