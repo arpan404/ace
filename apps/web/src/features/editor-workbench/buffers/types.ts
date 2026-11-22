@@ -93,6 +93,8 @@ export type Clash =
       chunks: readonly MergeChunk[];
       /** One per conflicting block, in order; undefined until answered. */
       answers: readonly (Answer | undefined)[];
+      /** Every block is answered and the result is landing: choices wait until it has. */
+      applying?: true | undefined;
     };
 
 /** The disk version a clash shows the person: what a Replace of it is confirmed against. */
@@ -194,8 +196,14 @@ export interface TextBuffer {
   keepMine(): Promise<void>;
   /** Compare's Take theirs: the disk's text lands as one undoable step and the buffer is clean. */
   takeTheirs(): Promise<void>;
-  /** Answers conflicting block `index`; the last answer applies the resolved text. */
-  answer(index: number, answer: Answer): Promise<void>;
+  /**
+   * Answers conflicting block `index` of the conflict `of` (the clash the person was shown); the
+   * last answer applies the resolved text. Ignored while answers are landing, or once `of` is no
+   * longer the buffer's clash.
+   */
+  answer(index: number, answer: Answer, of: Clash | undefined): Promise<void>;
+  /** Answers every block of the conflict `of` with one choice, in one step. */
+  answerAll(answer: Answer, of: Clash | undefined): Promise<void>;
   /** Drops unsaved edits and the draft, and reads the disk again. */
   discard(): Promise<void>;
   /** Reads the file again after a load failure or an eviction. */

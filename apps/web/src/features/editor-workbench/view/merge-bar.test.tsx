@@ -119,12 +119,38 @@ test("overlapping blocks are answered one by one; Save waits, and undo brings th
 test("Take all theirs answers every block at once", async () => {
   const { editor, buffer, typeOver } = await editing();
   typeOver(1, "two, mine");
-  await editor.changeOnDisk("places.ts", "one\ntwo, agent\nthree\nfour\nfive\n");
+  typeOver(4, "five, mine");
+  await editor.changeOnDisk("places.ts", "one\ntwo, agent\nthree\nfour\nfive, agent\n");
   fireEvent.click(within(bar()).getByRole("button", { name: "Merge" }));
-  await screen.findByRole("region", { name: "Overlapping changes" });
+  const blocks = await screen.findByRole("region", { name: "Overlapping changes" });
+  expect(within(blocks).getAllByRole("region")).toHaveLength(2);
 
   fireEvent.click(within(bar()).getByRole("button", { name: "Take all theirs" }));
 
   await waitFor(() => expect(buffer().snapshot().clash).toBeUndefined());
-  expect(buffer().document()?.text()).toBe("one\ntwo, agent\nthree\nfour\nfive\n");
+  expect(buffer().document()?.text()).toBe("one\ntwo, agent\nthree\nfour\nfive, agent\n");
+  // The text is now exactly what is on disk: nothing is left unsaved.
+  expect(buffer().snapshot().dirty).toBe(false);
+});
+
+test("answering the second block first, then the first, lands both answers", async () => {
+  const { editor, buffer, typeOver } = await editing();
+  typeOver(1, "two, mine");
+  typeOver(4, "five, mine");
+  await editor.changeOnDisk("places.ts", "one\ntwo, agent\nthree\nfour\nfive, agent\n");
+  fireEvent.click(within(bar()).getByRole("button", { name: "Merge" }));
+  const blocks = await screen.findByRole("region", { name: "Overlapping changes" });
+  const [first, second] = within(blocks).getAllByRole("region");
+  if (!first || !second) throw new Error("two blocks expected");
+
+  fireEvent.click(within(second).getByRole("button", { name: "Take theirs" }));
+  await waitFor(() =>
+    expect(
+      within(second).getByRole("button", { name: "Take theirs" }).getAttribute("aria-pressed"),
+    ).toBe("true"),
+  );
+  fireEvent.click(within(first).getByRole("button", { name: "Keep mine" }));
+
+  await waitFor(() => expect(buffer().snapshot().clash).toBeUndefined());
+  expect(buffer().document()?.text()).toBe("one\ntwo, mine\nthree\nfour\nfive, agent\n");
 });

@@ -76,10 +76,9 @@ function ConflictBar(props: {
 }) {
   const { clash, buffer, changer } = props;
   const answered = clash.answers.filter((answer) => answer !== undefined).length;
-  const all = (answer: "mine" | "theirs") => {
-    for (const [index, given] of clash.answers.entries())
-      if (given !== answer) void buffer?.answer(index, answer);
-  };
+  // One step for every block, on the conflict shown; nothing while answers land.
+  const all = (answer: "mine" | "theirs") => void buffer?.answerAll(answer, clash);
+  const applying = clash.applying === true;
   return (
     <div
       role="status"
@@ -90,10 +89,10 @@ function ConflictBar(props: {
       <span className="min-w-0 flex-1 truncate">
         {conflictWords(changer?.name, clash.answers.length, answered)}
       </span>
-      <Button size="sm" variant="ghost" onClick={() => all("mine")}>
+      <Button size="sm" variant="ghost" disabled={applying} onClick={() => all("mine")}>
         Keep all mine
       </Button>
-      <Button size="sm" variant="ghost" onClick={() => all("theirs")}>
+      <Button size="sm" variant="ghost" disabled={applying} onClick={() => all("theirs")}>
         Take all theirs
       </Button>
     </div>

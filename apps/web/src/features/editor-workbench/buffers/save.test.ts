@@ -228,13 +228,73 @@ describe("merging", () => {
     });
     expect(await context.buffer.save()).toEqual({ kind: "unanswered" });
 
-    await context.buffer.answer(0, "theirs");
+    await context.buffer.answer(0, "theirs", context.buffer.snapshot().clash);
     expect(context.buffer.snapshot().clash).toMatchObject({ answers: ["theirs", undefined] });
-    await context.buffer.answer(1, "mine");
+    await context.buffer.answer(1, "mine", context.buffer.snapshot().clash);
 
     expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\nmine e\n");
     expect(context.buffer.snapshot()).toMatchObject({ clash: undefined, dirty: true });
     expect(await context.buffer.save()).toEqual({ kind: "saved", version: "v3" });
+  });
+
+  it("ignores choices while an answered conflict is landing, and answers for a conflict since replaced", async () => {
+    const context = await setup("a\nb\nc\nd\ne\n");
+    replaceLine(context.buffer, 1, "mine b");
+    replaceLine(context.buffer, 4, "mine e");
+    await agentWrites(context, "a\ntheirs b\nc\nd\ntheirs e\n");
+    await context.buffer.merge();
+    const asked = context.buffer.snapshot().clash;
+
+    void context.buffer.answer(0, "theirs", asked);
+    const landing = context.buffer.answer(1, "mine", context.buffer.snapshot().clash);
+    // The last answer is landing: the blocks are shown as settled, and a late change of mind
+    // (to the first block) changes nothing.
+    expect(context.buffer.snapshot().clash).toMatchObject({ applying: true });
+    void context.buffer.answer(0, "mine", context.buffer.snapshot().clash);
+    void context.buffer.answerAll("mine", context.buffer.snapshot().clash);
+    await landing;
+    await settle();
+
+    expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\nmine e\n");
+    expect(context.buffer.snapshot().clash).toBeUndefined();
+    // An answer given for the conflict as it was asked, now gone, changes nothing either.
+    void context.buffer.answer(0, "mine", asked);
+    await settle();
+    expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\nmine e\n");
+  });
+
+  it("answers every block at once with one choice", async () => {
+    const context = await setup("a\nb\nc\nd\ne\n");
+    replaceLine(context.buffer, 1, "mine b");
+    replaceLine(context.buffer, 4, "mine e");
+    await agentWrites(context, "a\ntheirs b\nc\nd\ntheirs e\n");
+    await context.buffer.merge();
+
+    await context.buffer.answerAll("theirs", context.buffer.snapshot().clash);
+
+    expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\ntheirs e\n");
+    expect(context.buffer.snapshot().clash).toBeUndefined();
+  });
+
+  it("a disk change while answers land is never covered by the older answers", async () => {
+    const context = await setup("a\nb\nc\n");
+    replaceLine(context.buffer, 1, "mine b");
+    await agentWrites(context, "a\ntheirs b\nc\n");
+    await context.buffer.merge();
+    context.merge.hold();
+    // Typing while the answer lands makes the loop merge again (held) …
+    const landing = context.buffer.answer(0, "mine", context.buffer.snapshot().clash);
+    replaceLine(context.buffer, 0, "A");
+    // … and the agent writes once more meanwhile.
+    await agentWrites(context, "a\ntheirs b\nc\nnewer\n");
+    context.merge.release();
+    await landing;
+    await settle();
+
+    // The newer write is not taken as answered: it waits for its own Merge.
+    expect(context.buffer.snapshot().clash).toMatchObject({ theirs: { version: "v3" } });
+    expect(context.buffer.document()?.text()).not.toContain("newer");
+    expect(context.buffer.document()?.text()).toContain("mine b");
   });
 
   it("keeps what was typed while a conflict waited for answers", async () => {
@@ -244,7 +304,7 @@ describe("merging", () => {
     await context.buffer.merge();
 
     replaceLine(context.buffer, 4, "typed meanwhile");
-    await context.buffer.answer(0, "theirs");
+    await context.buffer.answer(0, "theirs", context.buffer.snapshot().clash);
 
     expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\ntyped meanwhile\n");
   });

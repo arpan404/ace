@@ -310,17 +310,36 @@ export class Buffer implements TextBuffer {
     await this.#persist();
   }
 
-  async answer(index: number, answer: Answer): Promise<void> {
+  answer(index: number, answer: Answer, of: Clash | undefined): Promise<void> {
     const clash = this.#clash;
-    if (clash?.kind !== "conflict" || index < 0 || index >= clash.answers.length) return;
-    const answers = clash.answers.with(index, answer);
-    this.#clash = { ...clash, answers };
+    if (clash?.kind !== "conflict" || index < 0 || index >= clash.answers.length)
+      return Promise.resolve();
+    return this.#answered(clash.answers.with(index, answer), of);
+  }
+
+  answerAll(answer: Answer, of: Clash | undefined): Promise<void> {
+    const clash = this.#clash;
+    if (clash?.kind !== "conflict") return Promise.resolve();
+    return this.#answered(
+      clash.answers.map(() => answer),
+      of,
+    );
+  }
+
+  /** New answers for the conflict the person was shown; once all are in, they land together. */
+  async #answered(answers: readonly (Answer | undefined)[], of: Clash | undefined): Promise<void> {
+    const clash = this.#clash;
+    // A choice made on a conflict that has since changed, or while answers land, waits for none.
+    if (clash?.kind !== "conflict" || clash !== of || clash.applying) return;
+    const complete = !answers.includes(undefined);
+    this.#clash = { ...clash, answers, ...(complete ? { applying: true as const } : {}) };
     this.#emit({ type: "state" });
-    if (answers.includes(undefined)) return;
+    if (!complete) return;
     await reconcile(this.#reconcileHost(), {
       chunks: clash.chunks,
       answers,
       mine: this.#conflictMine,
+      theirs: clash.theirs.version,
     });
   }
 
@@ -483,7 +502,7 @@ export class Buffer implements TextBuffer {
       base: () => this.#base,
       clash: () => this.#clash,
       merge: this.#ctx.merge,
-      land: (text) => this.#land(text, "merge"),
+      land: (text, still) => this.#land(text, "merge", still),
       setClash: (clash, mine) => {
         this.#clash = clash;
         if (clash?.kind !== "conflict") this.#conflictMine = "";
@@ -504,14 +523,17 @@ export class Buffer implements TextBuffer {
     };
   }
 
-  /** Puts `next` in the document by changed blocks; false if the document moved meanwhile. */
-  async #land(next: string, reason: "reload" | "merge"): Promise<boolean> {
+  /**
+   * Puts `next` in the document by changed blocks; false if the document moved meanwhile, or
+   * `still` (what the text was worked out for: the same clash) no longer holds.
+   */
+  async #land(next: string, reason: "reload" | "merge", still?: () => boolean): Promise<boolean> {
     const doc = this.#doc;
     if (!doc) return false;
     const at = doc.version();
     const before = doc.text();
     const changes = await this.#ctx.merge.lineChanges(before, next);
-    if (this.#doc !== doc || doc.version() !== at) return false;
+    if (this.#doc !== doc || doc.version() !== at || (still && !still())) return false;
     this.#landing = true;
     try {
       const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;

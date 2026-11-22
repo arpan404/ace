@@ -43,7 +43,10 @@ export function ConflictBlocks(props: {
 }) {
   const blocks = conflictBlocks(props.clash);
   const theirs = props.theirName ? `${props.theirName}'s` : "On disk";
-  const answer = (index: number, given: Answer) => void props.buffer.answer(index, given);
+  // Each choice names the conflict it was made on; while the answers land, choices wait.
+  const answer = (index: number, given: Answer) =>
+    void props.buffer.answer(index, given, props.clash);
+  const applying = props.clash.applying === true;
   return (
     <div
       role="region"
@@ -68,6 +71,7 @@ export function ConflictBlocks(props: {
                 size="sm"
                 variant={given === "mine" ? "secondary" : "ghost"}
                 aria-pressed={given === "mine"}
+                disabled={applying}
                 onClick={() => answer(block.index, "mine")}
               >
                 Keep mine
@@ -76,6 +80,7 @@ export function ConflictBlocks(props: {
                 size="sm"
                 variant={given === "theirs" ? "secondary" : "ghost"}
                 aria-pressed={given === "theirs"}
+                disabled={applying}
                 onClick={() => answer(block.index, "theirs")}
               >
                 Take theirs
