@@ -202,7 +202,12 @@ export function SpadeChat(props: {
   // The open reply's step running now: the working line names what it touches.
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
   // What it does now, in its own words or its tool's, held a moment so it never flickers.
-  const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
+  const said = spadeWorkingPhrase(view.status);
+  // Nothing of its own to say but a job open: the job's words, as the other bots' lines read.
+  const jobWords = view.working?.label;
+  const phrase = useHeldPhrase(
+    said === "Working" && jobWords && jobWords !== "Working" ? jobWords : said,
+  );
   const task = props.task;
   const lined = working || task !== undefined;
   // The finished reply being kept as a test (ADR 0204): its review is open.

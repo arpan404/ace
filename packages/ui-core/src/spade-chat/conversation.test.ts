@@ -208,7 +208,7 @@ describe("what stays open", () => {
     expect(c.view()).toMatchObject({
       answering: false,
       busy: true,
-      working: { label: "Researching in the background", since: undefined },
+      working: { label: "Researching in the background", since: expect.any(Number) },
     });
     c.stored({ type: "job_finished", job: "j1", name: "research", content: "done" });
     expect(c.view()).toMatchObject({ busy: false, working: undefined });
@@ -454,7 +454,7 @@ describe("delegation", () => {
     expect(c.view()).toMatchObject({
       answering: false,
       busy: true,
-      working: { label: "Waiting for 2 agents", since: undefined },
+      working: { label: "Waiting for 2 agents", since: expect.any(Number) },
     });
     c.stored({ type: "job_finished", job: "c1", name: "delegate", content: "done" });
     expect(c.view()).toMatchObject({ busy: false, working: undefined });
