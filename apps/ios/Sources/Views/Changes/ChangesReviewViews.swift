@@ -140,8 +140,14 @@ struct ReviewCommentCard: View {
 }
 
 /// Write or edit a comment on picked lines, with an optional suggested change that starts as the
-/// lines' current text.
+/// lines' current text. A new comment on lines of the new side can go as a note for the agent
+/// instead (`CodeNotes`): on the thread's next message, as the editor's notes go, not in the review.
 struct ReviewComposer: View {
+    struct Note {
+        let thread: String
+        /// The picked lines' whole texts.
+        let lines: [String]
+    }
     @Bindable var model: ClientModel
     let path: String
     let side: String
@@ -150,6 +156,9 @@ struct ReviewComposer: View {
     /// The lines as they read now, to start a suggestion from.
     let current: String
     var editing: ChangesReview.Draft?
+    /// Where the words can go as a note instead; nil when they can't.
+    var note: Note? = nil
+    @State private var noteRefused: String?
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var suggesting = false
@@ -182,6 +191,16 @@ struct ReviewComposer: View {
                         if suggesting { Text("Apply suggestion writes this over the lines in the checkout.") }
                     }
                 }
+                if let note, editing == nil {
+                    Section {
+                        Button("Note for the agent") { leave(note) }
+                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || saving || !model.canOperate)
+                            .accessibilityHint("Puts it on the thread's next message instead of the review")
+                            .accessibilityIdentifier("review.note")
+                    } footer: {
+                        if let noteRefused { Text(noteRefused).foregroundStyle(AceTheme.StatusText.failed) }
+                    }
+                }
                 if let notice, !notice.ok {
                     Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
                 }
@@ -208,6 +227,19 @@ struct ReviewComposer: View {
             }
         }
         .presentationDetents([.medium, .large])
+    }
+
+    private func leave(_ note: Note) {
+        let comment = text
+        Task {
+            await model.checkoutKey(note.thread)
+            if model.addDiffNote(note.thread, path: path, first: start, texts: note.lines, comment: comment) != nil {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                dismiss()
+            } else {
+                noteRefused = model.codeNotes.full(note.thread) ? "The next message already has \(CodeNotes.limit) notes." : "These lines hold no code to note."
+            }
+        }
     }
 
     private func save() {
