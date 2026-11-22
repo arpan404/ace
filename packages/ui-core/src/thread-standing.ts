@@ -1,4 +1,6 @@
 import type { CatalogModel, ThreadListEntry } from "@ace/protocol";
+import { listTreeFacts, treeWorking } from "./live-status.ts";
+import { recoveryAttention } from "./recovery-attention.ts";
 import type { AttentionLevel } from "./row-attention.ts";
 import { threadCard } from "./thread-card.ts";
 import { isSettled } from "./thread-state.ts";
@@ -18,6 +20,12 @@ export interface Standing {
    * running is still going. A settled thread held this way stays settled.
    */
   held: boolean;
+  /**
+   * What asks the person is only a recovery of their own (a message not sent, a model to pick, a
+   * paused queue), not an agent's request, and no agent works: a thread they settled this way
+   * stays settled, and the transcript still offers the retry.
+   */
+  recovery: boolean;
 }
 
 export interface StandingInput {
@@ -40,7 +48,9 @@ export function standingOf(entry: ThreadListEntry, input: StandingInput): Standi
   const held =
     status.state === "limited" ||
     (status.state === "waiting" && (status.on === "background_task" || status.on === "rate_limit"));
-  return { level: card.attention.level, done: status.state === "done", held };
+  const recovery =
+    recoveryAttention(entry, input.models) !== undefined && !treeWorking(listTreeFacts(entry));
+  return { level: card.attention.level, done: status.state === "done", held, recovery };
 }
 
 /**
@@ -70,10 +80,12 @@ export function atWork(standing: Standing): boolean {
 }
 
 /**
- * A settled thread that stays settled: nothing asks the person, and its tree doesn't work or is
+ * A settled thread that stays settled: no agent asks the person, and its tree doesn't work or is
  * only held (a usage limit, a command left running), which is not work they settled it away from.
+ * A recovery of the person's own (a message not sent) never undoes their settle.
  */
 export function atRest(standing: Standing): boolean {
+  if (standing.recovery) return true;
   return standing.level !== "needs-you" && (!atWork(standing) || standing.held);
 }
 

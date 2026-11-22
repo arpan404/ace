@@ -1,142 +1,135 @@
-//! Spade's web search. Backends listed in `config/search.json` are tried in order: the person's
-//! own SearXNG (free) and Brave with their key (kept in the OS keychain, ADR 0119). A backend
-//! that fails or has no key is skipped with a reason and the next one is tried. A model endpoint's
-//! own built-in search, where offered, is chosen by the harness before any of these.
+//! Spade's web search: ace cloud search, `POST {cloud}/v1/search` (ADR 0210). Spade shows the
+//! cloud the person's ace account credential it already holds for the sign-in broker; no secret
+//! of its own is stored. After a refusal it waits out `Retry-After`, and after a failure 30
+//! seconds, answering with the refusal's sentence meanwhile, so a bot can't hammer the route.
 
-mod backend;
 mod clean;
-pub mod config;
+mod refusal;
+mod usage;
+mod wire;
 
-use std::sync::RwLock;
-use std::time::Duration;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use spade_keys::Keys;
+use serde_json::{Value, json};
 
-pub use config::{Backend, ConfigError, Kind, SearchConfig};
+pub use refusal::RESTING;
+pub use usage::Usage;
 
 /// The most results one search returns.
-pub const MOST_RESULTS: usize = 20;
+pub const MOST_RESULTS: usize = 10;
+/// The longest query sent, in characters, after trimming.
+pub const MOST_QUERY_CHARS: usize = 400;
+/// The sentence when the person isn't signed in to ace.
+pub const SIGN_IN: &str = "Sign in to ace to search the web.";
+/// The sentence when ace search failed or couldn't be reached.
+pub const AWAY: &str = "ace search isn't answering right now. Try again shortly.";
+/// The sentence when ace search is turned off on this Spade (`SPADE_CLOUD_URL=off`).
+pub const OFF: &str = "ace search is turned off on this Spade.";
+
+/// The header that names the calling app and its version to ace cloud (ADR 0189).
+const ACE_CLIENT_HEADER: &str = "ace-client";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    pub site: String,
 }
 
-/// Results, with the backend that found them.
+/// Results, with the provider ace cloud found them with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
-    pub backend: String,
+    pub provider: String,
     pub results: Vec<SearchResult>,
 }
 
+/// Why no search was made or none came back. Each shows as one plain sentence.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SearchError {
     #[error("the search query is empty")]
     EmptyQuery,
-    #[error("no search backend is set up: run SearXNG or add a Brave key")]
-    NoBackends,
-    /// Nothing is set up: no SearXNG answers where Spade looked and no Brave key is stored.
-    #[error(
-        "no web search is set up: add a Brave Search key or a SearXNG address in Spade's settings"
-    )]
-    NotSetUp,
-    #[error("no search backend answered: {}", .0.iter().map(|(id, why)| format!("{id}: {why}")).collect::<Vec<_>>().join("; "))]
-    AllFailed(Vec<(String, String)>),
+    #[error("{OFF}")]
+    Off,
+    #[error("{SIGN_IN}")]
+    SignedOut,
+    /// ace cloud refused (`429`), or Spade is still waiting out an earlier refusal. `reason` is
+    /// the sentence to show.
+    #[error("{reason}")]
+    Refused { error: String, reason: String },
+    /// ace search failed, answered with something unreadable, or couldn't be reached. The detail
+    /// is for logs; it never carries the grant.
+    #[error("{AWAY}")]
+    Failed(String),
     #[error("the HTTP client could not be built: {0}")]
     Setup(String),
-    #[error("the SearXNG address must start with http:// or https://")]
-    BadAddress,
 }
 
-/// One raw result: title, address, snippet.
-type Raw = (String, String, String);
+/// Why there is no ace account credential to show the cloud.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NoGrant {
+    /// This machine isn't signed in to an ace account.
+    SignedOut,
+    /// ace didn't answer.
+    Unreachable(String),
+}
+
+pub type GrantFuture<'a> = Pin<Box<dyn Future<Output = Result<String, NoGrant>> + Send + 'a>>;
+
+/// Where the person's ace account credential comes from: ace in Spade, a fake in tests.
+pub trait Credential: Send + Sync {
+    /// A short-lived machine grant (ADR 0111), shown as a bearer.
+    fn grant(&self) -> GrantFuture<'_>;
+}
+
+/// The time now, injected so tests can move it.
+pub type Clock = Arc<dyn Fn() -> Instant + Send + Sync>;
+
+/// Where and how to reach ace cloud search.
+#[derive(Clone)]
+pub struct Cloud {
+    /// The cloud's address; `None` turns ace search off.
+    pub url: Option<String>,
+    pub credential: Arc<dyn Credential>,
+    /// `ace-client: spade/<version>` (ADR 0189), sent on every request when set.
+    pub ace_client: Option<String>,
+    /// Each search gives up after this.
+    pub timeout: Duration,
+    pub clock: Clock,
+}
 
 pub struct Search {
     http: reqwest::Client,
-    /// For requests that carry a key: never follows a redirect, so the key only reaches the
-    /// configured server.
-    keyed: reqwest::Client,
-    backends: Vec<Backend>,
-    keys: Keys,
-    /// The person's own SearXNG, set in Spade's settings: used in place of the file's address.
-    searxng: RwLock<Option<String>>,
-}
-
-/// Why one backend gave no results, and whether that is only because it is not set up (no key,
-/// or no SearXNG where the file says one may be).
-struct Failure {
-    reason: String,
-    absent: bool,
-}
-
-impl Failure {
-    fn absent(reason: &str) -> Self {
-        Self {
-            reason: reason.to_owned(),
-            absent: true,
-        }
-    }
+    url: Option<String>,
+    credential: Arc<dyn Credential>,
+    ace_client: Option<String>,
+    clock: Clock,
+    /// Until when no request is made, and what is answered meanwhile.
+    waiting: Mutex<Option<(Instant, SearchError)>>,
 }
 
 impl Search {
-    /// Each backend call gives up after `timeout`.
-    pub fn new(config: SearchConfig, keys: Keys, timeout: Duration) -> Result<Self, SearchError> {
-        let client = |redirects: reqwest::redirect::Policy| {
-            reqwest::Client::builder()
-                .timeout(timeout)
-                .user_agent("spade-search")
-                .redirect(redirects)
-                .build()
-                .map_err(|e| SearchError::Setup(e.to_string()))
-        };
+    pub fn new(cloud: Cloud) -> Result<Self, SearchError> {
+        // Never follows a redirect: the grant is a bearer, and must reach only the cloud.
+        let http = reqwest::Client::builder()
+            .timeout(cloud.timeout)
+            .user_agent("spade-search")
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| SearchError::Setup(e.to_string()))?;
         Ok(Self {
-            http: client(reqwest::redirect::Policy::default())?,
-            keyed: client(reqwest::redirect::Policy::none())?,
-            backends: config.backends,
-            keys,
-            searxng: RwLock::new(None),
+            http,
+            url: cloud
+                .url
+                .map(|url| url.trim().trim_end_matches('/').to_owned()),
+            credential: cloud.credential,
+            ace_client: cloud.ace_client,
+            clock: cloud.clock,
+            waiting: Mutex::new(None),
         })
-    }
-
-    /// Uses the person's own SearXNG at `url` (`None` goes back to the file's address). Only an
-    /// `http` or `https` address is taken.
-    pub fn set_searxng(&self, url: Option<&str>) -> Result<(), SearchError> {
-        let url = url.map(str::trim).filter(|url| !url.is_empty());
-        let url = match url {
-            None => None,
-            Some(url) => Some(searxng_address(url).ok_or(SearchError::BadAddress)?),
-        };
-        *self.searxng.write().unwrap_or_else(|p| p.into_inner()) = url;
-        Ok(())
-    }
-
-    /// Whether a key for backend `id` is found (keychain, then its environment variable).
-    pub async fn has_key(&self, id: &str) -> bool {
-        let Some(backend) = self.backends.iter().find(|b| b.id == id) else {
-            return false;
-        };
-        self.keys
-            .find(&backend.id, backend.key_env.as_deref())
-            .await
-            .is_some()
-    }
-
-    /// The environment variable backend `id` reads its key from, when the file names one.
-    pub fn key_env(&self, id: &str) -> Option<String> {
-        self.backends
-            .iter()
-            .find(|b| b.id == id)
-            .and_then(|b| b.key_env.clone())
-    }
-
-    /// The person's own SearXNG address, when they set one.
-    pub fn searxng(&self) -> Option<String> {
-        self.searxng
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
     }
 
     /// Searches the web for `query`, returning up to `count` results (at most [`MOST_RESULTS`]).
@@ -145,82 +138,121 @@ impl Search {
         if query.is_empty() {
             return Err(SearchError::EmptyQuery);
         }
-        if self.backends.is_empty() {
-            return Err(SearchError::NoBackends);
+        let Some(url) = &self.url else {
+            return Err(SearchError::Off);
+        };
+        if let Some(answer) = self.still_waiting() {
+            return Err(answer);
         }
-        let count = count.clamp(1, MOST_RESULTS);
-        let mut failures = Vec::new();
-        let mut set_up = false;
-        for backend in &self.backends {
-            match self.ask(backend, query, count).await {
-                Ok(raw) => {
-                    return Ok(Found {
-                        backend: backend.id.clone(),
-                        results: clean::results(raw, count),
-                    });
-                }
-                Err(failure) => {
-                    set_up |= !failure.absent;
-                    failures.push((backend.id.clone(), failure.reason));
-                }
+        if !wire::secure_cloud_url(url) {
+            return Err(SearchError::Failed(
+                "the cloud address is not https".to_owned(),
+            ));
+        }
+        let grant = self.grant().await?;
+        let limit = count.clamp(1, MOST_RESULTS);
+        let query: String = query.chars().take(MOST_QUERY_CHARS).collect();
+        let mut request = self
+            .http
+            .post(format!("{url}/v1/search"))
+            .bearer_auth(grant)
+            .json(&json!({ "query": query, "limit": limit }));
+        if let Some(name) = &self.ace_client {
+            request = request.header(ACE_CLIENT_HEADER, name);
+        }
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(error) => return Err(self.failed(transport_reason(&error))),
+        };
+        match response.status().as_u16() {
+            200 => match wire::json_body(response, wire::MOST_BODY_BYTES).await {
+                Ok(page) => Ok(Found {
+                    provider: page
+                        .get("provider")
+                        .and_then(Value::as_str)
+                        .unwrap_or("ace")
+                        .to_owned(),
+                    results: clean::results(wire::items(page.get("results")), limit),
+                }),
+                Err(error) => Err(self.failed(format!("ace search's answer: {error:?}"))),
+            },
+            429 => {
+                let header = response
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                let body = wire::json_body(response, wire::MOST_BODY_BYTES).await.ok();
+                let (error, reason) = refusal::read(body.as_ref());
+                let refused = SearchError::Refused { error, reason };
+                let wait = refusal::wait(header.as_deref(), body.as_ref());
+                self.wait_for(wait, refused.clone());
+                Err(refused)
             }
-        }
-        if set_up {
-            Err(SearchError::AllFailed(failures))
-        } else {
-            Err(SearchError::NotSetUp)
+            401 | 403 => Err(SearchError::SignedOut),
+            status => Err(self.failed(format!("ace search answered HTTP {status}"))),
         }
     }
 
-    async fn ask(&self, backend: &Backend, query: &str, count: usize) -> Result<Vec<Raw>, Failure> {
-        let key = if backend.needs_key {
-            // Off the async workers: a keychain read can block on a prompt.
-            Some(
-                self.keys
-                    .find(&backend.id, backend.key_env.as_deref())
-                    .await
-                    .ok_or_else(|| Failure::absent("no key in the keychain or environment"))?,
-            )
-        } else {
-            None
+    /// The account's ace search use this month, for the settings line. Asks the cloud with a
+    /// 5-second bound; never fails, answering nulls when the cloud is away.
+    pub async fn usage(&self) -> Usage {
+        let grant = match self.credential.grant().await {
+            Ok(grant) => grant,
+            Err(NoGrant::SignedOut) => return Usage::signed_out(),
+            Err(NoGrant::Unreachable(_)) => return Usage::unknown(),
         };
-        let failed = |reason: String| Failure {
-            reason,
-            absent: false,
-        };
-        match (backend.kind, key) {
-            (Kind::Searxng, _) => {
-                let mine = self.searxng();
-                let base = mine.as_deref().unwrap_or(&backend.base_url);
-                backend::searxng::search(&self.http, base, query)
-                    .await
-                    .map_err(|reason| Failure {
-                        // Nothing listening where the file looks, and the person named no
-                        // SearXNG of their own: there is none.
-                        absent: mine.is_none() && reason == backend::NO_CONNECTION,
-                        reason,
-                    })
+        match &self.url {
+            Some(url) if wire::secure_cloud_url(url) => {
+                usage::ask(&self.http, url, &grant, self.ace_client.as_deref()).await
             }
-            (Kind::Brave, Some(key)) => {
-                backend::brave::search(&self.keyed, &backend.base_url, &key, query, count)
-                    .await
-                    .map_err(failed)
-            }
-            (Kind::Brave, None) => Err(Failure::absent("no key")),
+            _ => Usage::unknown(),
         }
+    }
+
+    async fn grant(&self) -> Result<String, SearchError> {
+        self.credential
+            .grant()
+            .await
+            .map_err(|problem| match problem {
+                NoGrant::SignedOut => SearchError::SignedOut,
+                // ace itself is away: nothing reached the cloud, so there is nothing to wait out.
+                NoGrant::Unreachable(why) => SearchError::Failed(why),
+            })
+    }
+
+    fn still_waiting(&self) -> Option<SearchError> {
+        let now = (self.clock)();
+        let mut waiting = self.waiting.lock().unwrap_or_else(|p| p.into_inner());
+        match waiting.as_ref() {
+            Some((until, answer)) if now < *until => Some(answer.clone()),
+            Some(_) => {
+                *waiting = None;
+                None
+            }
+            None => None,
+        }
+    }
+
+    fn wait_for(&self, wait: Duration, answer: SearchError) {
+        let until = (self.clock)() + wait;
+        *self.waiting.lock().unwrap_or_else(|p| p.into_inner()) = Some((until, answer));
+    }
+
+    fn failed(&self, why: String) -> SearchError {
+        let failed = SearchError::Failed(why);
+        self.wait_for(refusal::FAILED_WAIT, failed.clone());
+        failed
     }
 }
 
-/// A SearXNG address as used: `http` or `https` with a host, ending with `/`.
-fn searxng_address(url: &str) -> Option<String> {
-    let parsed = reqwest::Url::parse(url).ok()?;
-    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
-        return None;
-    }
-    let text = parsed.to_string();
-    Some(if text.ends_with('/') {
-        text
+/// A request error in a few words, without the URL or the grant.
+fn transport_reason(error: &reqwest::Error) -> String {
+    if error.is_timeout() {
+        "timed out".to_owned()
+    } else if error.is_connect() {
+        "could not connect".to_owned()
     } else {
-        format!("{text}/")
-    })
+        "the request failed".to_owned()
+    }
 }

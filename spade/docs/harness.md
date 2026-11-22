@@ -116,8 +116,8 @@ outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at mos
 
 ## Tools
 
-Spade's own tools are always offered in full, in name order: `web_search` (SearXNG, then Brave),
-`web_fetch` (one page as text, a window at a time, refusing local and private addresses),
+Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
+then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
 `todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
 woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
@@ -198,6 +198,7 @@ turns (409 mid-reply).
 | `DELETE /v1/maintenance`                          |                                                   | `200` with the state; reopens admission, paused turns carry on                                              |
 | `PUT /v1/ace`                                     | `{grant}`                                         | `204`; kept in the keychain (account `ace:grant`), used at once                                             |
 | `DELETE /v1/ace`                                  |                                                   | `204`; forgets the grant and disconnects                                                                    |
+| `GET /v1/usage/search`                            |                                                   | `{signed_in, used, allowance, resets_at}`: this month's ace searches (design.md, Web search)                |
 | `GET /v1/ace`                                     |                                                   | `{grant: bool, connected: bool}`, never the grant                                                           |
 
 Maintenance details the contract leaves open: `POST` answers at once and the updater polls `GET`

@@ -1,5 +1,5 @@
 //! What research reads the web through: searches and page reads, behind a trait so tests give
-//! fixed pages. The live one uses `web_search`'s backends and `web_fetch`'s fetcher, with all
+//! fixed pages. The live one uses ace search (ADR 0210) and `web_fetch`'s fetcher, with all
 //! their protections (no local or private addresses, size and time bounds).
 
 use std::future::Future;

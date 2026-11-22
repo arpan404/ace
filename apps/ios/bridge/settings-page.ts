@@ -218,7 +218,7 @@ function staticRow(row: StaticRow, values: ReadValues): PageRow {
     value: row.control.kind === "choice" ? choiceId(current) : (current ?? null),
     note: row.note?.(current, (key) => values.get(key)?.value) ?? null,
     source: pageSource(entry),
-    locked: lockedReason(entry),
+    locked: lockedReason(entry) ?? row.blocked?.((key) => values.get(key)?.value) ?? null,
     empty: null,
   };
 }
@@ -316,7 +316,11 @@ function plan(state: Read, rowId: string, value: unknown): Writes {
     writes.ok && writes.writes.some(([key]) => locked(key))
       ? { ok: false, message: lockedByEnvironment }
       : writes;
-  if (found) return refuseLocked(staticWrite(found, state.values, value));
+  if (found) {
+    const blocked = found.blocked?.((key) => state.values.get(key)?.value);
+    if (blocked) return { ok: false, message: blocked };
+    return refuseLocked(staticWrite(found, state.values, value));
+  }
   if (!context) return { ok: false, message: "This setting isn't on this page." };
   if (rowId === "providers.default" && rows.some((row) => row.kind === "defaultProvider"))
     return refuseLocked(defaultProviderWrite(context, value));

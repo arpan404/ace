@@ -52,6 +52,9 @@ struct SpadeGeneralPage: View {
                 }
             } header: {
                 InsetHeader("Models")
+            } footer: {
+                // This month's ace searches, or the sign-in sentence (ADR 0210).
+                if let search = general.search { Text(search) }
             }
             .insetRowBackground()
         }

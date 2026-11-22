@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MachineCallRequest, type MachinePath } from "@ace/protocol";
 import { RemoteProfile } from "../cli/profiles.ts";
 import { MachineFailure, MachineUnpaired } from "../machines/transport.ts";
@@ -40,7 +40,7 @@ const unpaired = () => {
  * every request that reached a route, direct or relayed, in `reached`.
  */
 function link(answers: Record<string, () => unknown> = {}) {
-  const state = { saved: true, reached: [] as string[] };
+  const state = { saved: true, orgHost: false, reached: [] as string[] };
   const answer = (url: string) => {
     state.reached.push(url);
     const reply = answers[url];
@@ -52,6 +52,7 @@ function link(answers: Record<string, () => unknown> = {}) {
     paths: () => paths,
     hosted: () => false,
     current: () => state.saved,
+    orgHost: () => state.orgHost,
     now: () => 1000,
   });
   return { parcels, state };
@@ -102,5 +103,95 @@ describe("a parcel push to a machine unlinked while it runs", () => {
       "https://100.64.0.2:5870/",
       "wss://relay.example.com/",
     ]);
+  });
+});
+
+describe("a parcel call from an organization's host", () => {
+  it("goes nowhere, on any route, once the machine is enrolled (ADR 0209 §4.2)", async () => {
+    const { parcels, state } = link();
+    // Before, a call reaches the machine.
+    await parcels.call(profile, chunk, timing);
+    expect(state.reached).not.toEqual([]);
+    state.reached.length = 0;
+    state.orgHost = true;
+    await expect(parcels.call(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+      refusal: "machine_forbidden",
+      final: true,
+    });
+    await expect(parcels.relays(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+    });
+    expect(state.reached).toEqual([]);
+  });
+});
+
+describe("a parcel call in flight when its machine is enrolled", () => {
+  it("tries no further route, refuses to write once connected, and halts", async () => {
+    // The first route fails after enrollment: the call never moves on to another one.
+    const moved = link({
+      "https://192.168.1.20:5870/": () => {
+        moved.state.orgHost = true;
+        throw new MachineFailure("offline");
+      },
+    });
+    await expect(moved.parcels.call(profile, chunk, timing)).rejects.toMatchObject({
+      kind: "refused",
+    });
+    expect(moved.state.reached).toEqual(["https://192.168.1.20:5870/"]);
+
+    // A connected request is asked again before it writes anything.
+    const state = { orgHost: false };
+    let connectedCheck: (() => boolean) | undefined;
+    const pinned = new ParcelLink({
+      // A transport holding its connection open until its signal ends it, as a real one does.
+      pinned: (_target, _route, options) => {
+        connectedCheck = options.current;
+        return new Promise((_resolve, reject) =>
+          options.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          }),
+        );
+      },
+      relay: { call: () => Promise.resolve({ ok: true }) },
+      paths: () => [],
+      hosted: () => false,
+      current: () => true,
+      orgHost: () => state.orgHost,
+      now: () => 1000,
+    });
+    const going = pinned.call(profile, chunk, timing);
+    await vi.waitFor(() => expect(connectedCheck).toBeDefined());
+    expect(connectedCheck?.()).toBe(true);
+    state.orgHost = true;
+    expect(connectedCheck?.()).toBe(false);
+    // Enrollment halts what is still waiting on an answer.
+    pinned.halt();
+    await expect(going).rejects.toBeDefined();
+  });
+});
+
+describe("a parcel call through a relay", () => {
+  it("is asked about the machine's mode once its stream is up, before the frame goes", async () => {
+    const state = { orgHost: false };
+    let relayCheck: (() => boolean) | undefined;
+    const relayed = new ParcelLink({
+      pinned: () => Promise.reject(new MachineFailure("offline")),
+      relay: {
+        call: (_target, _body, options) => {
+          relayCheck = Reflect.get(options, "current");
+          return Promise.resolve({ ok: true });
+        },
+      },
+      paths: () => [],
+      hosted: () => false,
+      current: () => true,
+      orgHost: () => state.orgHost,
+      now: () => 1000,
+    });
+    await relayed.relays(profile, chunk, timing);
+    expect(relayCheck?.()).toBe(true);
+    state.orgHost = true;
+    expect(relayCheck?.()).toBe(false);
   });
 });

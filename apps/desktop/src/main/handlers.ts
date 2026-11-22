@@ -1,7 +1,9 @@
 import { writableFolder } from "./browser/download-folder.ts";
 import { aceClientName, namedFetch } from "@ace/client/ace-client";
 import { ACE_CLIENT_DEVELOPMENT } from "@ace/protocol/ace-client";
-import { accountSecrets } from "./account-secrets.ts";
+import { accountSecrets, safeStorageSealer } from "./account-secrets.ts";
+import { appStanding, type DaemonHttp } from "./app-standing.ts";
+import { standingKeys } from "./standing-key.ts";
 import { followDaemonAccount } from "./account-follow.ts";
 import { accountSync } from "./account-sync.ts";
 import { aceAccountClient } from "@ace/client/ace-account";
@@ -73,6 +75,42 @@ function accountReader(info: AppInfo) {
       .account.id;
 }
 
+/** The daemon on this computer over HTTP, with the app's host credential. */
+function daemonHttp(connection: Extract<DaemonConnection, { mode: "daemon" }>): DaemonHttp {
+  return async (method, path, body) => {
+    const url = new URL(path, connection.url);
+    url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+    const response = await fetch(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${connection.token}`,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      signal: AbortSignal.timeout(10_000),
+      // The daemon answers here itself: a redirect would hand the token and statement elsewhere.
+      redirect: "error",
+    });
+    return { status: response.status, body: (await response.json().catch(() => null)) as unknown };
+  };
+}
+
+/**
+ * A grant the account backend mints from the app's session for `action`, with the time that
+ * session signed in: its word that an enrollment follows a browser sign-in (ADR 0190, amd. 1).
+ */
+function signInGrantReader(info: AppInfo) {
+  const named = namedFetch(fetch, desktopClient(info));
+  return async (origin: string, token: string, action: string): Promise<string> =>
+    (
+      await aceAccountClient({ origin, fetch: named }).grant(
+        token,
+        { kind: "device", subject: "ace-desktop", purpose: "market-publish", action },
+        AbortSignal.timeout(10_000),
+      )
+    ).token;
+}
+
 /** Every `window.ace` request, already parsed by `registerHandlers`. */
 export function createHandlers(options: {
   info: AppInfo;
@@ -121,10 +159,34 @@ export function createHandlers(options: {
   /** Pages the person opens on a remote machine's thread (ADR 0194). */
   deviceTabs: DeviceTabs;
   machineTunnels: MachineTunnels;
+  /** The person's standing on the app's own sockets (ADR 0190, amendment 1). */
+  standing?: { allowed(): Promise<boolean>; tags(): readonly string[] };
 }): Handlers {
   const { runtime, settings, background } = options;
   const account = accountSecrets(app.getPath("userData"));
   const accountOf = accountReader(options.info);
+  const standing = appStanding({
+    keys: standingKeys(app.getPath("userData"), safeStorageSealer),
+    allowed: () => options.standing?.allowed() ?? Promise.resolve(false),
+    tags: () => options.standing?.tags() ?? [],
+    daemon: async () => {
+      const connection = await options.connection().catch(() => undefined);
+      if (connection?.mode !== "daemon" || connection.localRelayHostId === undefined)
+        return undefined;
+      return {
+        http: daemonHttp(connection),
+        host: connection.localRelayHostId,
+        relayPublicKey: connection.localRelayPublicKey,
+      };
+    },
+    session: (origin) => account.read(origin),
+    saveSession: (origin, token) => account.write(origin, token),
+    accountOf,
+    signInGrant: signInGrantReader(options.info),
+    now: Date.now,
+  });
+  // A revocation a sign-out couldn't deliver goes again as the app starts.
+  void standing.retry().catch(() => undefined);
   // A daemon that starts or restarts signed out follows the app's account (never switching one
   // that is signed in); the app's sign-in and sign-out follow `account-write.ts`. One queue for
   // both, so an older change never lands after a newer one.
@@ -152,12 +214,18 @@ export function createHandlers(options: {
   return {
     "account.read": (origin) => account.read(origin),
     "account.write": async ({ origin, token }) => {
-      await account.write(origin, token);
+      // The session and the device key change together, one step at a time (ADR 0190,
+      // amendment 1): signing out writes the key's revocation before it clears the session, and
+      // a failure to write either reaches the page.
+      await standing.writeSession(origin, token);
       // The machine follows the app's account only where that moves no one's own sign-in
       // (`account-write.ts`); a failure here leaves the app signed in.
       void daemonAccount.followApp(origin).catch(() => {});
       return undefined;
     },
+    // A window asks only "prove me" or "enroll"; main makes and sends the statement itself.
+    "standing.prove": ({ origin }) => standing.prove(origin).catch(() => false),
+    "standing.enroll": ({ origin }) => standing.enroll(origin).catch(() => false),
     "daemon.account": async (request) =>
       machineAccount(await options.connection(), request, (origin) => account.read(origin)),
     "keymap.update": (bindings) => {

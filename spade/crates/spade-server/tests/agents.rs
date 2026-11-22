@@ -373,7 +373,7 @@ async fn the_roster_shows_a_running_turn_and_an_approval_wait() -> Result {
     assert!(
         matches!(
             working["status"].as_str(),
-            Some("Thinking" | "Using send email" | "Writing")
+            Some("Thinking" | "Sending an email" | "Writing")
         ),
         "{working}"
     );
@@ -678,5 +678,111 @@ async fn a_character_face_is_stored_repaired_and_returned() -> Result {
     )
     .await?;
     assert_eq!(changed["agent"]["avatar"]["kind"], "character");
+    Ok(())
+}
+
+/// The roster entry of the agent whose conversation is `conversation`.
+async fn agent_of(spade: &Spade, conversation: &str) -> Result<String> {
+    Ok(roster(spade)
+        .await?
+        .into_iter()
+        .find(|a| a["conversation"] == conversation)
+        .and_then(|a| a["id"].as_str().map(str::to_owned))
+        .unwrap_or_default())
+}
+
+#[tokio::test]
+async fn the_working_line_says_the_models_own_headline_while_its_tool_runs() -> Result {
+    let lookup = FakeTool::new("lookup", Risk::Read, "12C").slow(Duration::from_millis(1500));
+    let spade = Spade::start(
+        vec![
+            Script::reply("")
+                .thinking(
+                    "**Reading the brief**\n\nThe person wants the weather.\n\n**Checking the forecast for Oxford and London today**\n\nNeed the tool.",
+                    "unused",
+                )
+                .call("c1", "lookup", json!({ "city": "Oxford" })),
+            Script::reply("It is 12C."),
+            title(),
+        ],
+        vec![Arc::new(lookup) as Arc<dyn Tool>],
+    )
+    .await?;
+    let conversation = spade.ask("Weather in Oxford?").await?;
+    let id = agent_of(&spade, &conversation).await?;
+    let working = wait_until(&spade, &id, |a| {
+        a["status"] != Value::Null && a["status"] != "Thinking"
+    })
+    .await?;
+    // The newest headline, cut to a few words, and kept over the tool's own phrase.
+    assert_eq!(
+        working["status"], "Checking the forecast for Oxford",
+        "{working}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_working_line_says_what_a_tool_does_never_its_id() -> Result {
+    let search = FakeTool::new("web_search", Risk::Read, "none").slow(Duration::from_millis(1500));
+    let odd =
+        FakeTool::new("frobnicate_widgets", Risk::Read, "ok").slow(Duration::from_millis(1500));
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "web_search",
+                json!({ "query": "flights to Oslo in May" }),
+            ),
+            Script::reply("").call("c2", "frobnicate_widgets", json!({})),
+            Script::reply("Done."),
+            title(),
+        ],
+        vec![
+            Arc::new(search) as Arc<dyn Tool>,
+            Arc::new(odd) as Arc<dyn Tool>,
+        ],
+    )
+    .await?;
+    let conversation = spade.ask("Flights?").await?;
+    let id = agent_of(&spade, &conversation).await?;
+    let searching = wait_until(&spade, &id, |a| {
+        a["status"] == "Searching the web for flights"
+    })
+    .await?;
+    assert_eq!(searching["state"], "working");
+    let unknown = wait_until(&spade, &id, |a| a["status"] == "Working").await?;
+    assert_eq!(unknown["state"], "working");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_working_line_says_the_plan_step_in_progress_over_a_tools_phrase() -> Result {
+    let todo = FakeTool::new("todo", Risk::Read, "Plan saved");
+    let search = FakeTool::new("web_search", Risk::Read, "none").slow(Duration::from_millis(1500));
+    let spade = Spade::start(
+        vec![
+            Script::reply("").call(
+                "c1",
+                "todo",
+                json!({ "items": [
+                    { "text": "Find **flights**", "done": true },
+                    { "text": "Compare hotel prices", "done": false },
+                ] }),
+            ),
+            Script::reply("").call("c2", "web_search", json!({ "query": "hotels in Oslo" })),
+            Script::reply("Done."),
+            title(),
+        ],
+        vec![
+            Arc::new(todo) as Arc<dyn Tool>,
+            Arc::new(search) as Arc<dyn Tool>,
+        ],
+    )
+    .await?;
+    let conversation = spade.ask("Plan my trip").await?;
+    let id = agent_of(&spade, &conversation).await?;
+    let planned = wait_until(&spade, &id, |a| a["status"] == "Compare hotel prices").await?;
+    assert_eq!(planned["state"], "working");
     Ok(())
 }

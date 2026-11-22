@@ -11,7 +11,7 @@ pub const DEFAULT_LISTEN: &str = "127.0.0.1:3000";
 #[derive(Debug, Clone, PartialEq)]
 pub struct Config {
     pub listen: SocketAddr,
-    /// `SPADE_DATA_DIR`: the database, token, lock, `server.json`, `models.json`, `search.json`.
+    /// `SPADE_DATA_DIR`: the database, token, lock, `server.json`, `models.json`.
     pub data_dir: PathBuf,
     /// `SPADE_PARALLEL_TOOLS`: tool calls of one step run at once; unset is the engine's default.
     pub parallel_tools: Option<usize>,

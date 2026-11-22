@@ -97,6 +97,7 @@ import { combineFleetMap, FleetMapCombineRequest } from "./fleet-map.ts";
 import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
+import { NativeMarket, NativeMarketRequest } from "./market.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
@@ -188,6 +189,8 @@ export class NativeServices {
   readonly software: MachineSoftware;
   readonly skills: NativeSkillLibrary;
   readonly plugins: NativeSkillPlugins;
+  /** The marketplace through this machine's daemon (`market.ts`). */
+  readonly market: NativeMarket;
   readonly automations: NativeAutomations | undefined;
   readonly now: () => number;
   constructor(
@@ -215,6 +218,7 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
+    this.market = new NativeMarket(owner, now, undefined, (id) => this.spade?.bot(id)?.name);
     this.automations = automations;
     this.projects = projects;
     this.inbox = inbox;
@@ -361,6 +365,11 @@ export class NativeServices {
       const plugins = NativePluginsRequest.safeParse(raw);
       if (plugins.success) {
         this.#answer(id, raw, await this.plugins.answer(plugins.data, controller.signal), read);
+        return;
+      }
+      const market = NativeMarketRequest.safeParse(raw);
+      if (market.success) {
+        this.#answer(id, raw, await this.market.answer(market.data, controller.signal), read);
         return;
       }
       const message = NativeMessageRequest.safeParse(raw);

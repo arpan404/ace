@@ -601,3 +601,60 @@ test("a phone the machine won't let change it is told so politely and nothing is
   expect(written.page && row(written.page, "beta.spade").value).toBe(false);
   expect(daemon.services.settings.get("beta.spade")).toBe(false);
 });
+
+test("the Automation webhooks page has a switch per way in, and turning one off saves it on the machine", async () => {
+  const daemon = fixture();
+  daemon.seedServices({ settings: { "remote.tailscaleWebhooks": true } });
+  const p = await ports(daemon);
+  const shown = await page(p, "automationWebhooks");
+  expect(shown.title).toBe("Automation webhooks");
+  const own = row(shown, "remote.publicUrlWebhooks");
+  // With no URL of its own yet, the first switch says what comes first.
+  expect(own).toMatchObject({
+    title: "At your own URL",
+    value: false,
+    note: "Add your own URL under Connect an app first.",
+    // Off and unchangeable until there's a URL, as on the web.
+    locked: "Add your own URL under Connect an app first.",
+  });
+  const early = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "automationWebhooks",
+    row: "remote.publicUrlWebhooks",
+    value: true,
+  });
+  expect(early).toMatchObject({
+    ok: false,
+    message: "Add your own URL under Connect an app first.",
+  });
+  expect(daemon.services.settings.get("remote.publicUrlWebhooks")).not.toBe(true);
+  expect(row(shown, "remote.tailscaleWebhooks")).toMatchObject({
+    title: "Over Tailscale",
+    value: true,
+  });
+  expect(row(shown, "remote.relayWebhooks").note).toBe(
+    "ace cloud carries webhook bodies in plain text, never the secret.",
+  );
+  const off = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "automationWebhooks",
+    row: "remote.tailscaleWebhooks",
+    value: false,
+  });
+  expect(off.ok).toBe(true);
+  expect(daemon.services.settings.get("remote.tailscaleWebhooks")).toBe(false);
+
+  daemon.seedServices({ settings: { "remote.mcpPublicUrl": "https://hooks.example.com/ace" } });
+  expect(row(await page(p, "automationWebhooks"), "remote.publicUrlWebhooks")).toMatchObject({
+    note: "Senders reach your own proxy, which keeps request bodies off ace cloud.",
+    locked: null,
+  });
+  const on = await writeSettingsPage(p, {
+    type: "settings.page.set",
+    page: "automationWebhooks",
+    row: "remote.publicUrlWebhooks",
+    value: true,
+  });
+  expect(on.ok).toBe(true);
+  expect(daemon.services.settings.get("remote.publicUrlWebhooks")).toBe(true);
+});
