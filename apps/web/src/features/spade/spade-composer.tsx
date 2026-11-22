@@ -229,6 +229,12 @@ export function SpadeComposer(props: {
           shortPlaceholder={`Message ${props.name}`}
           sendBlocked={blocked ? { reason: blocked, describedBy: reason } : undefined}
           trailing={<MicButton voice={voice} />}
+          // The message being replied to, inside the composer above the words (ADR 0212 §4).
+          heading={
+            replying && (
+              <ReplyStrip quote={replying.quote} botName={props.name} onClear={replying.onClear} />
+            )
+          }
           idleAction={<VoiceButton name={props.name} talk={talk} voice={voice} />}
           attached={
             <>
@@ -260,15 +266,6 @@ export function SpadeComposer(props: {
                       <Icon icon={XIcon} size={14} />
                     </button>
                   </span>
-                </div>
-              )}
-              {replying && (
-                <div className="mb-2 flex px-1">
-                  <ReplyStrip
-                    quote={replying.quote}
-                    botName={props.name}
-                    onClear={replying.onClear}
-                  />
                 </div>
               )}
               {props.attached}

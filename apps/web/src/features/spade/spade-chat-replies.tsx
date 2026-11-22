@@ -70,8 +70,11 @@ export function QuoteLine(props: { quote: SpadeQuote; side: "bot" | "mine" }) {
 }
 
 /**
- * Above the composer while the person replies: who they answer and one line of it, with × to
- * stop replying. One sentence-like line, no tint (design-language §2.3).
+ * Inside the composer, above the words, while the person replies: who they answer and one line
+ * of it on the quote's 2px rule, with × to stop replying. One sentence-like line, no tint
+ * (design-language §2.3). It is the composer's own top line (its `heading`), so it never floats
+ * over the transcript, and the transcript's room under the composer grows with it. It starts
+ * 24px down: Scroll to end rests on the composer's top edge in that room, above the line.
  */
 export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(): void }) {
   const name = spadeQuoteName(props.quote.who, props.botName);
@@ -79,10 +82,9 @@ export function ReplyStrip(props: { quote: SpadeQuote; botName: string; onClear(
     <div
       role="status"
       aria-label={`Replying to ${name}`}
-      // It floats over the transcript, on the surface the bubbles' actions float on.
-      className="flex h-8 max-w-full min-w-0 items-center gap-1 rounded-full bg-popover pr-1 pl-3 text-popover-foreground shadow-glass"
+      className="flex min-w-0 items-center gap-2 pt-6 pr-2 pl-4"
     >
-      <p className="min-w-0 flex-1 truncate text-ui text-muted-foreground">
+      <p className="min-w-0 flex-1 truncate border-l-2 border-border-strong pl-2.5 text-ui text-muted-foreground">
         <span className="font-medium text-foreground">Replying to {name}</span>
         {" · "}
         {props.quote.text}

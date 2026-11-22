@@ -79,7 +79,11 @@ test("Reply on a bot's message shows it above the composer, and the sent message
     return found;
   });
   await userEvent.click(within(frame).getByRole("button", { name: "Reply" }));
-  expect(await screen.findByRole("status", { name: "Replying to Garden" })).toBeTruthy();
+  const strip = await screen.findByRole("status", { name: "Replying to Garden" });
+  // It is the composer's own line, which opens the capsule, never a strip loose over the chat.
+  const composer = strip.closest("[data-slot=composer]");
+  expect(composer?.contains(screen.getByRole("combobox", { name: "Message Garden" }))).toBe(true);
+  expect(composer?.hasAttribute("data-pill")).toBe(false);
   await userEvent.type(screen.getByRole("combobox", { name: "Message Garden" }), "Tuesday{Enter}");
   // The strip goes once it is sent, and the bubble quotes the message it answers.
   await waitFor(() =>
