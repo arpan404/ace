@@ -93,6 +93,8 @@ export interface StandingChallenge {
   /** The relay stream's Noise handshake hash; undefined on a socket with no channel of its own. */
   binding: string | undefined;
   device: string;
+  /** Tagged by the desktop app's main process, which can prove it (ADR 0190, amendment 1). */
+  appSocket?: boolean;
 }
 
 export interface ClientApi {

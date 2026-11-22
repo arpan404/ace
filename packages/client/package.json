@@ -15,6 +15,7 @@
     "./machines": "./src/machines.ts",
     "./screen": "./src/screen.ts",
     "./spade-http": "./src/spade-http.ts",
+    "./spade-person-only": "./src/spade-person-only.ts",
     "./spade-live": "./src/spade-live.ts",
     "./screen-stream": "./src/screen-stream.ts",
     "./media": "./src/media.ts",

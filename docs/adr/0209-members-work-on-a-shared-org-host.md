@@ -744,3 +744,26 @@ its phase gate.
 ## Verification
 
 None yet: this is a design. Each phase's done line is its verification.
+
+## Amendment 1 (2026-11-21): a released org host stays sealed
+
+Found by the security review of #2528. Releasing an org host (ADR 0206 §2.1) cleared its owner
+but kept its database, so the next person's proof made the machine personal and personal-mode
+permissions opened the organization's retained threads.
+
+**Decided: sealing, the simpler safe option, since a release never deletes anything.**
+
+- Enrolling writes `ace-org-seal.json` (`{kind: "org-seal", org}`) beside `ace-owner.json`, before
+  the owner record, so a crash between the two leaves the home sealed. A home enrolled before
+  this change is sealed the first time it loads.
+- A release clears the owner, never the seal. Neither does the local reset (removing
+  `ace-owner.json` with the daemon stopped). ace never removes the seal.
+- While a home is sealed, no person's proof claims it, and the access policy (§4) keeps deciding
+  as an org host of that organization: the host's operator gets metadata only, conversation
+  bundles are refused, paired devices stay revoked, and no member is admitted, because the host
+  is no longer enrolled.
+- **Personal use starts on a fresh `ACE_HOME`.** The organization's data stays in the old one,
+  intact. Deleting the seal by hand, with the daemon stopped, is a deliberate act by the
+  machine's administrator, who can read that disk anyway (§12). The release page says so.
+- Not built yet: enrolling a sealed home into its organization again (for example
+  `ace login --org` on a released host). Until then the seal holds, and the data stays.

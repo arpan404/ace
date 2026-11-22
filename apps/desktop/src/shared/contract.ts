@@ -41,6 +41,11 @@ export const DaemonConnection = z.discriminatedUnion("mode", [
       .string()
       .regex(/^[A-Z2-7]{52}$/)
       .optional(),
+    /** That relay key's public half, which the app pins to check the daemon holds it. */
+    localRelayPublicKey: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{43}$/)
+      .optional(),
   }),
   /** `dev:desktop:fake`: the renderer runs the in-page fake daemon. */
   z.object({ mode: z.literal("fake") }),

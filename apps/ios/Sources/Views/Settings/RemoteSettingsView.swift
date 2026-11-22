@@ -17,6 +17,8 @@ struct RemoteSettingsCategory: Identifiable {
     /// Simulators and emulators on or off, the emulator window, and the tools they need.
     static let simulators = RemoteSettingsCategory(title: "Simulators", icon: .deviceMobile, page: "simulators")
     static let browser = RemoteSettingsCategory(title: "Browser", icon: .compass, page: "browser")
+    /// One switch per way a signed automation webhook can reach the machine (ADR 0173).
+    static let automationWebhooks = RemoteSettingsCategory(title: "Automation webhooks", icon: .plugsConnected, page: "automationWebhooks")
     /// Moving work to the machines this one links to (ADR 0101); shown only while it links to one.
     static let fleet = RemoteSettingsCategory(title: "Fleet", icon: .graph, page: "fleet")
     /// Features still being tried out on this machine, last, as web lists Settings › Beta.
@@ -24,6 +26,7 @@ struct RemoteSettingsCategory: Identifiable {
     static let all: [RemoteSettingsCategory] = [
         agents,
         .init(title: "Remote access", icon: .globe, page: "remote"),
+        automationWebhooks,
         browser,
         simulators,
         beta,

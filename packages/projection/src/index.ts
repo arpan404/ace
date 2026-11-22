@@ -16,7 +16,12 @@ export {
   visibleHistoryOrder,
 } from "./history-visibility.ts";
 export { isProviderRetryNotice } from "./retry-notice.ts";
-export { queueWakesSnooze, stoppedByPerson, threadAttention } from "./thread-attention.ts";
+export {
+  queueWakesSnooze,
+  stoppedByPerson,
+  threadAttention,
+  unsentQueueRevision,
+} from "./thread-attention.ts";
 export {
   snoozedPullRequests,
   snoozeWakeDue,

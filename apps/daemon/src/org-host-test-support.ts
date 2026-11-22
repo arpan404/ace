@@ -115,8 +115,11 @@ export async function spadeHttp(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   for (;;) {
-    const message = await answer(client, "spade.http.result");
-    if (message.requestId !== requestId) continue;
+    const message: ServerMessage = await client.next();
+    // Refused by the host's access policy before it reached Spade (ADR 0209 §4).
+    if (message.type === "error" && message.requestId === requestId)
+      return { refused: message.code };
+    if (message.type !== "spade.http.result" || message.requestId !== requestId) continue;
     const { result } = message;
     if (result.kind === "error") return { refused: result.code };
     let parsed: unknown;

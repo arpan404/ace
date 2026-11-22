@@ -1,4 +1,4 @@
-import { threadAttention } from "./thread-attention.ts";
+import { threadAttention, unsentQueueRevision } from "./thread-attention.ts";
 import { snoozeWakeDue, snoozeWakeFor } from "./snooze-wake.ts";
 import { snoozeWokeFor } from "./snooze-woke.ts";
 import {
@@ -71,6 +71,7 @@ export function organizationDecision(
         changes: {
           settledAt: at,
           settledReason: "manual",
+          settledOverQueue: unsentQueueRevision(thread),
           snoozedUntil: null,
           snoozeWake: null,
           autoSettleAt: null,
@@ -141,6 +142,7 @@ export function settleDecision(
       ...expired,
       settledAt: at,
       settledReason: "manual",
+      settledOverQueue: null,
       autoSettleAt: null,
       settleWhenDone: null,
     };

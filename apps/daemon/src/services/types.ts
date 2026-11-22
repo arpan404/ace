@@ -250,4 +250,6 @@ export interface ServiceContext {
     onRoom(listener: () => void): () => void;
   };
   onListen: ((server: Awaited<ReturnType<typeof startServer>>) => void | Promise<void>)[];
+  /** Whether this machine is an organization's host (ADR 0209), before its account loads too. */
+  orgHost?: import("../org-access/org-probe.ts").OrgProbe;
 }
