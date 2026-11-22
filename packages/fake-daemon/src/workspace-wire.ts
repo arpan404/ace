@@ -43,6 +43,7 @@ export type FakeWorkspaceControls = Pick<
   | "setGitStatus"
   | "setGitDiff"
   | "setGitCommitDiff"
+  | "failGitCommitDiff"
   | "setGitLog"
   | "setEditors"
   | "setTerminals"
@@ -321,6 +322,11 @@ export class FakeWorkspaceWire {
   private gitCommitPatches = new Map<string, string>();
   setGitCommitDiff(threadId: string, commit: string, patch: string): void {
     this.gitCommitPatches.set(`${threadId}:${commit}`, patch);
+  }
+  private gitCommitFailures = new Map<string, string>();
+  /** The daemon refuses this commit's patch with `code` (a shallow clone's boundary, say). */
+  failGitCommitDiff(threadId: string, commit: string, code: string): void {
+    this.gitCommitFailures.set(`${threadId}:${commit}`, code);
   }
   private gitLogs = new Map<string, readonly GitLogEntry[]>();
   private gitLogStops = new Map<string, "limit" | "budget">();
@@ -614,6 +620,16 @@ export class FakeWorkspaceWire {
         result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
       });
     if (op.op === "git.diff") {
+      const refused =
+        op.commit === undefined
+          ? undefined
+          : this.gitCommitFailures.get(`${op.threadId}:${op.commit}`);
+      if (refused)
+        return ServerMessage.parse({
+          type: "workspace.result",
+          requestId: request.requestId,
+          result: { kind: "error", code: refused },
+        });
       const patch =
         op.commit !== undefined
           ? (this.gitCommitPatches.get(`${op.threadId}:${op.commit}`) ?? "")

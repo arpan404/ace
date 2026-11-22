@@ -1,5 +1,7 @@
 import { gitLogMaxBytes, gitLogMaxLimit, type GitLogEntry } from "@ace/protocol";
+import { readFile } from "node:fs/promises";
 import { devNull } from "node:os";
+import { isAbsolute, join } from "node:path";
 import { patchOutput, textOutput } from "./cli.ts";
 import { hashSchema, pathSchema } from "./decode.ts";
 import { logFormat, parseFileLog } from "./parse-history.ts";
@@ -86,6 +88,21 @@ async function parentsOf(
   return textOutput(out).split(" ").slice(1).filter(Boolean);
 }
 
+/** Whether this is a shallow clone and `sha` is one of its boundary commits (parents hidden). */
+async function shallowBoundary(
+  repository: Repository,
+  root: string,
+  sha: string,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  const call = (args: string[]) =>
+    repository.cli.call(root, args, { captureBytes: 64 * 1024, ...(signal ? { signal } : {}) });
+  if (textOutput(await call(["rev-parse", "--is-shallow-repository"])) !== "true") return false;
+  const file = textOutput(await call(["rev-parse", "--git-path", "shallow"]));
+  const listed = await readFile(isAbsolute(file) ? file : join(root, file), "utf8").catch(() => "");
+  return listed.split("\n").some((line) => line.trim() === sha);
+}
+
 /**
  * A file's newest commits following renames (`git log --follow -n limit` from HEAD), in one
  * walk bounded by the byte cap and the work budget. There are no later pages: what is older
@@ -156,6 +173,10 @@ export async function diffCommit(
   const { signal } = options;
   const sha = await repository.commit(root, options.commit, signal);
   const parents = await parentsOf(repository, root, sha, signal);
+  // No parent may be a root commit, or a shallow clone's boundary hiding the parent: that one
+  // must not be diffed against nothing (the whole file would show as added).
+  if (parents.length === 0 && (await shallowBoundary(repository, root, sha, signal)))
+    throw new GitError("shallow_parent", "The parent commit isn't in this clone");
   const from = parents[0] ?? (sha.length === 64 ? emptyTreeSha256 : emptyTreeSha1);
   const orderFile = repository.cli.platform === "win32" ? "-O/dev/null" : `-O${devNull}`;
   const patch = await repository.cli.call(

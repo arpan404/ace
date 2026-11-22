@@ -12,6 +12,7 @@ import {
   readGitCommitDiff,
   type CommitDiffTarget,
 } from "@/lib/git-history.ts";
+import { CommandRefused } from "@/lib/daemon-command.ts";
 import { FileDiffBlock, type FileView } from "../changes/file-diff.tsx";
 import { freshView } from "../changes/file-view.ts";
 
@@ -21,7 +22,8 @@ interface CommitDiffState {
   truncated: boolean;
   nextOffset: number | undefined;
   validator: string | undefined;
-  failed: boolean;
+  /** Why the change couldn't be read, in words; undefined when it was. */
+  failed: string | undefined;
   loadingMore: boolean;
 }
 
@@ -60,11 +62,11 @@ export function EditorCommitCompare(props: {
           truncated: result.truncated,
           nextOffset: result.nextOffset,
           validator: result.validator,
-          failed: false,
+          failed: undefined,
           loadingMore: false,
         });
       },
-      () => {
+      (error: unknown) => {
         if (controller.signal.aborted) return;
         setState({
           key: requestKey,
@@ -72,7 +74,7 @@ export function EditorCommitCompare(props: {
           truncated: false,
           nextOffset: undefined,
           validator: undefined,
-          failed: true,
+          failed: failureWords(error, target.shortSha),
           loadingMore: false,
         });
       },
@@ -110,12 +112,12 @@ export function EditorCommitCompare(props: {
             : prev,
         );
       },
-      () => {
+      (error: unknown) => {
         setState((prev) =>
           prev && prev.key === requestKey
             ? {
                 ...prev,
-                failed: true,
+                failed: failureWords(error, target.shortSha),
                 loadingMore: false,
               }
             : prev,
@@ -224,7 +226,7 @@ export function EditorCommitCompare(props: {
         </div>
       ) : active.failed ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-xs text-muted-foreground">
-          <p>Couldn&apos;t read the changes in {target.shortSha}.</p>
+          <p>{active.failed}</p>
         </div>
       ) : diff ? (
         <>
@@ -262,4 +264,11 @@ export function EditorCommitCompare(props: {
       )}
     </div>
   );
+}
+
+/** What a failed read of a commit's change says. */
+function failureWords(error: unknown, shortSha: string): string {
+  return error instanceof CommandRefused && error.code === "git_shallow_parent"
+    ? "The parent commit isn't in this clone."
+    : `Couldn't read the changes in ${shortSha}.`;
 }

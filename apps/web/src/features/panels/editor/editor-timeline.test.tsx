@@ -224,6 +224,32 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     expect(diffRegion.textContent).not.toContain("export const model");
   });
 
+  test("a commit whose parent the clone doesn't have says so instead of a diff", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitLog(threadId, "src/app.ts", [
+      {
+        sha: sha1,
+        shortSha: sha1.slice(0, 7),
+        subject: "Shallow tip",
+        authorName: "Arpan",
+        authorEmail: "arpan@example.invalid",
+        authoredAt: nowMs - 60_000,
+        path: "src/app.ts",
+      },
+    ]);
+    daemon.workspace.failGitCommitDiff(threadId, sha1, "git_shallow_parent");
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    render(
+      <ClientProvider client={client}>
+        <TimelineHarness path="src/app.ts" />
+      </ClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Shallow tip/ }));
+    expect(await screen.findByText("The parent commit isn't in this clone.")).toBeTruthy();
+  });
+
   test("a long history lists the newest 200 commits and says older ones are in git log", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitLog(

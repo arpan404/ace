@@ -275,6 +275,19 @@ test("diffCommit diffs a root commit, a regular commit, and a rename commit", as
   expect(renameDiff.patch).toContain("rename to b.ts");
 });
 
+test("a commit whose parent this shallow clone doesn't have is refused, not diffed against nothing", async () => {
+  const repo = await repository({ "a.ts": "one\n" });
+  await put(repo, "a.ts", "one\ntwo\n");
+  await git(repo, "commit", "-qam", "Second");
+  const tip = (await git(repo, "rev-parse", "HEAD")).toString().trim();
+  // What a depth-one clone records: the tip is the shallow boundary, its parent hidden.
+  const shallow = (await git(repo, "rev-parse", "--git-path", "shallow")).toString().trim();
+  await put(repo, shallow, `${tip}\n`);
+  await expect(
+    service.diffCommit({ worktree: repo, commit: tip, paths: ["a.ts"] }),
+  ).rejects.toMatchObject({ code: "shallow_parent" });
+});
+
 test("fileLog and diffCommit reject unsafe paths and invalid refs", async () => {
   const repo = await repository({ "safe.ts": "one\ntwo\n" });
   const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });

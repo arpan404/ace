@@ -66,6 +66,7 @@ export async function readGitCommitDiff(
     },
     options.signal ? { signal: options.signal } : {},
   );
+  if (reply.result.kind === "error") throw new CommandRefused(reply.result.code);
   if (reply.result.kind !== "gitDiff") throw new CommandRefused("git_diff_unavailable");
   return reply.result;
 }
