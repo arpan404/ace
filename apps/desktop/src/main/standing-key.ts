@@ -28,8 +28,20 @@ const Held = z.object({
   session: z.string().regex(/^[0-9a-f]{64}$/),
   key: z.string().min(1).max(512),
 });
-const Saved = z.record(z.string(), Held);
+const PublicKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const Saved = z.object({
+  /** One key per account backend. */
+  keys: z.record(z.string(), Held),
+  /** The daemon's relay key (X25519, base64url), pinned at the first enrollment. */
+  pin: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .optional(),
+  /** Keys signed out of whose revocation the daemon hasn't acknowledged yet. */
+  pending: z.array(PublicKey).max(64),
+});
 type Saved = z.infer<typeof Saved>;
+const empty = (): Saved => ({ keys: {}, pending: [] });
 
 /** The digest a key is bound to: a session token's SHA-256, never the token itself. */
 export const sessionDigest = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -79,7 +91,7 @@ export function standingKeys(directory: string, sealer: Sealer) {
     try {
       bytes = await readFile(path);
     } catch (error) {
-      if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return {};
+      if (z.object({ code: z.literal("ENOENT") }).safeParse(error).success) return empty();
       throw new Error("Couldn't read this device's key", { cause: error });
     }
     if (!sealer.available()) throw new Error("Secure storage is unavailable");
@@ -87,11 +99,11 @@ export function standingKeys(directory: string, sealer: Sealer) {
     try {
       return Saved.parse(JSON.parse(sealer.open(bytes)));
     } catch {
-      return {};
+      return empty();
     }
   }
   async function write(saved: Saved): Promise<void> {
-    if (!Object.keys(saved).length) {
+    if (!Object.keys(saved.keys).length && saved.pin === undefined && !saved.pending.length) {
       await rm(path, { force: true });
       return;
     }
@@ -106,7 +118,7 @@ export function standingKeys(directory: string, sealer: Sealer) {
     /** The key kept for `origin`, if any. */
     held(origin: string): Promise<DeviceKey | undefined> {
       return serial(async () => {
-        const held = (await read())[savedOriginKey(origin)];
+        const held = (await read()).keys[savedOriginKey(origin)];
         return held ? described(held) : undefined;
       });
     },
@@ -116,7 +128,7 @@ export function standingKeys(directory: string, sealer: Sealer) {
         const saved = await read();
         const { privateKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
         const key = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64url");
-        saved[savedOriginKey(origin)] = { account, session, key };
+        saved.keys[savedOriginKey(origin)] = { account, session, key };
         await write(saved);
         return described({ account, session, key });
       });
@@ -127,7 +139,7 @@ export function standingKeys(directory: string, sealer: Sealer) {
      */
     sign(origin: string, text: string): Promise<string | null> {
       return serial(async () => {
-        const held = (await read())[savedOriginKey(origin)];
+        const held = (await read()).keys[savedOriginKey(origin)];
         if (!held) return null;
         const statement = readStatement(text);
         const own = await described(held);
@@ -155,8 +167,51 @@ export function standingKeys(directory: string, sealer: Sealer) {
           await rm(path, { force: true });
           return;
         }
-        if (!saved[savedOriginKey(origin)]) return;
-        delete saved[savedOriginKey(origin)];
+        if (!saved.keys[savedOriginKey(origin)]) return;
+        delete saved.keys[savedOriginKey(origin)];
+        await write(saved);
+      });
+    },
+    /**
+     * Signing out of `origin`: its key can sign nothing from now on, and its public half waits
+     * in `pending` until the daemon acknowledges the revocation. One write, so neither half of
+     * that can be lost on its own.
+     */
+    revokeLater(origin: string): Promise<void> {
+      return serial(async () => {
+        const saved = await read();
+        const held = saved.keys[savedOriginKey(origin)];
+        if (!held) return;
+        delete saved.keys[savedOriginKey(origin)];
+        const publicKey = publicPoint(held.key);
+        if (!saved.pending.includes(publicKey))
+          saved.pending = [...saved.pending, publicKey].slice(-64);
+        await write(saved);
+      });
+    },
+    /** The revocations the daemon hasn't acknowledged yet. */
+    pending(): Promise<readonly string[]> {
+      return serial(async () => (await read()).pending);
+    },
+    /** The daemon acknowledged revoking `publicKey`. */
+    acknowledged(publicKey: string): Promise<void> {
+      return serial(async () => {
+        const saved = await read();
+        if (!saved.pending.includes(publicKey)) return;
+        saved.pending = saved.pending.filter((each) => each !== publicKey);
+        await write(saved);
+      });
+    },
+    /** The daemon relay key pinned at the first enrollment, if any. */
+    pin(): Promise<string | undefined> {
+      return serial(async () => (await read()).pin);
+    },
+    /** Pins the daemon's relay key: at an enrollment only, after a browser sign-in. */
+    setPin(relayPublicKey: string): Promise<void> {
+      return serial(async () => {
+        const saved = await read();
+        if (saved.pin === relayPublicKey) return;
+        saved.pin = relayPublicKey;
         await write(saved);
       });
     },

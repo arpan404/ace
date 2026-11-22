@@ -298,7 +298,7 @@ async function appStandingRoute(
 ): Promise<unknown> {
   if (!host) throw new AccessError(403, "Host token required");
   if (path === "/v1/standing/app/challenge" && request.method === "POST") {
-    const challenge = desk.challenge();
+    const challenge = await desk.challenge(await body(request));
     if (!challenge) throw new AccessError(503, "ace account is unavailable");
     return challenge;
   }

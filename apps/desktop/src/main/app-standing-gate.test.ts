@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
-import { APP_SOCKET_HEADER } from "@ace/protocol";
+import { APP_SOCKET_HEADER, AppSocketTag } from "@ace/protocol";
+import { TAG_FRESH_MS, tagFresh } from "@ace/account-grant/app-channel";
 import { appSocketTags, type UpgradeHook } from "./app-socket-tags.ts";
 import { keptKeyGate, keptKeyRefusal, type GateFacts } from "./app-standing-gate.ts";
 
@@ -59,26 +60,54 @@ function hook() {
   };
 }
 
-test("main tags only the app's own socket upgrades to its daemon, and a page's own header never passes", () => {
+test("main tags only the app's own transport: its daemon's exact address, from the app's own pages", () => {
   const h = hook();
   let enabled = true;
   let next = 0;
   const tags = appSocketTags({
     hook: h.hook,
-    daemonUrl: () => "ws://127.0.0.1:4100",
+    daemonUrl: () => "ws://127.0.0.1:4100/",
+    appOrigin: () => "app://ace",
     enabled: () => enabled,
     tag: () => `tag-${++next}`,
   });
-  expect(h.send("ws://127.0.0.1:4100/", "webSocket")[APP_SOCKET_HEADER]).toBe("tag-1");
-  // Another loopback server, a plain request, or a page trying to set the header itself.
-  expect(h.send("ws://127.0.0.1:5173/", "webSocket")[APP_SOCKET_HEADER]).toBeUndefined();
-  expect(h.send("ws://127.0.0.1:4100/v1/status", "xhr")[APP_SOCKET_HEADER]).toBeUndefined();
+  const app = { Origin: "app://ace" };
+  expect(h.send("ws://127.0.0.1:4100/", "webSocket", app)[APP_SOCKET_HEADER]).toBe("tag-1");
+  for (const [url, type, headers] of [
+    // Another loopback server, another path on the daemon, a plain request.
+    ["ws://127.0.0.1:5173/", "webSocket", app],
+    ["ws://127.0.0.1:4100/tunnel", "webSocket", app],
+    ["ws://127.0.0.1:4100/?x=1", "webSocket", app],
+    ["ws://127.0.0.1:4100/", "xhr", app],
+    // A page at another origin in the same session, or none named.
+    ["ws://127.0.0.1:4100/", "webSocket", { Origin: "http://localhost:5173" }],
+    ["ws://127.0.0.1:4100/", "webSocket", {}],
+  ] as const)
+    expect(h.send(url, type, { ...headers })[APP_SOCKET_HEADER], url).toBeUndefined();
+  // A page trying to set the header itself never gets it through.
   expect(
-    h.send("ws://127.0.0.1:5173/", "webSocket", { [APP_SOCKET_HEADER]: "forged" })[
+    h.send("ws://127.0.0.1:5173/", "webSocket", { ...app, [APP_SOCKET_HEADER]: "forged" })[
       APP_SOCKET_HEADER
     ],
   ).toBeUndefined();
   enabled = false;
-  expect(h.send("ws://127.0.0.1:4100/", "webSocket")[APP_SOCKET_HEADER]).toBeUndefined();
+  expect(h.send("ws://127.0.0.1:4100/", "webSocket", app)[APP_SOCKET_HEADER]).toBeUndefined();
   expect(tags.recent()).toEqual(["tag-1"]);
+});
+
+test("a tag carries when main made it, so the daemon takes it only while fresh", () => {
+  const h = hook();
+  appSocketTags({
+    hook: h.hook,
+    daemonUrl: () => "ws://127.0.0.1:4100/",
+    appOrigin: () => "app://ace",
+    enabled: () => true,
+  });
+  const before = Date.now();
+  const tag = h.send("ws://127.0.0.1:4100/", "webSocket", { Origin: "app://ace" })[
+    APP_SOCKET_HEADER
+  ];
+  expect(AppSocketTag.safeParse(tag).success).toBe(true);
+  expect(tagFresh(tag ?? "", before)).toBe(true);
+  expect(tagFresh(tag ?? "", before + TAG_FRESH_MS + 1_000)).toBe(false);
 });

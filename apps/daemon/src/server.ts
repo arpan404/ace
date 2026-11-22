@@ -493,6 +493,7 @@ export async function startServer(options: ServerOptions): Promise<{
     );
     const detachApp = appTag.success
       ? appStanding.attach(appTag.data, {
+          connection: standingNonce,
           grantApp: (key, generation) => {
             if (!hostCredential() || !stillAdmitted()) return false;
             if (!proved(Number.MAX_SAFE_INTEGER, generation, "app")) return false;

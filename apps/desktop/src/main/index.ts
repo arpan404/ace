@@ -44,6 +44,7 @@ import { liveToastGraceMs, toastActivationOutcome } from "./notifications/activa
 import { appearance, createHandlers } from "./handlers.ts";
 import { safeStorageSealer } from "./account-secrets.ts";
 import { appSocketTags } from "./app-socket-tags.ts";
+import { appOrigin } from "./csp.ts";
 import { bundleOf, DEBUG_SWITCHES, keptKeyGate, signedByAce } from "./app-standing-gate.ts";
 import { bundledToolchains } from "./system/toolchains.ts";
 import { emit, registerHandlers } from "./ipc.ts";
@@ -716,6 +717,13 @@ function main(target: DaemonTarget, crashDumps: string): void {
     const socketTags = appSocketTags({
       hook: session.defaultSession.webRequest,
       daemonUrl: () => taggedDaemon,
+      // The app's own scheme, or the dev server's origin in development (which keeps no key).
+      appOrigin: () =>
+        rendererUrl.startsWith(`${appOrigin}/`)
+          ? appOrigin
+          : rendererUrl
+            ? new URL(rendererUrl).origin
+            : undefined,
       enabled: () => standingOn,
     });
     // View › Reload and ⌘R. The page's client worker goes with the page, so the new page opens

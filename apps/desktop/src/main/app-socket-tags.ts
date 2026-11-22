@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { appSocketTag } from "@ace/account-grant/app-channel";
 import { APP_SOCKET_HEADER } from "@ace/protocol";
 
 /*
@@ -6,7 +7,9 @@ import { APP_SOCKET_HEADER } from "@ace/protocol";
  * a fresh random tag in a header main adds in the network stack, which no page can read or set.
  * Main proves for the tags it made, so a statement it signs can only ever reach the app's own
  * sockets, never one a page names or a process holding the daemon's token opened. Only the app's
- * default session is tagged; the agents' browser and visualizations run in other partitions.
+ * own transport is tagged: an upgrade to exactly the daemon's address, from a page at the app's
+ * own origin, in the app's default session (the agents' browser and visualizations run in other
+ * partitions). A tag carries when it was made; the daemon takes it only while fresh.
  */
 
 /** How many recent tags main proves for: its windows' and worker's live sockets, with room. */
@@ -27,20 +30,31 @@ export function appSocketTags(options: {
   hook: UpgradeHook;
   /** The daemon on this computer the app talks to, when there is one. */
   daemonUrl(): string | undefined;
+  /** The app's own pages' origin (`app-protocol.ts`): no other page's socket is tagged. */
+  appOrigin(): string | undefined;
   /** Whether this run keeps a device key at all: without one, nothing is tagged. */
   enabled(): boolean;
   tag?: () => string;
 }) {
-  const tag = options.tag ?? (() => randomBytes(32).toString("base64url"));
+  const tag = options.tag ?? (() => appSocketTag(Date.now(), randomBytes(32)));
   const recent: string[] = [];
-  const sameDaemon = (url: string) => {
+  /** The upgrade goes to exactly the daemon's transport address. */
+  const toDaemon = (url: string) => {
     const daemon = options.daemonUrl();
     if (!daemon) return false;
     try {
-      return new URL(url).host === new URL(daemon).host;
+      const to = new URL(url);
+      const expected = new URL(daemon);
+      return to.origin === expected.origin && to.pathname === expected.pathname && !to.search;
     } catch {
       return false;
     }
+  };
+  /** The upgrade comes from a page at the app's own origin. */
+  const fromApp = (headers: Record<string, string>) => {
+    const origin = options.appOrigin();
+    const sent = Object.entries(headers).find(([name]) => name.toLowerCase() === "origin")?.[1];
+    return origin !== undefined && sent === origin;
   };
   options.hook.onBeforeSendHeaders(
     { urls: ["ws://127.0.0.1/*", "ws://localhost/*", "ws://[::1]/*"] },
@@ -49,7 +63,12 @@ export function appSocketTags(options: {
       // A page can't set this header on a WebSocket; whatever arrives is replaced.
       for (const name of Object.keys(headers))
         if (name.toLowerCase() === APP_SOCKET_HEADER) delete headers[name];
-      if (details.resourceType === "webSocket" && sameDaemon(details.url) && options.enabled()) {
+      if (
+        details.resourceType === "webSocket" &&
+        toDaemon(details.url) &&
+        fromApp(details.requestHeaders) &&
+        options.enabled()
+      ) {
         const next = tag();
         headers[APP_SOCKET_HEADER] = next;
         recent.push(next);
