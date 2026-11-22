@@ -25,6 +25,8 @@ import { confirmedAnswer, confirmingRead } from "./market-confirm.ts";
 import { installedAnswer } from "./market-installed.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
 import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
+import { personRefusal } from "./market-person.ts";
+import type { PairedStanding } from "./socket.ts";
 import type { BrowseWords } from "./market-actions.ts";
 
 /*
@@ -79,6 +81,8 @@ export const NativeMarketRequest = z.object({
   ).refine(withoutRegistry, "Registries aren't on the phone yet"),
   /** Pull to refresh: never answered from the phone's fresh read cache. */
   fresh: z.literal(true).optional(),
+  /** Confirm it's you: the person's one retry of a change refused for standing. */
+  confirmed: z.literal(true).optional(),
 });
 export type NativeMarketRequest = z.infer<typeof NativeMarketRequest>;
 
@@ -94,7 +98,7 @@ const kept = new Set<string>([
 ]);
 
 /** What a refusal's button offers (spec item 6). */
-export type MarketWay = "retry" | "confirm" | "computer" | "reread" | null;
+export type MarketWay = "retry" | "confirm" | "pairAgain" | "computer" | "reread" | null;
 
 const stepOf = (op: V1Op): MarketStep => {
   switch (op) {
@@ -298,16 +302,20 @@ export class NativeMarket {
   /** The reviews open on the machine, which Install is checked against before it is sent. */
   readonly #held = new HeldReviews();
   readonly #botName: (id: string) => string | undefined;
+  /** Whether this machine took the phone's proof of the person's standing on its socket. */
+  readonly #standing: () => PairedStanding | undefined;
   constructor(
     owner: Owner,
     now: () => number,
     pause: (ms: number, signal: AbortSignal) => Promise<void> = pauseFor,
     botName: (id: string) => string | undefined = () => undefined,
+    standing: () => PairedStanding | undefined = () => undefined,
   ) {
     this.#owner = owner;
     this.#now = now;
     this.#pause = pause;
     this.#botName = botName;
+    this.#standing = standing;
   }
 
   /** Whether the machine no longer holds review `id`: reading it answers expired or not found. */
@@ -371,11 +379,17 @@ export class NativeMarket {
       // the way out is to review it again, not to confirm who installs a review nobody holds.
       return refusalAnswer("expired", "install");
     if (result.op === "error")
-      return refusalAnswer(result.code, step, {
-        op,
-        message: result.message,
-        ...(result.scan ? { scan: result.scan } : {}),
-      });
+      return personRefusal(
+        refusalAnswer(result.code, step, {
+          op,
+          message: result.message,
+          ...(result.scan ? { scan: result.scan } : {}),
+        }),
+        { op, standing: this.#standing(), confirmed: request.confirmed === true },
+      );
+    // The daemon's answer to turning a skill on names nothing: the row is read from what's there.
+    if (result.op === "done" && !result.installed && operation.op === "turnOnForBots")
+      return this.#confirm(operation, step, signal);
     const answer = shaped(operation, result, {
       now: this.#now(),
       installed: installed ? await installed : undefined,
