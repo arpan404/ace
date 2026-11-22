@@ -38,7 +38,7 @@ export interface Env {
   MARKET_PUBLIC_KEYS?: string;
   /** The signer's bearer token (a secret). Unset, the signer routes refuse every request. */
   MARKET_SIGNER_TOKEN?: string;
-  /** The account backend's grant keys as a JSON `GrantKeySet`; set in tests and staging. */
+  /** The account backend's grant keys as a JSON `GrantKeySet`; set in tests. */
   ACE_GRANT_KEYS?: string;
   /** Where the grant keys are read when ACE_GRANT_KEYS is unset. */
   ACE_ACCOUNT_KEYS_URL?: string;

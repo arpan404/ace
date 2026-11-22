@@ -10,7 +10,7 @@ import type { ArgSpec, CommandSpec, FlagSpec } from "./spec.ts";
 const url: FlagSpec = {
   name: "dev-market",
   value: "URL",
-  summary: "A development market instead of market.acehq.dev; the signer token goes there",
+  summary: "A development Store instead of store.acehq.dev; the signer token goes there",
 };
 const key: FlagSpec = { name: "key", value: "KEY_FILE", summary: "The signing key file" };
 const reason: FlagSpec = { name: "reason", value: "TEXT", summary: "Why; publishers see it" };
@@ -24,7 +24,7 @@ function maintainer(
 ): CommandSpec {
   return {
     id: `market.maintainer.${verb}`,
-    words: ["market", "maintainer", verb],
+    words: ["store", "maintainer", verb],
     summary,
     description: "Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.",
     group: "spade-market",
@@ -33,9 +33,12 @@ function maintainer(
     args,
     // The old `--url`, kept so it can say where the signer token goes now.
     flags: flags.includes(url)
-      ? [...flags, { name: "url", value: "URL", summary: "market.acehq.dev only", hidden: true }]
+      ? [...flags, { name: "url", value: "URL", summary: "store.acehq.dev only", hidden: true }]
       : flags,
-    aliases: verb === "appeal" ? [] : [{ words: ["market", verb], deprecatedSince: since }],
+    aliases: [
+      { words: ["market", "maintainer", verb], quiet: true },
+      ...(verb === "appeal" ? [] : [{ words: ["market", verb], deprecatedSince: since }]),
+    ],
   };
 }
 const rest = (name: string, summary: string) => [{ name, summary, variadic: true }];

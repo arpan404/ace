@@ -89,11 +89,30 @@ describe("old spellings reach the new command, marked as old", () => {
     expect({ ...parsed.flags }).toEqual(flags);
   });
 
-  test("shortcuts are permanent, not old spellings", () => {
-    for (const line of ["run x", "chat", "open", "start", "serve", "stop", "logs", "login"]) {
+  test("shortcuts and quiet Store aliases are permanent, not old spellings", () => {
+    for (const line of [
+      "run x",
+      "chat",
+      "open",
+      "start",
+      "serve",
+      "stop",
+      "logs",
+      "login",
+      "store",
+      "store search foo",
+      "market",
+      "market search foo",
+      "market source",
+      "market draft",
+    ]) {
       const parsed = parse(line);
       expect(parsed.kind === "command" && parsed.alias?.deprecatedSince).toBeFalsy();
     }
+    const storeSearch = parse("store search foo");
+    const marketSearch = parse("market search foo");
+    expect(storeSearch.kind === "command" && storeSearch.command.id).toBe("market.search");
+    expect(marketSearch.kind === "command" && marketSearch.command.id).toBe("market.search");
   });
 });
 

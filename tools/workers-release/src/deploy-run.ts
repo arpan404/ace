@@ -3,8 +3,8 @@ import {
   decideStart,
   exitCodes,
   readAfterDeploy,
-  stagingGate,
   type AfterDeploy,
+  type Environment,
   type ExitCode,
   type Live,
   type Release,
@@ -40,7 +40,7 @@ const settle = (deps: RunDeps) => (deps.policy ?? defaultSmokePolicy).settleMs;
 
 export interface RunInput {
   worker: string;
-  environment: "staging" | "production";
+  environment: Environment;
   release: Release;
   databases: readonly { binding: string; database_id?: string | undefined }[];
   origins: readonly string[];
@@ -50,8 +50,6 @@ export interface RunInput {
 
 export interface RunDeps {
   port: WorkerPort;
-  /** The staging Worker, when production must wait for staging to run this release. */
-  staging?: WorkerPort | undefined;
   /** Whether the smoke passed against one origin. */
   smoke(origin: string): Promise<boolean>;
   sleep(ms: number): Promise<void>;
@@ -178,11 +176,6 @@ export async function runDeploy(input: RunInput, deps: RunDeps): Promise<RunResu
     };
   }
   if (start.action === "refuse") return unchanged(start.reason);
-
-  if (deps.staging) {
-    const refused = stagingGate(await deps.staging.live(), input.release);
-    if (refused) return unchanged(refused);
-  }
 
   for (const db of input.databases) {
     deps.log(`apply migrations: ${db.binding}`);
