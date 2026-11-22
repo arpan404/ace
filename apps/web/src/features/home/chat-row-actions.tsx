@@ -34,7 +34,12 @@ export function ChatRowActions(props: RowActionsProps) {
           onClick={settle.run}
         />
       )}
-      <RowMoreMenu entry={props.entry} flags={props.flags} onRename={props.onRename} />
+      <RowMoreMenu
+        entry={props.entry}
+        flags={props.flags}
+        onRename={props.onRename}
+        onOpen={props.onMenuOpen}
+      />
     </div>
   );
 }

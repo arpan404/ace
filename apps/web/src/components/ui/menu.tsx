@@ -28,10 +28,14 @@ function MenuContent({
   align = "start",
   sideOffset = 6,
   anchor,
+  collisionBoundary,
   children,
   ...props
 }: MenuPrimitive.Popup.Props &
-  Pick<MenuPrimitive.Positioner.Props, "side" | "align" | "sideOffset" | "anchor">) {
+  Pick<
+    MenuPrimitive.Positioner.Props,
+    "side" | "align" | "sideOffset" | "anchor" | "collisionBoundary"
+  >) {
   const material = useFloatingMaterial();
   return (
     <MenuPrimitive.Portal>
@@ -40,6 +44,7 @@ function MenuContent({
         align={align}
         sideOffset={sideOffset}
         anchor={anchor}
+        {...(collisionBoundary ? { collisionBoundary } : {})}
         collisionPadding={8}
         className={cn(layers.popup, "isolate outline-none [-webkit-app-region:no-drag]")}
       >

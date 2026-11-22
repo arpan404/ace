@@ -2,7 +2,7 @@ import { currentAttention, rowStatusLook, spokenRowStatus } from "@ace/ui-core";
 import { DotsSixVerticalIcon } from "@ace/icons";
 import { Link, useLocation } from "@tanstack/react-router";
 import type { MachineIcon } from "@ace/protocol";
-import { use, type ComponentType, type ReactElement } from "react";
+import { use, useCallback, type ComponentType, type ReactElement } from "react";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { useMachines } from "@/lib/machines.ts";
 import {
@@ -106,6 +106,8 @@ export function ThreadRow(props: {
   const selection = useHomeSelection();
   const editing = useRenameTitle(rowId);
   const hover = useThreadHover();
+  const { change: setCard } = hover;
+  const closeCard = useCallback(() => setCard(false), [setCard]);
   // A rename the daemon refused opens the field again, with what was typed.
   const refused = useRefusedTitle(props.threadId);
   const renaming = editing !== undefined || refused !== undefined;
@@ -283,7 +285,8 @@ export function ThreadRow(props: {
             {!renaming && (
               <Actions
                 onRename={rename}
-                onHover={() => hover.change(false)}
+                onHover={closeCard}
+                onMenuOpen={closeCard}
                 shown={actions}
                 entry={entry}
                 flags={card.flags}
