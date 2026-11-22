@@ -29,6 +29,15 @@ const OrgOwner = z.object({
 });
 type Owner = { kind: "person"; account: string } | { kind: "org"; org: string };
 const file = (dataDir: string) => join(dataDir, "ace-owner.json");
+/**
+ * The organization whose data this home holds (ADR 0209 amendment 1). Written when the machine is
+ * given to an organization and never removed by ace: a release clears the owner, not the seal,
+ * so the org's threads stay behind its access policy and no person's proof claims the home.
+ */
+const sealFile = (dataDir: string) => join(dataDir, "ace-org-seal.json");
+const Seal = z.object({ kind: z.literal("org-seal"), org: OrgOwner.shape.org });
+/** The organization an `ace-org-seal.json` body names. */
+export const sealOrgOf = (raw: unknown): string | undefined => Seal.safeParse(raw).data?.org;
 /** The organization an `ace-owner.json` body names, or undefined for a person's machine. */
 export const ownerOrgOf = (raw: unknown): string | undefined => {
   const org = OrgOwner.safeParse(raw);
@@ -42,6 +51,14 @@ const parseOwner = (raw: unknown): Owner => {
 
 export function machineOwner(dataDir: string) {
   let owner: Owner | undefined;
+  let seal: string | undefined;
+  const writeSeal = async (org: string) => {
+    await mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const temporary = `${sealFile(dataDir)}.${randomUUID()}`;
+    await writeFile(temporary, JSON.stringify({ kind: "org-seal", org }), { mode: 0o600 });
+    await rename(temporary, sealFile(dataDir));
+    seal = org;
+  };
   let generation = 0;
   let changing = false;
   let turn: Promise<unknown> = Promise.resolve();
@@ -80,7 +97,16 @@ export function machineOwner(dataDir: string) {
       } catch {
         owner = undefined;
       }
+      try {
+        seal = Seal.parse(JSON.parse(await readFile(sealFile(dataDir), "utf8"))).org;
+      } catch {
+        seal = undefined;
+      }
+      // A home given to an organization before seals existed is sealed now.
+      if (owner?.kind === "org" && seal !== owner.org) await writeSeal(owner.org);
     },
+    /** The organization whose data this home holds, enrolled or released; undefined if none. */
+    sealed: (): string | undefined => seal,
     /**
      * The owner's account id: undefined before any person's proof was taken, and on an
      * organization's host, where no person owns the machine (`org`).
@@ -101,6 +127,8 @@ export function machineOwner(dataDir: string) {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
         if (owner !== undefined) return owner.kind === "person" && owner.account === account;
+        // A released organization's home stays sealed: personal use starts on a fresh home.
+        if (seal !== undefined) return false;
         // Nothing was proven without an owner, so no standing needs to end here.
         const next: Owner = { kind: "person", account };
         await write(next);
@@ -119,6 +147,8 @@ export function machineOwner(dataDir: string) {
         if (owner?.kind !== "person" || owner.account !== account) return false;
         const next: Owner = { kind: "org", org };
         await change(drop, async () => {
+          // Sealed first: a crash between the two leaves the home sealed, never open.
+          await writeSeal(org);
           await write(next);
           owner = next;
         });

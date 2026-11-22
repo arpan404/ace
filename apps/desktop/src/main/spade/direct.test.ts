@@ -72,7 +72,7 @@ function dataDir() {
 }
 
 /** The direct path over a folder nobody watches, so every change is read on the next ask. */
-function direct(dir: string) {
+function direct(dir: string, orgHost: () => boolean = () => false) {
   let clock = 0;
   const watch = spadeEndpointWatch({
     home: dir,
@@ -81,7 +81,7 @@ function direct(dir: string) {
     now: () => (clock += 10_000),
     onChange: () => {},
   });
-  return spadeDirect(watch, { nonce: newSpadeNonce });
+  return spadeDirect(watch, { nonce: newSpadeNonce, orgHost });
 }
 
 const hostId = "0b8d2c1e-5a8f-4d2e-9c7a-3f1e2d4c5b6a";
@@ -271,4 +271,44 @@ test("a live stream with no Spade listening ends unreachable", async () => {
     direct(dir).openLive(1, { streamId: "s1", path: "/v1/conversations/c1/live?after=0" }, resolve),
   );
   expect(event).toEqual({ streamId: "s1", kind: "ended", reason: "unreachable" });
+});
+
+test("on an organization's host the direct path is off: the window goes through its member socket", async () => {
+  // ADR 0209 §3: Spade's loopback token would answer any window, proven or not.
+  const bearers: string[] = [];
+  const port = await fakeSpade(
+    tokenA,
+    (_request, response) => {
+      response.writeHead(200, { "content-type": "text/event-stream" });
+      response.write("event: message\ndata: {}\n\n");
+    },
+    { bearers },
+  );
+  const { dir, publish } = dataDir();
+  publish(port, tokenA);
+  let org = false;
+  const spade = direct(dir, () => org);
+  const events: SpadeLiveEvent[] = [];
+  await new Promise<void>((resolve) =>
+    spade.openLive(1, { streamId: "s1", path: "/v1/conversations/c1/live?after=0" }, (event) => {
+      events.push(event);
+      if (event.kind === "frame") resolve();
+    }),
+  );
+  // The machine is enrolled: the stream already open ends, so the page opens it another way.
+  org = true;
+  spade.modeChanged();
+  expect(events.at(-1)).toMatchObject({ kind: "ended", reason: "unreachable" });
+  expect(await spade.endpoint()).toBeNull();
+  expect(await spade.health()).toBeNull();
+  bearers.length = 0;
+  expect(await spade.request({ method: "GET", path: "/v1/agents" })).toEqual({
+    kind: "unreachable",
+  });
+  const late = await new Promise<SpadeLiveEvent>((resolve) =>
+    spade.openLive(1, { streamId: "s2", path: "/v1/conversations/c1/live?after=0" }, resolve),
+  );
+  expect(late).toMatchObject({ kind: "ended", reason: "unreachable" });
+  // Spade's token went nowhere after the enrollment.
+  expect(bearers).toEqual([]);
 });

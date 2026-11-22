@@ -46,9 +46,25 @@ const sameSpade = (a: LocalSpade | undefined, b: LocalSpade | undefined) =>
  */
 export function spadeDirect(
   endpoints: Pick<SpadeEndpointWatch, "current" | "refresh">,
-  options: { nonce(): string },
+  options: {
+    nonce(): string;
+    /**
+     * Whether the daemon beside this app is an organization's host (ADR 0209 §3). There Spade's
+     * token would answer any window, proven or not, so the direct path is off and every request
+     * goes through the window's member socket, which the daemon decides.
+     */
+    orgHost?: () => boolean;
+  },
 ) {
-  const streams = new Map<string, { controller: AbortController; owner: number }>();
+  const off = () => options.orgHost?.() === true;
+  const streams = new Map<
+    string,
+    {
+      controller: AbortController;
+      owner: number;
+      ended: (reason: Extract<SpadeLiveEvent, { kind: "ended" }>["reason"]) => void;
+    }
+  >();
   /** Readings whose Spade proved it holds their token (each re-read is a new reading). */
   const trusted = new WeakMap<LocalSpade, Promise<boolean>>();
 
@@ -96,6 +112,8 @@ export function spadeDirect(
   }
 
   async function request(input: SpadeDirectRequest): Promise<SpadeDirectAnswer> {
+    // Nothing is sent, so the page sends it through the daemon instead.
+    if (off()) return { kind: "unreachable" };
     const checked = checkSpadePath(input.path);
     if (!checked.ok) return { kind: "error", code: "invalid_path", message: checked.message };
     const body = input.body === undefined ? undefined : Buffer.from(input.body, "utf8");
@@ -138,6 +156,7 @@ export function spadeDirect(
   }
 
   async function endpoint(): Promise<SpadeEndpointInfo> {
+    if (off()) return null;
     const spade = await trustedSpade();
     if (!spade) return null;
     const { version, api, hostId } = spade;
@@ -145,6 +164,7 @@ export function spadeDirect(
   }
 
   async function health(): Promise<SpadeHealthInfo> {
+    if (off()) return null;
     // Asked afresh every time (it says whether Spade is up now), and proved like any request.
     const spade = await endpoints.current();
     let answer = spade && (await check(spade));
@@ -173,8 +193,9 @@ export function spadeDirect(
     const ended = (reason: Extract<SpadeLiveEvent, { kind: "ended" }>["reason"], status?: number) =>
       emit({ streamId, kind: "ended", reason, ...(status === undefined ? {} : { status }) });
     if (!checkLivePath(path).ok) return ended("invalid_path");
+    if (off()) return ended("unreachable");
     if (streams.size >= maxStreams) return ended("limit");
-    const stream = { controller: new AbortController(), owner };
+    const stream = { controller: new AbortController(), owner, ended };
     streams.set(streamId, stream);
     let framed = false;
     void withSpade<LiveEnd>(
@@ -214,12 +235,25 @@ export function spadeDirect(
     stream.controller.abort();
   }
 
+  /**
+   * The daemon's owner may have changed: once it is an organization's host, every direct stream
+   * ends now, as unreachable, so its window opens it again through its member socket.
+   */
+  function modeChanged(): void {
+    if (!off()) return;
+    for (const [streamId, stream] of streams) {
+      streams.delete(streamId);
+      stream.controller.abort();
+      stream.ended("unreachable");
+    }
+  }
+
   /** A window closed or loaded another page: its streams have no one to go to. */
   function closeOwner(owner: number): void {
     for (const [streamId, stream] of streams) if (stream.owner === owner) closeLive(streamId);
   }
 
-  return { request, endpoint, health, openLive, closeLive, closeOwner };
+  return { request, endpoint, health, openLive, closeLive, closeOwner, modeChanged };
 }
 
 export type SpadeDirect = ReturnType<typeof spadeDirect>;

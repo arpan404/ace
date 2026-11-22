@@ -78,7 +78,7 @@ export function httpChains(
     };
   // An org host decides every request before any route reads it (ADR 0209 §4.2).
   const org: HttpGateDeps = {
-    org: () => options.machineAccount?.ownerOrg(),
+    org: () => options.machineAccount?.accessOrg(),
     trees: serverTrees(options),
     hostToken: (token) => auth.local(token),
   };

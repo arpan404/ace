@@ -1047,6 +1047,14 @@ export function machineAccount(options: {
     ownerOrg(): string | undefined {
       return owner.org();
     },
+    /**
+     * The organization whose access policy governs this home (ADR 0209): the one it is enrolled
+     * to, or the one whose data a release left sealed here (amendment 1). Undefined only on a
+     * person's machine that was never an organization's.
+     */
+    accessOrg(): string | undefined {
+      return owner.org() ?? owner.sealed();
+    },
     /** Whether the owner was read from disk yet (`load`). */
     ownerKnown(): boolean {
       return ownerRead;

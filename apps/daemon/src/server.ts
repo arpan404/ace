@@ -327,7 +327,7 @@ export async function startServer(options: ServerOptions): Promise<{
   // An organization's host keeps no paired device (ADR 0209 §4.2): its bearer would be nobody
   // there, and pairing is refused, so every older credential is revoked once the machine is one.
   const revokePairedOnOrgHost = () => {
-    if (options.machineAccount?.ownerOrg() !== undefined) auth.revokeOthers(undefined);
+    if (options.machineAccount?.accessOrg() !== undefined) auth.revokeOthers(undefined);
   };
   revokePairedOnOrgHost();
   const stopAccountChange = options.machineAccount?.onChange(() => {
@@ -509,7 +509,7 @@ export async function startServer(options: ServerOptions): Promise<{
     // On an org host, who this socket is and what it may do, decided before any service sees a
     // message (ADR 0209 §3, §4). A person's machine is unchanged: the policy steps aside.
     const org = orgSocketPolicy({
-      org: () => options.machineAccount?.ownerOrg(),
+      org: () => options.machineAccount?.accessOrg(),
       facts: () => ({
         // The host's token, or the app on the host's desktop with its local-only credential.
         hostToken: hostCredential() || localCredential(),
@@ -576,7 +576,7 @@ export async function startServer(options: ServerOptions): Promise<{
       personProven,
       memberStanding: () => memberStanding.current(),
       memberStandingChecked: () => memberStanding.checked(),
-      orgHost: () => options.machineAccount?.ownerOrg() !== undefined,
+      orgHost: () => options.machineAccount?.accessOrg() !== undefined,
       spadeAuthorize,
       accountDevice: () => accountId,
       access: {

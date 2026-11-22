@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ownerOrgOf } from "../account-access/owner.ts";
+import { ownerOrgOf, sealOrgOf } from "../account-access/owner.ts";
 
 /*
  * Whether this machine is an organization's host, for the services that start before the
@@ -9,7 +9,7 @@ import { ownerOrgOf } from "../account-access/owner.ts";
  * machine while it starts.
  */
 
-export type OrgSource = { ownerKnown(): boolean; ownerOrg(): string | undefined };
+export type OrgSource = { ownerKnown(): boolean; accessOrg(): string | undefined };
 
 export type OrgProbe = {
   /** The organization that owns this machine, or undefined on a person's machine. */
@@ -23,13 +23,21 @@ export function orgProbe(dataDir: string): OrgProbe {
   let fromFile: string | undefined;
   return {
     org() {
-      if (source?.ownerKnown()) return source.ownerOrg();
+      if (source?.ownerKnown()) return source.accessOrg();
       if (!read) {
         read = true;
         try {
           fromFile = ownerOrgOf(JSON.parse(readFileSync(join(dataDir, "ace-owner.json"), "utf8")));
         } catch {
           fromFile = undefined;
+        }
+        // A released organization's home stays under its policy (ADR 0209 amendment 1).
+        try {
+          fromFile ??= sealOrgOf(
+            JSON.parse(readFileSync(join(dataDir, "ace-org-seal.json"), "utf8")),
+          );
+        } catch {
+          // No seal: a person's machine.
         }
       }
       return fromFile;

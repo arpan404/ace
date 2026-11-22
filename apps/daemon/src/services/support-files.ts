@@ -7,6 +7,10 @@ import { supportBundleWriter } from "../files-support.ts";
 import { connectedDoctorReport } from "../diagnostics-report.ts";
 import type { ServiceContext } from "./types.ts";
 
+/** A support bundle's id says whether it holds conversations, from the moment it is made. */
+export const conversationBundle = (artifactId: string): boolean =>
+  artifactId.startsWith("local-support-");
+
 /** A private artifact registry works before the person has added any project. */
 export async function startSupportFiles(owner: ServiceContext) {
   const { config, now, id, resources, services } = owner;
@@ -41,6 +45,9 @@ export async function startSupportFiles(owner: ServiceContext) {
     authorize: () => true,
     exportSupport(_device, assertAuthorized, includeThreads) {
       if (pending) throw new FileError("BUSY", "A support export is already running");
+      // An organization's host hands no member content to its operator (ADR 0209 §3).
+      if (includeThreads && owner.orgHost?.org() !== undefined)
+        throw new FileError("FORBIDDEN", "An organization's host doesn't export conversations.");
       pending = (async () => {
         assertAuthorized();
         return publishArtifact(

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
@@ -67,7 +67,7 @@ test("standing proven before a release, or while it runs, stops counting the mom
   expect(owner.holds(owner.generation())).toBe(true);
 });
 
-test("given to an organization, the machine answers to it across a restart, and no person's proof claims it until it is released", async () => {
+test("given to an organization, the machine answers to it across a restart, and no person's proof claims it, released or not", async () => {
   const { owner, root } = await owned("user_p");
   const before = owner.generation();
   let dropped = false;
@@ -83,5 +83,40 @@ test("given to an organization, the machine answers to it across a restart, and 
   expect(await again.claim("user_p", again.generation())).toBe(false);
   await again.release(() => {});
   expect(again.org()).toBeUndefined();
-  expect(await again.claim("user_q", again.generation())).toBe(true);
+  // Released, its data stays sealed (ADR 0209 amendment 1).
+  expect(await again.claim("user_q", again.generation())).toBe(false);
+});
+
+test("releasing an organization's host seals its data: no person claims that home afterwards", async () => {
+  // ADR 0209 amendment 1: the org's threads stay on disk, so personal mode never opens them.
+  const { owner, root } = await owned("user_p");
+  expect(await owner.enroll("user_p", "org_acme", owner.generation(), () => {})).toBe(true);
+  await owner.release(() => {});
+  expect(owner.org()).toBeUndefined();
+  expect(owner.sealed()).toBe("org_acme");
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+  expect(await owner.claim("user_q", owner.generation())).toBe(false);
+  // A restart, or the local reset that removes ace-owner.json, keeps it sealed.
+  await rm(join(root, "ace-owner.json"), { force: true });
+  const again = machineOwner(root);
+  await again.load();
+  expect(again.sealed()).toBe("org_acme");
+  expect(await again.claim("user_p", again.generation())).toBe(false);
+});
+
+test("a home enrolled before seals existed is sealed the first time it loads", async () => {
+  const { root } = await owned();
+  await writeFile(join(root, "ace-owner.json"), JSON.stringify({ kind: "org", org: "org_acme" }));
+  const owner = machineOwner(root);
+  await owner.load();
+  await owner.release(() => {});
+  expect(owner.sealed()).toBe("org_acme");
+  expect(await owner.claim("user_p", owner.generation())).toBe(false);
+});
+
+test("a person's machine is never sealed", async () => {
+  const { owner } = await owned("user_p");
+  await owner.release(() => {});
+  expect(owner.sealed()).toBeUndefined();
+  expect(await owner.claim("user_q", owner.generation())).toBe(true);
 });
