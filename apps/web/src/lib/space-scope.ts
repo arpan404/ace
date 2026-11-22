@@ -14,6 +14,11 @@ export interface SpaceScope {
   space: string | undefined;
   /** The `Machine.id`s in it; none while the space is being checked, so nothing else is drawn. */
   machines: ReadonlySet<string>;
+  /**
+   * Whether this window's own machine is in it. Kept apart from its id, which changes once the
+   * machine names itself: a list never drops this machine's work for the moment between.
+   */
+  primary: boolean;
 }
 
 /** Personal's id, as `features/ace-account` names it. */

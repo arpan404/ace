@@ -41,9 +41,10 @@ export function SpaceScopeHost(props: { children: ReactNode }) {
   const machines = useSpaceMachines();
   const space = useSpace().shown?.id;
   const ids = machines.map((machine) => machine.id).join("\n");
+  const primary = machines.some((machine) => machine.primary);
   const scope = useMemo<SpaceScope>(
-    () => ({ space, machines: new Set(ids ? ids.split("\n") : []) }),
-    [space, ids],
+    () => ({ space, machines: new Set(ids ? ids.split("\n") : []), primary }),
+    [space, ids, primary],
   );
   return <SpaceScopeProvider value={scope}>{props.children}</SpaceScopeProvider>;
 }

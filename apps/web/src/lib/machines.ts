@@ -78,7 +78,12 @@ export function useMachinesInSpace(): readonly Machine[] {
   const machines = useMachines();
   const scope = useSpaceScope();
   return useMemo(
-    () => (scope ? machines.filter((machine) => inSpace(scope, machine.id)) : machines),
+    () =>
+      scope
+        ? machines.filter((machine) =>
+            machine.primary ? scope.primary : inSpace(scope, machine.id),
+          )
+        : machines,
     [machines, scope],
   );
 }
@@ -88,8 +93,8 @@ export function useMachinesInSpace(): readonly Machine[] {
  * organization's space only when it is one of the organization's hosts (ADR 0206 §2.4).
  */
 export function usePrimaryInSpace(): boolean {
-  const own = usePrimaryMachine().id;
-  return inSpace(useSpaceScope(), own);
+  const scope = useSpaceScope();
+  return !scope || scope.primary;
 }
 
 /** The other machine this view runs against (inside a `MachineScope`), else undefined. */
