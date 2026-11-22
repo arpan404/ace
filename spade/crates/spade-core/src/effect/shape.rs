@@ -46,6 +46,10 @@ const OUTWARD: &[&str] = &[
     "destination",
 ];
 
+/// Argument words for a place a change can land in or carry content to (a channel, another
+/// workspace): a destination for a tool that changes something, while reading one is plain.
+const PLACES: &[&str] = &["channel", "channels", "workspace", "workspaces"];
+
 /// Argument words that name text the app runs.
 const CODE: &[&str] = &[
     "sql",
@@ -197,6 +201,9 @@ pub fn shape(name: &str, schema: &Value, arguments: &Value) -> Shape {
             OUTWARD_STEMS.iter().any(|stem| key.contains(stem))
         })
     {
+        return Shape::Outward;
+    }
+    if any(PLACES) && super::named::named(name, "") != super::named::Named::Read {
         return Shape::Outward;
     }
     if any(CODE) {

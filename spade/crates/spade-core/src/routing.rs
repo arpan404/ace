@@ -202,15 +202,21 @@ impl<M: Models> Routing<'_, M> {
                 };
             }
         }
+        let fast = || {
+            self.defaults
+                .fast
+                .clone()
+                .filter(|fast| fast != self.own && self.usable_for(role, fast))
+        };
         let default = match role {
             // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
             // asks the person about everything, or lets through what it shouldn't.
-            Role::Verify | Role::Review => self.strongest_other(role),
-            _ => self
-                .defaults
-                .fast
-                .clone()
-                .filter(|fast| fast != self.own && self.usable_for(role, fast)),
+            Role::Verify => self.strongest_other(role),
+            // The reviewer runs on an endpoint: a bot that can't be compared (a subscription, an
+            // unpriced model) keeps the fast model rather than one the reviewer can't call.
+            Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
+            Role::Review => fast(),
+            _ => fast(),
         };
         match default {
             Some(model) => Choice {

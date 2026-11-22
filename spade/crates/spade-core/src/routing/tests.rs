@@ -118,11 +118,19 @@ fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_w
             ("a/strong".to_owned(), Source::Own),
             "{role:?}"
         );
-        // An unpriced bot can't be compared: its own model checks.
+    }
+    // An unpriced bot can't be compared: its own model verifies, and the fast model reviews,
+    // as it did before; a subscription bot's reviewer is the fast endpoint model, never the
+    // subscription, which a review can't run on.
+    assert_eq!(
+        choose("local/llama", &none, &none, &with_fast(), Role::Verify),
+        ("local/llama".to_owned(), Source::Own)
+    );
+    for own in ["local/llama", "cli:codex/gpt-6.2-sol"] {
         assert_eq!(
-            choose("local/llama", &none, &none, &with_fast(), role),
-            ("local/llama".to_owned(), Source::Own),
-            "{role:?}"
+            choose(own, &none, &none, &with_fast(), Role::Review),
+            ("a/fast".to_owned(), Source::Default),
+            "{own}"
         );
     }
 }

@@ -81,6 +81,26 @@ fn a_change_named_after_a_descriptions_first_sentence_keeps_a_read() {
         ),
         Named::Read
     );
+    // A side effect the description states anywhere still counts, punctuated too; an
+    // instruction's bare verb past the first sentence doesn't.
+    for description in [
+        "Gets a record. Also updates its last-viewed time.",
+        "Looks up an order (and charges: a lookup fee).",
+        "Returns the page.\n\nNote: this call moves the page to Recent.",
+    ] {
+        assert_eq!(
+            named("get_record", description),
+            Named::Unclear,
+            "{description}"
+        );
+    }
+    assert_eq!(
+        named(
+            "get_record",
+            "Gets a record. To change it, update it with the edit tool."
+        ),
+        Named::Read
+    );
     // What the first sentence says the tool does still counts.
     assert_eq!(
         named(

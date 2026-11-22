@@ -444,6 +444,37 @@ const DESCRIBED_SENSITIVE: &[&str] = &[
     "forwards",
 ];
 
+/// Words past a description's first sentence that say what the tool itself does: any one keeps
+/// it from reading. Only the forms a description uses for its own tool, never an instruction's
+/// bare verb ("use it to update").
+const DESCRIBED_DOES: &[&str] = &[
+    "creates",
+    "updates",
+    "deletes",
+    "removes",
+    "sends",
+    "modifies",
+    "writes",
+    "overwrites",
+    "inserts",
+    "appends",
+    "archives",
+    "publishes",
+    "executes",
+    "trashes",
+    "moves",
+    "renames",
+    "uploads",
+    "shares",
+    "invites",
+    "pays",
+    "charges",
+    "transfers",
+    "edits",
+    "posts",
+    "replaces",
+];
+
 /// Whole words that only look like a change: an adjective of a read (`list_shared_pages`).
 const BENIGN: &[&str] = &[
     "shared",
@@ -631,40 +662,62 @@ impl Reading {
     }
 }
 
-/// What a description says the tool itself does: its first sentence, the way every app's tool
-/// descriptions lead, with code spans and identifiers taken out. What follows is how to use it,
-/// and names other tools (`use it with update_data_source`) or says what it never does
-/// ("Reading never authorizes a write"): a change word there says nothing about this tool.
-fn lead(description: &str) -> String {
-    let paragraph = description
-        .trim_start()
-        .split("\n\n")
-        .next()
-        .unwrap_or_default();
-    let mut sentence = paragraph;
-    for (at, c) in paragraph.char_indices() {
-        let next = paragraph[at + c.len_utf8()..].chars().next();
-        if matches!(c, '.' | '!' | '?' | '\n') && next.is_none_or(char::is_whitespace) {
-            sentence = &paragraph[..at];
-            break;
+/// Whether a description says the tool changes something. Its first sentence says what the tool
+/// does, the way every app's descriptions lead: any word for a change there counts. What follows
+/// is mostly how to use it, naming other tools ("use it with update_data_source") or what it
+/// never does ("Reading never authorizes a write"); there only a word that says what the tool
+/// itself does (`updates`, `creates`, `sends`) counts, never an instruction's bare verb. Code
+/// spans and identifiers name something else and are left out everywhere.
+fn describes_change(description: &str) -> bool {
+    let text = prose(description);
+    let (lead, rest) = split_lead(text.trim_start());
+    Reading::new(lead).has(DESCRIBED_CHANGES) || Reading::new(rest).has(DESCRIBED_DOES)
+}
+
+/// The first sentence of `text`, up to its first paragraph break or sentence end, and the rest.
+fn split_lead(text: &str) -> (&str, &str) {
+    for (at, c) in text.char_indices() {
+        let after = at + c.len_utf8();
+        let next = text[after..].chars().next();
+        let ends = matches!(c, '.' | '!' | '?') && next.is_none_or(char::is_whitespace);
+        if ends || (c == '\n' && next == Some('\n')) {
+            return (&text[..at], &text[after..]);
         }
     }
-    let mut prose = String::with_capacity(sentence.len());
-    for (index, span) in sentence.split('`').enumerate() {
+    (text, "")
+}
+
+/// `text` with code spans and identifiers (`update_data_source`, `notion://docs`, `a.b`) taken
+/// out, sentences and paragraphs kept. Punctuation around a word (`updates:`, `(creates)`) is
+/// not an identifier.
+fn prose(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (index, span) in text.split('`').enumerate() {
         // Odd spans sit between backticks: code, never prose.
         if index % 2 == 1 {
-            prose.push(' ');
+            out.push(' ');
             continue;
         }
-        for token in span.split_whitespace() {
-            // An identifier (`update_data_source`, `notion://docs`) names something else.
-            if !token.contains(['_', ':', '/', '=', '(', '.']) {
-                prose.push_str(token);
+        let mut word = String::new();
+        for c in span.chars().chain(std::iter::once(' ')) {
+            if !c.is_whitespace() {
+                word.push(c);
+                continue;
             }
-            prose.push(' ');
+            let bare = word.trim_matches(|c: char| {
+                matches!(
+                    c,
+                    '.' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '"' | '\'' | '[' | ']'
+                )
+            });
+            if !bare.contains(['_', ':', '/', '=', '(', '.']) {
+                out.push_str(&word);
+            }
+            out.push(c);
+            word.clear();
         }
     }
-    prose
+    out
 }
 
 /// What `name` (the server's own tool name) and `description` say the tool does. The
@@ -691,7 +744,7 @@ pub fn named(name: &str, description: &str) -> Named {
     if !name.is_ascii() {
         return Named::Unclear;
     }
-    if read.reads() && !Reading::new(&lead(description)).has(DESCRIBED_CHANGES) {
+    if read.reads() && !describes_change(description) {
         return Named::Read;
     }
     if read.writes() && !Reading::new(description).has(DESCRIBED_SENSITIVE) {

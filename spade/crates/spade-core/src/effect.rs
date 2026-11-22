@@ -580,8 +580,13 @@ pub fn route(call: Call<'_>) -> Route {
     }
     // A shared bot's organization, next (ADR 0206 §3): what its policy turns off is refused in
     // every mode, before the package ceiling, so a call passes org ∩ package ∩ grants.
-    let confined = matches!(call.place, Place::Sandbox | Place::Unprotected);
-    let reading = ceiling::reading(call.effect, call.command);
+    // An app's tool acts on its server, outside the bot, whatever it declares: one Spade can't
+    // place, or that calls its write local, reaches that server at least, as for the ceiling.
+    let confined = matches!(call.place, Place::Sandbox | Place::Unprotected) && !call.remote;
+    let reading = match ceiling::reading(call.effect, call.command) {
+        Some(Effect::WriteLocal) | None if call.remote => Some(Effect::Network),
+        reading => reading,
+    };
     if let Some(gate) = call.org
         && let Some(why) = crate::org::gate::refusal(gate, reading, call.place, confined)
     {

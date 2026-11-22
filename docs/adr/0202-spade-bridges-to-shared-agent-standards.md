@@ -667,12 +667,15 @@ the call: Notion's `fetch` and `query-data-sources` (reads) were asked as writes
 description rule, point 7, and §2's destructive-hint row for connected apps. It also makes the
 reviewer run on the strongest model the person uses (ADR 0205).
 
-1. **Only a description's first sentence vetoes a read** (`effect::named::lead`). Every app's tool
-   description leads with what the tool does; what follows is usage that names other tools
-   ("use it with update_data_source") or says what it never does ("Reading never authorizes a
-   write"). A change word counts only in the first sentence of the first paragraph, with code
-   spans and identifiers (anything holding `_`, `:`, `/`, `=`, `(` or `.`) taken out. The name
-   rules are unchanged, and a description still never makes a name read.
+1. **A description's usage notes don't veto a read** (`effect::named::describes_change`). Every
+   app's tool description leads with what the tool does; what follows is mostly usage that names
+   other tools ("use it with update_data_source") or says what it never does ("Reading never
+   authorizes a write"). Code spans and identifiers (a word holding `_`, `:`, `/`, `=`, `(` or
+   `.` once the punctuation around it is trimmed, so `updates:` stays a word) are taken out
+   everywhere. Any change word in the first sentence counts. Past it, only the form a description
+   uses for its own tool counts (`updates`, `creates`, `sends`, `charges`…), never an
+   instruction's bare verb. The name rules are unchanged, and a description still never makes a
+   name read.
 2. **Under untrusted content, a connected app's plain work goes to the reviewer.** A connected
    app's tool that declares nothing, with plain arguments (point 2) and the definition Spade
    pinned, goes to the reviewer while untrusted content is in view. The reviewer is told it acts
@@ -693,17 +696,28 @@ reviewer run on the strongest model the person uses (ADR 0205).
    and no Always allow skips that review. A delete the tool's own name makes (`delete_pages`)
    still asks the person every call, and a plugin's or a URL server's destructive hint still asks
    as §2 says.
-4. **The reviewer sees the bot's own recent steps** (`review::recent_steps`). These are its last
-   twelve calls, each cut to 300 characters, so a page id it found or a page it made reads as its
-   own work and not as something a page put in front of it. Calls only, never a tool's output.
-   They are quoted like every other tag.
+4. **The reviewer sees the bot's own recent steps** (`review::recent_steps`): its last twelve
+   calls that started and finished cleanly, each cut to 300 characters, as context on the task.
+   A call only proposed, refused, failed, of uncertain outcome or batched beside the one under
+   review is left out. The prompt says they prove nothing about where a value came from, since
+   the bot may have copied it from untrusted text. Calls only, never a tool's output. They are
+   quoted like every other tag.
 5. **The reviewer's prompt decides in order:** what the step really does, whether it serves the
    job, whether it needs the person's own say, and whether untrusted text steered it. It says
    plainly that doing the work the person asked for is routine even when it changes things.
 6. **The reviewer is never weaker than the bot.** With no review model set, the review role uses
    the strongest model the person already uses whose listed price is at least the bot's own, as
    the verifier does (ADR 0205), and the bot's own model when none is. It used to be the fast
-   model, which let a reviewer far weaker than the bot judge it.
+   model, which let a reviewer far weaker than the bot judge it. A bot whose model has no price to
+   compare (a subscription, an unpriced local model) keeps the fast model for its reviewer, since
+   a review can't run on a subscription.
+7. **A shared bot's unresolved app call is outward** (ADR 0206). For the organization's policy
+   and its approvers, a connected app's or remote plugin's call that declares nothing, or calls
+   its write local, reads as `network`, as the package ceiling already reads it. So what the
+   reviewer would approve for a personal bot goes to an approver for a shared one.
+8. **A channel or workspace argument is a destination for a change.** A tool whose name isn't a
+   read and whose input names a `channel` or a `workspace` reaches outward (point 2's rule), so
+   under untrusted content it goes to the person. Reading one stays plain.
 
 Tests: `effect::named_tests` (Notion's own `fetch` and `memory-search` descriptions read; code in
 the first sentence doesn't count; a change the first sentence names still does);
@@ -713,4 +727,8 @@ remembered yes too; a grant's call is reviewed; a declined tool is refused; a co
 skipped by a yes or a grant; `delete-pages` still asks; `fetch_url` to an attacker's host under
 untrusted content still asks); `review::tests` (the latest twelve own steps, oldest first, cut
 short, the call under review left out); `autonomy::tests` (an earlier step can't close its tag);
-`routing::tests` (the reviewer and verifier pick the strongest model in use, never a weaker one).
+`routing::tests` (the reviewer and verifier pick the strongest model in use, never a weaker one;
+a subscription bot's reviewer is the fast model); `org::tests` (a shared bot's unresolved app
+call, marked, tainted or plain, goes to an approver); `shape_tests` (a change aimed at a channel
+or workspace is outward, reading one is plain); `named_tests` (a side effect stated past the
+first sentence or punctuated still counts, an instruction's bare verb doesn't).
