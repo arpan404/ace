@@ -1,11 +1,13 @@
 import {
   parseSpadeAvatar,
   spadeGroupWaiting,
+  spadeWorkingPhrase,
   type SpadeAvatar,
   type SpadeGroupBot,
   type SpadeGroupView,
 } from "@ace/ui-core/spade-chat";
 import { memo } from "react";
+import { useHeldPhrase } from "./use-held-phrase.ts";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
 import { FromThreadLine } from "./from-thread-line.tsx";
@@ -50,6 +52,7 @@ export function SpadeGroupChat(props: {
   const waiter = spadeGroupWaiting(view, props.members);
   const shown = waiter ?? view.working;
   const working = shown ? props.faceOf(shown) : undefined;
+  const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
   return (
     <div
       role="feed"
@@ -71,13 +74,21 @@ export function SpadeGroupChat(props: {
           ) : (
             <span aria-hidden className="size-(--spade-working-face) shrink-0" />
           )}
-          <span className="min-w-0 truncate text-ui text-muted-foreground">
-            {view.status ??
-              (working
+          <span
+            // Each new phrase sweeps once in the step's light, still under reduced motion.
+            key={view.status === undefined ? undefined : phrase}
+            className={cn(
+              "min-w-0 truncate text-ui text-muted-foreground",
+              view.status !== undefined && !waiting && "step-shimmer",
+            )}
+          >
+            {view.status !== undefined
+              ? phrase
+              : working
                 ? waiting
                   ? `${working.name} is waiting for you`
                   : `${working.name} is answering`
-                : "Working")}
+                : "Working"}
           </span>
           {waiter && working?.open && (
             <Button size="xs" variant="ghost" onClick={working.open}>

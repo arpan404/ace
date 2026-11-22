@@ -19,6 +19,7 @@ import {
   spadeQuietLine,
   spadeRestLine,
   spadeRunningDetail,
+  spadeWorkingPhrase,
   type SpadeEntry,
   withSpadeDigests,
   type SpadeDigest,
@@ -31,6 +32,7 @@ import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
+import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
@@ -187,6 +189,8 @@ export function SpadeChat(props: {
   const working = busy && !waiting;
   // The open reply's step running now: the working line names what it touches.
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
+  // What it does now, in its own words or its tool's, held a moment so it never flickers.
+  const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
   const task = props.task;
   const lined = working || task !== undefined;
   // The finished reply being kept as a test (ADR 0204): its review is open.
@@ -279,7 +283,7 @@ export function SpadeChat(props: {
               label={
                 task && task.tone !== "waiting"
                   ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                  : (view.status ?? "Working")
+                  : phrase
               }
               detail={working ? running : undefined}
               since={working ? view.working?.since : undefined}
