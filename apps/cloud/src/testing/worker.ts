@@ -37,6 +37,7 @@ export async function launchWorker(
           WORKOS_API_URL: options.workosUrl ?? "http://127.0.0.1:9",
           ACE_ACCOUNT_ENCRYPTION_KEY: "ab".repeat(32),
           ACE_GRANT_KEY: `${grantKey.id}:${encodeBase64url(grantKey.privateKey)}`,
+          ACE_ROSTER_EPOCH: "1",
           ...(options.previousGrantKey ? { ACE_GRANT_PREVIOUS_KEY: options.previousGrantKey } : {}),
         };
   Object.assign(secrets, options.vars);

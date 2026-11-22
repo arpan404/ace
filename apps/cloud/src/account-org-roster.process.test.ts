@@ -97,12 +97,12 @@ it("a roster read before a removal never takes a version after it", async () => 
   const ben = workosUser("user_stalledben", "Stalledben");
   workos.orgs.addMember(ben.id, org, "member");
   await worker.cron("* * * * *");
-  const stale = await rosterSnapshot(worker.db, org);
+  const stale = await rosterSnapshot(worker.db, org, Date.now());
   expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/members/${mia.id}`)).status).toBe(
     200,
   );
   // It wakes first: what it read is no longer the members, so it takes no version.
-  expect(await claimRosterVersion(worker.db, org, stale)).toBeUndefined();
+  expect(await claimRosterVersion(worker.db, org, stale, 1)).toBeUndefined();
   const served = await roster(credential, org, box.hostId);
   expect(served.signed).toMatchObject({ version: first.signed.version + 1, epoch: 1 });
   // Mia is listed as removed, with the time WorkOS made that so, never active.
@@ -112,4 +112,51 @@ it("a roster read before a removal never takes a version after it", async () => 
   expect(served.members).toContainEqual(
     expect.objectContaining({ account: ben.id, status: "active" }),
   );
+});
+
+it("a stale read of the body already served can't sign it afresh after a removal", async () => {
+  const { mia, ownerToken, org, box, credential } = await rosteredHost("Resigned");
+  const first = await roster(credential, org, box.hostId);
+  // A request reads the very body that was served, then stalls while the removal lands and no
+  // other request versions it yet.
+  const stale = await rosterSnapshot(worker.db, org, Date.now());
+  expect((await api.call(ownerToken, "DELETE", `/v1/orgs/${org}/members/${mia.id}`)).status).toBe(
+    200,
+  );
+  // It wakes: re-serving its body as current would extend Mia's roster past her removal.
+  expect(await claimRosterVersion(worker.db, org, stale, 1)).toBeUndefined();
+  const served = await roster(credential, org, box.hostId);
+  expect(served.signed.version).toBe(first.signed.version + 1);
+  // A roster is dated by the read it was made from, never later than the answer.
+  expect(served.signed.at).toBeLessThanOrEqual(Date.now());
+});
+
+it("a backend whose roster epoch is behind what it already served refuses to serve one", async () => {
+  const { org, box, credential } = await rosteredHost("Floor");
+  await roster(credential, org, box.hostId);
+  // As if the Worker were redeployed with an older epoch than the database has seen.
+  await worker.db.prepare("UPDATE org_rosters SET epoch = 7 WHERE org_id = ?").bind(org).run();
+  const answer = await api.call(credential, "GET", rosterPath(org, box.hostId));
+  expect(answer).toEqual({ status: 503, body: { error: "roster_epoch_behind" } });
+});
+
+it("a backend with no roster epoch configured serves no roster, and says why", async () => {
+  const unset = await startWorker({ workosUrl: workos.url, vars: { ACE_ROSTER_EPOCH: "" } });
+  try {
+    const calls = orgCalls(unset.http);
+    const owner = workosUser("user_unsetowner", "Unsetowner");
+    const ownerToken = (await signInThroughWorker(unset.http, workos, owner)).token;
+    const org = await calls.createOrg(ownerToken, "Unset");
+    const daemonSession = (await signInThroughWorker(unset.http, workos, owner, "machine")).token;
+    const box = await calls.machine(unset.db, owner.id, daemonSession);
+    expect(
+      (await calls.enroll(ownerToken, org, box, await calls.consent(box, org, owner.id))).status,
+    ).toBe(201);
+    const credential = encodeBase64url(crypto.getRandomValues(new Uint8Array(32)));
+    expect((await calls.orgCredential(box, org, credential)).status).toBe(201);
+    const answer = await calls.call(credential, "GET", rosterPath(org, box.hostId));
+    expect(answer).toEqual({ status: 503, body: { error: "roster_epoch_unset" } });
+  } finally {
+    await unset.close();
+  }
 });

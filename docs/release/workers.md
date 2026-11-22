@@ -142,6 +142,13 @@ D1 migrations are never rolled back by a Worker rollback. To undo a contract, us
 (`bunx wrangler d1 time-travel restore <database> --timestamp <before> --env production`), which
 also loses every write since.
 
+**After any restore of the accounts database, raise `ACE_ROSTER_EPOCH` by one before the Worker
+serves again** (`bunx wrangler secret put ACE_ROSTER_EPOCH --env production`). A restored database
+hands out roster versions again from an older state; the higher epoch makes org hosts take them
+as a new series, while a revocation they hold lifts only on a newer WorkOS state (ADR 0209
+amendment 1). The epoch lives outside D1, so a restore can't lower it, and a Worker whose epoch is
+behind what the database recorded serves no roster (`roster_epoch_behind`).
+
 ## Durable Objects
 
 ace cloud's `RelayObject` and `SignInObject` live under the script name. Two rules follow from how

@@ -15,7 +15,8 @@ const MemberRow = z.object({
   version: z.string(),
 });
 const HostRow = z.object({ host_id: z.string() });
-const Served = z.object({ version: z.number(), body_sha256: z.string() });
+const Served = z.object({ epoch: z.number(), version: z.number(), body_sha256: z.string() });
+const Guard = z.object({ same: z.number(), version: z.number().nullable() });
 const Revision = z.object({ revision: z.string() });
 
 /** How many times a roster is read again when its members changed before it took a version. */
@@ -36,7 +37,9 @@ export type RosterSnapshot = {
   body: string;
   sha256: string;
   revision: string;
-  served: { version: number; sha256: string } | undefined;
+  /** The backend's clock just before the read: the time the roster is signed with. */
+  readAt: number;
+  served: { epoch: number; version: number; sha256: string } | undefined;
 };
 
 /**
@@ -44,7 +47,11 @@ export type RosterSnapshot = {
  * removed ones too, with WorkOS's time for their state), hosts, revision and the version last
  * served, all read in one D1 batch, which is one transaction.
  */
-export async function rosterSnapshot(db: D1Database, org: string): Promise<RosterSnapshot> {
+export async function rosterSnapshot(
+  db: D1Database,
+  org: string,
+  readAt: number,
+): Promise<RosterSnapshot> {
   const [members, hosts, served, revision] = await db.batch([
     db
       .prepare(
@@ -54,7 +61,7 @@ export async function rosterSnapshot(db: D1Database, org: string): Promise<Roste
     db
       .prepare("SELECT host_id FROM org_hosts WHERE org_id = ? ORDER BY host_id LIMIT 1000")
       .bind(org),
-    db.prepare("SELECT version, body_sha256 FROM org_rosters WHERE org_id = ?").bind(org),
+    db.prepare("SELECT epoch, version, body_sha256 FROM org_rosters WHERE org_id = ?").bind(org),
     db.prepare(revisionSql).bind(org),
   ]);
   const body: AceOrgRosterBody = {
@@ -82,31 +89,59 @@ export async function rosterSnapshot(db: D1Database, org: string): Promise<Roste
     body: text,
     sha256: policyBodySha256(text),
     revision: Revision.parse(revision?.results[0]).revision,
-    served: kept ? { version: kept.version, sha256: kept.body_sha256 } : undefined,
+    readAt,
+    served: kept
+      ? { epoch: kept.epoch, version: kept.version, sha256: kept.body_sha256 }
+      : undefined,
   };
 }
 
 /**
- * The version `snapshot` is served at: the last one if its body is the one served then, else the
- * next, taken only while the members are still at the snapshot's revision and nobody took that
- * version first. Undefined when either moved: the caller reads again, so a snapshot read before
- * a removal can never take a version after the removal's.
+ * The version `snapshot` is served at in `epoch`, taken only while the members are still at the
+ * snapshot's revision and the version served is still the one it read, whether it serves that
+ * version again (the same body) or takes the next one. Undefined when either moved: the caller
+ * reads again, so a snapshot read before a removal is never served after it, not even as a
+ * refresh of the body served before. A higher `epoch` than stored starts a new series at 1;
+ * `behind` when the database has seen a higher epoch than the one configured.
  */
 export async function claimRosterVersion(
   db: D1Database,
   org: string,
   snapshot: RosterSnapshot,
-): Promise<number | undefined> {
-  if (snapshot.served?.sha256 === snapshot.sha256) return snapshot.served.version;
-  const next = (snapshot.served?.version ?? 0) + 1;
+  epoch: number,
+): Promise<number | "behind" | undefined> {
+  const { served } = snapshot;
+  if (served && served.epoch > epoch) return "behind";
+  if (served && served.epoch === epoch && served.sha256 === snapshot.sha256) {
+    const guard = Guard.parse(
+      await db
+        .prepare(
+          `SELECT (${revisionSql}) = ?2 AS same,
+             (SELECT version FROM org_rosters WHERE org_id = ?1 AND epoch = ?3) AS version`,
+        )
+        .bind(org, snapshot.revision, epoch)
+        .first(),
+    );
+    return guard.same === 1 && guard.version === served.version ? served.version : undefined;
+  }
+  const next = served && served.epoch === epoch ? served.version + 1 : 1;
   const taken = await db
     .prepare(
-      `INSERT INTO org_rosters (org_id, version, body_sha256)
-       SELECT ?1, ?2, ?3 WHERE (${revisionSql}) = ?4
-       ON CONFLICT (org_id) DO UPDATE SET version = excluded.version, body_sha256 = excluded.body_sha256
-       WHERE org_rosters.version = ?2 - 1`,
+      `INSERT INTO org_rosters (org_id, epoch, version, body_sha256)
+       SELECT ?1, ?5, ?2, ?3 WHERE (${revisionSql}) = ?4
+       ON CONFLICT (org_id) DO UPDATE SET epoch = excluded.epoch, version = excluded.version,
+         body_sha256 = excluded.body_sha256
+       WHERE org_rosters.epoch = ?6 AND org_rosters.version = ?7`,
     )
-    .bind(org, next, snapshot.sha256, snapshot.revision)
+    .bind(
+      org,
+      next,
+      snapshot.sha256,
+      snapshot.revision,
+      epoch,
+      served?.epoch ?? null,
+      served?.version ?? null,
+    )
     .run();
   return taken.meta.changes > 0 ? next : undefined;
 }
@@ -122,7 +157,8 @@ export function orgRosterRoute(deps: {
   principals: PrincipalReader;
   orgs: Pick<OrgStore, "credentialOrg">;
   signingKey: GrantSigningKey;
-  epoch: number;
+  /** The configured restore generation; none means no roster is served. */
+  epoch: number | undefined;
   now: () => number;
 }) {
   return async (request: Request, org: string, hostId: string): Promise<Response> => {
@@ -139,17 +175,23 @@ export function orgRosterRoute(deps: {
       (await deps.orgs.credentialOrg(principal.hash)) !== id.data
     )
       return fail(403, "not_org_host");
+    // An answer, never silence: a host treats any of these as the backend refusing, which earns
+    // no offline allowance (§7.1).
+    const { epoch } = deps;
+    if (epoch === undefined) return fail(503, "roster_epoch_unset");
     for (let attempt = 0; attempt < SNAPSHOT_TRIES; attempt++) {
-      const snapshot = await rosterSnapshot(deps.db, id.data);
-      const version = await claimRosterVersion(deps.db, id.data, snapshot);
+      const snapshot = await rosterSnapshot(deps.db, id.data, deps.now());
+      const version = await claimRosterVersion(deps.db, id.data, snapshot, epoch);
+      if (version === "behind") return fail(503, "roster_epoch_behind");
       if (version === undefined) continue;
       const statement = signOrgRoster(
         {
           org: id.data,
           host: hostId,
-          epoch: deps.epoch,
+          epoch,
           version,
-          at: deps.now(),
+          // As fresh as the read it was made from, never the time of signing.
+          at: snapshot.readAt,
           body_sha256: snapshot.sha256,
         },
         deps.signingKey,

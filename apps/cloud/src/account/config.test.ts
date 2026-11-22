@@ -75,3 +75,16 @@ it("a previous key set before the new signing key arrives changes nothing yet", 
     throw new Error("Expected accounts on");
   expect(setup.keys).toEqual(before.keys);
 });
+
+it("the roster epoch is never assumed: unset or malformed it is absent, and nothing else fails", () => {
+  for (const epoch of [undefined, "", "zero", "0", "-2", "1.5"]) {
+    const setup = readAccountSetup({
+      ...complete,
+      ...(epoch === undefined ? {} : { ACE_ROSTER_EPOCH: epoch }),
+    });
+    expect(setup.status).toBe("ready");
+    if (setup.status === "ready") expect(setup.config.rosterEpoch).toBeUndefined();
+  }
+  const set = readAccountSetup({ ...complete, ACE_ROSTER_EPOCH: "3" });
+  expect(set.status === "ready" && set.config.rosterEpoch).toBe(3);
+});

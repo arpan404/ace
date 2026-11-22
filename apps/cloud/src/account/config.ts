@@ -60,10 +60,11 @@ export const AccountConfig = z.object({
     .regex(/^[A-Za-z0-9_-]{43}$/)
     .optional(),
   /**
-   * The member rosters' restore generation (ADR 0209 §7.2): raise it by one whenever the accounts
-   * database is restored from a backup, before the Worker serves again. Default 1.
+   * The member rosters' restore generation (ADR 0209 §7.2, amendment 1): raise it by one whenever
+   * the accounts database is restored from a backup, before the Worker serves again. Never
+   * assumed: unset or malformed, no roster is served, and nothing else is affected.
    */
-  rosterEpoch: z.coerce.number().int().positive().default(1),
+  rosterEpoch: z.number().int().positive().optional(),
 });
 export type AccountConfig = z.infer<typeof AccountConfig>;
 
@@ -99,6 +100,12 @@ export type AccountEnv = {
   ]?: string;
 };
 
+/** A positive whole number, or nothing: a malformed epoch is no epoch, never a guess. */
+function rosterEpoch(value: string | undefined): number | undefined {
+  if (!value || !/^[1-9][0-9]{0,8}$/.test(value.trim())) return undefined;
+  return Number(value.trim());
+}
+
 export function readAccountSetup(env: AccountEnv): AccountSetup {
   if (required.every((key) => env[key] === undefined || env[key] === "")) return { status: "off" };
   const allowed = env.ACE_ACCOUNT_ALLOWED_ORIGINS;
@@ -113,7 +120,7 @@ export function readAccountSetup(env: AccountEnv): AccountSetup {
     previousGrantKey: env.ACE_GRANT_PREVIOUS_KEY || undefined,
     webhookSecret: env.WORKOS_WEBHOOK_SECRET || undefined,
     marketStandingToken: env.ACE_MARKET_STANDING_TOKEN || undefined,
-    rosterEpoch: env.ACE_ROSTER_EPOCH || undefined,
+    rosterEpoch: rosterEpoch(env.ACE_ROSTER_EPOCH),
     allowedOrigins:
       typeof allowed === "string"
         ? allowed
