@@ -2,15 +2,24 @@ import type { MarketEntryDetail, MarketReview } from "@ace/protocol/marketplace"
 import { expect, test } from "vitest";
 import {
   andList,
+  changeTitle,
   canDoSentences,
   entryAction,
+  offeredUpdate,
   failureSentence,
+  findingRows,
   findingSentences,
   flaggedWord,
   installBlock,
   MarketFailure,
+  missingNeedsSentence,
   needCatalogue,
   needDefaults,
+  replacesLine,
+  reviewFromLine,
+  reviewHeading,
+  runDetail,
+  runTitle,
   sizeText,
   typeWord,
 } from "./index.ts";
@@ -72,6 +81,15 @@ test("the entry's action is Get, Update or Installed by what this machine holds"
   expect(entryAction(entry())).toBe("install");
   expect(entryAction(entry({ installed: installed() }))).toBe("installed");
   expect(entryAction(entry({ installed: installed("1.1.0") }))).toBe("update");
+});
+
+test("an update accepted while its bot works isn't offered again until a newer one comes", () => {
+  const held = { ...installed("1.1.0"), held: { version: "1.1.0" } };
+  expect(offeredUpdate(held)).toBeUndefined();
+  expect(entryAction(entry({ installed: held }))).toBe("installed");
+  expect(offeredUpdate({ ...installed("1.2.0"), held: { version: "1.1.0" } })).toBe("1.2.0");
+  expect(offeredUpdate(installed("1.1.0"))).toBe("1.1.0");
+  expect(offeredUpdate(installed())).toBeUndefined();
 });
 
 test.each([
@@ -151,4 +169,70 @@ test("sizes, lists and flagged files read in plain words", () => {
     "A script or program",
   );
   expect(flaggedWord({ path: "font.woff2", executable: false, flagged: true })).toBe("Font");
+});
+
+test("a scan's findings keep their level, in a word, blocks first", () => {
+  expect(
+    findingRows({
+      verdict: "warn",
+      findings: [
+        { rule: "a", level: "note", message: "Has a picture" },
+        { rule: "b", level: "warn", message: "Reaches api.example.com" },
+      ],
+    } as never),
+  ).toEqual([
+    { level: "warn", levelWord: "Warning", sentence: "Reaches api.example.com." },
+    { level: "note", levelWord: "Note", sentence: "Has a picture." },
+  ]);
+});
+
+const reviewOf = (extra: Record<string, unknown>, body: Record<string, unknown> = {}) =>
+  ({
+    title: "Inbox",
+    version: "1.1.0",
+    reviewed: false,
+    byAce: false,
+    body: { type: "spade-bot", ...body },
+    ...extra,
+  }) as unknown as MarketReview;
+
+test("a review is titled by what Install does: get, update or roll back", () => {
+  expect(reviewHeading(reviewOf({}))).toBe("Get Inbox");
+  expect(reviewHeading(reviewOf({ updates: "1.0.0" }))).toBe("Update Inbox");
+  expect(reviewHeading(reviewOf({ updates: "1.2.0" }, { update: { rollback: true } }))).toBe(
+    "Roll back Inbox",
+  );
+});
+
+test("a review says where it is from and what it replaces", () => {
+  expect(reviewFromLine(reviewOf({ reviewed: true }))).toBe(
+    "From market.acehq.dev, reviewed by ace.",
+  );
+  expect(reviewFromLine(reviewOf({ from: "https://git.example.com/cat" }))).toBe(
+    "From git.example.com/cat.",
+  );
+  expect(replacesLine(reviewOf({}))).toBeUndefined();
+  expect(replacesLine(reviewOf({ updates: "1.0.0" }))).toBe(
+    "Replaces version 1.0.0, which stays until you install.",
+  );
+});
+
+test("Install waits with a sentence naming each required app left off", () => {
+  expect(missingNeedsSentence("Inbox", [])).toBeUndefined();
+  expect(missingNeedsSentence("Inbox", ["Gmail", "Slack"])).toBe(
+    "Inbox can't work without Gmail and Slack.",
+  );
+});
+
+test("a plugin's runs and an update's changes read as rows", () => {
+  expect(runTitle({ kind: "stdio", name: "notes", command: "node", args: ["s.js"] } as never)).toBe(
+    "Server notes",
+  );
+  expect(
+    runDetail({ kind: "stdio", name: "notes", command: "node", args: ["s.js"] } as never),
+  ).toBe("node s.js");
+  expect(runDetail({ kind: "remote", name: "search", url: "https://x.dev/mcp" } as never)).toBe(
+    "https://x.dev/mcp",
+  );
+  expect(changeTitle({ change: "added", path: "run.sh" })).toBe("Added run.sh");
 });

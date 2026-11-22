@@ -60,7 +60,7 @@ struct SpadeTab<Bar: View>: View {
         }
         .sheet(isPresented: $making) {
             if let client = session?.client {
-                SpadeNewBotSheet(client: client) { conversation in
+                SpadeNewBotSheet(client: client, machineName: client.hostId.map { inbox.name($0) } ?? "your machine") { conversation in
                     path = [SpadeRoute(conversation: conversation, group: nil)]
                 }
             }

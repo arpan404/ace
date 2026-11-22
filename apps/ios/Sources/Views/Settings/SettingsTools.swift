@@ -62,7 +62,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .projects: ProjectsView(model: model)
         case .automations: AutomationsView(model: model)
         case .usage: UsageView(inbox: inbox, machine: machine)
-        case .skills: SkillsLibraryView(model: model)
+        case .skills: SkillsLibraryView(model: model, machineName: inbox.name(machine))
         case .market: MarketplaceView(inbox: inbox, machine: machine)
         case .providers: ProviderSettingsView(model: model)
         case .spade: SpadeSettingsView(client: model)

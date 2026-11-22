@@ -1,37 +1,11 @@
 import type { MarketReviewItem } from "@ace/protocol/marketplace";
-import { flaggedWord, sizeText } from "./market-model.ts";
+import { changeTitle, flaggedWord, runDetail, runTitle, sizeText } from "./market-model.ts";
 import { part } from "@/lib/suit-part.ts";
 
 /*
  * A review's pages, as the review page lists them under quiet heads: what changed in an update,
  * the commands it runs, its texts and its files. The person reads these before Install.
  */
-
-const changeWords = { added: "Added", changed: "Changed", removed: "Removed" } as const;
-
-type Execution = Extract<MarketReviewItem, { kind: "execution" }>["execution"];
-
-function runTitle(execution: Execution): string {
-  switch (execution.kind) {
-    case "hook":
-      return `Hook on ${execution.event}`;
-    case "stdio":
-      return `Server ${execution.name}`;
-    case "remote":
-      return `Remote server ${execution.name}`;
-  }
-}
-
-function runDetail(execution: Execution): string {
-  switch (execution.kind) {
-    case "hook":
-      return execution.command;
-    case "stdio":
-      return [execution.command, ...execution.args].join(" ");
-    case "remote":
-      return execution.url;
-  }
-}
 
 /** What changed in an update, what it runs and the review's notes: read before Install. */
 export function ReviewItems(props: { items: readonly MarketReviewItem[] }) {
@@ -48,9 +22,7 @@ export function ReviewItems(props: { items: readonly MarketReviewItem[] }) {
           {changes.map((item) => (
             <div key={`${item.section}/${item.path}`} className="mk-fact-row">
               <span className="mk-words">
-                <span className="mk-name">
-                  {changeWords[item.change]} {item.path}
-                </span>
+                <span className="mk-name">{changeTitle(item)}</span>
                 {item.executable && <span className="mk-meta">A script or program.</span>}
               </span>
             </div>
