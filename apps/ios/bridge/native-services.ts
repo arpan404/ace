@@ -99,7 +99,7 @@ import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeMarket, NativeMarketRequest, pauseOn } from "./market.ts";
-import type { PairedStanding } from "./socket.ts";
+import type { SocketStanding } from "./market-person.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
@@ -208,7 +208,7 @@ export class NativeServices {
     care?: HostCare,
     now: () => number = () => 0,
     automations?: NativeAutomations,
-    standing?: () => PairedStanding | undefined,
+    standing?: () => SocketStanding,
   ) {
     this.owner = owner;
     this.sink = sink;
