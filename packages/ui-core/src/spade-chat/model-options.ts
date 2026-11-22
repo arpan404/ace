@@ -162,12 +162,18 @@ export function spadeModelLabel(
   if (cli) {
     const source = sources.subscriptions.find((each) => value.startsWith(`${each.key}/`));
     const model = source?.models.find((each) => each.id === cli.model);
-    return { name: model?.name ?? spadeModelWords(cli.model), source: source?.label ?? cli.provider };
+    return {
+      name: model?.name ?? spadeModelWords(cli.model),
+      source: source?.label ?? cli.provider,
+    };
   }
   const { endpoint: id, model } = splitSpadeModel(value);
   const found = sources.endpoints.find((each) => each.endpoint.id === id);
   const info = found?.models.find((each) => each.id === model);
-  return { name: info?.name ?? spadeModelWords(model), source: found?.endpoint.name ?? (id || undefined) };
+  return {
+    name: info?.name ?? spadeModelWords(model),
+    source: found?.endpoint.name ?? (id || undefined),
+  };
 }
 
 /**
@@ -175,7 +181,7 @@ export function spadeModelLabel(
  * ("saved/model" reads "Model"), never the id itself.
  */
 export function spadeModelWords(id: string): string {
-  const last = id.split("/").filter(Boolean).at(-1) ?? id;
+  const last = id.split("/").findLast((part) => part !== "") ?? id;
   const words = last.replaceAll(/[-_]+/g, " ").trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : id;
 }

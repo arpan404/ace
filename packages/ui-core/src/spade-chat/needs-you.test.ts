@@ -17,9 +17,9 @@ describe("what a waiting bot says it needs", () => {
   it("reads the same on a bot row whether it asked a question or something else", () => {
     const base = { name: "Trip planner", state: "waiting" } as Parameters<typeof spadeBotRow>[0];
     expect(spadeBotRow({ ...base, waitingFor: "question" }).line).toBe("Needs you");
-    expect(spadeBotRow({ ...base, waitingFor: "approval", status: "Wants to send an email" }).line).toBe(
-      "Wants to send an email",
-    );
+    expect(
+      spadeBotRow({ ...base, waitingFor: "approval", status: "Wants to send an email" }).line,
+    ).toBe("Wants to send an email");
   });
 });
 

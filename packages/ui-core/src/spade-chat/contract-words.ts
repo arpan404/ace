@@ -49,7 +49,9 @@ function money(amount: number, currency: string): string {
 export function fieldsLine(fields: Record<string, unknown>, limit = 160): string {
   const entries = Object.entries(fields).filter(([key]) => !/(^|_)(at|time)$/i.test(key));
   const amount = entries.find(([key, value]) => amountKey.test(key) && typeof value === "number");
-  const currency = entries.find(([key, value]) => /^currency$/i.test(key) && typeof value === "string");
+  const currency = entries.find(
+    ([key, value]) => /^currency$/i.test(key) && typeof value === "string",
+  );
   const seller = entries.find(([key, value]) => placeKey.test(key) && typeof value === "string");
   const used = new Set<string>();
   const parts: string[] = [];
@@ -64,7 +66,8 @@ export function fieldsLine(fields: Record<string, unknown>, limit = 160): string
   for (const [key, value] of entries) {
     if (used.has(key)) continue;
     const words = said(value);
-    if (words) parts.push(typeof value === "number" ? `${words} ${key.replaceAll("_", " ")}` : words);
+    if (words)
+      parts.push(typeof value === "number" ? `${words} ${key.replaceAll("_", " ")}` : words);
   }
   const line = parts.join(", ");
   return line.length > limit ? `${line.slice(0, limit - 1).trimEnd()}…` : line;

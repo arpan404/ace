@@ -36,11 +36,7 @@ test("Spade is the list's first row, then each bot with what it asks or its last
         .getAllByRole("link")
         .filter((link) => !link.hasAttribute("aria-label"))
         .map((row) => row.textContent),
-    ).toEqual([
-      "SpadeNo messages yet",
-      "InboxNeeds you",
-      "GardenYou: Water the tomatoes at 6",
-    ]),
+    ).toEqual(["SpadeNo messages yet", "InboxNeeds you", "GardenYou: Water the tomatoes at 6"]),
   );
 });
 

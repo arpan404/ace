@@ -20,7 +20,9 @@ test("the Marketplace switch on Settings › Beta saves the setting and hides or
   await userEvent.click(toggle);
 
   await waitFor(() => expect(app.daemon.services.settings.get("beta.marketplace")).toBe(false));
-  await waitFor(() => expect(within(rail()).queryByRole("button", { name: "Marketplace" })).toBeNull());
+  await waitFor(() =>
+    expect(within(rail()).queryByRole("button", { name: "Marketplace" })).toBeNull(),
+  );
 
   await userEvent.click(toggle);
 

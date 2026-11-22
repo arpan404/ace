@@ -376,14 +376,19 @@ test("waiting for you and needs you win over the working phrase, as Spade says t
   });
 });
 
+const botNames = (entries: ReturnType<typeof spadeListEntries>) =>
+  entries.flatMap((entry) => (entry.kind === "bot" ? [entry.bot.name] : []));
+
 test("a bot the roster lists twice is one row, so it opens from one place", () => {
   const twice = [
     bot({ id: "trip-planner", name: "Trip planner" }),
     bot({ id: "trip-planner", name: "Trip planner" }),
     bot({ id: "other", name: "Other" }),
   ];
-  const names = (entries: ReturnType<typeof spadeListEntries>) =>
-    entries.flatMap((entry) => (entry.kind === "bot" ? [entry.bot.name] : []));
-  expect(names(spadeListEntries(twice, [])).filter((name) => name === "Trip planner")).toHaveLength(1);
-  expect(names(spadeFlatEntries(twice, [])).filter((name) => name === "Trip planner")).toHaveLength(1);
+  expect(
+    botNames(spadeListEntries(twice, [])).filter((name) => name === "Trip planner"),
+  ).toHaveLength(1);
+  expect(
+    botNames(spadeFlatEntries(twice, [])).filter((name) => name === "Trip planner"),
+  ).toHaveLength(1);
 });
