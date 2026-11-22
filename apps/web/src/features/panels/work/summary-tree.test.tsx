@@ -129,7 +129,7 @@ test("Now counts a waiting approval and leaves its command to the composer's str
     name: "Thread status: Check daemon search limits needs your approval",
   });
   expect(status.getAttribute("data-tone")).toBe("needs-you");
-  expect(within(work).getByText("1 request waiting on you")).toBeTruthy();
+  expect(within(work).getByText(/^1 request waiting on you/)).toBeTruthy();
   expect(within(work).queryByText(/gh pr merge/)).toBeNull();
 });
 
