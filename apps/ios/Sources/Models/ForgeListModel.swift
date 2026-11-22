@@ -1,6 +1,9 @@
 import Foundation
 import Observation
 
+/// The most screenfuls the bridge answers for one list (`screens` in `bridge/forge-lists.ts`).
+let forgeMaxScreens = 8
+
 /// One Pull requests or Issues list on one machine: the bridge's last answer, kept on screen
 /// (dimmed) while a changed filter reads, and "Show more" asking for one more screenful. A
 /// request that lands after a newer one started is dropped.
@@ -50,7 +53,7 @@ import Observation
     }
     /// One more screenful of the same list.
     func more(read: @escaping (_ screens: Int, _ fresh: Bool) async throws -> List) async {
-        guard !loading else { return }
+        guard !loading, screens < forgeMaxScreens else { return }
         screens += 1
         await run(fresh: false, read: read)
     }

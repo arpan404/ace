@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { hasCapability } from "./connect.ts";
+import { hasCapability, hostScheduler } from "./connect.ts";
 import type { InflateFormat, NativeHost } from "./contract.ts";
 
 /*
@@ -254,34 +254,46 @@ function decompressionStream(inflate: NonNullable<NativeHost["inflate"]>) {
  * phone though every Node test passes. Ids are small integers, as the web gives.
  */
 function installTimers(host: NativeHost, add: (name: string, value: unknown) => void): void {
-  const live = new Map<number, string>();
+  const timers = hostScheduler(host);
+  const live = new Map<number, () => void>();
   let next = 1;
-  const start = (callback: () => void, ms: unknown, repeat: boolean): number => {
+  const start = (
+    callback: (...args: unknown[]) => void,
+    ms: unknown,
+    repeat: boolean,
+    args: unknown[],
+  ): number => {
     const id = next++;
-    const delay = typeof ms === "number" && ms > 0 && Number.isFinite(ms) ? ms : 0;
+    const asked = Number(ms);
+    // As the web does: a missing, negative or non-numeric delay is 0, and an interval never
+    // re-arms faster than 1 ms.
+    const delay = Number.isFinite(asked) && asked > 0 ? asked : 0;
     const arm = () => {
-      const token = host.uuid();
-      live.set(id, token);
-      host.timer(token, delay, () => {
-        if (live.get(id) !== token) return;
+      const cancel = timers.set(repeat ? Math.max(delay, 1) : delay, () => {
+        if (live.get(id) !== cancel) return;
         if (repeat) arm();
         else live.delete(id);
-        callback();
+        callback(...args);
       });
+      live.set(id, cancel);
     };
     arm();
     return id;
   };
   const stop = (id: unknown) => {
     if (typeof id !== "number") return;
-    const token = live.get(id);
-    if (token === undefined) return;
+    const cancel = live.get(id);
+    if (cancel === undefined) return;
     live.delete(id);
-    host.cancelTimer(token);
+    cancel();
   };
-  add("setTimeout", (callback: () => void, ms?: number) => start(callback, ms, false));
+  add("setTimeout", (callback: (...args: unknown[]) => void, ms?: unknown, ...args: unknown[]) =>
+    start(callback, ms, false, args),
+  );
   add("clearTimeout", stop);
-  add("setInterval", (callback: () => void, ms?: number) => start(callback, ms, true));
+  add("setInterval", (callback: (...args: unknown[]) => void, ms?: unknown, ...args: unknown[]) =>
+    start(callback, ms, true, args),
+  );
   add("clearInterval", stop);
 }
 

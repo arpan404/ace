@@ -72,6 +72,8 @@ struct ServiceFailure: LocalizedError {
             if !dispatch() { fail(id, message: "Machine disconnected. Retry when connected.", transport: true) }
         }
     }
+    /// Whether a screen is still waiting on request `id`: an answer to one that isn't came late.
+    func isWaiting(_ id: String) -> Bool { waiting[id] != nil }
     func receive(_ reply: ServiceReply) {
         guard let continuation = waiting.removeValue(forKey: reply.id) else { return }
         if reply.ok, let value = reply.value { continuation.resume(returning: value) }
@@ -107,10 +109,19 @@ extension ClientModel {
     func readGeneration(_ payload: [String: Any]) -> Int {
         ReadMirror.key(payload).map { reads.generation($0) } ?? 0
     }
-    /// Whether an answer to `payload` is kept: one that lands after its screen stopped waiting
-    /// (a timeout, a dropped connection) flips it, so the screen reads it and draws it.
-    func hasKept(_ payload: [String: Any]) -> Bool {
-        ReadMirror.key(payload).map { reads.values[$0] != nil } ?? false
+    /// Moves when an answer to `payload` is kept that no screen was waiting for: one that lands
+    /// after its screen stopped waiting (a timeout, a dropped connection), or a replacement the
+    /// bridge pushes. A screen reads it again and draws it. The answer to the screen's own read
+    /// and an eviction leave it alone, so neither schedules another read.
+    func lateKept(_ payload: [String: Any]) -> Int {
+        ReadMirror.key(payload).map { reads.lateRevision($0) } ?? 0
+    }
+    /// A screen is showing `payload`: until the returned closure runs, late answers to it are
+    /// tracked (`lateKept`).
+    func watchRead(_ payload: [String: Any]) -> @MainActor () -> Void {
+        guard let key = ReadMirror.key(payload) else { return {} }
+        reads.watch(key)
+        return { [reads] in reads.unwatch(key) }
     }
     /// Moves when any kept answer of `family` goes out of date, whichever read it answered.
     func familyGeneration(_ family: String) -> Int { reads.generations[family] ?? 0 }

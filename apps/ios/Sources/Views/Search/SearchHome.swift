@@ -48,8 +48,8 @@ struct SearchHome: View {
 }
 
 extension SearchHome {
-    /// Search is a plain tab (the home bar is ace's own), so its field would wait in the collapsed
-    /// navigation drawer: it is pinned there open.
+    /// Search's field is pinned open in the navigation drawer, at the top as on every iOS this
+    /// runs on, rather than waiting collapsed or moving into the tab bar's search tab.
     static var fieldPlacement: SearchFieldPlacement { .navigationBarDrawer(displayMode: .always) }
 }
 

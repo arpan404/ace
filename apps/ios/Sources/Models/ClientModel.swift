@@ -238,6 +238,9 @@ import QuartzCore
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
     @ObservationIgnored private var sawConfirmedRow = false
+    /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
+    /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
+    var inboxConfirmed: Bool { inboxLoaded && sawConfirmedRow }
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -551,9 +554,9 @@ import QuartzCore
             }
             switch patch {
             case .service(let reply):
-                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value, late: !services.isWaiting(reply.id)) }
                 services.receive(reply)
-            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value, late: true)
             case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.

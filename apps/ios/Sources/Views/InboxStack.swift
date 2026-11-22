@@ -21,9 +21,9 @@ struct InboxHeaderActions {
 
 /// One home list and the page it opens (`InboxSplit`): Threads (Inbox, Snoozed and Settled under
 /// the title) or Chats. A large title that collapses as the list scrolls, its menu choosing the
-/// machine, project and sort, the scope or a connection problem under it, and in a regular window
-/// the compose button. Beside an open page the list carries the places at its foot
-/// (`SidebarPlaces`); on a phone its first page carries the tab bar (`HomeBar`), compose at its end.
+/// machine, project and sort, the scope or a connection problem under it, and the compose button.
+/// Beside an open page the list carries the places at its foot (`SidebarPlaces`); on a phone the
+/// system's tab bar shows under its first page (`InboxSplit`).
 struct InboxStack<Destination: View, Side: View>: View {
     @Bindable var inbox: MachineInbox
     @Binding var path: [InboxRoute]
@@ -107,12 +107,6 @@ struct InboxStack<Destination: View, Side: View>: View {
             listed
                 .inboxFootBar {
                     if holds { SidebarPlaces(tab: $tab, open: header.place, needsYou: needsYou) }
-                }
-                // Select mode's own bar takes the tab bar's place.
-                .homeBar {
-                    if sizeClass != .regular && !selecting {
-                        HomeBar(tab: $tab, compose: inbox.canStartThreads ? header.compose : nil, needsYou: needsYou)
-                    }
                 }
                 .modifier(ListTitle(title: HomeTabs.title(list), subtitle: subtitle, selecting: selecting))
                 .toolbar { if selecting { selectToolbar } else { listToolbar } }
@@ -292,10 +286,9 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     /// The person's avatar at the bar's leading edge, then Code review (the Projects list; neither the
-    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu and compose on one glass capsule at the right: system
-    /// bar buttons with ace's glyphs, at the system's size. Compose shows where the tab bar doesn't
-    /// hold it: before iOS 27, and beside a page in a regular window, which has no tab bar. (The system's
-    /// title menu draws no chevron by a large title, so it would go unseen.)
+    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu and, in a regular window, compose (New thread, New chat on Chats), on one glass capsule at the right: system bar buttons with ace's
+    /// glyphs, at the system's size, on a phone and in a regular window alike. (The system's title
+    /// menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
         AccountToolbarItem(open: header.page, settings: header.settings)
         if !chats {
