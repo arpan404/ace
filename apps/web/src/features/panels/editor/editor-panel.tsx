@@ -11,6 +11,7 @@ import {
   storedLayout,
   type EditorLayout,
   type ExplorerState,
+  type OutlineSymbol,
 } from "@ace/ui-core/editor-workbench";
 import {
   useCallback,
@@ -32,12 +33,17 @@ import {
   Editor,
   BufferEditor,
   OpenEditors,
+  createStatusStore,
   paneCapReason,
   useEditorBuffers,
+  useFileOutline,
+  useStatusReport,
   type EditorCompareProps,
   type BufferEditorProps,
   type EditorViewerProps,
   type StatusNotice,
+  type StatusStore,
+  type TextBuffer,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
 import { roomLimits } from "@/lib/shell-room.ts";
@@ -87,6 +93,8 @@ import {
 import { explorerWidth, roomAsk } from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
+import { EditorOutline } from "./editor-outline.tsx";
+import { GoToSymbolDialog } from "./go-to-symbol.tsx";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
 import { editorKeys, type EditorPanelCommand } from "./editor-keys.ts";
 import { groupIds, openPaths } from "./editor-layout.ts";
@@ -314,11 +322,25 @@ export function EditorPanel(props: TabViewProps) {
 
   // ⌃Tab's list, while ⌃ is held.
   const [recent, setRecent] = useState<number | undefined>(undefined);
+  const [symbolPicker, setSymbolPicker] = useState(false);
+  const [statusStore] = useState(createStatusStore);
   const recentTabs = mruTabs(focused);
   const pickRecent = (path: string) => {
     setRecent(undefined);
     change(showPath(latest.current, path));
   };
+  const revealSymbol = useCallback(
+    (groupId: string, path: string, symbol: OutlineSymbol) => {
+      requestReveal(threadId, {
+        path,
+        group: groupId,
+        line: symbol.line,
+        column: Math.max(0, symbol.column - 1),
+        focus: true,
+      });
+    },
+    [threadId],
+  );
 
   const run = (command: EditorPanelCommand) => {
     const now = latest.current;
@@ -396,6 +418,9 @@ export function EditorPanel(props: TabViewProps) {
         if (path) change(showPath(now, path));
         return;
       }
+      case "goToSymbol":
+        if (active) setSymbolPicker(true);
+        return;
       case "composer":
         return runKeymap("focusComposer");
     }
@@ -444,6 +469,22 @@ export function EditorPanel(props: TabViewProps) {
       onOpenChange={(unfolded) => setExplorer({ openEditors: unfolded })}
     />
   );
+  const focusedBuffer = focused.active === undefined ? undefined : buffers.buffer(focused.active);
+  const outlineSection = (
+    <EditorOutline
+      path={focused.active}
+      buffer={focusedBuffer}
+      focusedGroupId={focused.id}
+      statusStore={statusStore}
+      open={layout.explorer.outlineOpen ?? false}
+      onOpenChange={(outlineOpen) => setExplorer({ outlineOpen })}
+      sort={layout.explorer.outlineSort ?? "position"}
+      onSortChange={(outlineSort) => setExplorer({ outlineSort })}
+      onReveal={(symbol) => {
+        if (focused.active !== undefined) revealSymbol(focused.id, focused.active, symbol);
+      }}
+    />
+  );
   const explorer = (
     <EditorExplorer
       threadId={threadId}
@@ -452,6 +493,7 @@ export function EditorPanel(props: TabViewProps) {
       current={focused.active}
       onOpen={fromExplorer}
       openEditors={openEditors}
+      sections={outlineSection}
       focusSearch={focusSearch}
       marks={rowMarks}
     />
@@ -500,6 +542,8 @@ export function EditorPanel(props: TabViewProps) {
                 onConfirmClose={(refs) => void confirmClose(host, refs)}
                 renderCompare={renderCompare}
                 onQuickOpen={() => quickOpen.set(() => threadId)}
+                onRevealSymbol={revealSymbol}
+                statusStore={statusStore}
                 renderEditor={editorFor(threadId)}
                 renderViewer={viewerFor(threadId)}
                 tabMenuItems={menuFor(threadId)}
@@ -522,6 +566,19 @@ export function EditorPanel(props: TabViewProps) {
             </EditorPanelContext>
             {recent !== undefined && recentTabs.length > 0 && (
               <RecentEditors tabs={recentTabs} index={recent} onPick={pickRecent} />
+            )}
+            {symbolPicker && focused.active !== undefined && (
+              <ActiveGoToSymbol
+                path={focused.active}
+                buffer={focusedBuffer}
+                groupId={focused.id}
+                statusStore={statusStore}
+                onPick={(symbol) => {
+                  if (focused.active !== undefined)
+                    revealSymbol(focused.id, focused.active, symbol);
+                }}
+                onClose={() => setSymbolPicker(false)}
+              />
             )}
           </div>
         </>
@@ -696,6 +753,27 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
         )}
       </div>
     </MentionSelection>
+  );
+}
+
+/** Hosts the ⇧⌘O Go to symbol picker on the focused buffer's cached outline. */
+function ActiveGoToSymbol(props: {
+  path: string;
+  buffer: TextBuffer | undefined;
+  groupId: string;
+  statusStore: StatusStore;
+  onPick(symbol: OutlineSymbol): void;
+  onClose(): void;
+}) {
+  const report = useStatusReport(props.statusStore, props.groupId);
+  const { symbols } = useFileOutline(props.buffer, report?.status.language ?? props.path);
+  return (
+    <GoToSymbolDialog
+      path={props.path}
+      symbols={symbols}
+      onPick={props.onPick}
+      onClose={props.onClose}
+    />
   );
 }
 
