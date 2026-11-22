@@ -101,9 +101,9 @@ export function ReviewPage(props: {
   );
 }
 
-/** "From market.acehq.dev, reviewed by ace." */
+/** "From store.acehq.dev, reviewed by ace." */
 function fromLine(review: MarketReview) {
-  const from = review.from ? review.from.replace(/^https:\/\//, "") : "market.acehq.dev";
+  const from = review.from ? review.from.replace(/^https:\/\//, "") : "store.acehq.dev";
   return `From ${from}${review.reviewed || review.byAce ? ", reviewed by ace" : ""}.`;
 }
 

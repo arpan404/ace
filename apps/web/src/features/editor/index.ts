@@ -15,6 +15,7 @@ export { ensureEditorReady } from "./wasm.ts";
 export type { LineHighlighter, Token } from "./highlighter.ts";
 export { EditorStatusLine } from "./status-line.tsx";
 export {
+  editorStatus,
   indentText,
   languageName,
   lineEndingText,
@@ -24,3 +25,4 @@ export {
 } from "./editor-status.ts";
 export { useEditorAnnotations, type EditorAnnotationsOptions } from "./annotate.tsx";
 export type { EditorLayer, EditorLayerView } from "./layer.ts";
+export type { AgentMark } from "./change-bars.tsx";

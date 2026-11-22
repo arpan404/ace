@@ -40,6 +40,7 @@ export {
   useScopeWorkspace,
   useOptionalWorkspace,
   useOpenInEditorPanel,
+  useReviewInEditor,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
@@ -59,7 +60,13 @@ export {
   type OpenInEditorPanelOptions,
 } from "./editor-tab.ts";
 export { requestReveal, settleReveal, useReveal, type Reveal } from "./editor-reveal.ts";
-export { settleExplorerAsk, useExplorerAsk } from "./editor-explorer-ask.ts";
+export {
+  currentReview,
+  endReview,
+  requestReview,
+  useEditorReview,
+  type EditorReview,
+} from "./editor-review.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {
   filePreviewTab,
@@ -75,6 +82,6 @@ export {
   textEditTabKind,
   type TextEditSession,
 } from "./text-edit-tab.ts";
-export { tabDragType } from "./drag.ts";
+export { tabDragType, treeEntriesDragType } from "./drag.ts";
 
 export { attachWorkspaceScroll } from "./scroll.ts";

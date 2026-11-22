@@ -13,8 +13,11 @@ const failure = (flags: Record<string, string>) => {
 };
 
 describe("where the maintainer tools send the signer token", () => {
-  it("is market.acehq.dev unless told otherwise", () => {
-    expect(marketUrl(args({})).origin).toBe("https://market.acehq.dev");
+  it("is store.acehq.dev unless told otherwise, and also accepts legacy market.acehq.dev", () => {
+    expect(marketUrl(args({})).origin).toBe("https://store.acehq.dev");
+    expect(marketUrl(args({ url: "https://store.acehq.dev" })).origin).toBe(
+      "https://store.acehq.dev",
+    );
     expect(marketUrl(args({ url: "https://market.acehq.dev" })).origin).toBe(
       "https://market.acehq.dev",
     );
@@ -32,6 +35,7 @@ describe("where the maintainer tools send the signer token", () => {
   it.each([
     ["https://attacker.example"],
     ["http://localhost:8787"],
+    ["https://store.acehq.dev.attacker.example"],
     ["https://market.acehq.dev.attacker.example"],
   ])("never goes to --url %s", (url) => {
     expect(failure({ url })).toMatchObject({ status: "usage", argument: "--url" });

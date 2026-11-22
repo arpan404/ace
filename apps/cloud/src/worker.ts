@@ -97,6 +97,9 @@ function accounts(env: Env) {
       random: (length) => crypto.getRandomValues(new Uint8Array(length)),
       forgotten: (hostId, accountId) =>
         env.RELAY.get(env.RELAY.idFromName(hostId)).registerAgain(accountId),
+      standingLimited: (key) => limited(env.STANDING_REQUESTS, undefined, key),
+      standingWorkosLimited: () => limited(env.STANDING_WORKOS, undefined, "workos"),
+      addressLimited: (request) => limited(env.ACCOUNT_REQUESTS, request),
     });
     const ready = setup.status === "ready" ? setup : undefined;
     const spade = broker({
@@ -131,7 +134,15 @@ export default {
     const gate = serverGate(clientOf(request));
     if (isBrokerPath(url.pathname)) return accounts(env).broker.handle(request, gate);
     if (isAccountPath(url.pathname))
-      return accounts(env).api.handle(request, await limited(env.ACCOUNT_REQUESTS, request), gate);
+      return accounts(env).api.handle(
+        request,
+        // Standing checks limit their own callers: unauthenticated ones by address, the market
+        // and org hosts per member (ADR 0206 §6).
+        url.pathname === "/v1/grants/standing"
+          ? false
+          : await limited(env.ACCOUNT_REQUESTS, request),
+        gate,
+      );
     const target = forwardPath(url);
     if (target) return forwardHttp(request, env, ctx, target);
     if (!endpoints.has(url.pathname))
@@ -167,9 +178,14 @@ export default {
         now: Date.now(),
       });
       if (!admission.admitted) return new Response(null, { status: admission.status });
-      // A member grant opens only a host its organization holds (ADR 0206 §2.2).
+      // A member grant opens only a host its organization holds (ADR 0206 §2.2), and only
+      // while the member is still active: a grant minted before a deprovisioning is refused
+      // here at once, not when it expires (§6).
       if (admission.org !== undefined) {
-        if ((await orgStore(env.ACCOUNTS).hostOrg(hostId.data)) !== admission.org)
+        const orgs = orgStore(env.ACCOUNTS);
+        if ((await orgs.hostOrg(hostId.data)) !== admission.org)
+          return new Response(null, { status: 403 });
+        if ((await orgs.member(admission.org, admission.account))?.status !== "active")
           return new Response(null, { status: 403 });
         headers.set(ORG_HEADER, admission.org);
       }

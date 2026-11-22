@@ -20,6 +20,12 @@ export interface FakeDaemonOptions {
   placement?: false;
   /** false: speak as a daemon from before logical project identity (ADR 0180). */
   projectIdentity?: false;
+  /**
+   * What full-text search finds: the catalog's corpus (`catalog`, default), shared by every fake
+   * daemon; or `titles`, this daemon's own threads by title, for another of the person's
+   * machines whose search must find its own work.
+   */
+  searchCorpus?: "catalog" | "titles";
   /** Keep creation visible for screenshot capture. */
   worktreeCreationSlow?: boolean;
   worktreeCreationSchedule?: (callback: () => void, delay: number) => () => void;

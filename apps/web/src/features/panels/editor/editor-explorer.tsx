@@ -1,10 +1,12 @@
 import { useClient } from "@ace/client-react";
+import { SidebarSimpleIcon } from "@ace/icons";
 import type { ExplorerState } from "@ace/ui-core/editor-workbench";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { WordChoice } from "@/components/ui/word-choice.tsx";
 import { ContentSearch } from "../files/content-search.tsx";
+import { ExplorerHeader, ExplorerSwitch } from "../files/explorer-header.tsx";
 import {
   contentSearchStore,
   retainContentSearch,
@@ -20,11 +22,6 @@ import { useFileActions, type UploadState } from "../files/use-file-actions.ts";
 const FileOperations = lazy(() =>
   import("../files/file-operations.tsx").then((module) => ({ default: module.FileOperations })),
 );
-
-const sides = [
-  { value: "files", label: "Files" },
-  { value: "search", label: "Search" },
-] as const;
 
 /** How a pick in the explorer opens a file, with the search match it came from. */
 export interface ExplorerOpen {
@@ -69,6 +66,7 @@ export function EditorExplorer(props: {
     searchInput.current?.focus();
     searchInput.current?.select();
   }, [focusRequest]);
+  const [actionsIn, setActionsIn] = useState<HTMLElement | null>(null);
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {operation && (
@@ -86,25 +84,38 @@ export function EditorExplorer(props: {
           />
         </Suspense>
       )}
-      <WordChoice
-        label="Files or search"
-        value={explorer.side}
-        options={sides}
-        onValueChange={(side) => onExplorer({ side })}
-        className="shrink-0 gap-0.5 px-2 pt-1.5 pb-1"
-      />
+      {/* One header for both sides, so the switch keeps focus; Files puts its actions in it. */}
+      <ExplorerHeader
+        start={
+          <>
+            <IconButton
+              label="Hide files"
+              shortcut="editor.explorer"
+              icon={SidebarSimpleIcon}
+              onClick={() => onExplorer({ open: false })}
+              className="size-7 rounded-sm hover:bg-hover"
+            />
+            <ExplorerSwitch side={explorer.side} onSide={(side) => onExplorer({ side })} />
+          </>
+        }
+      >
+        <div ref={setActionsIn} className="flex items-center gap-0.5" />
+      </ExplorerHeader>
       {explorer.side === "search" ? (
-        <ContentSearch
-          store={searchStore}
-          state={searchState}
-          ref={searchInput}
-          onClose={() => onExplorer({ side: "files" })}
-          onOpen={(path, line, column, keep, length) =>
-            props.onOpen(path, { how: keep ? "keep" : "preview", line, column, length })
-          }
-        />
+        <>
+          <ContentSearch
+            store={searchStore}
+            state={searchState}
+            ref={searchInput}
+            onClose={() => onExplorer({ side: "files" })}
+            onOpen={(path, line, column, keep, length) =>
+              props.onOpen(path, { how: keep ? "keep" : "preview", line, column, length })
+            }
+          />
+        </>
       ) : (
         <FileTree
+          actionsIn={actionsIn}
           threadId={threadId}
           onOperation={setOperation}
           current={props.current}

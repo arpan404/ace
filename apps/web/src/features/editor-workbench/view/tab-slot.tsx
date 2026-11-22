@@ -49,12 +49,12 @@ export function TabSlot(props: {
       }}
       className={cn(
         "grid size-[18px] shrink-0 place-items-center rounded-xs text-subtle-foreground outline-none",
-        "transition-[background-color,color] duration-(--motion-fast) hover:bg-accent hover:text-foreground",
+        "transition-[background-color,color] duration-(--motion-fast) hover:bg-hover hover:text-foreground",
         shows === "unsaved" && "text-current",
       )}
     >
-      {shows === "unsaved" && <span aria-hidden className="size-2 rounded-full bg-current" />}
-      {shows === "close" && <XIcon aria-hidden size={12} weight="bold" />}
+      {shows === "unsaved" && <span aria-hidden className="size-[7px] rounded-full bg-current" />}
+      {shows === "close" && <XIcon aria-hidden size={12} />}
       {shows === "pinned" && <PushPinIcon aria-hidden size={12} />}
       {shows === "agent" &&
         (props.provider ? (

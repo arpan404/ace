@@ -13,8 +13,21 @@ export function nameStem(name: string, folder: boolean): number {
   return dot > 0 ? dot : name.length;
 }
 
+/** A row whose name is a field: a rename, or a new entry being named. */
+export interface RowField {
+  /** The field's accessible name; "Rename <name>" unless given. */
+  label?: string | undefined;
+  /** What the field starts with; the row's name unless given. */
+  name?: string | undefined;
+  /** The row the keyboard goes back to when Escape gives the field up; the row itself unless given. */
+  refocus?: string | undefined;
+  /** Resolves what went wrong, or undefined once done. */
+  commit(name: string): Promise<string | undefined>;
+  cancel(): void;
+}
+
 /** The entry being renamed in the tree, and what its field may do. */
-export interface InlineRename {
+export interface InlineRename extends RowField {
   /** The row key of the entry being renamed ("a/b/" for a folder), if any. */
   key: string | undefined;
   start(path: string, folder: boolean): void;
@@ -78,6 +91,7 @@ export function useInlineRename(
 export function RenameField(props: {
   name: string;
   folder: boolean;
+  label?: string | undefined;
   onCommit(name: string): Promise<string | undefined>;
   /** `keyboard`: Escape gave it up, so the keyboard goes back to the row. */
   onCancel(keyboard: boolean): void;
@@ -90,8 +104,12 @@ export function RenameField(props: {
   useEffect(() => {
     // A menu hands focus back to its opener before the field takes it.
     const frame = requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(0, nameStem(props.name, props.folder));
+      const field = input.current;
+      if (!field) return;
+      if (document.activeElement !== field) field.focus();
+      // Letters typed before this frame stay where they went.
+      if (field.value === props.name)
+        field.setSelectionRange(0, nameStem(props.name, props.folder));
     });
     return () => cancelAnimationFrame(frame);
   }, [props.name, props.folder]);
@@ -106,7 +124,7 @@ export function RenameField(props: {
     <span data-inline-rename className="flex min-w-0 flex-1 flex-col py-0.5">
       <input
         ref={input}
-        aria-label={`Rename ${props.name}`}
+        aria-label={props.label ?? `Rename ${props.name}`}
         aria-invalid={error ? true : undefined}
         value={value}
         spellCheck={false}

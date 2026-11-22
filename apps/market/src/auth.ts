@@ -205,6 +205,18 @@ export async function authenticate(
   const org = claims.org;
   if (org !== undefined && options.org === undefined)
     return failure(403, "org_grant", "That sign-in acts in an organization; use your own here.");
+  if (org !== undefined) {
+    // The role it carries counts only while the member still holds it (ADR 0206 §6).
+    const standing = await context.orgStanding(token);
+    if (!standing)
+      return failure(503, "unavailable", "Organization sign-ins can't be checked right now.");
+    if (!standing.current)
+      return failure(
+        403,
+        "org_grant_stale",
+        "Your place in this organization changed. Sign in again.",
+      );
+  }
   if (org !== undefined && options.org === "claims")
     return { claims, account: claims.account, publisher: undefined, org, personAction };
   let publisher: AuthedPublisher | undefined;

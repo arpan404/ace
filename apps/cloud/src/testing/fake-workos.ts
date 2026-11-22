@@ -42,7 +42,10 @@ type Hold = {
  */
 export async function fakeWorkos() {
   const orgs = fakeWorkosOrgs("client_test");
-  const codes = new Map<string, { user: WorkosUser; challenge: string; invitation?: string }>();
+  const codes = new Map<
+    string,
+    { user: WorkosUser; challenge: string; invitation?: string; organization?: string }
+  >();
   const refreshTokens = new Map<string, WorkosUser>();
   const spent = new Set<string>();
   let reused = 0;
@@ -92,8 +95,10 @@ export async function fakeWorkos() {
         }
         // What the fake decided is held back, as a slow answer would be, before it is sent.
         const send = async (status: number, body: unknown) => {
+          // Decided now: what happens while it is held back doesn't change the answer.
+          const decided: unknown = JSON.parse(JSON.stringify(body ?? null));
           await holding(seen, "after");
-          reply(response, status, body);
+          reply(response, status, decided);
         };
         // Where WorkOS keeps profile pictures: an image, and a page that isn't one.
         if (request.url === "/pictures/person.png") {
@@ -148,6 +153,13 @@ export async function fakeWorkos() {
           if (entry?.challenge === challenge) user = entry.user;
           if (user && entry?.invitation)
             organization = orgs.acceptInvitation(entry.invitation, user.id);
+          // A sign-in into an organization: WorkOS names it only for an active member.
+          else if (
+            user &&
+            entry?.organization &&
+            "accessToken" in orgs.refreshInto(user.id, entry.organization)
+          )
+            organization = entry.organization;
           entered?.();
           if (barrier) await barrier;
         } else if (body.grant_type === "refresh_token") {
@@ -183,10 +195,12 @@ export async function fakeWorkos() {
     authorize(authorizeUrl: string, user: WorkosUser, code: string) {
       const url = new URL(authorizeUrl);
       const invitation = url.searchParams.get("invitation_token") ?? undefined;
+      const organization = url.searchParams.get("organization_id") ?? undefined;
       codes.set(code, {
         user,
         challenge: url.searchParams.get("code_challenge") ?? "",
         ...(invitation ? { invitation } : {}),
+        ...(organization ? { organization } : {}),
       });
       orgs.knowUser({
         id: user.id,

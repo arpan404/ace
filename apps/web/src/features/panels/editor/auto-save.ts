@@ -4,15 +4,16 @@ import type { AutoSaveMode } from "@/lib/editor-preferences.ts";
  * Auto save (spec 51, Settings › Editor): off, after typing pauses, or when an editor loses focus.
  * It saves through the buffer's own versioned write. A save that meets someone else's change
  * never asks anything: the buffer raises the agent notice (case 46) as it does for any save, and
- * this file stops auto-saving until the person saves it by hand. Pure apart from the injected
+ * this file stops auto-saving until the person saves it by hand. A file a Revert changed waits
+ * for the person's own Save too, and any auto save waiting for it is called off. Pure apart from the injected
  * timer.
  */
 
 /** What auto save needs of a file's buffer. */
 export interface AutoSaveFile {
-  snapshot(): { dirty: boolean; clash: unknown };
+  snapshot(): { dirty: boolean; clash: unknown; manualSave?: boolean };
   /** The buffer's save; only a clash and a failure's message matter here. */
-  save(): Promise<{ kind: string } | { kind: "failed"; message: string }>;
+  save(by: "auto"): Promise<{ kind: string } | { kind: "failed"; message: string }>;
 }
 
 export interface AutoSave {
@@ -49,8 +50,9 @@ export function createAutoSave(options: {
     const file = options.file(path);
     if (!file || stopped.has(path) || !online) return;
     const snapshot = file.snapshot();
-    if (!snapshot.dirty || snapshot.clash) return;
-    const outcome = await file.save();
+    // A Revert waits for the person's own Save.
+    if (!snapshot.dirty || snapshot.clash || snapshot.manualSave) return;
+    const outcome = await file.save("auto");
     if (outcome.kind === "clash") stopped.add(path);
     else if ("message" in outcome) options.failed(path, outcome.message);
   };
@@ -63,6 +65,8 @@ export function createAutoSave(options: {
     edited(path) {
       if (settings.mode !== "pause" || stopped.has(path)) return;
       cancel(path);
+      // Landed by a Revert (or typed after one): nothing waits to be written.
+      if (options.file(path)?.snapshot().manualSave) return;
       waiting.set(
         path,
         options.schedule(() => {

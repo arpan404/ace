@@ -39,9 +39,11 @@ export { orgKey, useSpace, type SpaceState } from "./space-context.tsx";
 export {
   machinesInSpace,
   personalSpace,
+  possessive,
   roleWord,
   shownSpace,
   spaceAllows,
   type ShownSpace,
 } from "./spaces.ts";
-export { useSpaceMachines } from "./use-space-machines.ts";
+export { SpaceScopeHost, useSpaceMachines, useSpaceStartBlock } from "./use-space-machines.tsx";
+export { useOwnNoticeSpace, type NoticeSpace } from "./notice-space.ts";

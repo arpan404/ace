@@ -1,4 +1,4 @@
-import { launchMarketWorker, type GrantKey } from "./worker.ts";
+import { fakeOrgStanding, launchMarketWorker, type GrantKey } from "./worker.ts";
 
 export { marketGrant, marketKey, signerToken, type GrantKey } from "./worker.ts";
 
@@ -22,13 +22,22 @@ export interface MarketWorker {
  * test key `marketGrant` signs with.
  */
 export async function startMarketWorker(
-  options: { grantKeys?: readonly GrantKey[] } = {},
+  options: { grantKeys?: readonly GrantKey[]; standing?: { url: string } } = {},
 ): Promise<MarketWorker> {
-  const { harness, url } = await launchMarketWorker(options);
+  // Without an account backend to ask, a stand-in calls every org grant current.
+  const fake = options.standing ? undefined : await fakeOrgStanding();
+  const standing = options.standing ?? fake;
+  const { harness, url } = await launchMarketWorker({
+    ...(options.grantKeys ? { grantKeys: options.grantKeys } : {}),
+    ...(standing ? { standing } : {}),
+  });
   return {
     origin: url.origin,
     // Over the Worker's own HTTP listener, as any client reaches the market.
     fetch: (path, init) => fetch(new URL(path, url), init),
-    close: () => harness.close(),
+    close: async () => {
+      await harness.close();
+      await fake?.close();
+    },
   };
 }

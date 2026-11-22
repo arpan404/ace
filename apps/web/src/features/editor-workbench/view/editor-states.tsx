@@ -5,17 +5,25 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import type { BufferStatus } from "../buffers/index.ts";
 import { fileName } from "./paths.ts";
 
-/** Spec 62: the last group with nothing open. The explorer beside it is the real way in. */
+/**
+ * Spec 62: the last group with nothing open. The explorer beside it is the real way in; the
+ * keys say how to get anywhere else.
+ */
 export function NoFileOpen(props: { onQuickOpen?: (() => void) | undefined }) {
   return (
     <EmptyState
       title="No file open"
       action={
-        props.onQuickOpen && (
-          <Button size="sm" variant="ghost" onClick={props.onQuickOpen}>
-            Open a file <Kbd shortcut="files" />
-          </Button>
-        )
+        <div className="flex flex-col items-center gap-1 text-sm text-muted-foreground">
+          {props.onQuickOpen && (
+            <Button size="sm" variant="ghost" onClick={props.onQuickOpen}>
+              Open a file <Kbd shortcut="files" />
+            </Button>
+          )}
+          <span className="inline-flex items-center gap-1.5">
+            Search files <Kbd shortcut="files.search" />
+          </span>
+        </div>
       }
     />
   );

@@ -186,15 +186,7 @@ function SubagentLive(props: { threadId: string; agent: Agent }) {
   const tree = useAgentTree(props.threadId);
   const node = tree && findAgentNode(tree, props.agent.id);
   const running = node ? node.children.filter((child) => work.running.has(child.id)).length : 0;
-  return (
-    <SubagentLiveLine
-      threadId={props.threadId}
-      agent={props.agent}
-      phase={phase}
-      subagents={running}
-      live={live}
-    />
-  );
+  return <SubagentLiveLine agent={props.agent} phase={phase} subagents={running} live={live} />;
 }
 
 /**

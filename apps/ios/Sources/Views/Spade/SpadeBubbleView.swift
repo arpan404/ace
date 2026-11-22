@@ -57,8 +57,8 @@ struct SpadeBubbleView: View {
             .padding(.trailing, AceDesign.Space.section)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("spade.bubble.bot")
-        case let .ask(callId, sentence, detail, reason, always):
-            SpadeApprovalCard(sentence: sentence, detail: detail, reason: reason, always: always) { allowed, forever in
+        case let .ask(callId, sentence, detail, reason, always, approvers):
+            SpadeApprovalCard(sentence: sentence, detail: detail, reason: reason, always: always, approvers: approvers) { allowed, forever in
                 await answer(callId, allowed, forever)
             }
         case let .question(card):
@@ -124,6 +124,8 @@ private struct SpadeApprovalCard: View {
     let detail: String?
     let reason: String?
     let always: Bool
+    /// A shared bot's request: who may answer it, one quiet line above the buttons.
+    let approvers: String?
     let answer: (Bool, Bool) async -> Bool
     /// An answer is out: the buttons wait; a refused one gives them back.
     @State private var answered = false
@@ -135,6 +137,12 @@ private struct SpadeApprovalCard: View {
                 RequestHeader(title: sentence, detail: reason ?? "")
             }
             if let detail { CommandBlock(command: detail) }
+            if let approvers {
+                Text(approvers)
+                    .font(AceDesign.Typeface.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("spade.approvers")
+            }
             RequestActions {
                 CardButton(title: "Deny") { reply(false, false) }
                     .accessibilityIdentifier("spade.deny")

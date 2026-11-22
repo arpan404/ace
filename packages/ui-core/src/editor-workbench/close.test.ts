@@ -80,14 +80,16 @@ describe("closing tabs and groups", () => {
     expect(focusedGroup(discardTabs(layout, [ref("a.ts")])).active).toBe("c.ts");
   });
 
-  it("a group whose last tab closes disappears and its neighbour takes its room", () => {
+  it("a group whose last tab closes disappears and its neighbours share its room", () => {
     const layout = layoutOf(
       row([group("g1", ["a.ts"]), group("g2", ["b.ts"]), group("g3", ["c.ts"])], [0.2, 0.3, 0.5]),
       "g2",
     );
     const next = discardTabs(layout, [ref("b.ts", "g2")]);
     expect(groupsOf(next).map((each) => each.id)).toEqual(["g1", "g3"]);
-    expect(next.root.kind === "split" && next.root.sizes).toEqual([0.5, 0.5]);
+    const sizes = next.root.kind === "split" ? next.root.sizes : [];
+    expect(sizes[0]).toBeCloseTo(0.2 / 0.7);
+    expect(sizes[1]).toBeCloseTo(0.5 / 0.7);
     expect(next.focused).toBe("g1");
   });
 

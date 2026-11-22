@@ -1,9 +1,12 @@
 import { Fragment, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
-import type { GroupNode, SplitNode, NodePath } from "@ace/ui-core/editor-workbench";
-
-/** A group never gets narrower or shorter than this by dragging an edge. */
-const minGroupPx = 160;
+import {
+  roomNeeded,
+  type GroupNode,
+  type Room,
+  type SplitNode,
+  type NodePath,
+} from "@ace/ui-core/editor-workbench";
 
 /**
  * The editor area's split tree: each split lays its children out by weight, with an edge
@@ -12,6 +15,10 @@ const minGroupPx = 160;
 export function SplitGrid(props: {
   node: SplitNode;
   path?: NodePath;
+  /** Each pane's least size as drawn (`displayPanes`). */
+  pane: Room;
+  /** Panes folded to their strips in a stacked accordion (`collapsedPanes`). */
+  folded: ReadonlySet<string>;
   renderGroup(group: GroupNode): ReactNode;
   onResize(at: NodePath, sizes: readonly number[]): void;
   /** Double-click on an edge: even sizes for that split (spec 18). */
@@ -21,6 +28,12 @@ export function SplitGrid(props: {
   const path = props.path ?? [];
   if (node.kind === "group") return props.renderGroup(node);
   const row = node.direction === "row";
+  // In an accordion the open children share all the room the folded strips leave, so their
+  // shares are scaled to sum to one (a lone open pane takes everything).
+  const open = node.children.map((child) => row || !allFolded(child, props.folded));
+  const openShare = node.sizes.reduce((sum, size, i) => (open[i] ? sum + size : sum), 0) || 1;
+  const grow = (index: number) =>
+    open.every(Boolean) ? (node.sizes[index] ?? 1) : (node.sizes[index] ?? 1) / openShare;
   return (
     <div className={cn("flex min-h-0 min-w-0 flex-1", row ? "flex-row" : "flex-col")}>
       {node.children.map((child, index) => (
@@ -30,14 +43,32 @@ export function SplitGrid(props: {
               row={row}
               sizes={node.sizes}
               before={index - 1}
+              pane={props.pane}
               onResize={(sizes) => props.onResize(path, sizes)}
               onEven={() => props.onEven(path)}
             />
           )}
-          <div className="flex min-h-0 min-w-0" style={{ flex: `${node.sizes[index] ?? 1} 1 0px` }}>
+          <div
+            className="flex min-h-0 min-w-0"
+            style={
+              !row && allFolded(child, props.folded)
+                ? // A folded child is its strip's height; the open one takes the rest.
+                  { flex: "0 0 auto" }
+                : {
+                    flex: `${grow(index)} 1 0px`,
+                    // The split shows only while every group has its room (spec 5), so each
+                    // child keeps that room whatever its stored share.
+                    ...(row
+                      ? { minWidth: roomNeeded(child, props.pane).width }
+                      : { minHeight: roomNeeded(child, props.pane).height }),
+                  }
+            }
+          >
             <SplitGrid
               node={child}
               path={[...path, index]}
+              pane={props.pane}
+              folded={props.folded}
               renderGroup={props.renderGroup}
               onResize={props.onResize}
               onEven={props.onEven}
@@ -49,8 +80,17 @@ export function SplitGrid(props: {
   );
 }
 
+/** Every pane in `node` is folded to its strip. */
+function allFolded(node: SplitNode, folded: ReadonlySet<string>): boolean {
+  return node.kind === "group"
+    ? folded.has(node.id)
+    : node.children.every((child) => allFolded(child, folded));
+}
+
 function SplitEdge(props: {
   row: boolean;
+  /** Each pane's least size: a drag stops there. */
+  pane: Room;
   sizes: readonly number[];
   /** The child before the edge; the one after is `before + 1`. */
   before: number;
@@ -66,7 +106,9 @@ function SplitEdge(props: {
   const shift = (from: readonly number[], delta: number, px: number) => {
     const a = from[props.before] ?? 0;
     const b = from[props.before + 1] ?? 0;
-    const floor = px > 0 ? (minGroupPx / px) * total : 0;
+    // A pane never gets narrower or shorter by dragging than the room it shows in.
+    const least = props.row ? props.pane.width : props.pane.height;
+    const floor = px > 0 ? (least / px) * total : 0;
     const moved = Math.min(Math.max(delta, floor - a), b - floor);
     const next = [...from];
     next[props.before] = a + moved;
@@ -81,17 +123,20 @@ function SplitEdge(props: {
     <div
       role="separator"
       tabIndex={0}
-      aria-label="Resize groups"
+      aria-label="Resize panes"
       aria-orientation={props.row ? "vertical" : "horizontal"}
       aria-valuenow={Math.round(share * 100)}
       aria-valuemin={0}
       aria-valuemax={100}
       className={cn(
-        "relative z-[3] shrink-0 bg-border outline-none",
-        "after:absolute after:transition-colors after:duration-(--motion-fast) hover:after:bg-ring/45 focus-visible:after:bg-ring/45",
+        "group/edge relative z-[3] shrink-0 bg-border outline-none",
+        // `after`: the invisible 9px the pointer takes. `before`: a 3px line that shows only
+        // while the edge is held, hovered a moment, or focused.
+        "after:absolute before:pointer-events-none before:absolute before:bg-ring/50 before:opacity-0",
+        "before:transition-opacity before:duration-(--motion-fast) hover:before:opacity-100 hover:before:delay-150 focus-visible:before:opacity-100 active:before:opacity-100",
         props.row
-          ? "w-px cursor-col-resize after:inset-y-0 after:-left-[3px] after:w-[7px]"
-          : "h-px cursor-row-resize after:inset-x-0 after:-top-[3px] after:h-[7px]",
+          ? "w-px cursor-col-resize after:inset-y-0 after:-left-1 after:w-[9px] before:inset-y-0 before:-left-px before:w-[3px]"
+          : "h-px cursor-row-resize after:inset-x-0 after:-top-1 after:h-[9px] before:inset-x-0 before:-top-px before:h-[3px]",
       )}
       onPointerDown={(event) => {
         if (event.button !== 0) return;

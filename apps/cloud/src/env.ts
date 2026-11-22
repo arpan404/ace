@@ -18,8 +18,12 @@ export interface Env {
   /** Spade's sign-in broker per caller address, then per account (ADR 0141). */
   BROKER_ADDRESS_REQUESTS?: RateLimit;
   BROKER_ACCOUNT_REQUESTS?: RateLimit;
+  /** Org grant standing checks per member account (ADR 0206 §6), not per caller address. */
+  STANDING_REQUESTS?: RateLimit;
+  /** WorkOS lookups the standing route makes, all callers together. */
+  STANDING_WORKOS?: RateLimit;
   /**
-   * The broker's apps as JSON in place of the shipped list (tests, staging). Each app's client
+   * The broker's apps as JSON in place of the shipped list (tests). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.
    */
   SPADE_CLOUD_APPS?: string;
@@ -31,6 +35,10 @@ export interface Env {
   WORKOS_API_KEY?: string;
   /** WorkOS API origin; tests point it at a local fake. Defaults to https://api.workos.com. */
   WORKOS_API_URL?: string;
+  /** The WorkOS webhook endpoint's signing secret (ADR 0206 §6), for `/v1/workos/webhook`. */
+  WORKOS_WEBHOOK_SECRET?: string;
+  /** The market's token for `/v1/grants/standing` (ADR 0206 §6); the market holds it too. */
+  ACE_MARKET_STANDING_TOKEN?: string;
   ACE_ACCOUNT_ENCRYPTION_KEY?: string;
   ACE_GRANT_KEY?: string;
   /** The replaced key's `/v1/keys` entry, `<id>:<public key>`, during a rotation. */

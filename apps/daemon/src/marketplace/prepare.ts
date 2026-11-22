@@ -223,7 +223,7 @@ async function fromMarket(
 ): Promise<Fetched> {
   const registry = ports.registry;
   const turnedOn = ports.http;
-  if (!turnedOn) throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+  if (!turnedOn) throw new Refused("store.acehq.dev is turned off", { code: "unavailable" });
   const http: EntryReads = registry?.reads ?? turnedOn;
   const page = EntryBody.safeParse(await http.entry(type, name));
   if (!page.success) throw new Refused("The market's entry page isn't in a form this build reads");

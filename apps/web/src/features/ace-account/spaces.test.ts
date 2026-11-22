@@ -42,6 +42,15 @@ test("until an organization's hosts are known, neither space shows a machine it 
   );
 });
 
+test("while the list of organizations is on its way, Personal shows no machine an organization could host", () => {
+  const unknown = new Map<string, ReadonlySet<string>>();
+  expect(
+    names(
+      machinesInSpace(machines, hostIdOf, shownSpace("personal", undefined), unknown, undefined),
+    ),
+  ).toEqual(["This Mac"]);
+});
+
 test("an organization the person left shows as Personal", () => {
   expect(shownSpace(acme.id, [])?.id).toBe("personal");
 });

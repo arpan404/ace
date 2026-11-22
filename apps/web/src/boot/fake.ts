@@ -265,6 +265,8 @@ export function bootFake(): {
     clock: () => Date.now(),
     hostId: serverId,
     displayName: "Build server",
+    // Its full-text search finds its own threads, not the catalog This Mac answers with.
+    searchCorpus: "titles",
     projectScheduler: (callback) => void setTimeout(callback, 700),
   });
   server.projects.seedFolders("/home/ci", [
@@ -293,6 +295,24 @@ export function bootFake(): {
         hasSentMessage: true,
         details: { workspace: added.workspace },
       });
+    // `?fakeWorld=org`: the api is Acme Robotics' project (ADR 0206 §2.4), with more threads,
+    // so its space's sidebar, search and palette have its own work to show.
+    if (orgWorld && added?.workspace)
+      for (const [id, title, agoMs] of [
+        ["thread-acme-flaky-ci", "Fix the flaky integration tests", 40 * 60_000],
+        ["thread-acme-retries", "Retry webhook deliveries with backoff", 3 * 3_600_000],
+      ] as const)
+        server.createThread(
+          {
+            id,
+            workspaceId: added.workspace.id,
+            title,
+            provider: "codex",
+            hasSentMessage: true,
+            details: { workspace: added.workspace },
+          },
+          agoMs,
+        );
     // Chats there too, so the Chats panel shows another machine's chats and its device filter.
     for (const chat of buildServerChats())
       new ScenarioPlayer(server, chat.scenario, { agoMs: chat.agoMs }).runUntilBlocked();

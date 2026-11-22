@@ -263,7 +263,7 @@ export class MarketplaceService {
         return this.#serial(() => this.#addSource(operation.address));
       case "removeSource":
         if (operation.id === "market")
-          return error("invalid", "market.acehq.dev can be turned off, not removed");
+          return error("invalid", "store.acehq.dev can be turned off, not removed");
         await this.#serial(() => this.#store.removeSource(operation.id));
         return sourcesOf(this.#store);
       case "setSource": {
@@ -381,7 +381,7 @@ export class MarketplaceService {
           requireMember(ports.orgGrant, org, ports.membership?.(), this.#options.now());
           const http = this.#http();
           if (!http || !ports.orgGrant)
-            return error("unavailable", "market.acehq.dev is turned off");
+            return error("unavailable", "store.acehq.dev is turned off");
           if (await refreshRegistry(http.member(org, ports.orgGrant), this.#store, org))
             this.#emit();
           return { op: "installed", installed: this.#installed() };
@@ -496,7 +496,7 @@ export class MarketplaceService {
         return report(this.#http(), operation);
       case "picture": {
         const http = this.#http();
-        if (!http) return error("unavailable", "market.acehq.dev is turned off");
+        if (!http) return error("unavailable", "store.acehq.dev is turned off");
         return this.#pictures.read(http, operation.kind, operation.hash);
       }
     }
@@ -533,7 +533,7 @@ export class MarketplaceService {
     const http = this.#http();
     const membership = ports.membership?.();
     if (!http || !ports.orgGrant || !membership)
-      throw new Refused("market.acehq.dev is turned off", { code: "unavailable" });
+      throw new Refused("store.acehq.dev is turned off", { code: "unavailable" });
     return { reads: http.member(org, ports.orgGrant), grant: ports.orgGrant, membership, recheck };
   }
 

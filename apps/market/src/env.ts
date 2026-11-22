@@ -38,10 +38,17 @@ export interface Env {
   MARKET_PUBLIC_KEYS?: string;
   /** The signer's bearer token (a secret). Unset, the signer routes refuse every request. */
   MARKET_SIGNER_TOKEN?: string;
-  /** The account backend's grant keys as a JSON `GrantKeySet`; set in tests and staging. */
+  /** The account backend's grant keys as a JSON `GrantKeySet`; set in tests. */
   ACE_GRANT_KEYS?: string;
   /** Where the grant keys are read when ACE_GRANT_KEYS is unset. */
   ACE_ACCOUNT_KEYS_URL?: string;
   /** The `iss` a market grant must name; `cloud.acehq.dev` when unset. */
   ACE_GRANT_ISSUER?: string;
+  /**
+   * The account backend's `POST /v1/grants/standing` (ADR 0206 §6): asked before an org grant
+   * reads or writes a private registry. Unset, no org grant is taken.
+   */
+  ACE_ORG_STANDING_URL?: string;
+  /** The market's token for that route (a secret), the account backend's ACE_MARKET_STANDING_TOKEN. */
+  ACE_ORG_STANDING_TOKEN?: string;
 }

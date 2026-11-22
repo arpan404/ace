@@ -158,7 +158,7 @@ export async function refreshSource(
   let next: StoredSource;
   try {
     if (source.kind === "market") {
-      if (!deps.http) throw new Error("market.acehq.dev is turned off");
+      if (!deps.http) throw new Error("store.acehq.dev is turned off");
       next = await readMarket(deps.store, deps.http, deps.keys, deps.trust, source);
     } else next = await readGit(deps.store, deps.git, source, deps.now());
     next = { ...next, readAt: deps.now(), problem: undefined };

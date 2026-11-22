@@ -245,7 +245,15 @@ export function orgRoutes(deps: {
             }
           }
           await orgs.run([
-            orgs.removingMember(member.org, account, found?.id ?? target.membership_id, iso()),
+            orgs.removingMember(
+              member.org,
+              account,
+              found?.id ?? target.membership_id,
+              iso(),
+              now(),
+              found?.role?.slug ?? target.role,
+            ),
+            orgs.tombstoningMembership(found?.id ?? target.membership_id, iso()),
             orgs.droppingChecks(member.org, account),
             orgs.flaggingOwners(member.org),
             portal.queueing(member.org, account),

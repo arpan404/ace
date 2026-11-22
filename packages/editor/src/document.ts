@@ -56,6 +56,15 @@ export class EditorDocument {
     return this.#inner.version();
   }
 
+  /**
+   * Which text the document holds, as its undo history sees it: undo or redo back to a point
+   * gives back the id it had there, and a new edit always takes a fresh one. A view compares it
+   * with the id at a save to know whether the text is back to what was saved.
+   */
+  contentId(): number {
+    return this.#inner.contentId();
+  }
+
   /** Every cursor, in document order. */
   selections(): Selection[] {
     return readSelections(this.#inner.selections());

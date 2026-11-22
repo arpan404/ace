@@ -18,6 +18,7 @@ import type {
   FilePort,
   MergePort,
   SaveOutcome,
+  SaveStamp,
   Schedule,
   TextBuffer,
   Theirs,
@@ -76,13 +77,17 @@ export class Buffer implements TextBuffer {
   #status: BufferStatus = { kind: "loading" };
   /** The disk text and version the buffer started from. */
   #base: Theirs | undefined;
-  /** The document's version at the last clean point; NaN when it has none. */
+  /** The document's content id at the last clean point; NaN when it has none. Undo back to it is clean again. */
   #cleanAt = Number.NaN;
   #dirty = false;
   #clash: Clash | undefined;
   /** The buffer text a conflict's blocks were cut from. */
   #conflictMine = "";
   #draftKept = true;
+  /** A Revert landed: the person's own Save writes the file. */
+  #reverts = 0;
+  /** The Reverts a Save the person made has written; fewer than `#reverts` waits for one. */
+  #covered = 0;
   #saving: Promise<SaveOutcome> | undefined;
   #cancelDraft: (() => void) | undefined;
   /** Draft writes and deletes, started when asked and applied in order. */
@@ -120,6 +125,7 @@ export class Buffer implements TextBuffer {
       clash: this.#clash,
       draftKept: this.#draftKept,
       saving: this.#saving !== undefined,
+      manualSave: this.#reverts !== this.#covered,
       version: this.#base?.version,
     };
   }
@@ -155,8 +161,10 @@ export class Buffer implements TextBuffer {
   edited(): void {
     const doc = this.#doc;
     if (!doc || this.#landing) return;
-    if (!this.#dirty && doc.version() !== this.#cleanAt) {
-      this.#dirty = true;
+    // Unsaved means the text differs from the saved text: undo back to it is clean again.
+    const dirty = doc.contentId() !== this.#cleanAt;
+    if (dirty !== this.#dirty) {
+      this.#dirty = dirty;
       this.#emit({ type: "state" });
     }
     this.#cancelDraft?.();
@@ -166,9 +174,16 @@ export class Buffer implements TextBuffer {
     }, this.#ctx.draftDelay);
   }
 
-  editLines(changes: readonly { start: number; end: number; text: string }[]): boolean {
+  editLines(
+    changes: readonly { start: number; end: number; text: string }[],
+    options?: { manualSave?: boolean },
+  ): boolean {
     const doc = this.#doc;
     if (!doc) return false;
+    if (options?.manualSave) {
+      this.#reverts++;
+      this.#emit({ type: "state" });
+    }
     const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
     landLineChanges(doc, changes, through && ((run) => through.edit(run)));
     this.edited();
@@ -205,7 +220,7 @@ export class Buffer implements TextBuffer {
     if (next.kind === "status") this.#setStatus(next.status);
     else {
       const clash: Clash | undefined = next.clash && { ...next.clash, by: this.#author() };
-      this.#adopt(next.text, next.base, next.dirty, clash);
+      this.#adopt(next.text, next.base, next.dirty, clash, next.manualSave === true);
       if (next.dropDraft) void this.#persist();
     }
     this.#settled();
@@ -255,8 +270,8 @@ export class Buffer implements TextBuffer {
     await this.#meet(disk);
   }
 
-  save(): Promise<SaveOutcome> {
-    return this.#write("save");
+  save(by: "person" | "auto" = "person"): Promise<SaveOutcome> {
+    return this.#write("save", undefined, by);
   }
 
   /**
@@ -273,8 +288,8 @@ export class Buffer implements TextBuffer {
     void this.diskChanged();
   }
 
-  replace(): Promise<SaveOutcome> {
-    return this.#write("replace");
+  replace(over: string | null): Promise<SaveOutcome> {
+    return this.#write("replace", over);
   }
 
   async merge(): Promise<void> {
@@ -310,18 +325,42 @@ export class Buffer implements TextBuffer {
     await this.#persist();
   }
 
-  async answer(index: number, answer: Answer): Promise<void> {
+  answer(index: number, answer: Answer, of: Clash | undefined): Promise<void> {
     const clash = this.#clash;
-    if (clash?.kind !== "conflict" || index < 0 || index >= clash.answers.length) return;
-    const answers = clash.answers.with(index, answer);
-    this.#clash = { ...clash, answers };
+    if (clash?.kind !== "conflict" || index < 0 || index >= clash.answers.length)
+      return Promise.resolve();
+    return this.#answered(clash.answers.with(index, answer), of);
+  }
+
+  answerAll(answer: Answer, of: Clash | undefined): Promise<void> {
+    const clash = this.#clash;
+    if (clash?.kind !== "conflict") return Promise.resolve();
+    return this.#answered(
+      clash.answers.map(() => answer),
+      of,
+    );
+  }
+
+  /** New answers for the conflict the person was shown; once all are in, they land together. */
+  async #answered(answers: readonly (Answer | undefined)[], of: Clash | undefined): Promise<void> {
+    const clash = this.#clash;
+    // A choice made on a conflict that has since changed, or while answers land, waits for none.
+    if (clash?.kind !== "conflict" || clash !== of || clash.applying) return;
+    const complete = !answers.includes(undefined);
+    this.#clash = { ...clash, answers, ...(complete ? { applying: true as const } : {}) };
     this.#emit({ type: "state" });
-    if (answers.includes(undefined)) return;
+    if (!complete) return;
     await reconcile(this.#reconcileHost(), {
       chunks: clash.chunks,
       answers,
       mine: this.#conflictMine,
+      theirs: clash.theirs.version,
     });
+  }
+
+  saveStamp(): SaveStamp | undefined {
+    const doc = this.#doc;
+    return doc && { document: doc, contentId: doc.contentId(), reverts: this.#reverts };
   }
 
   async discard(): Promise<void> {
@@ -429,8 +468,15 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
-  async #write(mode: "save" | "replace"): Promise<SaveOutcome> {
+  async #write(
+    mode: "save" | "replace",
+    over?: string | null,
+    by: "person" | "auto" = "person",
+  ): Promise<SaveOutcome> {
     if (this.#saving) return this.#saving;
+    // A Revert waits for the person's own Save: auto save writes nothing until then.
+    if (by === "auto" && this.#reverts !== this.#covered) return { kind: "manual" };
+    const reverts = this.#reverts;
     const doc = this.#doc;
     const base = this.#base;
     const clash = this.#clash;
@@ -441,8 +487,12 @@ export class Buffer implements TextBuffer {
       if (!this.#dirty) return { kind: "unchanged" };
     }
     const expected = clash?.kind === "deleted" ? null : clash ? clash.theirs.version : base.version;
+    // A Replace answers the version the person was shown; a newer one needs its own answer.
+    if (mode === "replace" && expected !== over) return { kind: "clash" };
+    // The saved text is its own undo step: undo after more typing comes back to it.
+    doc.commit();
     const text = doc.text();
-    const at = doc.version();
+    const savedId = doc.contentId();
     const running = (async (): Promise<SaveOutcome> => {
       try {
         const result = await this.#ctx.files.write(this.key, text, expected);
@@ -455,9 +505,13 @@ export class Buffer implements TextBuffer {
         }
         this.#base = { text, version: result.version };
         this.#clash = undefined;
+        // The person's Save covers the Reverts it wrote: none landed while it was writing.
+        if (by === "person" && this.#reverts === reverts) this.#covered = reverts;
         this.#conflictMine = "";
-        if (doc.version() === at) this.#markClean();
-        else this.#unclean();
+        // Typed during the write: unsaved, until undo brings the text back to what was written.
+        this.#cleanAt = savedId;
+        if (this.#doc === doc && doc.contentId() === savedId) this.#markClean();
+        else this.#unsavedSince();
         this.#cancelDraft?.();
         this.#cancelDraft = undefined;
         void this.#persist();
@@ -481,7 +535,7 @@ export class Buffer implements TextBuffer {
       base: () => this.#base,
       clash: () => this.#clash,
       merge: this.#ctx.merge,
-      land: (text) => this.#land(text, "merge"),
+      land: (text, still) => this.#land(text, "merge", still),
       setClash: (clash, mine) => {
         this.#clash = clash;
         if (clash?.kind !== "conflict") this.#conflictMine = "";
@@ -502,13 +556,17 @@ export class Buffer implements TextBuffer {
     };
   }
 
-  /** Puts `next` in the document by changed blocks; false if the document moved meanwhile. */
-  async #land(next: string, reason: "reload" | "merge"): Promise<boolean> {
+  /**
+   * Puts `next` in the document by changed blocks; false if the document moved meanwhile, or
+   * `still` (what the text was worked out for: the same clash) no longer holds.
+   */
+  async #land(next: string, reason: "reload" | "merge", still?: () => boolean): Promise<boolean> {
     const doc = this.#doc;
     if (!doc) return false;
     const at = doc.version();
-    const changes = await this.#ctx.merge.lineChanges(doc.text(), next);
-    if (this.#doc !== doc || doc.version() !== at) return false;
+    const before = doc.text();
+    const changes = await this.#ctx.merge.lineChanges(before, next);
+    if (this.#doc !== doc || doc.version() !== at || (still && !still())) return false;
     this.#landing = true;
     try {
       const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
@@ -517,13 +575,13 @@ export class Buffer implements TextBuffer {
       this.#landing = false;
     }
     this.bytes = utf8Length(next);
-    this.#emit({ type: "replaced", reason });
+    this.#emit({ type: "replaced", reason, before, changes });
     return true;
   }
 
   // State and storage.
 
-  #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash): void {
+  #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash, manualSave = false): void {
     this.#free();
     const doc = new EditorDocument(text);
     // Tab, Enter and the indent keys write what the file already uses, else the device's default.
@@ -532,7 +590,9 @@ export class Buffer implements TextBuffer {
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;
-    this.#cleanAt = dirty ? Number.NaN : doc.version();
+    // Read afresh: no Revert waits, unless the draft it came from kept one waiting.
+    this.#covered = manualSave ? this.#reverts - 1 : this.#reverts;
+    this.#cleanAt = dirty ? Number.NaN : doc.contentId();
     this.#clash = clash;
     this.bytes = utf8Length(text);
     this.#status = { kind: "ready" };
@@ -556,7 +616,7 @@ export class Buffer implements TextBuffer {
 
   #markClean(): void {
     const doc = this.#doc;
-    if (doc) this.#cleanAt = doc.version();
+    if (doc) this.#cleanAt = doc.contentId();
     this.#dirty = false;
     this.#emit({ type: "state" });
   }
@@ -568,6 +628,11 @@ export class Buffer implements TextBuffer {
    */
   #unclean(): void {
     this.#cleanAt = Number.NaN;
+    this.#unsavedSince();
+  }
+
+  /** The text moved past the clean point: unsaved. */
+  #unsavedSince(): void {
     if (this.#dirty) return;
     this.#dirty = true;
     this.#emit({ type: "state" });
@@ -596,7 +661,12 @@ export class Buffer implements TextBuffer {
       if (this.#dirty) this.#markClean();
       written = this.#slot.write(() => this.#ctx.drafts.delete(key), true);
     } else if (this.keeps()) {
-      const draft = { text, original: base.text, version: base.version };
+      const draft = {
+        text,
+        original: base.text,
+        version: base.version,
+        ...(this.#reverts !== this.#covered ? { manualSave: true } : {}),
+      };
       written = this.#slot.write(() => this.#ctx.drafts.put(key, draft));
     } else written = this.#slot.settled();
     this.#ctx.changed();

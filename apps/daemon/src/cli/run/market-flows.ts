@@ -150,7 +150,7 @@ export async function update(context: CommandContext): Promise<void> {
     throw new CliFailure("usage", "Name what to update, or pass --all.", undefined, {
       code: "missing_argument",
       argument: "REF",
-      hint: "See what has updates with ace market installed --updates.",
+      hint: "See what has updates with ace store installed --updates.",
     });
   const consent = installConsent(context);
   const updated = await withMarket(context, async (ask) => {
@@ -194,7 +194,7 @@ function publishConsent(context: CommandContext, unlisted: boolean): PublishCons
           "needs-human",
           `Draft ${draft.id} is ready; publishing it needs your yes.`,
           { kind: "draft", draft },
-          { code: "confirm", hint: `Publish it with ace market draft publish ${draft.id} --yes.` },
+          { code: "confirm", hint: `Publish it with ace store draft publish ${draft.id} --yes.` },
         );
       },
     };
@@ -249,12 +249,12 @@ async function finish(
   if (outcome.status === "blocked")
     throw new CliFailure("failed", "ace's signer blocked it.", undefined, {
       code: "blocked",
-      hint: "See why with ace market versions, and ask for a look with ace market appeal.",
+      hint: "See why with ace store versions, and ask for a look with ace store appeal.",
     });
   if (outcome.status === "waiting")
     throw new CliFailure("timeout", "It still waits for ace's signer.", undefined, {
       code: "timeout",
-      hint: "See where it is with ace market status.",
+      hint: "See where it is with ace store status.",
     });
 }
 

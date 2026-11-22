@@ -103,7 +103,7 @@ function FolderChoice(props: {
       )}
       <div>
         <label className="mk-label" htmlFor="mk-pub-entry">
-          Name in the marketplace
+          Name in the Store
         </label>
         <input
           id="mk-pub-entry"

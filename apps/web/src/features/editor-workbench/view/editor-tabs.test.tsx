@@ -99,11 +99,11 @@ test("double-clicking a split's edge evens its sizes", async () => {
   const start = two();
   if (start.root.kind === "split") start.root.sizes = [0.75, 0.25];
   const editor = await mountEditor(start);
-  fireEvent.doubleClick(screen.getByRole("separator", { name: "Resize groups" }));
+  fireEvent.doubleClick(screen.getByRole("separator", { name: "Resize panes" }));
   expect(editor.seen.at(-1)?.root).toMatchObject({ sizes: [0.5, 0.5] });
 });
 
-test("⌘2 inside the editor focuses group 2; ⌘ with no such group is left to the app", async () => {
+test("⌘2 inside the editor focuses pane 2; ⌘ with no such pane is left to the app", async () => {
   const outside = vi.fn();
   const listen = (event: KeyboardEvent) => outside(event.code);
   document.addEventListener("keydown", listen);
@@ -123,16 +123,16 @@ test("⌘2 inside the editor focuses group 2; ⌘ with no such group is left to 
   document.removeEventListener("keydown", listen);
 });
 
-test("closing the last tab of the last group shows the calm empty state", async () => {
+test("closing the last tab of the last pane shows the calm empty state", async () => {
   await mountEditor(one([tab("a.ts")]));
   fireEvent.click(within(strip(1)).getByRole("button", { name: "Close a.ts" }));
   expect(screen.getByText("No file open")).toBeTruthy();
 });
 
-test("closing a non-last group's last tab removes the group and focuses its neighbour", async () => {
+test("closing a non-last pane's last tab removes the pane and focuses its neighbour", async () => {
   const editor = await mountEditor(two(undefined, undefined, "g9"));
   fireEvent.click(within(strip(2)).getByRole("button", { name: "Close c.ts" }));
-  expect(screen.queryByRole("region", { name: "Group 2" })).toBeNull();
+  expect(screen.queryByRole("region", { name: "Pane 2" })).toBeNull();
   const last = editor.seen.at(-1);
   expect(last && groupsOf(last).map((each) => each.id)).toEqual(["g0"]);
   expect(last?.focused).toBe("g0");

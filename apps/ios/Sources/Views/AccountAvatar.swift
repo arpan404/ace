@@ -56,6 +56,7 @@ struct AccountMenuButton: View {
     let open: (SettingsRoute) -> Void
     let settings: () -> Void
     @Environment(AceAccountModel.self) private var model: AceAccountModel?
+    @Environment(SpacesModel.self) private var spaces: SpacesModel?
 
     var body: some View {
         let identity = model?.account
@@ -68,6 +69,14 @@ struct AccountMenuButton: View {
                     Text(identity?.email ?? (model?.configured == true ? "Not signed in" : "Your profile"))
                 }
                 .accessibilityIdentifier("account.menu.profile")
+            }
+            // The space switcher, as the web's account menu holds it (ADR 0206 §1.4).
+            if let spaces, let listed = spaces.spaces, !listed.isEmpty {
+                Picker("Space", selection: Binding(get: { spaces.shown?.id ?? spaces.chosen }, set: { spaces.choose($0) })) {
+                    Text("Personal").tag(Spaces.personal)
+                    ForEach(listed) { org in Text(org.name).tag(org.id) }
+                }
+                .accessibilityIdentifier("account.menu.spaces")
             }
             Button("Archived threads", ace: .archive) { open(.archive) }
                 .accessibilityIdentifier("account.menu.archived")

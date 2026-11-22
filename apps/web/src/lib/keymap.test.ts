@@ -38,6 +38,12 @@ const sharing: [KeymapId, KeymapId, string][] = [
     "in a browser the editor takes ⇧⌥⌘T only while focus is inside it",
   ],
   ["newTab", "editor.reopen", "off Apple in a browser, likewise only while focus is in the editor"],
+  ["findInThread", "editor.find", "the editor takes ⌘F only while focus is inside it"],
+  ["findInTerminal", "editor.find", "a terminal and the editor never have focus together"],
+  ["shortcuts", "editor.toggleComment", "the editor takes ⌘/ only while focus is inside it"],
+  ["reorderQueued", "editor.moveLine", "the composer and the editor never have focus together"],
+  ["nextThread", "editor.copyLine", "the editor takes ⇧⌥↓ only while focus is inside it"],
+  ["previousThread", "editor.copyLine", "the editor takes ⇧⌥↑ only while focus is inside it"],
   [
     "followUpOther",
     "startInBackground",

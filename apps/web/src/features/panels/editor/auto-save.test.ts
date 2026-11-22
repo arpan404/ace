@@ -25,9 +25,13 @@ function clock() {
 
 /** A file whose saves are recorded; `clash` makes the next save meet an agent's change. */
 function file(path: string) {
-  const state = { dirty: true, clash: false, saves: 0, nextClash: false };
+  const state = { dirty: true, clash: false, saves: 0, nextClash: false, manualSave: false };
   const port: AutoSaveFile = {
-    snapshot: () => ({ dirty: state.dirty, clash: state.clash ? { by: "x" } : undefined }),
+    snapshot: () => ({
+      dirty: state.dirty,
+      clash: state.clash ? { by: "x" } : undefined,
+      manualSave: state.manualSave,
+    }),
     save: async () => {
       if (state.nextClash) {
         state.nextClash = false;
@@ -117,5 +121,17 @@ test("turning auto save off cancels a save that was waiting", async () => {
   autoSave.edited("a.ts");
   autoSave.configure({ mode: "off", delay: 1000 });
   await time.pass(2000);
+  expect(a.state.saves).toBe(0);
+});
+
+test("a file a Revert changed waits for the person's Save, and its waiting auto save is called off", async () => {
+  const { autoSave, time, a } = setup("pause");
+  autoSave.edited("a.ts");
+  // The Revert lands (its edit reaches auto save as any edit does) while a save is waiting.
+  a.state.manualSave = true;
+  autoSave.edited("a.ts");
+  await time.pass(5_000);
+  autoSave.blurred("a.ts");
+  await time.pass(5_000);
   expect(a.state.saves).toBe(0);
 });

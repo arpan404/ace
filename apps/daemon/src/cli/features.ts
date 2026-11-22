@@ -6,10 +6,11 @@ import { usageFailure } from "./output.ts";
 import { nearest } from "./suggest.ts";
 
 export const betaFeatures: readonly BetaFeature[] = ["spade", "marketplace"];
-const names: Record<BetaFeature, string> = { spade: "Spade", marketplace: "The marketplace" };
+const names: Record<BetaFeature, string> = { spade: "Spade", marketplace: "The Store" };
 
 /** A FEATURE argument, or a usage error naming the features there are. */
 export function betaFeature(word: string | undefined): BetaFeature {
+  if (word === "store") return "marketplace";
   const found = betaFeatures.find((feature) => feature === word);
   if (found) return found;
   const suggestion = word ? nearest(word, betaFeatures) : undefined;
