@@ -1,5 +1,4 @@
 import { onSocketMove, type ClientCore } from "@ace/client";
-import { SpadeDaemonLive } from "@ace/client/spade-live";
 import type { SpadeStatus } from "@ace/protocol";
 import {
   parseSpadeAgents,
@@ -7,25 +6,20 @@ import {
   SpadeConversationFollow,
   SpadeGroupFollow,
   type SpadeAgent,
-  type SpadeFollowLink,
   type SpadeGroup,
 } from "@ace/ui-core/spade-chat";
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
-import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
 import { SpadeHosting } from "./spade-hosting.ts";
 import {
-  spadeConversationHead,
-  spadeConversationRows,
   spadeListRows,
   spadePlaceLine,
   type SpadeListReach,
   type SpadeReach,
 } from "./spade-rows.ts";
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
-import { SpadeWorkerTree } from "./spade-worker-tree.ts";
-import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
-import { segment, spadeText } from "./spade-text.ts";
+import { SpadeOpenChat } from "./spade-open.ts";
+import { spadeText } from "./spade-text.ts";
 
 /*
  * Spade on the iPhone (ADR 0121): always through the daemon's `spade.*` family, since the phone
@@ -72,12 +66,6 @@ const listEvery = {
 
 const Setting = z.object({ entries: z.array(z.object({ value: z.unknown() })).optional() });
 
-/** The conversation open on the phone: a bot's, or a group's. */
-type Open = { id: string; stop: () => void } & (
-  | { kind: "bot"; follow: SpadeConversationFollow }
-  | { kind: "group"; group: string; follow: SpadeGroupFollow }
-);
-
 export class NativeSpade {
   private status: SpadeStatus | undefined;
   private enabled: boolean | undefined;
@@ -108,17 +96,8 @@ export class NativeSpade {
   private listTimer: (() => void) | undefined;
   private listReading = false;
   private asked = 0;
-  private open: Open | undefined;
-  /** What Swift holds of the open conversation: each row as last put, and their order. */
-  private sent = new Map<string, string>();
-  private order: readonly string[] = [];
-  /** The seen mark last sent, `conversation:seq`, so each latest message is marked once. */
-  private seen: string | undefined;
-  private readonly live: SpadeDaemonLive;
-  /** The open chat's ace workers as ace lists their threads. */
-  private readonly workers: SpadeWorkerWatch;
-  /** The open chat's bot's tree, for whether a bot worker has started or finished. */
-  private readonly tree: SpadeWorkerTree;
+  /** The one conversation open on the phone, live. */
+  private readonly chat: SpadeOpenChat;
   /** Which bots an organization shares, on an org host (ADR 0206 §2.3). */
   private readonly sharing: SpadeSharing;
   /** Where this machine's Spade says Spade lives, for the list across machines. */
@@ -135,12 +114,18 @@ export class NativeSpade {
     this.owner = owner;
     this.sink = sink;
     this.deps = deps;
-    this.live = new SpadeDaemonLive(owner, deps.id);
-    this.workers = new SpadeWorkerWatch(owner, () => this.publishOpen());
-    this.tree = new SpadeWorkerTree(
-      { read: (path) => spadeText(owner, deps.id, "GET", path), later: deps.later },
-      () => this.publishOpen(),
-    );
+    this.chat = new SpadeOpenChat({
+      owner,
+      sink,
+      id: deps.id,
+      later: deps.later,
+      ready: () => this.ready,
+      agents: () => this.agents,
+      groups: () => this.groups,
+      hostId: () => this.hostId,
+      approvers: (bot) => this.sharing.approvers(bot),
+      readList: () => this.readList(),
+    });
     this.hosting = new SpadeHosting({
       read: (path) => spadeText(owner, deps.id, "GET", path),
       now: deps.now,
@@ -151,7 +136,7 @@ export class NativeSpade {
       now: deps.now,
       changed: () => {
         this.put();
-        this.publishOpen();
+        this.chat.publish();
       },
     });
   }
@@ -195,14 +180,12 @@ export class NativeSpade {
 
   /** The open conversation's follow, for sends that should show at once. */
   follow(conversationId: string): SpadeConversationFollow | undefined {
-    const open = this.open;
-    return open?.kind === "bot" && open.id === conversationId ? open.follow : undefined;
+    return this.chat.follow(conversationId);
   }
 
   /** The open group's follow, for posts that should show at once. */
   groupFollow(conversationId: string): SpadeGroupFollow | undefined {
-    const open = this.open;
-    return open?.kind === "group" && open.id === conversationId ? open.follow : undefined;
+    return this.chat.groupFollow(conversationId);
   }
 
   handle(action: NativeSpadeAction): void {
@@ -214,7 +197,7 @@ export class NativeSpade {
       case "spade.open":
         return this.openConversation(action.conversationId, action.group);
       case "spade.retry":
-        return this.open?.follow.retry();
+        return this.chat.retry();
       case "spade.active":
         if (action.active === this.active) return;
         this.active = action.active;
@@ -233,7 +216,7 @@ export class NativeSpade {
     this.stopped = true;
     this.watching = false;
     this.stopList();
-    this.openConversation(null);
+    this.chat.show(null);
   }
 
   /** Spade's state, the setting and the bots are out of date: read them again now. */
@@ -259,7 +242,7 @@ export class NativeSpade {
   private setStatus(status: SpadeStatus) {
     const wasReady = this.ready;
     this.status = status;
-    this.open?.follow.setReady(this.ready);
+    this.chat.setReady(this.ready);
     // Turning Spade on or off changes the setting first; the status says it took.
     if (this.ready !== wasReady) {
       void this.readEnabled();
@@ -275,7 +258,7 @@ export class NativeSpade {
     this.machine = reply.identity.displayName;
     this.hostId = reply.identity.hostId;
     this.put();
-    this.publishOpen();
+    this.chat.publish();
   }
 
   private async readEnabled() {
@@ -361,8 +344,7 @@ export class NativeSpade {
     void Promise.all([agents, groups]).finally(() => {
       this.listReading = false;
       this.put();
-      this.publishOpen();
-      this.markSeen();
+      this.chat.listed();
       // Written to while out: read again now, so the list confirms the write.
       if (writes !== this.writes) this.readList();
       else this.scheduleList();
@@ -373,7 +355,7 @@ export class NativeSpade {
   private scheduleList() {
     this.stopList();
     if (!this.listable || this.listReading) return;
-    const pace = this.watching || this.open ? listEvery.shown : listEvery.away;
+    const pace = this.watching || this.chat.showing ? listEvery.shown : listEvery.away;
     const working =
       (this.agents?.some((agent) => agent.state !== "idle") ?? false) ||
       (this.groups?.some((group) => group.state !== "idle") ?? false);
@@ -426,53 +408,10 @@ export class NativeSpade {
   }
 
   private openConversation(conversationId: string | null, group?: string) {
-    const open = this.open;
-    if (open?.id === conversationId && (open?.kind === "group" ? open.group : undefined) === group)
-      return;
-    open?.stop();
-    this.open = undefined;
-    this.workers.stop();
-    this.tree.stop();
-    this.sent.clear();
-    this.order = [];
-    this.sink.clear("spade:row:");
-    if (conversationId === null) {
-      this.sink.put("spade:conversation", () => ({ type: "spade.conversation.closed" }));
-      return;
-    }
-    const link: SpadeFollowLink = {
-      canOpen: () => this.live.canOpen(),
-      onOpenable: (listener) => this.live.onOpenable(listener),
-      open: (path, sink) => this.live.open(path, sink),
-      read: (path) => spadeText(this.owner, this.deps.id, "GET", path),
-    };
-    const deps = {
-      // The pump already sends at most one frame at a time; a short wait gathers deltas.
-      frame: (callback: () => void) => void this.deps.later(16, callback),
-      later: this.deps.later,
-    };
-    const track = (follow: SpadeConversationFollow | SpadeGroupFollow) => {
-      const unsubscribe = follow.subscribe(() => {
-        if (this.open?.follow === follow) this.publishOpen();
-      });
-      return () => {
-        unsubscribe();
-        follow.stop();
-      };
-    };
-    if (group === undefined) {
-      const follow = new SpadeConversationFollow(link, conversationId, deps);
-      this.open = { kind: "bot", id: conversationId, follow, stop: track(follow) };
-    } else {
-      const follow = new SpadeGroupFollow(link, conversationId, deps);
-      this.open = { kind: "group", id: conversationId, group, follow, stop: track(follow) };
-    }
-    const { follow } = this.open;
-    follow.start();
-    follow.setReady(this.ready);
+    this.chat.show(conversationId, group);
+    if (conversationId === null) return;
     // Spade's state may not be known yet; reading it lets the stream open once it is ready.
     if (!this.status) this.ask();
-    this.publishOpen();
     if (!this.agents) this.readList();
   }
 
@@ -532,104 +471,8 @@ export class NativeSpade {
   groupName(id: string): string | undefined {
     return this.groups?.find((group) => group.id === id)?.name || undefined;
   }
-
-  /** The open conversation as it is now: its rows, its order and its head. */
-  private publishOpen() {
-    const open = this.open;
-    if (!open) return;
-    if (open.kind === "bot") {
-      const { view, problem } = open.follow.get();
-      const bot = this.botOf(open.id);
-      const facts = this.workers.facts(
-        () => this.agents,
-        (id) => this.tree.node(id),
-      );
-      const approvers = bot ? this.sharing.approvers(bot.id) : null;
-      const rows = spadeConversationRows(view, bot?.name || "Spade", facts, approvers);
-      this.workers.showing(rows);
-      this.tree.showing(bot?.id, rows);
-      this.putRows(open.id, rows);
-      this.sink.put("spade:conversation", () =>
-        spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null),
-      );
-      if (view.caughtUp) this.markSeen();
-      return;
-    }
-    const { view, problem } = open.follow.get();
-    const group = this.groups?.find((each) => each.id === open.group);
-    const agents = this.agents ?? [];
-    this.putRows(open.id, spadeGroupRows(view, group, agents, this.hostId));
-    this.sink.put("spade:conversation", () =>
-      spadeGroupHead(open.id, view, problem, group, agents, this.hostId),
-    );
-    if (view.live) this.markSeen();
-  }
-
-  /**
-   * Put what changed: a row Swift already holds as it is now is never sent again, so a reply's
-   * live words are one row per frame.
-   */
-  private putRows(id: string, rows: readonly { key: string; row: unknown }[]) {
-    const order = rows.map(({ key }) => key);
-    const kept = new Set(order);
-    for (const key of this.sent.keys()) if (!kept.has(key)) this.sent.delete(key);
-    for (const { key, row } of rows) {
-      const text = JSON.stringify(row);
-      if (this.sent.get(key) === text) continue;
-      this.sent.set(key, text);
-      this.sink.put(`spade:row:${key}`, () => ({
-        type: "spade.row",
-        conversation: id,
-        key,
-        row,
-      }));
-    }
-    if (!sameOrder(order, this.order)) {
-      this.order = order;
-      this.sink.put("spade:order", () => ({ type: "spade.order", conversation: id, order }));
-    }
-  }
-
-  /**
-   * The open conversation is on screen and caught up: once Spade counts it unseen, mark it seen
-   * up to its latest message, once per message, and read the list so its row settles.
-   */
-  private markSeen() {
-    const open = this.open;
-    if (!open) return;
-    const caughtUp =
-      open.kind === "bot" ? open.follow.get().view.caughtUp : open.follow.get().view.live;
-    const seen =
-      open.kind === "bot"
-        ? this.botOf(open.id)
-        : this.groups?.find((group) => group.id === open.group);
-    if (!caughtUp || !seen?.unseen) return;
-    const seq = seen.lastMessage?.seq;
-    const mark = `${open.id}:${seq ?? "end"}`;
-    if (this.seen === mark) return;
-    this.seen = mark;
-    void spadeText(
-      this.owner,
-      this.deps.id,
-      "PUT",
-      `/v1/conversations/${segment(open.id)}/seen`,
-      seq === undefined ? {} : { seq },
-    ).then(
-      () => this.readList(),
-      () => {
-        // Tried again with the next list read.
-        if (this.seen === mark) this.seen = undefined;
-      },
-    );
-  }
 }
 
 /** Why a read failed, in Spade's words where it gave some. */
 const reason = (error: unknown) =>
   error instanceof Error ? error.message : "Spade didn't answer.";
-
-function sameOrder(a: readonly string[], b: readonly string[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
-  return true;
-}
