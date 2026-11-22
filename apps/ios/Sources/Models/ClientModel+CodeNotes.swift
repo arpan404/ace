@@ -57,6 +57,16 @@ extension ClientModel {
         checkoutKeys[thread] = key
         return key
     }
+    /// The notes this phone kept for a machine, as a connection to it begins; the last machine's
+    /// are written first, and its checkouts forgotten.
+    func restoreCodeNotes(hostId: String, deviceId: String, in directory: URL) {
+        codeNotesKept?.flush()
+        codeNotesKept = nil
+        checkoutKeys = [:]
+        let kept = CodeNotesKept(url: CodeNotesKept.url(hostId: hostId, deviceId: deviceId, in: directory))
+        codeNotes = kept.load()
+        codeNotesKept = kept
+    }
     /// The open thread's session hears `thread`'s notes; another thread's wait until it opens.
     func sendCodeNotes(_ thread: String) {
         guard canOperate, self.thread?.id == thread else { return }

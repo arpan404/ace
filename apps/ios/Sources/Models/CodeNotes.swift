@@ -1,7 +1,7 @@
 import Foundation
 
 /// A note pinned to a range of a file in the editor, waiting for the thread's next message.
-struct CodeNote: Equatable, Sendable, Identifiable {
+struct CodeNote: Codable, Equatable, Sendable, Identifiable {
     let id: String
     var path: String
     var span: TextSpan
@@ -29,7 +29,12 @@ struct CodeNote: Equatable, Sendable, Identifiable {
 struct CodeNotes: Equatable, Sendable {
     /// At most this many in one message (`codeAnnotationLimit` in `@ace/ui-core`).
     static let limit = 20
+    /// Threads holding notes at once, as the phone keeps composer drafts (`ThreadDrafts.limit`):
+    /// a note on a fifty-first thread lets the least recently noted thread's notes go.
+    static let threadLimit = 50
     private var threads: [String: [CodeNote]] = [:]
+    /// Threads with notes, least recently given one first.
+    private var recent: [String] = []
 
     subscript(thread: String) -> [CodeNote] { threads[thread] ?? [] }
     func full(_ thread: String) -> Bool { self[thread].count >= Self.limit }
@@ -51,7 +56,16 @@ struct CodeNotes: Equatable, Sendable {
             note.span = anchored.span
             note.outdated = anchored.outdated
         }
+        append(thread, note)
+    }
+
+    /// `note` last on `thread`, which becomes the most recently noted; nothing once it is full.
+    mutating func append(_ thread: String, _ note: CodeNote) {
+        guard !full(thread) else { return }
         threads[thread, default: []].append(note)
+        recent.removeAll { $0 == thread }
+        recent.append(thread)
+        while recent.count > Self.threadLimit { threads[recent.removeFirst()] = nil }
     }
 
     mutating func comment(_ thread: String, id: String, _ comment: String) {
@@ -60,16 +74,23 @@ struct CodeNotes: Equatable, Sendable {
 
     mutating func remove(_ thread: String, id: String) {
         threads[thread]?.removeAll { $0.id == id }
-        if threads[thread]?.isEmpty == true { threads[thread] = nil }
+        dropIfEmpty(thread)
     }
 
-    mutating func clear(_ thread: String) { threads[thread] = nil }
+    mutating func clear(_ thread: String) {
+        threads[thread] = nil
+        recent.removeAll { $0 == thread }
+    }
 
     /// A message took these notes; any made since stay.
     mutating func sent(_ thread: String, ids: [String]) {
         let gone = Set(ids)
         threads[thread]?.removeAll { gone.contains($0.id) }
-        if threads[thread]?.isEmpty == true { threads[thread] = nil }
+        dropIfEmpty(thread)
+    }
+
+    private mutating func dropIfEmpty(_ thread: String) {
+        if threads[thread]?.isEmpty == true { clear(thread) }
     }
 
     /// The person typed in `path`: its notes move with the edit, and one the edit touched keeps
@@ -138,9 +159,36 @@ struct CodeNotes: Equatable, Sendable {
         }
     }
 
-    private mutating func update(_ thread: String, _ change: (inout CodeNote) -> Void) {
+    /// Changes each of `thread`'s notes, storing the list only when one changed.
+    mutating func update(_ thread: String, _ change: (inout CodeNote) -> Void) {
         guard var list = threads[thread] else { return }
         for index in list.indices { change(&list[index]) }
         if list != threads[thread] { threads[thread] = list }
+    }
+}
+
+/// Kept on the phone as one value: each thread's notes, least recently noted thread first.
+extension CodeNotes: Codable {
+    private struct Kept: Codable {
+        let thread: String
+        let notes: [CodeNote]
+    }
+    private enum Keys: String, CodingKey { case v, threads }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: Keys.self)
+        self.init()
+        for kept in try container.decode([Kept].self, forKey: .threads) where !kept.notes.isEmpty {
+            threads[kept.thread] = Array(kept.notes.prefix(Self.limit))
+            recent.removeAll { $0 == kept.thread }
+            recent.append(kept.thread)
+        }
+        while recent.count > Self.threadLimit { threads[recent.removeFirst()] = nil }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: Keys.self)
+        try container.encode(1, forKey: .v)
+        try container.encode(recent.compactMap { thread in threads[thread].map { Kept(thread: thread, notes: $0) } }, forKey: .threads)
     }
 }

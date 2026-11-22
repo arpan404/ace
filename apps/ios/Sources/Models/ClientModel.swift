@@ -100,8 +100,10 @@ import QuartzCore
     var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
-    /// Notes pinned to code in the editor, by thread, for each one's next message.
-    var codeNotes = CodeNotes()
+    /// Notes pinned to code in the editor, by thread, for each one's next message; kept on this
+    /// phone for the machine connected (`codeNotesKept`).
+    var codeNotes = CodeNotes() { didSet { if codeNotes != oldValue { codeNotesKept?.changed(codeNotes) } } }
+    @ObservationIgnored var codeNotesKept: CodeNotesKept?
     /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
     @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -274,6 +276,8 @@ import QuartzCore
         if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
+        // Another route to the same machine keeps the notes in hand; another machine's are its own.
+        if !sameMachine { restoreCodeNotes(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory) }
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
