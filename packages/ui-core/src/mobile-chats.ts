@@ -49,7 +49,7 @@ const sectionOrder: Record<ChatSectionKey, number> = {
 
 const tail = (thread: InboxThread) => `\u0000${thread.machineId}\u0000${thread.key}`;
 
-const syncing: Standing = { level: "syncing", done: false, held: false };
+const syncing: Standing = { level: "syncing", done: false, held: false, recovery: false };
 
 /** Whether a thread belongs in Chats rather than Threads. */
 export function isChatThread(thread: InboxThread): boolean {

@@ -17,7 +17,7 @@ import {
   nextDateFor,
   onceInstant,
   syntaxChoices,
-  triggerKinds,
+  triggerKindsWithWebhook,
   triggerPatch,
   upcomingLine,
   upcomingStarts,
@@ -161,7 +161,7 @@ export function changeForm(
 
 /** The lists every When control offers, sent once with the form. */
 const choices = {
-  triggers: triggerKinds,
+  triggers: triggerKindsWithWebhook,
   cadences,
   weekdays: weekdayChoices,
   syntaxes: syntaxChoices,

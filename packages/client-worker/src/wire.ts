@@ -144,6 +144,8 @@ export const WorkerMessage = z.discriminatedUnion("t", [
         nonce: z.string(),
         binding: z.optional(z.string()),
         device: z.string(),
+        /** Tagged by the desktop app's main process (ADR 0190, amendment 1). */
+        appSocket: z.optional(z.literal(true)),
       }),
     ),
   }),

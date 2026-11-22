@@ -194,6 +194,9 @@ import UIKit
         static let tabFollow = Animation.interactiveSpring(response: 0.18, dampingFraction: 0.86)
         /// How much the fill swells while a finger holds it, as the system's bar lifts its lens.
         static let tabLift: CGFloat = 1.08
+        /// How much the glass lens magnifies the glyph and name under it on iOS 26, on top of its
+        /// lift, as the system's bar does.
+        static let tabLens: CGFloat = 1.12
     }
 
     /// Haptics confirm what the person did: send, stop, approve, tab change, pull to refresh.

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { orgHostRefuses, refuseOnOrgHost } from "../org-access/fleet-refusal.ts";
 import { logError, logFields } from "@ace/diagnostics";
 import {
   Command,
@@ -264,10 +265,13 @@ export function startMachines(context: ServiceContext): void {
       return list;
     },
     // A machine its direct address doesn't reach is called through its relay (ADR 0182).
-    transport: withRelayFallback(
-      options.machines?.transport ?? machineRequest,
-      () => services.parcels?.relayCalls,
-      now,
+    transport: orgHostRefuses(
+      () => context.orgHost?.org(),
+      withRelayFallback(
+        options.machines?.transport ?? machineRequest,
+        () => services.parcels?.relayCalls,
+        now,
+      ),
     ),
     transfers: async (profile) => new TransferClient(probes, profile).probe(),
     log: record("info"),
@@ -297,9 +301,14 @@ export function startMachines(context: ServiceContext): void {
       return description;
     },
     // This daemon is the install a link names (ADR 0115): linking again keeps one device there.
-    redeem: (url, name) => (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
+    // An organization's host makes no fleet link (ADR 0209 §4.2), whoever asks.
+    redeem: (url, name) =>
+      refuseOnOrgHost(context.orgHost?.org(), () =>
+        (options.machines?.redeem ?? redeemPairing)(url, name, hostId),
+      ),
     // A machine reached only through a relay is linked through it (ADR 0182).
-    redeemRelay: (url, name) => redeemPairingThroughRelay(url, name, hostId),
+    redeemRelay: (url, name) =>
+      refuseOnOrgHost(context.orgHost?.org(), () => redeemPairingThroughRelay(url, name, hostId)),
     answersDirectly,
     hostName,
     transfers: (profile) => new TransferClient(probes, profile).probe(),
