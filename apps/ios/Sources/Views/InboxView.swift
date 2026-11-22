@@ -132,11 +132,11 @@ struct InboxView: View {
 
     @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
         Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-            stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
+            stack(.threads, path: $threadsPath, drawer: $threadsDrawer).environment(\.homePlace, .threads)
         }
         .placeTab(.threads, waiting: waiting(.threads))
         Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-            stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+            stack(.chats, path: $chatsPath, drawer: $chatsDrawer).environment(\.homePlace, .chats)
         }
         .placeTab(.chats, waiting: waiting(.chats))
     }
@@ -145,7 +145,7 @@ struct InboxView: View {
     /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
                 .placeTab(.spade, waiting: waiting(.spade))
         }
     }
@@ -154,14 +154,14 @@ struct InboxView: View {
     /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
                 .accessibilityIdentifier("tab.\(HomeTabs.identifier(.review))")
         }
     }
 
     /// Search's role sets it apart: on iOS 26 the bar draws it as its own glass circle at the end.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
     }
 
@@ -178,6 +178,7 @@ struct InboxView: View {
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
+        .environment(\.homeTab, tab)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
