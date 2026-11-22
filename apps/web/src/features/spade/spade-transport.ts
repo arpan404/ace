@@ -43,7 +43,10 @@ export function spadePersonOnly(method: string, path: string): boolean {
   return spadePersonOnlyRoute(method, path) !== undefined;
 }
 
-/** Spade, asked directly, refused a change for want of the person's stamp. */
+/**
+ * Spade, asked directly, refused a change for want of the person's stamp: recovery from a newer
+ * Spade than this build's route list, never what keeps a change the person's.
+ */
 function refusedUnstamped(reply: SpadeReply): boolean {
   if (reply.kind !== "response" || reply.status !== 403 || !("text" in reply.body)) return false;
   return isStandingRefusal(spadeRefusal(reply.status, reply.body.text));
@@ -107,8 +110,10 @@ export class SpadeTransport {
       (await this.path()) === "direct"
     ) {
       const reply = await this.direct(exchange, options.signal);
-      // A change Spade wants the person's stamp on that this list doesn't name yet goes again
-      // the daemon's way, which stamps it: it was refused, so nothing was made twice.
+      // Version skew only: a newer Spade guarding a route this build's list doesn't name yet.
+      // The change goes again the daemon's way, which stamps it; it was refused, so nothing was
+      // made twice. Not a security control: Spade's refusal is, and the route parity test
+      // (`@ace/client/spade-person-only`) keeps the list whole within one build.
       if (reply && !refusedUnstamped(reply)) return reply;
     }
     const answer = await withStanding(
