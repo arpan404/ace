@@ -259,7 +259,8 @@ export class IntentDelivery {
       } catch (error) {
         // A saved session that can never open again continues fresh, with the thread's context
         // in front of the continuation (ADR 0211).
-        if (!this.dependencies.transitions.startFreshSession(actor.id, error)) throw error;
+        if (!this.dependencies.transitions.startFreshSession(actor.id, error, intent.command.id))
+          throw error;
         await this.dependencies.sessions.open(actor);
       }
       if (!this.dependencies.recovery.begin(actor.id, token)) return;

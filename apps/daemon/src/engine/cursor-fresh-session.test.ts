@@ -229,6 +229,8 @@ test("a thread fenced by the checkpoint budget continues its queued message in a
   expect(delivered[0]?.agent).toBe("agent-2");
   const handoff = receivedHandoff(delivered[0]?.text ?? "");
   expect(handoff.block).toContain("build the parser");
+  // The message the handoff goes in front of is the prompt, not part of the quoted history.
+  expect(handoff.block).not.toContain("now add the tests");
   expect(handoff.sourceThreadId).toBe(id);
   expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, lastFailure: null });
   expect(h.store.getThread(id)?.status.state).toBe("done");

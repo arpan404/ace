@@ -55,6 +55,8 @@ export function startFreshSession(
   id: ThreadId,
   error: unknown,
   at: number,
+  /** The command whose input this handoff goes in front of: quoted once, as the prompt. */
+  pendingCommandId?: string,
 ): boolean {
   if (!storeUnusable(error)) return false;
   const session = repo.session(id);
@@ -71,7 +73,16 @@ export function startFreshSession(
       .run(id);
     // The old session's frames and boundary cursor are its own; the fresh one starts at zero.
     repo.recovery.reset(id);
-    const full = handoff(repo, id, repo.store.headSeq(), freshSessionHandoffBytes, provider);
+    const pending = pendingCommandId ? state.items[`input:${pendingCommandId}`]?.id : undefined;
+    const full = handoff(
+      repo,
+      id,
+      repo.store.headSeq(),
+      freshSessionHandoffBytes,
+      provider,
+      undefined,
+      pending ? new Set([pending]) : undefined,
+    );
     // A handoff still waiting for delivery is replaced, not stacked.
     if (metadata.marker) repo.removeInputItem(id, metadata.marker, at);
     const marker = `handoff:fresh:${generation}`;

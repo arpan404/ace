@@ -494,8 +494,8 @@ export class ThreadTransitions {
     return abandonReturn(this.repo, id, error, this.now());
   }
   /** The saved session can never open again: true when the thread now opens fresh instead. */
-  startFreshSession(id: ThreadId, error: unknown): boolean {
-    return startFreshSession(this.repo, id, error, this.now());
+  startFreshSession(id: ThreadId, error: unknown, pendingCommandId?: string): boolean {
+    return startFreshSession(this.repo, id, error, this.now(), pendingCommandId);
   }
   async freezeForkSource(source: ThreadId, fork: ThreadId): Promise<void> {
     const metadata = this.repo.transitions.get(fork);

@@ -62,7 +62,7 @@ export async function executeIntent(
       let failure = error;
       if (
         transitions.abandonReturn(actor.id, error) ||
-        transitions.startFreshSession(actor.id, error)
+        transitions.startFreshSession(actor.id, error, intent.command.id)
       )
         try {
           await sessions.open(actor);
