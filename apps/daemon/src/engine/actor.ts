@@ -474,13 +474,20 @@ export class ThreadActor {
   /** The outer mailbox transaction commits the frames and facts together. */
   private writeCursorRecord(journal: CursorRecordEntry[]): void {
     for (const { frame, beginsTurn } of journal) {
-      if (beginsTurn) this.repo.recovery.beginTurn(this.id);
       const body = sdkBody.safeParse(frame.data);
       if (body.success && body.data.kind === "blob")
         this.repo.store.appendRawChunk(this.id, body.data.body);
-      this.repo.captureFrame(this.id, frame);
+      const row = this.repo.captureFrame(this.id, frame);
+      this.repo.recovery.captured(
+        this.id,
+        body.success ? body.data.kind : undefined,
+        row,
+        beginsTurn,
+      );
       this.repo.recovery.note(this.id, frame.data);
     }
+    // Frames of settled turns go a bounded batch per commit, never all at once (ADR 0170).
+    if (journal.length) this.repo.recovery.trimStep(this.id);
   }
   private translateFrame(decoded: Frame): Fact[] {
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];

@@ -57,7 +57,7 @@ async function frozenAt(...args: [string, string, string, string, string, string
  * three runs here. Returns what boot three's host was asked to send, and the thread's end state.
  */
 async function twoCrashes(
-  window: "attempted" | "admitted-followup" | "fork-attempted",
+  window: "attempted" | "admitted" | "admitted-followup" | "fork-attempted",
   seeded: Parameters<typeof seedStore>[2] | undefined,
   /** Boot two's kill point; without one, the thread's next start is the one checked. */
   secondKill: string | undefined,

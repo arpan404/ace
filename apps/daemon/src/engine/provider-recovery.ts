@@ -13,7 +13,7 @@ import {
   type Unsettled,
 } from "@ace/adapter-cursor/unsettled";
 import type { Store } from "../store.ts";
-import { storedAttemptRecord } from "../stored-decode.ts";
+import { storedAttemptRecord, storedFramesRecord } from "../stored-decode.ts";
 
 const CapturedFrame = z.object({
   seq: z.number().int().nonnegative(),
@@ -47,6 +47,9 @@ export class ProviderRecovery {
   private readOutput: StatementSync;
   private readRecord: StatementSync;
   private writeRecord: StatementSync;
+  private readFramesRecord: StatementSync;
+  private writeFramesRecord: StatementSync;
+  private trimFrames: StatementSync;
   constructor(store: Store) {
     this.store = store;
     [
@@ -56,11 +59,15 @@ export class ProviderRecovery {
       this.readOutput,
       this.readRecord,
       this.writeRecord,
+      this.readFramesRecord,
+      this.writeFramesRecord,
+      this.trimFrames,
     ] = store.atomic(
       (db) =>
         [
+          // Only the latest session's open frame and the open turn's frames, deleted or not yet.
           db.prepare(
-            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
+            "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? AND (rowid>=? OR rowid=?) ORDER BY rowid LIMIT 8",
           ),
           db.prepare(
             // An earlier build's frames, with no attempt record: the newest frames only.
@@ -79,7 +86,19 @@ export class ProviderRecovery {
           db.prepare(
             "INSERT INTO engine_state_records VALUES (?,'cursorAttempt','latest',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
           ),
+          db.prepare(
+            "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorFrames' AND key='root'",
+          ),
+          db.prepare(
+            "INSERT INTO engine_state_records VALUES (?,'cursorFrames','root',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
+          ),
+          db.prepare(
+            "DELETE FROM engine_provider_frames WHERE rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? AND rowid<? AND rowid<>? ORDER BY rowid LIMIT 256)",
+          ),
         ] satisfies [
+          StatementSync,
+          StatementSync,
+          StatementSync,
           StatementSync,
           StatementSync,
           StatementSync,
@@ -98,7 +117,8 @@ export class ProviderRecovery {
     const unsettled = new UnsettledRuns();
     let rowid = 0;
     do {
-      const rows = this.store.atomic(() => this.readFrames.all(threadId, rowid));
+      const { below = 0, open = 0 } = this.frames(threadId);
+      const rows = this.store.atomic(() => this.readFrames.all(threadId, rowid, below, open));
       if (!rows.length) return unsettled.result();
       for (const row of rows) {
         const encoded = z.string().max(1048576).parse(row.frame);
@@ -195,14 +215,34 @@ export class ProviderRecovery {
         .run(threadId);
     });
   }
-  /** Settled turns have no live identities to hydrate. Keep the latest session open. */
-  beginTurn(threadId: ThreadId): void {
-    this.store.atomic(() =>
-      this.store
-        .statement(`DELETE FROM engine_provider_frames
-      WHERE thread_id=? AND rowid<>COALESCE((SELECT MAX(rowid) FROM engine_provider_frames
-        WHERE thread_id=? AND json_extract(frame,'$.data.kind')='open'),0)`)
-        .run(threadId, threadId),
-    );
+  /** Where the thread's frames stand: the latest session's open frame, and the open turn's start. */
+  private frames(threadId: ThreadId): { open?: number; below?: number; trimmed?: boolean } {
+    const row = this.store.atomic(() => this.readFramesRecord.get(threadId));
+    return row ? storedFramesRecord(String(row.value)) : {};
+  }
+  /**
+   * A frame this commit stored at `row`: the latest session's open frame, or the send that
+   * starts a turn on a settled thread. Frames before that send, the open frame aside, belong to
+   * settled turns: restore no longer reads them, and `trimStep` deletes them in batches.
+   */
+  captured(
+    threadId: ThreadId,
+    kind: string | undefined,
+    row: number | undefined,
+    beginsTurn: boolean,
+  ) {
+    if (row === undefined || (kind !== "open" && !beginsTurn)) return;
+    const record = this.frames(threadId);
+    const next =
+      kind === "open" ? { ...record, open: row } : { ...record, below: row, trimmed: false };
+    this.writeFramesRecord.run(threadId, JSON.stringify(next));
+  }
+  /** Deletes up to 256 frames of settled turns: a bounded step, in the commit it rides on. */
+  trimStep(threadId: ThreadId): void {
+    const record = this.frames(threadId);
+    if (record.below === undefined || record.trimmed) return;
+    const deleted = this.trimFrames.run(threadId, record.below, record.open ?? 0).changes;
+    if (Number(deleted) < 256)
+      this.writeFramesRecord.run(threadId, JSON.stringify({ ...record, trimmed: true }));
   }
 }

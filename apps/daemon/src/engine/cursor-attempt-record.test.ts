@@ -88,3 +88,56 @@ test("a fresh session forgets the previous session's attempt", async () => {
   recovery.reset(id);
   expect(recovery.attempted(id, "send-1")).toBe(false);
 });
+
+/** Stores a Cursor frame of `kind` for `id` as the actor does; its row. */
+function store(h: { store: Store; id: ThreadId }, seq: number, kind: string, operationId = "old") {
+  const result = h.store
+    .statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)")
+    .run(
+      h.id,
+      "host",
+      seq,
+      JSON.stringify({
+        seq,
+        t: seq,
+        dir: "recv",
+        channel: "sdk",
+        data: frame(kind, {}, operationId),
+      }),
+    );
+  return Number(result.lastInsertRowid);
+}
+const count = (h: { store: Store }) =>
+  Number(h.store.statement("SELECT COUNT(*) AS n FROM engine_provider_frames").get()?.n);
+
+test("a new turn on a long Cursor thread drops the settled turns' frames a bounded batch per commit", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  recovery.captured(h.id, "open", store(h, 1, "open"), false);
+  for (let seq = 2; seq < 1002; seq++) store(h, seq, "delta");
+  recovery.captured(h.id, "send", store(h, 1002, "send", "new"), true);
+  recovery.trimStep(h.id);
+  // One step deletes a bounded batch, not the thousand frames behind the new turn.
+  expect(count(h)).toBe(1002 - 256);
+  for (let step = 0; step < 10; step++) recovery.trimStep(h.id);
+  // In the end: the session's open frame and the new turn's send.
+  expect(count(h)).toBe(2);
+});
+
+test("a restart in the middle of that clean-up reads only the open frame and the new turn", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  recovery.captured(h.id, "open", store(h, 1, "open"), false);
+  for (let seq = 2; seq < 600; seq++) store(h, seq, "delta");
+  recovery.captured(h.id, "send", store(h, 600, "send", "new"), true);
+  recovery.trimStep(h.id);
+  const seen: string[] = [];
+  await recovery.restore(h.id, {
+    translate(input) {
+      seen.push(String((input.data as { kind?: string }).kind));
+      return [];
+    },
+    tick: () => [],
+  });
+  expect(seen).toEqual(["open", "send"]);
+});

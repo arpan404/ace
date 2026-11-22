@@ -254,3 +254,12 @@ export function storedAttemptRecord(
 ): import("@ace/adapter-cursor/unsettled").AttemptRecord {
   return JSON.parse(json) as import("@ace/adapter-cursor/unsettled").AttemptRecord;
 }
+
+/** Where a Cursor thread's frames stand (provider-recovery.ts), as this build wrote it. */
+export function storedFramesRecord(json: string): {
+  open?: number;
+  below?: number;
+  trimmed?: boolean;
+} {
+  return JSON.parse(json) as { open?: number; below?: number; trimmed?: boolean };
+}
