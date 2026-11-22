@@ -22,7 +22,7 @@ const sealer: Sealer = {
 };
 
 /** A daemon that checks statements as the real one does and records what it was sent. */
-function daemon(owner = "user_1") {
+function daemon(now: () => number, owner = "user_1") {
   const nonces = new Set<string>();
   const keys = new Set<string>();
   const seen: PersonStatement[] = [];
@@ -43,7 +43,7 @@ function daemon(owner = "user_1") {
       text: sent.statement,
       proof: sent.proof,
       publicKey: sent.key,
-      now: Date.now(),
+      now: now(),
     });
     if (!statement || !nonces.delete(statement.nonce)) return { status: 403, body: {} };
     seen.push(statement);
@@ -64,7 +64,8 @@ beforeEach(async () => {
 afterEach(() => rm(directory, { recursive: true, force: true }));
 
 function setup(options: { allowed?: boolean; answeringHost?: string; now?: () => number } = {}) {
-  const d = daemon();
+  const clock = options.now ?? Date.now;
+  const d = daemon(clock);
   const tags = ["a".repeat(43), "b".repeat(43)];
   let token: string | null = "s".repeat(43);
   const standing = appStanding({
@@ -74,7 +75,7 @@ function setup(options: { allowed?: boolean; answeringHost?: string; now?: () =>
     daemon: async () => ({ http: d.http, host: options.answeringHost ?? host }),
     session: async () => token,
     accountOf: async () => "user_1",
-    now: options.now ?? Date.now,
+    now: clock,
   });
   return {
     d,
@@ -114,6 +115,9 @@ test("enrolling takes a browser sign-in in the last ten minutes", async () => {
   await signIn("s".repeat(43));
   now += ENROLL_WINDOW_MS + 1;
   expect(await standing.enroll(origin)).toBe(false);
+  // Within the window it enrolls: the refusals above were the sign-in's age, nothing else.
+  await signIn("s".repeat(43));
+  expect(await standing.enroll(origin)).toBe(true);
 });
 
 test("signing out revokes the key at the daemon, and another session's sign-in revokes the one before", async () => {
