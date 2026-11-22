@@ -40,6 +40,7 @@ export {
   useScopeWorkspace,
   useOptionalWorkspace,
   useOpenInEditorPanel,
+  useReviewInEditor,
   useWorkspaceActions,
   useWorkspaceStore,
 } from "./react.tsx";
@@ -59,6 +60,13 @@ export {
   type OpenInEditorPanelOptions,
 } from "./editor-tab.ts";
 export { requestReveal, settleReveal, useReveal, type Reveal } from "./editor-reveal.ts";
+export {
+  currentReview,
+  endReview,
+  requestReview,
+  useEditorReview,
+  type EditorReview,
+} from "./editor-review.ts";
 export { settleExplorerAsk, useExplorerAsk } from "./editor-explorer-ask.ts";
 export { pullRequestTab, PullRequestTabData } from "./pull-request-tab.ts";
 export {

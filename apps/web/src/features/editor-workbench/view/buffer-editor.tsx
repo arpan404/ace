@@ -19,7 +19,6 @@ export function BufferEditor(props: BufferEditorProps) {
   // What the gutter compares against: the last saved or read text, so unsaved lines stay marked
   // when this view remounts (a tab switch) and clear once saved.
   const base = useSyncExternalStore(subscribe, () => buffer.baseText()) ?? "";
-  const dirty = useSyncExternalStore(subscribe, () => buffer.snapshot().dirty);
   // The setters reach whichever editor is mounted when a status-line menu is used.
   const actions = useMemo<EditorStatusActions>(
     () => ({
@@ -83,9 +82,11 @@ export function BufferEditor(props: BufferEditorProps) {
       path={props.path}
       label={`Source of ${props.path}`}
       statusLine={false}
-      marks={dirty ? undefined : props.marks}
-      onMarkClick={dirty ? undefined : props.onMarkClick}
-      peek={dirty ? undefined : props.peek}
+      // Without live marks from the host, the gutter marks unsaved lines against the saved text.
+      marks={props.marks}
+      agentMarks={props.agentMarks}
+      onMarkClick={props.marks ? props.onMarkClick : undefined}
+      peek={props.peek}
       layer={props.layer}
       line={reveal?.line}
       column={reveal?.column}

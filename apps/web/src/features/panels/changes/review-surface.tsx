@@ -55,6 +55,8 @@ export function ReviewSurface(props: {
   versions: ReadonlyMap<string, string>;
   /** The scope is the working tree, the only one comments go on. */
   commentable: boolean;
+  /** The turn shown, for each file's Review in editor; unset on the working tree. */
+  turn?: string | undefined;
   /** Names the surface as a region (the Uncommitted diff). */
   label?: string | undefined;
   renderToolbar(chrome: SurfaceChrome): ReactNode;
@@ -240,6 +242,7 @@ export function ReviewSurface(props: {
         drafts={draftsByFile.get(file.path) ?? noDrafts}
         composition={composition}
         commentable={commentable}
+        turn={props.turn}
         handlers={handlers}
       />
     );

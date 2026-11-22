@@ -13,6 +13,8 @@ export type Opening =
       /** The disk version (and its text) the buffer is based on. */
       base: Theirs;
       dirty: boolean;
+      /** The draft holds a Revert waiting for the person's own Save. */
+      manualSave?: boolean | undefined;
       /** The disk moved past the draft's base, or the file is gone. */
       clash?: { kind: "changed"; theirs: Theirs } | { kind: "deleted" };
       /** The stored draft matches the disk and can go. */
@@ -28,6 +30,7 @@ export function opening(read: Read, draft: Draft | undefined): Opening {
     text: draft.text,
     base: { text: draft.original, version: draft.version },
     dirty: true,
+    ...(draft.manualSave ? { manualSave: true } : {}),
   };
   // Offline with a draft: the person keeps reading and typing; a reconnect checks again.
   if (!read.ok)
@@ -44,5 +47,12 @@ export function opening(read: Read, draft: Draft | undefined): Opening {
   if (drafted.base.version !== file.version)
     return { ...drafted, clash: { kind: "changed", theirs: disk } };
   const same = drafted.text === file.text;
-  return { kind: "text", text: drafted.text, base: disk, dirty: !same, dropDraft: same };
+  return {
+    kind: "text",
+    text: drafted.text,
+    base: disk,
+    dirty: !same,
+    ...(!same && drafted.manualSave ? { manualSave: true } : {}),
+    dropDraft: same,
+  };
 }

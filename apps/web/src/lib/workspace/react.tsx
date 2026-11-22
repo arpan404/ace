@@ -6,6 +6,7 @@ import {
   type EditorPanelTarget,
   type OpenInEditorPanelOptions,
 } from "./editor-tab.ts";
+import { requestReview } from "./editor-review.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import type { PanelPlace } from "./places.ts";
 import { WorkspaceStore } from "./store.ts";
@@ -94,6 +95,21 @@ export function useOpenInEditorPanel(
         options,
       ),
     [store, actions, scope],
+  );
+}
+
+/**
+ * Review a turn's changes to a file in the scope's editor: the file opens with the turn's hunks
+ * inline, to keep, revert or comment on each (`requestReview`).
+ */
+export function useReviewInEditor(scope: string): (path: string, turn: string) => void {
+  const open = useOpenInEditorPanel(scope);
+  return useCallback(
+    (path, turn) => {
+      requestReview(scope, turn);
+      open(path, { keep: true, focus: true });
+    },
+    [open, scope],
   );
 }
 

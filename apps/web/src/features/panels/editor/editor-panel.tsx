@@ -1,6 +1,5 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import { ProviderKind } from "@ace/protocol";
-import { formatAge, hunkAt, providerDisplayName, revertChange } from "@ace/ui-core";
+import { formatAge } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
@@ -47,6 +46,7 @@ import { mentionInComposer } from "@/lib/composer-insert.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { keyboardEnv } from "@/lib/keybindings.ts";
 import {
+  requestReveal,
   settleReveal,
   useReveal,
   useWorkspaceActions,
@@ -58,9 +58,16 @@ import { onRevealInExplorer } from "../files/file-tree-editor.ts";
 import { openInEditorPanel, type OpenInEditorPanelOptions } from "../files/open-file.ts";
 import { useRecentFilesStore } from "../files/files-state.ts";
 import { MentionSelection } from "../files/mention-selection.tsx";
-import { useChangeMarks } from "../files/use-change-marks.ts";
 import { quickOpen } from "../files/quick-open-store.ts";
-import { changeNotice, nextChange, type TreeMark } from "./agent-changes.ts";
+import {
+  changeNotice,
+  nextChange,
+  providerOf,
+  stepAgentChange,
+  type ChangeStop,
+  type TreeMark,
+} from "./agent-changes.ts";
+import { agentBlocksOf, liveGutterFor } from "./gutter-store.ts";
 import type { RowMark } from "../files/file-tree-row.tsx";
 import {
   allTabs,
@@ -69,6 +76,7 @@ import {
   keepTypedPreviews,
   saveAll,
   saveFile,
+  saveQueued,
   showPath,
   splitFocused,
   unsavedOf,
@@ -91,7 +99,9 @@ import { draftsOf, withDrafts, withoutDrafts } from "./editor-migration.ts";
 import { editorRegistry, importDrafts } from "./editor-registry.ts";
 import { RecentEditors, stepRecent } from "./recent-editors.tsx";
 import { EditorPanelContext, useEditorPanelSaving, usePanelAutoSave } from "./use-auto-save.ts";
-import { HunkPeek } from "./hunk-peek.tsx";
+import { useChangeGutter } from "./use-change-gutter.tsx";
+import { useTurnReview } from "./use-turn-review.tsx";
+import { ReviewIdle } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
 
 /*
@@ -100,9 +110,6 @@ import { useEditorSession } from "./use-editor-session.ts";
  * one group shows and the explorer steps aside behind "Show files", laid over the editor while
  * open. From 760px the explorer docks at the left.
  */
-
-const providerOf = (agent: string) =>
-  ProviderKind.options.find((kind) => providerDisplayName(kind) === agent);
 
 /** ⌘K waits this long for its second key before the palette opens after all. */
 const sequenceMs = 800;
@@ -143,6 +150,8 @@ export function EditorPanel(props: TabViewProps) {
     });
   };
   const autoSave = usePanelAutoSave({ buffers, online, problem: setProblem });
+  /** Files the person saved while offline: one set for the panel's life. */
+  const [offlineSaves] = useState<NonNullable<EditorActionsHost["queued"]>>(() => new Map());
   const host: EditorActionsHost = {
     buffers,
     layout: () => latest.current,
@@ -150,6 +159,7 @@ export function EditorPanel(props: TabViewProps) {
     online: () => online,
     problem: setProblem,
     saved: (path) => autoSave.savedByHand(path),
+    queued: offlineSaves,
   };
   const saving = { autoSave, save: (path: string) => saveFile(host, path) };
   const target = {
@@ -208,9 +218,9 @@ export function EditorPanel(props: TabViewProps) {
   }, [focused.active, see]);
   const rowMarks = useMemo(() => rowMarksOf(session.treeMarks), [session.treeMarks]);
 
-  // Saves asked for offline run once the daemon is back (spec 66).
+  // Saves asked for offline run once the daemon is back (spec 66): only those files.
   useEffect(() => {
-    if (online && problem === "offline") void saveAll(host);
+    if (online && problem === "offline") void saveQueued(host);
   });
 
   // Layout by room (spec 5).
@@ -289,6 +299,9 @@ export function EditorPanel(props: TabViewProps) {
             ? { text: "Offline. Edits are kept on this device." }
             : undefined;
 
+  // Where Next change last stopped, so the next press moves on from it.
+  const lastStop = useRef<ChangeStop | undefined>(undefined);
+
   // ⌃Tab's list, while ⌃ is held.
   const [recent, setRecent] = useState<number | undefined>(undefined);
   const recentTabs = mruTabs(focused);
@@ -342,7 +355,28 @@ export function EditorPanel(props: TabViewProps) {
       }
       case "nextChange":
       case "previousChange": {
-        const path = nextChange(changes, openPaths(now), active, command === "nextChange" ? 1 : -1);
+        const direction = command === "nextChange" ? 1 : -1;
+        // Through the agents' blocks, line by line across open files (spec 45).
+        const from = lastStop.current?.path === active ? lastStop.current : undefined;
+        const stop = stepAgentChange(
+          openPaths(now),
+          (path) => agentBlocksOf(buffers, path),
+          { path: active, line: from?.line ?? -1 },
+          direction,
+        );
+        if (stop) {
+          lastStop.current = stop;
+          const next = showPath(now, stop.path);
+          change(next);
+          requestReveal(threadId, {
+            path: stop.path,
+            group: focusedGroup(next).id,
+            line: stop.line + 1,
+            focus: true,
+          });
+          return;
+        }
+        const path = nextChange(changes, openPaths(now), active, direction);
         if (path) change(showPath(now, path));
         return;
       }
@@ -524,6 +558,7 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 const EditorCompare = lazy(() =>
   import("./editor-compare.tsx").then((module) => ({ default: module.EditorCompare })),
 );
+const ReviewSideBySide = lazy(() => import("./review-side.tsx"));
 const EditorFileView = lazy(() =>
   import("./editor-file-view.tsx").then((module) => ({ default: module.EditorFileView })),
 );
@@ -577,9 +612,6 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const { threadId, ...editor } = props;
   const { buffer } = editor;
   const reveal = useReveal(threadId, editor.group, editor.path);
-  const subscribe = useCallback((changed: () => void) => buffer.subscribe(changed), [buffer]);
-  const version = useSyncExternalStore(subscribe, () => buffer.snapshot().version);
-  const { marks, hunks } = useChangeMarks(threadId, editor.path, version);
   const onRevealed = useCallback((token: number) => settleReveal(threadId, token), [threadId]);
   // Annotations ride on every group's editor; views of one file map their ranges once per edit.
   const layer = useEditorAnnotations({ threadId, path: editor.path });
@@ -601,41 +633,62 @@ function RevealedEditor(props: BufferEditorProps & { threadId: string }) {
   const saving = useEditorPanelSaving();
   const autoSave = saving?.autoSave;
   const { path } = editor;
-  const onEdited = useCallback(() => autoSave?.edited(path), [autoSave, path]);
+  // The gutter's live change marks, the agents' lines and the change under a pressed mark.
+  const gutter = useChangeGutter({
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+  });
+  // A turn under review shows its hunks inline, to keep, revert or comment on (Review in editor).
+  const review = useTurnReview({
+    threadId,
+    path,
+    group: editor.group,
+    buffer,
+    gutter: liveGutterFor(buffer),
+    layer,
+  });
+  const { edited } = gutter;
+  const onEdited = useCallback(() => {
+    edited();
+    autoSave?.edited(path);
+  }, [edited, autoSave, path]);
   const onBlurred = useCallback(() => autoSave?.blurred(path), [autoSave, path]);
-  // A press on a change mark shows that hunk under its lines; Revert puts the committed lines
-  // back and saves through the panel's own save.
-  const [peekLine, setPeekLine] = useState<number>();
-  const hunk = peekLine === undefined || !hunks ? undefined : hunkAt(hunks, peekLine);
-  const revert = () => {
-    const doc = buffer.document();
-    const change = hunk && doc && revertChange(hunk, (line) => doc.line(line), doc.lenLines());
-    setPeekLine(undefined);
-    if (!change || !buffer.editLines([change])) return;
-    void saving?.save(path);
-  };
-  const peek = hunk && {
-    after: Math.max(...hunk.marks) - 1,
-    content: <HunkPeek hunk={hunk} onRevert={revert} onClose={() => setPeekLine(undefined)} />,
-  };
   return (
     <MentionSelection
       path={editor.path}
       onMention={(mention) => mentionInComposer(threadId, mention)}
       className="flex min-h-0 flex-1 flex-col"
     >
-      <BufferEditor
-        {...editor}
-        reveal={reveal}
-        marks={marks}
-        layer={layer}
-        look={look}
-        onMarkClick={setPeekLine}
-        peek={peek}
-        onEdited={onEdited}
-        onBlurred={onBlurred}
-        onRevealed={onRevealed}
-      />
+      <div
+        role="presentation"
+        className="flex min-h-0 flex-1 flex-col"
+        onKeyDown={(event) => {
+          if (review?.onKey(event) || gutter.onKey(event)) event.preventDefault();
+        }}
+      >
+        {review?.idle && <ReviewIdle {...review.idle} />}
+        {review?.side ? (
+          <Suspense fallback={null}>
+            <ReviewSideBySide {...review.side} />
+          </Suspense>
+        ) : (
+          <BufferEditor
+            {...editor}
+            reveal={reveal}
+            marks={gutter.marks}
+            agentMarks={review ? [...gutter.agentMarks, ...review.agentMarks] : gutter.agentMarks}
+            layer={layer}
+            look={look}
+            onMarkClick={gutter.onMarkClick}
+            peek={review?.peek ?? gutter.peek}
+            onEdited={onEdited}
+            onBlurred={onBlurred}
+            onRevealed={onRevealed}
+          />
+        )}
+      </div>
     </MentionSelection>
   );
 }
