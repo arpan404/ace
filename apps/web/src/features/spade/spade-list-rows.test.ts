@@ -6,6 +6,7 @@ import {
   spadeEntryKey,
   spadeFlatEntries,
   spadeBotRow,
+  spadeGroupRow,
   spadeListEntries,
   spadeNeedsYouCount,
   splitPinned,
@@ -337,4 +338,40 @@ test("a bot that said it is blocked on the person reads needs you only while Spa
   });
   expect(spadeBotRow(asking).state).toBe("needs-you");
   expect(spadeNeedsYouCount([asking], [])).toBe(1);
+});
+
+test.each([
+  // What it does, as the chat's Working line says it.
+  ["Comparing hotel prices", "Comparing hotel prices"],
+  ["**Checking** the forecast for Oxford and London today", "Checking the forecast for Oxford"],
+  // Nothing of its own to say: Working, never Thinking alone or a tool's id.
+  ["Thinking", "Working"],
+  ["Using frobnicate widgets", "Working"],
+  [undefined, "Working"],
+])("a working row with status %j reads %j, for a bot, Spade and a club", (status, line) => {
+  expect(row({ state: "working", status })).toEqual({ state: "working", line });
+  expect(row({ kind: "main", name: "Spade", state: "working", status })).toEqual({
+    state: "working",
+    line,
+  });
+  expect(spadeGroupRow(group({ id: "g", name: "G", state: "working", status }))).toEqual({
+    state: "working",
+    line,
+  });
+});
+
+test("waiting for you and needs you win over the working phrase, as Spade says them", () => {
+  expect(row({ state: "waiting", status: "Waiting for you" })).toEqual({
+    state: "needs-you",
+    line: "Waiting for you",
+  });
+  expect(row({ state: "waiting", waiting_for: "question", status: "Thinking" })).toEqual({
+    state: "needs-you",
+    line: "Asked you a question",
+  });
+  expect(row({ state: "waiting" })).toEqual({ state: "needs-you", line: "Needs you" });
+  expect(spadeGroupRow(group({ id: "g", name: "G", state: "waiting" }))).toEqual({
+    state: "needs-you",
+    line: "Waiting for you",
+  });
 });

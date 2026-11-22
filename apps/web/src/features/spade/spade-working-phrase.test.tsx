@@ -1,7 +1,7 @@
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test } from "vitest";
-import { spadeApp, withEndpoint } from "@/test/spade.ts";
+import { botRow, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -26,6 +26,9 @@ async function openScout() {
     });
   return { ...opened, chat, say };
 }
+
+/** Scout's list row: its name, then its line. */
+const rowLine = async () => (await botRow("Scout")).textContent ?? "";
 
 const line = (chat: ReturnType<typeof within>) => chat.getByRole("status").textContent ?? "";
 
@@ -54,4 +57,30 @@ test("a phrase from the model is plain text, cut to a few words", async () => {
   say("<img src=x onerror=alert(1)>");
   await waitFor(() => expect(line(chat)).toMatch(/^<img src=x/));
   expect(document.querySelector('img[src="x"]')).toBeNull();
+});
+
+test("the list row says the same phrase, holds it, and a question for the person wins at once", async () => {
+  const { spade, chat, say } = await openScout();
+  await waitFor(async () => expect(await rowLine()).toBe("ScoutWorking"));
+  say("Comparing flight prices");
+  await waitFor(async () => expect(await rowLine()).toBe("ScoutComparing flight prices"));
+  say("Searching the web for flights");
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  expect(await rowLine()).toBe("ScoutComparing flight prices");
+  await waitFor(async () => expect(await rowLine()).toBe("ScoutSearching the web for flights"));
+  // A question for the person shows the moment it comes, held phrase or not.
+  spade.store("c-scout", {
+    type: "step_finished",
+    reply: "r1",
+    text: "",
+    calls: [{ id: "q1", name: "ask_user" }],
+  });
+  spade.store("c-scout", {
+    type: "question_asked",
+    reply: "r1",
+    call_id: "q1",
+    question: "Window or aisle?",
+  });
+  await chat.findByRole("group", { name: /Window or aisle\?/ });
+  expect(await rowLine()).toBe("ScoutAsked you a question");
 });

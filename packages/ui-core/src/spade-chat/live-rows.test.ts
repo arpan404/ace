@@ -89,7 +89,8 @@ describe("the list row of an open conversation", () => {
     });
     c.status("working", "Thinking");
     const roster = listed({ state: "waiting", waiting_for: "question", status: "Waiting for you" });
-    expect(row(roster, c)).toEqual({ state: "working", line: "Thinking" });
+    // Thinking alone says nothing of what it does: the row reads Working, as the chat does.
+    expect(row(roster, c)).toEqual({ state: "working", line: "Working" });
   });
 
   test("rests once the stream says the turn ended, though the roster still says working", () => {
