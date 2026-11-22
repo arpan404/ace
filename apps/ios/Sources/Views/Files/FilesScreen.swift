@@ -28,8 +28,8 @@ struct FilesScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     /// Whether this Files screen is on screen (not covered by a pushed file or the background).
     @State private var isPresented = false
-    /// Whether the bridge is counting this screen as showing the tree.
-    @State private var shown = false
+    /// The bridge counting this screen as showing the tree, until the background or a pop.
+    @State private var watch = FilesTreeWatch()
     @State private var query = ""
     @State private var searching = false
     @State private var searchScope = FilesSearchScope.names
@@ -86,9 +86,8 @@ struct FilesScreen: View {
             model.watchFileMemory(scope)
             isPresented = true
             // Opening this screen lists its tree; coming back from a pushed file keeps the rows.
-            if !shown {
-                shown = true
-                model.showFilesTree(scope)
+            if !watch.isShown {
+                watch.show(model, scope)
                 if let folder { reveal(folder) }
             }
         }
@@ -96,13 +95,9 @@ struct FilesScreen: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
                 // Only the background stops the tree: a pushed file leaves it warm for the return.
-                if shown {
-                    shown = false
-                    model.hideFilesTree(scope)
-                }
-            } else if phase == .active, isPresented, !shown {
-                shown = true
-                model.showFilesTree(scope)
+                watch.stop()
+            } else if phase == .active, isPresented, !watch.isShown {
+                watch.show(model, scope)
             }
         }
         .sheet(item: Binding(get: { downloading.map { DownloadPick(folder: $0) } }, set: { downloading = $0?.folder })) { pick in
