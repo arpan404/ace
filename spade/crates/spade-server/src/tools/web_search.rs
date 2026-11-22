@@ -67,8 +67,9 @@ impl Tool for WebSearch {
                 }
                 Err(error) => error,
             };
-            if let SearchError::Failed(why) = &unanswered {
-                tracing::debug!(%why, "ace search failed");
+            // A fixed outcome only: nothing a server said reaches the logs (ADR 0210 §6).
+            if matches!(unanswered, SearchError::Failed(_)) {
+                tracing::debug!(outcome = "ace_search_failed", "web_search");
             }
             let native = match &engine {
                 Some(engine) => {
@@ -83,8 +84,8 @@ impl Tool for WebSearch {
                     ToolOutput::ok("No results.")
                 }
                 Native::Found(found) => ToolOutput::ok(native_text(&found)),
-                Native::Failed(why) => {
-                    tracing::debug!(%why, "the endpoint's own search failed");
+                Native::Failed => {
+                    tracing::debug!(outcome = "endpoint_search_failed", "web_search");
                     ToolOutput::error(unanswered.to_string())
                 }
                 Native::Unavailable => ToolOutput::error(unanswered.to_string()),
