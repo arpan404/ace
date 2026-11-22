@@ -272,6 +272,11 @@ export class ProviderRecovery {
       ? undefined
       : { commandId: record.commandId, admitted: record.admitted };
   }
+  /** The command of the latest send the host attempted, if one is on record. */
+  attemptedCommand(threadId: ThreadId): string | undefined {
+    const record = this.current(threadId);
+    return record?.commandId || undefined;
+  }
   /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
   admissionRecorded(threadId: ThreadId, commandId: string): boolean {
     const record = this.current(threadId);

@@ -195,14 +195,9 @@ export class CursorTranslator implements Translator {
         return [];
       if (body.admitted === true) return this.admit(attempt);
       this.attempt = undefined;
-      return [
-        { type: "wake.expected", agent: this.root, until: this.now },
-        this.notice(
-          "ace restarted before Cursor received this message. It was not sent; it is still in the queue.",
-          event,
-          "warning",
-        ),
-      ];
+      // Cursor's store had no run for it. Whether it was sent is the daemon's to say: only it
+      // knows whether the last run's processes were proven gone before that read.
+      return [{ type: "wake.expected", agent: this.root, until: this.now }];
     }
     if (event.kind === "recovered") {
       if (!this.active || !event.runId) return [];

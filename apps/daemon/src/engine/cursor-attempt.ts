@@ -41,7 +41,11 @@ export function settleCursorAttempt(
     repo.queue.clearUncertain(intent.id);
     repo.pending.defer(intent);
     repo.queue.track(intent.id, id, intent.command);
-  } else return;
+    say(repo, id, intent.id, at, resentNotice);
+  } else {
+    unconfirmed(repo, id, intent.id, at);
+    return;
+  }
   repo.queue.reconcileUncertainty(id, at);
   const queue = repo.queue.get(id);
   // Held only for this send's uncertainty: nothing else waits on the person.
@@ -82,4 +86,47 @@ function acknowledge(
       ],
       at,
     );
+}
+
+type Notice = { code: string; level: "info" | "warning"; title: string; text: string };
+/** Proven never to have reached Cursor: the only case ace says it wasn't sent. */
+const resentNotice: Notice = {
+  code: "input_requeued",
+  level: "info",
+  title: "Sent again",
+  text: "ace restarted before Cursor received this message, so it was sent again",
+};
+const unconfirmedNotice: Notice = {
+  code: "delivery_uncertain",
+  level: "warning",
+  title: "Delivery unconfirmed",
+  text: "ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
+};
+/**
+ * The send's fate couldn't be settled: whether Cursor had it is unknown, and the thread says
+ * that, never that it wasn't sent (a resend by hand could then be a second copy).
+ */
+export function unconfirmed(repo: EngineRepository, id: ThreadId, intentId: number, at: number) {
+  say(repo, id, intentId, at, unconfirmedNotice);
+}
+function say(repo: EngineRepository, id: ThreadId, intentId: number, at: number, notice: Notice) {
+  const state = repo.requireState(id);
+  const before = state.items[`intent:${intentId}`];
+  repo.apply(
+    id,
+    [
+      {
+        type: "item.upsert",
+        agent: state.rootKey ?? "root",
+        item: `intent:${intentId}`,
+        draft: {
+          type: "notice",
+          ...notice,
+          ...(before?.type === "notice" && before.commandId ? { commandId: before.commandId } : {}),
+          complete: true,
+        },
+      },
+    ],
+    at,
+  );
 }

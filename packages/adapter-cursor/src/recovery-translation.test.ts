@@ -65,7 +65,7 @@ test("a send Cursor has not admitted yet shows working but starts no turn and sh
   expect(t.text("user")).toEqual(["hello"]);
 });
 
-test("a send ace restarted before Cursor received it says so and leaves the thread idle", () => {
+test("a send Cursor's store has no run for leaves the thread idle and claims nothing of its fate", () => {
   const t = thread();
   t.frame("open", { cwd: "/w" });
   t.frame("send", { input: [{ type: "text", text: "hello" }], attemptedAt: 1 });
@@ -77,7 +77,8 @@ test("a send ace restarted before Cursor received it says so and leaves the thre
   );
   expect(t.runs()).toEqual([]);
   expect(t.status()).not.toBe("working");
-  expect(t.notices().join(" ")).toContain("It was not sent");
+  // Whether it was sent is the daemon's to say, once it knows the read was final.
+  expect(t.notices().join(" ")).not.toMatch(/not sent/i);
 });
 
 test("a run that finished just before the daemon crashed shows as finished after restart", () => {

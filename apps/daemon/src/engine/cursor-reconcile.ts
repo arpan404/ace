@@ -5,6 +5,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { Recovery } from "./recovery.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { lostWork } from "./lost-work.ts";
+import { unconfirmed } from "./cursor-attempt.ts";
 import { SessionOpenError, sessionStoreBusy } from "@ace/provider-kit/open-error";
 
 /*
@@ -111,7 +112,12 @@ export async function reconcileCursorRestart(
   const before = repo.requireState(id);
   const wasRunning = before.agents[before.rootKey ?? ""]?.activeRun !== undefined;
   const fail = (actor?: ThreadActor) => {
-    // Nothing was running: a send whose fate can't be read stays held as uncertain.
+    // A send whose fate can't be read stays held as uncertain, and the thread says so.
+    repo.store.atomic(() => {
+      const command = repo.recovery.attemptedCommand(id);
+      const intent = command ? repo.pending.uncertainSend(id, command) : undefined;
+      if (intent) unconfirmed(repo, id, intent.id, clock.now());
+    });
     if (!wasRunning) return;
     const facts = restartFailure(repo, id, clock.now());
     if (actor) actor.apply(facts);

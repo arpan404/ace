@@ -452,12 +452,23 @@ it("a send Cursor never received goes back in the queue by itself and is sent on
   expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
   expect(crash.held.reason).not.toBe("uncertain");
   expect(crash.userTexts.filter((text) => text === "first")).toHaveLength(1);
+  // Proven absent: said so, and that it went again.
+  const said = crash.items.flatMap((item) =>
+    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
+  );
+  expect(said.join(" | ")).toMatch(/before Cursor received this message/);
+  expect(crash.statusAfter()).toBe("done");
 });
 
 it("a send stays held as uncertain only when Cursor's store can't be read", async () => {
   await using crash = await crashAt("attempted", { openFails: true, resume: false });
   expect(crash.sent).toEqual([]);
   expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
+  const said = crash.items.flatMap((item) =>
+    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
+  );
+  expect(said.join(" | ")).not.toMatch(/not sent/i);
+  expect(said.join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
 });
 
 it("a send Cursor had already made a run for is acknowledged on reopen, never held for a resend", async () => {
@@ -527,4 +538,10 @@ it("a send Cursor never had stays held for the person while the last run's proce
   expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
   expect(crash.held.pendingCount).toBeGreaterThan(0);
   expect(crash.statusAfter()).toBe("waiting");
+  // Nothing claims it wasn't sent: a resend by hand could be a second copy.
+  const said = crash.items.flatMap((item) =>
+    item.type === "notice" ? [`${item.title ?? ""} ${item.text ?? ""}`] : [],
+  );
+  expect(said.join(" | ")).not.toMatch(/not sent/i);
+  expect(said.join(" | ")).toMatch(/couldn't confirm whether Cursor received/);
 });
