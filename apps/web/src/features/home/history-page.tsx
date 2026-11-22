@@ -121,10 +121,6 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
           {...part("page-body")}
           className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-(--forge-gutter) pt-6 pb-10"
         >
-          {/* The header names the page (h1); this is its title over the list. */}
-          <h2 {...part("page-title")} className="text-xl font-semibold text-foreground">
-            History
-          </h2>
           <SearchField
             label="Search history"
             placeholder="Search settled threads, PRs, branches"

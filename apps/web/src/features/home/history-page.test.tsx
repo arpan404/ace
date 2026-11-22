@@ -60,7 +60,7 @@ test("History lists settled threads by week and filters by project", async () =>
   const app = settledDaysAgo(2);
   await openPanel(app, "/history");
   const main = screen.getByRole("main");
-  expect(await within(main).findByRole("heading", { level: 2, name: "History" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { level: 1, name: "History" })).toBeTruthy();
   const list = await within(main).findByRole("list", { name: "Settled threads" });
   const row = await listGroup(list, "This week").findByRole("link", { name: bump });
   // Its PR and branch show on the row.
