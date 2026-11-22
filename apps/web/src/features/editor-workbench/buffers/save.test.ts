@@ -3,22 +3,46 @@ import type { Author } from "./attribution.ts";
 import { createBufferRegistry } from "./registry.ts";
 import { fakeDisk, inlineMerge, manualTime, memoryDrafts, ready, settle } from "./test-support.ts";
 import type { DocumentView } from "@/features/editor";
-import type { TextBuffer } from "./types.ts";
+import type { MergePort, TextBuffer } from "./types.ts";
 
 beforeAll(ready);
 
 const file = { root: "m1/t1", path: "places.ts" };
 const claude: Author = { kind: "agent", agent: "Claude Code", threadId: "t1" };
 
+/** The merge worker, failing its next diff or merge when told to (a worker that crashed). */
+function failingMerge(inner: MergePort) {
+  const fail = { lineChanges: false, merge3: false, gate: undefined as Promise<void> | undefined };
+  const port: MergePort = {
+    async merge3(base, mine, theirs) {
+      if (fail.gate) await fail.gate;
+      if (fail.merge3) {
+        fail.merge3 = false;
+        throw new Error("The merge worker stopped.");
+      }
+      return inner.merge3(base, mine, theirs);
+    },
+    async lineChanges(before, after) {
+      if (fail.lineChanges) {
+        fail.lineChanges = false;
+        throw new Error("The merge worker stopped.");
+      }
+      return inner.lineChanges(before, after);
+    },
+  };
+  return { port, fail };
+}
+
 async function setup(text: string) {
   const disk = fakeDisk({ "places.ts": text });
   const drafts = memoryDrafts();
   const merge = inlineMerge();
+  const failing = failingMerge(merge.port);
   const time = manualTime();
   const registry = createBufferRegistry({
     files: disk.port,
     drafts: drafts.store,
-    merge: merge.port,
+    merge: failing.port,
     now: time.now,
     schedule: time.schedule,
     ready,
@@ -27,7 +51,7 @@ async function setup(text: string) {
   const lease = registry.open(file);
   lease.setVisible(true);
   await settle();
-  return { disk, drafts, merge, time, registry, buffer: lease.buffer };
+  return { disk, drafts, merge, fail: failing.fail, time, registry, buffer: lease.buffer };
 }
 
 function replaceLine(buffer: TextBuffer, line: number, text: string) {
@@ -257,10 +281,72 @@ describe("merging", () => {
 
     expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\nmine e\n");
     expect(context.buffer.snapshot().clash).toBeUndefined();
-    // An answer given for the conflict as it was asked, now gone, changes nothing either.
-    void context.buffer.answer(0, "mine", asked);
+  });
+
+  it("an answer for a conflict that another has replaced changes nothing in the new one", async () => {
+    const context = await setup("a\nb\nc\nd\ne\n");
+    replaceLine(context.buffer, 1, "mine b");
+    replaceLine(context.buffer, 4, "mine e");
+    await agentWrites(context, "a\ntheirs b\nc\nd\ntheirs e\n");
+    await context.buffer.merge();
+    const old = context.buffer.snapshot().clash;
+    // The agent writes again; merging that gives a new conflict, now the one shown.
+    await agentWrites(context, "a\nnewer b\nc\nd\nnewer e\n");
+    await context.buffer.merge();
+    const current = context.buffer.snapshot().clash;
+    expect(current).toMatchObject({ kind: "conflict", theirs: { version: "v3" } });
+    expect(current).not.toBe(old);
+
+    // A click on the old conflict's block arrives late.
+    await context.buffer.answer(0, "theirs", old);
+    await context.buffer.answerAll("theirs", old);
+
+    expect(context.buffer.snapshot().clash).toBe(current);
+    expect(context.buffer.snapshot().clash).toMatchObject({ answers: [undefined, undefined] });
+  });
+
+  it("a landing that fails gives the choices back, with the answers and the person's text kept", async () => {
+    const context = await setup("a\nb\nc\nd\ne\n");
+    replaceLine(context.buffer, 1, "mine b");
+    replaceLine(context.buffer, 4, "mine e");
+    await agentWrites(context, "a\ntheirs b\nc\nd\ntheirs e\n");
+    await context.buffer.merge();
+    await context.buffer.answer(0, "theirs", context.buffer.snapshot().clash);
+
+    context.fail.lineChanges = true;
+    await context.buffer.answer(1, "mine", context.buffer.snapshot().clash);
     await settle();
-    expect(context.buffer.document()?.text()).toBe("a\ntheirs b\nc\nd\nmine e\n");
+
+    const clash = context.buffer.snapshot().clash;
+    expect(clash).toMatchObject({ kind: "conflict", answers: ["theirs", "mine"] });
+    expect(clash && "applying" in clash ? clash.applying : undefined).toBeUndefined();
+    expect(context.buffer.document()?.text()).toBe("a\nmine b\nc\nd\nmine e\n");
+    expect(await context.buffer.save()).toEqual({ kind: "unanswered" });
+
+    // Choosing again lands it.
+    await context.buffer.answerAll("mine", context.buffer.snapshot().clash);
+    expect(context.buffer.snapshot().clash).toBeUndefined();
+    expect(context.buffer.document()?.text()).toBe("a\nmine b\nc\nd\nmine e\n");
+  });
+
+  it("a merge that fails after a newer disk change merges the newer one, never the older", async () => {
+    const context = await setup("a\nb\nc\n");
+    replaceLine(context.buffer, 0, "mine a");
+    await agentWrites(context, "a\nb\ntheirs c\n");
+    const gate = Promise.withResolvers<void>();
+    context.fail.gate = gate.promise;
+    context.fail.merge3 = true;
+    const merging = context.buffer.merge();
+    await settle();
+    // A newer version lands while the (failing) merge runs.
+    await agentWrites(context, "a\nb\ntheirs c\nnewer d\n");
+    context.fail.gate = undefined;
+    gate.resolve();
+    await merging;
+    await settle();
+
+    expect(context.buffer.snapshot().clash).toBeUndefined();
+    expect(context.buffer.document()?.text()).toBe("mine a\nb\ntheirs c\nnewer d\n");
   });
 
   it("answers every block at once with one choice", async () => {

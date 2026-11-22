@@ -51,13 +51,26 @@ export async function reconcile(host: ReconcileHost, answered?: Answered): Promi
     if (pending && pending.theirs !== theirs.version) pending = undefined;
     const mine = doc.text();
     const at = doc.version();
+    // A failure (the merge worker stopped) changes the clash only while this run still owns it:
+    // a conflict gets its choices back with its answers kept; a merge goes back to the notice.
+    // A newer disk change that came meanwhile is merged instead, never covered by the older one.
+    const failed = (): "again" | "done" => {
+      const now = host.clash();
+      if (now !== clash) return now?.kind === "merging" ? "again" : "done";
+      host.setClash(
+        clash.kind === "conflict"
+          ? { ...clash, applying: undefined }
+          : { kind: "changed", theirs, by },
+      );
+      return "done";
+    };
     let result: MergeResult;
     try {
       result = pending
         ? await rebaseAnswers(host.merge, pending, mine)
         : await host.merge.merge3(base.text, mine, theirs.text);
     } catch {
-      host.setClash({ kind: "changed", theirs, by });
+      if (failed() === "again") continue;
       return;
     }
     const now = host.clash();
@@ -80,7 +93,14 @@ export async function reconcile(host: ReconcileHost, answered?: Answered): Promi
     }
     // Lands only on the clash it was worked out for; typing or a newer disk change meanwhile
     // runs the loop again.
-    if (!(await host.land(result.text, () => host.clash() === clash))) continue;
+    let landed: boolean;
+    try {
+      landed = await host.land(result.text, () => host.clash() === clash);
+    } catch {
+      if (failed() === "again") continue;
+      return;
+    }
+    if (!landed) continue;
     const after = host.clash();
     const newer = after !== clash && after && "theirs" in after ? after.theirs : undefined;
     host.rebase(theirs, result.text, newer, by);
