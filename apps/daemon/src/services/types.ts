@@ -73,6 +73,10 @@ export interface Services {
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   /** Asks the person addressed from threads to Spade bots and clubs (ADR 0198). */
   threadAsks?: import("../thread-address/asks.ts").ThreadAsks;
+  /** Members' rosters, leases and containment on an org host (ADR 0209 §7); bound late. */
+  memberWork?: import("../member-work/member-work.ts").MemberWork;
+  /** The member gate at every execution entry point (ADR 0209 §7), from the daemon's start. */
+  ownerGate?: import("../member-work/gate.ts").OwnerGate;
   agentControl?: {
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;

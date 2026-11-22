@@ -1,3 +1,6 @@
+import { sessionContainment } from "./member-work/containment.ts";
+import type { MemberWork } from "./member-work/member-work.ts";
+import { startMemberWork } from "./member-work/wire.ts";
 import { afterAll, beforeAll } from "vitest";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -155,6 +158,7 @@ export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
   let account: MachineAccount | undefined;
   let home = "";
   let settings: SettingsService | undefined;
+  let members: MemberWork | undefined;
   const f = await setup(serverOptions, (store, dir) => {
     home = dir;
     settings = new SettingsService({
@@ -171,10 +175,19 @@ export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
       randomBytes,
       delay: () => () => {},
     });
-    return { machineAccount: account, settings };
+    // Members' work, as the daemon runs it: inert until the machine is an organization's host.
+    members = startMemberWork({
+      account,
+      store,
+      instance: dir,
+      stopper: () => undefined,
+      containment: sessionContainment,
+    });
+    return { machineAccount: account, settings, memberWork: members };
   });
-  if (!account) throw new Error("No machine account");
+  if (!account || !members) throw new Error("No machine account");
   const machine = account;
+  const memberWork = members;
   const keys = await relayKeysFor(home);
   const host = hostId(keys.publicKey);
 
@@ -211,7 +224,9 @@ export async function daemon(serverOptions: Parameters<typeof setup>[0] = {}) {
     keys,
     accountSocket,
     pageSocket,
+    memberWork,
     close: async () => {
+      await memberWork.close();
       await machine.close();
       settings?.close();
     },

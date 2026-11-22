@@ -155,6 +155,20 @@ export const AceOrgPolicy = z.object({
     })
     .optional(),
   audit: z.object({ content: z.enum(["digests", "targets"]) }).optional(),
+  /**
+   * Coding threads on the organization's hosts (ADR 0209 §8). `offline_minutes` is how long a
+   * host that can't reach the backend keeps members' work running on the last roster it holds
+   * (§7.1); lower is stricter. `personal_provider_accounts` is phase 2 and not offered yet.
+   */
+  threads: z
+    .object({
+      enabled: z.boolean(),
+      default_visibility: z.enum(["org", "members", "private"]),
+      full_access: z.enum(["never", "owners", "trusted", "members"]),
+      offline_minutes: z.number().int().min(0).max(1440),
+    })
+    .partial()
+    .optional(),
 });
 export type AceOrgPolicy = z.infer<typeof AceOrgPolicy>;
 /** `PUT /v1/orgs/{org}/policy`: the next version. */
@@ -173,6 +187,52 @@ export const AceOrgPolicyVersion = z.object({
   setAt: z.number().int().nonnegative().optional(),
 });
 export type AceOrgPolicyVersion = z.infer<typeof AceOrgPolicyVersion>;
+
+/**
+ * One member as an org host's roster names them (ADR 0209 §7.2): only `active` may run work on
+ * the host; removed members stay listed as `removed`. Name and email are for display and git
+ * authorship, never identity.
+ */
+export const AceOrgRosterMember = z.object({
+  account: z.string().min(1).max(256),
+  status: AceOrgMemberStatus,
+  role: z.string().min(1).max(64),
+  name: z.string().max(256).optional(),
+  email: z.string().max(320).optional(),
+  /**
+   * When WorkOS made the membership what `status` says (ISO 8601, the mirror's time for it). A
+   * host lifts a revocation only for an active state WorkOS made after the one that revoked,
+   * which a backend restored from an older backup can't produce.
+   */
+  changed: z.string().max(64).optional(),
+});
+export type AceOrgRosterMember = z.infer<typeof AceOrgRosterMember>;
+/**
+ * The roster body the statement's `body_sha256` is made over: the organization's members and
+ * hosts. `fleetKey` is each host's fleet key once it has registered one (§6.2).
+ */
+export const AceOrgRosterBody = z.object({
+  members: z.array(AceOrgRosterMember).max(10_000),
+  hosts: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[A-Z2-7]{52}$/),
+        fleetKey: z.string().max(128).optional(),
+      }),
+    )
+    .max(10_000),
+});
+export type AceOrgRosterBody = z.infer<typeof AceOrgRosterBody>;
+/**
+ * `GET /v1/orgs/{org}/hosts/{hostId}/roster`, for that host's organization credential: the exact
+ * body text and the backend's statement over it, verified with `verifyOrgRoster` from
+ * `@ace/account-grant`.
+ */
+export const AceOrgRoster = z.object({
+  body: z.string().max(4 * 1024 * 1024),
+  statement: z.string().max(2048),
+});
+export type AceOrgRoster = z.infer<typeof AceOrgRoster>;
 
 /** `POST /v1/orgs/{org}/hosts`: the person gives a machine they own to the organization. */
 /**

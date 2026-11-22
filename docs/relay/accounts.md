@@ -49,6 +49,11 @@ By hand, from `apps/cloud`:
      | bunx wrangler secret put ACE_GRANT_KEY --env production
    ```
 
+   `ACE_ROSTER_EPOCH` is the org hosts' roster epoch (ADR 0209 §7.2, amendment 1), a positive
+   whole number kept as a secret, outside D1. Without it the Worker serves no roster
+   (`roster_epoch_unset`) and org hosts stop members' work two minutes later, as for any refusal.
+   Set it to `1` on a new deployment: `echo 1 | bunx wrangler secret put ACE_ROSTER_EPOCH --env production`.
+
 6. `bun run smoke https://YOUR_RELAY_DOMAIN` checks the live Worker without an
    account: it answers, publishes grant keys, starts and cancels a sign-in, and
    refuses relay upgrades that carry no grant.

@@ -39,6 +39,8 @@ export interface Env {
   WORKOS_WEBHOOK_SECRET?: string;
   /** The market's token for `/v1/grants/standing` (ADR 0206 §6); the market holds it too. */
   ACE_MARKET_STANDING_TOKEN?: string;
+  /** The member rosters' restore generation (ADR 0209 §7.2); raised after a database restore. */
+  ACE_ROSTER_EPOCH?: string;
   ACE_ACCOUNT_ENCRYPTION_KEY?: string;
   ACE_GRANT_KEY?: string;
   /** The replaced key's `/v1/keys` entry, `<id>:<public key>`, during a rotation. */

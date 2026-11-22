@@ -156,6 +156,28 @@ export const MachineCall = z.discriminatedUnion("op", [
      * the target's default. Only the name crosses machines, never a credential (ADR 0002).
      */
     account: z.string().min(1).max(256).optional(),
+    /**
+     * A member tree's child on an organization's host (ADR 0209 §7, amendment 1): whose work it
+     * is, and how long it may run here, counted on this machine's own clock from when it is
+     * made. The target tears it down by then without hearing from the caller, and nothing
+     * renews it. A target that doesn't know the field refuses the call.
+     */
+    member: z
+      .strictObject({
+        account: z.string().min(1).max(256),
+        ttlMs: z
+          .number()
+          .int()
+          .positive()
+          .max(25 * 60 * 60_000),
+      })
+      .optional(),
+    /**
+     * Only asks whether this request made a child, never makes one: the child if it did;
+     * otherwise `not_found`, and the request id is withdrawn here, so a late copy of the
+     * original is refused too.
+     */
+    probe: z.literal(true).optional(),
   }),
   z.strictObject({ op: z.literal("status"), threadIds: z.array(ThreadId).min(1).max(16) }),
   z.strictObject({ op: z.literal("cancel"), threadId: ThreadId }),

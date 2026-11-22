@@ -1,3 +1,4 @@
+import { withOwnerGate } from "../member-work/gate.ts";
 import { agentAnswerRefusal } from "../answer-gate.ts";
 import { ThreadOwnership } from "../transfers/live/ownership.ts";
 import { builtinSkillRecovery } from "../builtin-skill-roots.ts";
@@ -162,7 +163,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     env: options.accounts?.env ?? process.env,
     files: cachedToolFiles(nodeFileSystem),
   };
-  const bindProvider = (source: ProviderAdapter) => {
+  // Outermost, so no session of a member's tree opens and no input reaches it unless its owner
+  // may run work on this host (ADR 0209 §7).
+  const bindProvider = (source: ProviderAdapter) =>
+    withOwnerGate(() => services.ownerGate, bindUngated(source));
+  const bindUngated = (source: ProviderAdapter) => {
     // Innermost, so the person's tool setup applies to whichever account is chosen (ADR 0138).
     const adapter = withNativeTools(
       nativeTools,

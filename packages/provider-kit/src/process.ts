@@ -1,3 +1,4 @@
+import { memberScopedCommand, withoutMemberSlice } from "./member-scope.ts";
 import { spawn } from "node:child_process";
 import {
   lowerChildPriority,
@@ -142,12 +143,19 @@ function spawnOwned(
       ? undefined
       : byteLimit(options.maxOutputBytes, "maxOutputBytes");
   options.lease?.preparing();
+  const env = { ...base, ...options.env };
+  // A member's process on an org host starts inside their containment, or not at all.
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
-    : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
+    : {
+        ...memberScopedCommand(env, options.platform ?? process.platform, options.command, [
+          ...(options.args ?? []),
+        ]),
+        verbatim: false,
+      };
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: markedEnv({ ...base, ...options.env }),
+    env: markedEnv(withoutMemberSlice(env)),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],

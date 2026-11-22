@@ -89,6 +89,13 @@ export interface TargetThreadDeps {
   admitsWork?(): boolean;
   /** Whether this machine's disk is too full for new work (the `storage` hold, ADR 0176). */
   storageFull?(): boolean;
+  /**
+   * A member tree's child made here keeps its owner and a deadline this machine enforces itself
+   * (ADR 0209 §7): read at each call, since members' work starts after this.
+   */
+  memberChildren?():
+    | { trackChild(thread: ThreadId, account: string, ttlMs: number): void }
+    | undefined;
 }
 type Delegate = Extract<MachineCall, { op: "delegate" }>;
 /** Held messages delivered per tick: a backlog drains over many turns of the event loop. */
@@ -355,6 +362,19 @@ export class TargetThreads {
         title: existing.title,
         ...(this.launches.queued(threadId) ? { queued: true } : {}),
       };
+    // A caller that lost the answer asks without making anything. Nothing was made: the request
+    // id is withdrawn here first, so the original, arriving late, is refused like this.
+    if (call.probe) {
+      const withdrawn = CommandId.parse(`machine-prepare:${key}`);
+      this.deps.store.recordCommand(withdrawn, device.id, () => ({
+        commandId: withdrawn,
+        ok: false,
+        error: "withdrawn",
+      }));
+      if (this.deps.store.getThread(threadId) && this.owner(threadId)?.device_id === device.id)
+        return { threadId, title: this.deps.store.getThread(threadId)?.title ?? "Task" };
+      throw new TargetRefusal("not_found", "No child was made for this request.", true);
+    }
     const workspaceId = this.project(call.project);
     const accountId = call.account ? await this.account(call.provider, call.account) : undefined;
     const model = call.model ? this.modelNamed(call.provider, call.model, accountId) : undefined;
@@ -448,6 +468,13 @@ export class TargetThreads {
       if (!result.ok)
         throw new TargetRefusal("unavailable", `This machine could not start it: ${result.error}`);
       this.record(device, threadId, "delegate", origin);
+      // In the transaction that makes it: no member's child here exists without its deadline.
+      if (call.member) {
+        const members = this.deps.memberChildren?.();
+        if (!members)
+          throw new TargetRefusal("unavailable", "This machine can't hold a member's work yet.");
+        members.trackChild(threadId, call.member.account, call.member.ttlMs);
+      }
       let state: "started" | "queued";
       try {
         state = this.launches.launch({

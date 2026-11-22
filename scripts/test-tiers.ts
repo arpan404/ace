@@ -40,6 +40,8 @@ export const nodeOnlySuites = [
   "apps/daemon/src/machine-owner.process.test.ts",
   // An organization's host and its members (ADR 0206), on a backend of their own.
   "apps/daemon/src/org-host.process.test.ts",
+  // That host's roster revoking a member: hellos and open sockets (ADR 0209 §7.4), same harness.
+  "apps/daemon/src/org-host-revocation.process.test.ts",
   // That host's own organization credential (ADR 0206 §2.1), on a backend of its own.
   "apps/daemon/src/org-host-credential.process.test.ts",
   // That host with a real Spade (ADR 0206): stamps, policy, audit forwarding, binding.

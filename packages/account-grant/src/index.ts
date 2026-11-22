@@ -286,6 +286,58 @@ export function verifyOrgPolicy(
 }
 
 /**
+ * The account backend's word on one version of an organization's member roster for one of its
+ * hosts (ADR 0209 §7.2): the SHA-256 of the roster body as served, the host it is for and when
+ * it was signed. It authorizes nothing by itself and has no expiry: a host takes a version only
+ * when it is higher than the one it holds, so an old roster can't be replayed to bring a removed
+ * member back. The body rides beside it, as a policy body does, since a statement is at most
+ * 2 KiB and a roster can list thousands of members.
+ */
+export const OrgRosterStatement = z.strictObject({
+  v: z.literal(1),
+  kid: KeyId,
+  kind: z.literal("org-roster"),
+  org: OrgId,
+  host: HostIdClaim,
+  /**
+   * The backend's restore generation: raised whenever its accounts database is restored from a
+   * backup, so versions handed out again after a restore are a new series a host can tell apart.
+   * A host refuses a lower epoch, and versions compare only within one epoch.
+   */
+  epoch: z.number().int().positive(),
+  version: z.number().int().positive(),
+  at: z.number().int().nonnegative(),
+  body_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type OrgRosterStatement = z.infer<typeof OrgRosterStatement>;
+
+export function signOrgRoster(
+  claims: Omit<OrgRosterStatement, "v" | "kid" | "kind">,
+  key: GrantSigningKey,
+): string {
+  return signClaims(
+    OrgRosterStatement.parse({ ...claims, v: 1, kid: key.id, kind: "org-roster" }),
+    key,
+  );
+}
+
+/**
+ * Verify a roster statement's signature and that `body` is the text it was made over. Throws
+ * `GrantError` on any failure; every grant and policy statement is refused here, as their
+ * parsers refuse this.
+ */
+export function verifyOrgRoster(
+  token: string,
+  keys: GrantKeySet,
+  body: string,
+): OrgRosterStatement {
+  const statement = verifySignature(token, keys, OrgRosterStatement);
+  if (statement.body_sha256 !== policyBodySha256(body))
+    throw new GrantError("Roster body doesn't match its statement");
+  return statement;
+}
+
+/**
  * The account backend's word that an owner of `org` added a registry key (ADR 0206 §5.3): the
  * SHA-256 of the key's exact upload, who asked and their role, from the same fresh WorkOS answer
  * a grant needs. It authorizes nothing: no grant parser takes it, and it names no audience, so a

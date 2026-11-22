@@ -322,15 +322,25 @@ export async function startServer(options: ServerOptions): Promise<{
   // they hold the current machine code; an account change closes every path at once (ADR 0114).
   // Not as a revocation: the client reconnects and its next hello gets the refusal that fits.
   const accountSockets = new Map<MainSocket, () => boolean>();
-  const stopAccountChange = options.machineAccount?.onChange(() => {
+  const recheckAccountSockets = () => {
     for (const [socket, admitted] of accountSockets)
       if (!admitted()) {
         cleanups.get(socket)?.();
         closer.gracefulClose(socket, ACCESS_CHANGED_CLOSE, ACCESS_CHANGED_REASON);
       }
-  });
+  };
+  const stopAccountChange = options.machineAccount?.onChange(recheckAccountSockets);
+  // Members' rosters, leases and contained work on an org host (ADR 0209 §7); a member a roster
+  // revokes loses their open sockets at once, as an account change closes them.
+  const memberWork = options.memberWork;
+  // A member a roster revoked stays admitted on no path, for hellos, commands and grant
+  // refreshes alike (ADR 0209 §7.4). Never on a personal machine: nobody is revoked there.
+  const unrevoked = (account: string | undefined, admitted: (() => boolean) | undefined) =>
+    admitted &&
+    (() => admitted() && (account === undefined || memberWork?.revoked(account) !== true));
+  const stopMemberRevoked = memberWork?.onRevoked(recheckAccountSockets);
   // An org host keeps its Spade bound, on its policy and its audit log forwarded (ADR 0206).
-  const orgHost = startOrgHost(options);
+  const orgHost = startOrgHost(options, memberWork);
   // An org host whose keychain holds its registry's key signs what waits there (ADR 0206 §5.2).
   const registrySigner = startRegistrySigner(options);
   const createServiceSessions = createSocketRegistry();
@@ -411,7 +421,7 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     // An account device holds admin only while the machine stays on its account (ADR 0111),
     // whichever path its hello came by.
-    let accountAdmitted = relayed?.stillAdmitted;
+    let accountAdmitted = unrevoked(relayed?.account, relayed?.stillAdmitted);
     let accountId = relayed?.account;
     // An NK stream not yet confirmed (ADR 0155): what a hello runs on the device waits for the
     // confirmation, and only bounded early answers are read before it (`answerEarly`).
@@ -743,12 +753,12 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           auth.accountDeviceSeen(message.deviceId, message.link);
           actor = accountDeviceActor(message.deviceId, auth.now(), admitted.member);
-          accountAdmitted = admitted.stillAdmitted;
+          accountAdmitted = unrevoked(admitted.account, admitted.stillAdmitted);
           accountId = admitted.account;
           // Dedicated channels end with their main connection's access; the main socket refreshes.
           if (message.channel === undefined) holdGrant(admitted.grantExpiresAt, actor);
         } else actor = helloActor(message, auth, isLocal);
-        if (!actor) {
+        if (!actor || accountAdmitted?.() === false) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
@@ -868,13 +878,15 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         case "account.grant.refresh": {
           const { requestId } = message;
-          const result = grant
-            ? await grant.refresh(message.grant)
-            : ({
-                ok: false,
-                code: "unsupported",
-                message: "No account grant to refresh.",
-              } as const);
+          const result = !stillAdmitted()
+            ? ({ ok: false, code: "unauthorized", message: "No longer admitted here." } as const)
+            : grant
+              ? await grant.refresh(message.grant)
+              : ({
+                  ok: false,
+                  code: "unsupported",
+                  message: "No account grant to refresh.",
+                } as const);
           if (socket.readyState === WebSocket.OPEN && cleanups.has(socket))
             send({ type: "account.grant.refresh.result", requestId, result });
           return;
@@ -1164,6 +1176,7 @@ export async function startServer(options: ServerOptions): Promise<{
     stopReplaced();
     stopAccountChange?.();
     void orgHost?.close();
+    stopMemberRevoked?.();
     registrySigner?.stop();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -1217,6 +1230,7 @@ export async function startServer(options: ServerOptions): Promise<{
         stopReplaced();
         stopAccountChange?.();
         void orgHost?.close();
+        stopMemberRevoked?.();
         registrySigner?.stop();
         tunnel.close();
         machineUpdates?.close();

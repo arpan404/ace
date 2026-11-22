@@ -1,3 +1,4 @@
+import { OwnerRefused } from "../member-work/gate.ts";
 import { freshLimitsWaitMs } from "../account-management.ts";
 import { logError } from "@ace/diagnostics";
 import type { RunRole } from "@ace/protocol";
@@ -113,9 +114,37 @@ export function startAgentControl(context: ServiceContext): void {
           ? services.machines.caller.list(caller)
           : { ok: false, code: "unsupported" },
       delegate: async (caller, request, signal) => {
+        // A member's tree delegates to another host only while its owner may run work here, and
+        // the start is recorded before it is sent, so a stop of the tree waits for its answer.
+        let start: import("../member-work/member-work.ts").RemoteStart | undefined;
+        try {
+          start = services.ownerGate?.delegate(
+            caller.threadId,
+            JSON.stringify({ caller, request }),
+          );
+        } catch (error) {
+          if (error instanceof OwnerRefused)
+            throw new AgentControlError(
+              "delegation_cancelled",
+              "owner_not_active",
+              undefined,
+              error.message,
+            );
+          throw error;
+        }
         const machines = services.machines;
-        if (!machines) throw new AgentControlError("machine_unavailable", "machines_not_ready");
-        return machines.caller.delegate(caller, request, signal);
+        if (!machines) {
+          // Never sent: no child exists there.
+          start?.rejected();
+          throw new AgentControlError("machine_unavailable", "machines_not_ready");
+        }
+        // The caller tells the start how it ended, and stops a child that landed after its
+        // tree was stopped.
+        try {
+          return await machines.caller.delegate(caller, request, signal, start);
+        } finally {
+          start?.notSent();
+        }
       },
       owns: (caller, child) => services.machines?.children.owns(caller, child) ?? false,
       status: (child) => services.machines?.children.watched(child)?.view,

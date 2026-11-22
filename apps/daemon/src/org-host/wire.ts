@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import type { MemberWork } from "../member-work/member-work.ts";
 import type { ServerOptions } from "../server-options.ts";
 import { orgHostLink, type OrgHostLink } from "./link.ts";
 
@@ -7,7 +8,10 @@ import { orgHostLink, type OrgHostLink } from "./link.ts";
  * on every machine, and does nothing until the machine is an organization's host or its Spade
  * still belongs to one it no longer is.
  */
-export function startOrgHost(options: ServerOptions): OrgHostLink | undefined {
+export function startOrgHost(
+  options: ServerOptions,
+  memberWork?: Pick<MemberWork, "policySeen">,
+): OrgHostLink | undefined {
   const account = options.machineAccount;
   const spade = options.spade;
   if (!account || !spade) return undefined;
@@ -27,6 +31,8 @@ export function startOrgHost(options: ServerOptions): OrgHostLink | undefined {
       return () => clearTimeout(timer);
     },
     ...(options.orgHostIntervals ? { intervals: options.orgHostIntervals } : {}),
+    // Members' work keeps the policy's offline allowance (ADR 0209 §7.1).
+    ...(memberWork ? { onPolicy: (policy) => memberWork.policySeen(policy) } : {}),
   });
   void link.start();
   return link;

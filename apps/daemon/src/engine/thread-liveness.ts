@@ -193,15 +193,56 @@ export class ThreadLiveness {
     };
     return this.stopOwned(id, markCancelled);
   }
+  /**
+   * Stops a member tree whose owner may no longer run work here (ADR 0209 §7): an org host's
+   * member was revoked or their lease ran out. Not the owner's Stop. Every unfinished thread of
+   * `ids` is fenced first, before anything is awaited: its intents retired, its queue stopped
+   * and, recorded now, what was unsettled ends as failed with `failure.title`, so nothing in the
+   * tree can settle as done or start new work while the rest is torn down. Then every session
+   * closes and what was in flight drains. True once no thread of `ids` has a session open or
+   * opening.
+   */
+  async stopForOwner(ids: readonly ThreadId[], failure: OwnerStop): Promise<boolean> {
+    const { repo, clock } = this.ports;
+    const live = ids.filter((id) => repo.state(id) !== undefined && this.unfinished(id));
+    const fail = (id: ThreadId) => () => {
+      repo.queue.set(
+        id,
+        { paused: true, reason: "stopped", resumeAt: null, timerAction: null },
+        clock.now(),
+      );
+      repo.queue.set(id, { lastFailure: failure }, clock.now());
+      repo.apply(
+        id,
+        [{ type: "process.exited", deliberate: false, message: failure.title }],
+        clock.now(),
+      );
+    };
+    for (const id of live) this.fence(id, fail(id));
+    await Promise.all([
+      ...live.map((id) => this.drain(id, fail(id))),
+      ...ids.filter((id) => !live.includes(id)).map((id) => this.stop(id)),
+    ]);
+    return ids.every((id) => !this.ports.actor(id)?.session && !repo.sessionOpening(id));
+  }
   private async stopOwned(id: ThreadId, beforeExit: () => void): Promise<void> {
-    const { repo, sessions, clock } = this.ports;
-    if (!repo.state(id)) return;
+    if (!this.ports.repo.state(id)) return;
+    this.fence(id, beforeExit);
+    await this.drain(id, beforeExit);
+  }
+  /** Nothing new runs in `id`: its recovery and intents retired, its lifetime aborted. */
+  private fence(id: ThreadId, beforeExit: () => void): void {
+    const { repo, clock } = this.ports;
     this.ports.recovery.discard(id);
     retireThreadIntents(repo, id, clock.now(), "Retired for thread deletion");
     // Session close can publish terminal facts before the final cleanup fold.
     beforeExit();
+    this.ports.actor(id)?.lifetime?.abort();
+  }
+  /** Closes a fenced thread's session and settles what was in flight. */
+  private async drain(id: ThreadId, beforeExit: () => void): Promise<void> {
+    const { repo, sessions, clock } = this.ports;
     const actor = this.ports.actor(id);
-    actor?.lifetime?.abort();
     if (actor) await sessions.close(actor, "user");
     await Promise.all([
       this.ports.sends.drain(id),
@@ -228,6 +269,9 @@ export class ThreadLiveness {
     repo.release(id);
   }
 }
+
+/** Why a thread's owner may no longer run work here, shown as its failure (ADR 0209 §7). */
+export type OwnerStop = { code: string; title: string };
 
 /**
  * A thread with no running session: settle what its dead provider left behind. True when that

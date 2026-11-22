@@ -24,6 +24,17 @@ import type { Store } from "../store.ts";
 import { AgentControlError } from "../agent-control/failure.ts";
 import { clip } from "../agent-control/watch-view.ts";
 import type { MachineDirectory } from "./directory.ts";
+
+/** A member tree's delegation, as members' work tracks it (ADR 0209 §7). */
+export interface MemberDelegation {
+  member: { account: string; ttlMs: number };
+  /** The child was named; true when its tree was stopped meanwhile and it must be stopped. */
+  named(child: ThreadId): boolean;
+  /** No child was made there, for certain. */
+  rejected(): void;
+  /** It may have made one: kept until the target says. */
+  ambiguous(): void;
+}
 import type { MachineChildren } from "./children.ts";
 import type { Answer, ResendAnswer } from "./child-messages.ts";
 import type { RequestMirror } from "./mirror.ts";
@@ -102,11 +113,17 @@ export class MachineCaller {
     const machines = await this.deps.directory.list(await this.origin(caller.threadId));
     return { ok: true, data: { machines } };
   }
-  /** One child on another machine; a retried requestId returns the same child. */
+  /**
+   * One child on another machine; a retried requestId returns the same child. A member tree's
+   * delegation (`member`, ADR 0209 §7) carries the member and its deadline to the target, and is
+   * told how it ended: the child named, refused for certain (the target said so, or it was never
+   * sent), or not known (the answer was lost after the call may have arrived).
+   */
   async delegate(
     caller: McpAttribution,
     request: DelegationRequest,
     signal: AbortSignal,
+    member?: MemberDelegation,
   ): Promise<ThreadId> {
     const machine = request.machine;
     if (!machine) throw new Error("Machine required");
@@ -133,8 +150,11 @@ export class MachineCaller {
       provider: request.provider,
       ...(request.model ? { model: request.model } : {}),
       ...(request.accountId ? { account: request.accountId } : {}),
+      ...(member ? { member: member.member } : {}),
     };
     let answer: { threadId: ThreadId; title: string; queued?: boolean | undefined } | undefined;
+    /** Whether any attempt may have reached the target. */
+    let maybeArrived = false;
     // The target keys creation by requestId, so one retry after a dropped connection is safe.
     for (let attempt = 0; !answer; attempt++) {
       try {
@@ -142,9 +162,21 @@ export class MachineCaller {
           await this.deps.directory.call(machine, origin, call, { timeoutMs: 30_000, signal }),
         );
       } catch (error) {
-        signal.throwIfAborted();
-        if (attempt === 0 && error instanceof MachineFailure && error.kind === "disconnected")
+        // Refused by the target, or never sent at all: no child exists there for certain.
+        const certain =
+          error instanceof MachineFailure &&
+          (error.kind === "refused" || (error.kind === "offline" && !maybeArrived));
+        if (!certain) maybeArrived = true;
+        if (
+          !signal.aborted &&
+          attempt === 0 &&
+          error instanceof MachineFailure &&
+          error.kind === "disconnected"
+        )
           continue;
+        if (certain) member?.rejected();
+        else member?.ambiguous();
+        signal.throwIfAborted();
         throw this.deps.directory.controlError(machine, error);
       }
     }
@@ -161,7 +193,64 @@ export class MachineCaller {
       queued: answer.queued === true,
       device,
     });
+    // It landed after its tree was stopped: the cross-machine stop reaches it at once.
+    if (member?.named(answer.threadId)) await this.cancel(answer.threadId);
     return answer.threadId;
+  }
+
+  /**
+   * Whether a delegation whose answer was lost made a child (ADR 0209 §7): asked without making
+   * one. The child, once named, joins the children's ledger like any other; `rejected` only when
+   * the target says for certain that none was made, which also withdraws the request there.
+   */
+  async probe(
+    caller: McpAttribution,
+    request: DelegationRequest,
+  ): Promise<{ child: ThreadId } | "rejected" | "unknown"> {
+    const machine = request.machine;
+    if (!machine) return "rejected";
+    const requestKey = `${caller.threadId}:${request.requestId}`;
+    const known = this.deps.children.byRequest(requestKey);
+    if (known) return { child: known };
+    try {
+      const origin = await this.origin(caller.threadId);
+      const answer = MachineDelegateResult.parse(
+        await this.deps.directory.call(
+          machine,
+          origin,
+          {
+            op: "delegate",
+            requestId: request.requestId,
+            ...(request.project ? { project: request.project } : {}),
+            task: request.task,
+            role: request.role,
+            provider: request.provider,
+            probe: true,
+          },
+          { timeoutMs: 30_000 },
+        ),
+      );
+      this.deps.children.add({
+        id: answer.threadId,
+        requestKey,
+        parentThreadId: caller.threadId,
+        parentAgentId: caller.agentId,
+        machine,
+        role: request.role,
+        provider: request.provider,
+        model: request.model,
+        title: answer.title,
+        queued: answer.queued === true,
+        device: this.deps.directory.device(machine),
+      });
+      return { child: answer.threadId };
+    } catch (error) {
+      return error instanceof MachineFailure &&
+        error.kind === "refused" &&
+        error.refusal === "not_found"
+        ? "rejected"
+        : "unknown";
+    }
   }
   /**
    * A machine on a build from before accounts crossed machines would run the child on its own
