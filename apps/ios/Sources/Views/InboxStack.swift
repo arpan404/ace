@@ -286,8 +286,8 @@ struct InboxStack<Destination: View, Side: View>: View {
         }
     }
     /// The person's avatar at the bar's leading edge, then Code review (the Projects list; neither the
-    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu and compose (New
-    /// thread, New chat on Chats) on one glass capsule at the right: system bar buttons with ace's
+    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu, and Search on a phone
+    /// or compose (New thread, New chat on Chats) in a regular window, on one glass capsule at the right: system bar buttons with ace's
     /// glyphs, at the system's size, on a phone and in a regular window alike. (The system's title
     /// menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
@@ -306,7 +306,15 @@ struct InboxStack<Destination: View, Side: View>: View {
                     .accessibilityIdentifier("inbox.projects")
             }
         }
-        if inbox.canStartThreads {
+        // A phone's Search opens from here; its New thread is the bar's round button (`composeTab`).
+        if sizeClass != .regular {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: header.search) { Image(bar: HomeTabs.icon(.search)) }
+                    .accessibilityLabel(HomeTabs.title(.search))
+                    .accessibilityIdentifier("inbox.search")
+            }
+        }
+        if inbox.canStartThreads && sizeClass == .regular {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: header.compose) { Image(bar: HomeTabs.icon(.compose)) }
                     .accessibilityLabel(chats ? "New chat" : "New thread")

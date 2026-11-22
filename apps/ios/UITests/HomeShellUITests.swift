@@ -1,14 +1,14 @@
 import XCTest
 
-/// The home shell: Threads, Chats, Spade (the fixture's machine shows it), Code review and Search in the tab bar,
-/// compose on the lists, and Search holding the places a More tab used to. Run against the
+/// The home shell: Threads, Chats, Spade (the fixture's machine shows it) in the tab bar with
+/// New thread as its round button, Search in the lists' top bar, holding the places a More tab used to. Run against the
 /// fixture (`ACE_IOS_SPIKE_PORT`, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for another port). With
 /// `TEST_RUNNER_ACE_SHOT_DIR` set, each step's screenshot is written there too.
 @MainActor final class HomeShellUITests: XCTestCase, @unchecked Sendable {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() { continueAfterFailure = false }
 
-    func testTheTabBarHoldsProjectsChatsSpadeAndSearch() {
+    func testTheTabBarHoldsProjectsChatsSpadeAndCompose() {
         let app = launch()
         let projects = app.homeTab("threads")
         XCTAssertTrue(projects.waitForExistence(timeout: 30))
@@ -17,17 +17,22 @@ import XCTest
         // along the foot of the screen in the system's tab bar.
         let spade = app.homeTab("spade")
         XCTAssertTrue(spade.waitForExistence(timeout: 15))
-        let order = [projects, app.homeTab("chats"), spade, app.homeTab("search")]
-        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade", "Search"])
+        let order = [projects, app.homeTab("chats"), spade]
+        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade"])
         let xs = order.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
-        // New thread is in the list's top bar, not the tab bar.
-        XCTAssertFalse(app.homeTab("compose").exists)
+        // New thread is the round button at the bar's end, not in the list's top bar; Search is
+        // in the top bar, not the bar.
         let compose = app.buttons["inbox.compose"]
-        XCTAssertTrue(compose.exists)
+        XCTAssertTrue(compose.waitForExistence(timeout: 15))
         XCTAssertEqual(compose.label, "New thread")
-        XCTAssertLessThan(compose.frame.maxY, app.frame.midY)
+        XCTAssertGreaterThan(compose.frame.minY, app.frame.height * 0.8)
+        XCTAssertGreaterThan(compose.frame.minX, spade.frame.maxX)
+        XCTAssertFalse(app.homeTab("search").exists)
+        let search = app.buttons["inbox.search"]
+        XCTAssertTrue(search.exists)
+        XCTAssertLessThan(search.frame.maxY, app.frame.midY)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
@@ -81,7 +86,7 @@ import XCTest
         capture("settings")
     }
 
-    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
+    func testSearchShowsItsFieldAtOnce() {
         let app = launch()
         app.openSearch()
         // No pull-down: the field is there as the tab opens.
@@ -89,12 +94,7 @@ import XCTest
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
         capture("search-field")
-        // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
-        let tab = app.homeTab("search")
-        XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
-        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
-        tab.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "Search opens without raising the keyboard")
     }
 
     func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {
