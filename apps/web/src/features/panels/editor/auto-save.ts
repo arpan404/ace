@@ -13,7 +13,7 @@ import type { AutoSaveMode } from "@/lib/editor-preferences.ts";
 export interface AutoSaveFile {
   snapshot(): { dirty: boolean; clash: unknown; manualSave?: boolean };
   /** The buffer's save; only a clash and a failure's message matter here. */
-  save(): Promise<{ kind: string } | { kind: "failed"; message: string }>;
+  save(by: "auto"): Promise<{ kind: string } | { kind: "failed"; message: string }>;
 }
 
 export interface AutoSave {
@@ -52,7 +52,7 @@ export function createAutoSave(options: {
     const snapshot = file.snapshot();
     // A Revert waits for the person's own Save.
     if (!snapshot.dirty || snapshot.clash || snapshot.manualSave) return;
-    const outcome = await file.save();
+    const outcome = await file.save("auto");
     if (outcome.kind === "clash") stopped.add(path);
     else if ("message" in outcome) options.failed(path, outcome.message);
   };

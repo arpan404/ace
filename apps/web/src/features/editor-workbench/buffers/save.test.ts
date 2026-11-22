@@ -152,6 +152,51 @@ describe("saving", () => {
   });
 });
 
+/** A Revert of the first line, landed as the gutter lands one. */
+const revert = (buffer: TextBuffer) =>
+  buffer.editLines([{ start: 0, end: 1, text: "a\n" }], { manualSave: true });
+
+describe("a Revert waits for the person's own Save", () => {
+  it("an auto save that was writing when the Revert landed leaves it waiting", async () => {
+    const context = await setup("a\nb\n");
+    replaceLine(context.buffer, 0, "A");
+    const release = context.disk.holdWrites();
+    const writing = context.buffer.save("auto");
+    revert(context.buffer);
+    release();
+    await writing;
+
+    expect(context.buffer.snapshot().manualSave).toBe(true);
+    // Neither more typing nor another auto save writes the reverted text.
+    replaceLine(context.buffer, 1, "B");
+    expect(await context.buffer.save("auto")).toEqual({ kind: "manual" });
+    expect(context.disk.text("places.ts")).toBe("A\nb\n");
+  });
+
+  it("the person's Save that started before the Revert doesn't cover it", async () => {
+    const context = await setup("a\nb\n");
+    replaceLine(context.buffer, 0, "A");
+    const release = context.disk.holdWrites();
+    const writing = context.buffer.save("person");
+    revert(context.buffer);
+    release();
+    await writing;
+
+    expect(context.buffer.snapshot().manualSave).toBe(true);
+  });
+
+  it("the person's Save after the Revert writes it and ends the wait", async () => {
+    const context = await setup("a\nb\n");
+    replaceLine(context.buffer, 0, "A");
+    await context.buffer.save("person");
+    revert(context.buffer);
+
+    expect(await context.buffer.save("person")).toMatchObject({ kind: "saved" });
+    expect(context.disk.text("places.ts")).toBe("a\nb\n");
+    expect(context.buffer.snapshot().manualSave).toBe(false);
+  });
+});
+
 describe("a file changing on disk", () => {
   it("reloads a clean buffer in place, keeping the caret on its text", async () => {
     const context = await setup("a\nb\nc\n");

@@ -147,6 +147,8 @@ export type SaveOutcome =
   | { kind: "unanswered" }
   /** No text to save yet (loading, freed, unreadable). */
   | { kind: "unavailable" }
+  /** An auto save of a file a Revert changed: only the person's own Save writes it. */
+  | { kind: "manual" }
   | { kind: "failed"; message: string };
 
 /** A mounted view's edit path: runs `run` on the document the way the view's own edits run. */
@@ -190,7 +192,11 @@ export interface TextBuffer {
     changes: readonly { start: number; end: number; text: string }[],
     options?: { manualSave?: boolean },
   ): boolean;
-  save(): Promise<SaveOutcome>;
+  /**
+   * Writes the buffer through its version. `by` says who asked: an auto save never writes a
+   * file a Revert changed, and only the person's Save that wrote every Revert ends that wait.
+   */
+  save(by?: "person" | "auto"): Promise<SaveOutcome>;
   /**
    * The explicit answer to a clash on save: write the buffer over the disk version the person
    * was shown (`over`, from `shownVersion`; null for a deleted file). If the disk has moved on

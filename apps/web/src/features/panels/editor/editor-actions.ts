@@ -32,6 +32,8 @@ export interface EditorActionsHost {
   problem(problem: SaveProblem | "offline"): void;
   /** The person saved `path` (auto save resumes for a file it had stopped on). */
   saved?(path: string): void;
+  /** Files the person saved while offline: saved again once the daemon is back. */
+  queued?: Set<string>;
 }
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
@@ -49,6 +51,7 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
   const buffer = host.buffers.buffer(path);
   if (!buffer) return true;
   if (!host.online()) {
+    host.queued?.add(path);
     host.problem("offline");
     return false;
   }
@@ -86,6 +89,16 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
     host.problem({ path, message: `Answer each conflicting block in ${fileName(path)} first.` });
   if (outcome.kind === "failed") host.problem({ path, message: outcome.message });
   return false;
+}
+
+/**
+ * The daemon is back: saves the files the person saved while it was away, and only those: an
+ * unsaved file they didn't save (a Revert waiting for its own Save) stays unsaved.
+ */
+export async function saveQueued(host: EditorActionsHost): Promise<void> {
+  const paths = [...(host.queued ?? [])];
+  host.queued?.clear();
+  for (const path of paths) await saveFile(host, path);
 }
 
 /** Save every unsaved open file. */

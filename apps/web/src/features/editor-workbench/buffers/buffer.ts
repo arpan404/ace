@@ -84,7 +84,9 @@ export class Buffer implements TextBuffer {
   #conflictMine = "";
   #draftKept = true;
   /** A Revert landed: the person's own Save writes the file. */
-  #manualSave = false;
+  #reverts = 0;
+  /** The Reverts a Save the person made has written; fewer than `#reverts` waits for one. */
+  #covered = 0;
   #saving: Promise<SaveOutcome> | undefined;
   #cancelDraft: (() => void) | undefined;
   /** Draft writes and deletes, started when asked and applied in order. */
@@ -122,7 +124,7 @@ export class Buffer implements TextBuffer {
       clash: this.#clash,
       draftKept: this.#draftKept,
       saving: this.#saving !== undefined,
-      manualSave: this.#manualSave,
+      manualSave: this.#reverts !== this.#covered,
       version: this.#base?.version,
     };
   }
@@ -177,8 +179,8 @@ export class Buffer implements TextBuffer {
   ): boolean {
     const doc = this.#doc;
     if (!doc) return false;
-    if (options?.manualSave && !this.#manualSave) {
-      this.#manualSave = true;
+    if (options?.manualSave) {
+      this.#reverts++;
       this.#emit({ type: "state" });
     }
     const through = this.#view?.doc === doc ? this.#view.views().at(-1) : undefined;
@@ -267,8 +269,8 @@ export class Buffer implements TextBuffer {
     await this.#meet(disk);
   }
 
-  save(): Promise<SaveOutcome> {
-    return this.#write("save");
+  save(by: "person" | "auto" = "person"): Promise<SaveOutcome> {
+    return this.#write("save", undefined, by);
   }
 
   /**
@@ -460,8 +462,15 @@ export class Buffer implements TextBuffer {
     this.#emit({ type: "state" });
   }
 
-  async #write(mode: "save" | "replace", over?: string | null): Promise<SaveOutcome> {
+  async #write(
+    mode: "save" | "replace",
+    over?: string | null,
+    by: "person" | "auto" = "person",
+  ): Promise<SaveOutcome> {
     if (this.#saving) return this.#saving;
+    // A Revert waits for the person's own Save: auto save writes nothing until then.
+    if (by === "auto" && this.#reverts !== this.#covered) return { kind: "manual" };
+    const reverts = this.#reverts;
     const doc = this.#doc;
     const base = this.#base;
     const clash = this.#clash;
@@ -490,7 +499,8 @@ export class Buffer implements TextBuffer {
         }
         this.#base = { text, version: result.version };
         this.#clash = undefined;
-        this.#manualSave = false;
+        // The person's Save covers the Reverts it wrote: none landed while it was writing.
+        if (by === "person" && this.#reverts === reverts) this.#covered = reverts;
         this.#conflictMine = "";
         // Typed during the write: unsaved, until undo brings the text back to what was written.
         this.#cleanAt = savedId;
@@ -574,7 +584,8 @@ export class Buffer implements TextBuffer {
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;
-    this.#manualSave = false;
+    // Read afresh: no Revert of this text is waiting.
+    this.#covered = this.#reverts;
     this.#cleanAt = dirty ? Number.NaN : doc.contentId();
     this.#clash = clash;
     this.bytes = utf8Length(text);

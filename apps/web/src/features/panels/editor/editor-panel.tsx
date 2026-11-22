@@ -76,6 +76,7 @@ import {
   keepTypedPreviews,
   saveAll,
   saveFile,
+  saveQueued,
   showPath,
   splitFocused,
   unsavedOf,
@@ -148,6 +149,8 @@ export function EditorPanel(props: TabViewProps) {
     });
   };
   const autoSave = usePanelAutoSave({ buffers, online, problem: setProblem });
+  /** Files the person saved while offline: one set for the panel's life. */
+  const [offlineSaves] = useState(() => new Set<string>());
   const host: EditorActionsHost = {
     buffers,
     layout: () => latest.current,
@@ -155,6 +158,7 @@ export function EditorPanel(props: TabViewProps) {
     online: () => online,
     problem: setProblem,
     saved: (path) => autoSave.savedByHand(path),
+    queued: offlineSaves,
   };
   const saving = { autoSave, save: (path: string) => saveFile(host, path) };
   const target = {
@@ -213,9 +217,9 @@ export function EditorPanel(props: TabViewProps) {
   }, [focused.active, see]);
   const rowMarks = useMemo(() => rowMarksOf(session.treeMarks), [session.treeMarks]);
 
-  // Saves asked for offline run once the daemon is back (spec 66).
+  // Saves asked for offline run once the daemon is back (spec 66): only those files.
   useEffect(() => {
-    if (online && problem === "offline") void saveAll(host);
+    if (online && problem === "offline") void saveQueued(host);
   });
 
   // Layout by room (spec 5).
