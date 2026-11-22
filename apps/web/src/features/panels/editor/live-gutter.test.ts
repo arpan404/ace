@@ -392,8 +392,7 @@ test("Keep retires only the kept lines: an edited agent line elsewhere still com
   expect(agentLines(gutter)).toEqual([2, 3]);
 
   // The person keeps the agent's last line.
-  gutter.keep(3, 4);
-  await gutter.settled();
+  expect(await gutter.keep(3, 4)).toBe(true);
   expect(agentLines(gutter)).toEqual([2]);
 
   // Undoing their edit still brings the agent's first line back; the kept one stays kept.
@@ -413,8 +412,10 @@ test("a Keep the text moved under before it ran retires nothing, never the wrong
   expect(agentLines(gutter)).toEqual([1, 2, 3]);
 
   // Keep line 3 ("agent c"), and a line is typed at the top before the Keep's work runs.
-  gutter.keep(3, 4);
+  const kept = gutter.keep(3, 4);
   type(buffer, 0, "zero\none");
+  // The gutter says it didn't: the review neither records the Keep nor moves on.
+  expect(await kept).toBe(false);
   gutter.edited();
   await pause();
 

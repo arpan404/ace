@@ -207,10 +207,10 @@ export class LiveGutter {
    * The person kept (or reverted) 0-based lines `start..end` of the text as it is now: they stop
    * being the agent's, measured from here on.
    */
-  keep(start: number, end: number): void {
+  keep(start: number, end: number): Promise<boolean> {
     // The lines are the ones of the text as it is at the press: the work is bound to it.
     const doc = this.#buffer.document();
-    if (!doc) return;
+    if (!doc) return Promise.resolve(false);
     const at = { doc, version: doc.version(), text: doc.text() };
     // Shown at once without them; each layer then retires them, measured afresh, in order.
     const shown = withoutLines(this.#shown, start, end);
@@ -218,7 +218,12 @@ export class LiveGutter {
       this.#shown = shown;
       this.#publish({ ...this.#state, agent: shown });
     }
-    this.#enqueue(() => this.#retire(start, end, at));
+    // Resolves true once the lines are retired, false when the work was refused (stale): only
+    // then may the caller record the Keep.
+    return new Promise((resolve) => {
+      this.#enqueue(async () => resolve(await this.#retire(start, end, at)));
+      void this.#chain.then(() => resolve(false));
+    });
   }
 
   /**
@@ -231,17 +236,23 @@ export class LiveGutter {
     start: number,
     end: number,
     at: { doc: EditorDocument; version: number; text: string },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const stale = () =>
       this.#disposed || this.#buffer.document() !== at.doc || at.doc.version() !== at.version;
-    if (stale()) return this.edited();
+    if (stale()) {
+      this.edited();
+      return false;
+    }
     const layers = this.#layers;
     const moved = await Promise.all(
       layers.map((layer) =>
         layer.text === at.text ? [] : this.#deps.diff.lineChanges(layer.text, at.text),
       ),
     );
-    if (stale() || this.#layers !== layers) return this.edited();
+    if (stale() || this.#layers !== layers) {
+      this.edited();
+      return false;
+    }
     const retired = layers.map((layer, index) => ({
       layer: { ...layer, blocks: retireLines(layer.blocks, moved[index] ?? [], start, end) },
       changes: moved[index] ?? [],
@@ -253,6 +264,7 @@ export class LiveGutter {
     );
     this.#publish({ ...this.#state, agent: this.#shown });
     this.#remember();
+    return true;
   }
 
   /** Settles once the scheduled and queued work has run (tests, and a review's first look). */
