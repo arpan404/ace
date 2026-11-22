@@ -1,6 +1,7 @@
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
+import { setShowWork } from "./spade-show-work.ts";
 import { botRow, openProfile, roster, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
@@ -41,6 +42,8 @@ test("Spade is the list's first row, then each bot with what it asks or its last
 });
 
 test("opening a bot shows its conversation as bubbles from both sides, each of its messages its own bubble, its tool calls as one quiet line in words", async () => {
+  // Work is folded away by default; this test is about how it reads when it shows.
+  setShowWork(true);
   await spadeApp("/spade", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
