@@ -172,21 +172,32 @@ fn an_app_that_says_a_tool_may_write_narrows_a_read_its_name_makes() {
 
 #[test]
 fn with_untrusted_content_in_view_an_apps_writes_stay_with_the_person() {
-    for granted in [Granted::No, Granted::Tool] {
-        for mode in [Mode::AutoReview, Mode::FullAccess] {
+    for mode in [Mode::AutoReview, Mode::FullAccess] {
+        for remembered in [None, Some(true)] {
             let call = Call {
                 tainted: true,
-                granted,
+                remembered,
                 mode,
                 ..notion("create_page", "", silent())
             };
             assert_eq!(
                 route(call),
                 Route::ask(UNDECLARED_TAINTED),
-                "{granted:?} {mode:?}"
+                "{remembered:?} {mode:?}"
             );
         }
     }
+    // Only the person's Always allow for the app's writes hands it to the reviewer instead,
+    // told to check the call wasn't steered by that content.
+    let granted = Call {
+        tainted: true,
+        granted: Granted::Tool,
+        ..notion("create_page", "", silent())
+    };
+    assert_eq!(
+        route(granted),
+        Route::Review(Some(GRANTED_TAINTED.to_owned()))
+    );
 }
 
 #[test]

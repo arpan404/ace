@@ -301,6 +301,19 @@ pub fn ace(name: &str, risk: Risk, declared: Option<Effect>, _arguments: &Value)
     declared.map_or(hinted, |declared| declared.max(hinted))
 }
 
+/// Which of a connected app's Always allows can cover a call with `effect` (ADR 0202, amendment
+/// 2): `Some(false)` its reads, `Some(true)` its writes (one that declares nothing, or a write
+/// outside the bot that isn't a publish), `None` for what no Always allow covers: a publish, a
+/// payment, a send in the person's name, a driving step, an access change, a secret or an effect
+/// Spade can't name. The gate decides a delete and untrusted content in view before any grant.
+pub fn app_class(effect: Option<Effect>) -> Option<bool> {
+    match effect {
+        Some(Effect::Read) => Some(false),
+        None | Some(Effect::WriteLocal | Effect::Network) => Some(true),
+        Some(_) => None,
+    }
+}
+
 /// The `_meta` key where ace declares one of its tools' effects.
 pub const ACE_EFFECT_KEY: &str = "ace/effect";
 
@@ -426,6 +439,10 @@ pub enum Ask {
     /// A driving step: its "always" allows the app or site for the bot, when it may be granted,
     /// and never stores an Always allow for the tool.
     Drive,
+    /// A connected app's write (ADR 0202, amendment 2): the request offers an Always allow for
+    /// the app's writes (`app` names the connection), which the person grants with their stamp
+    /// as any grant; its own "always" stores nothing for the tool.
+    App,
 }
 
 /// A stored `ask`, read leniently: a word this build doesn't know is no `ask`.
@@ -637,7 +654,8 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
 /// Where a tool that declares nothing goes (ADR 0202, amendment 2): one the person declined for
 /// the bot is refused wherever it runs; inside the sandbox it runs. Elsewhere, while untrusted
 /// content is in view, the person decides (ADR 0130): nothing says it doesn't send what that
-/// content asked for. Otherwise a "yes" the person gave for the bot, or their Always allow for
+/// content asked for. Only their Always allow for its app's writes hands it to the reviewer
+/// then, told to check it wasn't steered by that content, as any grant under taint. Otherwise a "yes" the person gave for the bot, or their Always allow for
 /// its app (a grant of the app's writes), lets it run, and the reviewer judges the rest from its
 /// name, description, app and arguments; whatever the reviewer won't approve goes to the person.
 /// Under a package's ceiling no answer is kept for it ([`ceiling::fresh_each_time`]), so the
@@ -652,6 +670,11 @@ fn undeclared(call: Call<'_>) -> Route {
         return Route::Run;
     }
     if call.tainted {
+        // The person's Always allow for its app is their say on the app's writes: with that
+        // content in view the reviewer checks the call wasn't steered by it, as for any grant.
+        if call.granted == Granted::Tool && call.remembered.is_none() {
+            return review(call, Some(GRANTED_TAINTED));
+        }
         return Route::ask(UNDECLARED_TAINTED);
     }
     if call.remembered == Some(true) || call.granted == Granted::Tool {

@@ -224,10 +224,13 @@ async fn a_bot_finds_and_runs_only_the_connectors_it_is_allowed() -> Result {
 
     let main = main_conversation(&spade).await?;
     spade.say(&main, "Echo something").await?;
-    // A connector added by URL has no catalogue entry, so its tool declares nothing: the person
-    // decides once for this bot (ADR 0171, amendment 1), its read-only hint notwithstanding.
+    // A connector added by URL has no catalogue entry and `echo` names no read, so its tool
+    // declares nothing, its read-only hint notwithstanding: the reviewer judges it (ADR 0202,
+    // amendment 2). Here nothing answers for the reviewer, so the person decides, offered an
+    // Always allow for the app's writes.
     let events = spade.wait_for(&main, "approval_requested").await?;
-    assert_eq!(asked(&events, "c2")["ask"], "undeclared");
+    assert_eq!(asked(&events, "c2")["ask"], "app");
+    assert_eq!(asked(&events, "c2")["app"], "127-0-0-1");
     answer(&spade, &main, "c2").await?;
     let events = spade.wait_for(&main, "reply_finished").await?;
     assert!(result(&events, "c1")?.contains("127-0-0-1__echo: Fake: echo in the fake app"));

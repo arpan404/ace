@@ -770,7 +770,22 @@ pub(super) async fn handle_calls(
                             if driven.is_some() {
                                 ask = Some(effect::Ask::Drive);
                             }
-                            let app = None;
+                            // A connected app's write offers an Always allow for the app's
+                            // writes (ADR 0202, amendment 2), where one could cover it: no
+                            // delete, no package or organization.
+                            let app = match engine.tools.get_for(id, &name).and_then(|t| t.app()) {
+                                Some((app, _))
+                                    if ask.is_none()
+                                        && effect::app_class(declared) == Some(true)
+                                        && !gate.destructive
+                                        && ceiling.is_none()
+                                        && org.is_none() =>
+                                {
+                                    ask = Some(effect::Ask::App);
+                                    Some(app)
+                                }
+                                _ => None,
+                            };
                             let asked = Event::Known(Known::ApprovalRequested {
                                 reply: reply.to_owned(),
                                 call_id: pending.call.id.clone(),

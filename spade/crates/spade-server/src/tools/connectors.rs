@@ -146,23 +146,47 @@ impl ConnectorCall {
     }
 }
 
+impl ConnectorCall {
+    /// Its effect and whether each call goes to the person, from its server's word and its own
+    /// name and description (`spade_core::effect::app_tool`).
+    fn reading(&self) -> (Option<spade_core::effect::Effect>, bool) {
+        let said = spade_core::effect::named(&self.tool.tool.name, &self.tool.tool.description);
+        spade_core::effect::app_tool(self.facts(), said)
+    }
+}
+
 impl Tool for ConnectorCall {
     fn def(&self) -> ToolDef {
         self.def.clone()
     }
 
-    /// What its catalogue entry declares, raised by its annotations (ADR 0171): with no entry
-    /// for it, a connector's tool, which holds the person's sign-in, declares nothing.
+    /// What its catalogue entry declares, raised by its annotations (ADR 0171); with no entry
+    /// for it, what its own name says, where it says a read or something only the person decides
+    /// (ADR 0202, amendment 2). Otherwise a connector's tool, which holds the person's sign-in,
+    /// declares nothing.
     fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
-        spade_core::effect::mcp(self.facts())
+        self.reading().0
     }
 
+    /// Its server's hints, with a delete its name makes marked destructive: the person decides
+    /// each call of it, whatever the server says.
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
-        Some(self.facts())
+        let facts = self.facts();
+        Some(spade_core::effect::Mcp {
+            destructive: facts.destructive || (facts.declared.is_none() && self.reading().1),
+            ..facts
+        })
     }
 
     fn connected_app(&self) -> bool {
         true
+    }
+
+    fn app(&self) -> Option<(String, String)> {
+        Some((
+            self.tool.connector.clone(),
+            self.tool.connector_name.clone(),
+        ))
     }
 
     /// The connection, its server's address, the server's own tool name and its schema.
