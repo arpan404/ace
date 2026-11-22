@@ -59,7 +59,14 @@ function aceChild(
   };
 }
 
-const children = [
+interface Child {
+  id: string;
+  name: string;
+  provider: ProviderKind;
+  how: "working" | "done" | "plan";
+}
+
+const children: readonly Child[] = [
   {
     id: "research-pricing",
     name: "Research-pricing",
@@ -87,7 +94,7 @@ const children = [
 ];
 
 /** Research, which started four ace agents with one `delegate`, one of them waiting on a plan. */
-function seedResearch(spade: FakeSpadeApi, only = children) {
+function seedResearch(spade: FakeSpadeApi, only: readonly Child[] = children) {
   withEndpoint(spade);
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   const research = spade.addAgent({
@@ -125,7 +132,7 @@ function seedResearch(spade: FakeSpadeApi, only = children) {
   spade.store(c, { type: "reply_finished", reply: "r1", text: said });
 }
 
-const play = (daemon: FakeDaemon, only = children) => {
+const play = (daemon: FakeDaemon, only: readonly Child[] = children) => {
   for (const each of only)
     new ScenarioPlayer(
       daemon,
@@ -144,7 +151,7 @@ test("a bot that delegates shows one card for the call, one row per agent with i
       "The four research agents are paused pending your approval in the sidebar.",
     ),
   ).toBeTruthy();
-  const head = await chat.findByRole("button", { name: "Started 4 agents" });
+  const head = await chat.findByRole("button", { name: "4 subagents running" });
   await waitFor(() => expect(head.textContent).toMatch(/1 waiting on you · 2 working · 1 done/));
   await userEvent.click(head);
   const rows = within(chat.getByRole("list", { name: "Subagents" }));
@@ -161,6 +168,58 @@ test("a bot that delegates shows one card for the call, one row per agent with i
   await waitFor(() =>
     expect(support.textContent).toContain("Comparing what Research-support found so far."),
   );
+});
+
+/** Three of the children, each set to `how`; the first may take the plan child's name. */
+function three(how: readonly Child["how"][], first?: Pick<Child, "id" | "name">): Child[] {
+  return children.slice(1).map((each, at) => {
+    const child: Child = Object.assign({}, each, { how: how[at] ?? "working" });
+    return at === 0 && first ? Object.assign(child, first) : child;
+  });
+}
+
+test("a bot's delegation to three ace agents is a live 3 subagents running row that opens each thread", async () => {
+  const only = three(["working", "working", "working"]);
+  await spadeApp("/spade/research", (spade) => seedResearch(spade, only), {
+    daemon: (daemon) => play(daemon, only),
+  });
+  const chat = within(await feed());
+  // Conversation, not work: there with Show work off, as it is by default.
+  const head = await chat.findByRole("button", { name: "3 subagents running" });
+  await waitFor(() => expect(head.textContent).toMatch(/3 working/));
+  await userEvent.click(head);
+  const rows = within(chat.getByRole("list", { name: "Subagents" }));
+  for (const each of only) {
+    const row = rows.getByRole("link", { name: `Open ${each.name}` });
+    expect(row.getAttribute("href")).toBe(`/t/${each.id}`);
+    expect(row.textContent).toContain("Running");
+  }
+});
+
+test("a child that needs the person surfaces in the parent's chat, and the row says so", async () => {
+  const only = three(["plan", "working", "done"], {
+    id: "research-pricing",
+    name: "Research-pricing",
+  });
+  await spadeApp("/spade/research", (spade) => seedResearch(spade, only), {
+    daemon: (daemon) => play(daemon, only),
+  });
+  const chat = within(await feed());
+  const head = await chat.findByRole("button", { name: "3 subagents running" });
+  await waitFor(() => expect(head.textContent).toMatch(/1 waiting on you/));
+  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  expect(await within(region).findByText("Plan for Research-pricing")).toBeTruthy();
+});
+
+test("the row never reads ran while a child is still working", async () => {
+  const only = three(["done", "done", "working"]);
+  await spadeApp("/spade/research", (spade) => seedResearch(spade, only), {
+    daemon: (daemon) => play(daemon, only),
+  });
+  const chat = within(await feed());
+  const head = await chat.findByRole("button", { name: "3 subagents running" });
+  await waitFor(() => expect(head.textContent).toMatch(/1 working · 2 done/));
+  expect(chat.queryByRole("button", { name: "3 subagents ran" })).toBeNull();
 });
 
 test("a child waiting on plan review shows its plan at the chat's end, and Approve reaches the child", async () => {
@@ -190,7 +249,7 @@ test("Needs you in the bot list opens the chat at the waiting card, and Review g
   await waitFor(() => expect(document.activeElement).toBe(region));
 
   const chat = within(await feed());
-  await userEvent.click(await chat.findByRole("button", { name: "Started 4 agents" }));
+  await userEvent.click(await chat.findByRole("button", { name: "4 subagents running" }));
   await userEvent.click(chat.getByRole("button", { name: "Review what Research-pricing needs" }));
   await waitFor(() =>
     expect(document.activeElement?.getAttribute("data-worker-request")).toBe("research-pricing"),

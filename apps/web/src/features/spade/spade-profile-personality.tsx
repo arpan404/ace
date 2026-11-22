@@ -82,7 +82,7 @@ export function PersonalityRows(props: {
           value={now.tone ?? own}
           options={toneOptions}
           onValueChange={(tone) => save({ ...now, tone: tone === own ? undefined : tone })}
-          className="w-56 max-w-full"
+          className="w-56 max-w-full @max-[440px]:w-full"
         />
       </SettingRow>
       <SettingRow title="Humour" htmlFor={ids.humour} density="compact" inline>

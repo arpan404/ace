@@ -1,3 +1,4 @@
+import type { SubagentState } from "../subagents.ts";
 import type {
   SpadeApproval,
   SpadeEntry,
@@ -70,12 +71,14 @@ type SpadeBubbleOf =
        * offers Keep as a test (ADR 0204).
        */
       keep?: string;
+      /** The turn it is part of, whose work lines Show work brings back (`spadeWorkTurn`). */
+      turn?: string;
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
    * quiet line under the reply that opens to them and where each came from.
    */
-  | { kind: "recalled"; key: string; notes: readonly string[] }
+  | { kind: "recalled"; key: string; notes: readonly string[]; turn?: string }
   /**
    * The steps a reply took, as one quiet line under it that opens to each (`spadeReplySteps`);
    * the ones the person must see stand under it unopened.
@@ -87,13 +90,14 @@ type SpadeBubbleOf =
       steps: readonly SpadeStep[];
       /** Undoing the whole turn's file changes, when any step can be undone (ADR 0167). */
       undo: SpadeTurnUndo | undefined;
+      turn?: string;
     }
   /** Files a tool kept with no reply after them yet: chips on the bot's side. */
   | { kind: "files"; key: string; paths: readonly string[] }
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
-  | { kind: "remembered"; key: string; note: SpadeRememberedNote }
+  | { kind: "remembered"; key: string; note: SpadeRememberedNote; turn?: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet }
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
   /** "Made a new bot: Research · …", with Open and Undo. */
@@ -121,10 +125,14 @@ type SpadeBubbleOf =
   | {
       kind: "contract";
       key: string;
+      /** The bot whose contract it called, by name. */
+      bot: string;
       text: string;
       /** The output's fields in one line, or why it failed; empty while it is open. */
       result: string;
       open: boolean;
+      /** How it stands, in ace's words for a child (`spadeChildState`). */
+      state: SubagentState;
       at?: number;
     }
   /**
@@ -138,6 +146,8 @@ type SpadeBubbleOf =
       text: string;
       /** Still working (or waiting on the person). */
       open: boolean;
+      /** How it stands, in ace's words for a child (`spadeChildState`). */
+      state: SubagentState;
     }
   /**
    * A card of questions (ADR 0154), as the bot's bubble where it asked, with how it stands:
@@ -280,9 +290,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push({
         kind: "contract",
         key: entry.key,
+        bot: entry.bot,
         text: spadeContractLine(entry),
         result: entry.result,
         open: entry.outcome === undefined,
+        state: spadeChildState(entry.outcome, false),
         ...stamp(entry.at),
       });
       continue;
@@ -301,6 +313,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         job: entry.job,
         text: spadeHelperLine(entry, waiting),
         open: entry.outcome === undefined,
+        state: spadeChildState(entry.outcome, waiting),
         ...stamp(entry.at),
       });
       continue;
@@ -371,7 +384,12 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
     else if (!quiet) replyBubbles(entry, bubbles, held, ask);
     // What it had in mind, under the reply that answered the message, once it finished.
     if (!quiet && !grouped && entry.end && recalled.length) {
-      bubbles.push({ kind: "recalled", key: `${entry.key}:recalled`, notes: recalled });
+      bubbles.push({
+        kind: "recalled",
+        key: `${entry.key}:recalled`,
+        notes: recalled,
+        turn: entry.key,
+      });
       recalled = [];
     } else
       for (const part of entry.parts) if (part.kind === "files") hold(held, part.key, part.paths);
@@ -387,6 +405,20 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   for (const outside of view.outsideAsks)
     bubbles.push({ kind: "plugin-outside", key: `outside:${outside.id}`, ...outside });
   return bubbles;
+}
+
+/**
+ * A helper's or a contract call's state as ace says a child's: waiting on the person, at work,
+ * done, failed or stopped. Never done while it hasn't ended (AGENTS.md priority 1).
+ */
+export function spadeChildState(
+  outcome: "done" | "returned" | "failed" | "stopped" | undefined,
+  waiting: boolean,
+): SubagentState {
+  if (outcome === undefined) return waiting ? "human" : "working";
+  if (outcome === "failed") return "failed";
+  if (outcome === "stopped") return "cancelled";
+  return "done";
 }
 
 /** `at` as a bubble carries it: absent when unknown. */
@@ -444,6 +476,7 @@ function replyBubbles(
   const say = (text: string, live: boolean) => {
     pushBot(bubbles, held, {
       key: count++ ? `${entry.key}:${count}` : entry.key,
+      turn: entry.key,
       text,
       live,
       end: undefined,
@@ -478,7 +511,12 @@ function replyBubbles(
       documents.push(...part.documents);
       attach();
     } else if (part.kind === "remembered") {
-      bubbles.push({ kind: "remembered", key: `${entry.key}:${part.key}`, note: part.note });
+      bubbles.push({
+        kind: "remembered",
+        key: `${entry.key}:${part.key}`,
+        note: part.note,
+        turn: entry.key,
+      });
     } else if (part.kind === "question") {
       bubbles.push({ ...part, key: `${entry.key}:${part.key}`, ...at });
     } else if (part.kind === "files") {
@@ -531,10 +569,11 @@ function replyBubbles(
       kind: "quiet",
       key: `${entry.key}:served:${line}`,
       quiet: { kind: "served", line },
+      turn: entry.key,
     });
   // What it did, under what it said.
   const steps = spadeReplySteps(entry);
-  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps });
+  if (steps) bubbles.push({ kind: "steps", key: `${entry.key}:steps`, ...steps, turn: entry.key });
 }
 
 /** A group's reply in the bot's own chat: only its cards, where the person answers them. */

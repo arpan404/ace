@@ -59,9 +59,10 @@ export function ProfileReach(props: { bot: RosterBot }) {
         />
       </SettingRow>
       {own.data.notify !== false && (
-        <SettingRow inline title="During quiet hours, approvals and questions">
+        <SettingRow title="During quiet hours, approvals and questions">
           <Select
             label="During quiet hours, approvals and questions"
+            className="@max-[440px]:w-full"
             value={own.data.approvals ?? "inherit"}
             options={approvalChoices}
             onValueChange={(next) =>

@@ -1,8 +1,11 @@
 import {
-  spadeActivityRow,
+  spadeActivityInScope,
+  spadeActivityItems,
   spadeConnectorOf,
   spadeWhen,
   type SpadeActivityEntry,
+  type SpadeActivityItem,
+  type SpadeActivityScope,
 } from "@ace/ui-core/spade-chat";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useInfiniteQuery } from "@tanstack/react-query";
@@ -24,11 +27,12 @@ const pageSize = 50;
 
 /**
  * What the bot did (ADR 0135), newest first, never in the chat: each row is Spade's sentence with
- * its detail under it, and when it happened at the right. Only an exception takes the time's
- * place, in its colour: what failed, was refused or waits on the person. Show older reads the
- * page before the last entry shown.
+ * its detail under it, and when it happened at the right; a call's ask, review, answer and use
+ * are one row. Only an exception takes the time's place, in its colour: what failed, was refused
+ * or waits on the person. `scope`: Computer shows only its computer's use, Work the whole log.
+ * Show older reads the page before the last entry shown.
  */
-export function SpadeActivity(props: { bot: RosterBot }) {
+export function SpadeActivity(props: { bot: RosterBot; scope: SpadeActivityScope }) {
   const { bot } = props;
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
@@ -47,7 +51,11 @@ export function SpadeActivity(props: { bot: RosterBot }) {
     // What it did changes while it works.
     refetchInterval: 30_000,
   });
-  const entries = activity.data?.pages.flatMap((page) => page.entries) ?? [];
+  const entries = spadeActivityInScope(
+    activity.data?.pages.flatMap((page) => page.entries) ?? [],
+    props.scope,
+  );
+  const items = spadeActivityItems(entries);
   const zone = personZone();
   return (
     <div className="flex flex-col gap-2">
@@ -63,7 +71,9 @@ export function SpadeActivity(props: { bot: RosterBot }) {
           <ProfileEmpty>
             {activity.hasNextPage
               ? "Nothing in the most recent part of its history."
-              : `${bot.name} hasn't done anything yet.`}
+              : props.scope === "computer"
+                ? "No computer use yet."
+                : `${bot.name} hasn't done anything yet.`}
           </ProfileEmpty>
         ) : (
           <ol
@@ -72,8 +82,8 @@ export function SpadeActivity(props: { bot: RosterBot }) {
             {...part("list")}
             className="flex flex-col divide-y divide-border-soft"
           >
-            {entries.map((entry) => (
-              <Row key={entry.id} entry={entry} now={now} zone={zone} />
+            {items.map((item) => (
+              <Row key={item.key} item={item} now={now} zone={zone} />
             ))}
           </ol>
         )}
@@ -113,13 +123,13 @@ function useStepApp(entry: SpadeActivityEntry) {
   return id ? connectors?.find((each) => each.id === id) : undefined;
 }
 
-function Row(props: { entry: SpadeActivityEntry; now: number; zone: string }) {
-  const row = spadeActivityRow(props.entry);
-  const app = useStepApp(props.entry);
-  const when = spadeWhen(props.entry.at, props.now, props.zone);
+function Row(props: { item: SpadeActivityItem; now: number; zone: string }) {
+  const { entry, row } = props.item;
+  const app = useStepApp(entry);
+  const when = spadeWhen(entry.at, props.now, props.zone);
   return (
     <li
-      {...part("list-row", outcomeState[props.entry.outcome ?? ""], props.entry.kind)}
+      {...part("list-row", outcomeState[entry.outcome ?? ""], entry.kind)}
       className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-2.5"
     >
       <span className="text-ui text-foreground">

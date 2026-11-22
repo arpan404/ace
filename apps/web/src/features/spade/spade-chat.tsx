@@ -6,6 +6,8 @@ import {
   type SpadeTaskLine,
   parseSpadeAvatar,
   spadeBubbles,
+  spadeTurnsWithWork,
+  spadeWithoutWork,
   spadeChatRows,
   spadePlainText,
   type SpadeChatRow,
@@ -36,9 +38,9 @@ import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
+import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
-import { SpadeContractLine } from "./spade-contract-line.tsx";
-import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { SpadeChildRow } from "./spade-child-row.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
@@ -146,19 +148,27 @@ export function SpadeChat(props: {
   const keep = useMemo(() => ({ owner: client, conversation: bot.id }), [client, bot.id]);
   const proposals = props.proposals;
   const digests = props.digests;
+  // Each reply's work (its steps, the notes it had in mind) stays out of the chat unless the
+  // person shows it: for every reply in Settings, or for one from its More menu.
+  const showWork = useShowWork();
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const bubbles = useMemo(() => spadeBubbles(view), [view]);
+  const workTurns = useMemo(() => spadeTurnsWithWork(bubbles), [bubbles]);
   const rows = useMemo(
     () =>
       // The notes it saves stay in its Memory dialog, never in the chat.
       spadeChatRows(
         withSpadeDigests(
-          withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
-            (item) => item.kind !== "remembered",
-          ),
+          withProposals(
+            spadeWithoutWork(bubbles, { all: showWork, turns: opened }),
+            view.entries,
+            proposals ?? [],
+          ).filter((item) => item.kind !== "remembered"),
           digests ?? [],
         ),
         { now },
       ),
-    [view, proposals, digests, now],
+    [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const from = useNewestFirst(rows.length);
   const started = useMemo(() => startedWorkers(rows), [rows]);
@@ -196,6 +206,19 @@ export function SpadeChat(props: {
   // The finished reply being kept as a test (ADR 0204): its review is open.
   const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
+    work: (turn) =>
+      turn === undefined || showWork || !workTurns.has(turn)
+        ? undefined
+        : {
+            shown: opened.has(turn),
+            toggle: () =>
+              setOpened((before) => {
+                const next = new Set(before);
+                if (next.has(turn)) next.delete(turn);
+                else next.add(turn);
+                return next;
+              }),
+          },
     endpointName: props.endpointName,
     onProposal: props.onProposal,
     onAnswer: props.onAnswer,
@@ -335,6 +358,8 @@ function openReply(entries: readonly SpadeEntry[]) {
 }
 
 interface Handlers {
+  /** A reply's Show work, by its turn: undefined when it has no work to show, or all shows. */
+  work(turn: string | undefined): { shown: boolean; toggle(): void } | undefined;
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
@@ -481,6 +506,7 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
+              work={item.live ? undefined : handlers.work(item.turn)}
             >
               <div
                 {...part(
@@ -756,21 +782,30 @@ function Single(props: {
           <NamedLine item={item} bot={props.handlers.profile} />
         </div>
       ) : null;
+    // A helper and a contract call are children the bot started: ace's child row, live.
     case "helper": {
       return (
         <div className={space}>
-          <SpadeHelperLine text={item.text} open={item.open} since={item.at} />
+          <SpadeChildRow
+            name="Helper"
+            state={item.state}
+            detail={item.text}
+            startedAt={item.at}
+            onOpen={props.handlers.onOpenWork}
+          />
         </div>
       );
     }
     case "contract":
       return (
         <div className={space}>
-          <SpadeContractLine
-            text={item.text}
-            result={item.result}
-            open={item.open}
-            since={item.at}
+          <SpadeChildRow
+            name={item.bot}
+            meta="Contract"
+            state={item.state}
+            detail={item.open || !item.result ? item.text : item.result}
+            startedAt={item.at}
+            onOpen={props.handlers.onOpenWork}
           />
         </div>
       );
