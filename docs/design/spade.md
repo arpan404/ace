@@ -97,8 +97,10 @@ Spade is one of ace's places. It adds no navigation of its own.
   A long message keeps its first paragraph as a bubble above the card. Nothing is cut without the
   card.
 - **Reply.** Every stored message, the bot's or the person's, offers Reply in its hover actions
-  (and a long press on touch). The composer then shows one line above the field on a 2px rule:
-  "Replying to Flights · …" with × to stop. A sent reply, and a bot's reply to an earlier message,
+  (and a long press on touch). The composer then opens with one line inside its surface, above
+  the words, on a 2px rule: "Replying to Flights · …" with × to stop. It is the composer's own
+  line, never a strip loose over the transcript, and starts 24px down so Scroll to end can rest on
+  the composer's top edge above it. A sent reply, and a bot's reply to an earlier message,
   carries one quiet line above its bubble on the same rule: the sender's name in 12/16 at 500,
   then their first line, muted. Clicking it scrolls to the original and lights it a moment with
   the focus ring. A quote to a message that isn't there shows nothing. In a club the person can
