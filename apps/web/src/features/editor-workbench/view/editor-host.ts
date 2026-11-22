@@ -65,6 +65,8 @@ export interface BufferEditorProps {
   onEdited?: (() => void) | undefined;
   /** This view's text lost the keyboard (auto save on focus change). */
   onBlurred?: (() => void) | undefined;
+  /** The text can't be changed now (a host whose files are, for the moment, someone else's). */
+  readOnly?: boolean | undefined;
 }
 
 /** The device's editor preferences a view applies, live. */
