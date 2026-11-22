@@ -201,7 +201,7 @@ test("confirms before discarding tracked/untracked files and asks an extra confi
   });
 });
 
-test("switches and creates branches, stashes and pops, and refuses branch switch while the agent is busy", async () => {
+test("switches and creates branches, stashes and pops, and waits to switch or pull while the agent works", async () => {
   const { app, explorer } = await openSourceControl();
 
   // Switch to an existing branch via the branch picker popover.
@@ -234,13 +234,17 @@ test("switches and creates branches, stashes and pops, and refuses branch switch
   await userEvent.click(await screen.findByRole("menuitem", { name: "Pop latest stash" }));
   await within(explorer).findByRole("region", { name: "Changes" });
 
-  // Refuses branch switch with a plain message when the agent is working.
+  // While the agent works, switching branches, pulling and stashing wait, and say why.
   app.daemon.apply(thread, [facts.turn("root")]);
-  await userEvent.click(within(explorer).getByRole("button", { name: "Branch: feat/new-branch" }));
-  await userEvent.click(await screen.findByRole("button", { name: "main" }));
   await waitFor(() => {
-    expect(within(explorer).getByRole("alert").textContent).toContain("Agents are working");
+    expect(
+      within(explorer)
+        .getByRole("button", { name: "Branch: feat/new-branch" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
+  const pull = within(explorer).getByRole("button", { name: "Pull: wait for the agent to finish" });
+  expect(pull.hasAttribute("disabled")).toBe(true);
 });
 
 test("Open changes opens the file diff in the editor via editor-compare, and Open file returns to editing", async () => {

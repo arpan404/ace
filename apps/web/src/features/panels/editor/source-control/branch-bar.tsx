@@ -41,6 +41,8 @@ export function BranchBar(props: {
   stashes: readonly GitStashEntry[];
   stashesLoading: boolean;
   disabled: boolean;
+  /** The thread's agent is working: switching, pulling and stashing wait until it stops. */
+  agentWorking: boolean;
   pendingAction: string | undefined;
   onOpenBranches(): void;
   onOpenStashes(): void;
@@ -58,6 +60,8 @@ export function BranchBar(props: {
 
   const filtered = useMemo(() => filterBranches(props.branches, query), [props.branches, query]);
   const busy = props.disabled || props.pendingAction !== undefined;
+  const treeLocked = busy || props.agentWorking;
+  const waitWords = "Wait for the agent to finish";
   const branchLabel = props.branch ?? "Detached HEAD";
 
   const pickBranch = (option: BranchOption) => {
@@ -90,11 +94,11 @@ export function BranchBar(props: {
         }}
       >
         <PopoverTrigger
-          disabled={busy}
+          disabled={treeLocked}
           render={
             <BranchButton
               label={`Branch: ${branchLabel}`}
-              tip={`Switch or create branch (${branchLabel})`}
+              tip={props.agentWorking ? waitWords : `Switch or create branch (${branchLabel})`}
               className="flex h-6 min-w-0 flex-1 items-center gap-1 rounded-sm px-1.5 text-xs font-medium text-foreground transition-colors duration-(--motion-fast) hover:bg-hover focus-ring disabled:opacity-50"
             >
               <Icon icon={GitBranchIcon} size={13} className="shrink-0 text-muted-foreground" />
@@ -182,9 +186,15 @@ export function BranchBar(props: {
       <div className="flex shrink-0 items-center gap-0.5">
         <SyncAction
           icon={ArrowDownIcon}
-          label={props.behind > 0 ? `Pull (${props.behind} behind)` : "Pull"}
+          label={
+            props.agentWorking
+              ? `Pull: ${waitWords.toLowerCase()}`
+              : props.behind > 0
+                ? `Pull (${props.behind} behind)`
+                : "Pull"
+          }
           count={props.behind}
-          disabled={busy}
+          disabled={treeLocked}
           spinning={props.pendingAction === "pull"}
           onClick={props.onPull}
         />
@@ -223,10 +233,15 @@ export function BranchBar(props: {
           <MenuContent align="end" className="w-60">
             <MenuGroup>
               <MenuLabel>Stash</MenuLabel>
-              <MenuItem onClick={() => props.onStash(false)}>Stash</MenuItem>
-              <MenuItem onClick={() => props.onStash(true)}>Stash including untracked</MenuItem>
+              {props.agentWorking && <MenuLabel>{waitWords}</MenuLabel>}
+              <MenuItem disabled={props.agentWorking} onClick={() => props.onStash(false)}>
+                Stash
+              </MenuItem>
+              <MenuItem disabled={props.agentWorking} onClick={() => props.onStash(true)}>
+                Stash including untracked
+              </MenuItem>
               <MenuItem
-                disabled={props.stashes.length === 0}
+                disabled={props.agentWorking || props.stashes.length === 0}
                 onClick={() => props.onPopStash(undefined)}
               >
                 Pop latest stash
@@ -243,7 +258,11 @@ export function BranchBar(props: {
                 <MenuItem disabled>No stashes</MenuItem>
               ) : (
                 props.stashes.map((stash) => (
-                  <MenuItem key={stash.ref} onClick={() => props.onPopStash(stash.ref)}>
+                  <MenuItem
+                    key={stash.ref}
+                    disabled={props.agentWorking}
+                    onClick={() => props.onPopStash(stash.ref)}
+                  >
                     <span className="flex min-w-0 flex-col">
                       <span className="truncate text-xs text-foreground">{stash.message}</span>
                       <span className="truncate font-mono text-[11px] text-subtle-foreground">

@@ -195,32 +195,29 @@ export function SourceControlView(props: {
     const trimmed = message.trim();
     if (!trimmed) return;
     const stagedOnly = sc.sections.staged.length > 0;
-    const result = await sc.runAction("commit", async () => {
-      const committed = await commitChanges(client, threadId, {
+    const committed = await sc.runAction("commit", () =>
+      commitChanges(client, threadId, {
         message: trimmed,
         expectedHead: sc.head,
         stagedOnly,
         amend: mode === "amend",
         draftFingerprint,
-      });
-      if (mode === "commit-and-push") {
+      }),
+    );
+    if (!committed) return;
+    // The commit landed: its message is spent even if the push below fails.
+    setMessage("");
+    setDraftFingerprint(undefined);
+    setDraftError(undefined);
+    if (mode === "commit-and-push") {
+      const pushed = await sc.runAction("push", async () => {
         await pushChanges(client, threadId);
-      }
-      return committed;
-    });
-    if (result) {
-      setMessage("");
-      setDraftFingerprint(undefined);
-      setDraftError(undefined);
-      toast.add({
-        title:
-          mode === "commit-and-push"
-            ? "Committed and pushed"
-            : mode === "amend"
-              ? "Amended last commit"
-              : "Committed changes",
+        return true;
       });
+      if (pushed) toast.add({ title: "Committed and pushed" });
+      return;
     }
+    toast.add({ title: mode === "amend" ? "Amended last commit" : "Committed changes" });
   };
 
   const handleConfirmDiscard = async () => {
@@ -304,6 +301,7 @@ export function SourceControlView(props: {
             stashes={sc.stashes}
             stashesLoading={sc.stashesLoading}
             disabled={!sc.online}
+            agentWorking={sc.agentWorking}
             pendingAction={sc.pendingAction}
             onOpenBranches={sc.refetchBranches}
             onOpenStashes={sc.refetchStashes}

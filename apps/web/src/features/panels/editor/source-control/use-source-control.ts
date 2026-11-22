@@ -203,9 +203,13 @@ export function useSourceControl(threadId: string) {
     [branchesQuery.data, branch],
   );
 
+  const state = thread?.status.state;
+  const agentWorking = state === "working" || state === "needs_you" || state === "waiting";
+
   return {
     online,
     thread,
+    agentWorking,
     status: statusQuery.data,
     statusLoading: statusQuery.isPending && !statusQuery.data,
     statusRefreshing: statusQuery.isFetching && !statusQuery.isPlaceholderData,

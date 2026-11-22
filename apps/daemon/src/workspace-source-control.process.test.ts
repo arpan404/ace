@@ -125,9 +125,7 @@ describe("daemon source control handlers", () => {
       expect(pullBusy).toMatchObject({ ok: false, error: "agent_working" });
 
       await writeFile(join(repo, "file.txt"), "edited by the agent\n");
-      const stashBusy = await runtime.execute(
-        cmd({ type: "git.stash.push", threadId: thread.id }),
-      );
+      const stashBusy = await runtime.execute(cmd({ type: "git.stash.push", threadId: thread.id }));
       expect(stashBusy).toMatchObject({ ok: false, error: "agent_working" });
       expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("edited by the agent\n");
       runGit(repo, ["checkout", "--", "file.txt"]);
