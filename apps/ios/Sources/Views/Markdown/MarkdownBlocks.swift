@@ -34,8 +34,9 @@ enum MarkdownBlocks {
             // Swift reads "\r\n" as one character, so lines are cut only once every ending is "\n".
             let text = written.utf8.contains(UInt8(ascii: "\r")) ? written.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") : written
             var scan = Scan()
-            if let last, let resume = last.scan.resume, text.utf8.count >= resume.offset,
-               text.utf8.prefix(resume.offset).elementsEqual(last.text.utf8.prefix(resume.offset)) {
+            // Only text that still holds every line the resume point rests on, unchanged, reads on.
+            if let last, let resume = last.scan.resume, text.utf8.count >= resume.checked,
+               text.utf8.prefix(resume.checked).elementsEqual(last.text.utf8.prefix(resume.checked)) {
                 scan = last.scan.rewound(to: resume)
             }
             scan.read(text)
@@ -47,11 +48,16 @@ enum MarkdownBlocks {
     /// What a read found so far: the pieces without their definitions, the definitions, and
     /// where a later read of a longer text may start.
     struct Scan {
-        /// A line start before which every piece is final: the lines it rests on are whole
-        /// (a later line follows them), so nothing appended can change them.
+        /// A line start before which every piece is final while the lines it rests on stay as
+        /// they were: those before it, and the ones that decided where the last piece ended (a
+        /// table's header and delimiter rows, or the line that closed a table). Each is whole (a
+        /// later line follows it), so nothing appended can change them.
         struct Resume {
             /// UTF-8 offset of the line it starts at.
             let offset: Int
+            /// UTF-8 offset just past the last line it rests on, newline included: text that
+            /// differs before here is read again from the start.
+            let checked: Int
             let pieces: Int
             let definitions: Int
             let footnote: Bool
@@ -103,8 +109,10 @@ enum MarkdownBlocks {
             func before(_ index: Int) -> Substring? { index > 0 ? lines[index - 1] : previousLine }
             /// A line is whole once another follows it.
             func whole(_ index: Int) -> Bool { index < lines.count - 1 }
-            func mark(_ index: Int) {
-                resume = Resume(offset: offsets[index], pieces: found.count, definitions: definitions.count,
+            /// A resume point at line `index`, resting on the lines through `through`.
+            func mark(_ index: Int, through: Int) {
+                resume = Resume(offset: offsets[index], checked: offsets[through] + lines[through].utf8.count + 1,
+                                pieces: found.count, definitions: definitions.count,
                                 footnote: footnote, previous: before(index).map(String.init))
             }
             var prose: [Substring] = []
@@ -153,11 +161,11 @@ enum MarkdownBlocks {
                     while end < lines.count, isRow(lines[end]) { end += 1 }
                     flushProse()
                     // Its header and delimiter rows whole, the prose before it is final.
-                    if whole(index + 1) { mark(index) }
+                    if whole(index + 1) { mark(index, through: index + 1) }
                     found.append(.table(lines[index..<end].joined(separator: "\n")))
                     index = end
                     // The line that ended it whole, so is the table.
-                    if whole(end) { mark(end) }
+                    if whole(end) { mark(end, through: end) }
                     continue
                 }
                 prose.append(line)

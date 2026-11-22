@@ -100,6 +100,23 @@ import Testing
         #expect(MarkdownBlocks.split(footnote) == [.prose(footnote)])
     }
 
+    @Test func textThatChangesTheLineAfterAClosedTableIsReadAgainFromThatTable() {
+        let splitter = MarkdownBlocks.Splitter()
+        _ = splitter.split("| a |\n|---|\n| 1 |\nfoo\nx")
+        // Same start, but the line that ended the table is now one of its rows.
+        let replaced = "| a |\n|---|\n| 1 |\n| 2 |\nx"
+        #expect(splitter.split(replaced) == MarkdownBlocks.split(replaced))
+        #expect(splitter.split(replaced) == [.table("| a |\n|---|\n| 1 |\n| 2 |"), .prose("x")])
+    }
+
+    @Test func textThatChangesATablesDelimiterRowIsReadAgainFromBeforeIt() {
+        let splitter = MarkdownBlocks.Splitter()
+        _ = splitter.split("| z |\n|---|\n\nIntro\n| a | b |\n|---|---|\n| 1")
+        // The rule under the header is no longer one: the intro and both lines are one paragraph.
+        let replaced = "| z |\n|---|\n\nIntro\n| a | b |\n|-x-|---|\n| 1"
+        #expect(splitter.split(replaced) == MarkdownBlocks.split(replaced))
+    }
+
     @Test func aStreamSplitAsItGrowsCutsAsTheWholeTextDoesAtEveryStep() {
         let answer = """
         Where things stand, see [the plan][plan]:
