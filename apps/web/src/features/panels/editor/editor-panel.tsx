@@ -94,7 +94,9 @@ import { explorerWidth, roomAsk } from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
 import { EditorOutline } from "./editor-outline.tsx";
+import { EditorTimeline } from "./editor-timeline.tsx";
 import { GoToSymbolDialog } from "./go-to-symbol.tsx";
+import type { CommitDiffTarget } from "@/lib/git-history.ts";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
 import { editorKeys, type EditorPanelCommand } from "./editor-keys.ts";
 import { groupIds, openPaths } from "./editor-layout.ts";
@@ -323,6 +325,9 @@ export function EditorPanel(props: TabViewProps) {
   // ⌃Tab's list, while ⌃ is held.
   const [recent, setRecent] = useState<number | undefined>(undefined);
   const [symbolPicker, setSymbolPicker] = useState(false);
+  const [commitDiff, setCommitDiff] = useState<
+    { group: string; activePath: string | undefined; target: CommitDiffTarget } | undefined
+  >(undefined);
   const [statusStore] = useState(createStatusStore);
   const recentTabs = mruTabs(focused);
   const pickRecent = (path: string) => {
@@ -470,20 +475,39 @@ export function EditorPanel(props: TabViewProps) {
     />
   );
   const focusedBuffer = focused.active === undefined ? undefined : buffers.buffer(focused.active);
-  const outlineSection = (
-    <EditorOutline
-      path={focused.active}
-      buffer={focusedBuffer}
-      focusedGroupId={focused.id}
-      statusStore={statusStore}
-      open={layout.explorer.outlineOpen ?? false}
-      onOpenChange={(outlineOpen) => setExplorer({ outlineOpen })}
-      sort={layout.explorer.outlineSort ?? "position"}
-      onSortChange={(outlineSort) => setExplorer({ outlineSort })}
-      onReveal={(symbol) => {
-        if (focused.active !== undefined) revealSymbol(focused.id, focused.active, symbol);
-      }}
-    />
+  const openCommitDiff = (diffTarget: CommitDiffTarget) => {
+    const group = focusedGroup(latest.current);
+    setCommitDiff({ group: group.id, activePath: group.active, target: diffTarget });
+  };
+  const activeCommitSha =
+    commitDiff && commitDiff.group === focused.id && commitDiff.activePath === focused.active
+      ? commitDiff.target.sha
+      : undefined;
+  const explorerSections = (
+    <>
+      <EditorOutline
+        path={focused.active}
+        buffer={focusedBuffer}
+        focusedGroupId={focused.id}
+        statusStore={statusStore}
+        open={layout.explorer.outlineOpen ?? false}
+        onOpenChange={(outlineOpen) => setExplorer({ outlineOpen })}
+        sort={layout.explorer.outlineSort ?? "position"}
+        onSortChange={(outlineSort) => setExplorer({ outlineSort })}
+        onReveal={(symbol) => {
+          setCommitDiff(undefined);
+          if (focused.active !== undefined) revealSymbol(focused.id, focused.active, symbol);
+        }}
+      />
+      <EditorTimeline
+        threadId={threadId}
+        path={focused.active}
+        open={layout.explorer.timelineOpen ?? false}
+        onOpenChange={(timelineOpen) => setExplorer({ timelineOpen })}
+        activeCommitSha={activeCommitSha}
+        onOpenCommit={openCommitDiff}
+      />
+    </>
   );
   const explorer = (
     <EditorExplorer
@@ -491,9 +515,12 @@ export function EditorPanel(props: TabViewProps) {
       explorer={layout.explorer}
       onExplorer={setExplorer}
       current={focused.active}
-      onOpen={fromExplorer}
+      onOpen={(path, how) => {
+        setCommitDiff(undefined);
+        fromExplorer(path, how);
+      }}
       openEditors={openEditors}
-      sections={outlineSection}
+      sections={explorerSections}
       focusSearch={focusSearch}
       marks={rowMarks}
     />
@@ -542,7 +569,24 @@ export function EditorPanel(props: TabViewProps) {
                 onConfirmClose={(refs) => void confirmClose(host, refs)}
                 renderCompare={renderCompare}
                 onQuickOpen={() => quickOpen.set(() => threadId)}
-                onRevealSymbol={revealSymbol}
+                onRevealSymbol={(group, path, symbol) => {
+                  setCommitDiff(undefined);
+                  revealSymbol(group, path, symbol);
+                }}
+                renderOverlay={
+                  commitDiff
+                    ? (group, path) =>
+                        commitDiff.group === group && commitDiff.activePath === path ? (
+                          <Suspense fallback={null}>
+                            <EditorCommitCompare
+                              threadId={threadId}
+                              target={commitDiff.target}
+                              onClose={() => setCommitDiff(undefined)}
+                            />
+                          </Suspense>
+                        ) : null
+                    : undefined
+                }
                 statusStore={statusStore}
                 renderEditor={editorFor(threadId)}
                 renderViewer={viewerFor(threadId)}
@@ -620,6 +664,9 @@ function emptyOf(layout: EditorLayout): EditorLayout {
 // loads when one is first shown, never with the editor's first paint.
 const EditorCompare = lazy(() =>
   import("./editor-compare.tsx").then((module) => ({ default: module.EditorCompare })),
+);
+const EditorCommitCompare = lazy(() =>
+  import("./editor-commit-compare.tsx").then((module) => ({ default: module.EditorCommitCompare })),
 );
 const ReviewSideBySide = lazy(() => import("./review-side.tsx"));
 const EditorFileView = lazy(() =>

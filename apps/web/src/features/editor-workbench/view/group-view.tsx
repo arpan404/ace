@@ -70,6 +70,7 @@ export function GroupView(props: {
       : undefined;
   // Overlapping blocks are answered in place of the editor until each has an answer.
   const conflict = snapshot?.clash?.kind === "conflict" ? snapshot.clash : undefined;
+  const overlay = host.renderOverlay?.(group.id, path);
   const { reportStatus } = host;
   // Stable per group, so an editor can report from an effect without re-running it.
   const onStatus = useCallback(
@@ -157,7 +158,9 @@ export function GroupView(props: {
               if (drag) actions.dropOnEditor(drag, at, copiesOnDrop(event));
             }}
           >
-            {path === undefined ? (
+            {overlay ? (
+              overlay
+            ) : path === undefined ? (
               props.last ? (
                 <NoFileOpen onQuickOpen={host.onQuickOpen} />
               ) : null

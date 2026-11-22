@@ -117,6 +117,11 @@ export interface EditorHost {
   onQuickOpen?: (() => void) | undefined;
   /** Jump to a symbol picked from a pane's breadcrumbs. */
   onRevealSymbol?: ((group: string, path: string, symbol: OutlineSymbol) => void) | undefined;
+  /**
+   * Optional pane overlay rendered in place of the editor (e.g. a read-only commit diff opened
+   * from Timeline or Inline Blame).
+   */
+  renderOverlay?: ((group: string, path: string | undefined) => ReactNode) | undefined;
   /** The host's own items at the end of a tab's menu: Reveal in Files, Open in ›, the paths. */
   tabMenuItems?: ((path: string) => ReactNode) | undefined;
 }
