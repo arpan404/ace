@@ -163,9 +163,15 @@ deploy that carries it (a release deploys it too):
    The Worker reads the gateway's settings with them and searches only while logs, Logpush and
    caching are off. Without them it searches only if `ACE_SEARCH_GATEWAY_VERIFIED` is set to
    `logs-off-cache-off` in `env.production.vars`, your word that you checked by hand.
-3. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
+
+3. **Never change the gateway's settings with search on.** First set `ACE_SEARCH_ENABLED` to
+   `"false"` in `env.production.vars` and deploy, change the settings, check that logs, Logpush
+   and caching are off again, then set it back to `"true"` and deploy. The Worker reads the
+   settings at most every 5 minutes, so a change made with search on could let up to 5 minutes of
+   queries be kept.
+4. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
    1,000); credits carry a 5% fee on purchase.
-4. Migration `0011_search_counts.sql` applies with the others.
+5. Migration `0011_search_counts.sql` applies with the others.
 
 The `ai` binding exists only in `env.production`. Local runs and tests have none, and the route
 answers `503 search_unavailable` there. Until the gateway exists and checks out, a deployed route
@@ -173,7 +179,7 @@ answers `503 search_unavailable`, counts nothing, and Spade falls back to the mo
 The limits are the `ACE_SEARCH_*` vars in `env.production`, with the account burst in
 `SEARCH_ACCOUNT_BURST` (1009) and the coarse address limit before authentication in
 `SEARCH_ADDRESS_REQUESTS` (1010); ADR 0210 §4 lists them. To stop ace search at once, set
-`ACE_SEARCH_DAILY_DOLLARS` to `0` and deploy.
+`ACE_SEARCH_ENABLED` to `"false"` and deploy.
 
 ## What the database holds
 

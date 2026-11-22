@@ -6,7 +6,11 @@ gateway"; then "remove search engine setting pages, as we are going full on clou
 Amendment 1 (2026-11-22, the GPT review of #2584): grants bound to a live machine (§3), paid
 attempts keep their reservation, admission all or nothing, a coarse address limit before
 authentication, the gateway's settings checked, the repeat check best effort (§4), and no
-provider words in Spade's logs (§6).
+provider words in Spade's logs (§6). Amendment 2 (2026-11-22, round 2 of that review): the live
+check follows the principal reader's session rules and runs inside the reservation (§3), refunds
+only on the gateway's documented codes, gateway readings coalesced and sticky, a 5-minute
+residual window and the `ACE_SEARCH_ENABLED` kill switch (§4), and the status in Spade's log line
+(§6).
 
 Amends:
 
@@ -65,19 +69,27 @@ second provider.
   general machine grant, and nothing carrying an `Origin` header (`403 spade_only`), so raw
   results never reach a browser page as a list.
 - **Bound to a live machine** (amendment 1, review of #2584). A grant counts only while the
-  machine it names (its subject) holds a live machine credential on that account (ADR 0190):
-  unexpired, not revoked, on a session still signed in and not retired, of an account with no
-  deletion recorded. This is read from D1 on every search (`machine_credentials` by host and
-  account, indexed in migration 0011), so revoking a machine's credential or signing it out stops
-  its grants at once, not when they expire. A session can mint a cloud grant naming any host id
+  machine it names (its subject) holds a live machine credential on that account (ADR 0190), by
+  the principal reader's own rules for a machine credential (amendment 2): a session credential,
+  unexpired and not revoked, on a session that hasn't expired or been signed out, names the same
+  account, and has no deletion recorded. The session may be retired: `ace login` retires its
+  token when it exchanges it for a credential that becomes its only holder (`sole`), and the
+  credential still speaks for it. Revoking that credential removes the session with it. This is
+  read from D1 (`machine_credentials` by host and account, indexed in migration 0011) when the
+  grant is checked, and again inside the statement that takes the counters (amendment 2), so a
+  revocation or sign-out at any point before admission stops the search before anything is sent,
+  not when the grant expires. A session can mint a cloud grant naming any host id
   through `/v1/grants`; one naming a host the account holds no live credential for opens nothing
   here (`403 machine_unknown`), so a new subject can't dodge the machine caps. An organization's
   host credential has no personal session behind it and is refused the same way.
   - A daemon from before machine credentials (ADR 0190) has none, so its Spade can't use ace
     search until the daemon updates; it falls back to the endpoint's search (§6).
-  - A separate grant purpose just for search was considered and left out: the broker grant and a
-    search grant would be minted by the same daemon and held in the same Spade process, so a leak
-    of one is a leak of the other, while the per-use binding above is what ends either at once.
+  - A separate grant purpose just for search was considered and left out for now. It would narrow
+    one case: a broker grant leaked on its own (say, from the broker's logs or a request to it)
+    couldn't search. Both would still be minted by the same daemon and held in the same Spade
+    process, so a leak of Spade's memory gives either. The per-use binding above ends both at
+    once, and a leaked broker grant can search only until it expires, about five minutes, inside
+    the same caps. Adding the purpose (daemon, protocol and spade-ace) stays open as a follow-up.
   - A hosted (cloud) Spade later needs its own authenticated identity: an authorized hosted
     workload with its own quota, not a person's machine credential and not the per-address
     limits. That needs its own amendment.
@@ -136,11 +148,17 @@ nothing. One statement is one transaction, so concurrent searches can't overshoo
 search never briefly holds another search's counter, and a Worker cut short mid-request strands
 no increment. After a refusal the counters are read once to name the full one in the reason.
 
-**A paid attempt keeps its reservation** (amendment 1). Once the call to Ceramic is dispatched, the
-search counts against every counter, the global breaker included, whatever comes back: an
-oversized, truncated or malformed answer, a `5xx`, or a binding error whose billing is unknown.
-Only an answer that says the gateway turned the call away before sending it (`401`, `403`, `404`:
-its key, permission, or no such gateway) gives the reservation back, in one statement. Expired
+**A paid attempt keeps its reservation** (amendments 1 and 2). Once the call to Ceramic is
+dispatched, the search counts against every counter, the global breaker included, whatever comes
+back: an oversized, truncated or malformed answer, any HTTP error status (a `401`, `403` or `404`
+may have come from past the gateway), or a binding error whose billing is unknown. Only the
+gateway's own documented codes that prove the call was never sent give the reservation back, in
+one statement. Cloudflare's binding contract (Agents › Web search, "Handle errors") says "Every
+error has a code: the API's own code when it sends one, such as web_search_payment_required, or
+one derived from the HTTP status". So `web_search_payment_required` (no credits, so not sent)
+and `web_search_unsupported_runtime` (the runtime refused before any request) refund, read from
+the error body or the thrown error. Codes derived from a status, and anything unknown, keep the
+reservation. Expired
 rows are swept hourly in bounded batches (ADR 0170). An account's rows go with the account.
 
 The same-query check is **best effort**: it keeps a SHA-256 digest of a random per-isolate salt,
@@ -160,11 +178,22 @@ dashboard setting alone:
   refusal is read again after a minute). It searches only while `collect_logs` is false,
   `cache_ttl` is 0 and `logpush` isn't true. A gateway that keeps anything is refused whatever
   else says so.
+- Readings are coalesced (amendment 2): one at a time per isolate, shared by every caller waiting
+  on it, so an answer that started earlier can't land after, and replace, a later refusal. Once a
+  reading has seen the gateway keeping logs, it stays refused across failed readings, and the
+  owner's word doesn't lift it; only a reading that shows it keeps nothing does.
 - When the settings can't be read (no token, or the API failed), it searches only if
   `ACE_SEARCH_GATEWAY_VERIFIED` is `logs-off-cache-off`, the owner's word that they checked by
   hand.
 - Otherwise the route answers `503 search_unavailable` before counting anything, and Spade falls
   back (§6). The token is never logged; the log says `gateway_keeps_logs` or `gateway_unchecked`.
+- **The residual window** (amendment 2). A good reading is trusted for 5 minutes, so if someone
+  turns logging, Logpush or caching on, queries sent in up to the next 5 minutes may be kept.
+- **The operating rule** (amendment 2): before anyone changes the `ace-search` gateway's
+  settings, ace search is turned off with the kill switch, `ACE_SEARCH_ENABLED=false` in
+  `env.production.vars`, deployed, and turned on again only after the settings are back. With it
+  off the route answers `503 search_unavailable` before anything else: no gateway reading, no
+  count, no query sent.
 
 Every refusal is `429` with `Retry-After` and `{error, reason, retryAfter}`, where `reason` is
 one plain sentence Spade can show:
@@ -265,7 +294,7 @@ works when they are signed in, and Spade has one search path to keep right. So:
 - **Logs** (amendment 1). An endpoint's error message can echo the query, so neither ace search's
   nor the endpoint search's failure keeps a server's words: Spade logs a fixed outcome code
   (`ace_search_failed`, `endpoint_search_failed`), and an endpoint search failure says only its
-  HTTP status.
+  HTTP status, which the `endpoint_search_failed` line carries as `status` (amendment 2).
 
 ### 7. Phase 2: ace's own index of developer sources
 
