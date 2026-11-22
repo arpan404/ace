@@ -5,7 +5,8 @@ import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process
 import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
 import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
 import { systemListing } from "@ace/provider-kit/process-listing";
-import { verifyRecovery } from "./process-recovery.ts";
+import { verifyWindowsRecovery } from "./process-recovery.ts";
+import { previousGroupsGone } from "./cursor-process-check.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
@@ -318,49 +319,26 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   try {
-    const first = inventory.recover();
-    const unverified = (unresolved: number) =>
-      log.log(
-        "warn",
-        "Previous run's processes could not all be verified as stopped",
-        logFields([["unresolved", unresolved]]),
-      );
+    inventory.recover();
     if (process.platform === "win32") {
       // The engine decides what the previous run left running only once ended processes are
       // verifiably gone; anything unproven is reported as such, never as stopped.
-      const recovery = await verifyRecovery({ recover: () => inventory.recoverWindows() });
+      const recovery = await verifyWindowsRecovery(inventory);
       if (!recovery.verified) {
-        unverified(recovery.unresolved);
+        log.log(
+          "warn",
+          "Previous run's processes could not all be verified as stopped",
+          logFields([["unresolved", recovery.unresolved]]),
+        );
         options = { ...options, engine: { ...options.engine, previousProcessesUnverified: true } };
       }
-    } else {
-      // A SIGKILLed group can still be running, mid-write, when recover() returns. Proving it
-      // gone runs beside startup (ADR 0170): the daemon listens and every provider starts now;
-      // only what must not read a store a dying process may still write waits on it.
-      const verified =
-        first.killed === 0 && first.unresolved === 0
-          ? Promise.resolve(true)
-          : verifyRecovery(inventory).then(
-              (recovery) => {
-                if (!recovery.verified) unverified(recovery.unresolved);
-                return recovery.verified;
-              },
-              () => false,
-            );
-      options = {
-        ...options,
-        engine: {
-          ...options.engine,
-          previousProcessesVerified: verified,
-          // A thread held for the last run's survivors is let go once they are proven gone.
-          recheckPreviousProcesses: () =>
-            verifyRecovery(inventory, 2_000).then(
-              (recovery) => recovery.verified,
-              () => false,
-            ),
-        },
-      };
     }
+    // Cursor only: asked, bounded, before a send in doubt is sent again as never admitted.
+    const gone = () =>
+      process.platform === "win32"
+        ? Promise.resolve(options.engine?.previousProcessesUnverified !== true)
+        : previousGroupsGone(inventory);
+    options = { ...options, engine: { ...options.engine, cursorPreviousProcessesGone: gone } };
   } catch (error) {
     inventory.close();
     loop.close();

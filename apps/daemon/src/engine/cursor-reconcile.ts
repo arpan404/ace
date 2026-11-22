@@ -31,8 +31,6 @@ export interface ReconcileDependencies {
   open(actor: ThreadActor): Promise<void>;
   close(actor: ThreadActor): Promise<void>;
   wake(id: ThreadId): void;
-  /** Whether startup proved the previous run's processes gone; the turn shows working until. */
-  verified?(): Promise<boolean>;
   /**
    * The ADR 0211 handoff, as delivery and Resume use it: true when `error` said the saved
    * session can never open again and the thread now opens fresh with its context.
@@ -45,13 +43,7 @@ export interface ReconcileDependencies {
 export const busyRetryMs: readonly number[] = [100, 200, 400, 800, 1600, 3200, 6000];
 
 /** What a restart has always applied to cut-off Cursor work it could not reconcile. */
-function restartFailure(
-  repo: EngineRepository,
-  id: ThreadId,
-  at: number,
-  /** Startup proved the last run's processes gone; unproven, the words say only that. */
-  confirmed = true,
-): Fact[] {
+function restartFailure(repo: EngineRepository, id: ThreadId, at: number): Fact[] {
   const state = repo.requireState(id);
   const detail = lostWork(state, 0, "cursor-sdk", at);
   return [
@@ -76,9 +68,7 @@ function restartFailure(
     {
       type: "process.exited",
       deliberate: false,
-      message: confirmed
-        ? "Daemon restarted; previous provider work stopped"
-        : "Daemon restarted; previous work could not be confirmed stopped",
+      message: "Daemon restarted; previous provider work stopped",
     },
     { type: "queue.changed", source: "provider", count: 0 },
     interruptedNotice(state.rootKey, at, "restart"),
@@ -120,20 +110,13 @@ export async function reconcileCursorRestart(
   const { repo, clock } = deps;
   const before = repo.requireState(id);
   const wasRunning = before.agents[before.rootKey ?? ""]?.activeRun !== undefined;
-  const fail = (actor?: ThreadActor, confirmed = true) => {
+  const fail = (actor?: ThreadActor) => {
     // Nothing was running: a send whose fate can't be read stays held as uncertain.
     if (!wasRunning) return;
-    const facts = restartFailure(repo, id, clock.now(), confirmed);
+    const facts = restartFailure(repo, id, clock.now());
     if (actor) actor.apply(facts);
     else repo.store.atomic(() => repo.apply(id, facts, clock.now()));
   };
-  // A host of the previous run may still be writing the store: wait for the proof it is gone.
-  // Without it, the turn fails as a restart always failed it and sends stay uncertain.
-  if (!((await deps.verified?.()) ?? true)) {
-    fail(undefined, false);
-    deps.wake(id);
-    return;
-  }
   if (!repo.reserve(id)) {
     fail();
     return;
@@ -191,7 +174,9 @@ export class CursorReconciles {
     const ids = [...this.marked];
     this.marked.clear();
     for (const id of ids) {
-      const running = reconcileCursorRestart(this.dependencies(), id)
+      // Never inside the caller's own frame: startup may still be building the engine.
+      const running = Promise.resolve()
+        .then(() => reconcileCursorRestart(this.dependencies(), id))
         .catch((error: unknown) => this.report(error))
         .finally(() => this.running.delete(running));
       this.running.add(running);

@@ -12,11 +12,19 @@ import type { EngineRepository } from "./repository.ts";
  * - Cursor has none, and ace recorded nothing of it but the attempt: it never reached Cursor,
  *   so it goes back in the queue and is sent once.
  */
+/** True when settling would send an attempted send again as never admitted. */
+export function requeueNeedsProof(repo: EngineRepository, id: ThreadId): boolean {
+  const admission = repo.recovery.lastAdmission(id);
+  if (!admission?.commandId || admission.admitted) return false;
+  if (!repo.pending.uncertainSend(id, admission.commandId)) return false;
+  return !repo.recovery.admissionRecorded(id, admission.commandId);
+}
+
 export function settleCursorAttempt(
   repo: EngineRepository,
   id: ThreadId,
   at: number,
-  /** Startup proved the previous run's processes gone: an empty read of the store is final. */
+  /** The previous run's process groups are proven gone: an empty read of the store is final. */
   verified: boolean,
 ): void {
   const admission = repo.recovery.lastAdmission(id);

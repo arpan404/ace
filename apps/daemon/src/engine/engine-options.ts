@@ -13,19 +13,16 @@ import type { WorktreeGit } from "./worktree-title.ts";
 /** What the engine is built with: its ports to providers, the host and the person's settings. */
 export interface EngineOptions {
   /**
-   * Startup recovery could not prove every process of the previous run gone, so restart
-   * recovery must not report that run's provider work as stopped, nor read a store it may still
-   * be writing.
+   * Windows only: startup recovery could not prove every process of the previous run gone, so
+   * restart recovery must not report that run's provider work as stopped.
    */
   previousProcessesUnverified?: boolean;
   /**
-   * Resolves once startup has proven, or failed to prove, the previous run's processes gone
-   * (macOS and Linux, where it runs beside startup). Cursor opens wait on it: a store a dying
-   * host may still write is never read as final before then.
+   * Cursor only (ADR 0043, amendment of 2026-11-22): a bounded check, run only before a send in
+   * doubt would be sent again as never admitted, that the previous run's process groups are
+   * gone. False, or absent and unproven, keeps the send uncertain, held for the person.
    */
-  previousProcessesVerified?: Promise<boolean>;
-  /** Checks again whether the previous run's processes are gone; true once they are. */
-  recheckPreviousProcesses?: () => Promise<boolean>;
+  cursorPreviousProcessesGone?: () => Promise<boolean>;
   /**
    * Waits between attempts to open a Cursor host whose store is busy during a restart
    * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.

@@ -30,10 +30,7 @@ export function recoverEngine(
    * failed (cursor-reconcile.ts). Without it, it fails here as before.
    */
   reconcile?: (id: ThreadId) => void,
-  /** A thread whose last run may still have work running: nothing runs for it until let go. */
-  survivor: (id: ThreadId) => void = () => {},
 ): void {
-  const survivors = new Set<ThreadId>();
   /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
   const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain" | "waitingOnPerson">>();
   repo.store.atomic(() => {
@@ -179,12 +176,11 @@ export function recoverEngine(
           repo.apply(
             state.threadId,
             [
-              // Not an ordinary exit: nothing confirmed the previous run's work stopped.
               {
                 type: "process.exited",
                 deliberate: false,
-                unconfirmed: true,
-                message: "Daemon restarted; previous work could not be confirmed stopped",
+                message:
+                  "Daemon restarted; previous provider processes could not be verified as stopped",
               },
               { type: "queue.changed", source: "provider", count: 0 },
               {
@@ -195,10 +191,8 @@ export function recoverEngine(
                   type: "notice",
                   level: "warning",
                   code: "recovery_uncertain",
-                  title: "Previous work could not be confirmed stopped",
+                  title: "Recovery needed",
                   text: "Some processes from the previous run may still be running",
-                  detail:
-                    "Nothing runs in this thread until ace confirms they have stopped. It keeps checking; Resume continues anyway.",
                   complete: true,
                 },
               },
@@ -207,8 +201,6 @@ export function recoverEngine(
           );
           // Never start the work again beside processes that may still be doing it.
           interruptedWork.delete(state.threadId);
-          survivors.add(state.threadId);
-          survivor(state.threadId);
           return;
         }
         if (reconciles) reconcile(state.threadId);
@@ -306,15 +298,15 @@ export function recoverEngine(
           if (
             !intent.acknowledged &&
             intent.submittedGeneration !== undefined &&
-            [
+            ([
               "thread.send",
               "thread.create",
-              // A fork's first message is a send like any other: Cursor may have it.
-              "thread.fork",
               "thread.resume",
               "queue.resume",
               "thread.limit",
-            ].includes(intent.kind)
+            ].includes(intent.kind) ||
+              // A Cursor fork's first message is a send like any other: Cursor may have it.
+              (intent.kind === "thread.fork" && repo.backend(intent.threadId) === "cursor-sdk"))
           ) {
             repo.queue.uncertain(intent.id);
             // Cursor's store can show whether it ever had this send (cursor-reconcile.ts).
@@ -413,7 +405,6 @@ export function recoverEngine(
         }
         // Recovery controls already accepted before a crash are safe only when unclaimed.
         if (
-          !survivors.has(state.threadId) &&
           (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&
           repo.reserve(state.threadId)
         )

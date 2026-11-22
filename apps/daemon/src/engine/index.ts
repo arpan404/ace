@@ -39,7 +39,6 @@ import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { CursorReconciles } from "./cursor-reconcile.ts";
-import { Survivors } from "./survivors.ts";
 import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
@@ -130,13 +129,11 @@ export class Engine {
       close: (actor) => this.sessions.close(actor, "idle"),
       wake: (id) => this.wake(id),
       ...(this.reconcileRetryMs ? { retryMs: this.reconcileRetryMs } : {}),
-      verified: () => this.processesVerified,
       freshSession: (id, error) => this.transitions.startFreshSession(id, error),
     }),
   );
   private reconcileRetryMs: readonly number[] | undefined;
-  private processesVerified: Promise<boolean> = Promise.resolve(true);
-  private survivors: Survivors;
+  private processesGone: () => Promise<boolean> = async () => false;
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -197,10 +194,9 @@ export class Engine {
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
     this.reconcileRetryMs = options.cursorReconcileRetryMs;
-    this.processesVerified = options.previousProcessesVerified ?? Promise.resolve(true);
-    this.survivors = new Survivors(this.clock, options.recheckPreviousProcesses, (ids) => {
-      for (const id of ids) if (this.repo.reserve(id)) this.wake(id);
-    });
+    // Without the check nothing is proven gone: a send in doubt is never sent again by itself.
+    if (options.cursorPreviousProcessesGone)
+      this.processesGone = options.cursorPreviousProcessesGone;
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
@@ -211,7 +207,7 @@ export class Engine {
     );
     this.sessions = new Sessions({
       models,
-      processesVerified: () => this.processesVerified,
+      processesGone: () => this.processesGone(),
       ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
@@ -416,7 +412,6 @@ export class Engine {
           const refused = personRefusal(command.id, payload, host);
           if (refused) return refused;
         }
-        this.survivors.admitted(command);
         return this.internalHandler.handle(personCommand(command), context);
       },
     };
@@ -427,7 +422,7 @@ export class Engine {
           cause: error,
         }),
       );
-    const recover = (unverified: boolean) =>
+    const recover = () =>
       recoverEngine(
         this.repo,
         this.recovery,
@@ -436,34 +431,25 @@ export class Engine {
         (id) => this.wake(id),
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
-        options.previousProcessesUnverified === true || unverified,
+        options.previousProcessesUnverified === true,
         (id) => this.reconciles.add(id),
-        (id) => this.survivors.hold(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
-    if (
-      options.recovery?.preferences ||
-      options.models ||
-      options.providersActivated ||
-      options.previousProcessesVerified
-    ) {
+    if (options.recovery?.preferences || options.models || options.providersActivated) {
       this.readyPromise = (async () => {
         await options.providersActivated;
-        // Nothing is failed, continued or reopened beside a process of the last run that may
-        // still run: the restart pass waits for the proof; until then cut-off turns read working.
-        const verified = await this.processesVerified;
         await recovery.prepare();
         for (const state of repo.recoveryStates(unreadable)) await recovery.prepare(state.threadId);
         models.migrateCachedDefaults(unreadable);
-        if (!this.closing) recover(!verified);
+        if (!this.closing) recover();
         this.readyState = true;
         this.reconciles.start();
         for (const id of this.pendingSettles) this.stopSettled(id);
         this.pendingSettles.clear();
       })();
     } else {
-      recover(false);
+      recover();
       this.readyState = true;
       this.readyPromise = Promise.resolve();
       this.reconciles.start();
@@ -486,7 +472,7 @@ export class Engine {
   }
   private fence?: Parameters<typeof liveMove.fenceCommand>[1];
   /** Moving or moved (ADR 0191): nothing runs here, at admission, dispatch or session open. */
-  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined || this.survivors.has(id);
+  private fenced = (id: ThreadId) => this.fence?.(id) !== undefined;
   bindOwnershipFence(fence: NonNullable<Engine["fence"]>): void {
     this.fence = fence;
   }
@@ -1461,7 +1447,6 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
-      this.survivors.close();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;

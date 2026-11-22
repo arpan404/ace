@@ -7,7 +7,6 @@ import { processIdentity } from "@ace/provider-kit/process-identity";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { invoke } from "./cli-test-support.ts";
-import { daemonLogRecords } from "./daemon-log-test-support.ts";
 import { startDaemonCli, temporaryHome, type Cleanups } from "./daemon-launch-test-support.ts";
 
 /** A detached group whose leader has exited while a child in it runs on: its leader's pid. */
@@ -51,7 +50,7 @@ const alive = (pid: number) => {
 };
 
 test.skipIf(process.platform === "win32")(
-  "the daemon answers on its socket at once while a group the last run left can't be proven gone",
+  "a group the last run left whose leader is gone never stops the daemon from starting",
   async ({ onTestFinished }) => {
     const cleanups: Cleanups = [];
     onTestFinished(async () => {
@@ -86,18 +85,9 @@ test.skipIf(process.platform === "win32")(
     await daemon.ready;
     const listed = await invoke(home, ["project", "list", "--json"]);
     expect(listed.code, listed.stderr).toBe(0);
-    // The barrier: proving the group gone is still under way (it is looked at until its bound,
-    // in case it ends on its own) while the socket already answered.
-    expect((await daemonLogRecords(home)).map((record) => record.message)).not.toContain(
-      "Previous run's processes could not all be verified as stopped",
-    );
-    // Not provably the run's: left alone and reported, never a reason to refuse startup.
+
+    // Not provably the run's: left alone, never a reason to refuse startup.
     expect(alive(group.child)).toBe(true);
-    await expect
-      .poll(async () => (await daemonLogRecords(home)).map((record) => record.message), {
-        timeout: 15_000,
-      })
-      .toContain("Previous run's processes could not all be verified as stopped");
   },
   120_000,
 );

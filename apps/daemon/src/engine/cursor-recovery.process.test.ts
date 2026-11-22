@@ -34,7 +34,7 @@ async function crashAt(
   host: {
     /** What Cursor's store says of the cut-off run. */
     stored?: "finished" | "running";
-    /** Startup's proof that the previous run's processes are gone. */
+    /** Whether the previous run's process groups can be proven gone when it's asked. */
     verified?: boolean;
     /** The first opens find Cursor's store busy (another writer holds it). */
     busyOpens?: number;
@@ -170,9 +170,8 @@ async function crashAt(
     registry,
     selectInstance: () => "account-a",
     ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
-    ...(host.verified === undefined
-      ? {}
-      : { previousProcessesVerified: Promise.resolve(host.verified) }),
+    // Whether the last run's process groups are proven gone (by default they are).
+    cursorPreviousProcessesGone: async () => host.verified ?? true,
   });
   await engine.flush();
   const held = engine.queue(threadId);
@@ -203,6 +202,8 @@ async function crashAt(
     /** How each ended run ended, and the thread's state, before any Resume. */
     runs,
     status,
+    /** The thread's state at the end, after anything above ran. */
+    statusAfter: () => store.getThread(threadId)?.status.state,
     whileBusy,
     opened,
     sent,
@@ -461,19 +462,13 @@ it("a store still busy when the retries run out fails the turn and keeps what wa
   expect(crash.sent).toEqual([]);
 });
 
-it("without proof the last run's processes are gone, a send in doubt is never re-queued and Cursor's store is not read", async () => {
+it("a send Cursor never had stays held for the person while the last run's processes can't be proven gone", async () => {
   await using crash = await crashAt("attempted", { resume: false, verified: false });
-  expect(crash.opened).toEqual([]);
+  // Cursor's store was read and showed no run for it, but a dying host might still have been
+  // making one: it is neither sent again nor dropped.
+  expect(crash.opened).toHaveLength(1);
   expect(crash.sent).toEqual([]);
   expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
-});
-
-it("without that proof a cut-off run fails as a restart fails it instead of reading the store", async () => {
-  await using crash = await crashAt("admitted", {
-    stored: "finished",
-    resume: false,
-    verified: false,
-  });
-  expect(crash.opened).toEqual([]);
-  expect(crash.runs).toEqual(["failed"]);
+  expect(crash.held.pendingCount).toBeGreaterThan(0);
+  expect(crash.statusAfter()).toBe("waiting");
 });

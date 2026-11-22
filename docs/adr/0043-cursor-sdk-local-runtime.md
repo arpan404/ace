@@ -326,8 +326,11 @@ checkpoint directory walk before every send and a full journal read on every ope
    restart a submitted input whose attempt frame never reached the daemon was never given to
    Cursor, so it is delivered again. One whose attempt was committed but has no admission
    evidence is looked up in the SDK store at the next open (a run created after the attempt);
-   found, it is that turn's run, recovered as above; not found, the input stays queued as
-   uncertain for the person, never sent twice. The local SDK does not honour `idempotencyKey`
+   found, it is that turn's run, recovered as above; not found, it is sent again only once a
+   bounded, non-blocking check shows the previous run's process groups gone (a dying host may
+   still have been creating the run). Unproven, the input stays queued as uncertain for the
+   person, never sent twice. Holding other providers' threads while a previous run's processes
+   may survive is a separate question, tracked in its own issue, not part of this decision. The local SDK does not honour `idempotencyKey`
    (1.0.35 gives every local run a random request id), so ace cannot rely on it to dedupe.
    A waiting handoff context is cleared in the transaction that commits that admission, not
    after `send` returns, so a crash in between never prepends it to a later prompt. A

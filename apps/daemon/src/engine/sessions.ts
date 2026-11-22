@@ -1,4 +1,4 @@
-import { settleCursorAttempt } from "./cursor-attempt.ts";
+import { requeueNeedsProof, settleCursorAttempt } from "./cursor-attempt.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
@@ -47,8 +47,11 @@ const SessionIdentity = z.strictObject({
 
 interface SessionDependencies {
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
-  /** Whether startup proved the previous run's processes gone; settles beside startup. */
-  processesVerified?(): Promise<boolean>;
+  /**
+   * Cursor only: a bounded check that the previous run's process groups are gone, asked only
+   * before a send in doubt would be sent again as never admitted.
+   */
+  processesGone?(): Promise<boolean>;
   commandEvent?(event: ProviderCommandEvent): void;
   models: EngineModels;
   repo: EngineRepository;
@@ -346,12 +349,6 @@ export class Sessions {
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
     await this.dependencies.waitForProvider?.(stateBefore.config.provider);
-    // A store an old host may still be writing is never read as final: a Cursor open waits
-    // for startup's proof that the previous run's processes are gone.
-    const verified =
-      this.dependencies.repo.backend(actor.id) === "cursor-sdk"
-        ? ((await this.dependencies.processesVerified?.()) ?? true)
-        : true;
     await this.dependencies.repo.store.writable();
     if (this.dependencies.closing() || this.dependencies.repo.cleaning(actor.id))
       throw new Error("Thread is closing");
@@ -779,15 +776,21 @@ export class Sessions {
         );
       });
       // After the transition state above is stored: settling may clear the handoff it holds.
-      if ((session.backend ?? backend) === "cursor-sdk")
+      if ((session.backend ?? backend) === "cursor-sdk") {
+        // A send read as never admitted goes again only once the last run's processes are
+        // proven gone: a dying host may still have been creating its run. Asked only then.
+        const gone = requeueNeedsProof(this.dependencies.repo, actor.id)
+          ? ((await this.dependencies.processesGone?.()) ?? false)
+          : true;
         this.dependencies.repo.store.atomic(() =>
           settleCursorAttempt(
             this.dependencies.repo,
             actor.id,
             this.dependencies.clock.now(),
-            verified,
+            gone,
           ),
         );
+      }
       this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
       // Before it takes input: a choice made while it opened, or modes the session reported
       // only now (a first session whose agent's modes weren't known yet), reach it.

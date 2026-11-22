@@ -38,5 +38,10 @@ registry.register(realHostAdapter(entry, home, sends), {
   auth: "logged_in",
   loginHint: "offline",
 });
-const engine = new Engine(store, { registry, selectInstance: () => "account-a" });
+// The last daemon was killed outright: its process groups are gone, as the check would show.
+const engine = new Engine(store, {
+  registry,
+  selectInstance: () => "account-a",
+  cursorPreviousProcessesGone: async () => true,
+});
 void engine.flush();

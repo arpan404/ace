@@ -85,7 +85,12 @@ async function twoCrashes(
     auth: "logged_in",
     loginHint: "offline",
   });
-  const engine = new Engine(store, { registry, selectInstance: () => "account-a" });
+  // The last daemon was killed outright: its process groups are gone, as the check would show.
+  const engine = new Engine(store, {
+    registry,
+    selectInstance: () => "account-a",
+    cursorPreviousProcessesGone: async () => true,
+  });
   await engine.flush();
   await new Promise((resolve) => setTimeout(resolve, 200));
   await engine.flush();
@@ -105,7 +110,11 @@ async function twoCrashes(
     notices: () =>
       store
         .readItems(threadId, store.headSeq() + 1, 200)
-        .items.flatMap((item) => (item.type === "notice" ? [item.title ?? item.text ?? ""] : [])),
+        .items.flatMap((item) =>
+          item.type === "notice"
+            ? [`${item.title ?? item.text ?? ""} :: ${item.detail ?? ""}`]
+            : [],
+        ),
     status: () => store.getThread(threadId)?.status.state,
     /** What the thread shows of a fresh Cursor session taking over (ADR 0211). */
     freshSessions: () =>
