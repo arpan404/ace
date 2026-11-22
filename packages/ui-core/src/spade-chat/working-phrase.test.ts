@@ -55,6 +55,14 @@ describe("holding a phrase", () => {
     expect(later.recheckIn).toBeUndefined();
   });
 
+  test("plain Working gives way to the bot's first phrase at once", () => {
+    const shown = { text: "Working", since: 0 };
+    expect(spadeHoldPhrase(shown, "Comparing hotel prices", 10).held).toEqual({
+      text: "Comparing hotel prices",
+      since: 10,
+    });
+  });
+
   test("the same phrase again keeps its time", () => {
     const shown = { text: "Running the tests", since: 100 };
     expect(spadeHoldPhrase(shown, "Running the tests", 5000).held).toBe(shown);

@@ -69,7 +69,7 @@ export interface SpadeHeldPhrase {
 
 /**
  * The phrase to show at `now` when `next` is the newest: the one shown stays until it has been up
- * `holdMs`, so a fast run of steps doesn't flicker. `recheckIn` is how long until `next` may take
+ * `holdMs`, so a fast run of steps doesn't flicker; plain "Working" gives way at once. `recheckIn` is how long until `next` may take
  * its place, while it waits.
  */
 export function spadeHoldPhrase(
@@ -78,8 +78,10 @@ export function spadeHoldPhrase(
   now: number,
   holdMs: number = spadePhraseHoldMs,
 ): { held: SpadeHeldPhrase; recheckIn: number | undefined } {
-  if (!held || held.text === next)
-    return { held: held ?? { text: next, since: now }, recheckIn: undefined };
+  if (held?.text === next) return { held, recheckIn: undefined };
+  // Plain "Working" only stands in: the bot's first words of its own go up at once.
+  if (!held || held.text === spadeWorkingWord)
+    return { held: { text: next, since: now }, recheckIn: undefined };
   const shown = now - held.since;
   if (shown >= holdMs) return { held: { text: next, since: now }, recheckIn: undefined };
   return { held, recheckIn: holdMs - shown };
