@@ -1,7 +1,5 @@
 import type { PostHog } from "posthog-js";
 import { analyticsChoice } from "../content/legal.ts";
-import { isArch, isFileKind, isPlatform } from "../content/release-pick.ts";
-import { links } from "../site.ts";
 import {
   analyticsMode,
   countryFromTrace,
@@ -10,6 +8,7 @@ import {
   type AnalyticsChoice,
   type AnalyticsMode,
 } from "./analytics-mode.ts";
+import { trackNamedEvents } from "./marketing-events.ts";
 
 /*
  * PostHog on acehq.dev, with no banner. Each visit is either "full" (a stored id and session
@@ -56,28 +55,6 @@ function projectConfig() {
   const region = import.meta.env.PUBLIC_POSTHOG_REGION?.trim().toLowerCase() || "us";
   if (!key?.startsWith("phc_") || (region !== "us" && region !== "eu")) return undefined;
   return { key, host: `https://${region}.i.posthog.com` };
-}
-
-function trackDownload(event: MouseEvent, analytics: PostHog) {
-  if (event.defaultPrevented || !(event.target instanceof Element)) return;
-  const link = event.target.closest<HTMLAnchorElement>("a[data-download], a[data-file]");
-  if (!link) return;
-
-  const [platform, kind, arch] = (link.dataset.file ?? link.dataset.download ?? "").split(":");
-  if (!isPlatform(platform)) return;
-
-  analytics.capture(
-    "marketing_download_clicked",
-    {
-      platform,
-      destination: link.href.startsWith(`${links.releases}/download/`)
-        ? "installer"
-        : "release_page",
-      ...(isFileKind(kind) && { file_kind: kind }),
-      ...(isArch(arch) && { architecture: arch }),
-    },
-    { transport: "sendBeacon", send_instantly: true },
-  );
 }
 
 function applyMode(analytics: PostHog, mode: AnalyticsMode) {
@@ -154,8 +131,5 @@ export async function setupMarketingAnalytics() {
     showMode();
   });
 
-  document.addEventListener("click", (event) => trackDownload(event, analytics));
-  document.addEventListener("auxclick", (event) => {
-    if (event.button === 1) trackDownload(event, analytics);
-  });
+  trackNamedEvents(analytics);
 }

@@ -55,6 +55,17 @@ Open **Web Analytics** for visits, referrers, campaign UTMs, and Web Vitals. Add
 direct installer clicks. `release_page` counts links to GitHub releases. Filter by `platform`
 to compare operating systems. The event measures clicks on the website.
 
+Autocapture records every click. These named events, sent from `src/scripts/marketing-events.ts`,
+survive copy and layout changes:
+
+| Event                        | Properties                                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `marketing_download_clicked` | `platform`, `destination`, `file_kind`, `architecture`                                                   |
+| `marketing_github_clicked`   | `target` (`repository`, `issues`, `releases`, `license`, `other`), `placement` (`nav`, `footer`, `page`) |
+| `marketing_tab_chosen`       | `tab_list` (`Platforms`, `Topics`, `Tool groups`), `tab`                                                 |
+| `marketing_question_opened`  | `question`                                                                                               |
+| `marketing_bot_maker_used`   | `action` (`shuffle`, `part`, `option`, `name`, `task`), once each per page                               |
+
 To verify a deployment, open the site in a fresh browser profile and click a download link.
 Check Live Events for `$pageview` and `marketing_download_clicked`, and Session Replay for the
 visit. Choose **Turn off recording** in the footer to switch the visit to anonymous counting.
