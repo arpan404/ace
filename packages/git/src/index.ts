@@ -49,6 +49,16 @@ import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { snapshot, createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
 import { diff } from "./diff.ts";
+import {
+  diffCommit,
+  fileBlame,
+  fileLog,
+  type CommitDiffOptions,
+  type FileBlameOptions,
+  type FileBlameResult,
+  type FileLogOptions,
+  type FileLogResult,
+} from "./history.ts";
 import { readRevisionLines, type RevisionLineOptions } from "./revision-lines.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
@@ -87,6 +97,13 @@ export type { CreateWorktreeOptions, WorktreeProgress } from "./worktrees.ts";
 export type { LayerReplay, StackReplayResult } from "./stack-sync.ts";
 export type { MergeStart } from "./merge-conflicts.ts";
 export type { RevisionLineOptions } from "./revision-lines.ts";
+export type {
+  CommitDiffOptions,
+  FileBlameOptions,
+  FileBlameResult,
+  FileLogOptions,
+  FileLogResult,
+} from "./history.ts";
 export type { BranchRefs, FetchBranchOptions, FetchPrHeadOptions } from "./remote-branches.ts";
 
 export { GitTransfer } from "./transfer-service.ts";
@@ -509,6 +526,38 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
         options.paths,
       ),
+    );
+  }
+
+  /** Diff one commit against its first parent (or empty tree for a root commit), scoped to `paths`. */
+  async diffCommit(options: Omit<CommitDiffOptions, "maxPatchBytes"> & { maxPatchBytes?: number }) {
+    const root = await this.repository.root(options.worktree);
+    return this.repository.serial(root, () =>
+      diffCommit(this.repository, root, {
+        commit: options.commit,
+        paths: options.paths,
+        maxPatchBytes: options.maxPatchBytes ?? this.maxPatchBytes,
+      }),
+    );
+  }
+
+  /** File-scoped commit history following renames, paged and bounded. */
+  async fileLog(options: FileLogOptions): Promise<FileLogResult> {
+    const root = await this.repository.root(options.worktree, options.signal);
+    return this.repository.serial(
+      root,
+      () => fileLog(this.repository, root, options),
+      options.signal,
+    );
+  }
+
+  /** File-scoped porcelain blame over a bounded 1-based inclusive line range. */
+  async fileBlame(options: FileBlameOptions): Promise<FileBlameResult> {
+    const root = await this.repository.root(options.worktree, options.signal);
+    return this.repository.serial(
+      root,
+      () => fileBlame(this.repository, root, options),
+      options.signal,
     );
   }
 

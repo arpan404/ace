@@ -10,6 +10,9 @@ import {
   gitStatusLimit,
   ServerMessage,
   InstalledEditor,
+  type GitBlameCommit,
+  type GitBlameLine,
+  type GitLogEntry,
   type GitStatusFile,
   type WorkspaceActionRequest,
   type CommandPayload,
@@ -40,6 +43,9 @@ export type FakeWorkspaceControls = Pick<
   | "gitStatus"
   | "setGitStatus"
   | "setGitDiff"
+  | "setGitCommitDiff"
+  | "setGitLog"
+  | "setGitBlame"
   | "setEditors"
   | "setTerminals"
   | "opened"
@@ -313,6 +319,25 @@ export class FakeWorkspaceWire {
   private gitPatches = new Map<string, string>();
   setGitDiff(threadId: string, patch: string): void {
     this.gitPatches.set(threadId, patch);
+  }
+  private gitCommitPatches = new Map<string, string>();
+  setGitCommitDiff(threadId: string, commit: string, patch: string): void {
+    this.gitCommitPatches.set(`${threadId}:${commit}`, patch);
+  }
+  private gitLogs = new Map<string, readonly GitLogEntry[]>();
+  setGitLog(threadId: string, path: string, entries: readonly GitLogEntry[]): void {
+    this.gitLogs.set(`${threadId}:${path}`, entries);
+  }
+  private gitBlames = new Map<
+    string,
+    { commits: readonly GitBlameCommit[]; lines: readonly GitBlameLine[]; capped?: boolean }
+  >();
+  setGitBlame(
+    threadId: string,
+    path: string,
+    data: { commits: readonly GitBlameCommit[]; lines: readonly GitBlameLine[]; capped?: boolean },
+  ): void {
+    this.gitBlames.set(`${threadId}:${path}`, data);
   }
   /** Every file, sorted by path as git lists them (`git.status` pages the first 500). */
   gitStatus(threadId: string): readonly GitStatusFile[] {
@@ -592,12 +617,53 @@ export class FakeWorkspaceWire {
         requestId: request.requestId,
         result: { kind: "gitConflicts", conflicts: this.conflicts.read(op.threadId) },
       });
-    if (op.op === "git.diff")
+    if (op.op === "git.diff") {
+      const patch =
+        op.commit !== undefined
+          ? (this.gitCommitPatches.get(`${op.threadId}:${op.commit}`) ?? "")
+          : (this.gitPatches.get(op.threadId) ?? "");
       return ServerMessage.parse({
         type: "workspace.result",
         requestId: request.requestId,
-        result: fakeGitDiff(this.gitPatches.get(op.threadId) ?? "", op),
+        result: fakeGitDiff(patch, op),
       });
+    }
+    if (op.op === "git.log") {
+      const all = this.gitLogs.get(`${op.threadId}:${op.path}`) ?? [];
+      const entries = all.slice(op.skip, op.skip + op.limit);
+      const hasMore = op.skip + entries.length < all.length;
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "gitLog",
+          entries,
+          hasMore,
+          ...(hasMore ? { nextSkip: op.skip + entries.length } : {}),
+          capped: false,
+          head: this.head(op.threadId) ?? null,
+        },
+      });
+    }
+    if (op.op === "git.blame") {
+      const seeded = this.gitBlames.get(`${op.threadId}:${op.path}`);
+      const lines = (seeded?.lines ?? []).filter(
+        (entry) => entry.line >= op.startLine && entry.line <= op.endLine,
+      );
+      const used = new Set(lines.map((entry) => entry.sha).filter((sha) => sha !== null));
+      const commits = (seeded?.commits ?? []).filter((commit) => used.has(commit.sha));
+      return ServerMessage.parse({
+        type: "workspace.result",
+        requestId: request.requestId,
+        result: {
+          kind: "gitBlame",
+          head: this.head(op.threadId) ?? null,
+          commits,
+          lines,
+          capped: seeded?.capped ?? false,
+        },
+      });
+    }
     const result =
       op.op === "editors.list"
         ? {
