@@ -309,6 +309,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.spade.emit(`/v1/conversations/${conversation}/live`, "stored", stored);
   }
 
+  /** The events a conversation stored, oldest first, as Spade's events route returns them. */
+  eventsOf(conversation: string): Json[] {
+    return (this.events.get(conversation) ?? []).map((stored) => stored.event);
+  }
+
   /** Words of an open reply as they stream: sent live, never stored. */
   delta(conversation: string, replyId: string, text: string): void {
     this.spade.emit(`/v1/conversations/${conversation}/live`, "delta", { reply: replyId, text });
