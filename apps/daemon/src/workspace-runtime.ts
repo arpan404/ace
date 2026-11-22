@@ -896,6 +896,7 @@ export class WorkspaceRuntime {
         upstream: state.upstream,
         ahead: state.ahead,
         behind: state.behind,
+        index: state.index,
       });
     }
     return wrap({
@@ -1041,6 +1042,7 @@ export class WorkspaceRuntime {
             paths: p.paths,
             stagedOnly: p.stagedOnly,
             amend: p.amend,
+            expectedIndex: p.expectedIndex,
             draftFingerprint: p.draftFingerprint,
           }),
         );

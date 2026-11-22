@@ -437,6 +437,48 @@ describe("source control git operations", () => {
     }
   });
 
+  it("commits only the index the person reviewed, and a generated message commits as is", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "reviewed\n");
+      await git.stage({ worktree: repo, paths: ["a.txt"] });
+      const reviewed = await git.sourceControlStatus(repo);
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      // Another client stages more after the person's view read the status.
+      await writeFile(join(repo, "b.txt"), "slipped in\n");
+      runGit(repo, ["add", "b.txt"]);
+      await expectGitError(
+        git.commit({
+          worktree: repo,
+          message: "only a",
+          expectedHead: head,
+          stagedOnly: true,
+          expectedIndex: reviewed.index,
+        }),
+        "index_moved",
+      );
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+
+      runGit(repo, ["reset", "-q", "HEAD", "--", "b.txt"]);
+      const again = await git.sourceControlStatus(repo);
+      expect(again.index).toBe(reviewed.index);
+      // The message was generated for the staged files; committing it untouched works.
+      const draft = await git.writingContext(repo, { kind: "commit", paths: ["a.txt"] });
+      await git.commit({
+        worktree: repo,
+        message: "only a",
+        expectedHead: head,
+        stagedOnly: true,
+        expectedIndex: again.index,
+        draftFingerprint: draft.fingerprint,
+      });
+      expect(runGit(repo, ["show", "--name-only", "--format=", "HEAD"])).toBe("a.txt");
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();

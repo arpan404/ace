@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { cn } from "@/lib/cn.ts";
+import { AmendDialog } from "./amend-dialog.tsx";
 import { BranchBar } from "./branch-bar.tsx";
 import { CommitBox } from "./commit-box.tsx";
 import { DiscardDialog, type DiscardRequest } from "./discard-dialog.tsx";
@@ -46,6 +47,8 @@ import {
   unstageFiles,
 } from "./source-control-source.ts";
 import { useSourceControl } from "./use-source-control.ts";
+
+type CommitMode = "commit" | "commit-and-push" | "amend";
 
 export interface OpenChangesRequest {
   readonly path: string;
@@ -82,6 +85,7 @@ export function SourceControlView(props: {
   });
 
   const [discardRequest, setDiscardRequest] = useState<DiscardRequest | undefined>(undefined);
+  const [amendAsk, setAmendAsk] = useState<string | undefined>(undefined);
   const [clearingLock, setClearingLock] = useState(false);
 
   // Cancel any in-flight commit message generation when switching threads or unmounting.
@@ -191,14 +195,26 @@ export function SourceControlView(props: {
     void cancelCommitDraft(client, threadId, active.id);
   };
 
-  const handleCommit = async (mode: "commit" | "commit-and-push" | "amend") => {
+  const handleCommit = async (mode: CommitMode, confirmed = false) => {
     const trimmed = message.trim();
     if (!trimmed) return;
+    // Amending a commit the remote already has rewrites published history: ask first.
+    if (mode === "amend" && !confirmed && sc.status?.upstream && sc.ahead === 0) {
+      setAmendAsk(sc.status.upstream);
+      return;
+    }
     const stagedOnly = sc.sections.staged.length > 0;
     const committed = await sc.runAction("commit", () =>
       commitChanges(client, threadId, {
         message: trimmed,
         expectedHead: sc.head,
+        // Bound to what the person reviewed: the index as read, or exactly the changes shown.
+        expectedIndex: sc.status?.index,
+        paths: stagedOnly
+          ? undefined
+          : sc.sections.changes.flatMap((item) =>
+              item.oldPath ? [item.path, item.oldPath] : [item.path],
+            ),
         stagedOnly,
         amend: mode === "amend",
         draftFingerprint,
@@ -502,6 +518,17 @@ export function SourceControlView(props: {
             )}
           </div>
         </>
+      )}
+
+      {amendAsk && (
+        <AmendDialog
+          upstream={amendAsk}
+          onCancel={() => setAmendAsk(undefined)}
+          onConfirm={() => {
+            setAmendAsk(undefined);
+            void handleCommit("amend", true);
+          }}
+        />
       )}
 
       {discardRequest && (

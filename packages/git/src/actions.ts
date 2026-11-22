@@ -5,6 +5,7 @@ import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
 import { excludeAcePrivate, personPathspecs } from "./ace-private.ts";
+import { indexFingerprint } from "./index-fingerprint.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -38,6 +39,8 @@ export async function commitChanges(
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
+    /** The `indexFingerprint` the person reviewed; the commit is refused if the index moved. */
+    expectedIndex?: string | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -55,15 +58,23 @@ export async function commitChanges(
       throw new GitError("head_moved", "HEAD changed; refresh before committing");
     if (options.amend && info.head === null)
       throw new GitError("unborn_head", "Cannot amend before the first commit");
+    if (
+      options.expectedIndex !== undefined &&
+      (await read(() => indexFingerprint(repository, root, info.head))) !== options.expectedIndex
+    )
+      throw new GitError("index_moved", failureMessage("index_moved"));
+    const status = await read(() => repository.status(root));
     if (options.draftFingerprint) {
+      // A staged-only commit's draft was written for the staged files.
+      const drafted =
+        paths?.data ?? (options.stagedOnly ? status.staged.map((entry) => entry.path) : undefined);
       if (
-        !paths ||
-        (await read(() => writingContext(repository, root, { kind: "commit", paths: paths.data })))
+        !drafted?.length ||
+        (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
           .fingerprint !== options.draftFingerprint
       )
         throw new GitError("head_moved", "Draft changes moved; regenerate or discard the draft");
     }
-    const status = await read(() => repository.status(root));
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.

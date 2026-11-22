@@ -300,6 +300,7 @@ export class GitService {
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
+    expectedIndex?: string | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }

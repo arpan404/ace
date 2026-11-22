@@ -55,6 +55,12 @@ interface ThreadSourceControl {
   detached: boolean;
   pullError?: string | undefined;
   commits: { message: string; amend: boolean; stagedOnly: boolean; head: string }[];
+  /** Bumped whenever the staged set changes, like the daemon's index fingerprint. */
+  indexVersion: number;
+}
+
+function indexOf(state: ThreadSourceControl | undefined): string {
+  return (state?.indexVersion ?? 0).toString(16).padStart(64, "0");
 }
 
 function byPath<T extends { path: string }>(entries: readonly T[]): T[] {
@@ -133,6 +139,7 @@ export class FakeSourceControlWire {
         behind: thread?.details?.behind ?? 0,
         detached: false,
         commits: [],
+        indexVersion: 0,
       };
       this.states.set(threadId, state);
     }
@@ -148,7 +155,10 @@ export class FakeSourceControlWire {
         changes: { details: { ...existing, branch: seed.branch } },
       });
     }
-    if (seed.staged !== undefined) state.staged = byPath(seed.staged.map(printed));
+    if (seed.staged !== undefined) {
+      state.staged = byPath(seed.staged.map(printed));
+      state.indexVersion += 1;
+    }
     if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged.map(printed));
     if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked.map(printed));
     if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted.map(printed));
@@ -207,6 +217,7 @@ export class FakeSourceControlWire {
         upstream: branch ? `origin/${branch}` : null,
         ahead: thread?.details?.ahead ?? 0,
         behind: thread?.details?.behind ?? 0,
+        index: indexOf(undefined),
       };
     }
     return {
@@ -219,6 +230,7 @@ export class FakeSourceControlWire {
       upstream: state.upstream,
       ahead: state.ahead,
       behind: state.behind,
+      index: indexOf(state),
     };
   }
 
@@ -279,6 +291,9 @@ export class FakeSourceControlWire {
       return { ok: false, error: "git_head_moved" };
     }
     const state = this.ensure(threadId, fallbackFiles);
+    if (payload.expectedIndex !== undefined && payload.expectedIndex !== indexOf(state))
+      return { ok: false, error: "git_index_moved" };
+    state.indexVersion += 1;
     if (state.conflicted.length > 0) return { ok: false, error: "git_conflicts" };
     if (payload.amend && !thread?.details?.head) return { ok: false, error: "git_unborn_head" };
     if (payload.stagedOnly && !payload.paths) {
@@ -359,6 +374,7 @@ export class FakeSourceControlWire {
           for (const entry of state.conflicted.filter(move))
             nextStaged.set(entry.path, { ...entry, status: "modified" });
           state.staged = byPath([...nextStaged.values()]);
+          state.indexVersion += 1;
           state.unstaged = state.unstaged.filter((e) => !move(e));
           state.untracked = state.untracked.filter((e) => !move(e));
           state.conflicted = state.conflicted.filter((e) => !move(e));
@@ -378,6 +394,7 @@ export class FakeSourceControlWire {
             }
           }
           state.staged = state.staged.filter((e) => !move(e));
+          state.indexVersion += 1;
           state.unstaged = byPath([...nextUnstaged.values()]);
           state.untracked = byPath([...nextUntracked.values()]);
           this.syncDetails(threadId, state);

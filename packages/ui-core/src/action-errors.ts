@@ -121,6 +121,8 @@ const copy: Record<string, string> = {
     "A file changed after you reviewed it, so nothing was discarded. Look at it again first.",
   git_untracked_overwritten:
     "Files Git doesn't track or ignores, like a .env, would be overwritten. Move them aside first.",
+  git_index_moved:
+    "The staged changes moved after you reviewed them, so nothing was committed. Look again first.",
   git_path_occupied:
     "Another file now has the renamed file's old name, so nothing was discarded. Move it first.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the

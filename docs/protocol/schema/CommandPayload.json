@@ -907,6 +907,10 @@
             }
           ]
         },
+        "expectedIndex": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
         "message": {
           "maxLength": 65536,
           "minLength": 1,

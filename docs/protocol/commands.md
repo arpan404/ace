@@ -968,6 +968,7 @@ Example:
 | paths | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
 | stagedOnly | no | boolean |  |
 | amend | no | boolean |  |
+| expectedIndex | no | string | {"pattern":"^[a-f0-9]{64}$"} |
 
 Example:
 
@@ -975,6 +976,7 @@ Example:
 {
   "amend": true,
   "expectedHead": null,
+  "expectedIndex": "e5be9925cebec4096f87cc78edd6de36c6c001b6b725ec5fd208df67ae27aba0",
   "message": "example",
   "paths": [
     "example"

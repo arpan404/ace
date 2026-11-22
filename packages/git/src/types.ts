@@ -132,6 +132,7 @@ export type GitErrorCode =
   | "changed_since_review"
   | "path_occupied"
   | "untracked_overwritten"
+  | "index_moved"
   | GitFailureCode;
 
 /**
@@ -288,6 +289,8 @@ export interface SourceControlStatus {
   branch: string | null;
   detached: boolean;
   head: string | null;
+  /** The index as this status read it (`indexFingerprint`); a commit quotes it back. */
+  index: string;
   upstream: string | null;
   ahead: number;
   behind: number;

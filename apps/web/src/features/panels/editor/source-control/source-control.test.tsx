@@ -115,7 +115,7 @@ test("stages, unstages, and multi-select stages files between Changes and Staged
   });
 });
 
-test("commits staged changes, generates a commit message, and supports Commit and push and Amend", async () => {
+test("commits staged changes, generates a commit message, Commit and push, and asks before amending a pushed commit", async () => {
   const { app, explorer } = await openSourceControl();
   app.daemon.workspace.setDraftGenerator(async () => ({
     subject: "Add source control panel",
@@ -150,10 +150,21 @@ test("commits staged changes, generates a commit message, and supports Commit an
     expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
   });
 
-  // Amend works even with a clean working tree once a message is entered.
+  // The last commit is pushed now: amending it asks first, and Cancel leaves it alone.
   await userEvent.type(box, "Finish remaining changes (amended)");
   await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Amend" }));
+  const ask = await screen.findByRole("dialog");
+  expect(ask.textContent).toContain("Amend a pushed commit?");
+  await userEvent.click(within(ask).getByRole("button", { name: "Cancel" }));
+  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(2);
+
+  // Confirmed, the amend works even with a clean working tree.
+  await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Amend" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", { name: "Amend anyway" }),
+  );
   await waitFor(() => {
     expect(app.daemon.workspace.sourceControl.commits(thread).at(-1)?.amend).toBe(true);
   });

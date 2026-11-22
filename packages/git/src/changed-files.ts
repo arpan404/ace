@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { fileFingerprint } from "./file-fingerprint.ts";
+import { indexFingerprint } from "./index-fingerprint.ts";
 import type { Repository } from "./repository.ts";
 import type {
   ChangedFile,
@@ -244,7 +245,7 @@ export async function sourceControlState(
   repository: Repository,
   worktree: string,
   limit: number,
-): Promise<Omit<SourceControlStatus, "files">> {
+): Promise<Omit<SourceControlStatus, "files" | "index">> {
   const root = await repository.root(worktree);
   return repository.serial(root, async () =>
     sectionsFromState(root, await repository.state(root), limit),
@@ -268,6 +269,7 @@ export async function sourceControlStatus(
     return {
       files,
       ...sections,
+      index: await indexFingerprint(repository, root, state.branch.head),
       truncated: truncated || sections.truncated,
     };
   });

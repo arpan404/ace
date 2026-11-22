@@ -260,6 +260,11 @@ export const WorkspaceActionResult = z.object({
       ahead: z.number().int().nonnegative().optional(),
       /** Commits behind upstream. */
       behind: z.number().int().nonnegative().optional(),
+      /** The index as this status read it; `git.commit` quotes it back as `expectedIndex`. */
+      index: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/)
+        .optional(),
     }),
     GitStashesResult,
     z.object({
@@ -367,6 +372,11 @@ export const WorkspaceCommands = [
     stagedOnly: z.boolean().optional(),
     /** Amend the previous commit (`git commit --amend`). */
     amend: z.boolean().optional(),
+    /** The reviewed status's `index`: refused (`git_index_moved`) if anything was staged since. */
+    expectedIndex: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
   }),
   ...GitSourceControlCommands,
   z.object({

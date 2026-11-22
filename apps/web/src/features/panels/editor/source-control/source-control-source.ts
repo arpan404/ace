@@ -163,6 +163,8 @@ export function commitChanges(
   options: {
     message: string;
     expectedHead: string | null;
+    expectedIndex?: string | undefined;
+    paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
     amend?: boolean | undefined;
     draftFingerprint?: string | undefined;
@@ -173,6 +175,8 @@ export function commitChanges(
     threadId: tid(threadId),
     message: options.message,
     expectedHead: options.expectedHead,
+    ...(options.expectedIndex ? { expectedIndex: options.expectedIndex } : {}),
+    ...(options.paths?.length ? { paths: [...options.paths] } : {}),
     ...(options.stagedOnly ? { stagedOnly: true } : {}),
     ...(options.amend ? { amend: true } : {}),
     ...(options.draftFingerprint ? { draftFingerprint: options.draftFingerprint } : {}),
