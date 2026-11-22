@@ -98,6 +98,7 @@ import { FleetMapPartRequest, readFleetMapPart } from "./fleet-map-part.ts";
 import { answerOutside, NativeOutsideRequest } from "./outside-clients.ts";
 import type { InboxRequests } from "./inbox-manage.ts";
 import { NativeMarket, NativeMarketRequest } from "./market.ts";
+import type { PairedStanding } from "./socket.ts";
 import { NativeSkillLibrary, NativeSkillsRequest } from "./skill-library.ts";
 import { NativePluginsRequest, NativeSkillPlugins } from "./skill-plugins.ts";
 import { NativeAutomationRequest, type NativeAutomations } from "./automations.ts";
@@ -206,6 +207,7 @@ export class NativeServices {
     care?: HostCare,
     now: () => number = () => 0,
     automations?: NativeAutomations,
+    standing?: () => PairedStanding | undefined,
   ) {
     this.owner = owner;
     this.sink = sink;
@@ -218,7 +220,13 @@ export class NativeServices {
     this.reads = reads;
     this.skills = new NativeSkillLibrary(owner, now);
     this.plugins = new NativeSkillPlugins(owner);
-    this.market = new NativeMarket(owner, now);
+    this.market = new NativeMarket(
+      owner,
+      now,
+      undefined,
+      (id) => this.spade?.bot(id)?.name,
+      standing,
+    );
     this.automations = automations;
     this.projects = projects;
     this.inbox = inbox;
