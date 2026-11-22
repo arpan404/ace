@@ -166,3 +166,20 @@ test("a change only Spade can tell loosens anything carries the person's stamp f
     other.close();
   }
 });
+
+test("a socket holding only the daemon's token turns no Permission on: it reaches Spade unstamped, so Spade refuses the raise", async ({
+  onTestFinished,
+}) => {
+  const path = "/v1/agents/a_1/security/permissions";
+  for (const device of ["cli", "ace-agent"]) {
+    const token = await proxied({ device, proven: false }, (close) => onTestFinished(close));
+    await token.put("on", path, { key: "computer_use", on: true });
+    expect(token.stampOf(path)).toBeUndefined();
+    token.close();
+  }
+  // The person's proven window carries the stamp for that very switch.
+  const person = await proxied({ device: "phone", proven: true }, (close) => onTestFinished(close));
+  await person.put("on", path, { key: "computer_use", on: true });
+  expect(person.stampOf(path)).toMatch(/^v1\./);
+  person.close();
+});

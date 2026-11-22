@@ -44,6 +44,10 @@ export const nodeOnlySuites = [
   "apps/daemon/src/org-host-credential.process.test.ts",
   // That host with a real Spade (ADR 0206): stamps, policy, audit forwarding, binding.
   "apps/daemon/src/org-host-spade.process.test.ts",
+  // That host's one access policy over every entry point (ADR 0209 §4), same harness.
+  "apps/daemon/src/org-access.process.test.ts",
+  // Its Spade requests and streams ending with a member's standing (ADR 0209 §4.2), same harness.
+  "apps/daemon/src/org-host-spade-lapse.process.test.ts",
   // `ace bot publish` and the maintainer's signer against the market Worker (ADR 0200 §8, §9):
   // the same harness, so the same reason.
   "apps/daemon/src/cli-bot-publish-market.process.test.ts",

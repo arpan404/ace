@@ -20,6 +20,11 @@ export interface LocalDaemon {
    * file: the one machine an enrollment ticket the app hands this daemon may sign in.
    */
   relayHostId?: string;
+  /**
+   * That key's public half (X25519, base64url): what the app pins at its first enrollment to
+   * check the daemon holds it (ADR 0190, amendment 1).
+   */
+  relayPublicKey?: string;
 }
 
 const Origin = z
@@ -47,13 +52,19 @@ async function readHostId(home: string): Promise<string | undefined> {
   }
 }
 
-/** The relay host id the home's key names, or undefined before the daemon has made one. */
-async function readRelayHostId(home: string): Promise<string | undefined> {
+/** The relay host id the home's key names and its public half; undefined before there is one. */
+async function readRelayKey(
+  home: string,
+): Promise<{ relayHostId: string; relayPublicKey: string } | undefined> {
   try {
     const secret = await readFile(join(home, "relay", "noise-static.key"));
     if (secret.length !== 32) return undefined;
     const { hostId, keyPair } = await import("@ace/secure-channel");
-    return hostId(keyPair(new Uint8Array(secret)).publicKey);
+    const { publicKey } = keyPair(new Uint8Array(secret));
+    return {
+      relayHostId: hostId(publicKey),
+      relayPublicKey: Buffer.from(publicKey).toString("base64url"),
+    };
   } catch {
     return undefined;
   }
@@ -62,17 +73,19 @@ async function readRelayHostId(home: string): Promise<string | undefined> {
 /** The home's token and identity, which stay the same across its daemon's starts. */
 export async function readHomeCredentials(
   home: string,
-): Promise<{ token: string; hostId?: string; relayHostId?: string } | undefined> {
+): Promise<
+  { token: string; hostId?: string; relayHostId?: string; relayPublicKey?: string } | undefined
+> {
   try {
-    const [token, hostId, relayHostId] = await Promise.all([
+    const [token, hostId, relay] = await Promise.all([
       readFile(join(home, "daemon-token"), "utf8"),
       readHostId(home),
-      readRelayHostId(home),
+      readRelayKey(home),
     ]);
     return {
       token: Token.parse(token.trim()),
       ...(hostId ? { hostId } : {}),
-      ...(relayHostId ? { relayHostId } : {}),
+      ...relay,
     };
   } catch {
     return undefined;
@@ -82,7 +95,7 @@ export async function readHomeCredentials(
 /** The local daemon at a loopback origin (`http://127.0.0.1:<port>`), with the home's credentials. */
 export function localDaemonAt(
   origin: string,
-  credentials: { token: string; hostId?: string; relayHostId?: string },
+  credentials: { token: string; hostId?: string; relayHostId?: string; relayPublicKey?: string },
 ): LocalDaemon | undefined {
   const parsed = Origin.safeParse(origin);
   if (!parsed.success) return undefined;
