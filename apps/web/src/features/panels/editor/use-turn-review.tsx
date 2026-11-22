@@ -4,8 +4,6 @@ import {
   exactPatchHunks,
   hunksFromChanges,
   linesOf,
-  locateHunk,
-  mapHunk,
   providerDisplayName,
   revertChange,
   turnHunks,
@@ -38,6 +36,7 @@ import {
 import type { FileChange } from "@ace/protocol";
 import { providerOf } from "./agent-changes.ts";
 import { sharedDiff } from "./gutter-store.ts";
+import { cachedExact, placeHunk, type ExactHunks } from "./review-placement.ts";
 import { ReviewPeek } from "./hunk-peek.tsx";
 import type { LiveGutter } from "./live-gutter.ts";
 
@@ -92,7 +91,7 @@ export function useTurnReview(input: {
   // reverted (the diff rows carry no line endings).
   const texts = useMemo(() => turnTexts(own[0]?.changes ?? []), [own]);
   const patch = useMemo(() => singlePatch(own[0]?.changes ?? []), [own]);
-  const [exact, setExact] = useState<{ after: string; hunks: readonly TurnHunk[] }>();
+  const [exact, setExact] = useState<ExactHunks>();
   useEffect(() => {
     if (!texts) return;
     let live = true;
@@ -102,7 +101,7 @@ export function useTurnReview(input: {
         (changes) => {
           const lines = linesOf(texts.after);
           const found = hunksFromChanges(changes, (line) => lines[line] ?? "", lines.length);
-          if (live) setExact({ after: texts.after, hunks: found });
+          if (live) setExact({ before: texts.before, after: texts.after, hunks: found });
         },
         () => undefined,
       );
@@ -111,9 +110,7 @@ export function useTurnReview(input: {
     };
   }, [texts]);
   const exactHunks = texts
-    ? exact?.after === texts.after
-      ? exact.hunks
-      : undefined
+    ? cachedExact(exact, texts)
     : patch !== undefined
       ? exactPatchHunks(patch)
       : undefined;
@@ -147,20 +144,26 @@ export function useTurnReview(input: {
     };
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- the gutter's state moves with the text: map again after each pause.
   }, [turnText, buffer, marks]);
-  /** Where each hunk is now, and whether its origin is proven (so Revert may act on it). */
+  /**
+   * Where each hunk is now, and whether its origin is proven for the text as it is (so Revert may
+   * act on it): only by the exact changes since the turn's own text, never by its words.
+   */
   const find = (
     hunk: TurnHunk,
     fresh: boolean,
   ): { at: ChangeHunk; proven: boolean } | undefined => {
     const doc = buffer.document();
     if (!doc) return undefined;
-    if (turnText !== undefined) {
-      if (!mapping || mapping.doc !== doc) return undefined;
-      const at = mapHunk(hunk, mapping.changes);
-      return at && { at, proven: !fresh || mapping.version === doc.version() };
-    }
-    const at = locateHunk(hunk, (line) => doc.line(line), doc.lenLines());
-    return at && { at, proven: !at.moved };
+    const current = mapping && mapping.doc === doc ? mapping : undefined;
+    const placed = placeHunk(
+      hunk,
+      turnText !== undefined
+        ? { kind: "text", changes: current?.changes }
+        : { kind: "patch", lineAt: (line) => doc.line(line), lineCount: doc.lenLines() },
+    );
+    if (!placed) return undefined;
+    const proven = placed.revertable && (!fresh || current?.version === doc.version());
+    return { at: placed.at, proven };
   };
   const located = hunks.map((hunk) => find(hunk, false)?.at);
 
@@ -249,7 +252,7 @@ export function useTurnReview(input: {
   const lost = located.filter((hunk) => hunk === undefined).length;
   const where = `${agent} · turn ${turn.number} · ${index + 1} of ${hunks.length}${
     lost ? ` · ${lost} changed since` : ""
-  }${current && !canRevert ? " · moved since the turn" : ""}`;
+  }`;
   const peek =
     current && !done.has(index)
       ? {

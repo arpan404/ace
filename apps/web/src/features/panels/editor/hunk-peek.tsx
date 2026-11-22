@@ -130,7 +130,11 @@ export function ReviewPeek(props: {
             size="sm"
             variant="ghost"
             disabled={!props.onRevert}
-            title={props.onRevert ? undefined : "It moved since the turn: review it in Changes"}
+            title={
+              props.onRevert
+                ? undefined
+                : "Revert needs the turn's own copy of the file to find these lines for sure"
+            }
             onClick={props.onRevert}
           >
             Revert
