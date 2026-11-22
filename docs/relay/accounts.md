@@ -84,16 +84,15 @@ Keep `relay.acehq.dev` on the Worker while any installed app or outside MCP clie
 
 After the first deploy, each release tag (`vX.Y.Z` or `ace-X.Y.Z-beta-N`) deploys from that tag
 ([ADR 0188](../adr/0188-tag-driven-release-pipeline.md)): once every platform has built, the
-release pipeline runs `bun run deploy:workers staging`, then `bun run deploy:workers production`,
-before the desktop release is published ([docs/release/workers.md](../release/workers.md)).
-Staging (`staging.cloud.acehq.dev`) has its own database and Durable Objects. Each deploy applies
-D1 migrations, deploys the new version, smokes every hostname and rolls back to the previous
-version if the smoke fails. Secrets set in Cloudflare are untouched by deploys. Migrations may
-only add; see that document for expand-then-contract.
+release pipeline runs `bun run deploy:workers production`, before the desktop release is published
+([docs/release/workers.md](../release/workers.md)). Each deploy applies D1 migrations, deploys the
+new version, smokes every hostname and rolls back to the previous version if the smoke fails.
+Secrets set in Cloudflare are untouched by deploys. Migrations may only add; see that document for
+expand-then-contract.
 
-The deploy jobs read `CLOUDFLARE_API_TOKEN` from the `staging` and `production` GitHub
-environments (never a repository secret); docs/release/workers.md lists the token's scope. Set it
-with `gh secret set CLOUDFLARE_API_TOKEN --env production` (and `--env staging`).
+The deploy job reads `CLOUDFLARE_API_TOKEN` from the `production` GitHub environment (never a
+repository secret); docs/release/workers.md lists the token's scope. Set it with
+`gh secret set CLOUDFLARE_API_TOKEN --env production`.
 
 Settings are all or nothing. With none of them, the Worker answers account routes
 with 503 `account_not_configured` and refuses `/host` and `/client`, since the
@@ -144,6 +143,44 @@ storage; [ADR 0115](../adr/0115-one-device-one-machine.md)).
 For iOS, set the Xcode build setting `ACE_ACCOUNT_URL`. No API key belongs in any
 client build.
 
+### ace search
+
+ace search ([ADR 0210](../adr/0210-spade-searches-the-web-through-ace-cloud.md)) serves Spade's
+`web_search` from Ceramic through an AI Gateway on the same Cloudflare account. Before the first
+deploy that carries it (a release deploys it too):
+
+1. In the Cloudflare dashboard, AI › AI Gateway, create a gateway with the id `ace-search` (the
+   `ACE_SEARCH_GATEWAY` var in `env.production`), used for nothing else. In its settings turn
+   **log collection off, Logpush off and caching off**: zero data retention doesn't cover the
+   gateway's own logs, and they would keep queries.
+2. Create an API token with **AI Gateway Read** on that account, and set it with the account id:
+
+   ```sh
+   XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put ACE_SEARCH_CF_API_TOKEN --env production
+   XDG_CONFIG_HOME=~/.ace-cloudflare bunx wrangler secret put ACE_SEARCH_CF_ACCOUNT_ID --env production
+   ```
+
+   The Worker reads the gateway's settings with them and searches only while logs, Logpush and
+   caching are off. Without them it searches only if `ACE_SEARCH_GATEWAY_VERIFIED` is set to
+   `logs-off-cache-off` in `env.production.vars`, your word that you checked by hand.
+
+3. **Never change the gateway's settings with search on.** First set `ACE_SEARCH_ENABLED` to
+   `"false"` in `env.production.vars` and deploy, change the settings, check that logs, Logpush
+   and caching are off again, then set it back to `"true"` and deploy. The Worker reads the
+   settings at most every 5 minutes, so a change made with search on could let up to 5 minutes of
+   queries be kept.
+4. Add AI Gateway credits to the account. Searches bill them at Ceramic's list price ($0.25 per
+   1,000); credits carry a 5% fee on purchase.
+5. Migration `0011_search_counts.sql` applies with the others.
+
+The `ai` binding exists only in `env.production`. Local runs and tests have none, and the route
+answers `503 search_unavailable` there. Until the gateway exists and checks out, a deployed route
+answers `503 search_unavailable`, counts nothing, and Spade falls back to the model's own search.
+The limits are the `ACE_SEARCH_*` vars in `env.production`, with the account burst in
+`SEARCH_ACCOUNT_BURST` (1009) and the coarse address limit before authentication in
+`SEARCH_ADDRESS_REQUESTS` (1010); ADR 0210 §4 lists them. To stop ace search at once, set
+`ACE_SEARCH_ENABLED` to `"false"` and deploy.
+
 ## What the database holds
 
 No column holds a usable credential. Session tokens, login ids, claim tickets,
@@ -153,6 +190,9 @@ retried until the sign-in expires) are AES-256-GCM sealed to their row's digest.
 Machines are host id, account id, name, platform, first and last seen. Machine credentials (ADR 0190) are a digest, the digest of the session they live on, the host id and account they speak
 for, and whether the daemon was that session's only holder. Each session keeps its `standing`:
 `person`, `legacy` or `exposed`.
+ace search's counters (`search_counts`) are a scope (`global`, `account:<id>`,
+`machine:<host id>` or `address:<salted digest of the address>`), a UTC day or month, a count and when the period
+ends: never a query or a result.
 
 ## Account API
 

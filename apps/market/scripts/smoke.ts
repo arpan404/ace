@@ -4,13 +4,15 @@
  * (entry page, signed manifest, archive) using HEAD for the archive, so no download is counted.
  * Publishing without a grant is refused.
  *
- *   node apps/market/scripts/smoke.ts https://market.acehq.dev
+ *   node apps/market/scripts/smoke.ts https://store.acehq.dev
  *
- * Against market.acehq.dev the manifest must verify with the keys this build ships and the
- * catalog must list something. Elsewhere (staging) ACE_MARKET_KEYS, the market's public keys as
- * JSON, verifies manifests, and an empty catalog only skips the install path.
+ * Against store.acehq.dev (or legacy market.acehq.dev) the manifest must verify with the keys
+ * this build ships and the catalog must list something. Elsewhere, ACE_MARKET_KEYS (the
+ * Store's public keys as JSON) verifies manifests, and an empty catalog only skips the install
+ * path.
  */
 import {
+  legacyMarketOrigin,
   marketOrigin,
   parseIndex,
   shippedMarketKeys,
@@ -26,9 +28,9 @@ import {
 } from "@ace/protocol/marketplace";
 
 const argument = process.argv[2];
-if (!argument) throw new Error("Usage: smoke.ts https://market.example.com");
+if (!argument) throw new Error("Usage: smoke.ts https://store.example.com");
 const origin = new URL(argument).origin;
-const production = origin === marketOrigin;
+const production = origin === marketOrigin || origin === legacyMarketOrigin;
 const keys = production
   ? shippedMarketKeys
   : process.env.ACE_MARKET_KEYS

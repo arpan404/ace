@@ -438,6 +438,32 @@ export function seedFakeSpade(
   here.oversight.activity.set(
     "flights",
     [
+      // A Notion call: asked, the reviewer passed it to the person, they allowed it, it ran.
+      ...(["connector", "approval", "review", "approval"] as const).map((kind, at) => ({
+        kind,
+        name: "notion__notion-create-pages",
+        summary: "",
+        sentence: [
+          "Created pages in Notion",
+          "You allowed it to create pages in Notion",
+          "The reviewer asked you: create pages in Notion",
+          "Asked you to create pages in Notion",
+        ][at],
+        detail: kind === "review" ? "It writes to a shared workspace." : "Lisbon fares, November",
+        outcome: ["ok", "allowed", "escalated", "asked"][at],
+        reply: "r-notion",
+        call_id: "c-notion",
+        ago: 0.5,
+      })),
+      {
+        kind: "tool",
+        name: "ace__screen_act",
+        summary: "",
+        sentence: "Used an app on the screen",
+        detail: "Safari · flytap.com",
+        outcome: "ok",
+        ago: 0.8,
+      },
       {
         kind: "access",
         name: "auto_review",

@@ -30,6 +30,7 @@ export interface TransferCommandDeps {
 
 /** What a person reads for each refusal a thread's state gives (thread.move's checks). */
 const refusalDetails: Record<string, string> = {
+  org_host: "An organization's host keeps its threads: they can't move to another machine.",
   thread_busy:
     "This thread is still working, waiting on you or has open terminals. Let it finish or stop it first.",
   thread_not_found: "That thread doesn't exist on this machine.",

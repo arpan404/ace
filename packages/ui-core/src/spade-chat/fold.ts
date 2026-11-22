@@ -1,5 +1,4 @@
 import { spadeRemembered, type SpadeRememberedNote } from "./notes.ts";
-import { spadeNeedsSearchSetup } from "./web-search.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
 import type {
   SpadeFailureKind,
@@ -113,8 +112,6 @@ export type SpadeReplyPart =
   | { kind: "remembered"; key: string; note: SpadeRememberedNote }
   /** The bot asked the person a card of questions (`ask_user`, ADR 0154), where it asked. */
   | ({ kind: "question"; key: string } & SpadeQuestionCard)
-  /** `web_search` had nothing set up to search with: a line that opens its setting. */
-  | { kind: "search-setup"; key: string }
   /** The next step ran on another model of the bot's route: where, and why (ADR 0205 §2). */
   | { kind: "served"; key: string; line: string }
   /** Workspace files a tool kept (a research report): chips on the bot's next bubble. */
@@ -797,13 +794,6 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           );
       }
       remembered(state, event.reply, key, event.name, event.content, event.is_error === true);
-      if (spadeNeedsSearchSetup(event.name, event.content, event.is_error === true))
-        updateReply(state, event.reply, (entry) =>
-          // Once per reply, however often it searched.
-          entry.parts.some((part) => part.kind === "search-setup")
-            ? undefined
-            : { ...entry, parts: [...entry.parts, { kind: "search-setup", key }] },
-        );
       if (event.files.length)
         updateReply(state, event.reply, (entry) => ({
           ...entry,

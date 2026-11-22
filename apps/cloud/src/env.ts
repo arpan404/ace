@@ -1,7 +1,9 @@
 import type { SignInObject } from "./broker/sign-in-object.ts";
 import type { RelayObject } from "./relay-object.ts";
+import type { LimitVars } from "./search/limits.ts";
 
-export interface Env {
+/** The limit vars (`ACE_SEARCH_*`) are in LimitVars, with their defaults in search/limits.ts. */
+export interface Env extends LimitVars {
   RELAY: DurableObjectNamespace<RelayObject>;
   /** Spade's connector sign-ins in progress, one object per account (ADR 0141). */
   SIGN_INS: DurableObjectNamespace<SignInObject>;
@@ -22,8 +24,23 @@ export interface Env {
   STANDING_REQUESTS?: RateLimit;
   /** WorkOS lookups the standing route makes, all callers together. */
   STANDING_WORKOS?: RateLimit;
+  /** ace search (ADR 0210 §4): coarse per caller address before authentication. */
+  SEARCH_ADDRESS_REQUESTS?: RateLimit;
+  /** ace search's tight burst per account, after authentication. */
+  SEARCH_ACCOUNT_BURST?: RateLimit;
+  /** Workers AI, for ace search through the owner's AI Gateway. Absent in local tests. */
+  AI?: Ai;
+  /** The AI Gateway ace search bills (ADR 0210 §2). Unset: the route answers 503. */
+  ACE_SEARCH_GATEWAY?: string;
+  /** `false` turns ace search off at once: the kill switch (ADR 0210 §4). Unset or else: on. */
+  ACE_SEARCH_ENABLED?: string;
+  /** The Cloudflare account id and an AI Gateway Read token, to read the gateway's settings. */
+  ACE_SEARCH_CF_ACCOUNT_ID?: string;
+  ACE_SEARCH_CF_API_TOKEN?: string;
+  /** `logs-off-cache-off`: the owner checked the gateway by hand, for when it can't be read. */
+  ACE_SEARCH_GATEWAY_VERIFIED?: string;
   /**
-   * The broker's apps as JSON in place of the shipped list (tests, staging). Each app's client
+   * The broker's apps as JSON in place of the shipped list (tests). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.
    */
   SPADE_CLOUD_APPS?: string;

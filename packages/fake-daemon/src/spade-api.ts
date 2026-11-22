@@ -6,7 +6,6 @@ import { FakeSpadeKnowledge } from "./spade-knowledge.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
 import { FakeSpadeRoles } from "./spade-roles.ts";
 import { FakeSpadeServices } from "./spade-services.ts";
-import { FakeSpadeSearch } from "./spade-search.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
 import { contractsRoute, packageRoute } from "./spade-packages.ts";
@@ -171,8 +170,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly oversight = new FakeSpadeOversight();
   /** The sandbox, and each bot's network, grants, egress log and checkpoints (ADR 0167). */
   readonly security: FakeSpadeSecurity;
-  /** Web search settings: the SearXNG address and whether a Brave key is set. */
-  readonly search = new FakeSpadeSearch();
+  /** `GET /v1/usage/search`'s answer (ADR 0210 §6); null answers 404, as an older Spade. */
+  searchUsage: Json | null = {
+    signed_in: true,
+    used: 312,
+    allowance: 1000,
+    resets_at: "2026-12-01T00:00:00Z",
+  };
   /** Each bot's wakes, folded from its events, and the digests (ADR 0160, 0165). */
   readonly wakes: FakeSpadeWakes;
   /** Each bot's runs kept as tests (ADR 0204). */
@@ -787,7 +791,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       return this.useLocalModel(sub, String(body.model ?? ""));
     if (root === "endpoints") return this.endpointRoute(request.method, id, sub, body, query);
     if (root === "keys" && id) return this.keyRoute(request.method, id);
-    if (root === "search") return this.search.route(request.method, id, body, this.keychain);
+    if (root === "usage" && id === "search" && !sub && request.method === "GET")
+      return this.searchUsage ? reply(this.searchUsage) : problem(404, "Not found.");
     if (root === "settings" && request.method === "PUT") {
       if ("fast_model" in body)
         this.fastModel = typeof body.fast_model === "string" ? body.fast_model : null;

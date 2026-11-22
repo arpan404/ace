@@ -17,6 +17,7 @@ import { Route as SettingsRouteImport } from "./routes/settings"
 import { Route as SetupRouteImport } from "./routes/setup"
 import { Route as SkillsRouteImport } from "./routes/skills"
 import { Route as SpadeRouteImport } from "./routes/spade"
+import { Route as StoreRouteImport } from "./routes/store"
 import { Route as TrayRouteImport } from "./routes/tray"
 import { Route as UsageRouteImport } from "./routes/usage"
 import { Route as HomeIndexRouteImport } from "./routes/_home.index"
@@ -71,7 +72,6 @@ import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.
 import { Route as SettingsSpadeIndexRouteImport } from "./routes/settings.spade.index"
 import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.apps"
 import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
-import { Route as SettingsSpadeSearchRouteImport } from "./routes/settings.spade.search"
 import { Route as SettingsSpadeSecurityRouteImport } from "./routes/settings.spade.security"
 import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
 import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
@@ -120,6 +120,11 @@ const SkillsRoute = SkillsRouteImport.update({
 const SpadeRoute = SpadeRouteImport.update({
   id: "/spade",
   path: "/spade",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StoreRoute = StoreRouteImport.update({
+  id: "/store",
+  path: "/store",
   getParentRoute: () => rootRouteImport,
 } as any)
 const TrayRoute = TrayRouteImport.update({
@@ -402,11 +407,6 @@ const SettingsSpadeModelsRoute = SettingsSpadeModelsRouteImport.update({
   path: "/spade/models",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSpadeSearchRoute = SettingsSpadeSearchRouteImport.update({
-  id: "/spade/search",
-  path: "/spade/search",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsSpadeSecurityRoute = SettingsSpadeSecurityRouteImport.update({
   id: "/spade/security",
   path: "/spade/security",
@@ -469,6 +469,7 @@ export interface FileRoutesByFullPath {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
@@ -517,7 +518,6 @@ export interface FileRoutesByFullPath {
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
-  "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -538,6 +538,7 @@ export interface FileRoutesByTo {
   "/market": typeof MarketRoute
   "/pair": typeof PairRoute
   "/setup": typeof SetupRoute
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/archived": typeof HomeArchivedRoute
@@ -587,7 +588,6 @@ export interface FileRoutesByTo {
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
-  "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -614,6 +614,7 @@ export interface FileRoutesById {
   "/setup": typeof SetupRoute
   "/skills": typeof SkillsRouteWithChildren
   "/spade": typeof SpadeRouteWithChildren
+  "/store": typeof StoreRoute
   "/tray": typeof TrayRoute
   "/usage": typeof UsageRoute
   "/_home/archived": typeof HomeArchivedRoute
@@ -663,7 +664,6 @@ export interface FileRoutesById {
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
   "/settings/spade/models": typeof SettingsSpadeModelsRoute
-  "/settings/spade/search": typeof SettingsSpadeSearchRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -691,6 +691,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/archived"
@@ -739,7 +740,6 @@ export interface FileRouteTypes {
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
-    | "/settings/spade/search"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -760,6 +760,7 @@ export interface FileRouteTypes {
     | "/market"
     | "/pair"
     | "/setup"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/archived"
@@ -809,7 +810,6 @@ export interface FileRouteTypes {
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
-    | "/settings/spade/search"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -835,6 +835,7 @@ export interface FileRouteTypes {
     | "/setup"
     | "/skills"
     | "/spade"
+    | "/store"
     | "/tray"
     | "/usage"
     | "/_home/archived"
@@ -884,7 +885,6 @@ export interface FileRouteTypes {
     | "/settings/remote/map"
     | "/settings/spade/apps"
     | "/settings/spade/models"
-    | "/settings/spade/search"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -911,6 +911,7 @@ export interface RootRouteChildren {
   SetupRoute: typeof SetupRoute
   SkillsRoute: typeof SkillsRouteWithChildren
   SpadeRoute: typeof SpadeRouteWithChildren
+  StoreRoute: typeof StoreRoute
   TrayRoute: typeof TrayRoute
   UsageRoute: typeof UsageRoute
 }
@@ -971,6 +972,13 @@ declare module "@tanstack/react-router" {
       path: "/spade"
       fullPath: "/spade"
       preLoaderRoute: typeof SpadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/store": {
+      id: "/store"
+      path: "/store"
+      fullPath: "/store"
+      preLoaderRoute: typeof StoreRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/tray": {
@@ -1351,13 +1359,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsSpadeModelsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/spade/search": {
-      id: "/settings/spade/search"
-      path: "/spade/search"
-      fullPath: "/settings/spade/search"
-      preLoaderRoute: typeof SettingsSpadeSearchRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/spade/security": {
       id: "/settings/spade/security"
       path: "/spade/security"
@@ -1516,7 +1517,6 @@ interface SettingsRouteChildren {
   SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
   SettingsSpadeAppsRoute: typeof SettingsSpadeAppsRoute
   SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
-  SettingsSpadeSearchRoute: typeof SettingsSpadeSearchRoute
   SettingsSpadeSecurityRoute: typeof SettingsSpadeSecurityRoute
   SettingsOrganizationIndexRoute: typeof SettingsOrganizationIndexRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
@@ -1554,7 +1554,6 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsRemoteMapRoute: SettingsRemoteMapRoute,
   SettingsSpadeAppsRoute: SettingsSpadeAppsRoute,
   SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
-  SettingsSpadeSearchRoute: SettingsSpadeSearchRoute,
   SettingsSpadeSecurityRoute: SettingsSpadeSecurityRoute,
   SettingsOrganizationIndexRoute: SettingsOrganizationIndexRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
@@ -1611,6 +1610,7 @@ const rootRouteChildren: RootRouteChildren = {
   SetupRoute: SetupRoute,
   SkillsRoute: SkillsRouteWithChildren,
   SpadeRoute: SpadeRouteWithChildren,
+  StoreRoute: StoreRoute,
   TrayRoute: TrayRoute,
   UsageRoute: UsageRoute,
 }

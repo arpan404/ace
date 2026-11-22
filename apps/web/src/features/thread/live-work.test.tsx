@@ -41,3 +41,29 @@ test("one turn's work reads as one Worked line and one subagent card, though sub
   expect(within(feed).queryByRole("button", { name: "1 subagent" })).toBeNull();
   expect(second).toBeTruthy();
 });
+
+test("the live line says only how long the turn has worked, never the command it runs", async () => {
+  const app = harness({ uiClock: () => 61_000 });
+  app.daemon.createThread({
+    id: "deploy",
+    workspaceId: "ace",
+    title: "Deploy",
+    provider: "claude",
+  });
+  app.daemon.apply("deploy", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Deploy it"),
+    facts.tool("root", "deploy", {
+      kind: "shell",
+      title: "deploy",
+      detail: { kind: "shell", command: "bun run deploy" },
+    }),
+  ]);
+  await app.open("/t/deploy");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  // The command is its own row in the log; the line above stays words and time.
+  await within(feed).findByRole("button", { name: /^Running.*bun run deploy/ });
+  const line = screen.getByRole("status", { name: "Working" });
+  expect(line.textContent).toMatch(/^Working for \d+m \d+s$/);
+});

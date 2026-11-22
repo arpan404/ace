@@ -1,5 +1,5 @@
 import { botFaceStateOf, type BotFaceState } from "@ace/ui-core/bot-face";
-import { spadeIsDevelopment, type SpadeAvatar } from "@ace/ui-core/spade-chat";
+import { spadeIsDevelopment, spadeWorkingWord, type SpadeAvatar } from "@ace/ui-core/spade-chat";
 import { Link } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
@@ -13,6 +13,7 @@ import type { SpadeRowState } from "./spade-list-rows.ts";
 import { SharedWord } from "./spade-shared-lines.tsx";
 import { shownMembers, type RosterGroup } from "./use-spade-groups.ts";
 import { useFaceState } from "./use-face-state.ts";
+import { useHeldPhrase } from "./use-held-phrase.ts";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /* Spade's list rows (docs/design/spade.md §2): a face that carries the state, the name, one line. */
@@ -109,6 +110,11 @@ function RowText(props: {
 }) {
   const unseen = props.state === "unseen";
   const tone = lineTone[props.state];
+  // While it works, its phrase is held a moment as the chat's Working line holds it; anything
+  // else (waiting for you, needs you, failed) shows at once and wins over it.
+  const working = props.state === "working";
+  const phrase = useHeldPhrase(working ? props.line : spadeWorkingWord);
+  const line = working ? phrase : props.line;
   return (
     <>
       <span className="flex min-w-0 items-baseline gap-1.5">
@@ -139,7 +145,7 @@ function RowText(props: {
           props.state === "needs-you" && "font-medium",
         )}
       >
-        {props.line}
+        {line}
       </span>
     </>
   );

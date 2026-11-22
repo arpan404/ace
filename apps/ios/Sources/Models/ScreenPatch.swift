@@ -92,6 +92,9 @@ struct AttachmentFile: Codable, Sendable, Equatable, Identifiable {
     /// A file the thread already stores, carried from an edited message: read through that message.
     var carried: Carried? = nil
     struct Carried: Codable, Sendable, Equatable { let itemId: String; let ref: String; let thumbnail: Bool }
+    /// A failed upload worth trying again; false for a refusal a retry would meet again. Absent
+    /// from older bridges.
+    var retry: Bool? = nil
 }
 /// One browser annotation on the next message (`bridge/thread-annotations.ts`): its marker's
 /// number, the comment, what was pinned, and its crop's upload.

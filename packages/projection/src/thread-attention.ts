@@ -16,6 +16,17 @@ export function threadAttention(thread: Pick<Thread, "queue">): string | undefin
   return queue.reason;
 }
 
+/**
+ * The queue revision a hand settle is made over: the one holding the person's own message, not
+ * sent or not known to have arrived, else null. The settle stands while that hold carries on.
+ */
+export function unsentQueueRevision(thread: Pick<Thread, "queue">): number | null {
+  const attention = threadAttention(thread);
+  return attention === "not_sent" || attention === "uncertain"
+    ? (thread.queue?.revision ?? null)
+    : null;
+}
+
 /** The person's own Stop ended the thread's latest turn, and nothing has run since. */
 export function stoppedByPerson(thread: {
   queue?: Pick<QueueState, "paused" | "reason"> | undefined;

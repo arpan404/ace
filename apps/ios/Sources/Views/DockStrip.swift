@@ -20,11 +20,22 @@ struct DockPager {
     let move: (Int) -> Void
 }
 
+/// Where a strip's parts go, so its sentence keeps the row: a lone answer sits at the sentence's
+/// end only when no pager shares the row; otherwise the pager and the answers take a line of
+/// their own under the words.
+enum DockLayout {
+    static func inlineAction(actions: Int, paged: Bool) -> Bool { actions == 1 && !paged }
+    /// Whether a strip opened in place folds again from a drag: down, and more down than across.
+    static func collapses(dx: CGFloat, dy: CGFloat) -> Bool { dy > 30 && dy > abs(dx) }
+}
+
 /// Every strip above the composer, drawn alike: one glass shape the composer's width and corners,
 /// sitting on it. One short sentence led by the provider's mark or the row's status icon; under it
 /// at most one line, the payload in mono (cut in the middle, a tap shows it whole, or opens it) or
-/// a muted detail. Where the strip has more to show (a request's details), tapping its words opens
-/// it. Its answers are real buttons at least 44 points tall with room between them: a lone one at
+/// a muted detail. A tap on the strip, away from its buttons, opens it in place: the whole
+/// sentence, detail and payload (a long detail scrolls inside); another tap or a drag down folds
+/// it. Where the strip has more to show (a request's details), the open strip offers Details. Its
+/// answers are real buttons at least 44 points tall with room between them: a lone one at
 /// the sentence's end, several on a line of their own at the trailing edge, stacked full width
 /// when they don't fit one line. Long content is never here: it opens in a sheet. The words come
 /// from `@ace/ui-core/mobile`.
@@ -39,32 +50,44 @@ struct DockStrip: View {
     var openDetails: (() -> Void)? = nil
     var identifier = "thread.strip"
     var sentenceIdentifier = "strip.sentence"
-    @State private var expanded = false
+    /// Whether the strip is open in place, when its owner keeps it (a request strip, so paging
+    /// keeps it open); nil keeps it in the strip's own state.
+    var open: Binding<Bool>? = nil
+    @State private var localOpen = false
+    /// The detail's whole height, measured while folded too, so opening never jumps.
+    @State private var detailHeight: CGFloat = 0
+    private var expanded: Bool { open?.wrappedValue ?? localOpen }
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.inGlassBlock) private var inBlock
+    @Environment(\.aceReduceMotion) private var reduceMotion
 
-    /// A lone answer fits at the sentence's end; more go on their own line.
-    private var inline: Bool { actions.count == 1 }
+    private var paged: Bool { (pager?.total ?? 0) > 1 }
+    private var inline: Bool { DockLayout.inlineAction(actions: actions.count, paged: paged) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
             HStack(alignment: .center, spacing: AceDesign.Space.related) {
                 StripLeadMark(lead: line.lead)
                 sentence
-                if let pager, pager.total > 1 { pagerView(pager) }
                 if inline, let only = actions.first { StripButton(action: only) }
             }
             if !line.payload.isEmpty { payload }
-            if !line.detail.isEmpty {
-                Text(line.detail)
+            if !line.detail.isEmpty { detail }
+            if expanded, let openDetails {
+                Button("Details", action: openDetails)
+                    .buttonStyle(.plain)
                     .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .lineLimit(2)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .frame(minHeight: AceDesign.Size.tap)
                     .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
-                    .accessibilityIdentifier("strip.detail")
+                    .accessibilityIdentifier(sentenceIdentifier)
             }
-            if actions.count > 1 {
-                StripButtons(actions: actions).padding(.top, AceDesign.Space.related)
+            if paged || !inline && !actions.isEmpty {
+                HStack(spacing: AceDesign.Space.related) {
+                    if let pager, paged { pagerView(pager) }
+                    if !inline && !actions.isEmpty { StripButtons(actions: actions) } else { Spacer(minLength: 0) }
+                }
+                .padding(.top, AceDesign.Space.related)
             }
         }
         // Above the composer its words start where the field's do (`ReadingColumn.stripLead`).
@@ -76,38 +99,60 @@ struct DockStrip: View {
         // Its own glass, the only glass above the composer capsule (and on a subagent's view).
         .modifier(StripSurfaceGlass(inBlock: inBlock))
         .contentShape(Rectangle())
+        // A tap away from the buttons opens the strip in place, or folds it.
+        .onTapGesture { toggle() }
         .gesture(swipe)
         .padding(.horizontal, inBlock ? AceTheme.Spacing.none : ReadingColumn.bar(sizeClass).composer)
         .padding(.bottom, inBlock ? AceTheme.Spacing.none : AceDesign.Space.tight)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(identifier)
+        .accessibilityAction(named: expanded ? "Show less" : "Show more") { toggle() }
     }
 
-    @ViewBuilder private var sentence: some View {
-        if let openDetails {
-            Button(action: openDetails) { sentenceText }
-                .buttonStyle(.plain)
-                .accessibilityHint("Shows the details")
-                .accessibilityIdentifier(sentenceIdentifier)
-        } else {
-            sentenceText.accessibilityIdentifier(sentenceIdentifier)
+    private func toggle() {
+        withAnimation(reduceMotion ? nil : .default) {
+            if let open { open.wrappedValue.toggle() } else { localOpen.toggle() }
         }
     }
 
-    private var sentenceText: some View {
+    private var sentence: some View {
         Text(line.sentence)
             .aceFont(AceDesign.TextRole.segment).fontWeight(AceDesign.Typeface.regular)
             .foregroundStyle(AceTheme.Colours.foreground)
-            .lineLimit(2)
+            .lineLimit(expanded ? nil : 2)
+            .fixedSize(horizontal: false, vertical: true)
             .monospacedDigit()
             .contentTransition(.numericText())
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
+            .accessibilityIdentifier(openDetails == nil ? sentenceIdentifier : "strip.sentence")
+    }
+
+    /// The muted detail: two lines folded; open, all of it, scrolling inside past a few lines.
+    @ViewBuilder private var detail: some View {
+        let text = Text(line.detail)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.mutedForeground)
+        Group {
+            if expanded {
+                // Whole when it fits a few lines' room; past that it scrolls inside the strip.
+                ScrollView { text.frame(maxWidth: .infinity, alignment: .leading) }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(height: min(detailHeight, AceDesign.Size.outputMaxHeight))
+            } else {
+                text.lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(alignment: .topLeading) {
+            text.lineLimit(nil).fixedSize(horizontal: false, vertical: true).hidden()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { detailHeight = $0 }
+        }
+        .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
+        .accessibilityIdentifier("strip.detail")
     }
 
     private var payload: some View {
         Button {
-            if let open = openDetails ?? openPayload { open() } else { withAnimation { expanded.toggle() } }
+            if let openPayload, openDetails == nil { openPayload() } else { toggle() }
         } label: {
             Text(line.payload)
                 .aceMonospace(AceDesign.TextRole.code)
@@ -121,7 +166,7 @@ struct DockStrip: View {
         .buttonStyle(.plain)
         .padding(.leading, StripLeadMark.width + AceDesign.Space.related)
         .accessibilityLabel(line.payload)
-        .accessibilityHint(openDetails != nil ? "Shows the details" : expanded ? "Shows one line" : "Shows it all")
+        .accessibilityHint(expanded ? "Shows one line" : "Shows it all")
         .accessibilityIdentifier("strip.payload")
     }
 
@@ -149,11 +194,13 @@ struct DockStrip: View {
             .contentShape(Rectangle())
     }
 
-    /// A sideways swipe moves between the open requests.
+    /// A sideways swipe moves between the open requests; a drag down folds an open strip.
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 24).onEnded { drag in
-            guard let pager, abs(drag.translation.width) > abs(drag.translation.height), abs(drag.translation.width) > 40 else { return }
-            pager.move(drag.translation.width < 0 ? 1 : -1)
+            let dx = drag.translation.width, dy = drag.translation.height
+            if expanded, DockLayout.collapses(dx: dx, dy: dy) { toggle(); return }
+            guard let pager, abs(dx) > abs(dy), abs(dx) > 40 else { return }
+            pager.move(dx < 0 ? 1 : -1)
         }
     }
 }

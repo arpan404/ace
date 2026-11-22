@@ -39,9 +39,9 @@ test("a worker reads as its tree says, and never done unless the tree says it se
 });
 
 test("the card's heading says it started them until every one has ended", () => {
-  expect(spadeWorkersTitle(["human", "working", "done", "done"])).toBe("Started 4 agents");
-  expect(spadeWorkersTitle(["working"])).toBe("Started 1 agent");
-  expect(spadeWorkersTitle(["done", "failed"])).toBe("2 agents ran");
+  expect(spadeWorkersTitle(["human", "working", "done", "done"])).toBe("4 subagents running");
+  expect(spadeWorkersTitle(["working"])).toBe("1 subagent running");
+  expect(spadeWorkersTitle(["done", "failed"])).toBe("2 subagents ran");
 });
 
 test("the workers waiting on the person are listed once, in the order they started", () => {

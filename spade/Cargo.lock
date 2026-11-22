@@ -3922,7 +3922,6 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
- "spade-keys",
  "thiserror 2.0.21",
  "tokio",
 ]

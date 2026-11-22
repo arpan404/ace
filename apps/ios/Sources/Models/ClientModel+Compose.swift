@@ -63,6 +63,7 @@ extension ClientModel {
         guard canOperate else { return }
         composeAction(["kind": "attach", "workspaceId": workspaceId, "file": file.json])
     }
+    func composeRetry(_ localId: String) { composeAction(["kind": "attach.retry", "localId": localId]) }
     func composeDetach(_ localId: String) {
         composeAction(["kind": "detach", "localId": localId])
         AttachmentStaging().discard(localId)

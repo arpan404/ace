@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value};
 
-use super::Kind;
+use super::{Kind, plain};
 use crate::redact;
 
 /// A tool in words: after "wants to", on the Working line, and once it ran.
@@ -258,16 +258,12 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
-/// `ace__thread_start` or `ace_thread_start` → "thread start".
-fn plain_name(name: &str) -> String {
+/// Whether this table has its own words for the tool, under its name or its server's.
+pub fn known(name: &str) -> bool {
     let last = name.rsplit("__").next().unwrap_or(name);
-    let last = last.strip_prefix("ace_").unwrap_or(last);
-    let words: Vec<&str> = last.split(['_', '-']).filter(|w| !w.is_empty()).collect();
-    if words.is_empty() {
-        name.to_owned()
-    } else {
-        words.join(" ")
-    }
+    TOOLS
+        .iter()
+        .any(|(tool, ..)| *tool == name || *tool == last)
 }
 
 /// A tool's words; ace's tools may arrive under its server's name (`ace__screen_act`), and one
@@ -285,11 +281,20 @@ pub fn tool_words(name: &str) -> ToolWords {
             done: (*done).to_owned(),
         };
     }
-    let plain = plain_name(name);
-    ToolWords {
-        base: format!("use {plain}"),
-        doing: format!("Using {plain}"),
-        done: format!("Used {plain}"),
+    let (base, doing, done) = plain::tool(name);
+    ToolWords { base, doing, done }
+}
+
+/// A call's words with its app named where it has one: "create pages in Notion".
+fn call_words(name: &str) -> ToolWords {
+    let words = tool_words(name);
+    match plain::app_of(name) {
+        Some(app) => ToolWords {
+            base: format!("{} in {app}", words.base),
+            doing: format!("{} in {app}", words.doing),
+            done: format!("{} in {app}", words.done),
+        },
+        None => words,
     }
 }
 
@@ -343,6 +348,7 @@ fn said(value: &Value, depth: u8) -> Option<String> {
         Value::Object(fields) if depth <= 1 => {
             let parts: Vec<String> = fields
                 .iter()
+                .filter(|(k, v)| !plain::id_like(k, v))
                 .filter_map(|(k, v)| said(v, depth + 1).map(|s| format!("{}: {s}", label(k))))
                 .collect();
             (!parts.is_empty()).then(|| parts.join("; "))
@@ -407,18 +413,18 @@ fn object_detail(name: &str, fields: &Map<String, Value>) -> Option<String> {
             .collect();
         return Some(parts.join(" · "));
     }
-    // A hidden secret says nothing worth a line.
+    // What it acts on, by its title: a page's name, never the ids around it.
+    if let Some(title) = plain::title_in(fields, 0) {
+        return Some(title);
+    }
+    // A hidden secret, or an id, says nothing worth a line.
     let parts: Vec<String> = fields
         .iter()
         .filter(|(_, v)| v.as_str() != Some(redact::HIDDEN))
+        .filter(|(k, v)| !plain::id_like(k, v))
         .filter_map(|(k, v)| said(v, 1).map(|s| format!("{}: {s}", label(k))))
         .collect();
     (!parts.is_empty()).then(|| parts.join("; "))
-}
-
-/// `slack__send_message` → app "slack", tool "send_message".
-fn connector_parts(name: &str) -> (&str, &str) {
-    name.split_once("__").unwrap_or(("", name))
 }
 
 fn capitalised(text: &str) -> String {
@@ -448,21 +454,13 @@ pub struct Facts<'a> {
 pub fn sentence(facts: &Facts<'_>) -> String {
     let name = facts.name.unwrap_or("");
     let outcome = facts.outcome.unwrap_or("");
-    let words = tool_words(name);
+    let words = call_words(name);
     match facts.kind {
         // A file a background job made, named by the job's tool.
         Kind::File if !name.starts_with("workspace_") => "Saved a file".to_owned(),
         Kind::Tool | Kind::File if outcome == "running" => words.doing,
         Kind::Tool | Kind::File => words.done,
-        Kind::Connector => {
-            let (app, tool) = connector_parts(name);
-            let plain = tool_words(tool);
-            if app.is_empty() {
-                plain.done
-            } else {
-                format!("{} in {}", plain.done, capitalised(app))
-            }
-        }
+        Kind::Connector => words.done,
         Kind::Bot if outcome == "received" => format!("Message from {name}"),
         Kind::Bot => format!("Messaged {name}"),
         Kind::Approval => match outcome {
@@ -518,7 +516,7 @@ mod tests {
     #[test]
     fn a_tool_this_table_does_not_know_reads_by_its_name_in_words() {
         assert_eq!(tool_words("ace__screen_act").done, "Used an app");
-        assert_eq!(tool_words("linear__create_issue").base, "use create issue");
+        assert_eq!(tool_words("linear__create_issue").base, "create issue");
         assert_eq!(tool_words("ace_thread_start").doing, "Using thread start");
     }
 

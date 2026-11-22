@@ -235,6 +235,12 @@ const entries = [
     keywords: ["delegate", "children", "subagents", "parallel", "concurrency", "queue", "limit"],
   },
   {
+    id: "threads.unresponsiveAfter",
+    page: "/settings/agents",
+    title: agentSettingTitles["threads.unresponsiveAfter"],
+    keywords: ["timeout", "silence", "unresponsive", "stopped responding", "thinking"],
+  },
+  {
     id: "threads.useWorktree",
     page: "/settings/agents",
     title: agentSettingTitles["threads.useWorktree"],
@@ -839,13 +845,22 @@ const entries = [
     id: "beta.marketplace",
     page: "/settings/beta",
     title: betaSwitches.marketplace.title,
-    keywords: ["store", "suits", "plugins", "skills", "install", "experimental", "preview"],
+    keywords: [
+      "marketplace",
+      "store",
+      "suits",
+      "plugins",
+      "skills",
+      "install",
+      "experimental",
+      "preview",
+    ],
   },
   {
     id: "market.askBeforeAgentPublish",
     page: "/settings/beta",
     title: "Ask me before agents publish",
-    keywords: ["marketplace", "publish", "agents", "approve", "permission"],
+    keywords: ["store", "marketplace", "publish", "agents", "approve", "permission"],
   },
 ] as const satisfies readonly SettingEntry[];
 

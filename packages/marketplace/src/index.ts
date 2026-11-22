@@ -123,7 +123,7 @@ export {
   type MarketSigningKey,
   type WithdrawalTarget,
 } from "./signing.ts";
-export { marketOrigin, shippedMarketKeys } from "./keys.ts";
+export { legacyMarketOrigin, marketOrigin, shippedMarketKeys } from "./keys.ts";
 export {
   exportProblems,
   exportSkillMd,

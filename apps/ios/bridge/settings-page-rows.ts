@@ -19,8 +19,10 @@ import {
   limitPolicyChoices,
   remotePushSwitch,
   sortByChoices,
+  unresponsiveAfterChoices,
   type LimitPolicyChoice,
 } from "@ace/ui-core";
+import { webhookWays } from "@ace/ui-core/automations";
 
 /*
  * The settings the phone edits on a machine, as data: which page and section each sits in, its
@@ -64,6 +66,8 @@ export interface StaticRow {
   note?: (current: unknown, other: (key: SettingsKey) => unknown) => string | null;
   /** Other settings the note depends on, read with the page. */
   reads?: SettingsKey[];
+  /** Why it can't change until another setting is there (read from `reads`); null when it can. */
+  blocked?: (other: (key: SettingsKey) => unknown) => string | null;
 }
 /** A row built from the machine's providers and models. */
 export type AgentRow =
@@ -187,12 +191,8 @@ const agents: PageSpec = {
         ),
         menu(
           "threads.unresponsiveAfter",
-          "Mark unresponsive after",
-          choices([
-            { value: "2m", label: "2 minutes" },
-            { value: "5m", label: "5 minutes" },
-            { value: "15m", label: "15 minutes" },
-          ]),
+          titles["threads.unresponsiveAfter"],
+          choices(unresponsiveAfterChoices),
         ),
       ],
     },
@@ -418,6 +418,28 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
     ],
     "With Bring ignored files, local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead.",
   ),
+  /**
+   * One switch per way a signed automation webhook can reach this machine (ADR 0173, decision
+   * 3), as web's Automation webhooks group words them. Each changes the URLs webhooks list.
+   */
+  automationWebhooks: one("automationWebhooks", "Automation webhooks", [
+    {
+      ...toggle("remote.publicUrlWebhooks", webhookWays.custom.title),
+      reads: ["remote.mcpPublicUrl"],
+      note: (_current, other) =>
+        other("remote.mcpPublicUrl") ? webhookWays.custom.sub : webhookWays.custom.blocked,
+      // Off until the machine has its own URL, as the web's switch.
+      blocked: (other) => (other("remote.mcpPublicUrl") ? null : webhookWays.custom.blocked),
+    },
+    {
+      ...toggle("remote.tailscaleWebhooks", webhookWays.tailscale.title),
+      note: () => webhookWays.tailscale.sub,
+    },
+    {
+      ...toggle("remote.relayWebhooks", webhookWays.relay.title),
+      note: () => webhookWays.relay.sub,
+    },
+  ]),
   /** Features still being tried out on this machine, as web's Settings › Beta lists them. */
   beta: {
     id: "beta",

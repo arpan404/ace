@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { eventFamilies, readFamily, writeFamilies } from "./read-policy.ts";
+import { eventFamilies, keepable, readFamily, writeFamilies } from "./read-policy.ts";
 
 /* What the phone's skill and plugin requests keep, and what they put out of date. */
 
@@ -54,4 +54,32 @@ test("a Verify run moving reads the merge strip again, not the pull request list
   expect(writeFamilies({ type: "forge.merge-run.write" })).toEqual(
     expect.arrayContaining([family, readFamily({ type: "forge.pulls" })]),
   );
+});
+
+const market = (operation: Record<string, unknown>) => ({ type: "market.native", operation });
+
+test("the market's home, listings, entries and Installed are kept; a review never is", () => {
+  expect(readFamily(market({ op: "home" }))).toBe("market");
+  expect(readFamily(market({ op: "installed" }))).toBe("market");
+  expect(readFamily(market({ op: "readReview", id: "r1" }))).toBeUndefined();
+  expect(
+    writeFamilies(market({ op: "prepare", source: "market", type: "suit", name: "x" })),
+  ).toEqual([]);
+});
+
+test("installing or removing from the market puts the market, skills and plugins out of date", () => {
+  for (const op of [
+    { op: "install", id: "r1", hash: "h" },
+    { op: "remove", type: "suit", name: "x" },
+  ])
+    expect(writeFamilies(market(op))).toEqual(["market", "skills", "plugins", "catalog"]);
+});
+
+test("the daemon's marketplace.changed puts the market's kept reads out of date", () => {
+  expect(eventFamilies("marketplace.changed")).toEqual(["market"]);
+});
+
+test("an answer kept from before the machine went offline is shown but not kept as fresh", () => {
+  expect(keepable({ ok: true, offline: false, rows: [] })).toBe(true);
+  expect(keepable({ ok: true, offline: true, rows: [] })).toBe(false);
 });

@@ -308,7 +308,7 @@ fn every_entry_reads_as_a_sentence_with_its_detail_never_raw_arguments() {
             ("Asked you to run a command", seen[3].1),
             ("You declined: run a command", seen[4].1),
             ("Ran a command", seen[5].1),
-            ("Used create issue in Linear", Some("Title: Bug")),
+            ("Created issue in Linear", Some("Bug")),
             ("Wrote a file", Some("notes.md")),
             ("Messaged Research", Some("Find the figures")),
             ("Read a web page", Some("https://example.com")),

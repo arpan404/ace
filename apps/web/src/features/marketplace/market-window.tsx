@@ -5,7 +5,7 @@ import {
   ClockIcon,
   FolderSimpleIcon,
   GitBranchIcon,
-  StorefrontIcon,
+  StoreIcon,
 } from "@ace/icons";
 import type { Scheme } from "@ace/themes";
 import { useCallback, type CSSProperties, type ReactNode } from "react";
@@ -104,7 +104,7 @@ function Window(props: { picture?: string | undefined }) {
           <ClockIcon size={18} />
         </i>
         <i data-on="">
-          <StorefrontIcon size={18} />
+          <StoreIcon size={18} />
         </i>
       </div>
       <div className="mk-win-canvas">

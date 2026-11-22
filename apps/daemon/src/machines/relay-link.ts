@@ -231,7 +231,12 @@ export class RelayLink {
   call(
     target: RelayTarget,
     body: MachineCallRequest,
-    options: { timeoutMs: number; signal?: AbortSignal },
+    options: {
+      timeoutMs: number;
+      signal?: AbortSignal;
+      /** Asked once the stream is up, right before the frame goes: false sends nothing. */
+      current?: () => boolean;
+    },
   ): Promise<unknown> {
     return this.exchange(
       target,
@@ -266,7 +271,7 @@ export class RelayLink {
   private async exchange(
     target: RelayTarget,
     frame: (id: number, timeoutMs: number) => ClientMessage,
-    options: { timeoutMs: number; signal?: AbortSignal },
+    options: { timeoutMs: number; signal?: AbortSignal; current?: () => boolean },
     admit?: (stream: Stream) => void,
   ): Promise<unknown> {
     if (!this.deps.current(target))
@@ -286,6 +291,8 @@ export class RelayLink {
         throw new MachineNotSent("offline", undefined, "Stopped before it was sent");
       if (!this.deps.current(target))
         throw new MachineUnpaired("offline", undefined, "Machine call never sent: unpaired");
+      if (options.current?.() === false)
+        throw new MachineFailure("refused", "machine_forbidden", "Machine call never sent", true);
       admit?.(stream);
     } catch (error) {
       // Nothing was sent: an unused stream still closes when idle.

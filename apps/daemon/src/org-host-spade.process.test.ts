@@ -144,13 +144,14 @@ it.skipIf(!canRunSpade)(
     expect(await spadeHttp(leeSocket, "POST", messages, { text: "Me too" })).toMatchObject({
       status: 403,
     });
-    // A socket that never proved a member's standing sends it unstamped: refused the same way.
+    // A socket that never proved a member's standing reaches no Spade at all: the host's access
+    // policy refuses it before anything is forwarded (ADR 0209 §3).
     const unproven = await helloWith(
       team.home,
       (await team.memberGrant(team.miaToken, (await deviceKey()).raw)).token,
     );
-    expect(await spadeHttp(unproven.client, "POST", messages, { text: "Hi" })).toMatchObject({
-      status: 403,
+    expect(await spadeHttp(unproven.client, "POST", messages, { text: "Hi" })).toEqual({
+      refused: "forbidden",
     });
 
     // Mia's stamp, as the daemon makes it, is good only for the route and body it was made for.

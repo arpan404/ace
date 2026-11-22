@@ -36,6 +36,12 @@ export interface CommandAdmission {
   personProven(): boolean;
   send(message: ServerMessage): void;
   delay(run: () => void, milliseconds: number): () => void;
+  /**
+   * On an organization's host, whether the principal that was allowed this command at admission
+   * still holds it now, decided again for the resource it named (ADR 0209 §4.2). Asked when the
+   * command's lane runs it: one that waited past its access is refused, never run.
+   */
+  recheck?(): boolean;
 }
 
 /**
@@ -134,6 +140,10 @@ export async function admitCommand(command: Command, admission: CommandAdmission
   // Accepted commands run on their thread's lane, not on this socket's input queue:
   // a command still waiting after the grace keeps running while the socket goes on.
   const task = lanes.run(commandLane(command, device), device, command.id, async () => {
+    if (admission.recheck?.() === false) {
+      refuse("forbidden", "Your access to this thread ended before the command ran.");
+      return;
+    }
     try {
       await route.accept(command, device);
     } catch (error) {

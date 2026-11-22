@@ -270,6 +270,7 @@ export class DaemonRuntime {
       token: daemon.token,
       ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
       ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
+      ...(daemon.relayPublicKey ? { localRelayPublicKey: daemon.relayPublicKey } : {}),
     };
   }
 
@@ -291,6 +292,7 @@ export class DaemonRuntime {
           token: daemon.token,
           ...(daemon.hostId ? { localHostId: daemon.hostId } : {}),
           ...(daemon.relayHostId ? { localRelayHostId: daemon.relayHostId } : {}),
+          ...(daemon.relayPublicKey ? { localRelayPublicKey: daemon.relayPublicKey } : {}),
         }
       : null;
   }

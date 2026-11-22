@@ -131,3 +131,15 @@ export {
   runStatusLine,
   type RunAlertBatch,
 } from "./run-alerts.ts";
+export {
+  webhookAccessLine,
+  webhookAddressGap,
+  webhookConfirms,
+  webhookHeaders,
+  webhookReach,
+  webhookSecretNote,
+  webhookVariables,
+  webhookViaNames,
+  webhookWays,
+  type WebhookRunsAt,
+} from "./webhook.ts";

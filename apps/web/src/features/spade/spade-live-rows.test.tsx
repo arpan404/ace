@@ -20,7 +20,7 @@ function thinking(spade: FakeSpadeApi) {
 async function openScout() {
   const opened = await spadeApp("/spade/scout", thinking);
   const chat = within(await screen.findByRole("feed", { name: "Conversation with Scout" }));
-  await waitFor(async () => expect((await botRow("Scout")).textContent).toBe("ScoutThinking"));
+  await waitFor(async () => expect((await botRow("Scout")).textContent).toBe("ScoutWorking"));
   return { ...opened, chat };
 }
 
@@ -81,6 +81,6 @@ test("the row rests once the stream says the reply ended, though Spade still lis
   spade.store("c-scout", { type: "reply_finished", reply: "r1", text: "Booked the aisle seat." });
   frame(app, "status", { state: "idle", status: null });
   await chat.findByText("Booked the aisle seat.");
-  await waitFor(async () => expect((await botRow("Scout")).textContent).not.toMatch(/Thinking$/));
+  await waitFor(async () => expect((await botRow("Scout")).textContent).not.toMatch(/Working$/));
   expect(chat.queryByRole("status")).toBeNull();
 });

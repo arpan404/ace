@@ -15,6 +15,9 @@ struct FileScreen: View {
     /// Where an Undo for this file goes once the screen closes after deleting it; without one
     /// the screen stays, saying the file is gone, with Undo.
     var deleted: ((FileStrip) -> Void)?
+    /// Opens a breadcrumb's folder (ending in "/") in the Files screen this file came from; without
+    /// one, a Files screen opens on top with that folder open.
+    var openFolder: ((String) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("files.wrap") private var wrap = false
     @State private var path: String
@@ -39,9 +42,13 @@ struct FileScreen: View {
     @State private var mentioned = 0
     @Environment(\.aceReduceMotion) private var reduceMotion
     @State private var actions: FileActions
+    @State private var goingToLine = false
+    @State private var shownFolder: String?
 
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil) {
+    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil,
+         openFolder: ((String) -> Void)? = nil) {
         self.deleted = deleted
+        self.openFolder = openFolder
         self.model = model
         self.scope = scope
         self.target = target
@@ -51,11 +58,12 @@ struct FileScreen: View {
     }
 
     private var name: String { FileActions.name(path) }
-    private var folder: String { (path as NSString).deletingLastPathComponent }
     private var text: String? { content?.kind == "text" ? content?.text : nil }
     private var markdownPreview: Bool { content?.markdown == true && !source && !editing }
     private var canEdit: Bool { actions.canChange && content?.kind == "text" && content?.editable == true }
     private var canEditParts: Bool { actions.canChange && content?.parts == true }
+    /// The source view is on screen, so Find and Go to line reach it.
+    private var showsSource: Bool { text != nil && !markdownPreview && !inParts && (editing || text?.isEmpty == false) }
     private var hasChanges: Bool { scope.changes && (target.changed || !(content?.marks ?? []).isEmpty) }
 
     var body: some View {
@@ -66,10 +74,8 @@ struct FileScreen: View {
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: AceTheme.Spacing.none) {
                         Text(name).aceMonospace(AceDesign.TextRole.rowTitle).lineLimit(1)
-                        if !folder.isEmpty {
-                            Text(folder).aceMonospace(AceDesign.TextRole.meta)
-                                .foregroundStyle(AceDesign.Ink.muted).lineLimit(1).truncationMode(.middle)
-                        }
+                        // Not while editing: a folder would leave the unsaved text.
+                        FileBreadcrumbs(path: path) { open($0) }.disabled(editing)
                     }
                 }
             }
@@ -90,6 +96,10 @@ struct FileScreen: View {
             .animation(.default, value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
+            .modifier(GoToLineRoute(isPresented: $goingToLine, enabled: showsSource, handle: handle))
+            .navigationDestination(item: $shownFolder) { folder in
+                FilesScreen(model: model, scope: scope, subtitle: threadTitle, mention: mention, folder: folder)
+            }
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
             .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
     }
@@ -197,7 +207,7 @@ struct FileScreen: View {
     @ToolbarContentBuilder private var viewToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .topBarTrailing) {
             OpenFilesButton(model: model, scope: scope) { picked in switchTo(picked) }
-            if text != nil, !markdownPreview, !inParts {
+            if showsSource {
                 Button("Find in file", ace: .magnifyingGlass) { handle.find() }.accessibilityIdentifier("file.find")
             }
             if canEdit {
@@ -221,6 +231,9 @@ struct FileScreen: View {
     }
     @ViewBuilder private var fileMenu: some View {
         if text != nil, !markdownPreview { Toggle(isOn: $wrap) { Label("Wrap lines", ace: .textAlignLeft) } }
+        if showsSource {
+            Button("Go to line", ace: .arrowBendDownRight) { goingToLine = true }.accessibilityIdentifier("file.goToLine")
+        }
         if content?.markdown == true {
             Button(source ? "View preview" : "View source", ace: source ? .eye : .code) { source.toggle() }
         }
@@ -268,6 +281,11 @@ struct FileScreen: View {
     }
 
     // MARK: Actions
+
+    /// A breadcrumb's folder opens in Files.
+    private func open(_ folder: FileBreadcrumbs.Folder) {
+        if let openFolder { openFolder(folder.path) } else { shownFolder = folder.path }
+    }
 
     private func load() async {
         guard !editing else { return }

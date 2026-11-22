@@ -6,6 +6,8 @@ import {
   type SpadeTaskLine,
   parseSpadeAvatar,
   spadeBubbles,
+  spadeTurnsWithWork,
+  spadeWithoutWork,
   spadeChatRows,
   spadePlainText,
   type SpadeChatRow,
@@ -19,6 +21,7 @@ import {
   spadeQuietLine,
   spadeRestLine,
   spadeRunningDetail,
+  spadeWorkingPhrase,
   type SpadeEntry,
   withSpadeDigests,
   type SpadeDigest,
@@ -32,12 +35,13 @@ import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
+import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
+import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
-import { SpadeContractLine } from "./spade-contract-line.tsx";
-import { SpadeHelperLine } from "./spade-helper-line.tsx";
+import { SpadeChildRow } from "./spade-child-row.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
 import { SpadeRequestGroup } from "./spade-request-group.tsx";
@@ -84,8 +88,7 @@ export interface ChatBot {
  * (`SpadeStepsLine`). Jobs, compaction and the notes it saves don't show (ADR 0128). A request
  * is the bot's bubble after the step that asked, with Allow and Deny, and keeps its answer once
  * given (`SpadeRequestBubble`); a card of questions likewise, answered in it or left for later
- * (`SpadeQuestionBubble`, ADR 0154); a search with nothing set up shows nothing (Settings ›
- * Spade › Web search is where it is set up); and a skill the bot offers as a
+ * (`SpadeQuestionBubble`, ADR 0154); and a skill the bot offers as a
  * bubble with Save and Discard (ADR 0130), after the reply that made it. While the bot works, one line under its last bubble: its face
  * working, its few words and how long it has been at it, with Watch while it uses its computer
  * and the right panel is closed. A bot carrying on with its task by itself keeps that line between replies ("Flights is
@@ -147,19 +150,27 @@ export function SpadeChat(props: {
   const keep = useMemo(() => ({ owner: client, conversation: bot.id }), [client, bot.id]);
   const proposals = props.proposals;
   const digests = props.digests;
+  // Each reply's work (its steps, the notes it had in mind) stays out of the chat unless the
+  // person shows it: for every reply in Settings, or for one from its More menu.
+  const showWork = useShowWork();
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const bubbles = useMemo(() => spadeBubbles(view), [view]);
+  const workTurns = useMemo(() => spadeTurnsWithWork(bubbles), [bubbles]);
   const rows = useMemo(
     () =>
       // The notes it saves stay in its Memory dialog, never in the chat.
       spadeChatRows(
         withSpadeDigests(
-          withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
-            (item) => item.kind !== "remembered",
-          ),
+          withProposals(
+            spadeWithoutWork(bubbles, { all: showWork, turns: opened }),
+            view.entries,
+            proposals ?? [],
+          ).filter((item) => item.kind !== "remembered"),
           digests ?? [],
         ),
         { now },
       ),
-    [view, proposals, digests, now],
+    [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const from = useNewestFirst(rows.length);
   const started = useMemo(() => startedWorkers(rows), [rows]);
@@ -190,11 +201,26 @@ export function SpadeChat(props: {
   const working = busy && !waiting;
   // The open reply's step running now: the working line names what it touches.
   const running = working ? spadeRunningDetail(openReply(view.entries)) : undefined;
+  // What it does now, in its own words or its tool's, held a moment so it never flickers.
+  const phrase = useHeldPhrase(spadeWorkingPhrase(view.status));
   const task = props.task;
   const lined = working || task !== undefined;
   // The finished reply being kept as a test (ADR 0204): its review is open.
   const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
+    work: (turn) =>
+      turn === undefined || showWork || !workTurns.has(turn)
+        ? undefined
+        : {
+            shown: opened.has(turn),
+            toggle: () =>
+              setOpened((before) => {
+                const next = new Set(before);
+                if (next.has(turn)) next.delete(turn);
+                else next.add(turn);
+                return next;
+              }),
+          },
     endpointName: props.endpointName,
     onProposal: props.onProposal,
     onAnswer: props.onAnswer,
@@ -282,7 +308,7 @@ export function SpadeChat(props: {
               label={
                 task && task.tone !== "waiting"
                   ? [task.sentence, task.step].filter(Boolean).join(" · ")
-                  : (view.status ?? "Working")
+                  : phrase
               }
               detail={working ? running : undefined}
               since={working ? view.working?.since : undefined}
@@ -334,6 +360,8 @@ function openReply(entries: readonly SpadeEntry[]) {
 }
 
 interface Handlers {
+  /** A reply's Show work, by its turn: undefined when it has no work to show, or all shows. */
+  work(turn: string | undefined): { shown: boolean; toggle(): void } | undefined;
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
@@ -493,6 +521,7 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
+              work={item.live ? undefined : handlers.work(item.turn)}
             >
               <div
                 {...part(
@@ -768,21 +797,30 @@ function Single(props: {
           <NamedLine item={item} bot={props.handlers.profile} />
         </div>
       ) : null;
+    // A helper and a contract call are children the bot started: ace's child row, live.
     case "helper": {
       return (
         <div className={space}>
-          <SpadeHelperLine text={item.text} open={item.open} since={item.at} />
+          <SpadeChildRow
+            name="Helper"
+            state={item.state}
+            detail={item.text}
+            startedAt={item.at}
+            onOpen={props.handlers.onOpenWork}
+          />
         </div>
       );
     }
     case "contract":
       return (
         <div className={space}>
-          <SpadeContractLine
-            text={item.text}
-            result={item.result}
-            open={item.open}
-            since={item.at}
+          <SpadeChildRow
+            name={item.bot}
+            meta="Contract"
+            state={item.state}
+            detail={item.open || !item.result ? item.text : item.result}
+            startedAt={item.at}
+            onOpen={props.handlers.onOpenWork}
           />
         </div>
       );

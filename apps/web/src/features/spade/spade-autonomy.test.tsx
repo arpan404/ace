@@ -113,8 +113,8 @@ test("the activity log lists the reviewer's verdicts with their reasons, and how
     );
   });
   await openPage("Scout");
-  // The log is on the profile's Computer tab.
-  await userEvent.click(await screen.findByRole("tab", { name: "Computer" }));
+  // The whole log is on the profile's Work tab.
+  await userEvent.click(await screen.findByRole("tab", { name: "Work" }));
   const list = within(await screen.findByRole("list", { name: "Activity" }));
   await waitFor(() =>
     expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([

@@ -45,7 +45,7 @@ struct ComposerAccessories: View {
                     }
                 }
                 if !screen.attachments.isEmpty {
-                    ComposerMediaStrip(files: screen.attachments, remove: { model.detach($0) }, asText: asText)
+                    ComposerMediaStrip(files: screen.attachments, remove: { model.detach($0) }, retry: { model.retryAttachment($0) }, asText: asText)
                 }
                 if hasChips {
                     ScrollView(.horizontal, showsIndicators: false) {
