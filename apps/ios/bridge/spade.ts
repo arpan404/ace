@@ -17,11 +17,13 @@ import {
 import { z } from "zod";
 import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
+import { SpadeHosting } from "./spade-hosting.ts";
 import {
   spadeConversationHead,
   spadeConversationRows,
   spadeListRows,
   spadePlaceLine,
+  type SpadeReach,
 } from "./spade-rows.ts";
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
@@ -138,6 +140,8 @@ export class NativeSpade {
   private readonly tree: SpadeWorkerTree;
   /** Which bots an organization shares, on an org host (ADR 0206 §2.3). */
   private readonly sharing: SpadeSharing;
+  /** Where this machine's Spade says Spade lives, for the list across machines. */
+  private readonly hosting: SpadeHosting;
   private readonly owner: ClientCore;
   private readonly sink: PatchSink;
   private readonly deps: SpadeDeps;
@@ -156,6 +160,11 @@ export class NativeSpade {
       { read: (path) => spadeText(owner, deps.id, "GET", path), later: deps.later },
       () => this.publishOpen(),
     );
+    this.hosting = new SpadeHosting({
+      read: (path) => spadeText(owner, deps.id, "GET", path),
+      now: deps.now,
+      changed: () => this.put(),
+    });
     this.sharing = new SpadeSharing({
       read: (path) => spadeText(owner, deps.id, "GET", path),
       now: deps.now,
@@ -187,9 +196,11 @@ export class NativeSpade {
     }
     this.stops.push(
       connection.subscribe(() => {
-        // A dropped connection ends the list's timer; it reads again once ready.
-        if (connection.getSnapshot() === "ready") this.refresh();
-        else this.stopList();
+        // A dropped connection ends the list's timer, and its bots list as away; it reads again
+        // once ready.
+        if (connection.getSnapshot() === "ready") return this.refresh();
+        this.stopList();
+        this.put();
       }),
       onSocketMove(this.owner, () => this.refresh()),
     );
@@ -244,6 +255,7 @@ export class NativeSpade {
     this.ask();
     void this.readName();
     void this.readEnabled();
+    if (this.listable) this.hosting.readNow();
     this.readList();
   }
 
@@ -318,6 +330,7 @@ export class NativeSpade {
     this.stopList();
     if (!this.listable || this.listReading) return;
     this.listReading = true;
+    this.hosting.readDue();
     // A write since this read began (`saved`) is newer than what it brings back about the bots.
     const writes = this.writes;
     const read = (path: string) => spadeText(this.owner, this.deps.id, "GET", path);
@@ -368,6 +381,12 @@ export class NativeSpade {
     this.listTimer = this.deps.later(working ? pace.working : pace.idle, () => this.readList());
   }
 
+  /** Whether the machine and its Spade answer now, for how its rows read. */
+  private get reach(): SpadeReach {
+    if (this.owner.connectionState().getSnapshot() !== "ready") return "away";
+    return this.ready ? "answering" : "unavailable";
+  }
+
   private put() {
     const status = this.status;
     this.sink.put("spade:state", () => ({
@@ -375,6 +394,9 @@ export class NativeSpade {
       // Undefined until the daemon first answers: the tab bar keeps what it last knew.
       shown: status === undefined ? null : status.hidden !== true,
       line: spadePlaceLine(status, this.enabled),
+      // The machine's ace host id, as host records name it; null until it has said.
+      host: this.hosting.here ?? this.hostId ?? null,
+      main: this.hosting.wire,
       list: {
         // Bots and groups each show once read; null only while neither has been.
         rows:
@@ -383,7 +405,7 @@ export class NativeSpade {
                 this.agents ?? [],
                 this.groups ?? [],
                 this.machine ?? "its machine",
-                this.ready,
+                this.reach,
                 this.hostId,
                 (agent) => this.sharing.sharedIn(agent),
               )

@@ -7,6 +7,7 @@ import { NativeSpade } from "./spade.ts";
 import { ImageBudget, imageBudgetBytes } from "./image-budget.ts";
 import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
 import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
+import type { SpadeHostingWire } from "./spade-hosting.ts";
 
 /*
  * Spade's bridge over the real SDK and an in-process fake daemon with a fake Spade behind
@@ -35,6 +36,8 @@ export class Patches {
           shown: boolean | null;
           line: { sentence: string; ready: boolean; canTurnOn: boolean };
           list: { rows: SpadeListRow[] | null; failed: boolean };
+          host?: string | null;
+          main?: SpadeHostingWire;
         }
       | undefined;
   }
