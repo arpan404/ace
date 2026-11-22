@@ -25,10 +25,10 @@ extension ClientModel {
         codeNotes.clear(thread)
         sendCodeNotes(thread)
     }
-    /// The person typed in `path`: its notes move with the edit.
-    func codeEdited(_ thread: String, path: String, through replacements: [TextReplacement], lines: [String]) {
+    /// The person typed in `path`: its notes move with the edit (`line` reads the text after it).
+    func codeEdited(_ thread: String, path: String, through replacements: [TextReplacement], line: (Int) -> String) {
         let before = codeNotes
-        codeNotes.edited(thread, path: path, through: replacements, lines: lines)
+        codeNotes.edited(thread, path: path, through: replacements, line: line)
         if codeNotes != before { sendCodeNotes(thread) }
     }
     /// `path`'s editor loaded new text (an agent's change, a discarded edit, the file at open).

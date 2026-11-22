@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Ace
 
@@ -85,5 +86,27 @@ import Testing
         }
         #expect(notes["t"].count == CodeNotes.limit)
         #expect(notes.full("t"))
+    }
+}
+
+/// The bridge's word that a message took notes, and how the chips name them.
+@MainActor @Suite struct CodeNoteChipsTests {
+    @Test func theBridgeSaysWhichNotesASentMessageTook() throws {
+        let json = #"{"type":"thread.codeSent","threadId":"t","epoch":1,"ids":["a","b"]}"#
+        let patch = try JSONDecoder().decode(BridgePatch.self, from: Data(json.utf8))
+        guard case .screen(let id, _, .codeSent(let ids)) = patch else { Issue.record("Expected the notes that went"); return }
+        #expect(id == "t")
+        #expect(ids == ["a", "b"])
+    }
+
+    @Test func theChipNamesOneNoteByItsPlaceAndSeveralByCount() {
+        let one = CodeNote(id: "a", path: "src/cart/total.ts", span: TextSpan(start: TextPlace(line: 1, column: 2), end: TextPlace(line: 2, column: 12)),
+                           excerpt: "x", cut: false, comment: "")
+        let line = CodeNote(id: "b", path: "view.tsx", span: TextSpan(start: TextPlace(line: 4, column: 0), end: TextPlace(line: 5, column: 0)),
+                            excerpt: "y", cut: false, comment: "")
+        #expect(CodeNoteChips.label([one]) == "Note on total.ts:2–3")
+        #expect(CodeNoteChips.label([line]) == "Note on view.tsx:5")
+        #expect(CodeNoteChips.label([one, line]) == "2 code notes")
+        #expect(FileNotesChip.lines(one) == "lines 2–3")
     }
 }
