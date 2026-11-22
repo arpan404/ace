@@ -87,8 +87,10 @@ struct AutomationWebhookSection: View {
     private func reveal(_ secret: String) -> some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.row) {
+                // Not selectable: the system Copy would skip the local-only, expiring clipboard
+                // below and could reach other devices through Universal Clipboard.
                 Text(secret).font(AceDesign.Typeface.code).foregroundStyle(AceDesign.Ink.primary)
-                    .textSelection(.enabled)
+                    .textSelection(.disabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier("webhook.secret")
                 // The secret stays on this phone's clipboard: never Handoff, and gone in five minutes.
