@@ -36,7 +36,8 @@ export function workerMerge(ready: () => Promise<void>): MergePort {
         { op: "merge3", base, mine, theirs },
         base.length + mine.length + theirs.length,
       );
-      if (Array.isArray(reply)) throw new Error("The merge worker answered the wrong job.");
+      if (Array.isArray(reply) || "op" in reply)
+        throw new Error("The merge worker answered the wrong job.");
       return reply;
     },
     async lineChanges(before, after) {
