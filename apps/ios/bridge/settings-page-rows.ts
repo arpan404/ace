@@ -21,6 +21,7 @@ import {
   sortByChoices,
   type LimitPolicyChoice,
 } from "@ace/ui-core";
+import { webhookWays } from "@ace/ui-core/automations";
 
 /*
  * The settings the phone edits on a machine, as data: which page and section each sits in, its
@@ -418,6 +419,26 @@ export const settingsPages: Readonly<Record<string, PageSpec>> = {
     ],
     "With Bring ignored files, local files Git ignores, such as .env and local config, go too. Dependency folders are rebuilt there instead.",
   ),
+  /**
+   * One switch per way a signed automation webhook can reach this machine (ADR 0173, decision
+   * 3), as web's Automation webhooks group words them. Each changes the URLs webhooks list.
+   */
+  automationWebhooks: one("automationWebhooks", "Automation webhooks", [
+    {
+      ...toggle("remote.publicUrlWebhooks", webhookWays.custom.title),
+      reads: ["remote.mcpPublicUrl"],
+      note: (_current, other) =>
+        other("remote.mcpPublicUrl") ? webhookWays.custom.sub : webhookWays.custom.blocked,
+    },
+    {
+      ...toggle("remote.tailscaleWebhooks", webhookWays.tailscale.title),
+      note: () => webhookWays.tailscale.sub,
+    },
+    {
+      ...toggle("remote.relayWebhooks", webhookWays.relay.title),
+      note: () => webhookWays.relay.sub,
+    },
+  ]),
   /** Features still being tried out on this machine, as web's Settings › Beta lists them. */
   beta: {
     id: "beta",
