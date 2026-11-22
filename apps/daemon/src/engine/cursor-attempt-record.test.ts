@@ -5,7 +5,7 @@ import { afterEach, expect, test } from "vitest";
 import { Store, Engine, AdapterRegistry } from "@ace/daemon";
 import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
 import { Command, type ThreadId } from "@ace/protocol";
-import { ProviderRecovery } from "./provider-recovery.ts";
+import { ProviderRecovery, idleSweepQuery } from "./provider-recovery.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -264,4 +264,16 @@ test("an idle thread's settled frames go a bounded batch per sweep, with no new 
   expect(count(h)).toBe(700 - 256);
   for (let sweep = 0; sweep < 4; sweep++) recovery.pruneIdle();
   expect(count(h)).toBe(2);
+});
+
+test("the idle sweep finds threads with frames to delete without reading every thread's records", async () => {
+  const h = await thread();
+  new ProviderRecovery(h.store);
+  const plan = h.store
+    .statement(`EXPLAIN QUERY PLAN ${idleSweepQuery}`)
+    .all(4)
+    .map((row) => String(row.detail));
+  // Every thread's records live in engine_state_records: the sweep never scans it.
+  expect(plan.join("\n")).not.toMatch(/SCAN engine_state_records/);
+  expect(plan.join("\n")).not.toMatch(/engine_state_records/);
 });

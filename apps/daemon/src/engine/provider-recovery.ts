@@ -31,6 +31,8 @@ const HostFence = z.object({
   }),
 });
 /** The saved session can never be opened again: the engine hands off instead (ADR 0211). */
+/** The threads the idle sweep visits, a few at a time. */
+export const idleSweepQuery = "SELECT thread_id FROM engine_cursor_prune LIMIT ?";
 /** How many of an earlier build's newest frames its first reopen reads (ADR 0170). */
 const legacyWindow = 4096;
 /** An earlier build's thread with no send among the frames read and older ones past them. */
@@ -53,8 +55,19 @@ export class ProviderRecovery {
   private writeRetired: StatementSync;
   private recentKinds: StatementSync;
   private untrimmed: StatementSync;
+  private markPrune: StatementSync;
+  private clearPrune: StatementSync;
   constructor(store: Store) {
     this.store = store;
+    // Threads with settled frames still to delete: the idle sweep's set, small and keyed, so
+    // finding them never reads every thread's records (ADR 0170). An empty table to create.
+    [this.markPrune, this.clearPrune] = store.atomic((db) => {
+      db.exec("CREATE TABLE IF NOT EXISTS engine_cursor_prune(thread_id TEXT PRIMARY KEY)");
+      return [
+        db.prepare("INSERT OR IGNORE INTO engine_cursor_prune VALUES (?)"),
+        db.prepare("DELETE FROM engine_cursor_prune WHERE thread_id=?"),
+      ];
+    });
     [
       this.readFrames,
       this.readRecord,
@@ -103,9 +116,7 @@ export class ProviderRecovery {
             `SELECT rowid, json_extract(frame,'$.data.kind') AS kind, json_extract(frame,'$.data.operationId') AS operationId, json_extract(frame,'$.data.commandId') AS commandId, json_extract(frame,'$.data.body.admitted') AS admitted, json_extract(frame,'$.data.body.commandId') AS admittedCommand FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT ${legacyWindow + 1}`,
           ),
           // Threads whose settled frames are still waiting to be deleted, a few at a time.
-          db.prepare(
-            "SELECT thread_id FROM engine_state_records WHERE section='cursorFrames' AND key='root' AND json_extract(value,'$.trimmed')=0 LIMIT ?",
-          ),
+          db.prepare(idleSweepQuery),
           db.prepare(
             "INSERT INTO engine_state_records VALUES (?,'cursorRetired','root',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
           ),
@@ -217,10 +228,11 @@ export class ProviderRecovery {
       const openRow = sent >= 0 ? recent[opened] : undefined;
       const open = openRow ? Number(openRow.rowid) : undefined;
       if (record) this.writeRecord.run(threadId, JSON.stringify(record));
-      this.writeFramesRecord.run(
-        threadId,
-        JSON.stringify({ below, ...(open === undefined ? {} : { open }), trimmed: false }),
-      );
+      this.writeFrames(threadId, {
+        below,
+        ...(open === undefined ? {} : { open }),
+        trimmed: false,
+      });
     });
   }
   /** Sends of retired sessions, with their delivery evidence (see `reset`). */
@@ -290,7 +302,7 @@ export class ProviderRecovery {
         this.writeRetired.run(threadId, JSON.stringify(kept));
       }
       const last = Number(this.lastFrame.get(threadId)?.last ?? 0);
-      this.writeFramesRecord.run(threadId, JSON.stringify({ below: last + 1, trimmed: false }));
+      this.writeFrames(threadId, { below: last + 1, trimmed: false });
       this.store.statement("DELETE FROM engine_provider_cursors WHERE thread_id=?").run(threadId);
       this.store
         .statement("DELETE FROM engine_state_records WHERE thread_id=? AND section='cursorAttempt'")
@@ -318,7 +330,7 @@ export class ProviderRecovery {
     const record = this.frames(threadId);
     const next =
       kind === "open" ? { ...record, open: row } : { ...record, below: row, trimmed: false };
-    this.writeFramesRecord.run(threadId, JSON.stringify(next));
+    this.writeFrames(threadId, next);
   }
   /**
    * One bounded step of the idle sweep: a batch of settled frames for each of a few threads, so
@@ -331,9 +343,21 @@ export class ProviderRecovery {
   /** Deletes up to 256 frames of settled turns: a bounded step, in the commit it rides on. */
   trimStep(threadId: ThreadId): void {
     const record = this.frames(threadId);
-    if (record.below === undefined || record.trimmed) return;
+    // Nothing left to delete (or the thread is gone): it leaves the sweep's set.
+    if (record.below === undefined || record.trimmed) {
+      this.clearPrune.run(threadId);
+      return;
+    }
     const deleted = this.trimFrames.run(threadId, record.below, record.open ?? 0).changes;
-    if (Number(deleted) < 256)
-      this.writeFramesRecord.run(threadId, JSON.stringify({ ...record, trimmed: true }));
+    if (Number(deleted) < 256) this.writeFrames(threadId, { ...record, trimmed: true });
+  }
+  /** Writes where the thread's frames stand, and whether the sweep still has frames to delete. */
+  private writeFrames(
+    threadId: ThreadId,
+    record: { open?: number; below?: number; trimmed?: boolean },
+  ): void {
+    this.writeFramesRecord.run(threadId, JSON.stringify(record));
+    if (record.trimmed === false) this.markPrune.run(threadId);
+    else if (record.trimmed === true) this.clearPrune.run(threadId);
   }
 }
