@@ -103,7 +103,7 @@ test("three open requests to one app in a row become one group; others stay apar
     ask("d", "c2__send_email"),
     ask("e", "shell"),
   ]);
-  expect(grouped.map((entry) => entry.kind)).toEqual(["one", "app-group", "one", "one"]);
+  expect(grouped.map((entry) => entry.kind)).toEqual(["one", "app-group", "app-group", "one"]);
   const group = grouped[1];
   expect(group?.kind === "app-group" && group.items.map((item) => item.key)).toEqual([
     "a",
@@ -121,10 +121,45 @@ test("three open requests to one app in a row become one group; others stay apar
   expect(split.map((entry) => (entry.kind === "app-group" ? entry.items.length : 1))).toEqual([
     2, 2,
   ]);
-  // One open request alone, or requests already answered, aren't grouped.
+  // A request already answered isn't on a card; one open request alone is a card of its own.
   const apart = spadeGroupAppRequests([
     ask("a", "c1__create_page"),
     ask("b", "c1__create_page", "allowed"),
   ]);
-  expect(apart.map((entry) => entry.kind)).toEqual(["one", "one"]);
+  expect(apart.map((entry) => entry.kind)).toEqual(["app-group", "one"]);
+});
+
+test("a call's summary names every recipient: to, cc, bcc and later ones, nested too", () => {
+  const words = spadeAppRequestGroup("Quill", "Gmail", [
+    {
+      tool: "notify",
+      effect: "send_as_person",
+      arguments: {
+        to: "ana@x.test",
+        cc: ["ben@x.test", { name: "Cy", email: "cy@x.test" }],
+        bcc: [{ email: "hidden@evil.test" }],
+        thread: { reply: { to: "dee@x.test" } },
+      },
+    },
+  ]);
+  expect(words.lines[0]?.target).toBe(
+    "ana@x.test, ben@x.test, cy@x.test, hidden@evil.test, dee@x.test",
+  );
+});
+
+/** The sentence for one request of the gate kind `effect` (and `kind`). */
+const single = (effect: string | undefined, kind?: string) =>
+  spadeAppRequestGroup("Quill", "Notion", [{ tool: "x", arguments: {}, effect, ask: kind }])
+    .sentence;
+
+test("one app request alone is its own card, headed by the gate's effect", () => {
+  const one = spadeGroupAppRequests([ask("a", "c1__create_page")]);
+  expect(one.map((entry) => entry.kind)).toEqual(["app-group"]);
+  // Not an app's tool: left to the usual card.
+  expect(spadeGroupAppRequests([ask("b", "shell")]).map((entry) => entry.kind)).toEqual(["one"]);
+  expect(single(undefined, "app")).toBe("Quill wants to make a change in Notion.");
+  expect(single("read")).toBe("Quill wants to read Notion.");
+  expect(single("pay")).toBe("Quill wants to spend money with Notion.");
+  expect(single("change_access")).toBe("Quill wants to change who has access in Notion.");
+  expect(single(undefined)).toBe("Quill wants to use Notion in a way it doesn't declare.");
 });

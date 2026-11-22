@@ -88,12 +88,13 @@ export function spadeAppToolPhrase(tool: string, app: string, effect?: string): 
 /** "list your shared Notion pages" → "List your shared Notion pages". */
 const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** Where a call goes, by the argument that names it, best first. */
-const targetKeys = [
+/** Arguments that name who or where a call reaches: every one of them is listed. */
+const reachKeys = new Set([
   "to",
   "recipient",
   "recipients",
   "email",
+  "emails",
   "cc",
   "bcc",
   "url",
@@ -101,6 +102,11 @@ const targetKeys = [
   "host",
   "endpoint",
   "webhook",
+  "phone",
+]);
+
+/** Arguments that name the page or thing a call acts on, when it reaches no one: the first. */
+const placeKeys = [
   "parent",
   "page_id",
   "database_id",
@@ -111,40 +117,76 @@ const targetKeys = [
   "name",
 ];
 
-/** A value as a short plain word: text, a number, a person (`{name, email}`), a list of them. */
-function plainTarget(value: unknown, depth = 0): string | undefined {
-  if (typeof value === "string") return value.trim() || undefined;
-  if (typeof value === "number") return String(value);
+/** Every plain word in a value: text, numbers, a person's email (else name), any depth. */
+function plainWords(value: unknown, out: string[], depth = 0): void {
+  if (depth > 8) return;
+  if (typeof value === "string") {
+    if (value.trim()) out.push(value.trim());
+    return;
+  }
+  if (typeof value === "number") {
+    out.push(String(value));
+    return;
+  }
   if (Array.isArray(value)) {
-    const each = value.map((item) => plainTarget(item, depth + 1)).filter(Boolean);
-    return each.length ? each.join(", ") : undefined;
+    for (const item of value) plainWords(item, out, depth + 1);
+    return;
   }
   const fields = spadeRecord(value);
-  if (!fields || depth > 4) return undefined;
-  const named = plainTarget(fields.email, depth + 1) ?? plainTarget(fields.name, depth + 1);
-  if (named) return named;
-  return spadeAppCallTarget(fields, depth + 1);
+  if (!fields) return;
+  const person = fields.email ?? fields.address ?? fields.name;
+  if (typeof person === "string" && person.trim()) {
+    out.push(person.trim());
+    return;
+  }
+  for (const inner of Object.values(fields)) plainWords(inner, out, depth + 1);
 }
 
-/**
- * Where a call goes, from its arguments, nested ones included: its recipients, address, page or
- * title ("ana@example.com, sam@example.com"). Undefined when none of its fields names one.
- */
-export function spadeAppCallTarget(args: unknown, depth = 0): string | undefined {
+/** Everyone and everywhere a call reaches, at any depth of its arguments, in order. */
+function reached(args: unknown, out: string[], depth = 0): void {
+  if (depth > 8) return;
+  if (Array.isArray(args)) {
+    for (const item of args) reached(item, out, depth + 1);
+    return;
+  }
   const fields = spadeRecord(args);
-  if (!fields || depth > 4) return undefined;
+  if (!fields) return;
+  for (const [key, value] of Object.entries(fields)) {
+    if (reachKeys.has(key.toLowerCase())) plainWords(value, out);
+    else if (typeof value === "object" && value !== null) reached(value, out, depth + 1);
+  }
+}
+
+/** The page or thing a call acts on, from its arguments, nested ones included. */
+function place(args: unknown, depth = 0): string | undefined {
+  const fields = spadeRecord(args);
+  if (!fields || depth > 8) return undefined;
   const entries = Object.entries(fields).map(([key, value]) => [key.toLowerCase(), value] as const);
-  for (const key of targetKeys) {
+  for (const key of placeKeys) {
     const found = entries.find(([name]) => name === key);
-    const said = found && plainTarget(found[1], depth);
-    if (said) return said;
+    if (!found) continue;
+    const said: string[] = [];
+    plainWords(found[1], said);
+    if (said.length) return said.join(", ");
   }
   for (const [, value] of entries) {
     if (typeof value !== "object" || value === null) continue;
-    const said = spadeAppCallTarget(Array.isArray(value) ? value[0] : value, depth + 1);
+    const said = place(Array.isArray(value) ? value[0] : value, depth + 1);
     if (said) return said;
   }
   return undefined;
+}
+
+/**
+ * Where a call goes, from its arguments, nested ones included: every recipient and address it
+ * names (to, cc, bcc and any later ones, in order, each once), else the page or title it acts
+ * on. Undefined when none of its fields names one.
+ */
+export function spadeAppCallTarget(args: unknown): string | undefined {
+  const all: string[] = [];
+  reached(args, all);
+  const unique = [...new Set(all)];
+  return unique.length ? unique.join(", ") : place(args);
 }
 
 /** One call on an app's card: what it does in words, where it goes, and why the gate asked. */
@@ -197,13 +239,16 @@ export function spadeAppRequestGroup(
   });
   const n = calls.length;
   const kind = calls[0] ? spadeGateKind(calls[0].effect, calls[0].ask) : "unknown";
+  const one = n === 1;
   const sentence = {
-    read: `${who} wants to read ${app}, ${n} times.`,
-    change: `${who} wants to make ${n === 1 ? "a change" : `${n} changes`} in ${app}.`,
-    send: `${who} wants to send ${n === 1 ? "something" : `${n} things`} in your name with ${app}.`,
-    pay: `${who} wants to spend money with ${app}, ${n} times.`,
-    access: `${who} wants to change who has access in ${app}, ${n} times.`,
-    unknown: `${who} wants to use ${app} ${n} times, in ways it doesn't declare.`,
+    read: one ? `${who} wants to read ${app}.` : `${who} wants to read ${app}, ${n} times.`,
+    change: `${who} wants to make ${one ? "a change" : `${n} changes`} in ${app}.`,
+    send: `${who} wants to send ${one ? "something" : `${n} things`} in your name with ${app}.`,
+    pay: `${who} wants to spend money with ${app}${one ? "" : `, ${n} times`}.`,
+    access: `${who} wants to change who has access in ${app}${one ? "" : `, ${n} times`}.`,
+    unknown: one
+      ? `${who} wants to use ${app} in a way it doesn't declare.`
+      : `${who} wants to use ${app} ${n} times, in ways it doesn't declare.`,
   }[kind];
   return { sentence, lines };
 }
@@ -221,9 +266,10 @@ export type SpadeGroupedItem<T> =
   | { kind: "app-group"; connection: string; items: T[]; index: number };
 
 /**
- * Gathers each run of two or more open requests in a row to the same connected app, of the same
- * gate kind, into one group, so the person answers them on one card; requests of another kind
- * start a card of their own. Everything else stays as it is, in order.
+ * Gathers each run of open requests in a row to the same connected app, of the same gate kind,
+ * into one group (one request alone too), so the person answers them on one card headed by what
+ * the gate decided; requests of another kind start a card of their own. Everything else stays as
+ * it is, in order.
  */
 export function spadeGroupAppRequests<
   T extends { kind: string; name?: string; state?: string; effect?: string; ask?: string },
@@ -240,20 +286,17 @@ export function spadeGroupAppRequests<
     const mine = keyOf(item);
     const last = out.at(-1);
     if (mine && last) {
-      const lastKey = last.kind === "one" ? keyOf(last.item)?.key : keyOf(last.items[0] as T)?.key;
-      if (lastKey === mine.key) {
-        if (last.kind === "app-group") last.items.push(item);
-        else
-          out[out.length - 1] = {
-            kind: "app-group",
-            connection: mine.connection,
-            items: [last.item, item],
-            index: last.index,
-          };
+      const first = last.kind === "app-group" ? last.items[0] : undefined;
+      if (last.kind === "app-group" && first && keyOf(first)?.key === mine.key) {
+        last.items.push(item);
         return;
       }
     }
-    out.push({ kind: "one", item, index });
+    out.push(
+      mine
+        ? { kind: "app-group", connection: mine.connection, items: [item], index }
+        : { kind: "one", item, index },
+    );
   });
   return out;
 }

@@ -116,7 +116,7 @@ test("one app request reads as what it does and offers Always allow for its app"
   );
   await userEvent.click(await botRow("Quill"));
   const card = within(
-    await screen.findByRole("group", { name: "Quill wants to create a Notion page" }),
+    await screen.findByRole("group", { name: "Quill wants to make a change in Notion" }),
   );
   await userEvent.click(card.getByRole("button", { name: "Always allow for Notion" }));
   await waitFor(() =>
@@ -179,4 +179,38 @@ test("a call whose name looks like a read but the gate couldn't place never read
   );
   expect(card.getAllByText("Use Notion to list and delete")).toHaveLength(2);
   expect(card.queryByRole("button", { name: "Always allow for Notion" })).toBeNull();
+});
+
+test("one app call alone is headed by the gate's effect, names every recipient, and opens whole", async () => {
+  await spadeApp("/spade", (api) =>
+    fakeAskApp(api, seed(api), "notion", [
+      {
+        callId: "k1",
+        name: "notion__notify_people",
+        args: {
+          to: "ana@x.test",
+          cc: ["ben@x.test"],
+          bcc: [{ email: "hidden@evil.test" }],
+          message: { body: "Trip notes", attachments: [{ page: "Lisbon trip" }] },
+        },
+        effect: "send_as_person",
+        ask: null,
+        reason: "It sends something in your name, so you decide.",
+      },
+    ]),
+  );
+  await userEvent.click(await botRow("Quill"));
+  const card = within(
+    await screen.findByRole("group", {
+      name: "Quill wants to send something in your name with Notion",
+    }),
+  );
+  // Every recipient, the hidden copy included, before anything is allowed.
+  expect(card.getByText(/ana@x\.test, ben@x\.test, hidden@evil\.test/)).toBeTruthy();
+  expect(card.getByText("It sends something in your name, so you decide.")).toBeTruthy();
+  expect(card.queryByRole("button", { name: "Always allow for Notion" })).toBeNull();
+  await userEvent.click(card.getByRole("button", { name: /^Details of / }));
+  const shown = card.getByLabelText(/^Arguments of /).textContent ?? "";
+  expect(shown).toContain('"page": "Lisbon trip"');
+  expect(card.getByRole("button", { name: /^Allow(Enter)?$/ })).toBeTruthy();
 });

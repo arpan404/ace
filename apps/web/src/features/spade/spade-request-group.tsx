@@ -28,7 +28,7 @@ type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
 /**
  * Requests one connected app's tools made together, of one gate kind, as one card (ADR 0202,
- * amendment 5): one sentence headed by what the gate read them as doing ("Quill wants to make 3
+ * amendment 5), one request alone too: one sentence headed by what the gate read them as doing ("Quill wants to make 3
  * changes in Notion"), never by the tools' names, then each call with where it goes and the
  * gate's reason, its full arguments a tap away (Details) before anything is allowed. Deny all and
  * Allow all answer each; "Always allow for Notion" shows only where every call is an ordinary
@@ -148,13 +148,13 @@ export function SpadeRequestGroup(props: {
               </CardWord>
             )}
             <CardWord disabled={answering !== undefined} onClick={() => answerAll("deny")}>
-              {answering === "deny" ? "Denying…" : "Deny all"}
+              {answering === "deny" ? "Denying…" : items.length > 1 ? "Deny all" : "Deny"}
             </CardWord>
           </>
         }
         end={
           <CardPrimary disabled={answering !== undefined} onClick={() => answerAll("allow")}>
-            {answering === "allow" ? "Allowing…" : "Allow all"}
+            {answering === "allow" ? "Allowing…" : items.length > 1 ? "Allow all" : "Allow"}
             <Kbd
               aria-hidden
               keys="enter"
