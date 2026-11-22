@@ -20,6 +20,9 @@ import Observation
     private(set) var accountMachines: [AceMachine] = []
     /// Signed in to an ace account with a listing this launch.
     private(set) var accountSignedIn = false
+    /// The hosts of the person's organizations (ADR 0206 §1.5), reached like account machines;
+    /// which space shows each is `SpacesModel`'s to say. Not part of "Machines on your account".
+    private(set) var orgHosts: [AceMachine] = []
     /// Machines turned off on this phone (by the host id the list keys them by): listed, but no
     /// runtime, no rows, no notifications. Never told to the machine.
     private(set) var off: Set<String>
@@ -147,9 +150,21 @@ import Observation
         }
         await follow(merged())
     }
+    /// Follow the organizations' hosts: a new one connects, one gone (left, released) lets its
+    /// runtime go and keeps what it stored, as a machine that only left the list does.
+    func followOrgHosts(_ hosts: [AceMachine]) async {
+        let listed = hosts.filter { NoiseFingerprint.isHostId($0.hostId) }
+        guard listed != orgHosts else { return }
+        orgHosts = listed
+        await follow(merged())
+    }
+
     private func merged() -> [MachineEntry] {
         guard let account, let relay = account.relayURL?.absoluteString else { return paired }
-        return AccountMachines.merge(paired: paired, account: accountMachines, relayURL: relay, deviceId: account.deviceId, daemons: daemons)
+        let own = Set(accountMachines.map(\.hostId))
+        var seen = own
+        let hosts = orgHosts.filter { seen.insert($0.hostId).inserted }
+        return AccountMachines.merge(paired: paired, account: accountMachines + hosts, relayURL: relay, deviceId: account.deviceId, daemons: daemons)
     }
     /// The directory's answer replaces what this phone remembered.
     private func follow(_ listed: [MachineEntry]) async {
@@ -299,7 +314,7 @@ import Observation
     /// at or after it, and a later wake never moves an earlier one's deadline (the shared
     /// client's heartbeat, ADR 0150), so every change gets its own check, however often they come.
     private func wakeClients() {
-        for session in inbox.sessions { session.client.wake() }
+        for session in inbox.all { session.client.wake() }
     }
     /// Network changes reach every runtime; the SDK owns each reconnect, and a machine on its
     /// account relay checks whether its direct address answers on the new network.
@@ -307,10 +322,10 @@ import Observation
     private(set) var readAheadAllowed = false
     func readAhead(_ allowed: Bool) {
         readAheadAllowed = allowed
-        for session in inbox.sessions { session.client.readAheadAllowed = allowed }
+        for session in inbox.all { session.client.readAheadAllowed = allowed }
     }
     func network(online: Bool, interfaceChanged: Bool) {
-        for session in inbox.sessions { session.client.network(online) }
+        for session in inbox.all { session.client.network(online) }
         // A new interface (Wi-Fi, cellular, Tailscale) can reach a host the old one couldn't,
         // and a socket still ready on the old one may be dead without having closed: a ready
         // socket must answer a ping within seconds or is replaced, and a waiting reconnect runs
@@ -319,7 +334,7 @@ import Observation
         if online && interfaceChanged { reconsiderRoutes() }
     }
     func disconnectAll() async {
-        for session in inbox.sessions { await session.client.disconnectAndWait() }
+        for session in inbox.all { await session.client.disconnectAndWait() }
     }
     /// An account machine leaves the account's list (it returns if it signs in again); a paired
     /// one loses its device token. Nil when done.

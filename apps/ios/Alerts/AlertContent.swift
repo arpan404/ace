@@ -29,6 +29,9 @@ struct AlertContent: Equatable, Sendable {
     private(set) var takesWords = false
     /// The paired machine that raised it; nil only for the debug fixture or tests.
     var hostId: String? = nil
+    /// The space the alert's machine belongs to, as its subtitle ("Acme Robotics", "Personal"),
+    /// while the person has organizations to tell apart (ADR 0206 §1.5).
+    var space: String? = nil
     /// Shown over the open app; false files it in the list only (Settings › Notifications).
     var banner = true
     /// The thread's own title, for the finished summary.

@@ -5,7 +5,7 @@ import { Icon } from "@/components/icon.tsx";
 import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { countedWords, matchCount, previewParts } from "@ace/ui-core";
-import { MiddleName, MiddleText } from "./middle-name.tsx";
+import { FolderLabel, MiddleName } from "./middle-name.tsx";
 
 const count = (value: number) => value.toLocaleString();
 const noPositions: readonly number[] = [];
@@ -64,15 +64,9 @@ export function FileRow(props: { file: FileSearchFile; open: boolean; onToggle()
         positions={noPositions}
         className="text-foreground"
       />
-      {/* Cut in its middle, its last folder kept: that tells two same-named files apart. */}
+      {/* Its nearest folders kept: they tell two same-named files apart. */}
       <span className="flex min-w-0 flex-1 overflow-hidden">
-        {folder && (
-          <MiddleText
-            text={folder}
-            tail={folder.length - folder.lastIndexOf("/")}
-            className="text-xs text-subtle-foreground"
-          />
-        )}
+        {folder && <FolderLabel folder={folder} className="text-xs text-subtle-foreground" />}
       </span>
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">{count(matches)}</span>
     </button>
