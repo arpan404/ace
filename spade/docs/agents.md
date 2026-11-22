@@ -356,6 +356,28 @@ deleted.
   8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
   the person chose the model, its cold estimate is below the conversation model's cached one.
 
+- **Thinking** ([ADR 0213](../../docs/adr/0213-spade-roles-think-at-an-effort.md)). Each role,
+  `main` included, has an effort: `provider` (send nothing; the endpoint's default), `off`, `low`,
+  `medium`, `high` or `max`. It is the bot's, else the global one, else the role's default:
+
+  | Role                         | Default effort |
+  | ---------------------------- | -------------- |
+  | `main`, `review`, `verify`   | `medium`       |
+  | `helper`, `compact`, `title` | `low`          |
+
+  Every model call for the role carries it: the bot's steps (`main`; a helper's steps think as
+  its bot's `helper`), research (`main`), the reviewer (`review`), the check of done and replay
+  comparisons (`verify`), compaction (`compact`, or the turn's own effort when it runs on the
+  turn's model, so it still reads the turn's cache) and titles and digest polish (`title`). Each
+  format gets its own words: OpenAI Chat `reasoning_effort` (`none` for off, `xhigh` for max);
+  OpenAI Responses `reasoning.effort`; Anthropic `output_config.effort` with adaptive thinking on
+  models that take it, else `thinking.budget_tokens` (1,024 / 8,000 / 24,000). A call with an
+  answer limit gets room for the thinking on top (`Effort::room`: 2,048 low, 9,216 medium, 25,600
+  high and max), so a reviewer's 4,000 tokens stay the answer's. An endpoint that refuses a
+  request carrying the setting (`400`, `422`) is sent it once more without; when that answers,
+  the model is sent none until Spade restarts. A `cli:` subscription runs its own sessions and
+  is sent nothing.
+
 - **Routes** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
   §2). Each role is an ordered list of up to four models; a single model reads as a list of one.
   `main`'s route is the bot's own model, then the bot's `main` route, else the global one. A step
@@ -375,10 +397,12 @@ deleted.
   `helper` route; a model the bot named runs alone.
 
 API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, routes: {<role>: [model]},
-escalate}`; `PUT` takes `roles: {<role>: model | [model] | null}`) and
-`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route}], overrides: {roles,
-routes, allowed, escalate}, escalate, spend: {today, month}}`; `source` is `bot`, `global`,
-`default` or `own`). `roles` keeps each override's first model, for clients from before routes.
+efforts: {<role>: effort | null}, effort_defaults: {<role>: effort}, escalate}`; `PUT` takes
+`roles: {<role>: model | [model] | null}` and `efforts: {<role>: effort | null}`) and
+`GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route, effort,
+effort_source}], overrides: {roles, routes, efforts, allowed, escalate}, escalate, spend: {today,
+month}}`; `source` is `bot`, `global`, `default` or `own`; `effort_source` is `bot`, `global` or
+`default`). An unknown effort word is refused with `400`. `roles` keeps each override's first model, for clients from before routes.
 `PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
 `GET /v1/models/package-routes` answers `{fast: {route, tools}, capable: {route, tools}}`: the
 models a package's bot naming `fast` or `capable` would think with, its model then the global

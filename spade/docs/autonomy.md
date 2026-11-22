@@ -475,6 +475,8 @@ start programs), `ip`, `ss`, `netstat`, `lsof`, `lsblk`, `lscpu`, `dmesg`, the c
   error that may have billed): Spade settles an estimate from the prompt.
 - It may write up to 4,000 tokens (`REVIEW_TOKENS`, the ADR 0135 review too): a reasoning
   model spends that budget on its thinking before the JSON, and a tight one cuts the answer off.
+  It thinks at the `review` role's effort (`medium` by default, ADR 0213), and the thinking gets
+  room on top of the 4,000 (9,216 tokens at medium), so the JSON keeps its whole budget.
 - An answer that comes back empty, cut short or unparseable (an `escalate` verdict included) is
   asked for once more, within the same 60 s; each try's cost is recorded.
 - Failure, a 60 s timeout, or a second answer Spade can't read: the person is asked (below), with
