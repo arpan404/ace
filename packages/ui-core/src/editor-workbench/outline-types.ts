@@ -39,17 +39,27 @@ export interface FlatOutlineSymbol {
 /**
  * The outermost-to-innermost chain of symbols containing a 1-based `line`.
  * Used for the breadcrumbs symbol trail (`… › file.ts › Class › method`) and active Outline row.
+ * `symbols` are in source order (as `extractSymbols` returns them): each level is a binary search
+ * for the last symbol starting at or before `line`, so the caret's trail costs O(depth · log n)
+ * and moving the caret in a large file never scans its symbols.
  */
 export function symbolTrailAt(symbols: readonly OutlineSymbol[], line: number): OutlineSymbol[] {
-  if (line < 1 || symbols.length === 0) return [];
+  if (line < 1) return [];
   const trail: OutlineSymbol[] = [];
   let level = symbols;
   while (level.length > 0) {
-    let match: OutlineSymbol | undefined;
-    for (const sym of level) {
-      if (sym.line <= line && line <= sym.endLine) match = sym;
+    let low = 0;
+    let high = level.length - 1;
+    let found = -1;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if ((level[mid]?.line ?? Infinity) <= line) {
+        found = mid;
+        low = mid + 1;
+      } else high = mid - 1;
     }
-    if (!match) break;
+    const match = level[found];
+    if (!match || line > match.endLine) break;
     trail.push(match);
     level = match.children;
   }

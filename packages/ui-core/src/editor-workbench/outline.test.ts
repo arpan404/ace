@@ -322,3 +322,29 @@ describe("sortSymbols, filterSymbols, and flattenSymbols", () => {
     ]);
   });
 });
+
+describe("symbolTrailAt in a large file", () => {
+  test("finding the caret's symbol among 100,000 reads a handful of positions, not all", () => {
+    let reads = 0;
+    const symbols: OutlineSymbol[] = Array.from({ length: 100_000 }, (_, index) => {
+      const start = index * 3 + 1;
+      return {
+        name: `f${index}`,
+        kind: "function",
+        get line() {
+          reads++;
+          return start;
+        },
+        column: 1,
+        endLine: start + 1,
+        children: [],
+      };
+    });
+    const trail = symbolTrailAt(symbols, 3 * 70_000 + 2);
+    expect(trail.map((symbol) => symbol.name)).toEqual(["f70000"]);
+    expect(reads).toBeLessThan(64);
+    // Between two symbols (the blank line after one) there is no trail.
+    expect(symbolTrailAt(symbols, 3 * 70_000 + 3)).toEqual([]);
+    expect(symbolTrailAt(symbols, 1).map((symbol) => symbol.name)).toEqual(["f0"]);
+  });
+});

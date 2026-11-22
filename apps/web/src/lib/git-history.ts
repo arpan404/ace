@@ -72,7 +72,7 @@ export async function readGitCommitDiff(
 
 /**
  * Pure human-readable relative time in words ("just now", "3 minutes ago", "3 days ago")
- * for Timeline rows and inline git blame annotations.
+ * for Timeline rows and the commit diff header.
  */
 export function formatRelativeWords(atMs: number, nowMs: number): string {
   const diffSec = Math.max(0, Math.floor((nowMs - atMs) / 1000));
