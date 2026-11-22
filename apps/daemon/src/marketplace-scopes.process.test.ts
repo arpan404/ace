@@ -8,7 +8,7 @@ import { machineAccount, type MachineAccount } from "./account-access/machine-ac
 import { relayKeysFor } from "./account-access/relay-host-id.ts";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
-import { sampleSkill, signedVersion } from "@ace/marketplace/testing";
+import { samplePlugin, sampleSkill, signedVersion } from "@ace/marketplace/testing";
 import { expect, test } from "vitest";
 import { fakeMarket, fakeSpade, marketplaceHarness } from "./marketplace/test-support.ts";
 import { setup } from "./remote-test-support.ts";
@@ -65,8 +65,15 @@ async function standingKey() {
  * ones the person paired, from a link made with the person's standing, and each socket proves it
  * with the device's key (ADR 0190); this test is about scopes.
  */
-async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
+async function connect(
+  f: Fixture,
+  sockets: WebSocket[],
+  scopes: string[],
+  pairing: "keyed" | "keyless" = "keyed",
+) {
   const key = await standingKey();
+  // `keyless`: paired from the person's link by an app that named no standing key, as every
+  // iPhone pairing before ADR 0190's key was; it has nothing to prove with.
   const device = f.store.devices.create(
     "Phone",
     scopes as Scope[],
@@ -74,7 +81,7 @@ async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
     null,
     undefined,
     true,
-    key.raw,
+    pairing === "keyed" ? key.raw : undefined,
   );
   const ticket = await f.ticket(device.token);
   const socket = new WebSocket(f.server.url);
@@ -104,6 +111,14 @@ async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
   const welcome = await next((message) => message.type === "welcome");
   if (welcome.type !== "welcome" || !welcome.standingNonce || !welcome.standingHost)
     throw new Error("No standing challenge");
+  const ask = async (requestId: string, operation: unknown) => {
+    socket.send(JSON.stringify({ type: "marketplace.request", requestId, operation }));
+    const answer = await next(
+      (message) => message.type === "marketplace.result" && message.requestId === requestId,
+    );
+    return answer.type === "marketplace.result" ? answer.result : undefined;
+  };
+  if (pairing === "keyless") return { ask, next };
   const proof = await key.sign(
     pairedStandingText({
       host: welcome.standingHost,
@@ -116,13 +131,6 @@ async function connect(f: Fixture, sockets: WebSocket[], scopes: string[]) {
   const standing = await next((message) => message.type === "account.standing.result");
   if (standing.type !== "account.standing.result" || !standing.result.ok)
     throw new Error("The paired device didn't prove the person's standing");
-  const ask = async (requestId: string, operation: unknown) => {
-    socket.send(JSON.stringify({ type: "marketplace.request", requestId, operation }));
-    const answer = await next(
-      (message) => message.type === "marketplace.result" && message.requestId === requestId,
-    );
-    return answer.type === "marketplace.result" ? answer.result : undefined;
-  };
   return { ask, next };
 }
 
@@ -198,6 +206,41 @@ test("a read device browses the marketplace and hears installs, but only an admi
       installed: 1,
       updates: 0,
     });
+  } finally {
+    for (const socket of sockets) socket.terminate();
+    await harness.close();
+    await market.close();
+    await spade.close();
+  }
+});
+
+test("a phone paired again with a standing key installs a plugin, and one paired before gets reauth", async () => {
+  const market = await fakeMarket();
+  const spade = await fakeSpade();
+  const harness = await marketplaceHarness({ origin: market.origin, spade });
+  const sockets: WebSocket[] = [];
+  try {
+    const files = samplePlugin();
+    market.publish(signedVersion({ type: "spade-plugin", name: "mail-tools", files }), files);
+    const f = await ownedSetup({ marketplace: harness.service });
+    const install = async (phone: Awaited<ReturnType<typeof connect>>, id: string) => {
+      const prepared = await phone.ask(`prepare-${id}`, {
+        op: "prepare",
+        source: "market",
+        type: "spade-plugin",
+        name: "mail-tools",
+      });
+      if (prepared?.op !== "review") return prepared;
+      return phone.ask(`install-${id}`, {
+        op: "install",
+        id: prepared.review.id,
+        hash: prepared.review.hash,
+      });
+    };
+    const before = await connect(f, sockets, ["admin"], "keyless");
+    expect(await install(before, "before")).toMatchObject({ op: "error", code: "reauth" });
+    const again = await connect(f, sockets, ["admin"], "keyed");
+    expect(await install(again, "again")).toMatchObject({ op: "done" });
   } finally {
     for (const socket of sockets) socket.terminate();
     await harness.close();
