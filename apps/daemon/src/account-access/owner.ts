@@ -29,6 +29,11 @@ const OrgOwner = z.object({
 });
 type Owner = { kind: "person"; account: string } | { kind: "org"; org: string };
 const file = (dataDir: string) => join(dataDir, "ace-owner.json");
+/** The organization an `ace-owner.json` body names, or undefined for a person's machine. */
+export const ownerOrgOf = (raw: unknown): string | undefined => {
+  const org = OrgOwner.safeParse(raw);
+  return org.success ? org.data.org : undefined;
+};
 const parseOwner = (raw: unknown): Owner => {
   const org = OrgOwner.safeParse(raw);
   if (org.success) return { kind: "org", org: org.data.org };

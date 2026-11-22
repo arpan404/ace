@@ -37,6 +37,7 @@ export const PublicToolCode = z.enum([
   "access_unavailable",
   "effort_unavailable",
   "stale_ref",
+  "host_policy_refused",
   "human_active",
   "human_private",
   "needs_person",
@@ -237,6 +238,10 @@ const catalog: Record<PublicToolCode, { message: string; hint: string }> = {
   access_escalation_denied: {
     message: "The requested access is broader than the parent thread's",
     hint: "Use access inherit or one of the allowed modes listed in the error.",
+  },
+  host_policy_refused: {
+    message: "This organization's host doesn't let this thread do that",
+    hint: "Agents on an organization's host reach only their own tree and what its owner may.",
   },
   access_unavailable: {
     message: "The target provider does not support the requested access mode",

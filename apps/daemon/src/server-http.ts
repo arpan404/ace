@@ -17,6 +17,8 @@ import type { DaemonPreview } from "./preview.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 import type { ServerOptions } from "./server-options.ts";
 import { webHttp } from "./web-http.ts";
+import { orgHttpGate, type HttpGateDeps } from "./org-access/http-gate.ts";
+import { serverTrees } from "./org-access/store-trees.ts";
 import { brainPathPrefix } from "./spade/brain-http.ts";
 import {
   accountGrantHttp,
@@ -74,33 +76,43 @@ export function httpChains(
       if (options.externalMcp?.tailscale(request, response)) return;
       next(request, response);
     };
+  // An org host decides every request before any route reads it (ADR 0209 §4.2).
+  const org: HttpGateDeps = {
+    org: () => options.machineAccount?.ownerOrg(),
+    trees: serverTrees(options),
+    hostToken: (token) => auth.local(token),
+  };
   // A Suit's scene and assets, by their URL's own grant (`suits/urls.ts`).
   const origins = webOriginAllowlist(options.webOrigins);
   const suits = (next: Handler): Handler => suitsHttp(() => options.suits, origins, next);
   const local = httpServer(
     // `<daemon-endpoint>/mcp` (contract, "Finding the daemon"): the same MCP handler as its own
     // listener, for clients such as Spade that know only the daemon's address. Loopback only.
-    mcpFirst(
-      options,
-      webHttp(
-        options.webRoot,
-        attachmentsHttp(
-          options,
-          auth,
-          false,
-          iconsHttp(
+    orgHttpGate(
+      false,
+      org,
+      mcpFirst(
+        options,
+        webHttp(
+          options.webRoot,
+          attachmentsHttp(
             options,
             auth,
             false,
-            suits(
-              previewHttp(
-                preview,
-                accessHttp({
-                  ...access,
-                  authenticate: auth.localBearer.bind(auth),
-                  maintenance,
-                  ...(options.shutdown ? { shutdown: options.shutdown } : {}),
-                }),
+            iconsHttp(
+              options,
+              auth,
+              false,
+              suits(
+                previewHttp(
+                  preview,
+                  accessHttp({
+                    ...access,
+                    authenticate: auth.localBearer.bind(auth),
+                    maintenance,
+                    ...(options.shutdown ? { shutdown: options.shutdown } : {}),
+                  }),
+                ),
               ),
             ),
           ),
@@ -110,27 +122,31 @@ export function httpChains(
   );
   // Paired devices only: one chain for the static and the runtime-toggled TLS listener.
   const remoteHttp = () =>
-    outsideFirst(
-      transfersHttp(
-        () => options.transferTarget,
-        auth.deviceBearer.bind(auth),
-        machineCallsHttp(
-          () => options.machineCalls,
+    orgHttpGate(
+      true,
+      org,
+      outsideFirst(
+        transfersHttp(
+          () => options.transferTarget,
           auth.deviceBearer.bind(auth),
-          webHttp(
-            options.webRoot,
-            attachmentsHttp(
-              options,
-              auth,
-              true,
-              iconsHttp(
+          machineCallsHttp(
+            () => options.machineCalls,
+            auth.deviceBearer.bind(auth),
+            webHttp(
+              options.webRoot,
+              attachmentsHttp(
                 options,
                 auth,
                 true,
-                suits(
-                  previewHttp(
-                    preview,
-                    accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+                iconsHttp(
+                  options,
+                  auth,
+                  true,
+                  suits(
+                    previewHttp(
+                      preview,
+                      accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
+                    ),
                   ),
                 ),
               ),
