@@ -112,11 +112,8 @@ final class SourceContainer: UIView {
     /// Where each line starts, in UTF-16 units, for the gutter's numbers.
     private(set) var lineStarts: [Int] = [0]
     private var longest = 0
-    /// The text's length in UTF-16 units.
-    private var length = 0
-    /// A line to bring back into view once the keyboard has resized the view.
-    private var revealOnResize: Int?
-    private var lastHeight: CGFloat = 0
+    /// The text's UTF-16 length; a go-to line to bring back once the keyboard resizes the view.
+    private var length = 0, revealOnResize: Int?, lastHeight: CGFloat = 0
     var marks: [Int: String] = [:]
     var targetLine: Int?
     var wrap = false {
@@ -159,14 +156,7 @@ final class SourceContainer: UIView {
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
     /// The 1-based line holding UTF-16 offset `offset`.
-    func line(at offset: Int) -> Int {
-        var low = 0, high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
-        }
-        return low + 1
-    }
+    func line(at offset: Int) -> Int { lineIndex(at: offset) + 1 }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {
@@ -257,7 +247,7 @@ final class SourceContainer: UIView {
             DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
         } else if let line = revealOnResize, bounds.height != lastHeight {
             revealOnResize = nil
-            DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
+            DispatchQueue.main.async { [weak self] in self?.reveal(line: line); self?.revealCaret() }
         }
         lastHeight = bounds.height
     }
@@ -291,6 +281,30 @@ final class SourceContainer: UIView {
             text.becomeFirstResponder()
         }
         reveal(line: line)
+        revealCaret()
+    }
+
+    /// After go to line: a column off screen (further down a wrapped line, or past the right edge)
+    /// scrolls into view too, clear of the gutter laid over the left edge.
+    private func revealCaret() {
+        guard let position = text.selectedTextRange?.end else { return }
+        let caret = text.caretRect(for: position)
+        guard !caret.isNull, !caret.isInfinite else { return }
+        let seen = text.bounds
+        if caret.minY < seen.minY || caret.maxY > seen.maxY {
+            let inset = text.adjustedContentInset
+            let maxY = max(-inset.top, text.contentSize.height - text.bounds.height + inset.bottom)
+            text.setContentOffset(CGPoint(x: 0, y: min(max(-inset.top, caret.midY - seen.height / 2), maxY)), animated: false)
+        }
+        // The text is as wide as its longest line inside the sideways scroller, at x 0.
+        let left = gutterWidth + AceTheme.Spacing.md
+        let from = sideways.contentOffset.x
+        if caret.minX < from + left || caret.maxX > from + sideways.bounds.width - AceTheme.Spacing.xl {
+            let maxX = max(0, sideways.contentSize.width - sideways.bounds.width)
+            let x = caret.minX - left - (sideways.bounds.width - left) / 2
+            sideways.setContentOffset(CGPoint(x: min(max(0, x), maxX), y: 0), animated: false)
+        }
+        gutter.setNeedsDisplay()
     }
 
     /// A line to reveal once the view has its size.
