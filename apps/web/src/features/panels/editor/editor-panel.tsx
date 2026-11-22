@@ -3,6 +3,7 @@ import { formatAge } from "@ace/ui-core";
 import {
   focusedGroup,
   groupsOf,
+  limits,
   moveActiveEditor,
   mruTabs,
   parseLayout,
@@ -24,14 +25,13 @@ import {
   lazy,
   Suspense,
 } from "react";
-import { FilesIcon } from "@ace/icons";
+import { SidebarSimpleIcon } from "@ace/icons";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle } from "@/components/ui/resize-handle.tsx";
 import {
   Editor,
   BufferEditor,
   OpenEditors,
-  compactBelowPx,
   useEditorBuffers,
   type EditorCompareProps,
   type BufferEditorProps,
@@ -39,7 +39,6 @@ import {
   type StatusNotice,
 } from "@/features/editor-workbench/index.ts";
 import { useEditorAnnotations } from "@/features/editor";
-import { cn } from "@/lib/cn.ts";
 import { roomLimits } from "@/lib/shell-room.ts";
 import { editorLineHeight, useEditorPreferences } from "@/lib/editor-preferences.ts";
 import { mentionInComposer } from "@/lib/composer-insert.ts";
@@ -49,6 +48,7 @@ import {
   requestReveal,
   settleReveal,
   useReveal,
+  useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
   type TabViewProps,
@@ -83,13 +83,7 @@ import {
   type EditorActionsHost,
   type SaveProblem,
 } from "./editor-actions.ts";
-import { useCompactExplorer } from "./compact-explorer.ts";
-import {
-  closesExplorerOnPick,
-  explorerPlace,
-  roomAsk,
-  showsExplorerToggle,
-} from "./editor-room.ts";
+import { explorerWidth, roomAsk } from "./editor-room.ts";
 import { CheckoutGone, useCheckoutGone } from "./checkout-gone.tsx";
 import { EditorExplorer, type ExplorerOpen } from "./editor-explorer.tsx";
 import { EditorTabMenuItems } from "./editor-tab-menu.tsx";
@@ -103,13 +97,17 @@ import { useChangeGutter } from "./use-change-gutter.tsx";
 import { useTurnReview } from "./use-turn-review.tsx";
 import { ReviewIdle } from "./hunk-peek.tsx";
 import { useEditorSession } from "./use-editor-session.ts";
+import { sceneThrough } from "@/components/ui/rules.ts";
 
 /*
  * The editor panel tab (docs/editor/workbench.md): the thread's explorer and editor groups over
- * the app's buffer registry, its layout stored as the tab's data. Under 760px it is compact:
- * one group shows and the explorer steps aside behind "Show files", laid over the editor while
- * open. From 760px the explorer docks at the left.
+ * the app's buffer registry, its layout stored as the tab's data. The explorer docks at the left
+ * whenever it shows, at every width (never over the code); Hide files and ⌘B put it away per
+ * thread, and Show files in the strip brings it back.
  */
+
+/** The most panes beside the chat; full view holds the model's nine (`limits.groups`). */
+const sidePaneCap = 4;
 
 /** ⌘K waits this long for its second key before the palette opens after all. */
 const sequenceMs = 800;
@@ -226,12 +224,6 @@ export function EditorPanel(props: TabViewProps) {
   // Layout by room (spec 5).
   const root = useRef<HTMLDivElement>(null);
   const width = useElementSize(root).width;
-  const compact = width > 0 && width < compactBelowPx;
-  const { shown: overlay, setShown: setOverlay } = useCompactExplorer(
-    threadId,
-    width,
-    openPaths(layout).length === 0,
-  );
   // A split without room asks the docked panel to widen once per shape (spec 5).
   const onNeedRoom = useCallback(
     (needed: number) => {
@@ -251,17 +243,31 @@ export function EditorPanel(props: TabViewProps) {
     [store, threadId, actions],
   );
   const gone = useCheckoutGone(threadId);
-  const empty = openPaths(layout).length === 0;
-  const place = explorerPlace({ width, open: layout.explorer.open, overlay, empty });
-  const explorerShown = place !== "aside";
+  // The explorer docks beside the code whenever it shows, never over it (spec 5).
+  const explorerShown = layout.explorer.open;
+  // Panes: four beside the chat, nine in full view (owner, 2026-11-21).
+  const fullView = useScopeWorkspace(threadId).expanded;
+  const paneCap = fullView ? limits.groups : sidePaneCap;
+  /** The widest and tallest the editor area can get now: the panel widening if it can. */
+  const editorRoom = () => {
+    const panel = root.current?.getBoundingClientRect();
+    const workspace = store.get(threadId);
+    const reach = workspace.expanded ? 0 : panelMax(root.current);
+    const explorerPx = latest.current.explorer.open
+      ? explorerWidth(Math.max(panel?.width ?? 0, reach), latest.current.explorer.width)
+      : 0;
+    return {
+      width: Math.max(panel?.width ?? 0, reach) - explorerPx,
+      height: panel?.height ?? 0,
+    };
+  };
   const setExplorer = (patch: Partial<ExplorerState>) =>
     change({ ...latest.current, explorer: { ...latest.current.explorer, ...patch } });
   const [focusSearch, setFocusSearch] = useState(0);
   // Reveal in Files (the tab menu) brings the explorer out to show the file.
   useEffect(() =>
     onRevealInExplorer(threadId, () => {
-      if (compact) setOverlay(true);
-      else if (!latest.current.explorer.open || latest.current.explorer.side !== "files")
+      if (!latest.current.explorer.open || latest.current.explorer.side !== "files")
         change({
           ...latest.current,
           explorer: { ...latest.current.explorer, open: true, side: "files" },
@@ -277,7 +283,6 @@ export function EditorPanel(props: TabViewProps) {
       length: how.length,
       focus: how.how === "keep",
     });
-    if (compact && closesExplorerOnPick(how.how)) setOverlay(false);
   };
 
   // The status line's left side (spec 41, 45, 66).
@@ -334,18 +339,22 @@ export function EditorPanel(props: TabViewProps) {
         );
       case "moveEditorBack":
       case "moveEditorOn":
+        // Past the last pane this would make one: not beyond the cap.
+        if (command === "moveEditorOn" && groupsOf(now).length >= paneCap) {
+          const groups = groupsOf(now);
+          if (groups.at(-1)?.id === focusedGroup(now).id) return;
+        }
         return change(
           moveActiveEditor(now, command === "moveEditorOn" ? "next" : "previous", groupIds(now)),
         );
       case "splitRight":
-        return change(splitFocused(now, "right"));
+        return change(splitFocused(now, "right", editorRoom(), paneCap));
       case "splitDown":
-        return change(splitFocused(now, "down"));
+        return change(splitFocused(now, "down", editorRoom(), paneCap));
       case "explorer":
-        return compact ? setOverlay((shown) => !shown) : setExplorer({ open: !now.explorer.open });
+        return setExplorer({ open: !now.explorer.open });
       case "searchFiles":
-        if (compact) setOverlay(true);
-        setExplorer({ side: "search", ...(compact ? {} : { open: true }) });
+        setExplorer({ side: "search", open: true });
         return setFocusSearch((value) => value + 1);
       case "nextHit":
       case "previousHit": {
@@ -381,7 +390,6 @@ export function EditorPanel(props: TabViewProps) {
         return;
       }
       case "composer":
-        if (compact && overlay) return setOverlay(false);
         return runKeymap("focusComposer");
     }
   };
@@ -459,26 +467,18 @@ export function EditorPanel(props: TabViewProps) {
             <aside
               role="complementary"
               aria-label="Explorer"
-              style={{
-                width: compact ? Math.min(layout.explorer.width, 320) : layout.explorer.width,
-              }}
-              className={cn(
-                "relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar",
-                place === "overlay" &&
-                  "fx-panel-in absolute inset-y-0 left-0 z-[4] max-w-[85%] shadow-[12px_0_32px_rgb(0_0_0/0.22)]",
-              )}
+              style={{ width: explorerWidth(width, layout.explorer.width) }}
+              className={`relative flex min-h-0 shrink-0 flex-col border-r border-border bg-sidebar ${sceneThrough}`}
             >
-              {!compact && (
-                <ResizeHandle
-                  label="Resize the explorer"
-                  edge="right"
-                  size={layout.explorer.width}
-                  min={200}
-                  max={360}
-                  onResize={(next) => setExplorer({ width: next })}
-                  onReset={() => setExplorer({ width: 236 })}
-                />
-              )}
+              <ResizeHandle
+                label="Resize the explorer"
+                edge="right"
+                size={layout.explorer.width}
+                min={200}
+                max={360}
+                onResize={(next) => setExplorer({ width: next })}
+                onReset={() => setExplorer({ width: 236 })}
+              />
               {explorer}
             </aside>
           )}
@@ -498,17 +498,16 @@ export function EditorPanel(props: TabViewProps) {
                 tabMenuItems={menuFor(threadId)}
                 threadId={threadId}
                 onNeedRoom={onNeedRoom}
+                paneCap={paneCap}
+                room={editorRoom}
                 explorerToggle={
-                  showsExplorerToggle(place) && (
+                  !explorerShown && (
                     <IconButton
                       label="Show files"
                       shortcut="editor.explorer"
                       size="sm"
-                      icon={FilesIcon}
-                      pressed={place === "overlay"}
-                      onClick={() =>
-                        compact ? setOverlay((shown) => !shown) : setExplorer({ open: true })
-                      }
+                      icon={SidebarSimpleIcon}
+                      onClick={() => setExplorer({ open: true })}
                     />
                   )
                 }

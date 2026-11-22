@@ -34,26 +34,89 @@ afterEach(() => {
   HTMLElement.prototype.getBoundingClientRect = realBox;
 });
 
-test("a split shows both groups side by side once each has 420px", async () => {
+/** How the panes sit: an edge between side-by-side panes stands vertical. */
+const edges = () =>
+  screen
+    .queryAllByRole("separator", { name: "Resize panes" })
+    .map((edge) => edge.getAttribute("aria-orientation"));
+
+test("two panes sit side by side once each has 420px", async () => {
   editorSize(900);
   await mountEditor(two());
-  expect(region(1)).toBeTruthy();
-  expect(region(2)).toBeTruthy();
-  expect(screen.queryByRole("group", { name: "Groups" })).toBeNull();
+  expect(tabNames(1)).toEqual(["a.ts"]);
+  expect(tabNames(2)).toEqual(["c.ts"]);
+  expect(edges()).toEqual(["vertical"]);
 });
 
-test("a split without room asks for it, and shows one group with the others a click away", async () => {
+test("two panes in 640px ask for room and still sit side by side, narrower", async () => {
   editorSize(640);
   const onNeedRoom = vi.fn();
   await mountEditor(two(), { overrides: { onNeedRoom } });
   expect(onNeedRoom).toHaveBeenCalledWith(840);
-  expect(screen.queryByRole("region", { name: "Group 2" })).toBeNull();
-  expect(tabNames(1)).toEqual(["a.ts"]);
-
-  const groups = screen.getByRole("group", { name: "Groups" });
-  fireEvent.click(within(groups).getByRole("button", { name: "Group 2" }));
-  expect(screen.queryByRole("region", { name: "Group 1" })).toBeNull();
+  expect(edges()).toEqual(["vertical"]);
   expect(tabNames(2)).toEqual(["c.ts"]);
+});
+
+test("panes without room for 280px each stack, both still on screen, and the word Group never shows", async () => {
+  editorSize(500);
+  await mountEditor(two());
+  expect(edges()).toEqual(["horizontal"]);
+  expect(tabNames(1)).toEqual(["a.ts"]);
+  expect(tabNames(2)).toEqual(["c.ts"]);
+  expect(screen.queryByText(/Group/)).toBeNull();
+});
+
+test("a right split with no room beside goes below, so it shows", async () => {
+  editorSize(500);
+  const editor = await mountEditor(one([tab("a.ts")]));
+  fireEvent.click(within(region(1)).getByRole("button", { name: "Split right" }));
+  expect(editor.seen.at(-1)?.root).toMatchObject({ kind: "split", direction: "column" });
+  expect(tabNames(2)).toEqual(["a.ts"]);
+});
+
+test("a right-edge drop with no room beside washes and lands below", async () => {
+  editorSize(500);
+  const editor = await mountEditor(one([tab("a.ts"), tab("b.ts")]));
+  const area = editorArea(1);
+  area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
+  const data = transfer();
+  fireEvent.dragStart(within(strip(1)).getByRole("tab", { name: /b\.ts/ }), { dataTransfer: data });
+  fireEvent.dragOver(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  expect(area.querySelector("[data-drop-zone]")?.getAttribute("data-drop-zone")).toBe("down");
+  fireEvent.drop(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  expect(editor.seen.at(-1)?.root).toMatchObject({ kind: "split", direction: "column" });
+});
+
+test("at the pane cap, edges take no drop and Split right is off", async () => {
+  editorSize(1000);
+  const editor = await mountEditor(two([tab("a.ts"), tab("b.ts")]), { overrides: { paneCap: 2 } });
+  const area = editorArea(1);
+  area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
+  const data = transfer();
+  fireEvent.dragStart(within(strip(1)).getByRole("tab", { name: /b\.ts/ }), { dataTransfer: data });
+  fireEvent.dragOver(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  expect(area.querySelector("[data-drop-zone]")).toBeNull();
+  fireEvent.drop(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
+  expect(editor.seen.every((layout) => groupsOf(layout).length <= 2)).toBe(true);
+  // Off: a press makes no third pane.
+  fireEvent.click(within(region(1)).getByRole("button", { name: "Split right" }));
+  expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
+});
+
+test("a tab dropped on the edge of a pane already showing its file only moves focus there", async () => {
+  editorSize(1000);
+  const editor = await mountEditor(two([tab("a.ts"), tab("b.ts")], [tab("b.ts")]));
+  const area = editorArea(2);
+  area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
+  const data = transfer();
+  fireEvent.dragStart(within(strip(1)).getByRole("tab", { name: /b\.ts/ }), { dataTransfer: data });
+  fireEvent.dragOver(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  fireEvent.drop(area, { dataTransfer: data, clientX: 290, clientY: 150 });
+  const last = editor.seen.at(-1);
+  expect(last && groupsOf(last)).toHaveLength(2);
+  expect(last?.focused).toBe("g9");
+  expect(tabNames(1)).toEqual(["a.ts", "b.ts"]);
 });
 
 test("a file dragged from this thread's explorer opens kept in the group it drops on", async () => {

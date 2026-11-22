@@ -74,12 +74,18 @@ side panel itself into groups (every tool would inherit editor semantics it has 
    minimum, per `allocateRoom`). It asks once per opening, never on tab switches, and a width the
    person dragged afterwards is kept. Below 640px of window the panel takes the canvas as today.
 5. **Layouts by room.** The editor measures its own width:
-   - under 760px (compact): one group visible, explorer stepped aside behind a "Show files" button
-     at the strip's left, and laid over the editor while open, closing once a file is picked;
-   - 760px and up: the explorer docks beside the editor area (left edge, 200–360px, resizable,
-     double-click resets to 236);
-   - extra groups exist in every layout, but under 760px only the focused group shows and its strip
-     names the others in its ⋯ menu ("Group 2: editor-groups.ts").
+   - the explorer docks beside the editor area whenever it shows, at every width, and never lies
+     over the code (left edge, 200–360px, resizable, double-click resets to 236). In a narrow
+     panel it narrows first, down to 160px, so the code keeps 320px;
+   - Hide files (a bare sidebar icon at the left of the explorer's header), Show files (the same
+     icon at the strip's left while it is hidden) and ⌘B inside the editor hide and show it,
+     remembered per thread; hidden, the editor area takes the whole panel (decided 2026-11-21,
+     replacing the compact layout's overlay, which hid the code's left edge);
+   - every pane the person makes is on screen (the person sees panes; "group" is the model's word
+     and never shows): side by side at 420px each, at 280px each when the panel can't widen
+     further, else stacked for display, keeping the stored split so full view shows it side by
+     side again. A left or right split that couldn't sit beside at 280px is made below or above
+     instead, and a drop's wash shows that half (owner, 2026-11-21: no switcher, no hidden panes).
 6. Full view (⇧⌘F outside the editor) gives the editor the whole work area as today; the chat stays
    one panel-strip tab away ("‹ Chat" where full view's way back sits).
 7. The phone-sized web layout keeps today's single-file behaviour: the editor takes the canvas with
@@ -110,8 +116,10 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 ### Groups and splits
 
 15. The editor area is a split tree: a node is a group or a split (row or column) with child sizes.
-    At most 9 groups. Split right (⌥⌘\) or down (⇧⌥⌘\) puts a second view of the focused editor in
-    a new group beside or under the focused one.
+    At most 4 panes beside the chat and 9 in full view; past that an edge takes no drop and shows
+    no wash. Split right (⌥⌘\) or down (⇧⌥⌘\) puts a second view of the focused editor in a new
+    pane beside or under the focused one. A tab dropped on the edge of another pane that already
+    shows its file only focuses that pane.
 16. Dragging a tab: onto another strip inserts it at the drop position; onto the middle third of a
     group's editor moves it into that group; onto an outer third makes a new group on that side.
     The drop target shows as the `--active` wash over the half or strip slot it will take. ⌥-drag
@@ -152,8 +160,8 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### What's open, what's unsaved
 
-29. **Open editors** is the first section of the explorer: one row per open editor, grouped under
-    "Group 1", "Group 2" when there is more than one group; each row shows the name, its folder in
+29. **Open editors** is the first section of the explorer: one row per open editor, flat, with a
+    hairline (no label) between one pane's files and the next's; each row shows the name, its folder in
     subtle ink, and the same slot as its tab. Its heading carries one action, Save all, shown only
     while something is unsaved. The section folds, and remembers that per device.
 30. Unsaved state shows in exactly two places that cannot disagree because they read one buffer:

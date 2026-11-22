@@ -155,7 +155,7 @@ export function TabStrip(props: {
         />
         <Menu>
           <MenuTrigger
-            render={<IconButton label="Group actions" size="sm" icon={DotsThreeIcon} />}
+            render={<IconButton label="Pane actions" size="sm" icon={DotsThreeIcon} />}
           />
           <MenuContent align="end">
             <MenuItem
