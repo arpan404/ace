@@ -150,6 +150,9 @@ test("an update waits in Updates until its own review is installed", async () =>
   const market = await findMarket();
   const updates = within(await within(market).findByRole("list", { name: "Updates" }));
   expect(updates.getByText("1.0.0 → 1.1.0")).toBeTruthy();
+  // The page is titled Installed, the count a quiet line, and an empty Installed list isn't drawn.
+  expect(within(market).getByText("1 update")).toBeTruthy();
+  expect(within(market).queryByRole("list", { name: "Installed" })).toBeNull();
   // Nothing applied on its own.
   expect(await installed(app.daemon)).toMatchObject({
     result: { installed: [{ name: "triage-mail", version: "1.0.0" }] },
