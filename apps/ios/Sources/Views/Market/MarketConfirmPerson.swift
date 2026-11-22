@@ -4,7 +4,7 @@ import SwiftUI
 /// its way out. Confirm it's you sends the change once more: the socket proves standing itself,
 /// and the bridge stops after that one retry. A phone the machine can't take standing from is sent
 /// to Pair again: the review closes and Settings › Machines › the machine opens over the home,
-/// wherever the marketplace was opened from.
+/// wherever the Store was opened from.
 struct MarketConfirmPerson: View {
     let refusal: MarketRefusal
     /// The machine the change was refused on, whose row offers Pair again.
