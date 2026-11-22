@@ -30,6 +30,7 @@ import { orgHostRoutes } from "./org-host-routes.ts";
 import { orgLocks } from "./org-locks.ts";
 import { portalRevocations } from "./org-portal.ts";
 import { orgRegistryRoutes } from "./org-registry-routes.ts";
+import { orgRosterRoute } from "./org-roster.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStandingRoute } from "./org-standing-route.ts";
 import { orgStore } from "./org-store.ts";
@@ -49,6 +50,7 @@ const loginClaim = /^\/v1\/account\/login\/([A-Za-z0-9_-]{43})$/;
 const machinePath = /^\/v1\/machines\/([A-Z2-7]{52})$/;
 const orgHostCredentialPath =
   /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/hosts\/([A-Z2-7]{52})\/credential$/;
+const orgHostRosterPath = /^\/v1\/orgs\/(org_[A-Za-z0-9]{1,64})\/hosts\/([A-Z2-7]{52})\/roster$/;
 
 /**
  * The account HTTP API. One instance per isolate: it holds the in-flight session refreshes
@@ -150,6 +152,13 @@ export function accountApi(
     now,
     newEnrollment: newId,
   });
+  const roster = orgRosterRoute({
+    db: deps.db,
+    principals,
+    orgs,
+    signingKey: config.grantKey,
+    now,
+  });
   const outbox = auditOutbox({ db: deps.db, workos: workosOrg, now });
   const events = orgEvents({ orgs, workos: workosOrg, portal, outbox, now });
   const standing = orgStandingRoute({
@@ -235,6 +244,9 @@ export function accountApi(
     const hostCredential = pathname.match(orgHostCredentialPath);
     if (hostCredential && method === "POST")
       return hostApi.credential(request, hostCredential[1] ?? "", hostCredential[2] ?? "");
+    const hostRoster = pathname.match(orgHostRosterPath);
+    if (hostRoster && method === "GET")
+      return roster(request, hostRoster[1] ?? "", hostRoster[2] ?? "");
     const scoped = pathname.match(orgPath);
     if (scoped) {
       const [, org = "", area, item] = scoped;
