@@ -1,6 +1,14 @@
 import { spadeQuoteName, type SpadeDocCard, type SpadeQuote } from "@ace/ui-core/spade-chat";
 import { FileTextIcon, XIcon } from "@ace/icons";
-import { createContext, useContext, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -125,5 +133,48 @@ export function DocumentCard(props: { doc: SpadeDocCard }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** How long a message gone to from its quote stays lit. */
+const litFor = 1600;
+
+/**
+ * Replying in a chat: Reply hands the message to the composer, and a quote goes to its original,
+ * drawing every row first when the original is older than the rows drawn yet.
+ */
+export function useReplies(
+  botName: string,
+  onReply: ((quote: SpadeQuote) => void) | undefined,
+  drawAll: () => void,
+): SpadeReplyHandlers | undefined {
+  const [lit, setLit] = useState<string>();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const show = useCallback(
+    (id: string) => {
+      const go = (tries: number) => {
+        const target = document.querySelector(`[${messageAttribute}="${CSS.escape(id)}"]`);
+        if (!target) {
+          if (tries > 0) {
+            drawAll();
+            requestAnimationFrame(() => go(tries - 1));
+          }
+          return;
+        }
+        const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        target.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
+        setLit(id);
+        clearTimeout(timer.current);
+        timer.current = setTimeout(() => setLit(undefined), litFor);
+      };
+      go(3);
+    },
+    [drawAll],
+  );
+  return useMemo(
+    () =>
+      onReply ? { reply: onReply, show, lit, botName } : { reply: () => {}, show, lit, botName },
+    [onReply, show, lit, botName],
   );
 }

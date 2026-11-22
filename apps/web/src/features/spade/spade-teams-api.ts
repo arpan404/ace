@@ -74,8 +74,12 @@ export async function postGroupMessage(
   target: SpadeTarget,
   id: string,
   text: string,
+  /** The message it replies to, by id (ADR 0212 §4). */
+  replyTo?: string,
 ): Promise<void> {
-  await spadeHttp(target, "POST", `/v1/groups/${segment(id)}/messages`, { body: { text } });
+  await spadeHttp(target, "POST", `/v1/groups/${segment(id)}/messages`, {
+    body: replyTo ? { text, reply_to: replyTo } : { text },
+  });
 }
 
 export async function stopGroup(target: SpadeTarget, id: string): Promise<void> {

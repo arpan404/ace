@@ -30,7 +30,7 @@ import {
   spadeQuoteLine,
   type SpadeQuote,
 } from "@ace/ui-core/spade-chat";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
 import { cn } from "@/lib/cn.ts";
 import { FromThreadLine } from "./from-thread-line.tsx";
@@ -62,12 +62,7 @@ import { SpadeStepsLine } from "./spade-steps-line.tsx";
 import { NamedLine, TaskChangedLine } from "./spade-self-edit-lines.tsx";
 import { ClubAddedLine, MadeLine } from "./spade-made-lines.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
-import {
-  DocumentCard,
-  messageAttribute,
-  SpadeReplyContext,
-  type SpadeReplyHandlers,
-} from "./spade-chat-replies.tsx";
+import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
 
 /** The bot whose conversation this is, and the faces of other bots that write into it. */
 export interface ChatBot {
@@ -331,49 +326,6 @@ export function SpadeChat(props: {
         </div>
       </SpadeReplyContext>
     </CardFace>
-  );
-}
-
-/** How long a message gone to from its quote stays lit. */
-const litFor = 1600;
-
-/**
- * Replying in a chat: Reply hands the message to the composer, and a quote goes to its original,
- * drawing every row first when the original is older than the rows drawn yet.
- */
-export function useReplies(
-  botName: string,
-  onReply: ((quote: SpadeQuote) => void) | undefined,
-  drawAll: () => void,
-): SpadeReplyHandlers | undefined {
-  const [lit, setLit] = useState<string>();
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-  const show = useCallback(
-    (id: string) => {
-      const go = (tries: number) => {
-        const target = document.querySelector(`[${messageAttribute}="${CSS.escape(id)}"]`);
-        if (!target) {
-          if (tries > 0) {
-            drawAll();
-            requestAnimationFrame(() => go(tries - 1));
-          }
-          return;
-        }
-        const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-        target.scrollIntoView({ block: "center", behavior: still ? "auto" : "smooth" });
-        setLit(id);
-        clearTimeout(timer.current);
-        timer.current = setTimeout(() => setLit(undefined), litFor);
-      };
-      go(3);
-    },
-    [drawAll],
-  );
-  return useMemo(
-    () =>
-      onReply ? { reply: onReply, show, lit, botName } : { reply: () => {}, show, lit, botName },
-    [onReply, show, lit, botName],
   );
 }
 
