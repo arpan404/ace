@@ -1,3 +1,4 @@
+import type { SubagentState } from "../subagents.ts";
 import type {
   SpadeApproval,
   SpadeEntry,
@@ -126,10 +127,14 @@ type SpadeBubbleOf =
   | {
       kind: "contract";
       key: string;
+      /** The bot whose contract it called, by name. */
+      bot: string;
       text: string;
       /** The output's fields in one line, or why it failed; empty while it is open. */
       result: string;
       open: boolean;
+      /** How it stands, in ace's words for a child (`spadeChildState`). */
+      state: SubagentState;
       at?: number;
     }
   /**
@@ -143,6 +148,8 @@ type SpadeBubbleOf =
       text: string;
       /** Still working (or waiting on the person). */
       open: boolean;
+      /** How it stands, in ace's words for a child (`spadeChildState`). */
+      state: SubagentState;
     }
   /**
    * A card of questions (ADR 0154), as the bot's bubble where it asked, with how it stands:
@@ -285,9 +292,11 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
       bubbles.push({
         kind: "contract",
         key: entry.key,
+        bot: entry.bot,
         text: spadeContractLine(entry),
         result: entry.result,
         open: entry.outcome === undefined,
+        state: spadeChildState(entry.outcome, false),
         ...stamp(entry.at),
       });
       continue;
@@ -306,6 +315,7 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
         job: entry.job,
         text: spadeHelperLine(entry, waiting),
         open: entry.outcome === undefined,
+        state: spadeChildState(entry.outcome, waiting),
         ...stamp(entry.at),
       });
       continue;
@@ -397,6 +407,20 @@ export function spadeBubbles(view: SpadeView): SpadeBubble[] {
   for (const outside of view.outsideAsks)
     bubbles.push({ kind: "plugin-outside", key: `outside:${outside.id}`, ...outside });
   return bubbles;
+}
+
+/**
+ * A helper's or a contract call's state as ace says a child's: waiting on the person, at work,
+ * done, failed or stopped. Never done while it hasn't ended (AGENTS.md priority 1).
+ */
+export function spadeChildState(
+  outcome: "done" | "returned" | "failed" | "stopped" | undefined,
+  waiting: boolean,
+): SubagentState {
+  if (outcome === undefined) return waiting ? "human" : "working";
+  if (outcome === "failed") return "failed";
+  if (outcome === "stopped") return "cancelled";
+  return "done";
 }
 
 /** `at` as a bubble carries it: absent when unknown. */

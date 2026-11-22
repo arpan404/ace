@@ -108,6 +108,24 @@ async fn a_bot_reads_as_working_until_the_children_it_delegated_to_settle() -> R
     );
     assert_eq!(state(&spade, &id).await?, "working");
     assert!(mcp.tool_runs() >= 2, "it waited again: {}", mcp.tool_runs());
+    // The child is in the bot's chat while it runs, not only once it settled: `delegate` asks
+    // ace's least wait, so its answer names the thread at once, and the job waits after.
+    assert!(
+        events
+            .iter()
+            .any(|e| e["type"] == "worker_started" && e["worker"] == "t1"),
+        "the running child isn't in the chat"
+    );
+    let asked: Vec<Value> = mcp
+        .ran()
+        .into_iter()
+        .filter(|(name, _)| name == "delegate")
+        .map(|(_, arguments)| arguments)
+        .collect();
+    assert_eq!(
+        asked.first().map(|a| a["waitSeconds"].clone()),
+        Some(json!(1))
+    );
 
     mcp.settle_children();
     let events = spade.wait_for(&id, "job_finished").await?;

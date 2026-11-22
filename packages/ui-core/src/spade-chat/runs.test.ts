@@ -48,6 +48,7 @@ const helper = (key: string): SpadeChatItem => ({
   job: key,
   text: "Helper found: 7 open pull requests",
   open: false,
+  state: "done",
 });
 
 const routine = (key: string, name: string, when?: string): SpadeChatItem => ({

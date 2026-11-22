@@ -157,6 +157,10 @@ mod tests {
 
     use super::*;
 
+    fn object(value: &Value) -> Map<String, Value> {
+        value.as_object().cloned().unwrap_or_default()
+    }
+
     #[test]
     fn an_apps_tool_reads_by_its_verb_without_repeating_the_app() {
         assert_eq!(
@@ -181,15 +185,9 @@ mod tests {
             "parent": { "data_source_id": "42063c4a-1d2e-4c55-9a1b-0c1d2e3f4a5b" },
             "pages": [{ "properties": { "title": "Launch notes" }, "content": "…" }],
         });
-        assert_eq!(
-            title_in(args.as_object().expect("object"), 0).as_deref(),
-            Some("Launch notes")
-        );
+        assert_eq!(title_in(&object(&args), 0).as_deref(), Some("Launch notes"));
         let rich = json!({ "title": [{ "text": { "content": "Roadmap" } }] });
-        assert_eq!(
-            title_in(rich.as_object().expect("object"), 0).as_deref(),
-            Some("Roadmap")
-        );
+        assert_eq!(title_in(&object(&rich), 0).as_deref(), Some("Roadmap"));
         assert!(id_like("data_source_id", &json!("x")));
         assert!(id_like(
             "parent",
