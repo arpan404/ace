@@ -20,6 +20,12 @@ const unusable = [
   /\bSDK translation provenance is fenced\b/i,
 ];
 const unsafe = /\bUnsafe SDK checkpoint\b|\bsymlink\b/i;
+/**
+ * The host's checkpoint fence ends every notice with this advice, whatever stopped the write: it
+ * says nothing about the store. A full disk fences the same way and passes once space is back.
+ */
+const fenceAdvice =
+  /\bExecution is fenced; preserve this thread and use explicit bounded context handoff\.?/gi;
 
 function messages(error: unknown): string[] {
   const found: string[] = [];
@@ -40,7 +46,7 @@ function messages(error: unknown): string[] {
 
 /** True when `error` says this thread's saved Cursor session can never be opened again. */
 export function cursorStoreUnusable(error: unknown): boolean {
-  const said = messages(error);
+  const said = messages(error).map((message) => message.replace(fenceAdvice, ""));
   if (said.some((message) => unsafe.test(message))) return false;
   return said.some((message) => unusable.some((pattern) => pattern.test(message)));
 }

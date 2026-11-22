@@ -17,6 +17,7 @@ test.each([
   "Unsafe or oversized SDK boundary journal; use context handoff",
   "SDK boundary journal exceeds recovery budget; use context handoff",
   "SDK recovery run inventory exceeds budget",
+  "ace could not write Cursor's checkpoint: SDK aggregate checkpoint growth exceeds budget; previous checkpoint retained. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
   "Unclaimed SDK checkpoint has orphaned or conflicting identity; use context handoff",
 ])("a saved session Cursor can't open again is reported as unusable: %s", (message) => {
   expect(engineCode(new Error(message))).toBe(sessionStoreUnusable);
@@ -36,6 +37,7 @@ test.each([
   "Checkpoint changed during snapshot; reconcile before sending",
   "Unsafe SDK checkpoint entry; use explicit context handoff",
   "ENOSPC: no space left on device",
+  "ace could not write Cursor's checkpoint: ENOSPC: no space left on device. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
 ])("a failure that may pass, or an unsafe store, keeps its own code: %s", (message) => {
   expect(engineCode(Object.assign(new Error(message), { code: "auth" }))).not.toBe(
     sessionStoreUnusable,
