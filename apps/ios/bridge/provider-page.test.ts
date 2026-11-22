@@ -115,9 +115,9 @@ test("a relative CLI path is refused in words and leaves the saved path alone", 
   expect((await phone.page("codex")).settings.path).toBe("");
 });
 
-test("Cursor's checkpoint budget takes 1 to 256 MB and other providers have none", async () => {
+test("Cursor's checkpoint budget takes 1 to 65536 MB and other providers have none", async () => {
   const phone = await open();
-  expect((await phone.edit("cursor", { kind: "checkpoint", value: "300" })).ok).toBe(false);
+  expect((await phone.edit("cursor", { kind: "checkpoint", value: "70000" })).ok).toBe(false);
   await phone.edit("cursor", { kind: "checkpoint", value: "64" });
   const cursor = await phone.page("cursor");
   expect(cursor.settings).toMatchObject({ checkpoint: "64", path: null, removable: false });

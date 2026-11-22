@@ -35,6 +35,8 @@ export interface OriginLike {
   /** A context handoff's source models, oldest first. */
   sources?: readonly { provider: ProviderKind; model?: string | undefined }[] | undefined;
   lossy?: boolean | undefined;
+  /** A handoff into a fresh session of the same provider (ADR 0211). */
+  freshSession?: true | undefined;
   /** A restart-kind continuation resuming a turn its provider dropped on its own. */
   afterExit?: boolean | undefined;
   /** A `person` message an outside MCP client sent for the person (ADR 0122). */

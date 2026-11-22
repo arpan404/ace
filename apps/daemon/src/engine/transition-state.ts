@@ -3,6 +3,7 @@ import { NativeSessionId } from "@ace/protocol";
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
 import { ProviderSessions } from "./provider-sessions.ts";
+import { StoreGenerations } from "./store-generations.ts";
 import type { Store } from "../store.ts";
 import {
   ExecutionSelection,
@@ -52,10 +53,13 @@ export class TransitionState {
   readonly history: HandoffAccess;
   /** Native sessions a provider left behind, resumed when the thread returns to it. */
   readonly left: ProviderSessions;
+  /** Which provider-private session store generation each thread opens (ADR 0211). */
+  readonly generations: StoreGenerations;
   constructor(store: Store) {
     this.store = store;
     this.history = new HandoffAccess(store);
     this.left = new ProviderSessions(store);
+    this.generations = new StoreGenerations(store);
     store.atomic((_db) =>
       _db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (
@@ -114,6 +118,20 @@ export class TransitionState {
         .get(id);
       return Metadata.parse(row ? JSON.parse(String(row.value)) : {});
     });
+  }
+  /**
+   * The waiting handoff and context went out with an input the provider has taken: they are
+   * never prepended again. Runs in the transaction that records that evidence.
+   */
+  delivered(id: ThreadId): void {
+    const metadata = this.get(id);
+    if (!metadata.handoff && !metadata.marker && !metadata.fallback && !metadata.context.length)
+      return;
+    delete metadata.handoff;
+    delete metadata.marker;
+    delete metadata.fallback;
+    metadata.context = [];
+    this.set(id, metadata);
   }
   set(id: ThreadId, input: TransitionMetadata): void {
     const value = JSON.stringify(admitTransitionMetadata(input));

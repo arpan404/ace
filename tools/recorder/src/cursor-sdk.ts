@@ -252,7 +252,6 @@ export async function recordCursorSdkScenario(input: unknown, deps: CursorRecord
             nativeSessionId: sourceId,
             backend: "cursor-sdk",
             instanceId: request.instance.id,
-            afterFrameOffset: activeEvidence().lastBoundaryOffset,
           });
           if (session.nativeSessionId !== sourceId)
             throw new Error("SDK checkpoint resume changed its native identity");

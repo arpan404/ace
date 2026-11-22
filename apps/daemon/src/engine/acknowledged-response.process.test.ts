@@ -91,3 +91,45 @@ for (const kind of ["thread.create", "thread.send"] as const) {
     },
   );
 }
+
+test("a message its provider started a turn for before the daemon stopped never reads as not sent", async () => {
+  const hung = Promise.withResolvers<void>();
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  const adapter = h.adapter;
+  h.registry.register(
+    {
+      ...adapter,
+      async openSession(ctx) {
+        const session = await adapter.openSession(ctx);
+        return {
+          ...session,
+          async send(input, delivery, commandId) {
+            if (commandId !== "taken") return session.send(input, delivery, commandId);
+            // The provider takes it and starts its turn; the daemon stops before send returns.
+            await ctx.onFrame(frames.frame(start));
+            await hung.promise;
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const id = await h.create();
+  h.command({ type: "thread.send", threadId: id, input: text("take this") }, "device", "taken");
+  await expect.poll(() => h.store.getThread(id)?.status.state).toBe("working");
+  const reopened = await crashCopy(h);
+  hung.resolve();
+  await reopened.engine.flush();
+  const notices = Object.values(reopened.store.snapshotThread(id).items).flatMap((item) =>
+    item.type === "notice" && item.commandId === "taken" ? [item.title ?? item.text ?? ""] : [],
+  );
+  expect(notices.join(" | ")).not.toMatch(/not sent/i);
+  expect(reopened.store.snapshotThread(id).items["input:taken"]).toMatchObject({
+    type: "message",
+    parts: text("take this"),
+  });
+  expect(reopened.engine.queue(id).messages).toEqual([]);
+  // The cut-off turn carried on with the restart's own continuation, and finished.
+  expect(reopened.store.getThread(id)?.status.state).toBe("done");
+});

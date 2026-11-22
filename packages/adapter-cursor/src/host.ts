@@ -146,8 +146,7 @@ export class CursorHost {
     const receiveFrame = async (params: unknown) => {
       const payload = new ProviderPayload(boundedJson(params, this.limits.maxFrameBytes));
       const frame = Envelope.parse(payload.data);
-      if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
-        throw new Error("SDK generation mismatch");
+      if (frame.generation !== this.generation) throw new Error("SDK generation mismatch");
       try {
         await onFrame(frame, payload);
       } catch (error) {

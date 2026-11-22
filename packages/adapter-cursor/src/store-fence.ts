@@ -1,0 +1,70 @@
+import { sessionStoreBusy, sessionStoreUnusable } from "@ace/provider-kit/open-error";
+
+/*
+ * Which Cursor failures mean the thread's saved SDK session can never be opened again, so ace
+ * continues in a fresh session instead of retrying (ADR 0211). The adapter's own guards say so
+ * in words only ("…; use context handoff", a store over its budget), and those
+ * words can arrive wrapped: in a host request's rejection or as the cause of a failed history
+ * check. Unsafe files (a symlink where a store should be) are never handed off: a fresh folder
+ * beside them would not be safer. Pure.
+ */
+
+// Only states of the store itself: its size, a format or identity it can't be opened with, a
+// history too large to read back. Momentary pressure (a busy store, a full disk, a slow ack)
+// is never here: it passes, and a fresh session would throw the saved one away for nothing.
+const unusable = [
+  /\buse (?:explicit |bounded )?(?:portable )?context handoff\b/i,
+  /\bSDK (?:JSONL )?checkpoint (?:blob )?exceeds\b/i,
+  /\bSDK (?:recovery run|durable event) inventory exceeds budget\b/i,
+  /\bSDK recovery metadata (?:bytes )?exceeds? budget\b/i,
+  /\bSDK translation provenance is fenced\b/i,
+];
+const unsafe = /\bUnsafe SDK checkpoint\b|\bsymlink\b/i;
+/**
+ * The host's checkpoint fence ends every notice with this advice, whatever stopped the write: it
+ * says nothing about the store. A full disk fences the same way and passes once space is back.
+ */
+const fenceAdvice =
+  /\bExecution is fenced; preserve this thread and use explicit bounded context handoff\.?/gi;
+
+function messages(error: unknown): string[] {
+  const found: string[] = [];
+  let current: unknown = error;
+  // Bounded: a cause chain is short, and a cyclic one must not hang the classifier.
+  for (let depth = 0; depth < 6 && current !== undefined && current !== null; depth++) {
+    if (typeof current === "string") {
+      found.push(current);
+      break;
+    }
+    if (typeof current !== "object") break;
+    const message: unknown = Reflect.get(current, "message");
+    if (typeof message === "string") found.push(message);
+    current = Reflect.get(current, "cause");
+  }
+  return found;
+}
+
+/** True when `error` says this thread's saved Cursor session can never be opened again. */
+export function cursorStoreUnusable(error: unknown): boolean {
+  const said = messages(error).map((message) => message.replace(fenceAdvice, ""));
+  if (said.some((message) => unsafe.test(message))) return false;
+  return said.some((message) => unusable.some((pattern) => pattern.test(message)));
+}
+
+const busy = /\bSQLITE_(?:BUSY|LOCKED)\b|\bdatabase (?:table )?is locked\b|\bdatabase is busy\b/i;
+/** True when `error` says the store is busy or locked by another writer: it passes. */
+export function cursorStoreBusy(error: unknown): boolean {
+  return messages(error).some((message) => busy.test(message));
+}
+
+/** `error`, carrying the engine's unusable- or busy-store code when it is one; otherwise unchanged. */
+export function markStoreUnusable(error: unknown): unknown {
+  if (!cursorStoreUnusable(error)) {
+    // A busy store is not an unusable one: it carries its own code, so the engine can wait.
+    if (!cursorStoreBusy(error)) return error;
+    const message = messages(error)[0] ?? "Cursor's saved session is busy";
+    return Object.assign(new Error(message, { cause: error }), { code: sessionStoreBusy });
+  }
+  const message = messages(error)[0] ?? "Cursor's saved session can't be opened";
+  return Object.assign(new Error(message, { cause: error }), { code: sessionStoreUnusable });
+}

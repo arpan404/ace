@@ -6,6 +6,7 @@ import { stopMembers, type TreeMember } from "@ace/provider-kit/process-tree";
 import { ownProcesses, type OwnedCapture } from "./owned-processes.ts";
 import { systemListing } from "@ace/provider-kit/process-listing";
 import { verifyWindowsRecovery } from "./process-recovery.ts";
+import { previousGroupsGone } from "./cursor-process-check.ts";
 import { FORCED_GRACE_MS, forceStopAfterPoliteWindow } from "./shutdown-processes.ts";
 import { cliControl } from "./services/cli-control.ts";
 import { daemonLockedUse } from "./locked-use-installer.ts";
@@ -319,10 +320,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
   }
   try {
     const recovered = inventory.recover();
-    if (recovered.unresolved > 0)
+    // A group whose leader is gone, or that the kernel refuses to probe while it exits, can't be
+    // proven the last run's or proven gone: left alone, kept for a later recovery, and said.
+    if (recovered.unresolved > 0 && process.platform !== "win32")
       log.log(
         "warn",
-        "Previous run's process groups could not all be probed; kept for a later recovery",
+        "Previous run's processes could not all be resolved",
         logFields([["unresolved", recovered.unresolved]]),
       );
     if (process.platform === "win32") {
@@ -338,6 +341,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
         options = { ...options, engine: { ...options.engine, previousProcessesUnverified: true } };
       }
     }
+    // Cursor only: asked, bounded, before a send in doubt is sent again as never admitted.
+    const gone = () =>
+      process.platform === "win32"
+        ? Promise.resolve(options.engine?.previousProcessesUnverified !== true)
+        : previousGroupsGone(inventory);
+    options = { ...options, engine: { ...options.engine, cursorPreviousProcessesGone: gone } };
   } catch (error) {
     inventory.close();
     loop.close();

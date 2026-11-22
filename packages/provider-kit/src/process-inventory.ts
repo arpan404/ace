@@ -175,7 +175,13 @@ export class ProcessInventory implements ProcessJournal {
         owner.uid === entry.uid
       )
         continue;
-      const current = this.runtime.identity(entry.pid);
+      let current: ProcessIdentity | undefined;
+      try {
+        current = this.runtime.identity(entry.pid);
+      } catch {
+        // An identity the kernel won't give proves nothing either way: unresolved, below.
+        current = undefined;
+      }
       const alive = this.groupAlive(entry.group);
       if (alive === undefined) {
         // The kernel refused the probe (macOS does this while a group exits). Only ESRCH proves
@@ -188,14 +194,19 @@ export class ProcessInventory implements ProcessJournal {
         removed++;
         continue;
       }
+      // The group lives on, but its leader is gone or its PID is someone else's now: nothing
+      // proves the group is the run's, so it is neither ended nor called stopped. Startup goes on
+      // and reports the previous run unverified; the record stays for a later start.
       if (
         !current ||
         current.pid !== entry.pid ||
         current.start !== entry.start ||
         current.uid !== entry.uid ||
         current.group !== entry.group
-      )
-        throw new Error(`Orphan group ${entry.group} cannot be safely identified`);
+      ) {
+        unresolved++;
+        continue;
+      }
       this.runtime.kill(entry.group);
       // Keep evidence until a later recovery proves the group has disappeared.
       killed++;

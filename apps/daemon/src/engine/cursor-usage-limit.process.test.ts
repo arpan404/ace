@@ -18,13 +18,12 @@ function cursorFailing(message: string, failure: Record<string, unknown> = {}): 
         generation: "generation",
         operationId: "turn-1",
         segment: 0,
-        boundaryOffset: ++offset,
         kind,
         body,
       }),
     );
     await context.onFrame({
-      seq: offset,
+      seq: ++offset,
       t: offset,
       dir: "recv",
       channel: "sdk",
@@ -44,6 +43,7 @@ function cursorFailing(message: string, failure: Record<string, unknown> = {}): 
         nativeSessionId: "native",
         async send(input) {
           await emit(context, "send", { input });
+          await emit(context, "segment", { nativeRunId: "run" });
           await emit(context, "error", { settled: true, message, ...failure });
         },
         async interrupt() {},

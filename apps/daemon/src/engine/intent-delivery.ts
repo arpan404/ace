@@ -254,7 +254,15 @@ export class IntentDelivery {
         throw new Error("Native history is unavailable for continuation");
       // Closing an existing limited session prevents old frames from acknowledging replacement work.
       if (queue.limited && actor.session) await this.dependencies.sessions.close(actor, "user");
-      await this.dependencies.sessions.open(actor);
+      try {
+        await this.dependencies.sessions.open(actor);
+      } catch (error) {
+        // A saved session that can never open again continues fresh, with the thread's context
+        // in front of the continuation (ADR 0211).
+        if (!this.dependencies.transitions.startFreshSession(actor.id, error, intent.command.id))
+          throw error;
+        await this.dependencies.sessions.open(actor);
+      }
       if (!this.dependencies.recovery.begin(actor.id, token)) return;
       this.dependencies.repo.beginSend(intent, intent.id);
       const session = actor.session;

@@ -39,6 +39,8 @@ import { ProviderKind, ThreadId } from "@ace/protocol";
 import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { CursorReconciles, reconcileOptions } from "./cursor-reconcile.ts";
+import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
@@ -117,6 +119,34 @@ export class Engine {
   private liveness: ThreadLiveness;
   private delegationFacts: DelegationFacts;
   private readyPromise: Promise<void>;
+  /** Cursor turns a restart cut short, reconciled with Cursor's store once ready. */
+  private reconciles = new CursorReconciles(
+    (error) => this.report(error),
+    () => ({
+      repo: this.repo,
+      recovery: this.recovery,
+      clock: this.clock,
+      actor: (id) => this.actor(id),
+      open: (actor) => this.sessions.openToReconcile(actor),
+      close: (actor) => this.sessions.close(actor, "idle"),
+      wake: (id) => this.wake(id),
+      ...this.reconcileOptions,
+      freshSession: (id, error) => this.transitions.startFreshSession(id, error),
+    }),
+  );
+  private reconcileOptions: ReturnType<typeof reconcileOptions> = {};
+  /** The idle sweep of Cursor threads' settled frames: a bounded batch every 30 s (ADR 0170). */
+  private cancelSweep: (() => void) | undefined;
+  private sweep = () => {
+    if (this.closing) return;
+    try {
+      this.repo.recovery.pruneIdle();
+    } catch (error) {
+      this.report(error);
+    }
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
+  };
+  private processesGone: () => Promise<boolean> = async () => false;
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -179,6 +209,11 @@ export class Engine {
       (id) => this.repo.store.getThread(id)?.workspaceId,
     );
     this.report = options.onError ?? console.error;
+    this.reconcileOptions = reconcileOptions(options);
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
+    // Without the check nothing is proven gone: a send in doubt is never sent again by itself.
+    if (options.cursorPreviousProcessesGone)
+      this.processesGone = options.cursorPreviousProcessesGone;
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);
@@ -189,6 +224,7 @@ export class Engine {
     );
     this.sessions = new Sessions({
       models,
+      processesGone: () => this.processesGone(),
       ...(options.waitForProvider ? { waitForProvider: options.waitForProvider } : {}),
       ...(options.onCommandEvent ? { commandEvent: options.onCommandEvent } : {}),
       ...(options.mcp ? { mcp: options.mcp } : {}),
@@ -419,6 +455,7 @@ export class Engine {
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
         options.previousProcessesUnverified === true,
+        (id) => this.reconciles.add(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -440,6 +477,7 @@ export class Engine {
         models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
+        this.reconciles.start();
         for (const id of this.pendingSettles) this.stopSettled(id);
         this.pendingSettles.clear();
       })();
@@ -447,6 +485,7 @@ export class Engine {
       recover();
       this.readyState = true;
       this.readyPromise = Promise.resolve();
+      this.reconciles.start();
     }
   }
   private stopSettled(id: ThreadId): void {
@@ -492,7 +531,7 @@ export class Engine {
   private flushDepth = 0;
   /** A wake that outlived its thread's slot (it went dormant meanwhile) has nothing to run. */
   private async slotted(id: ThreadId, run: (actor: ThreadActor) => Promise<void>) {
-    if (!this.actors.has(id) && !this.repo.reservedSlot(id)) return;
+    if (this.reconciles.holds(id) || (!this.actors.has(id) && !this.repo.reservedSlot(id))) return;
     await run(this.actor(id));
   }
   private actor(id: ThreadId): ThreadActor {
@@ -684,56 +723,14 @@ export class Engine {
     );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
-  attachChild(
-    parentId: ThreadId,
-    parentAgentId: AgentId,
-    child: Thread,
-    role: string,
-    background: boolean,
-  ): void {
-    this.repo.permissions.parent(child.id, parentId, this.clock.now());
-    const state = this.repo.requireState(parentId);
-    const parent = state.indexes.agentKeysById[parentAgentId];
-    if (!parent) throw new Error("Unknown parent agent");
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.seen",
-          agent: `ace-child:${child.id}`,
-          parent,
-          origin: "ace",
-          fidelity: "summary",
-          native: { provider: child.provider },
-          cwd: this.repo.session(child.id).cwd,
-          role,
-          background,
-        },
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+  attachChild(...args: [ThreadId, AgentId, Thread, string, boolean]): void {
+    attachChild(this.repo, this.clock.now(), ...args);
   }
   updateChild(parentId: ThreadId, child: Thread): void {
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+    updateChild(this.repo, this.clock.now(), parentId, child);
     this.wake(parentId);
   }
+
   machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
     this.delegationFacts.machineChild(...args);
   }
@@ -1238,6 +1235,7 @@ export class Engine {
     const actor = this.actors.get(id);
     if (
       actor?.session ||
+      this.reconciles.holds(id) ||
       this.sessions.isClosing(id) ||
       this.repo.sessionOpening(id) ||
       this.repo.pending.running(id)
@@ -1265,7 +1263,7 @@ export class Engine {
   }
   private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
-    if (this.closing || this.repo.cleaning(id)) return;
+    if (this.closing || this.repo.cleaning(id) || this.reconciles.holds(id)) return;
     const thread = this.repo.store.readThread(id);
     if (thread?.deletedAt !== undefined || thread?.continuation) return;
     if (this.repo.store.isHistoryWriting()) {
@@ -1419,6 +1417,7 @@ export class Engine {
     try {
       await this.readyPromise;
       await Promise.resolve();
+      await this.reconciles.settled();
       do {
         await this.settledTrees.settled();
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
@@ -1438,6 +1437,8 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.cancelSweep?.();
+      this.reconciles.close();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;

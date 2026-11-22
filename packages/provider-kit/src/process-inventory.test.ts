@@ -7,7 +7,7 @@ import { DatabaseSync } from "./sqlite.ts";
 import type { ProcessIdentity } from "./process-identity.ts";
 
 test.each(["pid", "start", "uid", "group", "missing", "unreadable"] as const)(
-  "orphan recovery never kills a %s identity mismatch",
+  "orphan recovery never kills a %s identity mismatch, and reports it unresolved instead of aborting startup",
   (kind) => {
     const home = mkdtempSync(join(tmpdir(), "ace-inventory-identity-"));
     const processes = new Map<number, ProcessIdentity>([
@@ -39,7 +39,8 @@ test.each(["pid", "start", "uid", "group", "missing", "unreadable"] as const)(
       else if (kind === "group") processes.set(20, { ...current, group: 21 });
       else if (kind === "missing") processes.delete(20);
       else unreadable = true;
-      expect(() => inventory.recover()).toThrow();
+      // Not the run's provably: left running and on record, and startup goes on unverified.
+      expect(inventory.recover()).toEqual({ killed: 0, removed: 0, unresolved: 1 });
       expect(killed).toEqual([]);
       expect(inventory.list()).toHaveLength(1);
     } finally {

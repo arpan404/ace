@@ -253,6 +253,13 @@ export function inputLine(input: SystemInput): EventLine | undefined {
     case "schedule":
       return { icon: "automation", text: "Scheduled run started" };
     case "handoff": {
+      // The saved session couldn't be opened again, so the same provider started afresh.
+      const fresh = input.origin?.freshSession ? input.origin.from : undefined;
+      if (fresh)
+        return {
+          icon: "restart",
+          text: `${providerNames[fresh.provider]}'s saved session couldn't be opened again, so ace started a fresh one with this thread's context`,
+        };
       const to = input.origin?.to;
       if (to) return switchLine(input.origin?.from, to, input.origin?.lossy ?? true);
       return {

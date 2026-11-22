@@ -173,6 +173,12 @@ export class EngineRepository {
   nextCommandId() {
     return CommandId.parse(this.commandId());
   }
+  /** Acknowledges the input `commandId` sent, as its admission does; the ids it took. */
+  acknowledgeCommand(id: ThreadId, commandId: string): number[] {
+    return this.store.atomic(() =>
+      this.admissionStatements.correlated.all(id, commandId).map((row) => Number(row.id)),
+    );
+  }
   beginSessionOpen(id: ThreadId): void {
     this.opening.add(id);
   }
@@ -715,14 +721,15 @@ export class EngineRepository {
             .run(id),
     );
   }
-  captureFrame(id: ThreadId, frame: Frame): void {
+  /** The frame's row, when this commit stored it (a repeated frame is stored once). */
+  captureFrame(id: ThreadId, frame: Frame): number | undefined {
     // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.
     if (
       frame.channel !== "sdk" ||
       this.requireState(id).config.provider !== "cursor" ||
       this.backend(id) !== "cursor-sdk"
     )
-      return;
+      return undefined;
     const generation = CursorGeneration.parse(frame.data).generation;
     const blob = CursorBlob.safeParse(frame.data);
     // Shared raw storage already owns chunk bytes. Hydration needs only ordered provenance.
@@ -744,7 +751,8 @@ export class EngineRepository {
       channel: frame.channel,
       data,
     });
-    this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
+    const stored = this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
+    return stored.changes ? Number(stored.lastInsertRowid) : undefined;
   }
 }
 

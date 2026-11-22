@@ -7,6 +7,7 @@ import { apply, createThreadState } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
 import {
   HostRuntime,
+  unbatch,
   CursorTranslator,
   CursorLimitsSchema,
   openCursorSession,
@@ -93,13 +94,15 @@ test.each(
     };
     const host = new HostRuntime(
       boundary,
-      async (envelope) => {
-        for (const fact of translator.translate(
-          { seq: ++seq, t: seq, dir: "recv", channel: "sdk", data: envelope },
-          seq,
-        ))
-          apply(state, fact, { now: seq, ids: { next: (kind) => `${kind}-${++id}` } });
-        if (envelope.kind === "error" || envelope.kind === "result") terminal.resolve();
+      async (stored) => {
+        for (const envelope of unbatch(stored)) {
+          for (const fact of translator.translate(
+            { seq: ++seq, t: seq, dir: "recv", channel: "sdk", data: envelope },
+            seq,
+          ))
+            apply(state, fact, { now: seq, ids: { next: (kind) => `${kind}-${++id}` } });
+          if (envelope.kind === "error" || envelope.kind === "result") terminal.resolve();
+        }
       },
       () => home,
       scenario === "environment collision" ? { USER: "text" } : {},

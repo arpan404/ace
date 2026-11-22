@@ -91,6 +91,24 @@ test("an injected message ace has no words for is quiet text", () => {
   });
 });
 
+test("a fresh session of the same provider reads as one quiet line, not a switch", () => {
+  const item = user("h1", "<ace_context_handoff>…</ace_context_handoff>", {
+    synthetic: true,
+    origin: {
+      kind: "handoff",
+      from: { provider: "cursor", model: "composer-2" },
+      lossy: true,
+      freshSession: true,
+    },
+  });
+  expect(view([item], "h1")).toMatchObject({
+    kind: "event",
+    line: {
+      text: "Cursor's saved session couldn't be opened again, so ace started a fresh one with this thread's context",
+    },
+  });
+});
+
 test("a delivery failure for a send reads as not sent, naming its command", () => {
   const item = Item.parse({
     ...base("n1"),

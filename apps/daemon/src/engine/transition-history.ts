@@ -95,16 +95,17 @@ export function handoff(
   budget: number,
   provider: ProviderKind,
   since?: number,
+  /** Items to leave out, such as the input this handoff goes in front of. */
+  exclude?: ReadonlySet<string>,
 ) {
   // Cold and bounded: counts, the newest 200 items (1 MiB of previews) and, for a full handoff
   // on a thread longer than that, a look at its first items for the opening ask.
   const all = repo.store.historicalItemCount(id, throughSeq);
   const totalItems = since === undefined ? all : all - repo.store.historicalItemCount(id, since);
   const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
+  const kept = exclude?.size ? page.items.filter((item) => !exclude.has(item.id)) : page.items;
   const items =
-    since === undefined
-      ? page.items
-      : page.items.filter((item) => (page.itemSeqs?.[item.id] ?? 0) > since);
+    since === undefined ? kept : kept.filter((item) => (page.itemSeqs?.[item.id] ?? 0) > since);
   const opening =
     since === undefined && page.items.length < all
       ? repo.store.historicalOpening(id, throughSeq)
@@ -115,7 +116,8 @@ export function handoff(
     {
       threadId: id,
       throughSeq,
-      totalItems: Math.max(totalItems, items.length),
+      // Left-out items are not history the reader is missing.
+      totalItems: Math.max(totalItems - (page.items.length - kept.length), items.length),
       provider,
       ...(backend ? { backend } : {}),
       ...(since === undefined ? {} : { since }),

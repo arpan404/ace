@@ -5,7 +5,13 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import { homedir } from "node:os";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createRedactor } from "@ace/redaction";
-import { checkpointDirectory, checkCheckpointBudget } from "./checkpoints.ts";
+import {
+  checkpointDirectory,
+  prepareCheckpointDirectory,
+  assertCheckpointBudget,
+  checkpointBytes,
+  overBudget,
+} from "./checkpoints.ts";
 import {
   Open,
   Configure,
@@ -14,11 +20,16 @@ import {
   type OpenOptions,
   type SendOptions,
 } from "./contracts.ts";
-import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
-import { CheckpointQuota } from "./checkpoint-quota.ts";
-import { boundedCheckpointStore } from "./checkpoint-store.ts";
-import { CursorJournal } from "./journal.ts";
-import { recoverCursorCheckpoint } from "./recovery.ts";
+import {
+  openSdkCheckpointStore,
+  checkpointRevision,
+  observeRunEvents,
+  assertStoreFree,
+} from "./sdk-store.ts";
+import { RunSeams } from "./run-seams.ts";
+import { storedMessage } from "./recovery.ts";
+import { recoverCursorCheckpoint, type Recovered } from "./recovery.ts";
+import { FrameBatch, type BatchTimer } from "./frame-batch.ts";
 import { nativeCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
@@ -66,7 +77,11 @@ export class HostRuntime {
   private transportFenced = false;
   private callbackBytes = 0;
   private root: string | undefined;
-  private journal: CursorJournal | undefined;
+  private batch: FrameBatch | undefined;
+  /** Where frames stand against the SDK's stored events (run-seams.ts). */
+  private seams = new RunSeams();
+  private wallClock: () => number;
+  private timer: BatchTimer | undefined;
   private store: LocalAgentStore | undefined;
   private storeOwner: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
   private scrub = createRedactor({});
@@ -94,7 +109,10 @@ export class HostRuntime {
     endHost: (reason: string) => void = (reason) => {
       throw new Error(reason);
     },
+    clocks: { wallClock?: () => number; timer?: BatchTimer } = {},
   ) {
+    this.wallClock = clocks.wallClock ?? Date.now;
+    this.timer = clocks.timer;
     this.home = home;
     this.budgets = new AckBudgets(now);
     this.endHost = endHost;
@@ -133,7 +151,9 @@ export class HostRuntime {
     kind: CursorEnvelope["kind"],
     body: unknown,
     scope = this.sendOptions,
-    nativeRun?: SdkRunBoundary,
+    nativeRun?: Pick<SdkRunBoundary, "id">,
+    /** A recovered event's own place in the store, which it covers once ace has it. */
+    recovered?: { seq: number; offset: string; pending: string[] },
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
@@ -179,12 +199,19 @@ export class HostRuntime {
         ...(scope?.commandId ? { commandId: scope.commandId } : {}),
         segment: scope?.segment ?? 0,
         ...(this.agent ? { agentId: this.agent.agentId } : {}),
-        ...(nativeRun ? { runId: nativeRun.id } : {}),
+        ...(recovered === undefined
+          ? this.seams.stamp(kind, body, nativeRun?.id, this.sending)
+          : {
+              ...(nativeRun ? { runId: nativeRun.id } : {}),
+              eventSeq: recovered.seq,
+              eventOffset: recovered.offset,
+              ...(recovered.pending.length ? { pendingEvents: recovered.pending } : {}),
+            }),
         kind,
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
       };
-      await this.persist(this.journal ? await this.journal.append(envelope) : envelope);
+      await this.publish(envelope, encodedBytes);
     } catch (error) {
       await this.overflow(scope, error);
       throw error;
@@ -192,6 +219,35 @@ export class HostRuntime {
       this.callbacks--;
       this.callbackBytes -= admittedBytes;
     }
+  }
+  /** Stores one frame through the batch, which keeps order and coalesces streamed chunks. */
+  private publish(envelope: CursorEnvelope, bytes: number): Promise<void> {
+    const options = this.options;
+    if (!options) return Promise.resolve();
+    this.batch ??= new FrameBatch(
+      (frames) => this.deliver(frames),
+      (error) => void this.overflow(this.sendOptions, error),
+      {
+        ...(this.timer ? { timer: this.timer } : {}),
+        maxBytes: Math.min(65536, Math.floor(options.limits.maxFrameBytes / 4)),
+      },
+    );
+    return this.batch.push(envelope, bytes);
+  }
+  /** One frame as itself; several as one `batch` frame the daemon acknowledges once. */
+  private deliver(frames: CursorEnvelope[]): Promise<void> {
+    const [first] = frames;
+    if (!first) return Promise.resolve();
+    if (frames.length === 1) return this.persist(first);
+    const last = frames.at(-1) ?? first;
+    return this.persist({
+      schemaVersion: 1,
+      generation: last.generation,
+      operationId: last.operationId,
+      segment: last.segment,
+      kind: "batch",
+      body: { frames },
+    });
   }
   /**
    * Fences the turn: no frame is stored after this, and the run is stopped before the fence
@@ -218,14 +274,14 @@ export class HostRuntime {
     const detail = this.errorMessage(cause.error).slice(0, 512);
     const message =
       cause.code === "checkpoint_budget"
-        ? `ace could not write Cursor's checkpoint: ${detail}. Execution is fenced; preserve this thread and use explicit bounded context handoff.`
+        ? `Cursor's saved session is too large to keep: ${detail}. ace continues this thread in a fresh session with its context.`
         : `SDK boundary failed: ${detail}. Execution is fenced; checkpoint retained. Inspect delivery before sending again.`;
     if (run && !(await stopsWithin(run, options.limits.timeoutMs))) {
       this.endHost(`${message} The Cursor run did not stop when cancelled, so ace ended its host.`);
       return;
     }
     try {
-      // A failed journal/oversized callback cannot carry its own failure. This small
+      // A frame ace could not store cannot carry its own failure. This small
       // emergency frame fences the parent, which owns process exit.
       // No request waits on the notice, so no request deadline bounds it.
       await this.persistWithin(
@@ -263,92 +319,46 @@ export class HostRuntime {
         throw new Error(
           "Cursor SDK requires separate SDK sign-in or launch-environment authentication",
         );
-      this.root = checkpointDirectory(this.home(), options.threadId);
-      const checkpoint = await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
-      if (checkpoint.bytes > options.limits.maxCheckpointBytes)
-        throw new Error("SDK checkpoint exceeds budget");
+      this.root = checkpointDirectory(this.home(), options.threadId, options.checkpointGeneration);
+      // A few stats, never a directory walk. An `ace-boundary.ndjson` an earlier build left in
+      // the folder is never read: the daemon is ace's only record (ADR 0043).
+      await prepareCheckpointDirectory(this.root);
+      await assertCheckpointBudget(
+        this.root,
+        options.limits.maxCheckpointBytes,
+        options.nativeSessionId,
+      );
+      // Held by another writer, the store is busy, not broken: the engine tries again.
+      await assertStoreFree(this.root, options.nativeSessionId);
       this.storeOwner = await openSdkCheckpointStore(
         this.sdk,
         this.root,
         options.cwd,
         options.limits.maxCheckpointBytes,
       );
-      const quota = new CheckpointQuota(this.root, options.limits.maxCheckpointBytes);
-      this.store = boundedCheckpointStore(
+      this.store = observeRunEvents(
         this.storeOwner.store,
-        this.root,
-        options.limits.maxCheckpointBytes,
-        // A checkpoint ace cannot write fences the turn like any frame it cannot store.
-        (error) => this.overflow(this.sendOptions, error, "checkpoint_budget"),
-        quota,
-      );
-      const journal = new CursorJournal(
-        this.root,
-        options.limits.maxCheckpointBytes,
-        options.limits.maxFrameBytes,
-        {
-          maxIdentities: options.limits.maxIdentities,
-          maxPendingBytes: options.limits.maxPendingBytes,
-          maxCallbacks: options.limits.maxCallbacks,
-          quota,
+        (event) =>
+          this.seams.stored(event.runId, event.seq, storedMessage(event.payload), event.offset),
+        // The run's id reaches ace before the run exists: a crash in between leaves an id with
+        // no run, which recovery reads as never admitted, without any catalog search.
+        async (runId) => {
+          if (this.sending)
+            await this.frame("run", { nativeRunId: runId }, this.sendOptions, { id: runId });
         },
       );
-      await journal.recover(options.afterFrameOffset, (frame) => this.persist(frame));
-      this.journal = journal;
-      let recoveryBytes = 0;
       this.scrub = createRedactor(
         {
           env: { CURSOR_API_KEY: this.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
         },
         ["text"],
       );
-      const recovered: {
-        kind: string;
-        body: unknown;
-        raw?: CursorEnvelope["raw"];
-        runId?: string;
-        observeOffset?: string;
-      }[] = [];
-      const nativeId = await recoverCursorCheckpoint(
-        this.sdk,
-        this.store,
-        options,
-        async (kind, body, runId, observeOffset) => {
-          if (recovered.length >= options.limits.maxIdentities)
-            throw new Error("SDK recovery metadata exceeds budget");
-          const prepared = await streamSdkBody(
-            body,
-            `${options.generation}:recovery:${++this.bodyId}`,
-            (partKind, part) => this.frame(partKind, part),
-            {
-              env: {
-                CURSOR_API_KEY: this.env.CURSOR_API_KEY,
-                ACE_MCP_BEARER: options.mcp?.bearer,
-              },
-            },
-            16777216,
-            this.shellStreams,
-            "recovery",
-            options.limits.maxFrameBytes,
-          );
-          const encoded = boundedJson(
-            prepared.body,
-            Math.min(262144, options.limits.maxFrameBytes - 2048),
-          );
-          recoveryBytes += Buffer.byteLength(encoded);
-          if (recoveryBytes > options.limits.maxPendingBytes)
-            throw new Error("SDK recovery metadata bytes exceed budget");
-          const safe: unknown = JSON.parse(this.scrub(encoded));
-          recovered.push({
-            kind,
-            body: safe,
-            ...(prepared.raw ? { raw: prepared.raw } : {}),
-            ...(runId ? { runId } : {}),
-            ...(observeOffset ? { observeOffset } : {}),
-          });
-        },
-        (runId) => journal.afterObserve(runId),
-      );
+      const recovered: Recovered[] = [];
+      const nativeId = await recoverCursorCheckpoint(this.sdk, this.store, options, (found) => {
+        if (recovered.length >= options.limits.maxIdentities * 16)
+          throw new Error("SDK recovery metadata exceeds budget");
+        recovered.push(found);
+      });
       if (options.mcp) this.toolGuidance = await cursorToolGuidance(options.instructions);
       const agentOptions = nativeCursorOptions(options, this.store, this.toolGuidance?.directory);
       let sandboxSupported = false;
@@ -382,20 +392,18 @@ export class HostRuntime {
         deltaSource: true,
         checkpointStore: this.storeOwner.kind,
       });
-      for (const recovery of recovered) {
-        const body = JSON.parse(this.scrub(boundedJson(recovery.body, 262144)));
-        await this.persist(
-          await journal.append({
-            schemaVersion: 1,
-            generation: options.generation,
-            operationId: "open",
-            segment: 0,
-            agentId: this.agent.agentId,
-            ...recovery,
-            body,
-          }),
+      // Published after the open frame, which names the agent the facts belong to.
+      for (const found of recovered)
+        await this.frame(
+          found.kind,
+          found.body,
+          undefined,
+          found.runId ? { id: found.runId } : undefined,
+          found.kind === "recovered"
+            ? { seq: found.seq, offset: found.offset, pending: found.pending }
+            : undefined,
         );
-      }
+      await this.batch?.flush();
       return { agentId: this.agent.agentId };
     } catch (error) {
       try {
@@ -456,8 +464,16 @@ export class HostRuntime {
     this.sendOptions = input;
     const leave = this.within(this.options.limits.sendTimeoutMs);
     try {
-      await checkCheckpointBudget(this.root, this.options.limits.maxCheckpointBytes);
-      await this.frame("send", { input: input.input });
+      // The attempt, stored before Cursor can see the input: without it, a restart knows the
+      // input never reached Cursor and delivers it again. The turn starts at Cursor's first
+      // sign of having it: an update for it, or the `segment` naming its run.
+      // `runFramed`: this host frames the run's id before the SDK creates it (sdk-store.ts).
+      await this.frame("send", {
+        input: input.input,
+        attemptedAt: this.wallClock(),
+        runFramed: true,
+      });
+      this.seams.sending();
       let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(sdkInput(input.input), {
         model: {
@@ -502,7 +518,8 @@ export class HostRuntime {
   }
   private async consume(run: SdkRunBoundary, scope: SendOptions): Promise<void> {
     try {
-      for await (const message of run.stream()) await this.frame("message", message, scope, run);
+      // The stream repeats each onDelta update as a message: drained, never framed twice.
+      for await (const _ of run.stream());
       const result = await run.wait();
       this.terminalDraining = true;
       await this.frame(
@@ -519,6 +536,7 @@ export class HostRuntime {
         scope,
         run,
       );
+      await this.checkSize(scope);
     } catch (error) {
       const failure = sdkFailure(this.sdk, error);
       try {
@@ -539,6 +557,19 @@ export class HostRuntime {
       );
       throw new Error("SDK runtime failed", { cause: error });
     }
+  }
+  /** At turn end: a store over its budget is handed to a fresh session at the next open. */
+  private async checkSize(scope: SendOptions): Promise<void> {
+    const options = this.options;
+    if (!options || !this.root) return;
+    let bytes: number;
+    try {
+      bytes = await checkpointBytes(this.root, this.agent?.agentId);
+    } catch {
+      return; // The open's own check refuses an unsafe store; a stat failing here is transient.
+    }
+    if (bytes > options.limits.maxCheckpointBytes)
+      await this.overflow(scope, new Error(overBudget), "checkpoint_budget");
   }
   async cancel(): Promise<void> {
     if (this.sending) throw new Error("Cannot prove cancellation during SDK admission");
@@ -583,20 +614,16 @@ export class HostRuntime {
         await this.releaseSandbox();
       } finally {
         try {
-          await this.journal?.close();
+          await this.storeOwner?.close();
         } finally {
           try {
-            await this.storeOwner?.close();
+            await this.toolGuidance?.close();
           } finally {
-            try {
-              await this.toolGuidance?.close();
-            } finally {
-              this.toolGuidance = undefined;
-              this.storeOwner = undefined;
-              this.agent = undefined;
-              // Even when cleanup throws, frames must stop counting on close's deadline.
-              leave();
-            }
+            this.toolGuidance = undefined;
+            this.storeOwner = undefined;
+            this.agent = undefined;
+            // Even when cleanup throws, frames must stop counting on close's deadline.
+            leave();
           }
         }
       }

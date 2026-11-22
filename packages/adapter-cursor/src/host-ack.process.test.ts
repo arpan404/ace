@@ -58,7 +58,7 @@ it("a storage acknowledgement that arrives after the host stopped waiting leaves
 it("a frame ace stores too late fences the turn, the late ack is harmless and no further send reaches Cursor", async () => {
   const lateStored = Promise.withResolvers<void>();
   await using fixture = await runtimeFixture({ ackTimeoutMs: 200 }, async (frame) => {
-    if (frame.kind === "message") {
+    if (frame.kind === "delta") {
       await sleep(600);
       lateStored.resolve();
     }
@@ -102,7 +102,7 @@ it("a frame stuck after slow setup is fenced by the open request's deadline, not
 // A frame a running turn emitted keeps its long budget only until a shorter request needs it.
 it("a frame already waiting on storage is fenced within the deadline of a cancel that waits on it", async () => {
   await using fixture = await runtimeFixture({ timeoutMs: 1000, ackTimeoutMs: 60_000 }, (frame) =>
-    frame.kind === "message" ? sleep(10_000) : Promise.resolve(),
+    frame.kind === "delta" ? sleep(10_000) : Promise.resolve(),
   );
   await fixture.open();
   await fixture.send("first");
@@ -151,7 +151,7 @@ const wire = hostWire(async () => {
 // A cancel that starts while a frame waits must cut that wait at its own deadline, not later.
 it("a short cancel deadline cuts the wait of a frame already waiting at once", async () => {
   await using fixture = await runtimeFixture({ timeoutMs: 300, ackTimeoutMs: 60_000 }, (frame) =>
-    frame.kind === "message" ? sleep(10_000) : Promise.resolve(),
+    frame.kind === "delta" ? sleep(10_000) : Promise.resolve(),
   );
   await fixture.ping();
   await fixture.open(undefined, 15_000);
