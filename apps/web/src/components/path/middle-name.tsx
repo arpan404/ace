@@ -1,5 +1,6 @@
 import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { cssFont } from "@/lib/css-font.ts";
 import { endCut } from "./end-name.ts";
 import { folderLabel } from "./folder-label.ts";
 import { Highlighted } from "./highlighted-path.tsx";
@@ -82,9 +83,8 @@ export function FolderLabel(props: { folder: string; part?: string; className?: 
     if (!context) return;
     // Called on observe and on every resize: the label for the room the row leaves.
     const observer = new ResizeObserver(() => {
-      // Built from its parts: the `font` shorthand reads empty where variants are set.
       const style = getComputedStyle(box);
-      context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.font = cssFont(style);
       context.letterSpacing = style.letterSpacing;
       setLabel(folderLabel(folder, box.clientWidth, (text) => context.measureText(text).width));
     });
