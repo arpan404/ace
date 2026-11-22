@@ -39,12 +39,19 @@ import {
   FormOpen,
   FormPreview,
 } from "./automation-form.ts";
+import {
+  WebhookSecretRequest,
+  WebhookStateRequest,
+  webhookSecret,
+  webhookState,
+} from "./automation-webhooks.ts";
 
 /*
  * The phone's Automations screens as ready-made rows (ADR 0015): the list with each one's status
  * and next start, an automation's runs as turns linked to their threads, the editor's form
- * (`automation-form.ts`) and Duplicate. Every word and rule comes from `@ace/ui-core/automations`,
- * the same module the web app draws with; Swift only draws and sends intents.
+ * (`automation-form.ts`), a webhook's addresses and secret (`automation-webhooks.ts`) and
+ * Duplicate. Every word and rule comes from `@ace/ui-core/automations`, the same module the web
+ * app draws with; Swift only draws and sends intents.
  */
 
 const id = z.string().min(1).max(256);
@@ -110,6 +117,8 @@ export const NativeAutomationRequest = z.union([
   FormOpen,
   FormPreview,
   FormSave,
+  WebhookStateRequest,
+  WebhookSecretRequest,
 ]);
 export type NativeAutomationRequest = z.infer<typeof NativeAutomationRequest>;
 
@@ -286,6 +295,10 @@ export class NativeAutomations {
         return await formPreview(request, this.#deps);
       case "automations.save":
         return formSave(request, this.#deps, (put) => this.#put(put, signal));
+      case "automations.webhook":
+        return webhookState(this.#deps.owner, request, signal);
+      case "automations.webhook.secret":
+        return webhookSecret(this.#deps.owner, request, signal);
     }
   }
 
