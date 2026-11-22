@@ -44,6 +44,11 @@ export class FakeContextWire {
   private drafts = new Map<string, { device: string; workspaceId: string; adopted?: string }>();
   private uploads = new Map<string, Upload>();
   private attachments = new Map<string, Map<string, Attachment>>();
+  /**
+   * Why a preview can't be made, as a daemon without its decoder (no ace-media binary) refuses
+   * one it still advertises; undefined renders them.
+   */
+  previewRefusal: "unsupported" | "busy" | undefined;
   seedImage(threadId: string, name = fixtureImage.name): void {
     if (!this.context.thread(threadId)) return;
     const bytes = Uint8Array.from(atob(fixtureImage.data), (c) => c.charCodeAt(0));
@@ -254,6 +259,7 @@ export class FakeContextWire {
         if (!attachment || !bytes) throw new Error("not_found");
         if (op.variant === "thumbnail" && !attachment.thumbnailAvailable)
           throw new Error("unsupported");
+        if (op.variant === "thumbnail" && this.previewRefusal) throw new Error(this.previewRefusal);
         if (op.offset > bytes.length) throw new Error("offset");
         const chunk = bytes.subarray(op.offset, op.offset + op.limit);
         result = {
