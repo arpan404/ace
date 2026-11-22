@@ -16,9 +16,7 @@ export function PlanReview(props: {
   const [revising, setRevising] = useState(false);
   return (
     <div className="flex flex-col gap-3">
-      <div className="max-h-72 overflow-auto overscroll-contain">
-        {props.children}
-      </div>
+      <div className="max-h-72 overflow-auto overscroll-contain">{props.children}</div>
       {revising && (
         <textarea
           aria-label="What should change"

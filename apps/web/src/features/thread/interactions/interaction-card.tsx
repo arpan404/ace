@@ -284,9 +284,7 @@ function OpenRequest(props: {
           <h3 className="min-w-0 flex-1 text-md leading-[1.35] font-medium tracking-[-0.005em]">
             {copy ? <ApprovalHeading copy={copy} /> : title}
           </h3>
-          {props.aside && (
-            <div className="shrink-0">{props.aside}</div>
-          )}
+          {props.aside && <div className="shrink-0">{props.aside}</div>}
         </div>
       ) : null}
       <WholeRequestNote whole={props.whole} />
