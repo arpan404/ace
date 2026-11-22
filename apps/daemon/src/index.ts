@@ -318,7 +318,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     throw error;
   }
   try {
-    inventory.recover();
+    const recovered = inventory.recover();
+    if (recovered.unresolved > 0)
+      log.log(
+        "warn",
+        "Previous run's process groups could not all be probed; kept for a later recovery",
+        logFields([["unresolved", recovered.unresolved]]),
+      );
     if (process.platform === "win32") {
       // The engine decides what the previous run left running only once ended processes are
       // verifiably gone; anything unproven is reported as such, never as stopped.
