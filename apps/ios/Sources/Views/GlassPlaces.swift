@@ -6,7 +6,8 @@ import SwiftUI
 /// interactive lens over the places, swollen a little (`AceDesign.Motion.tabLift`), showing the
 /// places under it magnified (`tabLens`); lifted, the lens morphs back into the pill. Both shapes
 /// share one glass id in one container, so the system morphs one into the other instead of
-/// fading. The magnified places are a copy hidden from VoiceOver and touches.
+/// fading. The magnified places are a copy hidden from VoiceOver and touches, and the row beneath
+/// is cut out under the lens, so the copy is all that shows there.
 @available(iOS 26, *)
 struct GlassPlaces<Row: View, Lens: View>: View {
     let row: Row
@@ -26,6 +27,9 @@ struct GlassPlaces<Row: View, Lens: View>: View {
     var body: some View {
         GlassEffectContainer(spacing: AceTheme.Spacing.none) {
             row
+                // Under the lens only its magnified copy shows: the row beneath is cut out in the
+                // lens's shape, so no glyph, name or dot reads twice.
+                .mask { cutOut }
                 .background(alignment: .leading) {
                     if !pressed {
                         AceShape.capsule.fill(.clear)
@@ -46,6 +50,21 @@ struct GlassPlaces<Row: View, Lens: View>: View {
                 }
         }
         .animation(AceDesign.Motion.tabSettle, value: chosen)
+    }
+
+    /// The row's mask: all of it, less the lens's shape and size while a finger is down.
+    private var cutOut: some View {
+        Rectangle()
+            .overlay(alignment: .leading) {
+                if pressed {
+                    AceShape.capsule
+                        .frame(width: slot)
+                        .scaleEffect(AceDesign.Motion.tabLift)
+                        .offset(x: offset)
+                        .blendMode(.destinationOut)
+                }
+            }
+            .compositingGroup()
     }
 
     /// The places under the lens, scaled about its centre and cut to its shape: the copy is laid
