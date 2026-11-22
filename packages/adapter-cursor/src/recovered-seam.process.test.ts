@@ -11,7 +11,6 @@ import {
   CursorTranslator,
   CursorLimitsSchema,
   unbatch,
-  recoverCursorCheckpoint,
   type CursorEnvelope,
   type RuntimeSdkBoundary,
 } from "./index.ts";
@@ -273,7 +272,7 @@ it.each(["callback-first", "write-first"] as const)(
     try {
       const boundary = fakeSdk(order);
       let reopened = 0;
-      const frames = await host(boundary, home, "live", async (runtime, stored) => {
+      const frames = await host(boundary, home, "live", async (runtime, published) => {
         await runtime.open({
           threadId: "seam",
           cwd: home,
@@ -287,7 +286,7 @@ it.each(["callback-first", "write-first"] as const)(
           segment: 0,
           input: [{ type: "text", text: "go" }],
         });
-        await expect.poll(() => stored().some((frame) => frame.kind === "result")).toBe(true);
+        await expect.poll(() => published().some((frame) => frame.kind === "result")).toBe(true);
       });
       const whole = shown(frames);
       expect(whole).toContain("assistant: Let me check.");
@@ -323,7 +322,7 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
   const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-legacy-")));
   try {
     const boundary = fakeSdk("callback-first");
-    const frames = await host(boundary, home, "live", async (runtime, stored) => {
+    const frames = await host(boundary, home, "live", async (runtime, published) => {
       await runtime.open({
         threadId: "seam",
         cwd: home,
@@ -337,7 +336,7 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
         segment: 0,
         input: [{ type: "text", text: "go" }],
       });
-      await expect.poll(() => stored().some((frame) => frame.kind === "result")).toBe(true);
+      await expect.poll(() => published().some((frame) => frame.kind === "result")).toBe(true);
     });
     // What an earlier build stored: the same frames, with nothing about the SDK's events.
     const old = frames

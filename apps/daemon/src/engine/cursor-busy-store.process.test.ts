@@ -45,6 +45,16 @@ const wire = hostWire(async (method, params) => {
 runtime = new HostRuntime(boundary, (frame, budget) => wire.confirmed("frame", frame, budget));
 `;
 
+/** One stored SDK message saying `text`. */
+const message = (text: string) => ({
+  schemaVersion: 1,
+  type: "sdk_message",
+  message: {
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text }] },
+  },
+});
+
 /** Cursor's own record of the cut-off run: it finished, with more text than ace saw. */
 async function seedStore(home: string, cwd: string) {
   const owned = await openSdkCheckpointStore(sdkStub, checkpointDirectory(home, threadId), cwd);
@@ -75,14 +85,6 @@ async function seedStore(home: string, cwd: string) {
       updatedAt: 1,
     },
   });
-  const message = (text: string) => ({
-    schemaVersion: 1,
-    type: "sdk_message",
-    message: {
-      type: "assistant",
-      message: { role: "assistant", content: [{ type: "text", text }] },
-    },
-  });
   // The daemon's record reaches event 1: the rest is what it missed.
   await owned.store.runEvents.append({
     runId: "run-1",
@@ -96,7 +98,8 @@ async function seedStore(home: string, cwd: string) {
   });
   await owned.close();
 }
-const sdkStub = { JsonlLocalAgentStore: class {} } as never;
+// The store is SQLite, so the JSONL constructor is never used.
+const sdkStub = { JsonlLocalAgentStore: Object } as never;
 
 it("a Cursor store another process holds at reconcile keeps the turn working until it reads, then ends as Cursor's store says", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-busy-store-")));
