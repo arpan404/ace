@@ -23,40 +23,21 @@ const Chunk = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("conflict"), base: z.string(), mine: z.string(), theirs: z.string() }),
 ]);
 
-const SymbolKindSchema = z.enum([
-  "function",
-  "method",
-  "class",
-  "struct",
-  "interface",
-  "type",
-  "enum",
-  "const",
-  "module",
-  "heading",
-]);
-
-const OutlineSymbolSchema: z.ZodType<OutlineSymbol> = z.lazy(() =>
-  z.object({
-    name: z.string(),
-    kind: SymbolKindSchema,
-    line: z.number(),
-    column: z.number(),
-    endLine: z.number(),
-    children: z.array(OutlineSymbolSchema),
-  }),
-);
-
 export const MergeReply = z.union([
   z.object({ clean: z.literal(true), text: z.string(), chunks: z.array(Chunk) }),
   z.object({ clean: z.literal(false), chunks: z.array(Chunk) }),
-  z.object({ op: z.literal("outline"), symbols: z.array(OutlineSymbolSchema) }),
   z.array(z.object({ start: z.number(), end: z.number(), text: z.string() })),
 ]);
 export type MergeReply = z.infer<typeof MergeReply>;
+/** The outline job's reply: built by ace's own `extractSymbols`, so it has no schema (ADR 0125). */
+export interface OutlineReply {
+  op: "outline";
+  symbols: OutlineSymbol[];
+}
+export type EditorJobReply = MergeReply | OutlineReply;
 
 /** Runs a job; for `merge3` and `lineChanges`, the editor's Wasm must be loaded. */
-export function runMergeJob(job: MergeJob): MergeReply {
+export function runMergeJob(job: MergeJob): EditorJobReply {
   if (job.op === "merge3") return merge3(job.base, job.mine, job.theirs);
   if (job.op === "outline") {
     return { op: "outline", symbols: extractSymbols(job.text, job.language) };

@@ -6,7 +6,8 @@ import {
   type OutlineSort,
   type OutlineSymbol,
 } from "@ace/ui-core/editor-workbench";
-import { useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import {
   SymbolIcon,
@@ -171,33 +172,132 @@ export function EditorOutline(props: {
             </div>
           )}
 
-          <div className="max-h-56 overflow-x-hidden overflow-y-auto pb-1.5">
-            {path === undefined ? (
-              <p className="px-3 py-2 text-xs text-subtle-foreground">No file open.</p>
-            ) : visible.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-subtle-foreground">
-                {query ? `No symbols match “${query}”.` : "No symbols in this file."}
-              </p>
-            ) : (
-              <ul role="tree" aria-label="Document symbols" className="flex flex-col">
-                {visible.map((symbol) => (
-                  <OutlineNode
-                    key={symbolKey(symbol)}
-                    symbol={symbol}
-                    depth={0}
-                    activeKey={activeKey}
-                    collapsed={collapsed}
-                    forceExpand={query.length > 0}
-                    onToggle={toggleCollapse}
-                    onReveal={props.onReveal}
-                  />
-                ))}
-              </ul>
-            )}
-          </div>
+          <OutlineList
+            path={path}
+            query={query}
+            symbols={visible}
+            activeKey={activeKey}
+            collapsed={collapsed}
+            onToggle={toggleCollapse}
+            onReveal={props.onReveal}
+          />
         </div>
       )}
     </section>
+  );
+}
+
+interface OutlineRow {
+  symbol: OutlineSymbol;
+  key: string;
+  depth: number;
+  expanded: boolean | undefined;
+}
+
+/** The tree's shown rows in order: children of collapsed symbols are left out. */
+function outlineRows(
+  symbols: readonly OutlineSymbol[],
+  collapsed: ReadonlySet<string>,
+  forceExpand: boolean,
+  depth = 0,
+  into: OutlineRow[] = [],
+): OutlineRow[] {
+  for (const symbol of symbols) {
+    const key = symbolKey(symbol);
+    const parent = symbol.children.length > 0;
+    const expanded = parent ? forceExpand || !collapsed.has(key) : undefined;
+    into.push({ symbol, key, depth, expanded });
+    if (expanded) outlineRows(symbol.children, collapsed, forceExpand, depth + 1, into);
+  }
+  return into;
+}
+
+const rowHeight = 24;
+/** Past this many rows only the rows in view are mounted (a 20,000-line file has thousands). */
+const virtualAfter = 150;
+
+function OutlineList(props: {
+  path: string | undefined;
+  query: string;
+  symbols: readonly OutlineSymbol[];
+  activeKey: string | undefined;
+  collapsed: ReadonlySet<string>;
+  onToggle(key: string): void;
+  onReveal(symbol: OutlineSymbol): void;
+}) {
+  const { path, query, symbols, activeKey, collapsed, onToggle, onReveal } = props;
+  const rows = useMemo(
+    () => outlineRows(symbols, collapsed, query.length > 0),
+    [symbols, collapsed, query],
+  );
+  const scroller = useRef<HTMLDivElement>(null);
+  const virtual = rows.length > virtualAfter;
+  // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer owns mutable measurements.
+  const virtualizer = useVirtualizer({
+    count: virtual ? rows.length : 0,
+    getScrollElement: () => scroller.current,
+    estimateSize: () => rowHeight,
+    getItemKey: (index) => rows[index]?.key ?? index,
+    overscan: 8,
+  });
+  const activeIndex = activeKey === undefined ? -1 : rows.findIndex((row) => row.key === activeKey);
+  // The caret's symbol stays in view as the caret moves through the file.
+  useEffect(() => {
+    if (activeIndex < 0) return;
+    if (virtual) virtualizer.scrollToIndex(activeIndex, { align: "auto" });
+    else
+      scroller.current
+        ?.querySelector<HTMLElement>(`[data-row="${activeIndex}"]`)
+        ?.scrollIntoView?.({ block: "nearest" });
+  }, [activeIndex, virtual, virtualizer]);
+
+  const row = (at: number, style?: CSSProperties) => {
+    const entry = rows[at];
+    if (!entry) return null;
+    return (
+      <OutlineNode
+        key={entry.key}
+        index={at}
+        row={entry}
+        active={entry.key === activeKey}
+        style={style}
+        onToggle={onToggle}
+        onReveal={onReveal}
+      />
+    );
+  };
+
+  return (
+    <div ref={scroller} className="max-h-56 overflow-x-hidden overflow-y-auto pb-1.5">
+      {path === undefined ? (
+        <p className="px-3 py-2 text-xs text-subtle-foreground">No file open.</p>
+      ) : rows.length === 0 ? (
+        <p className="px-3 py-2 text-xs text-subtle-foreground">
+          {query ? `No symbols match “${query}”.` : "No symbols in this file."}
+        </p>
+      ) : virtual ? (
+        <ul
+          role="tree"
+          aria-label="Document symbols"
+          className="relative"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((item) =>
+            row(item.index, {
+              position: "absolute",
+              top: 0,
+              left: 0,
+              right: 0,
+              transform: `translateY(${item.start}px)`,
+            }),
+          )}
+        </ul>
+      ) : (
+        <ul role="tree" aria-label="Document symbols" className="flex flex-col">
+          {rows.map((_, at) => row(at))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -206,23 +306,26 @@ function symbolKey(symbol: OutlineSymbol): string {
 }
 
 function OutlineNode(props: {
-  symbol: OutlineSymbol;
-  depth: number;
-  activeKey: string | undefined;
-  collapsed: ReadonlySet<string>;
-  forceExpand: boolean;
+  index: number;
+  row: OutlineRow;
+  active: boolean;
+  style?: CSSProperties | undefined;
   onToggle(key: string): void;
   onReveal(symbol: OutlineSymbol): void;
 }) {
-  const { symbol, depth, activeKey, collapsed, forceExpand, onToggle, onReveal } = props;
-  const key = symbolKey(symbol);
-  const hasChildren = symbol.children.length > 0;
-  const expanded = forceExpand || !collapsed.has(key);
-  const active = key === activeKey;
+  const { index, row, active, style, onToggle, onReveal } = props;
+  const { symbol, key, depth, expanded } = row;
   const Caret = expanded ? CaretDownIcon : CaretRightIcon;
 
   return (
-    <li role="treeitem" aria-expanded={hasChildren ? expanded : undefined} aria-selected={active}>
+    <li
+      role="treeitem"
+      data-row={index}
+      aria-level={depth + 1}
+      aria-expanded={expanded}
+      aria-selected={active}
+      style={style}
+    >
       <div
         style={{ paddingLeft: 8 + depth * 12 }}
         className={cn(
@@ -232,7 +335,7 @@ function OutlineNode(props: {
             : "text-muted-foreground hover:bg-hover hover:text-foreground",
         )}
       >
-        {hasChildren ? (
+        {expanded !== undefined ? (
           <button
             type="button"
             aria-label={expanded ? `Collapse ${symbol.name}` : `Expand ${symbol.name}`}
@@ -261,22 +364,6 @@ function OutlineNode(props: {
           </span>
         </button>
       </div>
-      {hasChildren && expanded && (
-        <ul role="group" className="flex flex-col">
-          {symbol.children.map((child) => (
-            <OutlineNode
-              key={symbolKey(child)}
-              symbol={child}
-              depth={depth + 1}
-              activeKey={activeKey}
-              collapsed={collapsed}
-              forceExpand={forceExpand}
-              onToggle={onToggle}
-              onReveal={onReveal}
-            />
-          ))}
-        </ul>
-      )}
     </li>
   );
 }

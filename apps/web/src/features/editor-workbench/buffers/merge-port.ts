@@ -1,5 +1,5 @@
 import { offThread } from "@/lib/off-thread.ts";
-import { MergeReply, runMergeJob, type MergeJob } from "./merge-job.ts";
+import { MergeReply, runMergeJob, type EditorJobReply, type MergeJob } from "./merge-job.ts";
 import type { MergePort } from "./types.ts";
 
 /** Below this many UTF-16 units in total a merge runs in place: a worker round trip costs more. */
@@ -11,7 +11,7 @@ export const inPlaceBelow = 256 * 1024;
  * in-place path.
  */
 export function workerMerge(ready: () => Promise<void>): MergePort {
-  const worker = offThread<MergeJob, MergeReply>({
+  const worker = offThread<MergeJob, EditorJobReply>({
     spawn: () =>
       new Worker(new URL("./merge.worker.ts", import.meta.url), {
         type: "module",
