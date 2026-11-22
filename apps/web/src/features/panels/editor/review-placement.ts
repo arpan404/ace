@@ -1,3 +1,4 @@
+import type { FileChange } from "@ace/protocol";
 import {
   locateHunk,
   mapHunk,
@@ -44,4 +45,35 @@ export function cachedExact(
   texts: { before: string; after: string },
 ): readonly TurnHunk[] | undefined {
   return cache?.before === texts.before && cache.after === texts.after ? cache.hunks : undefined;
+}
+
+/**
+ * The file's text before and after the turn, when the turn recorded both for certain: an update
+ * (or move) must carry the text before it, and only a file the turn created starts from nothing;
+ * each later change must start from the one before's result. Otherwise undefined: Revert stays off
+ * rather than guess a baseline.
+ */
+export function turnTexts(
+  changes: readonly FileChange[],
+): { before: string; after: string } | undefined {
+  const first = changes[0];
+  if (!first) return undefined;
+  const before =
+    typeof first.oldText === "string" ? first.oldText : first.kind === "add" ? "" : undefined;
+  if (before === undefined) return undefined;
+  let text = before;
+  for (const [index, change] of changes.entries()) {
+    if (change.kind === "delete" || change.newText === undefined) return undefined;
+    if (index > 0 && change.oldText !== text) return undefined;
+    text = change.newText;
+  }
+  return { before, after: text };
+}
+
+/** The turn's one patch of the file, when that is all it recorded. */
+export function singlePatch(changes: readonly FileChange[]): string | undefined {
+  const [only, ...rest] = changes;
+  return only && rest.length === 0 && only.newText === undefined
+    ? (only.diff ?? undefined)
+    : undefined;
 }

@@ -33,10 +33,15 @@ import {
   useEditorReview,
   useOpenInEditorPanel,
 } from "@/lib/workspace/index.ts";
-import type { FileChange } from "@ace/protocol";
 import { providerOf } from "./agent-changes.ts";
 import { sharedDiff } from "./gutter-store.ts";
-import { cachedExact, placeHunk, type ExactHunks } from "./review-placement.ts";
+import {
+  cachedExact,
+  placeHunk,
+  singlePatch,
+  turnTexts,
+  type ExactHunks,
+} from "./review-placement.ts";
 import { ReviewPeek } from "./hunk-peek.tsx";
 import type { LiveGutter } from "./live-gutter.ts";
 
@@ -290,30 +295,6 @@ interface Mapping {
   doc: object;
   version: number;
   changes: readonly WholeLineChange[];
-}
-
-/**
- * The file's text before and after the turn, when every change of it recorded its whole text in
- * order.
- */
-function turnTexts(changes: readonly FileChange[]): { before: string; after: string } | undefined {
-  const first = changes[0];
-  if (!first) return undefined;
-  let text: string | undefined;
-  for (const change of changes) {
-    if (change.kind === "delete" || change.newText === undefined) return undefined;
-    if (text !== undefined && change.oldText !== text) return undefined;
-    text = change.newText;
-  }
-  return text === undefined ? undefined : { before: first.oldText ?? "", after: text };
-}
-
-/** The turn's one patch of the file, when that is all it recorded. */
-function singlePatch(changes: readonly FileChange[]): string | undefined {
-  const [only, ...rest] = changes;
-  return only && rest.length === 0 && only.newText === undefined
-    ? (only.diff ?? undefined)
-    : undefined;
 }
 
 /** Where a file's review is: the change shown, and those kept or reverted. */
