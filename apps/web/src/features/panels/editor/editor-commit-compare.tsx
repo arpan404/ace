@@ -1,7 +1,7 @@
 import { useClient } from "@ace/client-react";
 import { CheckIcon, CopyIcon, GitCommitIcon, XIcon } from "@ace/icons";
 import { gitPatchFiles } from "@ace/ui-core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { sceneBar } from "@/components/ui/rules.ts";
@@ -80,7 +80,7 @@ export function EditorCommitCompare(props: {
       },
     );
     return () => controller.abort();
-  }, [client, threadId, target.path, target.previousPath, target.sha, requestKey]);
+  }, [client, threadId, target.path, target.previousPath, target.sha, target.shortSha, requestKey]);
 
   const active = state?.key === requestKey ? state : undefined;
   const patch = active?.patch;
@@ -89,17 +89,30 @@ export function EditorCommitCompare(props: {
   // came from (a copy that `--follow` took for a rename), which is not what was asked for.
   const diff = files.find((file) => file.path === target.path);
 
+  // Reads of the rest of the change stop when Compare closes or opens another commit.
+  const rest = useRef<{ key: string; controller: AbortController } | undefined>(undefined);
+  useEffect(() => {
+    const controller = new AbortController();
+    rest.current = { key: requestKey, controller };
+    return () => controller.abort();
+  }, [requestKey]);
+
   const loadMore = () => {
+    const scope = rest.current;
     if (!active || active.nextOffset === undefined || active.loadingMore) return;
+    if (!scope || scope.key !== requestKey) return;
     setState({ ...active, loadingMore: true });
+    const { signal } = scope.controller;
     void readGitCommitDiff(client, threadId, {
       path: target.path,
       from: target.previousPath,
       commit: target.sha,
       offset: active.nextOffset,
       expected: active.validator,
+      signal,
     }).then(
       (next) => {
+        if (signal.aborted) return;
         setState((prev) =>
           prev && prev.key === requestKey
             ? {
@@ -113,6 +126,7 @@ export function EditorCommitCompare(props: {
         );
       },
       (error: unknown) => {
+        if (signal.aborted) return;
         setState((prev) =>
           prev && prev.key === requestKey
             ? {

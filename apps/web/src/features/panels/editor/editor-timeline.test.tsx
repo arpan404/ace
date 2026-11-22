@@ -250,6 +250,65 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     expect(await screen.findByText("The parent commit isn't in this clone.")).toBeTruthy();
   });
 
+  test("closing Compare cancels the read of the rest of a long change", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitLog(threadId, "src/app.ts", [
+      {
+        sha: sha1,
+        shortSha: sha1.slice(0, 7),
+        subject: "Long change",
+        authorName: "Arpan",
+        authorEmail: "arpan@example.invalid",
+        authoredAt: nowMs - 60_000,
+        path: "src/app.ts",
+      },
+    ]);
+    const added = Array.from(
+      { length: 20_000 },
+      (_, index) => `+export const line${index} = ${index};`,
+    );
+    daemon.workspace.setGitCommitDiff(
+      threadId,
+      sha1,
+      [
+        "diff --git a/src/app.ts b/src/app.ts",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        `@@ -0,0 +1,${added.length} @@`,
+        ...added,
+        "",
+      ].join("\n"),
+    );
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    const original = client.request.bind(client);
+    const held = Promise.withResolvers<void>();
+    let restSignal: AbortSignal | undefined;
+    vi.spyOn(client, "request").mockImplementation(async (request, options) => {
+      if (
+        request.type === "workspace.request" &&
+        request.operation.op === "git.diff" &&
+        request.operation.offset !== undefined
+      ) {
+        restSignal = options?.signal;
+        await held.promise;
+      }
+      return original(request, options);
+    });
+    render(
+      <ClientProvider client={client}>
+        <TimelineHarness path="src/app.ts" />
+      </ClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Long change/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(restSignal).toBeDefined());
+    fireEvent.click(screen.getByRole("button", { name: "Close commit diff" }));
+    expect(restSignal?.aborted).toBe(true);
+    held.resolve();
+  }, 20_000);
+
   test("a long history lists the newest 200 commits and says older ones are in git log", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitLog(
