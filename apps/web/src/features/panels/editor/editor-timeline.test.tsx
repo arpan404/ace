@@ -121,6 +121,48 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     ).toBeNull();
   });
 
+  test("a commit that also touched the file it came from shows this file's change", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitLog(threadId, "src/app.ts", [
+      {
+        sha: sha1,
+        shortSha: sha1.slice(0, 7),
+        subject: "Move the model into app",
+        authorName: "Arpan",
+        authorEmail: "arpan@example.invalid",
+        authoredAt: nowMs - 60_000,
+        path: "src/app.ts",
+        previousPath: "src/old.ts",
+      },
+    ]);
+    const fromFirst = [
+      "diff --git a/src/old.ts b/src/old.ts",
+      "index 3333333..4444444 100644",
+      "--- a/src/old.ts",
+      "+++ b/src/old.ts",
+      "@@ -1 +1 @@",
+      "-export const model = 1;",
+      '+export * from "./app.ts";',
+      "",
+    ].join("\n");
+    daemon.workspace.setGitCommitDiff(threadId, sha1, fromFirst + samplePatch);
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    render(
+      <ClientProvider client={client}>
+        <TimelineHarness path="src/app.ts" />
+      </ClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Move the model into app/ }));
+    const diffRegion = await screen.findByRole("region", {
+      name: `Changes in ${sha1.slice(0, 7)} for src/app.ts`,
+    });
+    await waitFor(() => expect(diffRegion.textContent).toContain("export const version = 2;"));
+    expect(diffRegion.textContent).not.toContain("export const model = 1;");
+  });
+
   test("pages commits with Load more when history exceeds a page", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     const entries = Array.from({ length: 30 }, (_, index) => ({

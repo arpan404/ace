@@ -83,7 +83,9 @@ export function EditorCommitCompare(props: {
   const active = state?.key === requestKey ? state : undefined;
   const patch = active?.patch;
   const files = useMemo(() => (patch ? gitPatchFiles(patch) : []), [patch]);
-  const diff = files[0];
+  // The commit's own change to this file: with `previousPath` the patch can also hold the file it
+  // came from (a copy that `--follow` took for a rename), which is not what was asked for.
+  const diff = files.find((file) => file.path === target.path) ?? files[0];
 
   const loadMore = () => {
     if (!active || active.nextOffset === undefined || active.loadingMore) return;
