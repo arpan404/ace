@@ -126,10 +126,11 @@ describe("where a new pane goes", () => {
   });
 });
 
+const ids = (set: ReadonlySet<string>) => [...set].toSorted();
+
 describe("stacked panes as an accordion", () => {
   const stack = column(["g1", "g2", "g3", "g4"].map((id) => group(id, ["a.ts"])));
   const mixed = column([group("g1", []), row([group("g2", []), group("g3", [])])]);
-  const ids = (set: ReadonlySet<string>) => [...set].sort();
 
   it.each([
     [

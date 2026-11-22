@@ -95,6 +95,13 @@ export function splitSide(layout: EditorLayout, groupId: string, side: Side, roo
 /** The height at which stacked panes each still show a useful run of lines (about ten). */
 export const comfortableHeight = 240;
 
+/** The first pane in reading order. */
+function firstPane(node: SplitNode): string {
+  if (node.kind === "group") return node.id;
+  const child = node.children[0];
+  return child ? firstPane(child) : "";
+}
+
 function holds(node: SplitNode, groupId: string): boolean {
   return node.kind === "group" ? node.id === groupId : node.children.some((c) => holds(c, groupId));
 }
@@ -110,8 +117,7 @@ export function collapsedPanes(node: SplitNode, focused: string, box: Room): Rea
   if (node.kind === "group" || box.height <= 0) return folded;
   if (roomNeeded(node, { width: 0, height: comfortableHeight }).height <= box.height) return folded;
   // A focus the tree doesn't hold (a stale id) opens its first pane.
-  const first = (n: SplitNode): string => (n.kind === "group" ? n.id : first(n.children[0] ?? n));
-  const open = holds(node, focused) ? focused : first(node);
+  const open = holds(node, focused) ? focused : firstPane(node);
   const walk = (n: SplitNode, shown: boolean): void => {
     if (n.kind === "group") {
       if (!shown) folded.add(n.id);
