@@ -102,7 +102,7 @@ async function effect(app: App, commands: Commands, next: Effect): Promise<void>
         terminal.suspend();
         const query = await import("../ask.ts")
           .then((ask) =>
-            ask.askText("Search the market (ace market search)", "A name, a word, a publisher"),
+            ask.askText("Search the Store (ace store search)", "A name, a word, a publisher"),
           )
           .catch(() => undefined);
         terminal.resume();

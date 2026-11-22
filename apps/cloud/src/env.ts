@@ -23,7 +23,7 @@ export interface Env {
   /** WorkOS lookups the standing route makes, all callers together. */
   STANDING_WORKOS?: RateLimit;
   /**
-   * The broker's apps as JSON in place of the shipped list (tests, staging). Each app's client
+   * The broker's apps as JSON in place of the shipped list (tests). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.
    */
   SPADE_CLOUD_APPS?: string;

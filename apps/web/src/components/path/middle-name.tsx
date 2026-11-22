@@ -1,5 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 import { cn } from "@/lib/cn.ts";
+import { cssFont } from "@/lib/css-font.ts";
+import { endCut } from "./end-name.ts";
 import { folderLabel } from "./folder-label.ts";
 import { Highlighted } from "./highlighted-path.tsx";
 
@@ -48,6 +50,24 @@ export function MiddleName(props: {
 }
 
 /**
+ * A tree row's name, cut at its end when the row is too narrow: "adapter-ac…" for a folder,
+ * "workspace-ta….ts" for a file, whose extension always shows (`endCut`). Pure CSS.
+ */
+export function EndName(props: { text: string; kind: "file" | "folder"; className?: string }) {
+  const { head, end } = endCut(props.text, props.kind);
+  return (
+    <span className={cn("flex min-w-0", props.className)}>
+      <span className="min-w-0 truncate whitespace-pre">{head}</span>
+      {end && (
+        <span data-part="name-end" className="shrink-0 whitespace-pre">
+          {end}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * A folder beside a file name, in the form `folderLabel` picks for the room it has: whole leading
  * folders drop first, then "…/" and the nearest folder, then that name cut at its end; with no
  * room for 4 of its letters, nothing (the row's title keeps the path). Until it has measured, the
@@ -63,9 +83,8 @@ export function FolderLabel(props: { folder: string; part?: string; className?: 
     if (!context) return;
     // Called on observe and on every resize: the label for the room the row leaves.
     const observer = new ResizeObserver(() => {
-      // Built from its parts: the `font` shorthand reads empty where variants are set.
       const style = getComputedStyle(box);
-      context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      context.font = cssFont(style);
       context.letterSpacing = style.letterSpacing;
       setLabel(folderLabel(folder, box.clientWidth, (text) => context.measureText(text).width));
     });

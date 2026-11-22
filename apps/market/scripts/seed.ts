@@ -4,25 +4,25 @@ import { writeArchive } from "@ace/marketplace";
 import { readSeed, seedRoot } from "../src/seed/folders.ts";
 
 /*
- * Publishes the seed to a market as `ace` (ADR 0174 §14): `node scripts/seed.ts
- * https://market.acehq.dev`, with a market publishing grant in ACE_MARKET_GRANT (it lasts five
+ * Publishes the seed to the Store as `ace` (ADR 0174 §14): `node scripts/seed.ts
+ * https://store.acehq.dev`, with a market publishing grant in ACE_MARKET_GRANT (it lasts five
  * minutes) for an ace account on the signed official list, which acts as the `ace` publisher.
- * Put the account there first with `ace market official add ACCOUNT --key KEY_FILE`. Every
- * version published as `ace` is then held for a maintainer: `ace market review`, approve, then
- * `ace market sign`. With ACE_MARKET_SIGNER_TOKEN set it also uploads the seed's categories. The
- * owner runs this; tests never do.
+ * Put the account there first with `ace store maintainer official add ACCOUNT --key KEY_FILE`.
+ * Every version published as `ace` is then held for a maintainer: `ace store maintainer review`,
+ * approve, then `ace store maintainer sign`. With ACE_MARKET_SIGNER_TOKEN set it also uploads
+ * the seed's categories. The owner runs this; tests never do.
  */
 
 const [address] = process.argv.slice(2);
 const grant = process.env["ACE_MARKET_GRANT"];
 const signerToken = process.env["ACE_MARKET_SIGNER_TOKEN"];
 if (!address || !grant) {
-  console.error("Usage: ACE_MARKET_GRANT=<grant> node scripts/seed.ts <market address>");
+  console.error("Usage: ACE_MARKET_GRANT=<grant> node scripts/seed.ts <store address>");
   process.exit(2);
 }
 const base = new URL(address);
 if (base.protocol !== "https:" && base.hostname !== "127.0.0.1" && base.hostname !== "localhost") {
-  console.error("The market address must be https.");
+  console.error("The Store address must be https.");
   process.exit(2);
 }
 
@@ -30,7 +30,7 @@ if (base.protocol !== "https:" && base.hostname !== "127.0.0.1" && base.hostname
 const official = await fetch(new URL("/v1/official", base));
 if (!official.ok) {
   console.error(
-    "The market has no official list yet. Run `ace market official add <account> --key <key file>` first.",
+    "The Store has no official list yet. Run `ace store maintainer official add <account> --key <key file>` first.",
   );
   process.exit(2);
 }

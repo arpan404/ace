@@ -43,6 +43,8 @@ export interface GroupActions {
    * sit side by side; undefined at the pane cap (nothing is made).
    */
   edge(side: Side): Side | undefined;
+  /** At the pane cap: why no pane can be made ("Up to 4 panes beside the chat"). */
+  capped: string | undefined;
   /** A new group beside this one with a second view of its active editor (or empty). */
   split(side: Side): void;
   /** A tab (⌥ leaves the original) or explorer files dropped into this strip at an index. */
@@ -64,6 +66,8 @@ export interface GroupContext {
   confirmClose(refs: readonly TabRef[]): void;
   /** Where a new pane beside `group` goes (see `GroupActions.edge`). */
   edge(group: string, side: Side): Side | undefined;
+  /** At the pane cap: why no pane can be made. */
+  capped: string | undefined;
 }
 
 /** The layout props the editor and Open editors share. */
@@ -90,6 +94,7 @@ export function groupContext(props: EditorLayoutProps, box?: Room): GroupContext
   const { layout, buffers } = props;
   const cap = props.paneCap ?? limits.groups;
   return {
+    capped: groupsOf(layout).length >= cap ? paneCapReason(cap) : undefined,
     edge: (group, side) => {
       if (groupsOf(layout).length >= cap) return undefined;
       const most = props.room?.();
@@ -110,6 +115,13 @@ export function groupContext(props: EditorLayoutProps, box?: Room): GroupContext
       ),
     confirmClose: (refs) => props.onConfirmClose?.(refs),
   };
+}
+
+/** Why no more panes can be made at `cap`: the side panel holds fewer than full view. */
+export function paneCapReason(cap: number): string {
+  return cap < limits.groups
+    ? `Up to ${cap} panes beside the chat`
+    : `Up to ${cap} panes in full view`;
 }
 
 export function bindGroupActions(group: string, context: GroupContext): GroupActions {
@@ -165,6 +177,7 @@ export function bindGroupActions(group: string, context: GroupContext): GroupAct
     },
     dropInStrip: (drag, index, copy) => drop(drag, { kind: "strip", group, index }, copy),
     edge: (side) => context.edge(group, side),
+    capped: context.capped,
     dropOnEditor: (drag, zone, copy) => {
       if (zone === "center") return drop(drag, { kind: "group", group }, copy);
       // A tab dropped on the edge of another pane that already shows its file goes nowhere new:

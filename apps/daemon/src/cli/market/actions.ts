@@ -51,7 +51,7 @@ function source(value: string | undefined, argument = "SOURCE"): string {
   if (!value || !MarketSourceId.safeParse(value).success)
     throw usageFailure(`${value ?? "That"} isn't a source.`, {
       argument,
-      hint: "A source is market or git:ID; see them with ace market source list.",
+      hint: "A source is market or git:ID; see them with ace store source list.",
     });
   return value;
 }
