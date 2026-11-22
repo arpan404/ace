@@ -6,7 +6,10 @@
  * case never matters. Anything unknown is a plain file.
  */
 
-/** The palette a type's mark is drawn in: brand-ish hues, never a status colour's meaning. */
+/**
+ * The palette a type's mark is drawn in: brand-ish hues, never a status colour's meaning. `grey`
+ * is the row's own ink.
+ */
 export type FileTone =
   | "blue"
   | "sky"

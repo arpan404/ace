@@ -5,13 +5,20 @@
  * zigzag, Python a coiled snake, Shell a terminal. ace's own drawings (ADR 0156).
  */
 import { glyph } from "../glyph.ts";
-import { arc, ellipse, onCircle, polygon, polyline } from "../geometry.ts";
+import { arc, ellipse, onCircle, polygon, polyline, type Vertex } from "../geometry.ts";
 import { circle, detail, line, shape, spot, type Part } from "../parts.ts";
 import { terminalWindow } from "./terminal-window.ts";
 
 /** Rust: a hex nut, its bore showing. */
 export const RustFileIcon = /* @__PURE__ */ glyph("RustFile", () => [
-  shape(polygon([0, 60, 120, 180, 240, 300].map((a) => [...onCircle(12, 12, 9.5, a + 30), 2]))),
+  shape(
+    polygon(
+      [0, 60, 120, 180, 240, 300].map((a): Vertex => {
+        const [x, y] = onCircle(12, 12, 9.5, a + 30);
+        return [x, y, 2];
+      }),
+    ),
+  ),
   detail(circle(12, 12, 3.25)),
 ]);
 

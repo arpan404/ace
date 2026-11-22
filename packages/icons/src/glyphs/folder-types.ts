@@ -4,7 +4,7 @@
  * (`accented`) the app paints in the folder type's tone. Any other folder is the plain one.
  */
 import { glyph } from "../glyph.ts";
-import { onCircle, polygon, polyline } from "../geometry.ts";
+import { onCircle, polygon, polyline, type Vertex } from "../geometry.ts";
 import { accented, detail, dot, type Part } from "../parts.ts";
 import { folder } from "./folder-simple.ts";
 import { openFolder } from "./folder-open.ts";
@@ -50,7 +50,14 @@ const githubMark = (): Part[] => [
 
 /** Installed modules: a small box. */
 const modulesMark = (): Part[] => [
-  detail(polygon([0, 60, 120, 180, 240, 300].map((a) => [...onCircle(12, 15.25, 3, a - 90), 0.8]))),
+  detail(
+    polygon(
+      [0, 60, 120, 180, 240, 300].map((a): Vertex => {
+        const [x, y] = onCircle(12, 15.25, 3, a - 90);
+        return [x, y, 0.8];
+      }),
+    ),
+  ),
 ];
 
 /** Scripts: a prompt. */

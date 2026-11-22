@@ -9,6 +9,8 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
+import { fileIcon } from "@/components/file-icon.ts";
+import { Icon } from "@/components/icon.tsx";
 import { FolderLabel } from "@/components/path/middle-name.tsx";
 import { fileName, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
@@ -111,6 +113,7 @@ function OpenEditorRow(props: {
         }}
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-ring-inset"
       >
+        <Icon icon={fileIcon(tab.path)} size={16} />
         <span className={cn("shrink-0", tab.preview && "italic")}>{name}</span>
         {folderOf(tab.path) && (
           <FolderLabel folder={folderOf(tab.path)} className="text-xs text-subtle-foreground" />
