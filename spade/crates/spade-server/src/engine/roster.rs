@@ -1,6 +1,7 @@
 //! What the roster shows for an agent without loading its transcript (ADR 0127): its latest
 //! message, its state, and a few plain words on what it is doing. Pure functions over events.
 
+use serde_json::Value;
 use spade_core::Event;
 use spade_core::event::{FromAgent, Known};
 use spade_store::StoredEvent;
@@ -207,26 +208,25 @@ fn links_as_words(line: &str) -> String {
     out
 }
 
-/// A few plain words on what running `tool` means. Never its arguments. `bot` is the name of the
-/// bot a `bot_message` goes to.
-pub fn tool_status(tool: &str, bot: Option<&str>) -> String {
+/// A few plain words on what running `tool` means: what it does to what (`activity::doing`),
+/// "Searching the web for flights"; "Working" when nothing clear can be said, never its id.
+/// `bot` is the name of the bot a `bot_message` goes to.
+pub fn tool_status(tool: &str, arguments: &Value, bot: Option<&str>) -> String {
     match tool {
-        "web_search" => "Searching the web".to_owned(),
-        "web_fetch" => "Reading a page".to_owned(),
-        "todo" => "Planning".to_owned(),
         "skill_search" | "skill_load" => "Looking at skills".to_owned(),
         spade_core::tools::TOOL_SEARCH => "Looking for a tool".to_owned(),
-        "bots_list" => "Checking the other bots".to_owned(),
         spade_core::helper::TOOL => "Starting a helper".to_owned(),
         "bot_message" => match bot {
             Some(name) => format!("Asking {name}"),
             None => "Asking another bot".to_owned(),
         },
-        // The same plain words the activity log uses ("Using an app on the screen").
-        other => spade_core::activity::words::tool_words(other).doing,
+        other => spade_core::activity::doing::tool(other, arguments)
+            .unwrap_or_else(|| WORKING.to_owned()),
     }
 }
 
+/// The line while a step says nothing clearer.
+pub const WORKING: &str = "Working";
 pub const THINKING: &str = "Thinking";
 /// While the open step's words stream: the bot writes, it no longer thinks.
 pub const WRITING: &str = "Writing";
