@@ -1,14 +1,14 @@
 import XCTest
 
-/// The home shell: Threads, Chats, Spade (the fixture's machine shows it), Code review and Search in the tab bar,
-/// compose on the lists, and Search holding the places a More tab used to. Run against the
+/// The home shell: Threads, Chats, Spade (the fixture's machine shows it) in the tab bar with
+/// New thread as its round button, Search in the lists' top bar, holding the places a More tab used to. Run against the
 /// fixture (`ACE_IOS_SPIKE_PORT`, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for another port). With
 /// `TEST_RUNNER_ACE_SHOT_DIR` set, each step's screenshot is written there too.
 @MainActor final class HomeShellUITests: XCTestCase, @unchecked Sendable {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() { continueAfterFailure = false }
 
-    func testTheTabBarHoldsProjectsChatsSpadeAndSearch() {
+    func testTheTabBarHoldsProjectsChatsSpadeAndCompose() {
         let app = launch()
         let projects = app.homeTab("threads")
         XCTAssertTrue(projects.waitForExistence(timeout: 30))
@@ -22,12 +22,17 @@ import XCTest
         let xs = order.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
-        // New thread is in the list's top bar, not the tab bar.
-        XCTAssertFalse(app.homeTab("compose").exists)
+        // New thread is the round button at the bar's end, not in the list's top bar; Search is
+        // a tab of the bar, before it.
         let compose = app.buttons["inbox.compose"]
-        XCTAssertTrue(compose.exists)
+        XCTAssertTrue(compose.waitForExistence(timeout: 15))
         XCTAssertEqual(compose.label, "New thread")
-        XCTAssertLessThan(compose.frame.maxY, app.frame.midY)
+        XCTAssertGreaterThan(compose.frame.minY, app.frame.height * 0.8)
+        XCTAssertGreaterThan(compose.frame.minX, spade.frame.maxX)
+        let search = app.homeTab("search")
+        XCTAssertTrue(search.exists)
+        XCTAssertLessThan(search.frame.maxX, compose.frame.minX)
+        XCTAssertFalse(app.buttons["inbox.search"].exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
@@ -63,6 +68,16 @@ import XCTest
         let project = app.buttons["newThread.project"]
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         XCTAssertEqual(project.value as? String, "No project", "a chat starts with no project")
+        // Compose leaves the showing tab alone: dismissed, Chats is still selected and shown, and
+        // Compose opens again.
+        let close = app.buttons["newThread.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.homeTab("chats").isSelected, "composing leaves Chats selected")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch.exists)
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10), "Compose opens again")
     }
 
     func testSearchListsThePlacesAndOpensOne() {
@@ -81,7 +96,8 @@ import XCTest
         capture("settings")
     }
 
-    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
+    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { throw XCTSkip("phone layout") }
         let app = launch()
         app.openSearch()
         // No pull-down: the field is there as the tab opens.
@@ -92,9 +108,9 @@ import XCTest
         // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
         let tab = app.homeTab("search")
         XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
-        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+        XCTAssertFalse(field.focused, "the first tap shows Search without focusing its field")
         tab.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
+        XCTAssertTrue(field.waitFor({ $0.focused }, timeout: 5), "a second tap on Search focuses its field")
     }
 
     func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {

@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use spade_models::Effort;
 
 use crate::brain::CliModel;
 
@@ -58,6 +59,15 @@ impl Role {
     pub fn needs_tools(self) -> bool {
         !matches!(self, Self::Title | Self::Compact)
     }
+
+    /// How hard the role's model thinks when the person chose nothing (ADR 0213): the bot's
+    /// turns, reviews and checks think at medium; helpers, summaries and titles at low.
+    pub fn default_effort(self) -> Effort {
+        match self {
+            Self::Main | Self::Review | Self::Verify => Effort::Medium,
+            Self::Helper | Self::Compact | Self::Title => Effort::Low,
+        }
+    }
 }
 
 /// The most models a role's route holds (ADR 0205 §2).
@@ -108,6 +118,25 @@ pub struct Overrides {
     /// Whether failed helper-level work reruns once on the bot's own model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escalate: Option<bool>,
+    /// How hard each role's model thinks (ADR 0213), `main` included. Read entry by entry: a
+    /// role or effort word this build doesn't know is skipped, never the whole record.
+    #[serde(
+        default,
+        skip_serializing_if = "BTreeMap::is_empty",
+        deserialize_with = "known_efforts"
+    )]
+    pub efforts: BTreeMap<Role, Effort>,
+}
+
+/// The stored efforts this build knows; the rest (a newer build's word) are left out.
+fn known_efforts<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<BTreeMap<Role, Effort>, D::Error> {
+    let stored = BTreeMap::<String, serde_json::Value>::deserialize(deserializer)?;
+    Ok(stored
+        .iter()
+        .filter_map(|(role, effort)| Some((Role::parse(role)?, Effort::parse(effort.as_str()?)?)))
+        .collect())
 }
 
 /// What the server knows about the person's models.
@@ -202,13 +231,21 @@ impl<M: Models> Routing<'_, M> {
                 };
             }
         }
-        let default = match role {
-            Role::Verify => self.strongest_other(),
-            _ => self
-                .defaults
+        let fast = || {
+            self.defaults
                 .fast
                 .clone()
-                .filter(|fast| fast != self.own && self.usable_for(role, fast)),
+                .filter(|fast| fast != self.own && self.usable_for(role, fast))
+        };
+        let default = match role {
+            // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
+            // asks the person about everything, or lets through what it shouldn't.
+            Role::Verify => self.strongest_other(role),
+            // The reviewer runs on an endpoint: a bot that can't be compared (a subscription, an
+            // unpriced model) keeps the fast model rather than one the reviewer can't call.
+            Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
+            Role::Review => fast(),
+            _ => fast(),
         };
         match default {
             Some(model) => Choice {
@@ -262,11 +299,11 @@ impl<M: Models> Routing<'_, M> {
 
     /// The strongest model the person already uses that lists at least the bot's own price and
     /// is not the bot's model.
-    fn strongest_other(&self) -> Option<String> {
+    fn strongest_other(&self, role: Role) -> Option<String> {
         let floor = self.models.strength(self.own)?;
         let mut best: Option<(f64, &String)> = None;
         for model in self.defaults.in_use.iter().chain(&self.defaults.fast) {
-            if model == self.own || !self.usable_for(Role::Verify, model) {
+            if model == self.own || !self.usable_for(role, model) {
                 continue;
             }
             let Some(strength) = self.models.strength(model) else {
@@ -281,6 +318,15 @@ impl<M: Models> Routing<'_, M> {
             }
         }
         best.map(|(_, model)| model.clone())
+    }
+
+    /// How hard `role`'s model thinks (ADR 0213): the bot's choice, else the global one, else the
+    /// role's default. Never `Own`: an effort is not a model.
+    pub fn effort(&self, role: Role) -> (Effort, Source) {
+        [(self.bot, Source::Bot), (self.global, Source::Global)]
+            .into_iter()
+            .find_map(|(overrides, source)| overrides.efforts.get(&role).map(|e| (*e, source)))
+            .unwrap_or((role.default_effort(), Source::Default))
     }
 
     /// Every role with its model, in order.

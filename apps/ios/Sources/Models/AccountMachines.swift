@@ -37,7 +37,7 @@ struct AceAccountDirectory: AccountDirectory {
     func route(hostId: String) -> RelayRoute? {
         guard let relay = api.relayURL else { return nil }
         return RelayRoute(relayURL: relay, hostId: hostId, grants: AccountGrants(api: api, session: session, deviceId: deviceId),
-                          principal: session.token().map(KeptScope.account))
+                          principal: session.token().map(KeptScope.account), standingKey: DeviceStandingKey.make())
     }
 }
 

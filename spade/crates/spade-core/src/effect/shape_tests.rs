@@ -142,6 +142,31 @@ fn a_query_given_as_a_list_or_an_object_is_read_whole() {
 }
 
 #[test]
+fn a_change_aimed_at_a_channel_or_workspace_reaches_outward_and_reading_one_is_plain() {
+    for (name, key) in [
+        ("create_page", "workspace_id"),
+        ("move_pages", "targetWorkspace"),
+        ("set_topic", "channel"),
+    ] {
+        assert_eq!(
+            shape(name, &props(&[key]), &json!({})),
+            Shape::Outward,
+            "{name}"
+        );
+    }
+    for (name, key) in [
+        ("get_channel_history", "channel"),
+        ("list_workspaces", "workspace"),
+    ] {
+        assert_eq!(
+            shape(name, &props(&[key]), &json!({})),
+            Shape::Plain,
+            "{name}"
+        );
+    }
+}
+
+#[test]
 fn every_destination_word_counts_in_a_tool_name_too() {
     for name in [
         "set_host",

@@ -37,12 +37,5 @@ struct PairedStandingProof: Sendable {
     }
 
     /// The daemon's verdict when `text` answers this socket's proof; nil for every other message.
-    func verdict(_ text: String) -> PairedStanding? {
-        guard text.hasPrefix(#"{"type":"account.standing.result""#),
-              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
-              object["requestId"] as? String == requestId else { return nil }
-        let result = object["result"] as? [String: Any]
-        // `member`: a member's standing on an org host (ADR 0206), never the person's.
-        return result?["ok"] as? Bool == true && result?["member"] == nil ? .proven : .missing
-    }
+    func verdict(_ text: String) -> PairedStanding? { StandingVerdict.read(text, requestId: requestId) }
 }

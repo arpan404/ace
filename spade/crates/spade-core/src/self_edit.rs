@@ -70,8 +70,11 @@ pub fn naming_note(events: &[Event]) -> Option<&'static str> {
 }
 
 const NAMING_NOTE: &str = "You were just made from the person's first message and have no name \
-yet. Before anything else in this reply, choose yourself a short, friendly name that fits the job \
-(one or two words, not \"Bot\" or \"Assistant\") and a face, with profile_update. Then answer.";
+yet. Before anything else in this reply, name yourself with profile_update after the work you do, \
+the way a team labels the person who does it: one to three plain words that say the job, such as \
+\"Fundraising Deck\", \"Inbox Triage\" or \"Release Notes\". Never a metaphor, an object, a \
+mascot or a person's name (not \"Dossier\", \"Quill\" or \"Compass\"), and not \"Bot\" or \
+\"Assistant\". Pick a face that suits the job too. Then answer.";
 
 /// One version of a bot's task, as its history lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]

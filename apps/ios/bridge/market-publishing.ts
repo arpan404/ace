@@ -21,7 +21,7 @@ import {
 import { LruCache } from "@ace/ui-core";
 import { z } from "zod";
 import { refusalAnswer } from "./market.ts";
-import { personRefusal } from "./market-person.ts";
+import { personRefusal, type SocketStanding } from "./market-person.ts";
 import {
   checkAnswer,
   confirmationOf,
@@ -31,7 +31,6 @@ import {
   pickRow,
   profileRow,
 } from "./market-publish-words.ts";
-import type { PairedStanding } from "./socket.ts";
 
 /*
  * Publishing and managing from the phone (#2548, #2554): each screen's step as one
@@ -164,7 +163,7 @@ type Kind = MarketPublishAnswer["kind"];
 export class NativePublish {
   readonly #owner: Owner;
   readonly #pause: (ms: number, signal: AbortSignal) => Promise<void>;
-  readonly #standing: () => PairedStanding | undefined;
+  readonly #standing: () => SocketStanding;
   readonly #checks = new LruCache<string, { pick: string; check: MarketDraftCheck }>({
     maxEntries: heldChecks,
   });
@@ -172,7 +171,7 @@ export class NativePublish {
   constructor(
     owner: Owner,
     pause: (ms: number, signal: AbortSignal) => Promise<void>,
-    standing: () => PairedStanding | undefined = () => undefined,
+    standing: () => SocketStanding = () => ({ state: undefined, route: "paired" }),
   ) {
     this.#owner = owner;
     this.#pause = pause;

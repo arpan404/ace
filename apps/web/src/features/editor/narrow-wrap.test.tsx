@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { CodeEditor } from "./editor.tsx";
+import { fallbackCharWidth, gutterWidth } from "./geometry.ts";
 
 /*
  * Beside the chat the editor is narrow: long lines wrap there even with the wrap setting off,
@@ -21,6 +22,11 @@ function at(width: number) {
 
 const long = `const message = "${"a long string that runs on and on ".repeat(6)}";`;
 const rows = () => document.querySelectorAll("[data-row]").length;
+
+function rect(width: number): DOMRect {
+  const box = { x: 0, y: 0, top: 0, left: 0, right: width, bottom: 600, width, height: 600 };
+  return { ...box, toJSON: () => box };
+}
 
 async function open(wrap: boolean, onToggleWrap = () => {}) {
   render(
@@ -63,4 +69,22 @@ test("Alt+Z unwraps a narrow editor that wrapped by itself, then wraps it again"
 
   fireEvent.keyDown(box, { key: "Ω", code: "KeyZ", altKey: true });
   await waitFor(() => expect(rows()).toBeGreaterThan(1));
+});
+
+test("wrapped rows end inside a vertical scrollbar, so the editor never scrolls sideways", async () => {
+  // The scroller is 400px wide, 10px of it a vertical scrollbar.
+  // Only boxes are measured; a font's cell (a span) keeps the unmeasured width.
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    return rect(this.tagName === "SPAN" ? 0 : 400);
+  });
+  vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(390);
+  await open(true);
+  await waitFor(() => expect(rows()).toBeGreaterThan(1));
+
+  const widest = Math.max(
+    ...Array.from(document.querySelectorAll("[data-row-text]"), (row) => row.textContent.length),
+  );
+  // The row's text, its gutter and its right padding all fit in what the scrollbar leaves.
+  expect(gutterWidth(1) + widest * fallbackCharWidth + 24).toBeLessThanOrEqual(390);
+  vi.restoreAllMocks();
 });

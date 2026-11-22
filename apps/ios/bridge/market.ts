@@ -26,9 +26,8 @@ import { installedAnswer } from "./market-installed.ts";
 import { installedRow } from "./market-rows.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
 import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
-import { personRefusal } from "./market-person.ts";
+import { personRefusal, type SocketStanding } from "./market-person.ts";
 import { searchPages } from "./market-search.ts";
-import type { PairedStanding } from "./socket.ts";
 import type { BrowseWords } from "./market-actions.ts";
 
 /*
@@ -318,13 +317,13 @@ export class NativeMarket {
   readonly #held = new HeldReviews();
   readonly #botName: (id: string) => string | undefined;
   /** Whether this machine took the phone's proof of the person's standing on its socket. */
-  readonly #standing: () => PairedStanding | undefined;
+  readonly #standing: () => SocketStanding;
   constructor(
     owner: Owner,
     now: () => number,
     pause: (ms: number, signal: AbortSignal) => Promise<void>,
     botName: (id: string) => string | undefined = () => undefined,
-    standing: () => PairedStanding | undefined = () => undefined,
+    standing: () => SocketStanding = () => ({ state: undefined, route: "paired" }),
   ) {
     this.#owner = owner;
     this.#now = now;

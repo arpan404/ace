@@ -206,7 +206,9 @@ async fn failed_helper_work_reruns_once_on_the_bots_own_model_when_escalation_is
         Script::reply("")
             .call("h1", "helper", json!({ "task": "Read the server log" }))
             .call("p1", "pause", json!({})),
-        // The fast model refuses the request; the rerun on the bot's model answers.
+        // The fast model refuses the request, with its effort and again without it (ADR 0213);
+        // the rerun on the bot's model answers.
+        Script::failing(400),
         Script::failing(400),
         Script::reply("The disk is full.").held(Duration::from_millis(1500)),
         Script::reply("A helper is reading the log."),
@@ -258,6 +260,9 @@ async fn a_rerun_that_fails_too_ends_the_job_with_its_error_and_never_runs_a_thi
                 json!({ "task": "Read the server log", "escalate": true }),
             )
             .call("p1", "pause", json!({})),
+        // Each try is refused with its effort and again without it (ADR 0213).
+        Script::failing(400),
+        Script::failing(400),
         Script::failing(400),
         Script::failing(400),
         Script::reply("A helper is reading the log."),
@@ -291,7 +296,8 @@ async fn roles_follow_the_bots_choice_then_the_global_one_and_refuse_what_cannot
     let (_, view) = spade.get(&path).await?;
     assert_eq!(
         role(&view, "main"),
-        json!({"role": "main", "model": "fake/m", "source": "own", "route": ["fake/m"]})
+        json!({"role": "main", "model": "fake/m", "source": "own", "route": ["fake/m"],
+               "effort": "medium", "effort_source": "default"})
     );
     assert_eq!(role(&view, "helper")["model"], "fake/cheap");
     assert_eq!(role(&view, "helper")["source"], "default");

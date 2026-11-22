@@ -65,7 +65,7 @@ impl Tool for ProfileUpdate {
                 schema: json!({ "type": "object",
                                 "properties": {
                                     "name": { "type": "string",
-                                              "description": "One or two words, at most 40 characters." },
+                                              "description": "The job in one to three plain words, at most 40 characters: what you do, never a nickname." },
                                     "face": { "type": "object",
                                               "description": "Your face: pick what suits the job.",
                                               "properties": {

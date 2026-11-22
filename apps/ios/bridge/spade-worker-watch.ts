@@ -18,17 +18,20 @@ import type { SpadeWorkerFacts } from "./spade-worker-rows.ts";
 const listWide = new Set(["ids", "unconfirmed", "sync", "error"]);
 const threadWide = new Set(["thread", "unconfirmed", "sync", "error"]);
 
-type Owner = Pick<ClientCore, "threads" | "thread">;
+type Owner = Pick<ClientCore, "threads" | "thread" | "threadRoom">;
 type Lease = ReturnType<ClientCore["thread"]>;
 type Listed = ReturnType<SpadeWorkerFacts["listed"]>;
 
 export class SpadeWorkerWatch {
   private lease: ReturnType<ClientCore["threads"]> | undefined;
   private stopObserving: (() => void) | undefined;
+  /** Listens for room to free up, while a read was refused for lack of it. */
+  private stopRoom: (() => void) | undefined;
   /** The ace workers the open chat shows, and the delegated threads they wait on, by thread. */
   private shown: ReadonlySet<string> = new Set();
   /** Workers the list doesn't hold, each read from its own thread. */
   private readonly direct = new Map<string, { lease: Lease; stop: () => void }>();
+  private stopped = false;
   private readonly owner: Owner;
   private readonly changed: () => void;
 
@@ -86,12 +89,41 @@ export class SpadeWorkerWatch {
   }
 
   stop(): void {
+    this.stopped = true;
     this.stopObserving?.();
     this.stopObserving = undefined;
     this.lease?.release();
     this.lease = undefined;
+    this.stopRoom?.();
+    this.stopRoom = undefined;
     for (const thread of this.direct.keys()) this.forget(thread);
     this.shown = new Set();
+  }
+
+  /**
+   * Read the refused workers again once room frees up. The SDK is still walking its listeners when
+   * this one runs, and a retry that takes the room (or registers again at once) would be called by
+   * that same walk, so the retry waits for a microtask and checks there is room first.
+   */
+  private waitForRoom() {
+    if (this.stopRoom) return;
+    const room = this.owner.threadRoom();
+    let live = true;
+    const off = room.subscribe(() => {
+      if (!live) return;
+      live = false;
+      off();
+      this.stopRoom = undefined;
+      queueMicrotask(() => {
+        if (this.stopped) return;
+        if (room.getSnapshot() <= 0) return this.waitForRoom();
+        this.changed();
+      });
+    });
+    this.stopRoom = () => {
+      live = false;
+      off();
+    };
   }
 
   /** A worker the list doesn't hold, from its own thread; undefined until that says. */
@@ -104,6 +136,13 @@ export class SpadeWorkerWatch {
       } catch {
         return undefined;
       }
+      // Refused for lack of room: nothing is held, so nothing is kept to read the refusal again.
+      // The read is tried again when room frees up.
+      if (lease.store.error?.code === "no_room") {
+        lease.release();
+        this.waitForRoom();
+        return undefined;
+      }
       const stop = lease.store.observe((keys) => {
         if (keys === "all" || [...keys].some((key) => threadWide.has(key))) this.changed();
       });
@@ -111,6 +150,12 @@ export class SpadeWorkerWatch {
       this.direct.set(thread, held);
     }
     const { store } = held.lease;
+    if (store.error?.code === "no_room") {
+      // Gave its room to a thread the person opened: let go, and read again when there is room.
+      this.forget(thread);
+      this.waitForRoom();
+      return undefined;
+    }
     if (store.error || store.syncing || store.unconfirmed) return undefined;
     const status = store.thread?.status;
     if (!status || status.state === "new") return undefined;
@@ -128,6 +173,7 @@ export class SpadeWorkerWatch {
   private store() {
     if (this.lease) return this.lease.store;
     try {
+      this.stopped = false;
       this.lease = this.owner.threads();
     } catch {
       // Offline: the workers read as still at work until the list is back.

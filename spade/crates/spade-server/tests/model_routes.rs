@@ -258,7 +258,12 @@ async fn a_refusal_never_falls_back() -> Result {
     let chat = bot_on(&spade, "fake/m").await?;
     spade.say(&chat, "Hi").await?;
     let events = spade.wait_for(&chat, "reply_failed").await?;
-    assert_eq!(steps_asked(&spade), ["m"], "the backup was never asked");
+    // Asked again without its effort (ADR 0213), never on the backup.
+    assert_eq!(
+        steps_asked(&spade),
+        ["m", "m"],
+        "the backup was never asked"
+    );
     assert!(served(&events).is_empty(), "no step ran: {events:?}");
     Ok(())
 }

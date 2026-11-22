@@ -36,6 +36,8 @@ fn call(effect: Option<Effect>, place: Place) -> Call<'static> {
         permits: crate::permission::Held::default(),
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     }
 }
 
@@ -160,6 +162,29 @@ fn a_shared_bots_outward_step_runs_only_on_a_members_say() {
         ..call(Some(Effect::SendAsPerson), Place::Host)
     };
     assert!(matches!(effect::route(send), Route::Ask { .. }));
+    // A connected app's call Spade can't place acts on the app's server: what the reviewer would
+    // judge for a personal bot (an edit its app marks destructive, a write with untrusted content
+    // in view, a plain undeclared one) goes to an approver for a shared one.
+    let app = Call {
+        org: acme(open),
+        remote: true,
+        connected: true,
+        app_plain: true,
+        ..call(None, Place::Host)
+    };
+    for reviewed in [
+        app,
+        Call {
+            overwrites: true,
+            ..app
+        },
+        Call {
+            tainted: true,
+            ..app
+        },
+    ] {
+        assert_eq!(effect::route(reviewed), to_approvers, "{reviewed:?}");
+    }
     // Reads and the bot's own writes are untouched.
     for local in [Effect::Read, Effect::WriteLocal] {
         let own = Call {

@@ -2,6 +2,7 @@ import {
   parseSpadeBotRoles,
   parseSpadeGlobalRoles,
   type SpadeBotRoles,
+  type SpadeEffort,
   type SpadeGlobalRoles,
   type SpadeRole,
 } from "@ace/ui-core/spade-chat";
@@ -21,6 +22,8 @@ export interface SpadeRolesChange {
   /** A role to one model, its route (models in order, `main` included), or null to follow. */
   roles?: Partial<Record<SpadeRole | "main", string | string[] | null>>;
   escalate?: boolean | null;
+  /** A role to how hard its model thinks (ADR 0213), or null to follow. */
+  efforts?: Partial<Record<SpadeRole | "main", SpadeEffort | null>>;
 }
 
 function sure<T>(value: T | undefined, what: string): T {

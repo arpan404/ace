@@ -3,6 +3,7 @@ import { marketPickFixture, marketPublishFixture } from "@ace/fake-daemon";
 import { afterEach, expect, test } from "vitest";
 import { NativePublish, NativePublishRequest } from "./market-publishing.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
+import type { SocketStanding } from "./market-person.ts";
 import type { PairedStanding } from "./socket.ts";
 
 /*
@@ -24,7 +25,10 @@ type Answer = Record<string, unknown> & {
   way?: string | null;
 };
 
-async function market(standing: PairedStanding | undefined = "proven") {
+async function market(
+  standing: PairedStanding | undefined = "proven",
+  route: SocketStanding["route"] = "paired",
+) {
   const { daemon, client } = sheetFixture();
   daemon.seedServices({
     marketplace: {
@@ -36,11 +40,11 @@ async function market(standing: PairedStanding | undefined = "proven") {
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const facts = { standing };
+  const facts = { standing, route };
   const service = new NativePublish(
     client,
     async () => {},
-    () => facts.standing,
+    () => ({ state: facts.standing, route: facts.route }),
   );
   const ask = async (step: Record<string, unknown>, confirmed = false) =>
     (await service.answer(
@@ -262,6 +266,17 @@ test("a phone that can't prove the person's standing is sent to pair again to pu
     ok: false,
     message: "Pair this iPhone again to publish from it.",
     way: "pairAgain",
+  });
+});
+
+test("through ace's relay without standing, a submit says to sign in again or use the computer", async () => {
+  const { ask, daemon } = await market("missing", "account");
+  const { draft } = await drafted(ask, "spade-skill", "release-notes");
+  daemon.marketplace.refusePublish = { op: "error", code: "reauth", message: "Confirm it's you" };
+  expect(await ask({ step: "submit", draft: draft.id, version: "1.0.0", listing })).toMatchObject({
+    ok: false,
+    message: "Sign in to ace again on this iPhone, or publish this from ace on your computer.",
+    way: "computer",
   });
 });
 

@@ -11,6 +11,18 @@ type Roles = Record<string, string | null>;
 
 export const fakeRoleNames = ["helper", "verify", "review", "compact", "title"] as const;
 
+/** How hard each role thinks with nothing set (ADR 0213), and the words an effort takes. */
+export const fakeEffortDefaults: Record<string, string> = {
+  main: "medium",
+  helper: "low",
+  verify: "medium",
+  review: "medium",
+  compact: "low",
+  title: "low",
+};
+const efforts = new Set(["provider", "off", "low", "medium", "high", "max"]);
+type Efforts = Record<string, string>;
+
 const answer = (body: unknown, status = 200): FakeSpadeAnswer => ({
   status,
   body: JSON.stringify(body),
@@ -23,8 +35,10 @@ export class FakeSpadeRoles {
   /** Each role's route in order (ADR 0205 §2), `main` included: what a bot's model falls back to. */
   globalRoutes: Record<string, string[]> = {};
   globalEscalate: boolean | null = null;
+  /** Each role's effort as set for every bot, `main` included. */
+  globalEfforts: Efforts = {};
   /** What each bot sets for itself, by agent id. */
-  readonly bots = new Map<string, { roles: Roles; escalate: boolean | null }>();
+  readonly bots = new Map<string, { roles: Roles; escalate: boolean | null; efforts: Efforts }>();
   /** This month's spend by role, in micros, by agent id. */
   readonly spend = new Map<string, Record<string, number>>();
   /** What a role falls back to with nothing set: the fast model, or for `verify` this. */
@@ -56,16 +70,41 @@ export class FakeSpadeRoles {
     return undefined;
   }
 
+  /** Applies `body.efforts`: a role to an effort, or null to clear it. */
+  private applyEfforts(into: Efforts, body: Json): FakeSpadeAnswer | undefined {
+    const change = body.efforts;
+    if (typeof change !== "object" || change === null) return undefined;
+    for (const [role, effort] of Object.entries(change as Json)) {
+      if (!(role in fakeEffortDefaults)) return problem(400, `there is no role named ${role}`);
+      if (effort === null) delete into[role];
+      else if (typeof effort === "string" && efforts.has(effort)) into[role] = effort;
+      else return problem(400, `there is no effort named ${String(effort)}`);
+    }
+    return undefined;
+  }
+
+  private effortsView(set: Efforts) {
+    return Object.fromEntries(Object.keys(fakeEffortDefaults).map((r) => [r, set[r] ?? null]));
+  }
+
   globalView() {
     const routes = Object.fromEntries(
       ["main", ...fakeRoleNames].map((role) => [role, this.globalRoutes[role] ?? []]),
     );
-    return { roles: { ...this.global }, routes, escalate: this.globalEscalate };
+    return {
+      roles: { ...this.global },
+      routes,
+      efforts: this.effortsView(this.globalEfforts),
+      effort_defaults: { ...fakeEffortDefaults },
+      escalate: this.globalEscalate,
+    };
   }
 
   globalRoute(method: string, body: Json) {
     if (method === "PUT") {
-      const refused = this.apply(this.global, body, this.globalRoutes);
+      const refused =
+        this.apply(this.global, body, this.globalRoutes) ??
+        this.applyEfforts(this.globalEfforts, body);
       if (refused) return refused;
       if ("escalate" in body)
         this.globalEscalate = typeof body.escalate === "boolean" ? body.escalate : null;
@@ -74,10 +113,16 @@ export class FakeSpadeRoles {
   }
 
   agentView(agent: string, own: string, fast: string | null) {
-    const bot = this.bots.get(agent) ?? { roles: empty(), escalate: null };
+    const bot = this.bots.get(agent) ?? { roles: empty(), escalate: null, efforts: {} };
+    const effortOf = (role: string) =>
+      bot.efforts[role]
+        ? { effort: bot.efforts[role], effort_source: "bot" }
+        : this.globalEfforts[role]
+          ? { effort: this.globalEfforts[role], effort_source: "global" }
+          : { effort: fakeEffortDefaults[role], effort_source: "default" };
     const month = this.spend.get(agent) ?? {};
     const roles = [
-      { role: "main", model: own, source: "own" },
+      { role: "main", model: own, source: "own", ...effortOf("main") },
       ...fakeRoleNames.map((role) => {
         const fallback = role === "verify" ? (this.strongest ?? fast) : fast;
         const [model, source] = bot.roles[role]
@@ -87,12 +132,18 @@ export class FakeSpadeRoles {
             : fallback && fallback !== own
               ? [fallback, "default"]
               : [own, "own"];
-        return { role, model, source };
+        const { effort, effort_source } = effortOf(role);
+        return { role, model, source, effort, effort_source };
       }),
     ];
     return {
       roles,
-      overrides: { roles: { ...bot.roles }, allowed: null, escalate: bot.escalate },
+      overrides: {
+        roles: { ...bot.roles },
+        efforts: this.effortsView(bot.efforts),
+        allowed: null,
+        escalate: bot.escalate,
+      },
       escalate: bot.escalate ?? this.globalEscalate ?? false,
       spend: { today: {}, month },
     };
@@ -100,8 +151,8 @@ export class FakeSpadeRoles {
 
   agentRoute(method: string, agent: string, own: string, fast: string | null, body: Json) {
     if (method === "PUT") {
-      const bot = this.bots.get(agent) ?? { roles: empty(), escalate: null };
-      const refused = this.apply(bot.roles, body);
+      const bot = this.bots.get(agent) ?? { roles: empty(), escalate: null, efforts: {} };
+      const refused = this.apply(bot.roles, body) ?? this.applyEfforts(bot.efforts, body);
       if (refused) return refused;
       if ("escalate" in body)
         bot.escalate = typeof body.escalate === "boolean" ? body.escalate : null;
