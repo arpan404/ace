@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { Store, Engine, AdapterRegistry } from "@ace/daemon";
 import { Command } from "@ace/protocol";
+import { checkpointDirectory } from "@ace/adapter-cursor";
 import {
   realHostAdapter,
   seedStore,
@@ -60,6 +61,8 @@ async function twoCrashes(
   seeded: Parameters<typeof seedStore>[2] | undefined,
   /** Boot two's kill point; without one, the thread's next start is the one checked. */
   secondKill: string | undefined,
+  /** Done to Cursor's store once it is seeded, before the daemon starts again. */
+  afterSeed: (folder: string) => Promise<void> = async () => {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-second-crash-")));
   const database = join(root, "state.sqlite");
@@ -71,6 +74,7 @@ async function twoCrashes(
   // Created after boot one's attempt, as the SDK would have created it.
   if (seeded) await seedStore(home, root, { ...seeded, createdAt: Date.now() });
   else await seedStore(home, root, { status: "finished", texts: [], createdAt: 1, none: true });
+  await afterSeed(checkpointDirectory(home, threadId));
   if (secondKill) await frozenAt(database, entry, home, sends, secondKill, join(root, "frozen"));
   // Boot two's host is gone with it; nothing it sent counts for boot three.
   await writeFile(sends, "");
@@ -97,6 +101,14 @@ async function twoCrashes(
       .map((line) => JSON.stringify(JSON.parse(line)));
   const result = {
     sent,
+    /** What the thread shows of a fresh Cursor session taking over (ADR 0211). */
+    freshSessions: () =>
+      store
+        .readItems(threadId, store.headSeq() + 1, 200)
+        .items.filter(
+          (item) =>
+            item.type === "message" && item.origin?.kind === "handoff" && item.origin.freshSession,
+        ).length,
     /** The person presses Resume; `sent` then says what that sent. */
     async resume() {
       engine.handler.handle(
@@ -187,4 +199,20 @@ it("a fork's first message Cursor never had when the daemon was killed after att
   expect(run.sent).toHaveLength(1);
   expect(run.sent[0]).toContain("forked");
   expect(run.queue.reason).not.toBe("uncertain");
+}, 60_000);
+
+it("a saved Cursor session that can't open again at startup goes to a fresh one there, as delivery would", async () => {
+  await using run = await twoCrashes(
+    "admitted",
+    { status: "finished", texts: ["before"], createdAt: 0 },
+    undefined,
+    // Two store formats in one folder: the SDK can never open this saved session again.
+    (folder) => writeFile(join(folder, "agents.ndjson"), "{}\n"),
+  );
+  // Handed off by the restart itself, not on the person's next move.
+  expect(run.freshSessions()).toBe(1);
+  expect(run.sent).toEqual([]);
+  await run.resume();
+  expect(run.sent).toHaveLength(1);
+  expect(run.sent[0]).toContain("ace_context_handoff");
 }, 60_000);

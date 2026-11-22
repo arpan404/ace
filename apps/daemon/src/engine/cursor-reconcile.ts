@@ -33,6 +33,11 @@ export interface ReconcileDependencies {
   wake(id: ThreadId): void;
   /** Whether startup proved the previous run's processes gone; the turn shows working until. */
   verified?(): Promise<boolean>;
+  /**
+   * The ADR 0211 handoff, as delivery and Resume use it: true when `error` said the saved
+   * session can never open again and the thread now opens fresh with its context.
+   */
+  freshSession?(id: ThreadId, error: unknown): boolean;
   /** Waits between opens of a busy store; the turn shows working meanwhile. */
   retryMs?: readonly number[];
 }
@@ -145,6 +150,10 @@ export async function reconcileCursorRestart(
       const busy = error instanceof SessionOpenError && error.code === sessionStoreBusy;
       const wait = busy ? waits.shift() : undefined;
       if (wait === undefined) {
+        // A saved session that can never open again hands off to a fresh one (ADR 0211), as
+        // delivery and Resume do: the cut-off turn can't be read back, so it fails, and the
+        // continuation and queued messages go to the fresh session with the thread's context.
+        deps.freshSession?.(id, error);
         // The queue keeps its messages: only the turn fails.
         fail(actor);
         deps.wake(id);

@@ -39,7 +39,7 @@ import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { CursorReconciles } from "./cursor-reconcile.ts";
-import { attachChild } from "./child-attachment.ts";
+import { attachChild, updateChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
@@ -130,6 +130,7 @@ export class Engine {
       wake: (id) => this.wake(id),
       ...(this.reconcileRetryMs ? { retryMs: this.reconcileRetryMs } : {}),
       verified: () => this.processesVerified,
+      freshSession: (id, error) => this.transitions.startFreshSession(id, error),
     }),
   );
   private reconcileRetryMs: readonly number[] | undefined;
@@ -700,20 +701,10 @@ export class Engine {
     attachChild(this.repo, this.clock.now(), ...args);
   }
   updateChild(parentId: ThreadId, child: Thread): void {
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+    updateChild(this.repo, this.clock.now(), parentId, child);
     this.wake(parentId);
   }
+
   machineChild(...args: Parameters<DelegationFacts["machineChild"]>): void {
     this.delegationFacts.machineChild(...args);
   }

@@ -39,3 +39,24 @@ export function attachChild(
     at,
   );
 }
+
+/** The child thread's status, as its summary agent in the parent shows it. */
+export function updateChild(
+  repo: EngineRepository,
+  at: number,
+  parentId: ThreadId,
+  child: Thread,
+): void {
+  repo.apply(
+    parentId,
+    [
+      {
+        type: "agent.external",
+        agent: `ace-child:${child.id}`,
+        threadId: child.id,
+        status: child.status,
+      },
+    ],
+    at,
+  );
+}
