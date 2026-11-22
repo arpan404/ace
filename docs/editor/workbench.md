@@ -206,8 +206,10 @@ side panel itself into groups (every tool would inherit editor semantics it has 
     the caret and scroll anchored to the same text (not the same offset).
 43. Lines an agent wrote while the file was open (a reload, a merge, or a turn under review) get a
     3px bar in the needs-you colour (amber) in the gutter, with the agent's mark on the first line of
-    each block; hovering either says who and when ("Claude Code changed this in turn 2"). Once the
-    person edits a block (or keeps it in a review) its bar gives way to the ordinary change mark.
+    each block; hovering either says who and when ("Claude Code changed this in turn 2"). A line
+    the person edits gives way to the ordinary change mark (the rest of its block stays the
+    agent's), an undo brings it back, and keeping a block in a review ends it. The marks are kept
+    on the device for the exact text they belong to, so a reload shows them again.
 44. Lines changed since HEAD carry a bar against the committed text, kept live as the person types
     (worked out once typing pauses, off the main thread for large files): green for added lines,
     blue for changed ones, a small red wedge between lines where lines were removed. A press on a
