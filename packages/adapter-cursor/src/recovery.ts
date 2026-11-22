@@ -178,7 +178,14 @@ export async function recoverCursorCheckpoint(
   const runs = new Map<string, z.infer<typeof RunRecord>>();
   if (recover.attempt && recover.runs.length === 0) {
     const attempt = recover.attempt;
-    const found = await attemptedRun(store, agentId, agentRuns, attempt.at, options.limits);
+    // A host that frames each run's id before the SDK creates it leaves nothing to search for:
+    // the run is that id's, or there is none. Only an earlier build's attempt needs the search.
+    const found = attempt.runFramed
+      ? attempt.runId
+        ? (RunRecord.nullable().parse(await store.runs.get({ agentId, runId: attempt.runId })) ??
+          undefined)
+        : undefined
+      : await attemptedRun(store, agentId, agentRuns, attempt.at, options.limits);
     // Undetermined: nothing is published, so the daemon keeps the send uncertain.
     const run = found === "unknown" ? undefined : found;
     if (found !== "unknown")

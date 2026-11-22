@@ -293,7 +293,10 @@ it.each(["callback-first", "write-first"] as const)(
       expect(whole).toContain("assistant: Let me check.");
       expect(whole).toContain("assistant: All good good here.");
       const live = frames.filter((frame) => frame.kind !== "result");
-      const first = live.findIndex((frame) => frame.kind === "send") + 1;
+      // The SDK creates the run only once ace has stored its id (the `run` frame); a crash
+      // before that leaves no run, which the attempt tests cover. Cuts start after it.
+      const first = live.findIndex((frame) => frame.kind === "run") + 1;
+      expect(first).toBeGreaterThan(0);
       for (let cut = first; cut <= live.length; cut++) {
         const committed = live.slice(0, cut);
         const recovery = await reopen(boundary, home, committed, ++reopened);

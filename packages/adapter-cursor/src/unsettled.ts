@@ -22,7 +22,10 @@ const Progress = z.object({
     .optional(),
   body: z.unknown(),
 });
-const Attempted = z.object({ attemptedAt: z.number().finite().nonnegative() });
+const Attempted = z.object({
+  attemptedAt: z.number().finite().nonnegative(),
+  runFramed: z.literal(true).optional().catch(undefined),
+});
 const Admitted = z.object({ nativeRunId: z.string().min(1).max(512) });
 const Settled = z.object({ settled: z.literal(true) });
 /** What a reopened Cursor host reads back from its store: see `SessionContext.resume`. */
@@ -71,8 +74,16 @@ export class UnsettledRuns {
             ...(frame.data.commandId ? { commandId: frame.data.commandId } : {}),
             segment: frame.data.segment,
             at: attempted.data.attemptedAt,
+            ...(attempted.data.runFramed ? { runFramed: true } : {}),
           }
         : undefined;
+      return;
+    }
+    // The run the SDK was about to create for the attempt: whether it exists is the store's.
+    if (kind === "run") {
+      const admitted = Admitted.safeParse(body);
+      if (this.attempt && admitted.success && this.attempt.operationId === frame.data.operationId)
+        this.attempt = { ...this.attempt, runId: admitted.data.nativeRunId };
       return;
     }
     if (kind === "segment") {
@@ -116,4 +127,59 @@ export class UnsettledRuns {
     });
     return { runs, ...(this.attempt ? { attempt: this.attempt } : {}) };
   }
+}
+
+/** What the record says of the latest attempted send: its command, and any sign Cursor had it. */
+export interface AttemptRecord {
+  commandId: string;
+  operationId: string;
+  /** Something of the send beyond the attempt itself (its run, output) was recorded. */
+  evidence: boolean;
+  /** What a reopened host read back from Cursor's store about it, if it did. */
+  admitted?: boolean;
+}
+const AttemptFrame = z.object({
+  kind: z.string(),
+  operationId: z.string().min(1).max(512),
+  commandId: z.string().min(1).max(512).optional(),
+  body: z.unknown(),
+});
+const AdmissionBody = z.object({
+  admitted: z.boolean(),
+  commandId: z.string().min(1).max(512).optional(),
+});
+/** Frames that say nothing of whether Cursor had the send. */
+const bookkeeping = new Set([
+  "send",
+  "admission",
+  "error",
+  "cancel",
+  "host-exit",
+  "host-output",
+  "snapshot",
+  "run",
+]);
+/**
+ * Folds one committed frame into the latest attempt's record; the same object when nothing
+ * changed, so the daemon writes only on a change (a point record, never a search of frames).
+ */
+export function noteAttempt(
+  record: AttemptRecord | undefined,
+  data: unknown,
+): AttemptRecord | undefined {
+  const frame = AttemptFrame.safeParse(data);
+  if (!frame.success) return record;
+  const { kind, operationId, commandId, body } = frame.data;
+  if (kind === "send") return { commandId: commandId ?? operationId, operationId, evidence: false };
+  if (!record) return record;
+  if (kind === "admission") {
+    const admission = AdmissionBody.safeParse(body);
+    return admission.success && admission.data.commandId === record.commandId
+      ? { ...record, admitted: admission.data.admitted }
+      : record;
+  }
+  if (record.evidence || bookkeeping.has(kind)) return record;
+  return operationId === record.operationId || commandId === record.commandId
+    ? { ...record, evidence: true }
+    : record;
 }

@@ -6,8 +6,14 @@ import type { Frame, Translator } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
 import { cursorStoreUnusable } from "@ace/adapter-cursor/store-fence";
-import { UnsettledRuns, type Unsettled } from "@ace/adapter-cursor/unsettled";
+import {
+  UnsettledRuns,
+  noteAttempt,
+  type AttemptRecord,
+  type Unsettled,
+} from "@ace/adapter-cursor/unsettled";
 import type { Store } from "../store.ts";
+import { storedAttemptRecord } from "../stored-decode.ts";
 
 const CapturedFrame = z.object({
   seq: z.number().int().nonnegative(),
@@ -39,25 +45,48 @@ export class ProviderRecovery {
   private readAttempt: StatementSync;
   private readAdmission: StatementSync;
   private readOutput: StatementSync;
+  private readRecord: StatementSync;
+  private writeRecord: StatementSync;
   constructor(store: Store) {
     this.store = store;
-    [this.readFrames, this.readAttempt, this.readAdmission, this.readOutput] = store.atomic(
+    [
+      this.readFrames,
+      this.readAttempt,
+      this.readAdmission,
+      this.readOutput,
+      this.readRecord,
+      this.writeRecord,
+    ] = store.atomic(
       (db) =>
         [
           db.prepare(
             "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid>? ORDER BY rowid LIMIT 8",
           ),
           db.prepare(
-            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND json_extract(frame,'$.data.kind')='send' AND json_extract(frame,'$.data.commandId')=? LIMIT 1",
+            // An earlier build's frames, with no attempt record: the newest frames only.
+            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND json_extract(frame,'$.data.kind')='send' AND json_extract(frame,'$.data.commandId')=? LIMIT 1",
           ),
           db.prepare(
-            "SELECT frame FROM engine_provider_frames WHERE thread_id=? AND json_extract(frame,'$.data.kind')='admission' ORDER BY rowid DESC LIMIT 1",
+            "SELECT frame FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND json_extract(frame,'$.data.kind')='admission' ORDER BY rowid DESC LIMIT 1",
           ),
           // A segment, a run id or any output under the send's operation is admission evidence.
           db.prepare(
-            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND (json_extract(frame,'$.data.commandId')=? OR json_extract(frame,'$.data.operationId')=?) AND json_extract(frame,'$.data.kind') NOT IN ('send','admission','error','cancel','host-exit','host-output','snapshot') LIMIT 1",
+            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND rowid IN (SELECT rowid FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096) AND (json_extract(frame,'$.data.commandId')=? OR json_extract(frame,'$.data.operationId')=?) AND json_extract(frame,'$.data.kind') NOT IN ('send','admission','error','cancel','host-exit','host-output','snapshot','run') LIMIT 1",
           ),
-        ] satisfies [StatementSync, StatementSync, StatementSync, StatementSync],
+          db.prepare(
+            "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorAttempt' AND key='latest'",
+          ),
+          db.prepare(
+            "INSERT INTO engine_state_records VALUES (?,'cursorAttempt','latest',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
+          ),
+        ] satisfies [
+          StatementSync,
+          StatementSync,
+          StatementSync,
+          StatementSync,
+          StatementSync,
+          StatementSync,
+        ],
     );
   }
   /**
@@ -101,19 +130,43 @@ export class ProviderRecovery {
     return unsettled.result();
   }
   /**
+   * The latest attempt's record, kept as frames commit (`noteAttempt`): a point read, never a
+   * search of the thread's frames. Undefined for frames an earlier build stored.
+   */
+  private record(threadId: ThreadId): AttemptRecord | undefined {
+    const row = this.store.atomic(() => this.readRecord.get(threadId));
+    return row ? storedAttemptRecord(String(row.value)) : undefined;
+  }
+  /** Folds one committed Cursor frame into the attempt record, in the commit's transaction. */
+  note(threadId: ThreadId, data: unknown): void {
+    const before = this.record(threadId);
+    const after = noteAttempt(before, data);
+    if (after && after !== before) this.writeRecord.run(threadId, JSON.stringify(after));
+  }
+  /**
    * True when the host stored its attempt to send `commandId` (ADR 0043, amendment of
    * 2026-11-22). The host calls Cursor only once that attempt is committed, so without it the
    * input never reached Cursor and is delivered again.
    */
   attempted(threadId: ThreadId, commandId: string): boolean {
-    return this.store.atomic(() => this.readAttempt.get(threadId, commandId) !== undefined);
+    const record = this.record(threadId);
+    if (record?.commandId === commandId) return true;
+    return this.store.atomic(
+      () => this.readAttempt.get(threadId, threadId, commandId) !== undefined,
+    );
   }
   /**
    * The newest admission a reopened Cursor host read back from its store, if any: whether Cursor
    * ever had the send the daemon saw attempted (ADR 0043, amendment of 2026-11-22).
    */
   lastAdmission(threadId: ThreadId): { commandId?: string; admitted: boolean } | undefined {
-    const row = this.store.atomic(() => this.readAdmission.get(threadId));
+    const record = this.record(threadId);
+    if (record) {
+      return record.admitted === undefined
+        ? undefined
+        : { commandId: record.commandId, admitted: record.admitted };
+    }
+    const row = this.store.atomic(() => this.readAdmission.get(threadId, threadId));
     if (!row) return undefined;
     const frame = CapturedFrame.safeParse(JSON.parse(z.string().parse(row.frame)));
     const body = Admission.safeParse(frame.success ? frame.data.data : undefined);
@@ -126,8 +179,10 @@ export class ProviderRecovery {
   }
   /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
   admissionRecorded(threadId: ThreadId, commandId: string): boolean {
+    const record = this.record(threadId);
+    if (record) return record.commandId === commandId && record.evidence;
     return this.store.atomic(
-      () => this.readOutput.get(threadId, commandId, commandId) !== undefined,
+      () => this.readOutput.get(threadId, threadId, commandId, commandId) !== undefined,
     );
   }
   /** Forgets a session's frames (and an earlier build's boundary cursor): it starts fresh. */
@@ -135,6 +190,9 @@ export class ProviderRecovery {
     this.store.atomic(() => {
       this.store.statement("DELETE FROM engine_provider_frames WHERE thread_id=?").run(threadId);
       this.store.statement("DELETE FROM engine_provider_cursors WHERE thread_id=?").run(threadId);
+      this.store
+        .statement("DELETE FROM engine_state_records WHERE thread_id=? AND section='cursorAttempt'")
+        .run(threadId);
     });
   }
   /** Settled turns have no live identities to hydrate. Keep the latest session open. */

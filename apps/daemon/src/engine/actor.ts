@@ -479,6 +479,7 @@ export class ThreadActor {
       if (body.success && body.data.kind === "blob")
         this.repo.store.appendRawChunk(this.id, body.data.body);
       this.repo.captureFrame(this.id, frame);
+      this.repo.recovery.note(this.id, frame.data);
     }
   }
   private translateFrame(decoded: Frame): Fact[] {

@@ -179,7 +179,14 @@ export interface SessionContext {
      */
     unsettled?: {
       runs: { runId: string; through: number; pending?: string[]; legacy?: boolean }[];
-      attempt?: { operationId: string; commandId?: string; segment: number; at: number };
+      attempt?: {
+        operationId: string;
+        commandId?: string;
+        segment: number;
+        at: number;
+        runFramed?: boolean;
+        runId?: string;
+      };
     };
   };
   /** Persist selection before host admission and native identity before publishing its open frame. */

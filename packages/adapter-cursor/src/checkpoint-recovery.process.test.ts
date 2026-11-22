@@ -152,7 +152,13 @@ async function recover(
   store: LocalAgentStore,
   recoverOptions: {
     runs: { runId: string; through: number }[];
-    attempt?: { operationId: string; segment: number; at: number };
+    attempt?: {
+      operationId: string;
+      segment: number;
+      at: number;
+      runFramed?: true;
+      runId?: string;
+    };
   },
 ) {
   const found: Recovered[] = [];
@@ -282,6 +288,30 @@ it("opening a long Cursor thread with a send in doubt does not read its run hist
       { kind: "admission", body: { operationId: "op", segment: 0, admitted: false } },
     ]);
     expect(reads).toEqual({ runLists: 0, eventLists: 0 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("a send in doubt whose run finished is found without the catalog, however long the history", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-long-finished-")));
+  try {
+    const runs = [...longHistory, { runId: "done", status: "finished" as const, texts: ["new"] }];
+    const { store, reads } = counted(await storeWith(root, runs));
+    // The agent was touched after the attempt and points at no run: it ended already.
+    const at = 99 + runs.length;
+    const attempt = { operationId: "op", segment: 0, at, runFramed: true as const };
+    const found = await recover(root, store, { runs: [], attempt: { ...attempt, runId: "done" } });
+    expect(found.found[0]).toMatchObject({
+      kind: "admission",
+      body: { admitted: true, nativeRunId: "done" },
+    });
+    // No id was framed, so the SDK never created a run for it.
+    const none = await recover(root, store, { runs: [], attempt });
+    expect(none.found).toEqual([
+      { kind: "admission", body: { operationId: "op", segment: 0, admitted: false } },
+    ]);
+    expect(reads.runLists).toBe(0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

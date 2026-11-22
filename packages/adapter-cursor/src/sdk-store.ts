@@ -65,16 +65,28 @@ export async function checkpointRevision(store: LocalAgentStore, agentId: string
 }
 
 /**
- * `store`, telling `appended` each run event the SDK stores, in order, once it is stored. The
- * SDK stores an update's event right after handing the update to onDelta, so at any frame the
- * last appended event is the seam with ace's record (event-identity.ts).
+ * `store`, telling `appended` each run event the SDK stores, in order, once it is stored (the
+ * SDK stores an update's event next to handing the update to onDelta: run-seams.ts), and
+ * telling `creating` each run the SDK is about to create, and waiting for it first: so ace has
+ * the run's id before the run can exist, and a run it has no id for was never created.
  */
 export function observeRunEvents(
   store: LocalAgentStore,
   appended: (event: { runId: string; seq: number; payload: unknown }) => void,
+  creating: (runId: string) => Promise<void> = async () => {},
 ): LocalAgentStore {
   return {
     ...store,
+    runs: {
+      get: (input) => store.runs.get(input),
+      list: (input) => store.runs.list(input),
+      update: (input) => store.runs.update(input),
+      delete: (input) => store.runs.delete(input),
+      create: async (input) => {
+        await creating(input.run.runId);
+        return store.runs.create(input);
+      },
+    },
     runEvents: {
       list: (input) => store.runEvents.list(input),
       delete: (input) => store.runEvents.delete(input),
@@ -86,7 +98,6 @@ export function observeRunEvents(
     },
   };
 }
-
 /**
  * Throws, saying SQLITE_BUSY, when another process holds the SDK's SQLite store for writing.
  * The SDK itself waits on a held store (busy_timeout, then retries), so a reconcile would only

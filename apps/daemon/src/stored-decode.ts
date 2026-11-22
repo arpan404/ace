@@ -247,3 +247,10 @@ export const storedMarketWithdrawn = (text: string) =>
   JSON.parse(text) as import("./marketplace/listings.ts").WithdrawnState;
 export const storedMarketJournal = (text: string) =>
   JSON.parse(text) as import("./marketplace/journal.ts").Journal;
+
+/** A Cursor attempt record this build wrote (ADR 0125): read as stored. */
+export function storedAttemptRecord(
+  json: string,
+): import("@ace/adapter-cursor/unsettled").AttemptRecord {
+  return JSON.parse(json) as import("@ace/adapter-cursor/unsettled").AttemptRecord;
+}

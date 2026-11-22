@@ -331,9 +331,16 @@ export class HostRuntime {
         options.cwd,
         options.limits.maxCheckpointBytes,
       );
-      this.store = observeRunEvents(this.storeOwner.store, (event) => {
-        this.seams.stored(event.runId, event.seq, storedMessage(event.payload));
-      });
+      this.store = observeRunEvents(
+        this.storeOwner.store,
+        (event) => this.seams.stored(event.runId, event.seq, storedMessage(event.payload)),
+        // The run's id reaches ace before the run exists: a crash in between leaves an id with
+        // no run, which recovery reads as never admitted, without any catalog search.
+        async (runId) => {
+          if (this.sending)
+            await this.frame("run", { nativeRunId: runId }, this.sendOptions, { id: runId });
+        },
+      );
       this.scrub = createRedactor(
         {
           env: { CURSOR_API_KEY: this.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
@@ -452,7 +459,12 @@ export class HostRuntime {
       // The attempt, stored before Cursor can see the input: without it, a restart knows the
       // input never reached Cursor and delivers it again. The turn starts at Cursor's first
       // sign of having it: an update for it, or the `segment` naming its run.
-      await this.frame("send", { input: input.input, attemptedAt: this.wallClock() });
+      // `runFramed`: this host frames the run's id before the SDK creates it (sdk-store.ts).
+      await this.frame("send", {
+        input: input.input,
+        attemptedAt: this.wallClock(),
+        runFramed: true,
+      });
       this.seams.sending();
       let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(sdkInput(input.input), {

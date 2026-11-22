@@ -83,6 +83,10 @@ export const Open = z.strictObject({
           commandId: identity.optional(),
           segment: z.number().int().nonnegative(),
           at: z.number().finite().nonnegative(),
+          /** The host frames the run's id before the SDK creates it: no id means no run. */
+          runFramed: z.literal(true).optional(),
+          /** The id of the run the SDK was about to create, when ace got it. */
+          runId: identity.optional(),
         })
         .optional(),
     })
