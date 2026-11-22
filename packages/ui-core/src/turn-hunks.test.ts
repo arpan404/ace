@@ -67,3 +67,23 @@ test("a removal whose surrounding lines changed is not reverted", () => {
   // Where the turn left it, its anchors no longer match.
   expect(gap && revertChange(gap, lineAt, now.length)).toBeUndefined();
 });
+
+test("a reverted turn hunk keeps the file's CRLF endings", () => {
+  const [hunk] = turnHunks(rowsOf("one\ntwo\nthree\n", "one\nTWO\nthree\n"));
+  const now = ["one", "TWO", "three", ""];
+  const lineAt = (line: number) => now[line] ?? "";
+  expect(hunk && revertChange(hunk, lineAt, now.length, "\r\n")).toMatchObject({
+    text: "two\r\n",
+  });
+});
+
+test("a reverted turn hunk on a last line with no newline adds none", () => {
+  const [hunk] = turnHunks(rowsOf("one\ntwo", "one\nTWO"));
+  const now = ["one", "TWO"];
+  const lineAt = (line: number) => now[line] ?? "";
+  expect(hunk && revertChange(hunk, lineAt, now.length)).toEqual({
+    start: 1,
+    end: 2,
+    text: "two",
+  });
+});

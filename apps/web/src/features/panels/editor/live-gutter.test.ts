@@ -202,3 +202,19 @@ test("a hunk worked out against an older commit reverts nothing", async () => {
   expect(gutter.revert(hunk)).toBe(false);
   expect(buffer.document()?.text()).toBe("one\nTWO\nthree\nfour\n");
 });
+
+test.each([
+  { name: "a CRLF file", disk: "one\r\nTWO\r\nthree\r\n", head: "one\r\ntwo\r\nthree\r\n" },
+  { name: "a last line with no newline", disk: "one\nTWO", head: "one\ntwo" },
+  { name: "a removed last line with no newline", disk: "one\n", head: "one\ntwo" },
+])("Revert puts back exactly the committed text in $name", async ({ disk, head }) => {
+  const { buffer, gutter, pause } = await opened(disk);
+  gutter.setHead(head);
+  await pause();
+  const [hunk] = gutter.state().hunks;
+  if (!hunk) throw new Error("no hunk");
+
+  expect(gutter.revert(hunk)).toBe(true);
+
+  expect(buffer.document()?.text()).toBe(head);
+});

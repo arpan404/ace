@@ -15,6 +15,11 @@ export interface ChangeHunk {
   added: readonly string[];
   /** The committed lines the hunk replaced; empty when lines were only added. */
   removed: readonly string[];
+  /**
+   * The committed lines exactly as they were, line endings included, when known (a live diff):
+   * a revert puts back this text, not the lines rejoined.
+   */
+  removedText?: string | undefined;
   /** The unchanged line just above the hunk, when known: a revert checks it is still there. */
   above?: string | undefined;
   /** The unchanged line just below it. A removal has no lines of its own: these anchor it. */
@@ -82,6 +87,8 @@ export function revertChange(
   hunk: ChangeHunk,
   lineAt: (line: number) => string,
   lineCount: number,
+  /** The file's own line ending, for a hunk whose exact committed text isn't known. */
+  ending: "\n" | "\r\n" = "\n",
 ): LineReplacement | undefined {
   const start = hunk.start - 1;
   const end = start + hunk.added.length;
@@ -92,5 +99,8 @@ export function revertChange(
     return undefined;
   if (hunk.below !== undefined && (end >= lineCount || lineAt(end) !== hunk.below))
     return undefined;
-  return { start, end, text: hunk.removed.map((line) => `${line}\n`).join("") };
+  if (hunk.removedText !== undefined) return { start, end, text: hunk.removedText };
+  const text = hunk.removed.map((line) => `${line}${ending}`).join("");
+  // Lines replaced through the file's last line, which has no ending: the put-back text has none.
+  return { start, end, text: end === lineCount ? text.slice(0, -ending.length) : text };
 }

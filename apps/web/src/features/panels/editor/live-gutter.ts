@@ -123,7 +123,7 @@ export class LiveGutter {
       this.edited();
       return false;
     }
-    const change = revertChange(hunk, (line) => doc.line(line), doc.lenLines());
+    const change = revertChange(hunk, (line) => doc.line(line), doc.lenLines(), doc.lineEnding());
     if (!change || !this.#buffer.editLines([change])) return false;
     this.edited();
     return true;

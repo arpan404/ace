@@ -50,6 +50,7 @@ export function hunksFromChanges(
       marks,
       added,
       removed,
+      removedText: change.text,
       above: change.start > 0 ? lineAt(change.start - 1) : undefined,
       below: end < lineCount ? lineAt(end) : undefined,
     });
