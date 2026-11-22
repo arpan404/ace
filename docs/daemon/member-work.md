@@ -35,7 +35,7 @@ with another body or no later signing time.
 - A member tree's lease (`member_leases`) lasts 15 minutes. A pass renews it while the member may
   run work: not revoked, active on the held roster, and that roster at most two minutes old. The
   offline allowance (`threads.offline_minutes`, default 60, at most 1,440) applies only to
-  transport failure: no TCP or TLS answer, or none in time (`roster-fetch.ts`). Every HTTP answer
+  transport failure: no TCP or TLS answer, or no headers in time (`roster-fetch.ts`). A refusal is refused before its body is read; a body that stalls or is cut short after the headers is an answer too. Every HTTP answer
   gives none: a refusal, the origin's contention or epoch errors, a proxy's 5xx, a redirect.
   Someone on the path who drops replies gets the bounded outage behaviour, by design.
 - A lease that ran out is stopped, never renewed.
@@ -57,13 +57,18 @@ retries, automations and sends of unknown origin can't.
 - A stop is recorded as pending before anything is torn down (`stop_pending`). It stays pending,
   and is retried each pass and after a restart, until the tree's sessions are closed (retained
   ones too), its slice is confirmed empty, and each child it delegated to another host is
-  confirmed ended by that machine (`MachineChildren.endings`). A delegation is recorded before it
-  is sent (`member_remote_starts`), so a stop waits for its answer; a child that lands after the
-  stop gets the cross-machine stop at once. A child whose machine never confirms, or an answer
-  that never comes, counts as ended once the destination's own lease of it must have run out:
-  the offline allowance plus a lease after the stop began.
-- Every affected tree is fenced at once; then each tree's teardown runs on its own within
-  `STOP_BOUND_MS` (30 s), so one that hangs holds back neither the others nor the next pass.
+  confirmed ended by that machine (`MachineChildren.endings`), or until the deadline that machine
+  enforces itself has passed (see below). A delegation is recorded before it is sent
+  (`member_remote_starts`). One refused for certain holds nothing; one whose answer was lost is kept
+  until a probe (`MachineCaller.probe`) names the child or the target withdraws the request.
+- A member's child on another host carries `member: {account, ttlMs}`. The destination records
+  the deadline when it makes the child (`member_child_deadlines`), tears the child down by it on
+  its own clock (a timer and every pass), and its gate refuses the child any work after it.
+  Nothing renews it.
+- Every affected tree is fenced at once; then each tree's teardown and containment kill start
+  together, each bounded by `STOP_BOUND_MS` (30 s), so processes die even while a session close
+  hangs and one tree holds back neither the others nor the next pass. A try that outlives the
+  bound is tried again.
 - `stopMemberTree`, before anything is awaited:
   - fences every unfinished thread from delegation and result delivery;
   - fences it from new work through `Engine.stopForOwner`: intents retired, queue stopped;
@@ -97,8 +102,7 @@ and for the host's own threads, which pass unchanged. The access policy fills it
   `systemd-run --user --scope --slice=ace-member-<member>-<tree>.slice`, with no delegation and
   `--expand-environment=no`. They are inside before any provider code runs. A scope that can't be
   made (no user manager, systemd older than 254) starts nothing. A stop writes `1` to the tree's
-  slice's `cgroup.kill` and counts only once `cgroup.events` reads unpopulated, or systemd says
-  the slice doesn't exist. A cgroup it can't read stays unconfirmed. Sibling trees are untouched.
+  slice's `cgroup.kill` and counts only once `cgroup.events` reads unpopulated, systemd says the slice doesn't exist, or the kernel has no cgroup where systemd makes it. A cgroup it can't read stays unconfirmed. Sibling trees are untouched.
 - **The boundary:** the slice lives in the host user's own systemd tree, which that user can write.
   An unprivileged daemon can't make a system-manager scope (that needs root or polkit's
   `manage-units`). So this stops accidental escapes, not a hostile member: phase 1's

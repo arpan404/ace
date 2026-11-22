@@ -13,6 +13,8 @@ import {
   type TreeStop,
 } from "./member-work.ts";
 import { memberWorkTimes, offlineAllowanceMs } from "./rules.ts";
+import { ThreadId } from "@ace/protocol";
+import { noOwners, OwnerRefused, ownerGate } from "./gate.ts";
 import { memberWorkStore } from "./store.ts";
 
 /*
@@ -105,6 +107,8 @@ function world() {
   /** What stopping a tree comes to beyond its local sessions, by root. */
   const remote = new Map<string, TreeStop>();
   const hanging = new Set<string>();
+  /** How many times each tree's stop was begun. */
+  const attempts = new Map<string, number>();
   const containment: Containment = {
     kind: "cgroup",
     launchEnv: (account, root) => ({ slice: `${account}/${root}` }),
@@ -124,8 +128,10 @@ function world() {
     faults,
     remote,
     hanging,
+    attempts,
     containment,
     stopTree: async (root: string): Promise<TreeStop> => {
+      attempts.set(root, (attempts.get(root) ?? 0) + 1);
       if (faults.stop > 0) {
         faults.stop--;
         throw new Error("The engine didn't stop it");
@@ -474,7 +480,7 @@ it("on a personal machine no roster is asked for and no work is admitted, contai
   w.processes.add("t_mine");
   await work.start();
   expect(work.admit("user_pat", "t_mine")).toBe(false);
-  expect(work.remoteStart("user_pat", "t_mine")).toBeUndefined();
+  expect(work.remoteStart("user_pat", "t_mine", "{}")).toBeUndefined();
   advance(clock, 24 * 60 * minute);
   await work.sync();
   await work.stop("user_pat");
@@ -502,15 +508,24 @@ it("a stop stays pending until every child on another host is confirmed ended, o
   expect(work.pendingStops()).toEqual([]);
 });
 
-it("a remote child whose end is never confirmed holds the stop until its own lease must have ended it", async () => {
+it("a remote child counts as ended only once the deadline its own host enforces has passed", async () => {
   const w = world();
   const { work, clock } = onHost(database(), w);
   work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
   running(w, work);
+  const flight = work.remoteStart("user_mia", "t_mia", "{}");
+  if (!flight) throw new Error("Refused");
+  // The child carries Mia and how long it may run there, on that host's own clock.
+  const ttl = offlineAllowanceMs(undefined) + memberWorkTimes.leaseMs;
+  expect(flight.member).toEqual({ account: "user_mia", ttlMs: ttl });
+  expect(flight.named("t_remote_child")).toBe(false);
+  // Stopped ten minutes later; its machine never confirms the child ended.
+  advance(clock, 10 * minute);
   w.remote.set("t_mia", "remote_pending");
   work.takeRoster(roster(2, clock.wall, {}));
   await work.pass();
-  advance(clock, offlineAllowanceMs(undefined) + memberWorkTimes.leaseMs - minute);
+  // Up to the deadline that host tears it down by, plus a pass and a bound there, it may run.
+  advance(clock, ttl - 10 * minute + memberWorkTimes.pollMs);
   await work.pass();
   expect(work.pendingStops()).toEqual(["t_mia"]);
   advance(clock, minute);
@@ -518,22 +533,52 @@ it("a remote child whose end is never confirmed holds the stop until its own lea
   expect(work.pendingStops()).toEqual([]);
 });
 
-it("a delegation still on its way holds the stop, and the child it lands is to be stopped", async () => {
+it("a delegation whose answer was lost holds the stop until its target names the child or says it made none", async () => {
   const w = world();
-  const { work, clock } = onHost(database(), w);
+  let answer: { child: string } | "rejected" | "unknown" = "unknown";
+  const asked: string[] = [];
+  const { work, clock } = onHost(database(), w, {
+    resolveRemoteStart: async (delegation) => {
+      asked.push(delegation);
+      return answer;
+    },
+  });
   work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
   running(w, work);
-  const flight = work.remoteStart("user_mia", "t_mia");
+  const flight = work.remoteStart("user_mia", "t_mia", '{"to":"box"}');
   if (!flight) throw new Error("Refused");
+  flight.ambiguous();
   work.takeRoster(roster(2, clock.wall, {}));
   await work.pass();
+  // However long it takes, no timeout calls it ended.
+  advance(clock, 48 * 60 * minute);
+  await work.pass();
   expect(work.pendingStops()).toEqual(["t_mia"]);
-  // Its answer lands after the stop: the caller is told to stop the child there.
-  expect(flight.settle("t_remote_child")).toBe(true);
+  expect(asked).toContain('{"to":"box"}');
+  // The target says it made none, for certain: the stop is done.
+  answer = "rejected";
   await work.pass();
   expect(work.pendingStops()).toEqual([]);
-  // A delegation of a stopped tree isn't even recorded.
-  expect(work.remoteStart("user_mia", "t_mia")).toBeUndefined();
+});
+
+it("a member's child here is torn down at its deadline without word from its source, and runs nothing after", async () => {
+  const w = world();
+  // A machine that isn't the organization's host still enforces it.
+  const { work, clock } = onHost(database(), w, { org: () => undefined });
+  const gate = ownerGate({ ownerOf: noOwners, work: () => work });
+  work.trackChild("t_child", "user_mia", 10 * minute);
+  w.trees.set("t_child", "working");
+  advance(clock, 10 * minute - 1);
+  await work.pass();
+  expect(w.trees.get("t_child")).toBe("working");
+  expect(() => gate.work(ThreadId.parse("t_child"))).not.toThrow();
+  advance(clock, 1);
+  await work.pass();
+  expect(w.trees.get("t_child")).toBe("failed");
+  expect(work.childExpired("t_child")).toBe(true);
+  // A message from its source, or anything else, starts nothing more of it.
+  expect(() => gate.work(ThreadId.parse("t_child"))).toThrow(OwnerRefused);
+  expect(() => gate.spawn(ThreadId.parse("t_child"))).toThrow(OwnerRefused);
 });
 
 it("each tree's containment is killed and confirmed on its own", async () => {
@@ -571,4 +616,49 @@ it("one tree whose teardown hangs holds back neither the others nor the pass", a
   await work.pass();
   expect(w.trees.get("t_free")).toBe("failed");
   expect(work.pendingStops()).toEqual(["t_stuck"]);
+});
+
+it("a tree whose session teardown hangs still has its processes killed, and is tried again", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w, {
+    stopBoundMs: 20,
+    delay: (callback, ms) => {
+      const timer = setTimeout(callback, ms);
+      return () => clearTimeout(timer);
+    },
+  });
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work, "t_stuck");
+  w.hanging.add("t_stuck");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  // Its sessions never closed, but what it runs is gone, and the stop isn't counted done.
+  expect(w.processes.has("t_stuck")).toBe(false);
+  expect(work.pendingStops()).toEqual(["t_stuck"]);
+  // The next pass tries it again rather than leaving it to the attempt that hangs.
+  await work.pass();
+  expect(w.attempts.get("t_stuck")).toBe(2);
+  w.hanging.delete("t_stuck");
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+});
+
+it("a delegation still on its way holds the stop, and the child it lands is to be stopped", async () => {
+  const w = world();
+  const { work, clock } = onHost(database(), w);
+  work.takeRoster(roster(1, clock.wall, { user_mia: "active" }));
+  running(w, work);
+  const flight = work.remoteStart("user_mia", "t_mia", "{}");
+  if (!flight) throw new Error("Refused");
+  work.takeRoster(roster(2, clock.wall, {}));
+  await work.pass();
+  expect(work.pendingStops()).toEqual(["t_mia"]);
+  // Its answer lands after the stop: the caller is told to stop the child there.
+  expect(flight.named("t_remote_child")).toBe(true);
+  // Its machine confirms the child ended: the stop is done.
+  w.remote.set("t_mia", "stopped");
+  await work.pass();
+  expect(work.pendingStops()).toEqual([]);
+  // A delegation of a stopped tree isn't even recorded.
+  expect(work.remoteStart("user_mia", "t_mia", "{}")).toBeUndefined();
 });

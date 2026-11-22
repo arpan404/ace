@@ -51,3 +51,23 @@ it("no answer at all, or none in time, is the backend unreachable", async () => 
   const silent = await answering(() => {});
   await expect(fetchFrom(silent, 200)).rejects.toBeInstanceOf(BackendUnreachable);
 });
+
+it("a refusal whose body stalls, or an answer cut short, is still the backend's word", async () => {
+  // A 503 whose body never finishes arriving.
+  const stalled = await answering((_request, response) => {
+    response.writeHead(503, { "content-type": "application/json", "content-length": "100" });
+    response.write('{"error":');
+  });
+  const refused = await fetchFrom(stalled, 300).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(Error);
+  expect(refused).not.toBeInstanceOf(BackendUnreachable);
+  // A 200 whose body is cut off mid-way.
+  const cut = await answering((request, response) => {
+    response.writeHead(200, { "content-type": "application/json", "content-length": "100" });
+    response.write('{"body":');
+    setTimeout(() => request.socket.destroy(), 20);
+  });
+  const truncated = await fetchFrom(cut, 2_000).catch((error: unknown) => error);
+  expect(truncated).toBeInstanceOf(Error);
+  expect(truncated).not.toBeInstanceOf(BackendUnreachable);
+});

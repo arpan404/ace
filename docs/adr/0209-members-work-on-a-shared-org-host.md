@@ -755,9 +755,7 @@ choice.
   one: the system manager needs root or polkit's `manage-units`, which is the administrator's by
   default. So each member tree's provider processes start inside a transient scope under a slice
   of the tree's own, nested in the member's (`systemd-run --user --scope`, no delegation), in it
-  before any of their code runs; a scope that can't be made starts nothing. A stop kills the
-  tree's slice and counts only once its cgroup reads empty; a cgroup that can't be read stays
-  unconfirmed. The slice is in the host user's own systemd tree, which that user can write, so a
+  before any of their code runs; a scope that can't be made starts nothing. A stop kills the tree's slice and counts only on positive word: systemd saying the slice doesn't exist, or the kernel's cgroup for it read as empty, or absent from where systemd makes it. A cgroup that can't be read stays unconfirmed. The slice is in the host user's own systemd tree, which that user can write, so a
   process set on leaving it can. That matches §1: against a hostile trusted member nothing on
   the host holds in phase 1. It contains dev servers, daemonizing tools and `setsid`. Needs
   systemd 254 or later.
@@ -777,8 +775,7 @@ choice.
   version are read in one transaction. Serving the same version again, or taking the next, both
   happen only while the members are still at that snapshot's revision; the roster is dated with
   the snapshot's read time, never the time of signing.
-- **The offline allowance is for transport failure only.** No TCP or TLS answer, or no complete
-  answer in time. Every HTTP answer is the backend's word and earns only the two-minute window:
+- **The offline allowance is for transport failure only.** No TCP or TLS answer, or no headers in time. Once headers arrive the backend has answered: a refusal is refused before its body is read, and a body that stalls or is cut short earns only the two-minute window too. Every HTTP answer is the backend's word and earns only the two-minute window:
   a refusal, the origin's own contention (503 `busy`), an unset or behind epoch, a proxy's or the
   edge's 5xx, a redirect (never followed). Someone on the path who drops the backend's replies
   gets the bounded outage behaviour (allowance plus a lease) by design; one who forges an answer
@@ -796,11 +793,8 @@ choice.
   down. Every affected tree is fenced at once, then each tree's teardown runs on its own within a
   bound, so one that hangs holds back neither the others nor the next pass. It counts only once
   the tree's sessions are closed (retained ones too), its slice is confirmed empty and every child
-  it delegated to another host is confirmed ended by that machine. A delegation is recorded
-  before it is sent, so a stop waits for its answer, and a child that lands after the stop gets
-  the cross-machine stop at once. A child whose machine never confirms (unreachable, unpaired),
-  or a delegation whose answer never came, counts as ended once its destination's own lease of
-  it must have run out: the offline allowance plus a lease after the stop began.
+  it delegated to another host is confirmed ended by that machine. Every affected tree's teardown and its containment kill start together and are each bounded, so processes die even while a session close hangs; a tree whose try outlives the bound is tried again by the next pass.
+- **A member's child on another host carries its owner and a deadline that host enforces.** The delegate call names the member and how long the child may run (the offline allowance plus a lease), counted on the destination's own clock from when it makes the child. The destination records that deadline in the transaction that makes the child, tears the child down by it without hearing from the source, and refuses it any further work; nothing renews it. A target that doesn't know the field refuses the call. On the source, a stop stays pending until the destination confirms the child ended, or until that deadline (plus a pass and a stop's bound there) has passed. A delegation is recorded before it is sent. One the target refused, or that never left, holds nothing; one whose answer was lost after it may have arrived is kept, with its target and request id, until the target says: a probe asks without making a child, names it if there is one (it then gets the cross-machine stop), and otherwise withdraws the request there, so a late copy of the original is refused too. A child that lands after the stop gets the cross-machine stop at once. The fixed deadline caps a member's remote child at the allowance plus a lease in phase 1; renewable child capabilities (§6.2) replace it.
 - **A member stop reads failed, with why.** Thread status has no interrupted state, and a
   deliberate stop reads done. So what was unsettled ends as failed with "Stopped · its owner is
   no longer in this organization" (or "…couldn't confirm…"), recorded for the whole tree before

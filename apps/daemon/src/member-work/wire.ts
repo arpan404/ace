@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { ThreadId } from "@ace/protocol";
+import { z } from "zod";
+import { DelegationRequest, McpAttribution, ThreadId } from "@ace/protocol";
 import type { GrantKeySet } from "@ace/account-grant";
 import type { DatabaseSync } from "@ace/provider-kit/sqlite";
 import type { Engine } from "../engine/index.ts";
@@ -32,6 +33,7 @@ export const memberStopFailures: Record<StopReason, { code: string; title: strin
     title: "Stopped · couldn't confirm its owner is still in this organization",
   },
   stopped: { code: "member_stopped", title: "Stopped by an owner of this organization" },
+  deadline: { code: "member_deadline", title: "Stopped · its time on this host ran out" },
 };
 
 /**
@@ -88,6 +90,25 @@ export function memberTreeStopper(services: {
   };
 }
 
+/** What a delegation's start keeps: enough to ask its target again (`MachineCaller.probe`). */
+const StoredDelegation = z.object({
+  caller: McpAttribution,
+  request: DelegationRequest,
+});
+
+/** `MachineCaller.probe` over a stored delegation; a start that can't be read is kept unknown. */
+export function probeStart(
+  probe: (
+    caller: McpAttribution,
+    request: DelegationRequest,
+  ) => Promise<{ child: string } | "rejected" | "unknown">,
+): (delegation: string) => Promise<{ child: string } | "rejected" | "unknown"> {
+  return async (delegation) => {
+    const parsed = StoredDelegation.safeParse(JSON.parse(delegation));
+    return parsed.success ? probe(parsed.data.caller, parsed.data.request) : "unknown";
+  };
+}
+
 /** The machine account, as members' work reads it. */
 export type MemberAccount = {
   ownerKnown(): boolean;
@@ -111,6 +132,8 @@ export function startMemberWork(deps: {
   instance: string;
   fetch?: typeof fetch;
   containment?: Containment;
+  /** Asks a delegation's target whether it made the child (`MachineCaller.probe`). */
+  resolveRemoteStart?: (delegation: string) => Promise<{ child: string } | "rejected" | "unknown">;
   log?: (error: Error) => void;
 }): MemberWork {
   const { account } = deps;
@@ -132,6 +155,7 @@ export function startMemberWork(deps: {
     },
     containment: deps.containment ?? memberContainment(process.platform, deps.instance),
     id: randomUUID,
+    ...(deps.resolveRemoteStart ? { resolveRemoteStart: deps.resolveRemoteStart } : {}),
     wall: Date.now,
     monotonic: () => performance.now(),
     delay: (callback, ms) => {

@@ -76,3 +76,42 @@ it("each of a member's trees has a slice of its own, inside the member's", () =>
   expect(one.split("-").slice(0, 3)).toEqual(two.split("-").slice(0, 3));
   expect(treeSlice("other-home", "user_mia", "t_one")).not.toBe(one);
 });
+
+/** systemd as `systemctl --user show` answers: the user manager itself, or one unit. */
+const manager =
+  (unit: string): CommandRunner =>
+  async (_command, args) => ({
+    code: 0,
+    stdout: args.some((arg) => arg.endsWith(".slice"))
+      ? unit
+      : "ControlGroup=/user.slice/user-1000.slice/user@1000.service\n",
+    stderr: "",
+  });
+
+it("an inactive slice systemd names no cgroup for counts only on the kernel's own word", async () => {
+  const root = cgroups();
+  const slice = treeSlice("home", "user_mia", "t_one");
+  const member = `${slice.split("-").slice(0, 3).join("-")}.slice`;
+  const path = join(
+    root,
+    "user.slice/user-1000.slice/user@1000.service/ace.slice/ace-member.slice",
+    member,
+    slice,
+  );
+  const inactive = systemdSliceContainment({
+    instance: "home",
+    cgroupRoot: root,
+    settleMs: 0,
+    run: manager("LoadState=loaded\nActiveState=inactive\nControlGroup=\n"),
+  });
+  // No such cgroup in the kernel: nothing can run in it.
+  expect(await inactive.kill("user_mia", "t_one")).toBe(true);
+  // The cgroup is there but can't be read: no word.
+  mkdirSync(path, { recursive: true });
+  expect(await inactive.kill("user_mia", "t_one")).toBe(false);
+  // Read, and empty.
+  writeFileSync(join(path, "cgroup.events"), "populated 0\n");
+  expect(await inactive.kill("user_mia", "t_one")).toBe(true);
+  writeFileSync(join(path, "cgroup.events"), "populated 1\n");
+  expect(await inactive.kill("user_mia", "t_one")).toBe(false);
+});

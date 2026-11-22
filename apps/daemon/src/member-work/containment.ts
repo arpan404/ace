@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
 import { MEMBER_SLICE_ENV } from "@ace/provider-kit/member-scope";
 
@@ -104,6 +104,28 @@ export function systemdSliceContainment(options: {
     return line === undefined ? undefined : line === "1";
   }
 
+  /** Whether the kernel has this cgroup: false only when it positively doesn't. */
+  async function present(path: string): Promise<boolean> {
+    return stat(`${root}${path}`).then(
+      () => true,
+      (error: unknown) => !(error instanceof Error && "code" in error && error.code === "ENOENT"),
+    );
+  }
+
+  /**
+   * Where systemd makes `unit`'s cgroup: under the user manager's own, one level per slice its
+   * name nests in (`ace-member-a-b.slice` is in `ace-member-a.slice`, in `ace-member.slice`, in
+   * `ace.slice`).
+   */
+  async function sliceCgroup(unit: string): Promise<string | undefined> {
+    const shown = await run("systemctl", ["--user", "show", "--property=ControlGroup"]);
+    const base = properties(shown.stdout).get("ControlGroup") ?? "";
+    if (shown.code !== 0 || !base.startsWith("/")) return undefined;
+    const parts = unit.replace(/\.slice$/, "").split("-");
+    const nested = parts.map((_, index) => `${parts.slice(0, index + 1).join("-")}.slice`);
+    return `${base}/${nested.join("/")}`;
+  }
+
   return {
     kind: "cgroup",
     launchEnv: (account, tree) => ({
@@ -120,23 +142,25 @@ export function systemdSliceContainment(options: {
       if (shown.code !== 0) return false;
       const unitState = properties(shown.stdout);
       const path = unitState.get("ControlGroup") ?? "";
-      // systemd itself says nothing of it runs: never made, or gone and collected.
-      if (!path.startsWith("/"))
-        return (
-          unitState.get("LoadState") === "not-found" || unitState.get("ActiveState") === "inactive"
-        );
-      const before = await populated(path);
+      // systemd itself says it doesn't exist.
+      if (unitState.get("LoadState") === "not-found") return true;
+      // systemd names no cgroup for a slice it never made or has collected: read the kernel's own
+      // at the place the slice's cgroup is made, under the user manager's.
+      const cgroup = path.startsWith("/") ? path : await sliceCgroup(unit);
+      if (cgroup === undefined) return false;
+      if (!path.startsWith("/") && !(await present(cgroup))) return true;
+      const before = await populated(cgroup);
       if (before === undefined) return false;
       if (!before) return true;
       // One write kills every process beneath the slice, a fork racing it included.
-      const killed = await writeFile(`${root}${path}/cgroup.kill`, "1").then(
+      const killed = await writeFile(`${root}${cgroup}/cgroup.kill`, "1").then(
         () => true,
         () => false,
       );
       if (!killed) await run("systemctl", ["--user", "kill", "--signal=SIGKILL", unit]);
       const deadline = Date.now() + settle;
       for (;;) {
-        if ((await populated(path)) === false) return true;
+        if ((await populated(cgroup)) === false) return true;
         if (Date.now() >= deadline) return false;
         await delay(pollMs);
       }

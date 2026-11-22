@@ -1,5 +1,5 @@
 import { noOwners, ownerGate } from "./member-work/gate.ts";
-import { memberTreeStopper, startMemberWork } from "./member-work/wire.ts";
+import { memberTreeStopper, probeStart, startMemberWork } from "./member-work/wire.ts";
 import { ProcessInventory } from "@ace/provider-kit/process-inventory";
 import { namedFetch } from "@ace/client/ace-client";
 import { observeProcessGroups, stopOwnedGroups } from "@ace/provider-kit/process";
@@ -702,6 +702,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
         instance: config.dataDir,
         fetch: namedFetch(globalThis.fetch, config.aceClient),
         stopper: () => memberTreeStopper(services),
+        resolveRemoteStart: probeStart(async (caller, request) =>
+          services.machines ? services.machines.caller.probe(caller, request) : "unknown",
+        ),
         log: (error) => log.log("warn", "Members' work", logError(error)),
       });
     services.memberWork = memberWork;

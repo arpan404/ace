@@ -87,6 +87,8 @@ export function startMachines(context: ServiceContext): void {
     },
     admitsWork: () => maintenance?.admit() ?? true,
     storageFull: () => maintenance?.held("storage") ?? false,
+    // Members' work starts after this service: read at each delegation.
+    memberChildren: () => services.memberWork,
   });
   resources.own(() => threads.close());
   services.machineThreads = threads;

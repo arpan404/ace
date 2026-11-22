@@ -28,8 +28,17 @@ const schema = [
     org TEXT PRIMARY KEY, version INTEGER NOT NULL, offline_minutes INTEGER)`,
   // A delegation to another host recorded before it is sent: until its answer names the child,
   // a stop of the tree can't know whether work started there.
+  // `delegation` is what's needed to ask the target later whether it made the child.
   `CREATE TABLE IF NOT EXISTS member_remote_starts (
-    id TEXT PRIMARY KEY, org TEXT NOT NULL, root_id TEXT NOT NULL, at INTEGER NOT NULL)`,
+    id TEXT PRIMARY KEY, org TEXT NOT NULL, root_id TEXT NOT NULL, at INTEGER NOT NULL,
+    delegation TEXT NOT NULL)`,
+  // A child a member tree made on another host, and by when that host tears it down itself.
+  `CREATE TABLE IF NOT EXISTS member_remote_children (
+    child_id TEXT PRIMARY KEY, org TEXT NOT NULL, root_id TEXT NOT NULL, bound_at INTEGER NOT NULL)`,
+  // Here, a child another host's member tree made: torn down at its deadline, never renewed.
+  `CREATE TABLE IF NOT EXISTS member_child_deadlines (
+    thread_id TEXT PRIMARY KEY, account TEXT NOT NULL, deadline_at INTEGER NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS member_clock (
     id INTEGER PRIMARY KEY CHECK (id = 1), high_water INTEGER NOT NULL)`,
 ];
@@ -54,7 +63,15 @@ const Pending = z.object({
   ended_reason: Reason,
   ended_at: z.number(),
 });
-const Start = z.object({ at: z.number() });
+const Start = z.object({ id: z.string(), at: z.number(), delegation: z.string() });
+const Bound = z.object({ bound_at: z.number() });
+const Next = z.object({ next: z.number().nullable() });
+const Deadline = z.object({
+  thread_id: z.string(),
+  account: z.string(),
+  deadline_at: z.number(),
+  done: z.number(),
+});
 const HighWater = z.object({ high_water: z.number() });
 
 /** The members of a roster body, by account, with WorkOS's time for each one's state. */
@@ -263,22 +280,86 @@ export function memberWorkStore(store: { atomic<T>(run: (db: DatabaseSync) => T)
       });
     },
     /** A delegation from `root` to another host is about to be sent. */
-    addRemoteStart(id: string, org: string, root: string, at: number) {
+    addRemoteStart(id: string, org: string, root: string, at: number, delegation: string) {
       store.atomic((db) =>
         db
-          .prepare("INSERT INTO member_remote_starts (id, org, root_id, at) VALUES (?, ?, ?, ?)")
-          .run(id, org, root, at),
+          .prepare(
+            "INSERT INTO member_remote_starts (id, org, root_id, at, delegation) VALUES (?, ?, ?, ?, ?)",
+          )
+          .run(id, org, root, at, delegation),
       );
     },
-    /** Its answer came, naming the child or none: the children's ledger has it from here. */
+    /** Its target said for certain whether it made the child: the start goes. */
     removeRemoteStart(id: string) {
       store.atomic((db) => db.prepare("DELETE FROM member_remote_starts WHERE id = ?").run(id));
     },
-    /** When each delegation from `root` still without an answer was sent. */
-    remoteStarts(root: string): number[] {
+    /** Delegations from `root` whose target hasn't said yet whether it made the child. */
+    remoteStarts(root: string): { id: string; at: number; delegation: string }[] {
       return read((db) =>
-        db.prepare("SELECT at FROM member_remote_starts WHERE root_id = ?").all(root),
-      ).map((raw) => Start.parse(raw).at);
+        db
+          .prepare("SELECT id, at, delegation FROM member_remote_starts WHERE root_id = ?")
+          .all(root),
+      ).map((raw) => Start.parse(raw));
+    },
+    /** The target named the child: the start goes, and the child's teardown bound is kept. */
+    nameRemoteChild(start: string, child: string, org: string, root: string, boundAt: number) {
+      store.atomic((db) => {
+        db.prepare("DELETE FROM member_remote_starts WHERE id = ?").run(start);
+        db.prepare(
+          `INSERT INTO member_remote_children (child_id, org, root_id, bound_at) VALUES (?, ?, ?, ?)
+           ON CONFLICT (child_id) DO UPDATE SET bound_at = MAX(bound_at, excluded.bound_at)`,
+        ).run(child, org, root, boundAt);
+      });
+    },
+    /** By when each of `root`'s remote children is torn down by its own host. */
+    remoteChildBounds(root: string): number[] {
+      return read((db) =>
+        db.prepare("SELECT bound_at FROM member_remote_children WHERE root_id = ?").all(root),
+      ).map((raw) => Bound.parse(raw).bound_at);
+    },
+    /** A child made here for another host's member tree, with its fixed deadline. */
+    addChildDeadline(thread: string, account: string, deadlineAt: number) {
+      store.atomic((db) =>
+        db
+          .prepare(
+            `INSERT INTO member_child_deadlines (thread_id, account, deadline_at) VALUES (?, ?, ?)
+             ON CONFLICT (thread_id) DO NOTHING`,
+          )
+          .run(thread, account, deadlineAt),
+      );
+    },
+    childDeadline(thread: string): { deadlineAt: number; done: boolean } | undefined {
+      const raw = read((db) =>
+        db.prepare("SELECT * FROM member_child_deadlines WHERE thread_id = ?").get(thread),
+      );
+      if (!raw) return undefined;
+      const row = Deadline.parse(raw);
+      return { deadlineAt: row.deadline_at, done: row.done === 1 };
+    },
+    /** Children here whose deadline has come and that aren't torn down yet. */
+    dueChildren(now: number): string[] {
+      return read((db) =>
+        db
+          .prepare(
+            "SELECT * FROM member_child_deadlines WHERE done = 0 AND deadline_at <= ? ORDER BY deadline_at",
+          )
+          .all(now),
+      ).map((raw) => Deadline.parse(raw).thread_id);
+    },
+    /** The earliest deadline not yet reached, for its timer. */
+    nextChildDeadline(): number | undefined {
+      const raw = read((db) =>
+        db
+          .prepare("SELECT MIN(deadline_at) AS next FROM member_child_deadlines WHERE done = 0")
+          .get(),
+      );
+      const next = Next.parse(raw).next;
+      return next ?? undefined;
+    },
+    childTornDown(thread: string) {
+      store.atomic((db) =>
+        db.prepare("UPDATE member_child_deadlines SET done = 1 WHERE thread_id = ?").run(thread),
+      );
     },
     /** The tree's sessions and its owner's processes are confirmed gone. */
     confirmStop(root: string) {

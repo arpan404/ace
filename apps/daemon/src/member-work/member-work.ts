@@ -40,14 +40,24 @@ export type TreeStop = "idle" | "stopped" | "unconfirmed" | "remote_pending";
 /** How long one tree's stop may take in a pass before the pass moves on, leaving it pending. */
 export const STOP_BOUND_MS = 30_000;
 
-/** A delegation to another host, recorded before it is sent. */
+/**
+ * A delegation to another host, recorded before it is sent (ADR 0209 §7). It carries the member
+ * and how long the child may run there, which the target enforces on its own clock.
+ */
 export interface RemoteStart {
-  /**
-   * Its answer came (`child`, or none when it failed). True when the tree was stopped while it
-   * was on the way: the caller stops that child at once.
-   */
-  settle(child: string | undefined): boolean;
+  member: { account: string; ttlMs: number };
+  /** The target named the child. True when the tree was stopped meanwhile: stop the child now. */
+  named(child: string): boolean;
+  /** The target made no child, for certain. */
+  rejected(): void;
+  /** The answer was lost after the call may have arrived: kept until the target says. */
+  ambiguous(): void;
+  /** The call ended without being sent (refused here first): nothing to wait for. A no-op once it has an outcome. */
+  notSent(): void;
 }
+
+/** How long after its deadline a host may still be tearing a member's child down. */
+const childMarginMs = memberWorkTimes.pollMs + STOP_BOUND_MS;
 
 export interface MemberWorkOptions {
   store: MemberWorkStore;
@@ -79,6 +89,11 @@ export interface MemberWorkOptions {
   hostOfflineMinutes?(): number | undefined;
   /** Names each remote start. */
   id(): string;
+  /**
+   * Asks a delegation's target, without making anything, whether it made the child: named, made
+   * for certain no child (the request is withdrawn there), or still not known.
+   */
+  resolveRemoteStart?(delegation: string): Promise<{ child: string } | "rejected" | "unknown">;
   /** How long one tree's stop may take in a pass; `STOP_BOUND_MS` unless set. */
   stopBoundMs?: number;
   log?(error: Error): void;
@@ -101,8 +116,18 @@ export interface MemberWork {
    * stop: no engine continuation, retry, automation or agent input.
    */
   resume(account: string, root: string): boolean;
-  /** Records a delegation from tree `root` to another host before it is sent; none if refused. */
-  remoteStart(account: string, root: string): RemoteStart | undefined;
+  /**
+   * Records a delegation from tree `root` to another host before it is sent (`delegation` is
+   * what's needed to ask its target later); none if refused.
+   */
+  remoteStart(account: string, root: string, delegation: string): RemoteStart | undefined;
+  /**
+   * A child another host's member tree made here: torn down at `ttlMs` from now on this
+   * machine's own clock, whatever its source says or doesn't, and never renewed.
+   */
+  trackChild(thread: string, account: string, ttlMs: number): void;
+  /** Whether such a child's time here has run out: nothing more of it runs. */
+  childExpired(thread: string): boolean;
   /** A member tree settled on its own: its lease goes. */
   release(root: string): void;
   /** Why a member tree was stopped, until its owner resumes it. */
@@ -161,8 +186,14 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
   let chain: Promise<void> = Promise.resolve();
   let cancel: (() => void) | undefined;
   let closed = false;
-  /** Trees whose stop is being settled now: a later pass doesn't start another for them. */
-  const settling = new Set<string>();
+  /**
+   * Trees whose stop is being settled now, and when that began: a later pass starts another
+   * try for one only once this one has outlived the bound, so a hang never excludes it for good.
+   */
+  const settling = new Map<string, number>();
+  /** Remote starts whose call is under way in this run; any other one's answer was lost. */
+  const sending = new Set<string>();
+  let cancelDeadline: (() => void) | undefined;
   const log = (error: unknown) =>
     options.log?.(error instanceof Error ? error : new Error(String(error)));
 
@@ -217,20 +248,110 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
     org: string,
     stop: { root: string; account: string; reason: StopReason; endedAt: number },
   ) {
-    const tree = options.stopTree(stop.root, stop.reason).catch((error: unknown): TreeStop => {
-      log(error);
-      return "unconfirmed";
-    });
-    const result = await tree;
-    const killed = await options.containment.kill(stop.account, stop.root).catch((error) => {
-      log(error);
-      return false;
-    });
-    const destinationDone = now() >= stop.endedAt + offlineMs(org) + memberWorkTimes.leaseMs;
+    await resolveStarts(org, stop.root);
+    // Both start now and run side by side, each bounded: processes are killed even while a
+    // session close hangs, and neither holds the pass past the bound.
+    const tree = bounded(
+      options.stopTree(stop.root, stop.reason).catch((error: unknown): TreeStop => {
+        log(error);
+        return "unconfirmed";
+      }),
+      "unconfirmed" as TreeStop,
+    );
+    const killed = bounded(
+      options.containment.kill(stop.account, stop.root).catch((error: unknown) => {
+        log(error);
+        return false;
+      }),
+      false,
+    );
+    const [result, gone] = await Promise.all([tree, killed]);
     const remote =
       (result !== "remote_pending" && store.remoteStarts(stop.root).length === 0) ||
-      destinationDone;
-    if (result !== "unconfirmed" && killed && remote) store.confirmStop(stop.root);
+      remoteBoundPassed(org, stop);
+    if (result !== "unconfirmed" && gone && remote) store.confirmStop(stop.root);
+  }
+
+  /** How long a member's child may run on another host: the offline allowance and a lease. */
+  function childTtlMs(org: string) {
+    return offlineMs(org) + memberWorkTimes.leaseMs;
+  }
+
+  /**
+   * Asks the target of each delegation from `root` whose answer was lost whether it made the
+   * child. Named, it joins the tree's remote children with its teardown bound; refused for
+   * certain, the start goes; otherwise it stays, and the stop with it.
+   */
+  async function resolveStarts(org: string, root: string) {
+    for (const start of store.remoteStarts(root)) {
+      if (sending.has(start.id) || !options.resolveRemoteStart) continue;
+      const answer = await bounded(
+        options.resolveRemoteStart(start.delegation).catch(() => "unknown" as const),
+        "unknown" as const,
+      );
+      if (answer === "rejected") store.removeRemoteStart(start.id);
+      else if (answer !== "unknown")
+        store.nameRemoteChild(
+          start.id,
+          answer.child,
+          org,
+          root,
+          now() + childTtlMs(org) + childMarginMs,
+        );
+    }
+  }
+
+  /**
+   * Whether every child `root` made on other hosts has been torn down by its own host by now:
+   * past the deadline that host enforces itself, and nothing whose answer was lost.
+   */
+  function remoteBoundPassed(_org: string, stop: { root: string }) {
+    if (store.remoteStarts(stop.root).length > 0) return false;
+    const bounds = store.remoteChildBounds(stop.root);
+    const at = now();
+    return bounds.length > 0 && bounds.every((bound) => at >= bound);
+  }
+
+  /** Tears down every child here whose deadline came, each bounded, retried until done. */
+  async function enforceDeadlines() {
+    const due = store.dueChildren(now());
+    await Promise.all(
+      due.map(async (thread) => {
+        const result = await bounded(
+          options.stopTree(thread, "deadline").catch((): TreeStop => "unconfirmed"),
+          "unconfirmed" as TreeStop,
+        );
+        if (result === "stopped" || result === "idle") store.childTornDown(thread);
+      }),
+    );
+    scheduleDeadline();
+  }
+
+  /** A timer for the next deadline here, so a child is torn down at it, not a pass later. */
+  function scheduleDeadline() {
+    cancelDeadline?.();
+    const next = store.nextChildDeadline();
+    if (closed || next === undefined) return;
+    cancelDeadline = options.delay(
+      () => {
+        void serial(enforceDeadlines);
+      },
+      Math.max(0, next - now()),
+    );
+  }
+
+  /** `work`'s answer, or `fallback` once the bound passes first. The work itself runs on. */
+  function bounded<T>(work: Promise<T>, fallback: T): Promise<T> {
+    return new Promise<T>((resolve) => {
+      const cancelTimer = options.delay(
+        () => resolve(fallback),
+        options.stopBoundMs ?? STOP_BOUND_MS,
+      );
+      void work.then((value) => {
+        cancelTimer();
+        resolve(value);
+      });
+    });
   }
 
   /**
@@ -241,26 +362,27 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
    */
   async function settleStops(org: string) {
     const bound = options.stopBoundMs ?? STOP_BOUND_MS;
+    const at = now();
     const running = store
       .pendingStops(org)
-      .filter((stop) => !settling.has(stop.root))
+      .filter((stop) => {
+        const began = settling.get(stop.root);
+        return began === undefined || at - began >= bound;
+      })
       .map((stop) => {
-        settling.add(stop.root);
-        const done = settleOne(org, stop)
+        settling.set(stop.root, at);
+        return settleOne(org, stop)
           .catch(log)
-          .finally(() => settling.delete(stop.root));
-        return new Promise<void>((resolve) => {
-          const cancelTimer = options.delay(resolve, bound);
-          void done.finally(() => {
-            cancelTimer();
-            resolve();
+          .finally(() => {
+            if (settling.get(stop.root) === at) settling.delete(stop.root);
           });
-        });
       });
     await Promise.all(running);
   }
 
   async function runPass() {
+    // On every machine: a member's child here ends at its deadline, org host or not.
+    await enforceDeadlines();
     const org = options.org();
     if (org === undefined) return;
     const state = held(org);
@@ -384,18 +506,42 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
       store.hold(org, account, root, at, at + memberWorkTimes.leaseMs);
       return true;
     },
-    remoteStart(account, root) {
+    remoteStart(account, root, delegation) {
       const org = options.org();
       if (org === undefined || !admit(account, root)) return undefined;
       const id = options.id();
-      store.addRemoteStart(id, org, root, now());
+      const ttlMs = childTtlMs(org);
+      store.addRemoteStart(id, org, root, now(), delegation);
+      sending.add(id);
+      const stopped = () => store.stopReason(root) !== undefined || store.lease(root) === undefined;
       return {
-        settle: () => {
+        member: { account, ttlMs },
+        notSent() {
+          if (!sending.delete(id)) return;
           store.removeRemoteStart(id);
-          // Stopped while it was on the way: what it started must be stopped too.
-          return store.stopReason(root) !== undefined || store.lease(root) === undefined;
+        },
+        named(child) {
+          sending.delete(id);
+          store.nameRemoteChild(id, child, org, root, now() + ttlMs + childMarginMs);
+          return stopped();
+        },
+        rejected() {
+          sending.delete(id);
+          store.removeRemoteStart(id);
+        },
+        ambiguous() {
+          // Kept, now as a start whose answer was lost: the stop asks its target.
+          sending.delete(id);
         },
       };
+    },
+    trackChild(thread, account, ttlMs) {
+      store.addChildDeadline(thread, account, now() + ttlMs);
+      scheduleDeadline();
+    },
+    childExpired(thread) {
+      const deadline = store.childDeadline(thread);
+      return deadline !== undefined && now() >= deadline.deadlineAt;
     },
     release: (root) => store.release(root),
     stopReason: (root) => store.stopReason(root),
@@ -447,6 +593,7 @@ export function memberWork(options: MemberWorkOptions): MemberWork {
     async close() {
       closed = true;
       cancel?.();
+      cancelDeadline?.();
       await chain;
     },
   };

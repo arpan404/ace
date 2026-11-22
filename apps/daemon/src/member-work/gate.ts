@@ -37,8 +37,11 @@ export interface OwnerGate {
   spawn(thread: ThreadId): Record<string, string> | undefined;
   /** Before anything reaches the provider that makes it run work: input, answers, goals. */
   work(thread: ThreadId): void;
-  /** Before `thread` delegates to another host: the start, recorded until its answer comes. */
-  delegate(thread: ThreadId): RemoteStart | undefined;
+  /**
+   * Before `thread` delegates to another host: the start, recorded until its target says whether
+   * it made the child. `delegation` is what's needed to ask it later.
+   */
+  delegate(thread: ThreadId, delegation: string): RemoteStart | undefined;
 }
 
 /**
@@ -58,6 +61,8 @@ export function ownerGate(deps: {
     return { owner, work };
   };
   const admitted = (thread: ThreadId) => {
+    // A child another host's member tree made here, past its deadline: nothing more of it runs.
+    if (deps.work()?.childExpired(thread) === true) throw new OwnerRefused();
     const found = owned(thread);
     if (found && !found.work.admit(found.owner.account, found.owner.root)) throw new OwnerRefused();
     return found;
@@ -70,10 +75,11 @@ export function ownerGate(deps: {
     work(thread) {
       admitted(thread);
     },
-    delegate(thread) {
+    delegate(thread, delegation) {
+      if (deps.work()?.childExpired(thread) === true) throw new OwnerRefused();
       const found = owned(thread);
       if (!found) return undefined;
-      const start = found.work.remoteStart(found.owner.account, found.owner.root);
+      const start = found.work.remoteStart(found.owner.account, found.owner.root, delegation);
       if (!start) throw new OwnerRefused();
       return start;
     },

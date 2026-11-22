@@ -116,7 +116,7 @@ export function mayRun(input: {
 }
 
 /** Why a member's work was stopped: shown on the tree, never as done. */
-export type StopReason = "revoked" | "lease_expired" | "stopped";
+export type StopReason = "revoked" | "lease_expired" | "stopped" | "deadline";
 
 export type Lease = { root: string; account: string; expiresAt: number };
 
