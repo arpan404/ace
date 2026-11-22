@@ -81,7 +81,7 @@ struct SpadeNewBotSheet: View {
                         NavigationLink {
                             MarketBrowseView(model: client, page: .search(type: "spade-bot"), machineName: machineName)
                         } label: {
-                            InsetRow("From the marketplace", icon: .storefront)
+                            InsetRow("From the Store", icon: .store)
                         }
                         .disabled(making)
                         .accessibilityIdentifier("spade.newbot.market")
