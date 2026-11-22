@@ -44,8 +44,6 @@ export type Recovered =
 type Recover = OpenOptions["recover"];
 type Limits = OpenOptions["limits"];
 
-/** How far a catalog search for an attempt's run may go before its answer is "unknown". */
-const maxCatalogRuns = 100_000;
 
 /**
  * The run an attempted send created, found from the agent record, not the run history: the SDK
@@ -77,7 +75,8 @@ async function attemptedRun(
       filter: { agentIds: [agentId], limit: limits.historyPageSize, ...(cursor ? { cursor } : {}) },
     });
     for (const raw of page.items) {
-      if (++count > maxCatalogRuns) return "unknown";
+      // Bounded by the thread's identity budget, not the agent's history: past it, "unknown".
+      if (++count > limits.maxIdentities) return "unknown";
       const run = RunRecord.parse(raw);
       if (run.agentId === agentId && run.createdAt >= at) return run;
     }

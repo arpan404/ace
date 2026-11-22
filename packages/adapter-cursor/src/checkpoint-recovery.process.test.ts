@@ -298,6 +298,37 @@ it("opening a long Cursor thread with a send in doubt does not read its run hist
   }
 });
 
+it("an earlier build's send in doubt gives up its run search at the budget and stays uncertain", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-legacy-budget-")));
+  try {
+    const runs = [...longHistory, { runId: "done", status: "finished" as const, texts: ["new"] }];
+    const { store, reads } = counted(await storeWith(root, runs));
+    const at = 99 + runs.length;
+    const found: Recovered[] = [];
+    await recoverCursorCheckpoint(
+      { Agent: { cancelRun: async () => {} } },
+      store,
+      {
+        cwd: root,
+        threadId: "ace-thread",
+        generation: "replacement",
+        nativeSessionId: agentId,
+        // An earlier build's attempt: no run id was framed, so only a search could find it.
+        recover: { runs: [], attempt: { operationId: "op", segment: 0, at } },
+        policy: "full-access",
+        autoReviewAvailable: false,
+        limits: CursorLimitsSchema.parse({ historyPageSize: 2, maxIdentities: 10 }),
+      },
+      (item) => found.push(item),
+    );
+    // Nothing published: the daemon keeps the send uncertain, for the person.
+    expect(found).toEqual([]);
+    expect(reads.runLists).toBeLessThanOrEqual(6);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it("a shortened stored copy is matched only to the committed update it shortens", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-shortened-")));
   try {

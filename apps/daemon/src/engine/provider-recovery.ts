@@ -3,7 +3,7 @@ import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Frame, Translator } from "@ace/engine-api";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
 import { cursorStoreUnusable } from "@ace/adapter-cursor/store-fence";
 import {
@@ -54,6 +54,8 @@ export class ProviderRecovery {
   private lastFrame: StatementSync;
   private readRetired: StatementSync;
   private writeRetired: StatementSync;
+  private recentKinds: StatementSync;
+  private untrimmed: StatementSync;
   constructor(store: Store) {
     this.store = store;
     [
@@ -69,6 +71,8 @@ export class ProviderRecovery {
       this.readFrame,
       this.lastFrame,
       this.readRetired,
+      this.recentKinds,
+      this.untrimmed,
       this.writeRetired,
     ] = store.atomic(
       (db) =>
@@ -110,10 +114,20 @@ export class ProviderRecovery {
           db.prepare(
             "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorRetired' AND key='root'",
           ),
+          // Newest first, bounded: where an earlier build's open turn and session start.
+          db.prepare(
+            "SELECT rowid, json_extract(frame,'$.data.kind') AS kind FROM engine_provider_frames WHERE thread_id=? ORDER BY rowid DESC LIMIT 4096",
+          ),
+          // Threads whose settled frames are still waiting to be deleted, a few at a time.
+          db.prepare(
+            "SELECT thread_id FROM engine_state_records WHERE section='cursorFrames' AND key='root' AND json_extract(value,'$.trimmed')=0 LIMIT ?",
+          ),
           db.prepare(
             "INSERT INTO engine_state_records VALUES (?,'cursorRetired','root',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
           ),
         ] satisfies [
+          StatementSync,
+          StatementSync,
           StatementSync,
           StatementSync,
           StatementSync,
@@ -137,6 +151,10 @@ export class ProviderRecovery {
    */
   async restore(threadId: ThreadId, translator: Translator): Promise<Unsettled> {
     const unsettled = new UnsettledRuns();
+    // An earlier build's thread has no records yet: its first reopen finds where its open turn
+    // starts among the newest frames, and from then on it is this build's (`migrate`).
+    const migrating = this.legacy(threadId, this.record(threadId));
+    if (migrating) this.migrate(threadId);
     // The latest session's open frame, read by its row when the open turn began after it, then
     // the open turn's frames: frames of settled turns still waiting to be deleted are not read.
     const { below = 0, open } = this.frames(threadId);
@@ -157,6 +175,8 @@ export class ProviderRecovery {
         const frame: Frame = { ...parsed, data: payload.data, payload };
         const facts = translator.translate(frame, parsed.t);
         unsettled.add(frame.data);
+        // The attempt record an earlier build never kept, rebuilt from the same frames.
+        if (migrating) this.note(threadId, frame.data);
         // A previous host's emergency fence is historical, not a translator overflow.
         // Opening the replacement host still verifies its journal, quota, ownership
         // and native run state before any new send can reach the pinned checkpoint.
@@ -188,6 +208,31 @@ export class ProviderRecovery {
   private record(threadId: ThreadId): AttemptRecord | undefined {
     const row = this.store.atomic(() => this.readRecord.get(threadId));
     return row ? storedAttemptRecord(String(row.value)) : undefined;
+  }
+  /**
+   * The records of an earlier build's thread, from its newest frames only (bounded): its open
+   * turn starts at its latest send, and its session's open frame is the latest before that.
+   * With no send among them, the oldest of them marks the start.
+   */
+  private migrate(threadId: ThreadId): void {
+    const recent = this.store.atomic(() => this.recentKinds.all(threadId));
+    let below: number | undefined;
+    let open: number | undefined;
+    for (const row of recent) {
+      const rowid = Number(row.rowid);
+      if (below === undefined && row.kind === "send") below = rowid;
+      else if (below !== undefined && row.kind === "open") {
+        open = rowid;
+        break;
+      }
+    }
+    const last = recent.at(-1);
+    if (below === undefined && last) below = Number(last.rowid);
+    if (below === undefined) return;
+    this.writeFramesRecord.run(
+      threadId,
+      JSON.stringify({ below, ...(open === undefined ? {} : { open }), trimmed: false }),
+    );
   }
   /** Sends of retired sessions, with their delivery evidence (see `reset`). */
   private retired(threadId: ThreadId): AttemptRecord[] {
@@ -296,6 +341,14 @@ export class ProviderRecovery {
     const next =
       kind === "open" ? { ...record, open: row } : { ...record, below: row, trimmed: false };
     this.writeFramesRecord.run(threadId, JSON.stringify(next));
+  }
+  /**
+   * One bounded step of the idle sweep: a batch of settled frames for each of a few threads, so
+   * a thread that stays idle still loses its backlog, off any commit (ADR 0170).
+   */
+  pruneIdle(threads = 4): void {
+    const ids = this.store.atomic(() => this.untrimmed.all(threads));
+    for (const row of ids) this.store.atomic(() => this.trimStep(ThreadId.parse(row.thread_id)));
   }
   /** Deletes up to 256 frames of settled turns: a bounded step, in the commit it rides on. */
   trimStep(threadId: ThreadId): void {

@@ -70,20 +70,18 @@ function storeFrame(
   kind: string,
   operationId = "old",
 ) {
-  const result = h.store
-    .statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)")
-    .run(
-      h.id,
-      "host",
+  const result = h.store.statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)").run(
+    h.id,
+    "host",
+    seq,
+    JSON.stringify({
       seq,
-      JSON.stringify({
-        seq,
-        t: seq,
-        dir: "recv",
-        channel: "sdk",
-        data: frame(kind, {}, operationId),
-      }),
-    );
+      t: seq,
+      dir: "recv",
+      channel: "sdk",
+      data: frame(kind, {}, operationId),
+    }),
+  );
   return Number(result.lastInsertRowid);
 }
 const count = (h: { store: Store }) =>
@@ -191,4 +189,39 @@ test("a send in doubt keeps its delivery evidence through a fresh session, after
   });
   expect(recovery.attempted(h.id, "send-2")).toBe(true);
   expect(recovery.attempted(h.id, "send-1")).toBe(true);
+});
+
+test("the first reopen of a thread an earlier build left reads from its latest send, not its whole record", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  // No records of this build: an earlier build's frames, a long settled stretch, then a turn.
+  storeFrame(h, 1, "open");
+  for (let seq = 2; seq < 2000; seq++) storeFrame(h, seq, "delta");
+  storeFrame(h, 2000, "send", "new");
+  storeFrame(h, 2001, "delta", "new");
+  const seen: string[] = [];
+  await recovery.restore(h.id, {
+    translate(input) {
+      seen.push(String((input.data as { kind?: string }).kind));
+      return [];
+    },
+    tick: () => [],
+  });
+  expect(seen).toEqual(["open", "send", "delta"]);
+  // From then on it is this build's: its settled frames go a batch at a time.
+  recovery.trimStep(h.id);
+  expect(count(h)).toBe(2001 - 256);
+});
+
+test("an idle thread's settled frames go a bounded batch per sweep, with no new frame committed", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  recovery.captured(h.id, "open", storeFrame(h, 1, "open"), false);
+  for (let seq = 2; seq < 700; seq++) storeFrame(h, seq, "delta");
+  recovery.captured(h.id, "send", storeFrame(h, 700, "send", "new"), true);
+  // The thread goes idle: nothing commits for it any more.
+  recovery.pruneIdle();
+  expect(count(h)).toBe(700 - 256);
+  for (let sweep = 0; sweep < 4; sweep++) recovery.pruneIdle();
+  expect(count(h)).toBe(2);
 });

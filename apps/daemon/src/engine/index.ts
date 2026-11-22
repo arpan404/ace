@@ -133,6 +133,17 @@ export class Engine {
     }),
   );
   private reconcileRetryMs: readonly number[] | undefined;
+  /** The idle sweep of Cursor threads' settled frames: a bounded batch every 30 s (ADR 0170). */
+  private cancelSweep: (() => void) | undefined;
+  private sweep = () => {
+    if (this.closing) return;
+    try {
+      this.repo.recovery.pruneIdle();
+    } catch (error) {
+      this.report(error);
+    }
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
+  };
   private processesGone: () => Promise<boolean> = async () => false;
   private readyState = false;
   private closing = false;
@@ -194,6 +205,7 @@ export class Engine {
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
     this.reconcileRetryMs = options.cursorReconcileRetryMs;
+    this.cancelSweep = this.clock.setTimer(this.sweep, 30_000);
     // Without the check nothing is proven gone: a send in doubt is never sent again by itself.
     if (options.cursorPreviousProcessesGone)
       this.processesGone = options.cursorPreviousProcessesGone;
@@ -1447,6 +1459,7 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.cancelSweep?.();
       this.stopReleaseWatch();
       await this.settledTrees.settled();
       this.flushDepth++;
