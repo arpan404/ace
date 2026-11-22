@@ -206,6 +206,11 @@ export async function startFilesRelay(
       async onClientChannel(channel) {
         const hello = await channel.receive();
         if (hello.type === "pair.redeem") {
+          // An organization's host redeems no pairing link (ADR 0209 §4.2).
+          if (options.account?.accessOrg() !== undefined) {
+            channel.close();
+            return;
+          }
           await redeemPairing(channel, hello, options.auth);
           return;
         }
@@ -220,6 +225,16 @@ export async function startFilesRelay(
           return;
         }
         const device = admitted.device;
+        // An organization's host opens no dedicated channel through the relay: nothing can be
+        // proven on one before its frames flow, and its main channel decides every message
+        // (ADR 0209 §4.2). Machine calls, tunnels and transfers are refused there with it.
+        if (hello.channel !== undefined && options.account?.accessOrg() !== undefined) {
+          await channel
+            .send({ type: "error", code: "unauthorized", message: "Valid hello required" })
+            .catch(() => {});
+          channel.close();
+          return;
+        }
         // A member who reaches only Spade has the main channel and nothing else (ADR 0206).
         if (
           admitted.member &&

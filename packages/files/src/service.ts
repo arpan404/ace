@@ -443,7 +443,14 @@ export class FilesService {
     category: ArtifactRecord["category"];
     sourceThread?: ArtifactRecord["sourceThread"];
     id?: string;
+    /**
+     * The producer's last word, asked right before the catalog changes, after every await: a
+     * throw leaves the registry as it was.
+     */
+    guard?: () => void;
   }): Promise<string> {
+    const { guard, ...fields } = input;
+    input = fields;
     return this.serial(async () => {
       input = { ...input, root: await realpath(input.root) };
       const root = this.safes.get(input.root);
@@ -477,6 +484,7 @@ export class FilesService {
         expires: Number.MAX_SAFE_INTEGER,
         bytes: description.size,
       });
+      guard?.();
       if (replacing) this.catalog.replaceArtifact(record);
       else this.catalog.put(record);
       return record.id;

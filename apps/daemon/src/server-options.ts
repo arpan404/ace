@@ -240,6 +240,12 @@ export interface ServerOptions {
   };
   /** Local-token clients can read all threads by default. */
   canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
+  /**
+   * Where a thread-scoped resource sits on an org host, and who may reach its tree (ADR 0209
+   * §4.2, §5.3). Unset: trees are placed by their delegation tree and none has access a member
+   * can hold, so the access policy refuses every member request on a tree.
+   */
+  orgTrees?: import("./org-access/trees.ts").TreeResolver;
   notifications?: Pick<
     NotificationWorker,
     "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"

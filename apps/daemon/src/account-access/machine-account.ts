@@ -143,7 +143,9 @@ export function machineAccount(options: {
   let noCredentials = false;
   // Never keys from the session's origin, which the host token sets, or from ACE_ACCOUNT_URL.
   const personKeys = options.personKeys ?? shippedGrantKeys;
-  const owner = machineOwner(options.dataDir);
+  // The seal takes effect before the owner record is written: everything listening (parcels in
+  // flight, sockets) hears it then, even if the record's write is slow or fails.
+  const owner = machineOwner(options.dataDir, { sealed: () => notify() });
   const enrollment = orgEnrollment({
     owner,
     backend,
@@ -1046,6 +1048,14 @@ export function machineAccount(options: {
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     ownerOrg(): string | undefined {
       return owner.org();
+    },
+    /**
+     * The organization whose access policy governs this home (ADR 0209): the one it is enrolled
+     * to, or the one whose data a release left sealed here (amendment 1). Undefined only on a
+     * person's machine that was never an organization's.
+     */
+    accessOrg(): string | undefined {
+      return owner.org() ?? owner.sealed();
     },
     /** Whether the owner was read from disk yet (`load`). */
     ownerKnown(): boolean {

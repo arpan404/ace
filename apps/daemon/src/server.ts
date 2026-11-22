@@ -79,6 +79,8 @@ import { unreachable, type ReachFacts } from "./external-mcp/reach.ts";
 import { remoteDeflate } from "./compression-policy.ts";
 import { RELAY_NK_HANDSHAKE } from "@ace/protocol";
 import { answerEarly } from "./relay-nk/early-reads.ts";
+import { orgSocketPolicy } from "./org-access/socket-wiring.ts";
+import { serverTrees } from "./org-access/store-trees.ts";
 import { releaseLineOf } from "@ace/service/release-line";
 export async function startServer(options: ServerOptions): Promise<{
   relayHostId?: string | undefined;
@@ -322,7 +324,16 @@ export async function startServer(options: ServerOptions): Promise<{
   // they hold the current machine code; an account change closes every path at once (ADR 0114).
   // Not as a revocation: the client reconnects and its next hello gets the refusal that fits.
   const accountSockets = new Map<MainSocket, () => boolean>();
+  // An organization's host keeps no paired device (ADR 0209 §4.2): its bearer would be nobody
+  // there, and pairing is refused, so every older credential is revoked once the machine is one.
+  const revokePairedOnOrgHost = () => {
+    if (options.machineAccount?.accessOrg() !== undefined) auth.revokeOthers(undefined);
+  };
+  revokePairedOnOrgHost();
   const stopAccountChange = options.machineAccount?.onChange(() => {
+    revokePairedOnOrgHost();
+    // Enrolled: every open preview stream is asked about again, and ends.
+    void preview?.revalidate().catch((error: unknown) => options.log?.(error));
     for (const [socket, admitted] of accountSockets)
       if (!admitted()) {
         cleanups.get(socket)?.();
@@ -334,6 +345,8 @@ export async function startServer(options: ServerOptions): Promise<{
   // An org host whose keychain holds its registry's key signs what waits there (ADR 0206 §5.2).
   const registrySigner = startRegistrySigner(options);
   const createServiceSessions = createSocketRegistry();
+  // Where a resource sits, for the org host's access policy (ADR 0209 §4.2).
+  const orgTrees = serverTrees(options);
   const serviceTasks = new Set<Promise<void>>();
   const serviceSessions = new Map<MainSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();
@@ -444,6 +457,16 @@ export async function startServer(options: ServerOptions): Promise<{
       relayed === undefined &&
       accountAdmitted === undefined &&
       authenticated.get(socket)?.revocable === false;
+    /** The desktop app's or "Use my Chrome"'s own credential, which only loopback takes. */
+    const localCredential = () => {
+      const actor = authenticated.get(socket);
+      return (
+        relayed === undefined &&
+        accountAdmitted === undefined &&
+        actor !== undefined &&
+        (actor.scopes.includes("desktop") || actor.scopes.includes("user-browser"))
+      );
+    };
     // Any socket may prove the person's standing (ADR 0190): on this socket only, against this
     // nonce and, relayed, this stream's Noise handshake hash, and only until the proving grant's
     // expiry; a grant refresh never carries it on.
@@ -472,7 +495,7 @@ export async function startServer(options: ServerOptions): Promise<{
       return true;
     };
     const authorize = (scope: import("@ace/protocol").DeviceScope) =>
-      stillAdmitted() && holds(authenticated.get(socket), scope);
+      stillAdmitted() && holds(authenticated.get(socket), scope) && org.speaks();
     // A member's standing on an organization's host (ADR 0206 §2.2), proven on this socket as
     // the person's is, until its grant's expiry, under this owner.
     const memberStanding = orgStanding({
@@ -484,6 +507,20 @@ export async function startServer(options: ServerOptions): Promise<{
         if (!account) throw new Error("No ace account on this machine");
         return account.memberStandingNow(token);
       },
+    });
+    // On an org host, who this socket is and what it may do, decided before any service sees a
+    // message (ADR 0209 §3, §4). A person's machine is unchanged: the policy steps aside.
+    const org = orgSocketPolicy({
+      org: () => options.machineAccount?.accessOrg(),
+      facts: () => ({
+        // The host's token, or the app on the host's desktop with its local-only credential.
+        hostToken: hostCredential() || localCredential(),
+        admitted: authenticated.get(socket)?.member,
+        proven: memberStanding.current(),
+      }),
+      trees: orgTrees,
+      fail,
+      send,
     });
     /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */
     const hostShell = () =>
@@ -501,7 +538,9 @@ export async function startServer(options: ServerOptions): Promise<{
         stillAdmitted() &&
         activeDevice(actor, auth.now()) &&
         (scope === "read" || scope === "operate") &&
-        actor.scopes.includes(scope)
+        actor.scopes.includes(scope) &&
+        // A member's standing, proven and current, every time it is asked (ADR 0209 §3).
+        org.speaks()
       );
     };
     const sessions = createServiceSessions({
@@ -534,13 +573,18 @@ export async function startServer(options: ServerOptions): Promise<{
         return () => stillAdmitted() && holds(actor, scope);
       },
       canReadThread: (thread) =>
-        device !== undefined && options.canReadThread?.(device, thread) !== false,
+        device !== undefined &&
+        options.canReadThread?.(device, thread) !== false &&
+        org.reads(thread),
       hostCredential,
       personProven,
       memberStanding: () => memberStanding.current(),
       memberStandingChecked: () => memberStanding.checked(),
-      orgHost: () => options.machineAccount?.ownerOrg() !== undefined,
+      orgHost: () => options.machineAccount?.accessOrg() !== undefined,
       spadeAuthorize,
+      bindHandle: (handle) => org.bind(handle),
+      canWriteThread: (thread) => org.writes(thread),
+      holder: () => org.holder(),
       accountDevice: () => accountId,
       access: {
         auth,
@@ -561,6 +605,7 @@ export async function startServer(options: ServerOptions): Promise<{
       serviceSessions.delete(socket);
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
+      org.gate.handles.clear();
       outbox.clear();
       if (device) {
         const connections = receivers.get(device);
@@ -583,6 +628,8 @@ export async function startServer(options: ServerOptions): Promise<{
     };
     cleanups.set(socket, cleanup);
     ticks.set(socket, () => {
+      // A lapsed standing ends every live handle its member held (ADR 0209 §4.2).
+      org.revalidate();
       if (grant?.expired()) {
         cleanups.get(socket)?.();
         closer.gracefulClose(socket, GRANT_EXPIRED_CLOSE, GRANT_EXPIRED_REASON);
@@ -625,7 +672,7 @@ export async function startServer(options: ServerOptions): Promise<{
         connections = new Map();
         receivers.set(device, connections);
       }
-      connections.set(socket, send);
+      connections.set(socket, org.fanOut(send));
     };
     const authenticateServices = async (
       channel: Parameters<NonNullable<(typeof sessions)[number]["authenticated"]>>[0],
@@ -683,7 +730,8 @@ export async function startServer(options: ServerOptions): Promise<{
             : Array.isArray(data)
               ? Buffer.concat(data)
               : Buffer.from(data);
-          if (!device || !sessions.some((service) => service.binary?.(frame)))
+          // On an org host, only on a channel whose opening the policy still allows.
+          if (!device || !org.binary() || !sessions.some((service) => service.binary?.(frame)))
             throw new Error("No binary channel");
           return;
         }
@@ -781,6 +829,12 @@ export async function startServer(options: ServerOptions): Promise<{
           options.warn?.("Client's last connection closed", { ...message.lastClose, ...peer });
         preAuth.authenticated(socket);
         authenticated.set(socket, actor);
+        // An org host opens a dedicated channel only where the policy allows (ADR 0209 §4.2).
+        if (!org.opens(message.channel)) {
+          authenticated.delete(socket);
+          fail("unauthorized", "Valid hello required", true);
+          return;
+        }
         try {
           // HTTP discovery is available while listener features initialize. A
           // welcome promises the socket can use the published service registry.
@@ -830,8 +884,11 @@ export async function startServer(options: ServerOptions): Promise<{
           early.continuations = answerEarly(early.subscribes, {
             session: early.session,
             store: options.store,
+            // An org host answers nothing before a member proves standing (ADR 0209 §4.2).
             canRead: (thread) =>
-              authorize("read") && options.canReadThread?.(reader, thread) !== false,
+              org.personal() &&
+              authorize("read") &&
+              options.canReadThread?.(reader, thread) !== false,
             encoder,
             send,
           }).map((subscribe) => JSON.stringify(subscribe));
@@ -845,6 +902,8 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         return;
       }
+      // An org host decides every message before any service's `handle` (ADR 0209 §4.2).
+      if (org.refuses(message)) return;
       // An organization's host: its shell (terminal, files) is its owners' only (ADR 0206 §2.2).
       if (hostShellMessage(message.type) && !hostShell()) {
         fail(
@@ -1055,6 +1114,7 @@ export async function startServer(options: ServerOptions): Promise<{
             personProven,
             send,
             delay: runtime.delay,
+            recheck: org.recheck(message),
           });
           return;
       }
@@ -1069,6 +1129,8 @@ export async function startServer(options: ServerOptions): Promise<{
         encoder,
         lanes,
       });
+      // A subscription is a live handle bound to what it named when it was made.
+      org.track(message, subscriptions);
     };
     input.listen(
       socket,
@@ -1150,7 +1212,12 @@ export async function startServer(options: ServerOptions): Promise<{
       remoteStarted = { direct: starting.directStarted, networks: starting.started };
     }
     if (options.preview)
-      preview = await createDaemonPreview(options.store, options.preview, auth.now);
+      preview = await createDaemonPreview(
+        options.store,
+        options.preview,
+        auth.now,
+        () => options.machineAccount?.accessOrg() !== undefined,
+      );
   } catch (error) {
     stopTimer();
     await dynamicRemote?.close();

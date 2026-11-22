@@ -1,4 +1,5 @@
 import { logFields } from "@ace/diagnostics";
+import { quarantineOnOrgHost } from "./quarantine.ts";
 import {
   AgentId,
   HostId,
@@ -108,7 +109,15 @@ export function startParcels(context: ServiceContext): void {
   // Linking again or unlinking ends the relay streams of the old pairings before it reports done.
   const unfollowLinks = services.fleet?.onChange(() => void relay.close());
   if (unfollowLinks) resources.own(unfollowLinks);
+  // An organization's host sends nothing by a machine route (ADR 0209 §4.2).
+  const orgHost = () => context.orgHost?.org() !== undefined;
+  // Enrollment itself ends every parcel call in flight (ADR 0209 §4.2).
+  const stopHalting = context.orgHost?.onChange?.(() => {
+    if (orgHost()) link.halt();
+  });
+  if (stopHalting) resources.own(stopHalting);
   const link = new ParcelLink({
+    orgHost,
     pinned: options.parcels?.pinned ?? pinnedRequest,
     // Polling every linked machine must not open a TLS connection per call: parcels share the
     // machine's kept-open connections, which also refuse a pairing no longer saved.
@@ -288,6 +297,17 @@ export function startParcels(context: ServiceContext): void {
   /** Expiry, late notices and results that couldn't be handed over before. */
   const sweep = async () => {
     const at = now();
+    // Enrolled: what was queued for other machines fails, and what came from them waits,
+    // unopened, without being handed to a thread here.
+    if (orgHost()) {
+      // Whatever is still waiting on another machine's answer ends now.
+      link.halt();
+      quarantineOnOrgHost(rows, (parcelId, state, reason) =>
+        sender.settle(parcelId, state, reason),
+      );
+      for (const row of rows.undeliveredOut()) sender.report(row.parcelId);
+      return;
+    }
     for (const row of rows.staleOutbox(at - PARCEL_DEADLINE_MS))
       sender.settle(row.parcelId, "failed", "Its parent didn't collect it within a day.");
     // Arrivals their sender abandoned free their space after a day; delivered ones after a week.
@@ -318,7 +338,11 @@ export function startParcels(context: ServiceContext): void {
     ?.ready()
     .then(() => {
       // The loops start at once; copies a restart cut off are redone beside them.
-      every(pollMs, () => puller.round(stopping.signal), "Parcels not collected");
+      every(
+        pollMs,
+        () => (orgHost() ? Promise.resolve() : puller.round(stopping.signal)),
+        "Parcels not collected",
+      );
       every(Math.min(SWEEP_MS, pollMs * 30), sweep, "Parcel sweep failed");
       void sweep().catch((error: unknown) =>
         record("warn")("Parcel sweep failed", { error: String(error) }),

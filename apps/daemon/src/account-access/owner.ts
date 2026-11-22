@@ -29,14 +29,66 @@ const OrgOwner = z.object({
 });
 type Owner = { kind: "person"; account: string } | { kind: "org"; org: string };
 const file = (dataDir: string) => join(dataDir, "ace-owner.json");
+/**
+ * The organization whose data this home holds (ADR 0209 amendment 1). Written when the machine is
+ * given to an organization and never removed by ace: a release clears the owner, not the seal,
+ * so the org's threads stay behind its access policy and no person's proof claims the home.
+ */
+const sealFile = (dataDir: string) => join(dataDir, "ace-org-seal.json");
+const Seal = z.object({ kind: z.literal("org-seal"), org: OrgOwner.shape.org });
+/** The organization an `ace-org-seal.json` body names. */
+export const sealOrgOf = (raw: unknown): string | undefined => Seal.safeParse(raw).data?.org;
+/**
+ * What a seal that is there but can't be read or parsed stands for: an organization ace can't
+ * name. It never matches a real one (`org_` ids have no `?`), so the home stays sealed, no
+ * person claims it, and no member is admitted.
+ */
+export const UNREADABLE_SEAL = "org_?unreadable";
+const missing = (error: unknown) =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+/**
+ * The organization a read of `ace-org-seal.json` names: undefined only when there is no seal
+ * file at all (`ENOENT`). Any other read error, or a body that isn't a seal, fails closed.
+ */
+export function sealOf(read: { text: string } | { error: unknown }): string | undefined {
+  if ("error" in read) return missing(read.error) ? undefined : UNREADABLE_SEAL;
+  try {
+    return sealOrgOf(JSON.parse(read.text)) ?? UNREADABLE_SEAL;
+  } catch {
+    return UNREADABLE_SEAL;
+  }
+}
+/** The organization an `ace-owner.json` body names, or undefined for a person's machine. */
+export const ownerOrgOf = (raw: unknown): string | undefined => {
+  const org = OrgOwner.safeParse(raw);
+  return org.success ? org.data.org : undefined;
+};
 const parseOwner = (raw: unknown): Owner => {
   const org = OrgOwner.safeParse(raw);
   if (org.success) return { kind: "org", org: org.data.org };
   return { kind: "person", account: PersonOwner.parse(raw).account };
 };
 
-export function machineOwner(dataDir: string) {
+export function machineOwner(
+  dataDir: string,
+  hooks: {
+    /**
+     * The home was sealed just now, before anything else of the enrollment is written: work an
+     * org host refuses (parcels in flight) ends here, whether or not the owner record follows.
+     */
+    sealed?: () => void;
+  } = {},
+) {
   let owner: Owner | undefined;
+  let seal: string | undefined;
+  const writeSeal = async (org: string) => {
+    await mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const temporary = `${sealFile(dataDir)}.${randomUUID()}`;
+    await writeFile(temporary, JSON.stringify({ kind: "org-seal", org }), { mode: 0o600 });
+    await rename(temporary, sealFile(dataDir));
+    seal = org;
+    hooks.sealed?.();
+  };
   let generation = 0;
   let changing = false;
   let turn: Promise<unknown> = Promise.resolve();
@@ -75,12 +127,26 @@ export function machineOwner(dataDir: string) {
       } catch {
         owner = undefined;
       }
+      // Only a missing seal is no seal: one that can't be read or parsed fails closed.
+      seal = await readFile(sealFile(dataDir), "utf8").then(
+        (text) => sealOf({ text }),
+        (error: unknown) => sealOf({ error }),
+      );
+      // A home given to an organization before seals existed is sealed now; only a home with no
+      // seal file at all. A seal for another organization than the owner record stands, and the
+      // record answers for nobody: the mismatch fails closed.
+      if (owner?.kind === "org" && seal === undefined) await writeSeal(owner.org);
+      else if (owner?.kind === "org" && seal !== owner.org) owner = undefined;
     },
+    /** The organization whose data this home holds, enrolled or released; undefined if none. */
+    sealed: (): string | undefined => seal,
     /**
      * The owner's account id: undefined before any person's proof was taken, and on an
      * organization's host, where no person owns the machine (`org`).
      */
-    current: (): string | undefined => (owner?.kind === "person" ? owner.account : undefined),
+    current: (): string | undefined =>
+      // A person's record beside a seal (an enrollment cut off after its seal) owns nothing.
+      owner?.kind === "person" && seal === undefined ? owner.account : undefined,
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     org: (): string | undefined => (owner?.kind === "org" ? owner.org : undefined),
     /** The generation a proof starting now is checked against (`holds`, `claim`). */
@@ -95,6 +161,9 @@ export function machineOwner(dataDir: string) {
     claim(account: string, seen: number): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
+        // A sealed home is an organization's, released or mid-enrollment, whatever person's
+        // record sits beside the seal: personal use starts on a fresh home.
+        if (seal !== undefined) return false;
         if (owner !== undefined) return owner.kind === "person" && owner.account === account;
         // Nothing was proven without an owner, so no standing needs to end here.
         const next: Owner = { kind: "person", account };
@@ -111,9 +180,13 @@ export function machineOwner(dataDir: string) {
     enroll(account: string, org: string, seen: number, drop: () => void): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
+        // An enrollment never rewrites a seal: a sealed home isn't a person's to give.
+        if (seal !== undefined) return false;
         if (owner?.kind !== "person" || owner.account !== account) return false;
         const next: Owner = { kind: "org", org };
         await change(drop, async () => {
+          // Sealed first: a crash between the two leaves the home sealed, never open.
+          await writeSeal(org);
           await write(next);
           owner = next;
         });
