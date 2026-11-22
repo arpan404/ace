@@ -71,6 +71,35 @@ import UIKit
         #expect(!views.contains { $0.accessibilityIdentifier == "markit-table" })
     }
 
+    @Test func mathInACellIsDrawnAsItsFormulaAndReadAsItsSource() throws {
+        let table = MarkdownTable(source: "| Term | Value |\n| --- | --- |\n| Energy | $E = mc^2$ |",
+                                  flavor: AnswerMarkdown.flavor, theme: AceMarkdownTheme.current(), traits: Self.traits)
+        let cell = try #require(table.cells.first { $0.row == 1 && $0.column == 1 })
+        #expect(cell.hasMath)
+        #expect(cell.spoken.contains("E = mc^2"))
+        // No TeX is left in the cell's own text.
+        let words = cell.runs.compactMap { if case .text(let text) = $0 { String(text.characters) } else { nil } }.joined()
+        #expect(!words.contains("mc^2"))
+    }
+
+    @Test func aTableReadRowByRowAsItArrivesHasTheCellsOfReadingItWhole() {
+        let answer = "| Area | State |\n| --- | :-: |\n| Recording | `done` |\n| Replay | not **started** |\n| [Plan][p] | $x^2$ |\n\n[p]: https://example.com"
+        let reader = MarkdownTableReader()
+        let theme = AceMarkdownTheme.current()
+        var grown = ""
+        for character in answer {
+            grown.append(character)
+            let streamed = reader.table(source: grown, flavor: AnswerMarkdown.flavor, theme: theme, traits: Self.traits)
+            let whole = MarkdownTable(source: grown, flavor: AnswerMarkdown.flavor, theme: theme, traits: Self.traits)
+            #expect(streamed.rows == whole.rows, "at \(grown.count)")
+            #expect(streamed.natural == whole.natural && streamed.minimum == whole.minimum, "at \(grown.count)")
+            #expect(streamed.cells.map { "\($0.row),\($0.column),\($0.header),\($0.spoken)" }
+                == whole.cells.map { "\($0.row),\($0.column),\($0.header),\($0.spoken)" }, "at \(grown.count)")
+        }
+    }
+
+    private static let traits = UITraitCollection(preferredContentSizeCategory: .large)
+
     /// Draws `text` as an answer at `width` and returns its views once `ready` holds for them.
     private func laidOut(_ text: String, width: CGFloat, ready: ([UIView]) -> Bool) async throws -> [UIView] {
         let host = UIHostingController(rootView: AceMarkdown(text: text, flavor: AnswerMarkdown.flavor).frame(width: width))

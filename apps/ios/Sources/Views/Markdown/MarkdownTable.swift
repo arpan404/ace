@@ -6,7 +6,8 @@ import UIKit
 /// links, emphasis) in the page's theme, and ace lays the cells out to fit the width it is
 /// offered (`MarkdownTableColumns`): short columns at their natural width, prose wrapping in the
 /// rest, inline code breaking inside its paths. Only a table whose words alone are wider than
-/// the room scrolls sideways, inside its box, which never reaches past the width offered.
+/// the room scrolls sideways, inside its box, which never reaches past the width offered. A
+/// table still arriving is read a row at a time (`MarkdownTableReader`).
 struct MarkdownTableView: View, Equatable {
     let source: String
     let flavor: MarkitFlavor
@@ -15,6 +16,7 @@ struct MarkdownTableView: View, Equatable {
     let onLink: (URL) -> Void
     let onReference: (MarkitReference) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicType
+    @State private var reader = MarkdownTableReader()
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.source == rhs.source && lhs.flavor == rhs.flavor && lhs.theme == rhs.theme && lhs.selectable == rhs.selectable
@@ -22,7 +24,7 @@ struct MarkdownTableView: View, Equatable {
 
     var body: some View {
         let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicType))
-        let table = MarkdownTable(source: source, flavor: flavor, theme: theme, traits: traits)
+        let table = reader.table(source: source, flavor: flavor, theme: theme, traits: traits)
         let border = Color(uiColor: theme.tableBorder)
         let corner = RoundedRectangle(cornerRadius: theme.codeCornerRadius, style: .continuous)
         let open = onLink, reference = onReference
@@ -52,7 +54,7 @@ struct MarkdownTableView: View, Equatable {
     }
 
     private func cell(_ cell: MarkdownTable.Cell, last: Bool, border: Color) -> some View {
-        Text(cell.text)
+        Self.text(cell.runs)
             .multilineTextAlignment(cell.alignment.text)
             .lineSpacing(theme.lineSpacing)
             .fixedSize(horizontal: false, vertical: true)
@@ -65,6 +67,25 @@ struct MarkdownTableView: View, Equatable {
                 if !last { Rectangle().fill(border).frame(height: 1).accessibilityHidden(true) }
             }
             .accessibilityAddTraits(cell.header ? .isHeader : [])
+            .modifier(Spoken(text: cell.hasMath ? cell.spoken : nil))
+    }
+
+    /// A cell's text, each formula as markit's picture of it in the line.
+    private static func text(_ runs: [MarkdownTable.Run]) -> Text {
+        runs.reduce(Text(verbatim: "")) { line, run in
+            switch run {
+            case .text(let text): Text("\(line)\(Text(text))")
+            case .math(let image, let baseline): Text("\(line)\(Text(Image(uiImage: image)).baselineOffset(baseline))")
+            }
+        }
+    }
+
+    /// A cell with formulas is read with their source, which their pictures don't say.
+    private struct Spoken: ViewModifier {
+        let text: String?
+        func body(content: Content) -> some View {
+            if let text { content.accessibilityLabel(Text(verbatim: text)) } else { content }
+        }
     }
 
     /// Text selection where the text offers it; elsewhere the message's own menu has Select text.
