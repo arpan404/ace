@@ -391,7 +391,10 @@
       margin-left: auto;
     }
     .mk-foot {
-      padding: 12px var(--mk-gutter) calc(12px + env(safe-area-inset-bottom));
+      padding: 0 var(--mk-gutter) calc(12px + env(safe-area-inset-bottom));
+    }
+    .mk-foot-inner {
+      padding-top: 12px;
     }
     .mk-foot-inner > button {
       flex: 1;
