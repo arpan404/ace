@@ -13,15 +13,21 @@ import XCTest
         let projects = app.homeTab("threads")
         XCTAssertTrue(projects.waitForExistence(timeout: 30))
         XCTAssertTrue(projects.isSelected)
-        // The fixture's machine shows Spade: its tab follows Chats, then Search, then New thread
-        // on its own at the bar's end, all along the foot of the screen.
+        // The fixture's machine shows Spade: its tab follows Chats, then Search at the end, all
+        // along the foot of the screen in the system's tab bar.
         let spade = app.homeTab("spade")
         XCTAssertTrue(spade.waitForExistence(timeout: 15))
-        let order = [projects, app.homeTab("chats"), spade, app.homeTab("search"), app.homeTab("compose")]
-        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade", "Search", "New thread"])
+        let order = [projects, app.homeTab("chats"), spade, app.homeTab("search")]
+        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade", "Search"])
         let xs = order.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
+        // New thread is in the list's top bar, not the tab bar.
+        XCTAssertFalse(app.homeTab("compose").exists)
+        let compose = app.buttons["inbox.compose"]
+        XCTAssertTrue(compose.exists)
+        XCTAssertEqual(compose.label, "New thread")
+        XCTAssertLessThan(compose.frame.maxY, app.frame.midY)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)

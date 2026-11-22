@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 @testable import Ace
 
-/// The home bar's chosen fill following a finger along the places and settling on one.
+/// The sidebar places' chosen fill following a finger along them and settling on one.
 struct TabGlideTests {
     /// The phone's bar: four places sharing 320 points, no gap.
     private let phone = TabGlide(count: 4, width: 320, spacing: 0)

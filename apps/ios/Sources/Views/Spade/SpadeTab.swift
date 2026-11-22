@@ -4,13 +4,11 @@ import SwiftUI
 /// first, then whoever needs the person, then working, failed, finished and the rest, each with
 /// its face, its name and one line. A bot opens its conversation. With several machines showing
 /// Spade, the title's menu picks whose bots these are. Every word is the bridge's.
-struct SpadeTab<Bar: View>: View {
+struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
-    /// The phone's tab bar (`HomeBar`), at the list's foot: it steps away with the list for a
-    /// conversation, as Projects' does for a page.
-    @ViewBuilder let bar: () -> Bar
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var machine: String?
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
@@ -27,7 +25,6 @@ struct SpadeTab<Bar: View>: View {
             Group {
                 if let session { SpadeList(client: session.client) } else { Color.clear }
             }
-            .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {
                 if inbox.spadeSessions.count > 1 { ToolbarItem(placement: .topBarLeading) { machineMenu } }
@@ -48,6 +45,8 @@ struct SpadeTab<Bar: View>: View {
                     SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
                         path.append($0)
                     }
+                    // A conversation has no tab bar, as Projects' pages: its composer takes the foot.
+                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
@@ -79,7 +78,9 @@ struct SpadeTab<Bar: View>: View {
                 .toggleStyle(.systemSwitch)
             }
         }
-        .modifier(HomeTabBar(relayout: "spade \(path.count)"))
+        // A phone's tab bar shows over the bots and steps away for a conversation.
+        .modifier(HomeTabBar(hidden: sizeClass == .regular || !path.isEmpty, animated: sizeClass != .regular,
+                             relayout: "spade \(path.count)"))
         .onChange(of: session?.hostId) { path = [] }
     }
 
