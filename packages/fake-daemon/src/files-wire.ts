@@ -80,6 +80,10 @@ export class FakeFilesWire {
     const bytes = new TextEncoder().encode(text);
     this.files.set(key, { ...file, bytes, version: `outside-${++this.sequence}` });
   }
+  /** Delete a checkout file as a program outside ace would (a branch switch, a pull). */
+  vanish(threadId: string, path: string): void {
+    if (!this.files.delete(this.key(threadId, path))) throw new Error("NOT_FOUND");
+  }
   /**
    * Put a file of raw bytes (and its folders) in a thread's checkout: images, or noise that
    * doesn't compress, so a folder's archive comes out as big as its files.

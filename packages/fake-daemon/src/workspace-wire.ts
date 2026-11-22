@@ -48,6 +48,7 @@ export type FakeWorkspaceControls = Pick<
   | "setForgeRead"
   | "holdForgeRead"
   | "holdGitDiff"
+  | "holdGitStatus"
   | "failForgeRead"
   | "forgeReadCount"
   | "seedPullRequests"
@@ -267,6 +268,22 @@ export class FakeWorkspaceWire {
    */
   holdGitDiff(threadId: string): { entered: Promise<void>; release(): void } {
     const key = JSON.stringify({ op: "git.diff", threadId });
+    const gate = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    this.held.set(key, gate.promise);
+    this.entering.set(key, arrived.resolve);
+    return {
+      entered: arrived.promise,
+      release: () => {
+        if (this.held.get(key) === gate.promise) this.held.delete(key);
+        this.entering.delete(key);
+        gate.resolve();
+      },
+    };
+  }
+  /** Answer the thread's `git.status` only once `release` runs, as a slow large checkout would. */
+  holdGitStatus(threadId: string): { entered: Promise<void>; release(): void } {
+    const key = JSON.stringify({ op: "git.status", threadId });
     const gate = Promise.withResolvers<void>();
     const arrived = Promise.withResolvers<void>();
     this.held.set(key, gate.promise);

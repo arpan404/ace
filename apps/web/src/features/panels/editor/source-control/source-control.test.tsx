@@ -324,3 +324,29 @@ test("a failed pull still shows what its fetch learned, alongside the error", as
   });
   await within(explorer).findByRole("button", { name: "Pull (3 behind)" });
 });
+
+test("one Git action at a time: Commit waits while a stage is still finishing", async () => {
+  const { app, explorer } = await openSourceControl({
+    branch: "main",
+    branches: ["main"],
+    refs: [{ name: "main" }],
+    staged: [{ path: "src/staged.ts", status: "added" }],
+    unstaged: [{ path: "src/app.ts", status: "modified" }],
+  });
+  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
+  await userEvent.type(box, "Ship it");
+  // The stage lands, but reading the checkout back is slow.
+  const slow = app.daemon.workspace.holdGitStatus(thread);
+  await userEvent.click(within(explorer).getByRole("button", { name: "Stage app.ts" }));
+  await slow.entered;
+  const commit = within(explorer).getByRole("button", { name: "Commit" });
+  expect(commit.hasAttribute("disabled")).toBe(true);
+  box.focus();
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(0);
+
+  slow.release();
+  await waitFor(() => expect(commit.hasAttribute("disabled")).toBe(false));
+  await userEvent.click(commit);
+  await waitFor(() => expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1));
+});
