@@ -103,7 +103,7 @@ describe("daemon source control handlers", () => {
     }
   });
 
-  it("refuses branch switch, branch create, and pull while an agent is working", async () => {
+  it("refuses branch switch, branch create, pull and stash while an agent is working", async () => {
     let providerBusy = true;
     const { runtime, store, thread, repo, cmd } = await setupFixture({
       runsProviderWork: () => providerBusy,
@@ -114,15 +114,23 @@ describe("daemon source control handlers", () => {
       const switchBusy = await runtime.execute(
         cmd({ type: "git.branch.switch", threadId: thread.id, branch: "other" }),
       );
-      expect(switchBusy).toMatchObject({ ok: false, error: "thread_tree_is_live" });
+      expect(switchBusy).toMatchObject({ ok: false, error: "agent_working" });
 
       const createBusy = await runtime.execute(
         cmd({ type: "git.branch.create", threadId: thread.id, branch: "feat/x" }),
       );
-      expect(createBusy).toMatchObject({ ok: false, error: "thread_tree_is_live" });
+      expect(createBusy).toMatchObject({ ok: false, error: "agent_working" });
 
       const pullBusy = await runtime.execute(cmd({ type: "git.pull", threadId: thread.id }));
-      expect(pullBusy).toMatchObject({ ok: false, error: "thread_tree_is_live" });
+      expect(pullBusy).toMatchObject({ ok: false, error: "agent_working" });
+
+      await writeFile(join(repo, "file.txt"), "edited by the agent\n");
+      const stashBusy = await runtime.execute(
+        cmd({ type: "git.stash.push", threadId: thread.id }),
+      );
+      expect(stashBusy).toMatchObject({ ok: false, error: "agent_working" });
+      expect(await readFile(join(repo, "file.txt"), "utf8")).toBe("edited by the agent\n");
+      runGit(repo, ["checkout", "--", "file.txt"]);
 
       // Once idle, switching branches succeeds.
       providerBusy = false;
@@ -147,7 +155,7 @@ describe("daemon source control handlers", () => {
       const result = await runtime.execute(
         cmd({ type: "git.branch.switch", threadId: thread.id, branch: "other" }),
       );
-      expect(result).toMatchObject({ ok: false, error: "thread_tree_is_live" });
+      expect(result).toMatchObject({ ok: false, error: "agent_working" });
     } finally {
       await runtime.close();
       await store.close();

@@ -316,10 +316,12 @@ export class FakeSourceControlWire {
       if (
         (payload.type === "git.branch.switch" ||
           payload.type === "git.branch.create" ||
-          payload.type === "git.pull") &&
+          payload.type === "git.pull" ||
+          payload.type === "git.stash.push" ||
+          payload.type === "git.stash.pop") &&
         isBusy(thread.status.state)
       ) {
-        return { ok: false, error: "thread_tree_is_live" };
+        return { ok: false, error: "agent_working" };
       }
       const state = this.ensure(threadId, fallbackFiles);
 

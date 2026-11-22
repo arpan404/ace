@@ -20,6 +20,8 @@ const copy: Record<string, string> = {
   workspace_change_interrupted:
     "The checkout move stopped when the daemon restarted: the thread stayed where it was. Retry to move it.",
   thread_not_found: "The thread is gone: it may have been deleted on another device.",
+  agent_working:
+    "The agent is working in this checkout: wait for it to finish before switching branches, pulling or stashing.",
   thread_tree_is_live: "Agents are working in the checkout: wait for them to stop, then retry.",
   terminal_owned: "The thread's terminals use the checkout: close them, then retry.",
   terminal_limit: "Too many terminals are open: close one, then retry.",

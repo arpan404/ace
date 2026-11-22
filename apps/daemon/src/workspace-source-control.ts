@@ -1,5 +1,7 @@
 import type { Command, CommandResult, ThreadId } from "@ace/protocol";
 import type { Store } from "./store.ts";
+import { recoveryHeld } from "./thread-move.ts";
+import { threadHasPendingWork } from "./thread-organization.ts";
 import type { WorkspaceGit } from "./workspace-roots.ts";
 
 export type SourceControlCommandPayload = Extract<
@@ -37,36 +39,33 @@ export function isSourceControlCommand(
 }
 
 /**
- * Whether an agent turn or background provider work is active in `threadId`'s checkout.
- * Switching branches or pulling underneath a live agent corrupts its view of the tree.
+ * Whether the thread's agent may be writing to its checkout: a turn is running or waiting on
+ * the person, an intent is pending, or provider background work still runs (ADR 0116). A paused
+ * recovery hold runs nothing until Continue, so it is not live. Switching branches, pulling or
+ * stashing underneath a live agent changes the files it is editing.
  */
 export function isThreadAgentBusy(
   store: Store,
   threadId: ThreadId,
   runsProviderWork: (id: ThreadId) => boolean,
 ): boolean {
-  if (runsProviderWork(threadId)) return true;
   const thread = store.getThread(threadId);
   if (!thread) return false;
+  if (recoveryHeld(store, thread)) return false;
+  if (runsProviderWork(threadId)) return true;
+  if (threadHasPendingWork(store, threadId, () => false)) return true;
   const state = thread.status.state;
-  if (state === "working" || state === "needs_you") return true;
-  if (state === "waiting") {
-    // A paused recovery hold runs nothing until Continue.
-    if (thread.status.on === "queue") {
-      const paused = store.atomic((db) =>
-        Boolean(
-          db
-            .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_queue'")
-            .get() &&
-          db.prepare("SELECT 1 FROM engine_queue WHERE thread_id=? AND paused=1").get(threadId),
-        ),
-      );
-      if (paused) return false;
-    }
-    return true;
-  }
-  return false;
+  return state === "working" || state === "needs_you" || state === "waiting";
 }
+
+/** Commands that rewrite the checkout's files wholesale, refused while the agent works. */
+const treeRewriting = new Set<string>([
+  "git.branch.switch",
+  "git.branch.create",
+  "git.pull",
+  "git.stash.push",
+  "git.stash.pop",
+]);
 
 export interface SourceControlCommandContext {
   git: WorkspaceGit;
@@ -87,15 +86,8 @@ export async function runSourceControlCommand(
 
   const refresh = () => refreshDetails().catch(() => {});
 
-  if (
-    payload.type === "git.branch.switch" ||
-    payload.type === "git.branch.create" ||
-    payload.type === "git.pull"
-  ) {
-    if (isThreadAgentBusy(store, threadId, runsProviderWork)) {
-      return { ok: false, error: "thread_tree_is_live" };
-    }
-  }
+  if (treeRewriting.has(payload.type) && isThreadAgentBusy(store, threadId, runsProviderWork))
+    return { ok: false, error: "agent_working" };
 
   switch (payload.type) {
     case "git.stage":

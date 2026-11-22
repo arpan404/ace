@@ -86,7 +86,8 @@ export async function startWorkspaceActions({
                 typeof stat.version === "string"
                   ? stat.version
                   : null;
-              if (!version) return;
+              // Without a version the delete can't be proven to trash this file: refuse.
+              if (!version) throw new Error("git_trash_unavailable");
               await acquired.service.request("local", {
                 op: "delete",
                 path,

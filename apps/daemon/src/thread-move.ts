@@ -118,7 +118,8 @@ function movable(store: Store, thread: Thread): string | undefined {
   return recoveryHeld(store, thread) ? undefined : error;
 }
 
-function recoveryHeld(store: Store, thread: Thread): boolean {
+/** A paused recovery hold: the thread waits on Continue and runs nothing meanwhile. */
+export function recoveryHeld(store: Store, thread: Thread): boolean {
   return (
     thread.status.state === "waiting" &&
     thread.status.on === "queue" &&
