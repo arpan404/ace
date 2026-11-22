@@ -18,6 +18,7 @@ import type {
   FilePort,
   MergePort,
   SaveOutcome,
+  SaveStamp,
   Schedule,
   TextBuffer,
   Theirs,
@@ -355,6 +356,11 @@ export class Buffer implements TextBuffer {
       mine: this.#conflictMine,
       theirs: clash.theirs.version,
     });
+  }
+
+  saveStamp(): SaveStamp | undefined {
+    const doc = this.#doc;
+    return doc && { document: doc, contentId: doc.contentId(), reverts: this.#reverts };
   }
 
   async discard(): Promise<void> {

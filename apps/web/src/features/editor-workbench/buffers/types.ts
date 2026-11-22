@@ -222,8 +222,20 @@ export interface TextBuffer {
   answerAll(answer: Answer, of: Clash | undefined): Promise<void>;
   /** Drops unsaved edits and the draft, and reads the disk again. */
   discard(): Promise<void>;
+  /**
+   * What a Save would write now: the document, its content and how many Reverts it holds. A
+   * save asked for earlier (offline) runs only while this is unchanged.
+   */
+  saveStamp(): SaveStamp | undefined;
   /** Reads the file again after a load failure or an eviction. */
   reload(): Promise<void>;
+}
+
+/** What a Save was asked for: compared by identity of document and by content and Reverts. */
+export interface SaveStamp {
+  document: object;
+  contentId: number;
+  reverts: number;
 }
 
 /** A view's or tab's hold on a buffer. */

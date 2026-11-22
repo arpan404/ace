@@ -9,7 +9,12 @@ import {
   type EditorLayout,
   type TabRef,
 } from "@ace/ui-core/editor-workbench";
-import { shownVersion, type EditorBuffers } from "@/features/editor-workbench/index.ts";
+import {
+  shownVersion,
+  type EditorBuffers,
+  type SaveStamp,
+  type TextBuffer,
+} from "@/features/editor-workbench/index.ts";
 import { groupIds, openPaths } from "./editor-layout.ts";
 import { askReplace, askUnsaved } from "./unsaved-prompt.tsx";
 
@@ -32,8 +37,11 @@ export interface EditorActionsHost {
   problem(problem: SaveProblem | "offline"): void;
   /** The person saved `path` (auto save resumes for a file it had stopped on). */
   saved?(path: string): void;
-  /** Files the person saved while offline: saved again once the daemon is back. */
-  queued?: Set<string>;
+  /**
+   * Files the person saved while offline, each with the buffer and what it held at that Save:
+   * saved once the daemon is back only while it holds exactly that.
+   */
+  queued?: Map<string, { buffer: TextBuffer; stamp: SaveStamp | undefined }>;
 }
 
 const fileName = (path: string) => path.split("/").at(-1) ?? path;
@@ -51,7 +59,7 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
   const buffer = host.buffers.buffer(path);
   if (!buffer) return true;
   if (!host.online()) {
-    host.queued?.add(path);
+    host.queued?.set(path, { buffer, stamp: buffer.saveStamp() });
     host.problem("offline");
     return false;
   }
@@ -96,9 +104,29 @@ export async function saveFile(host: EditorActionsHost, path: string): Promise<b
  * unsaved file they didn't save (a Revert waiting for its own Save) stays unsaved.
  */
 export async function saveQueued(host: EditorActionsHost): Promise<void> {
-  const paths = [...(host.queued ?? [])];
+  const queued = [...(host.queued ?? [])];
   host.queued?.clear();
-  for (const path of paths) await saveFile(host, path);
+  for (const [path, asked] of queued) {
+    const buffer = host.buffers.buffer(path);
+    const now = buffer?.saveStamp();
+    const same =
+      buffer === asked.buffer &&
+      now !== undefined &&
+      asked.stamp !== undefined &&
+      now.document === asked.stamp.document &&
+      now.contentId === asked.stamp.contentId &&
+      now.reverts === asked.stamp.reverts;
+    // Changed since that Save (typing, a Revert, a reload): it saved other text. Nothing is
+    // written; the file waits for a fresh Save.
+    if (!same) {
+      host.problem({
+        path,
+        message: `${fileName(path)} changed after you saved it offline. Save again.`,
+      });
+      continue;
+    }
+    await saveFile(host, path);
+  }
 }
 
 /** Save every unsaved open file. */

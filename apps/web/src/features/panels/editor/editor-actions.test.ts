@@ -43,13 +43,14 @@ test("reconnecting saves only the files saved while offline", async () => {
   buffers.sync(layout);
   await settle();
   let online = false;
-  const queued = new Set<string>();
+  const queued: EditorActionsHost["queued"] = new Map();
+  const problems: unknown[] = [];
   const host: EditorActionsHost = {
     buffers,
     layout: () => layout,
     change: () => {},
     online: () => online,
-    problem: () => {},
+    problem: (problem) => problems.push(problem),
     queued,
   };
   const a = buffers.buffer("a.ts");
@@ -60,12 +61,25 @@ test("reconnecting saves only the files saved while offline", async () => {
   b.editLines([{ start: 0, end: 1, text: "B\n" }], { manualSave: true });
 
   expect(await saveFile(host, "a.ts")).toBe(false);
-  expect([...queued]).toEqual(["a.ts"]);
+  expect([...(queued?.keys() ?? [])]).toEqual(["a.ts"]);
 
   online = true;
   await saveQueued(host);
 
   expect(disk.text("a.ts")).toBe("A\n");
   expect(disk.text("b.ts")).toBe("b\n");
-  expect(queued.size).toBe(0);
+  expect(queued?.size).toBe(0);
+
+  // Saved offline again, then a Revert in that same file before the daemon is back: the queued
+  // save was for other text, so nothing is written and the file waits for a fresh Save.
+  online = false;
+  a.editLines([{ start: 0, end: 1, text: "AA\n" }]);
+  expect(await saveFile(host, "a.ts")).toBe(false);
+  a.editLines([{ start: 0, end: 1, text: "reverted\n" }], { manualSave: true });
+  online = true;
+  await saveQueued(host);
+
+  expect(disk.text("a.ts")).toBe("A\n");
+  expect(a.snapshot()).toMatchObject({ dirty: true, manualSave: true });
+  expect(problems.at(-1)).toMatchObject({ path: "a.ts" });
 });

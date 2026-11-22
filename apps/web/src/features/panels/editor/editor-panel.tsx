@@ -150,7 +150,7 @@ export function EditorPanel(props: TabViewProps) {
   };
   const autoSave = usePanelAutoSave({ buffers, online, problem: setProblem });
   /** Files the person saved while offline: one set for the panel's life. */
-  const [offlineSaves] = useState(() => new Set<string>());
+  const [offlineSaves] = useState<NonNullable<EditorActionsHost["queued"]>>(() => new Map());
   const host: EditorActionsHost = {
     buffers,
     layout: () => latest.current,
