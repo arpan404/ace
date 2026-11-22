@@ -56,12 +56,9 @@ async function harness() {
           ...(context.storeGeneration ? { generation: context.storeGeneration } : {}),
         });
         if (resume && broken.has(resume))
-          throw Object.assign(
-            new Error(
-              "SDK boundary failed: SDK journal is fenced or uninitialized. Cursor SDK open failed; delivery may be uncertain.",
-            ),
-            { code: sessionStoreUnusable },
-          );
+          throw Object.assign(new Error("SDK checkpoint exceeds its budget; use context handoff"), {
+            code: sessionStoreUnusable,
+          });
         if (resume && state.failResume > 0) {
           state.failResume--;
           throw new Error("Cursor SDK open failed: network unreachable");
@@ -203,6 +200,11 @@ async function harness() {
       engine = new Engine(store, { registry });
       await engine.ready();
     },
+    /** The daemon dies: nothing it was awaiting returns, and a new one starts on its store. */
+    async crash() {
+      engine = new Engine(store, { registry });
+      await engine.ready();
+    },
     /** What the transcript shows, as the one-line texts of ace's quiet rows and the messages. */
     transcript(threadId: ThreadId) {
       const snapshot = store.snapshotThread(threadId);
@@ -285,6 +287,29 @@ test("the queued message is sent once when the daemon restarts mid-handoff", asy
     1,
   );
   expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, lastFailure: null });
+  // Delivered once, the handoff is gone: the next message goes alone.
+  await h.send(id, "and the tests");
+  expect(sentTexts(h.sends, "and the tests").map((send) => send.text)).toEqual(["and the tests"]);
+});
+
+test("a handoff Cursor admitted is never prepended again when the daemon dies before the send returns", async () => {
+  const h = await harness();
+  const id = await h.create("write the migration");
+  h.broken.add("agent-1");
+  await h.restart();
+  h.state.hangAfterAdmission = true;
+  const sending = h.send(id, "run it on staging");
+  await expect.poll(() => sentTexts(h.sends, "run it on staging").length).toBe(1);
+  const delivered = sentTexts(h.sends, "run it on staging");
+  expect(delivered[0]?.text).toContain("<ace_context_handoff ");
+  void sending.catch(() => {});
+  await h.crash();
+  await h.send(id, "something else");
+  if (h.engine.queue(id).paused) await h.retry(id);
+  // Cursor took the handoff with that message: no later prompt carries it again.
+  const after = h.sends.slice(h.sends.indexOf(delivered[0] ?? h.sends[0]!) + 1);
+  expect(after.length).toBeGreaterThan(0);
+  expect(after.filter((send) => send.text.includes("<ace_context_handoff "))).toEqual([]);
 });
 
 test("handoff context stays under its cap for a very long thread", async () => {

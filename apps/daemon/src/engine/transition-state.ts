@@ -119,6 +119,20 @@ export class TransitionState {
       return Metadata.parse(row ? JSON.parse(String(row.value)) : {});
     });
   }
+  /**
+   * The waiting handoff and context went out with an input the provider has taken: they are
+   * never prepended again. Runs in the transaction that records that evidence.
+   */
+  delivered(id: ThreadId): void {
+    const metadata = this.get(id);
+    if (!metadata.handoff && !metadata.marker && !metadata.fallback && !metadata.context.length)
+      return;
+    delete metadata.handoff;
+    delete metadata.marker;
+    delete metadata.fallback;
+    metadata.context = [];
+    this.set(id, metadata);
+  }
   set(id: ThreadId, input: TransitionMetadata): void {
     const value = JSON.stringify(admitTransitionMetadata(input));
     this.store.atomic((_db) =>

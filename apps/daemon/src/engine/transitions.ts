@@ -505,11 +505,6 @@ export class ThreadTransitions {
     await this.closeThread(source);
   }
   delivered(id: ThreadId): void {
-    const metadata = this.repo.transitions.get(id);
-    delete metadata.handoff;
-    delete metadata.marker;
-    delete metadata.fallback;
-    metadata.context = [];
-    this.repo.transitions.set(id, metadata);
+    this.repo.transitions.delivered(id);
   }
 }

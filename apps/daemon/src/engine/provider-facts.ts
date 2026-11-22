@@ -287,7 +287,12 @@ export function foldProviderFacts(
         inputUpdates.push({ type: "item.updated", item: confirmed });
       }
     }
-    if (acknowledged.length) admittedUncertainty = true;
+    if (acknowledged.length) {
+      admittedUncertainty = true;
+      // The input that carried a waiting handoff is the provider's now: clear it with that
+      // evidence, so a crash before the send returns never prepends it to a later prompt.
+      repo.transitions.delivered(id);
+    }
   }
   events.push(...inputUpdates);
   if (continuationStarted && repo.queue.get(id).trigger) {
