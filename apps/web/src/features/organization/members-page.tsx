@@ -87,22 +87,27 @@ export function MembersPage(props: { org: AceOrgSpace }) {
                         .join(" · ")}
                     </span>
                   </span>
-                  {current ? (
-                    <Select
-                      label={`${name}'s role`}
-                      value={current.value}
-                      options={options}
-                      disabled={change.isPending}
-                      onValueChange={(role) => {
-                        setError("");
-                        change.mutate({ account: member.account, role }, { onError: failed });
-                      }}
-                    />
-                  ) : (
-                    <span className="shrink-0 text-ui text-muted-foreground">
-                      {roleWord(member.role)}
-                    </span>
-                  )}
+                  {/* One role column for everyone: a select where it can change, the word
+                      where the identity provider or the person's own membership fixes it. */}
+                  <span className="flex w-(--setting-select-width) shrink-0 items-center">
+                    {current ? (
+                      <Select
+                        label={`${name}'s role`}
+                        value={current.value}
+                        options={options}
+                        className="w-full"
+                        disabled={change.isPending}
+                        onValueChange={(role) => {
+                          setError("");
+                          change.mutate({ account: member.account, role }, { onError: failed });
+                        }}
+                      />
+                    ) : (
+                      <span className="px-2.5 text-ui text-foreground">
+                        {roleWord(member.role)}
+                      </span>
+                    )}
+                  </span>
                   {you ? (
                     <Button
                       size="sm"
