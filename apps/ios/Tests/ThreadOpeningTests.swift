@@ -4,9 +4,9 @@ import Testing
 /// What a thread says while it opens: never a blank page, the machine named while it connects,
 /// the reason and Retry when it can't, and kept rows marked as syncing until fresh ones land.
 @Suite struct ThreadOpeningTests {
-    private func facts(loaded: Bool = false, rows: Int = 0, connection: String = "ready",
+    private func facts(loaded: Bool = false, replacing: Bool = false, connection: String = "ready",
                        problem: String? = nil, machine: String? = "Studio") -> ThreadOpening.Facts {
-        ThreadOpening.Facts(loaded: loaded, rows: rows, connection: connection, problem: problem, machine: machine)
+        ThreadOpening.Facts(loaded: loaded, replacing: replacing, connection: connection, problem: problem, machine: machine)
     }
 
     @Test func aThreadWithNothingYetOnAConnectedMachineSaysItIsLoading() {
@@ -44,7 +44,7 @@ import Testing
     }
 
     @Test func keptRowsShowAtOnceMarkedSyncingWhileTheMachineConnects() {
-        let opening = ThreadOpening.of(facts(loaded: true, rows: 12, connection: "connecting"))
+        let opening = ThreadOpening.of(facts(loaded: true, connection: "connecting"))
         #expect(opening == .syncing(machine: "Studio"))
         #expect(!opening.coversRows, "the kept rows stay on screen")
         #expect(opening.words == "Connecting to Studio…")
@@ -52,14 +52,14 @@ import Testing
     }
 
     @Test func keptRowsOnAMachineThatFailedGiveTheReasonAndRetryOverThem() {
-        let opening = ThreadOpening.of(facts(loaded: true, rows: 12, connection: "offline", problem: "This phone is offline."))
+        let opening = ThreadOpening.of(facts(loaded: true, connection: "offline", problem: "This phone is offline."))
         #expect(opening == .syncFailed(reason: "This phone is offline."))
         #expect(!opening.coversRows)
         #expect(opening.retries)
     }
 
     @Test func freshRowsOnAConnectedMachineAddNothing() {
-        let opening = ThreadOpening.of(facts(loaded: true, rows: 12, connection: "ready"))
+        let opening = ThreadOpening.of(facts(loaded: true, connection: "ready"))
         #expect(opening == .none)
         #expect(opening.words == nil)
         #expect(!opening.coversRows)
@@ -68,14 +68,29 @@ import Testing
     @Test func goingFromKeptRowsToFreshOnesNeverCoversTheRows() {
         // Kept rows, connecting, then connected with the fresh window: the rows stay drawn in each
         // step, so what is on screen is updated in place rather than replaced by a placeholder.
-        let steps = [facts(loaded: true, rows: 12, connection: "starting"),
-                     facts(loaded: true, rows: 12, connection: "connecting"),
-                     facts(loaded: true, rows: 40, connection: "ready")]
-        #expect(steps.map { ThreadOpening.of($0).coversRows } == [false, false, false])
+        let steps = [facts(loaded: true, connection: "starting"),
+                     facts(loaded: true, connection: "connecting"),
+                     facts(loaded: true, replacing: true, connection: "ready"),
+                     facts(loaded: true, connection: "ready")]
+        #expect(steps.map { ThreadOpening.of($0).coversRows } == [false, false, false, false])
     }
 
-    @Test func aThreadThatIsEmptyOnAMachineNotYetConnectedIsNotLeftBlank() {
-        #expect(ThreadOpening.of(facts(loaded: true, rows: 0, connection: "connecting")) == .connecting(machine: "Studio"))
-        #expect(ThreadOpening.of(facts(loaded: true, rows: 0, connection: "ready")) == .none)
+    @Test func keptRowsStayMarkedOnceConnectedUntilTheFreshCopyHasReplacedThem() {
+        let staged = ThreadOpening.of(facts(loaded: true, replacing: true, connection: "ready"))
+        #expect(staged == .updating, "a ready socket alone doesn't make the kept rows current")
+        #expect(staged.words == "Syncing…")
+        #expect(!staged.coversRows)
+        #expect(ThreadOpening.of(facts(loaded: true, replacing: false, connection: "ready")) == .none)
+    }
+
+    @Test func anEmptyThreadThatWasLoadedSaysTheConnectionsStateAndRetryOnDisconnect() {
+        // Its first screen had no rows: the state is still said over it, with Retry on failure.
+        let connecting = ThreadOpening.of(facts(loaded: true, connection: "connecting"))
+        #expect(connecting == .syncing(machine: "Studio"))
+        #expect(connecting.words == "Connecting to Studio…")
+        let failed = ThreadOpening.of(facts(loaded: true, connection: "reconnecting", problem: "Studio isn't reachable."))
+        #expect(failed == .syncFailed(reason: "Studio isn't reachable."))
+        #expect(failed.retries)
+        #expect(ThreadOpening.of(facts(loaded: true, connection: "ready")) == .none)
     }
 }

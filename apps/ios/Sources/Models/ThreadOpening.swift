@@ -1,6 +1,7 @@
 /// What a thread's screen says while its rows aren't the machine's own yet: a thread opened right
 /// after launch waits for the connection, and the page is never left blank meanwhile. Rows kept
-/// from an earlier session show at once, marked as syncing, and are updated in place. Pure.
+/// from an earlier session (or none, for an empty thread) show at once, marked as syncing until
+/// the machine's fresh copy has replaced them, and are updated in place. Pure.
 enum ThreadOpening: Equatable, Sendable {
     /// The rows on screen are current: nothing to add.
     case none
@@ -12,14 +13,16 @@ enum ThreadOpening: Equatable, Sendable {
     case failed(reason: String)
     /// Kept rows on screen while the machine connects.
     case syncing(machine: String?)
+    /// Kept rows on screen on a connected machine, its fresh copy not yet in their place.
+    case updating
     /// Kept rows on screen, and the connection failed for `reason`.
     case syncFailed(reason: String)
 
     struct Facts: Equatable, Sendable {
         /// The thread has a first screen (`ThreadModel.loaded`).
         var loaded: Bool
-        /// Rows that first screen holds.
-        var rows: Int
+        /// A fresh copy is staged behind the rows on screen (`ThreadModel.replacing`).
+        var replacing = false
         /// The runtime's connection state: "starting", "connecting", "ready", "reconnecting", ...
         var connection: String
         /// Why the connection isn't ready, in a person's words (`ClientModel.problem`).
@@ -31,21 +34,22 @@ enum ThreadOpening: Equatable, Sendable {
     static func of(_ facts: Facts) -> ThreadOpening {
         let ready = facts.connection == "ready"
         let failure = ready ? nil : facts.problem.flatMap { $0.isEmpty ? nil : $0 }
-        if facts.loaded, facts.rows > 0 {
-            if ready { return .none }
+        // A first screen, even an empty one, stays: the state is a line over it.
+        if facts.loaded {
+            if ready { return facts.replacing ? .updating : .none }
             if let failure { return .syncFailed(reason: failure) }
             return .syncing(machine: facts.machine)
         }
         if let failure { return .failed(reason: failure) }
         if !ready { return .connecting(machine: facts.machine) }
-        return facts.loaded ? .none : .loading
+        return .loading
     }
 
     /// A placeholder stands where the rows go: there are none to show yet.
     var coversRows: Bool {
         switch self {
         case .loading, .connecting, .failed: true
-        case .none, .syncing, .syncFailed: false
+        case .none, .syncing, .updating, .syncFailed: false
         }
     }
 
@@ -62,6 +66,7 @@ enum ThreadOpening: Equatable, Sendable {
         switch self {
         case .none: nil
         case .loading: "Loading…"
+        case .updating: "Syncing…"
         case .connecting(let machine), .syncing(let machine): "Connecting to \(Self.name(machine))…"
         case .failed(let reason), .syncFailed(let reason): reason
         }

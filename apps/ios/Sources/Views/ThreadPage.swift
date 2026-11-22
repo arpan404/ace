@@ -19,7 +19,7 @@ struct ThreadPage: View {
         } else {
             // No copy of it here yet (a runtime starting over): the thread's loading state, never
             // a blank page.
-            let opening = ThreadOpening.of(.init(loaded: false, rows: 0, connection: client.connection,
+            let opening = ThreadOpening.of(.init(loaded: false, connection: client.connection,
                                                  problem: client.problem?.message, machine: client.inbox[id]?.machine))
             ConversationSkeleton(opening: opening) { client.retryOpening(id) }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)

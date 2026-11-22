@@ -6,7 +6,7 @@ extension ConversationFeed {
     /// What the feed says while its rows aren't the machine's own yet.
     var opening: ThreadOpening {
         let row = model.inbox[thread.id] ?? thread.metadata
-        return .of(.init(loaded: ready, rows: thread.screen.blockOrder.count, connection: model.connection,
+        return .of(.init(loaded: ready, replacing: thread.replacing, connection: model.connection,
                          problem: model.problem?.message, machine: row?.machine))
     }
 

@@ -27,7 +27,12 @@ import QuartzCore
     var loaded = false
     let screen = ThreadScreenModel()
     /// A replacement snapshot assembles offscreen until its ready fence arrives.
-    @ObservationIgnored var refresh: ThreadModel?
+    @ObservationIgnored var refresh: ThreadModel? {
+        didSet { if replacing != (refresh != nil) { replacing = refresh != nil } }
+    }
+    /// A replacement is staged behind the rows on screen (`refresh`): what shows isn't the
+    /// machine's current copy yet. Observed, unlike `refresh`.
+    private(set) var replacing = false
     /// The revision the current staging began with, if any.
     @ObservationIgnored var refreshRevision: Int?
     /// The `itemsBefore` the begin carried, for eviction inference.
