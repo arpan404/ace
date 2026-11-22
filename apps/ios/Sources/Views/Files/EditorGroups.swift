@@ -14,25 +14,45 @@ struct EditorSlot {
     let pane: Bool
     /// The group files open in; only its file answers Go to line's shortcut.
     let focused: Bool
+    /// Some file in the editor has a draft, so Back stays hidden.
+    let locked: Bool
     /// The navigation bar's title while the files draw their own bars.
     let title: String
     /// Nil in compact width, where the editor has one group.
     let split: Split?
+    /// The file's draft, read when it is drawn: an earlier editor of it may have just gone.
+    let draft: () -> EditorDraft?
+    /// Editing began from this version.
+    let began: (String?) -> Void
+    /// The text changed from the file (or back), in an edit that began from this version.
+    let dirtied: (Bool, String?) -> Void
+    /// The editor went with this text in it.
+    let left: (String) -> Void
+    /// Saved or discarded.
+    let ended: () -> Void
     /// Show another open file in this group.
     let pick: (String) -> Void
     /// The file was renamed or moved to this path.
     let renamed: (String) -> Void
-    /// The file was deleted: its tab closes.
+    /// The file was deleted: its tab closes (and in compact width the editor leaves).
     let removed: () -> Void
-    let editing: (Bool) -> Void
     let focus: () -> Void
 }
+
+/// The editor's drafts, shared by every group's editor (`EditorDrafts`).
+@MainActor @Observable final class EditorDraftStore {
+    var drafts = EditorDrafts()
+}
+
+/// The checkout's folder on the computer (`root` request).
+private struct FilesRoot: Decodable { let root: String? }
 
 /// The editor: the file opened, among the files open in this checkout. On an iPad in regular
 /// width it holds up to two groups side by side, each with its own tabs (`EditorGroupLayout`),
 /// split from a file's menu, a tab's menu, or by dragging a tab to the right edge. On a phone
 /// and in compact width it is one file with the system bar, as `FileScreen` always was, and the
-/// split comes back with the room. The groups are kept per checkout for the next time.
+/// split comes back with the room. Drafts live here, by file, so no move, close or change of
+/// width loses one; the groups are kept per checkout for the next time.
 struct EditorGroups: View {
     let model: ClientModel
     let scope: FilesScope
@@ -42,22 +62,14 @@ struct EditorGroups: View {
     var openFolder: ((String) -> Void)?
     @Environment(\.horizontalSizeClass) private var sizeClass
     @Environment(\.dismiss) private var dismiss
-    @AppStorage private var stored: String
     @State private var layout = EditorGroupLayout()
-    @State private var loaded = false
-    /// Groups whose file is being edited: their tabs hold still, and the editor can't be left.
-    @State private var editing: Set<String> = []
-
-    init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?,
-         deleted: ((FileStrip) -> Void)? = nil, openFolder: ((String) -> Void)? = nil) {
-        self.model = model
-        self.scope = scope
-        self.target = target
-        self.mention = mention
-        self.deleted = deleted
-        self.openFolder = openFolder
-        _stored = AppStorage(wrappedValue: "", "editor.groups.\(scope.memoryKey)")
-    }
+    @State private var drafts = EditorDraftStore()
+    /// Where the layout is stored, once the checkout's folder is known.
+    @State private var key: String?
+    /// Tabs with unsaved changes waiting on Discard before they close.
+    @State private var discarding: [String] = []
+    /// Leaving on its own (a file deleted on a phone): an emptied layout doesn't dismiss again.
+    @State private var leaving = false
 
     private var regular: Bool { sizeClass == .regular }
     private var shown: EditorGroupLayout { regular ? layout : layout.collapsed }
@@ -76,7 +88,7 @@ struct EditorGroups: View {
             .dropDestination(for: String.self) { paths, at in dropped(paths, at: at.x, width: box.size.width) }
         }
         .background(AceTheme.Colours.background)
-        .navigationBarBackButtonHidden(!editing.isEmpty)
+        .navigationBarBackButtonHidden(drafts.drafts.editing)
         .toolbar {
             if regular {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -84,32 +96,49 @@ struct EditorGroups: View {
                 }
             }
         }
-        .onAppear(perform: load)
+        .confirmationDialog(discardTitle, isPresented: Binding(get: { !discarding.isEmpty }, set: { if !$0 { discarding = [] } }),
+                            titleVisibility: .visible) {
+            Button("Discard changes", role: .destructive) { discard() }
+            Button("Keep editing", role: .cancel) { discarding = [] }
+        }
+        .onAppear {
+            if layout.groups.isEmpty { layout.open(target.path) }
+        }
+        .task { await restore() }
         .onChange(of: open) { old, now in
             guard let now else { return }
-            layout.sync(open: now, previous: old, keep: target.path)
+            let held = drafts.drafts.unsaved
+            layout.sync(open: now, previous: old, keep: target.path, held: held)
+            // Closed elsewhere while it has changes: it stays open here, and on the computer.
+            for path in held where !now.contains(path) { model.fileOpened(scope, path) }
         }
         .onChange(of: layout) { _, now in
-            stored = now.stored ?? ""
-            if loaded, now.groups.isEmpty { dismiss() }
+            if let key { UserDefaults.standard.set(now.stored, forKey: key) }
+            if key != nil, !leaving, now.groups.isEmpty { dismiss() }
         }
+    }
+
+    private var discardTitle: String {
+        discarding.count == 1 ? "Discard your changes to \(FileActions.name(discarding[0]))?" : "Discard your changes to \(discarding.count) files?"
     }
 
     private func pane(_ group: EditorGroupLayout.Group) -> some View {
         let focused = group.id == shown.focused
         return VStack(spacing: AceTheme.Spacing.none) {
             if regular {
-                EditorTabStrip(group: group, focused: focused, held: editing.contains(group.id),
+                EditorTabStrip(group: group, focused: focused, unsaved: drafts.drafts.unsaved,
                                other: layout.other(than: group.id) != nil, canSplit: { layout.canSplit($0) },
                                activate: { path in change { $0.open(path) } },
                                split: { path in change { $0.split(path) } },
-                               close: { path in close(path) })
+                               close: { paths in close(paths) })
             }
             FileScreen(model: model, scope: scope, target: fileTarget(group.active), mention: mention, deleted: deleted,
                        openFolder: openFolder, slot: slot(group, focused: focused))
                 .id(group.active)
         }
         .frame(maxWidth: .infinity)
+        // Any touch in a group (its tabs, its bar, its text) makes it the one files open in.
+        .simultaneousGesture(TapGesture().onEnded { focus(group.id) })
     }
 
     private func slot(_ group: EditorGroupLayout.Group, focused: Bool) -> EditorSlot {
@@ -119,12 +148,20 @@ struct EditorGroups: View {
             ? EditorSlot.Split(label: two ? "Move to other group" : "Split right", icon: two ? .arrowsLeftRight : .sidebarSimple,
                                enabled: two || layout.canSplit(path), run: { change { $0.split(path) } })
             : nil
-        return EditorSlot(pane: regular, focused: focused, title: "Editor", split: split,
+        let store = drafts
+        return EditorSlot(pane: regular, focused: focused, locked: store.drafts.editing, title: "Editor", split: split,
+                          draft: { store.drafts[path] },
+                          began: { base in store.drafts.begin(path, base: base) },
+                          dirtied: { dirty, base in store.drafts.mark(path, dirty: dirty, base: base) },
+                          left: { text in store.drafts.left(path, text: text) },
+                          ended: { store.drafts.end(path) },
                           pick: { picked in change { $0.open(picked) } },
-                          renamed: { destination in change { $0.rename(path, to: destination) } },
-                          removed: { close(path) },
-                          editing: { now in if now { _ = editing.insert(group.id) } else { _ = editing.remove(group.id) } },
-                          focus: { change { $0.focus(group.id) } })
+                          renamed: { destination in
+                              store.drafts.rename(path, to: destination)
+                              change { $0.rename(path, to: destination) }
+                          },
+                          removed: { removed(path) },
+                          focus: { focus(group.id) })
     }
 
     /// The file a tab shows: the one this editor was opened for keeps its line and change mark.
@@ -132,29 +169,69 @@ struct EditorGroups: View {
         path == target.path ? target : FileTarget(path: path)
     }
 
-    private func load() {
-        guard !loaded else { return }
-        var next = EditorGroupLayout.restore(stored)
-        if target.side, regular { next.openToSide(target.path) } else { next.open(target.path) }
-        if let open { next.sync(open: open, previous: nil, keep: target.path) }
-        layout = next
-        loaded = true
+    /// The checkout's stored groups, with the file being opened shown in them.
+    private func restore() async {
+        guard key == nil else { return }
         model.watchFileMemory(scope)
+        let found = try? await model.files(scope, ["op": "root"], as: FilesRoot.self, timeout: .seconds(3))
+        let key = EditorGroupLayout.storageKey(machine: model.hostId, root: found?.root ?? nil, scope: scope.memoryKey)
+        var next = EditorGroupLayout.restore(UserDefaults.standard.string(forKey: key) ?? "")
+        if target.side, regular { next.openToSide(target.path) } else { next.open(target.path) }
+        // A file opened in the moment before the store was read stays open, and showing.
+        for path in layout.groups.flatMap(\.tabs) where next.group(of: path) == nil { next.open(path) }
+        if let shown = layout.shown { next.open(shown) }
+        if let open { next.sync(open: open, previous: nil, keep: target.path, held: drafts.drafts.unsaved) }
+        self.key = key
+        layout = next
     }
 
     private func change(_ edit: (inout EditorGroupLayout) -> Void) {
         var next = layout
         edit(&next)
+        guard next != layout else { return }
         withAnimation(.default) { layout = next }
     }
 
-    private func close(_ path: String) {
+    private func focus(_ id: String) {
+        if layout.focused != id { change { $0.focus(id) } }
+    }
+
+    /// Every close goes through here: a tab with unsaved changes asks before they're discarded.
+    private func close(_ paths: [String]) {
+        let closing = drafts.drafts.closing(paths)
+        for path in closing.now { closeNow(path) }
+        discarding = closing.ask
+    }
+
+    private func discard() {
+        for path in discarding {
+            drafts.drafts.end(path)
+            closeNow(path)
+        }
+        discarding = []
+    }
+
+    private func closeNow(_ path: String) {
+        drafts.drafts.closed(path)
         change { $0.close(path) }
         model.fileClosed(scope, path)
     }
 
+    /// A deleted file's tab closes. On a phone or in compact width the editor goes back to the
+    /// tree, where Undo shows, as a file screen always did.
+    private func removed(_ path: String) {
+        drafts.drafts.end(path)
+        if regular {
+            closeNow(path)
+        } else {
+            leaving = true
+            closeNow(path)
+            dismiss()
+        }
+    }
+
     /// A tab let go over the editor: on the right third of a lone group it splits right; over
-    /// the other group it moves there.
+    /// the other group it moves there. Its draft goes with it.
     private func dropped(_ paths: [String], at x: CGFloat, width: CGFloat) -> Bool {
         guard regular, width > 0, let path = paths.first, let from = layout.group(of: path) else { return false }
         let groups = layout.groups
@@ -164,91 +241,8 @@ struct EditorGroups: View {
             return true
         }
         let onto = groups[x < width / 2 ? 0 : 1]
-        guard onto.id != from.id, !editing.contains(from.id) else { return false }
+        guard onto.id != from.id else { return false }
         change { $0.move(path, to: onto.id) }
         return true
-    }
-}
-
-/// One group's tabs in a line over its file: the file showing on a flat fill (in full ink while
-/// the group is the focused one), a close button on each. A tab's menu splits it right or moves
-/// it to the other group, and a tab can be dragged to the editor's right edge or the other group.
-/// While the group's file is being edited the tabs hold still.
-private struct EditorTabStrip: View {
-    let group: EditorGroupLayout.Group
-    let focused: Bool
-    let held: Bool
-    let other: Bool
-    let canSplit: (String) -> Bool
-    let activate: (String) -> Void
-    let split: (String) -> Void
-    let close: (String) -> Void
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: AceTheme.Spacing.xs) {
-                    ForEach(group.tabs, id: \.self) { path in
-                        tab(path)
-                            .contextMenu { menu(path) }
-                            .draggable(path) { Text(FileActions.name(path)).aceMonospace(AceDesign.TextRole.rowTitle) }
-                            .id(path)
-                    }
-                }
-                .padding(.horizontal, AceTheme.Spacing.sm)
-            }
-            .onChange(of: group.active, initial: true) { _, path in withAnimation { proxy.scrollTo(path) } }
-        }
-        .frame(height: AceDesign.Size.tap)
-        .disabled(held)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Open files")
-    }
-
-    private func tab(_ path: String) -> some View {
-        let shown = path == group.active
-        let name = FileActions.name(path)
-        return HStack(spacing: AceTheme.Spacing.none) {
-            Button { activate(path) } label: {
-                Text(name)
-                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .subheadline)
-                    .foregroundStyle(shown && focused ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
-                    .lineLimit(1)
-                    .padding(.leading, AceTheme.Spacing.md)
-                    .padding(.trailing, AceTheme.Spacing.xs)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(name)
-            .accessibilityAddTraits(shown ? .isSelected : [])
-            .accessibilityIdentifier("editor.tab.\(path)")
-            Button { close(path) } label: {
-                AceIcon(.x, size: AceDesign.Size.caret).foregroundStyle(AceTheme.Colours.subtleForeground)
-                    .frame(width: AceDesign.Size.pill, height: AceDesign.Size.pill)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, AceTheme.Spacing.xs)
-            .accessibilityLabel("Close \(name)")
-            .accessibilityIdentifier("editor.tab.\(path).close")
-        }
-        .frame(height: AceDesign.Size.pill)
-        .background { if shown { AceDesign.Shape.control.fill(AceTheme.Colours.fill) } }
-        .contentShape(AceDesign.Shape.control)
-        .frame(height: AceDesign.Size.tap)
-        .contentShape(Rectangle())
-        .hoverEffect(.highlight)
-    }
-
-    @ViewBuilder private func menu(_ path: String) -> some View {
-        if other {
-            Button("Move to other group", ace: .arrowsLeftRight) { split(path) }
-        } else {
-            Button("Split right", ace: .sidebarSimple) { split(path) }.disabled(!canSplit(path))
-        }
-        Button("Close", ace: .x) { close(path) }
-        Button("Close others", ace: .xSquare) { for each in group.tabs where each != path { close(each) } }
-            .disabled(group.tabs.count < 2)
     }
 }

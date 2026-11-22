@@ -37,7 +37,7 @@ extension FileScreen {
             .accessibilityIdentifier("file.menu")
     }
 
-    /// The bar as a row over the file, in an editor group beside another. Using it focuses the group.
+    /// The bar as a row over the file, in an editor group beside another.
     var paneBar: some View {
         HStack(spacing: AceTheme.Spacing.sm) {
             if editing {
@@ -56,7 +56,6 @@ extension FileScreen {
         .padding(.horizontal, AceDesign.Space.margin)
         .frame(minHeight: AceDesign.Size.tap)
         .background(AceTheme.Colours.background)
-        .simultaneousGesture(TapGesture().onEnded { slot?.focus() })
     }
 
     /// This file on the computer, for Open in.

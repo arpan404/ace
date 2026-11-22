@@ -46,6 +46,8 @@ struct FileScreen: View {
     @State var actions: FileActions
     @State var goingToLine = false
     @State var shownFolder: String?
+    /// The version this edit began from: a save over anything newer asks first.
+    @State var base: String?
 
     init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil,
          openFolder: ((String) -> Void)? = nil, slot: EditorSlot? = nil) {
@@ -57,6 +59,12 @@ struct FileScreen: View {
         self.target = target
         self.mention = mention
         _path = State(initialValue: target.path)
+        // An editor of this file went with a draft: carry on editing it here.
+        if let draft = slot?.draft() {
+            _editing = State(initialValue: true)
+            _dirty = State(initialValue: draft.dirty)
+            _base = State(initialValue: draft.base)
+        }
         _actions = State(initialValue: FileActions(model: model, scope: scope))
     }
 
@@ -76,7 +84,7 @@ struct FileScreen: View {
             .navigationTitle(inPane ? slot?.title ?? name : name)
             .toolbar { if !inPane { ToolbarItem(placement: .principal) { titleStack(alignment: .center) } } }
             .navigationBarTitleDisplayMode(.inline)
-            .navigationBarBackButtonHidden(editing)
+            .navigationBarBackButtonHidden(editing || slot?.locked == true)
             .toolbar { if !inPane { if editing { editToolbar } else { viewToolbar } } }
             .safeAreaInset(edge: .top, spacing: AceTheme.Spacing.none) { if inPane { paneBar } }
             .readWhenConnected(model, id: "\(path)|\(model.files.revision)") { await load() }
@@ -99,13 +107,24 @@ struct FileScreen: View {
             }
             .onAppear { actions.changed = { prompt, change in moved(prompt, change) } }
             .onChange(of: path, initial: true) { _, now in model.fileOpened(scope, now) }
-            .onChange(of: editing) { _, now in slot?.editing(now) }
+            .onChange(of: editing) { _, now in
+                if now {
+                    if base == nil { base = content?.version }
+                    slot?.began(base)
+                } else {
+                    base = nil
+                    slot?.ended()
+                }
+            }
+            .onChange(of: dirty) { _, now in if editing { slot?.dirtied(now, base) } }
     }
 
     /// The switcher picked another open file: show it here, as a tab switch would.
     func switchTo(_ picked: String) {
-        guard picked != path, !editing else { return }
+        guard picked != path else { return }
+        // In the editor a draft stays with its file, so another file can show over it.
         if let slot { return slot.pick(picked) }
+        guard !editing else { return }
         content = nil; image = nil; failure = nil; source = false; inParts = false
         path = picked
     }
@@ -165,12 +184,15 @@ struct FileScreen: View {
             }
             .accessibilityIdentifier("preview.markdown")
         } else {
-            SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)", text: text,
-                                                    language: content.language,
-                                                    marks: content.markedLines),
+            // A draft an earlier editor of this file left, shown over the file as saved.
+            let carried = editing ? slot?.draft()?.text : nil
+            SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)|\(carried == nil ? "" : "draft")",
+                                                    text: carried ?? text, language: content.language,
+                                                    marks: content.markedLines, original: carried == nil ? nil : text),
                            wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
                            selected: mention == nil ? nil : { selectedLines = $0 },
-                           mention: mention == nil ? nil : { mentionSelection($0) })
+                           mention: mention == nil ? nil : { mentionSelection($0) },
+                           left: slot?.left, touched: slot?.focus)
                 .ignoresSafeArea(.container, edges: .bottom)
         }
     }
@@ -218,7 +240,8 @@ struct FileScreen: View {
     }
 
     func load() async {
-        guard !editing else { return }
+        // While editing the file stays as it was opened, except for a draft carried over unread.
+        guard !editing || content == nil else { return }
         do {
             let next = try await model.files(scope, ["op": "read", "path": path], as: FileContent.self)
             image = next.kind == "image" ? next.data.flatMap { Data(base64Encoded: $0) }.flatMap(UIImage.init(data:)) : nil
@@ -241,7 +264,7 @@ struct FileScreen: View {
 
     /// Save over the version that was opened, or over `newer` once the person chose Replace.
     func save(over newer: String? = nil) {
-        guard let expected = newer ?? content?.version, !saving else { return }
+        guard let expected = newer ?? base ?? content?.version, !saving else { return }
         saving = true
         conflict = nil
         problem = nil
@@ -282,11 +305,17 @@ struct FileScreen: View {
     func moved(_ prompt: FilePrompt?, _ change: FileChange) {
         switch prompt {
         case .delete?:
-            if let slot {
-                // The tab closes; the editor leaves once no file is open.
+            if let slot, slot.pane {
+                // Beside other files the tab closes; the editor leaves once no file is open.
                 if let strip = actions.strip { deleted?(strip) }
                 slot.removed()
-            } else if let deleted, let strip = actions.strip { deleted(strip); dismiss() } else { Task { await load() } }
+            } else if let deleted, let strip = actions.strip {
+                // Back to the tree, where Undo shows.
+                deleted(strip)
+                if let slot { slot.removed() } else { dismiss() }
+            } else {
+                Task { await load() }
+            }
         case .rename?, .move?:
             guard let destination = change.destination else { return }
             path = destination

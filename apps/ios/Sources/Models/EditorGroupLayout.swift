@@ -128,6 +128,12 @@ struct EditorGroupLayout: Codable, Equatable, Sendable {
 
     // MARK: Storage
 
+    /// Where a checkout's layout is stored: by machine and the checkout's folder there, so the
+    /// threads sharing a checkout share its groups; by `scope` until the folder is known.
+    static func storageKey(machine: String?, root: String?, scope: String) -> String {
+        "editor.groups.\(machine ?? "")|\(root ?? scope)"
+    }
+
     /// The layout as stored for the next time this checkout's editor opens.
     var stored: String? {
         (try? JSONEncoder().encode(self)).flatMap { String(data: $0, encoding: .utf8) }

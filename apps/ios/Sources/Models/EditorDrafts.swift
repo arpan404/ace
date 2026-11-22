@@ -28,8 +28,14 @@ struct EditorDrafts: Equatable, Sendable {
         if drafts[path] == nil { drafts[path] = EditorDraft(base: base, text: nil, dirty: false) }
     }
 
-    mutating func mark(_ path: String, dirty: Bool) {
-        drafts[path]?.dirty = dirty
+    /// The text now differs from the file (or no longer does). An editor that came back to a
+    /// file whose clean draft was dropped meanwhile starts it again from `base`.
+    mutating func mark(_ path: String, dirty: Bool, base: String?) {
+        if drafts[path] == nil {
+            if dirty { drafts[path] = EditorDraft(base: base, text: nil, dirty: true) }
+        } else {
+            drafts[path]?.dirty = dirty
+        }
     }
 
     /// The editor showing `path` went away with `text` in it: kept when it changed the file.

@@ -6,7 +6,7 @@ import Testing
     private func edited(_ path: String = "a.swift") -> EditorDrafts {
         var drafts = EditorDrafts()
         drafts.begin(path, base: "v1")
-        drafts.mark(path, dirty: true)
+        drafts.mark(path, dirty: true, base: "v1")
         return drafts
     }
 
@@ -64,6 +64,18 @@ import Testing
         drafts.left("a.swift", text: "same")
         #expect(drafts["a.swift"] == nil)
         #expect(!drafts.editing)
+    }
+
+    @Test func anEditorThatCameBackToADroppedCleanDraftStartsItAgainOnceTypedInto() {
+        var drafts = EditorDrafts()
+        drafts.begin("a.swift", base: "v1")
+        // The old editor goes after the new one appeared, unchanged: its draft is dropped.
+        drafts.left("a.swift", text: "same")
+        drafts.mark("a.swift", dirty: true, base: "v1")
+        #expect(drafts["a.swift"] == EditorDraft(base: "v1", text: nil, dirty: true))
+        // Turning clean again on a file with no draft makes none.
+        drafts.mark("b.swift", dirty: false, base: "v1")
+        #expect(drafts["b.swift"] == nil)
     }
 
     @Test func anEditKeepsTheVersionItBeganFrom() {

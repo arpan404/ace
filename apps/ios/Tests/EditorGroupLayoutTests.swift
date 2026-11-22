@@ -175,6 +175,16 @@ import Testing
 
     // MARK: Restoring
 
+    @Test func threadsSharingACheckoutShareItsGroupsButOtherMachinesDoNot() {
+        let here = EditorGroupLayout.storageKey(machine: "mbp", root: "/work/relay", scope: "thread:one")
+        #expect(here == EditorGroupLayout.storageKey(machine: "mbp", root: "/work/relay", scope: "thread:two"))
+        #expect(here != EditorGroupLayout.storageKey(machine: "mini", root: "/work/relay", scope: "thread:one"))
+        #expect(here != EditorGroupLayout.storageKey(machine: "mbp", root: "/work/other", scope: "thread:one"))
+        // Until the folder is known, each thread keeps its own.
+        #expect(EditorGroupLayout.storageKey(machine: "mbp", root: nil, scope: "thread:one")
+            != EditorGroupLayout.storageKey(machine: "mbp", root: nil, scope: "thread:two"))
+    }
+
     @Test func groupsAndTheirFilesComeBackFromStorage() throws {
         var layout = split()
         layout.focus(layout.groups[0].id)
