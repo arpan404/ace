@@ -206,6 +206,11 @@ test("a project's own folder reads but never changes", async () => {
   });
 });
 
+test("a thread's checkout names its folder on the host, so the editor keeps its groups per checkout", async () => {
+  const { ask } = await connect();
+  expect(await ask({ op: "root" })).toEqual({ ok: true, root });
+});
+
 test("a message's link opens its checkout file at the line, and one outside downloads from the host", async () => {
   const { fake, ask } = await connect();
   const itemId = fake.itemId(thread, "answer") ?? "";

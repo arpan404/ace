@@ -9,6 +9,9 @@ struct SourceDocument: Equatable {
     let text: String
     let language: String?
     let marks: [Int: String]
+    /// The file as saved, when `text` is a draft carried over from an earlier editor: changes are
+    /// measured against it.
+    var original: String? = nil
 }
 
 /// Lets toolbar buttons reach the text view: its find navigator, the text being edited and go to
@@ -42,12 +45,24 @@ struct SourceTextView: UIViewRepresentable {
     /// the selection's edit menu also offers Mention in message.
     var selected: ((ClosedRange<Int>?) -> Void)? = nil
     var mention: ((ClosedRange<Int>) -> Void)? = nil
+    /// The view is going while editable, with this text in it (a tab moved, or its group hid).
+    var left: ((String) -> Void)? = nil
+    /// The person tapped the text or began typing in it.
+    var touched: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
         view.text.delegate = context.coordinator
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped))
+        tap.cancelsTouchesInView = false
+        tap.delegate = context.coordinator
+        view.addGestureRecognizer(tap)
         handle.view = view.text
         return view
+    }
+
+    static func dismantleUIView(_ view: SourceContainer, coordinator: Coordinator) {
+        if view.text.isEditable { coordinator.parent.left?(view.text.text) }
     }
 
     func updateUIView(_ view: SourceContainer, context: Context) {
@@ -56,8 +71,8 @@ struct SourceTextView: UIViewRepresentable {
         view.text.isEditable = editable
         if context.coordinator.key != document.key {
             context.coordinator.key = document.key
-            context.coordinator.original = document.text
-            context.coordinator.wasDirty = false
+            context.coordinator.original = document.original ?? document.text
+            context.coordinator.wasDirty = document.original.map { $0 != document.text } ?? false
             view.load(document)
             if let line { view.reveal(line: line) }
         }
@@ -66,7 +81,7 @@ struct SourceTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
 
-    @MainActor final class Coordinator: NSObject, UITextViewDelegate {
+    @MainActor final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: SourceTextView
         var key = ""
         var original = ""
@@ -77,6 +92,10 @@ struct SourceTextView: UIViewRepresentable {
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
         }
+        @objc func tapped() { parent.touched?() }
+        func textViewDidBeginEditing(_ textView: UITextView) { parent.touched?() }
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
         func textViewDidChangeSelection(_ textView: UITextView) {
             guard let selected = parent.selected else { return }
             selected(lines(textView))
@@ -336,65 +355,5 @@ final class SourceContainer: UIView {
         text.backgroundColor = UIColor(AceTheme.Colours.background)
         highlight.backgroundColor = UIColor(AceDesign.Surface.lineHighlight)
         gutter.setNeedsDisplay()
-    }
-}
-
-/// The line numbers and change bars, drawn for the lines on screen only.
-final class SourceGutter: UIView {
-    weak var host: SourceContainer?
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        isOpaque = true
-        contentMode = .redraw
-    }
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
-
-    override func draw(_ rect: CGRect) {
-        UIColor(AceTheme.Colours.background).setFill()
-        UIRectFill(bounds)
-        guard let host, let layout = host.text.textLayoutManager, let content = layout.textContentManager else { return }
-        let text = host.text
-        let inset = text.textContainerInset.top
-        // Container coordinates of the gutter's top and bottom edges.
-        let top = text.contentOffset.y - inset
-        let bottom = top + bounds.height
-        let size = host.font.pointSize - 1
-        let numberFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
-        let strongFont = UIFont.monospacedDigitSystemFont(ofSize: size, weight: .semibold)
-        let start = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, top)))?.rangeInElement.location ?? layout.documentRange.location
-        let width = bounds.width
-        let muted = UIColor(AceTheme.Colours.subtleForeground), ink = UIColor(AceTheme.Colours.foreground)
-        layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.minY > bottom { return false }
-            let line = host.lineIndex(at: content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)) + 1
-            let y = frame.minY - top
-            let firstLine = fragment.textLineFragments.first?.typographicBounds.height ?? frame.height
-            let target = host.targetLine == line
-            let label = String(line) as NSString
-            let attributes: [NSAttributedString.Key: Any] = [.font: target ? strongFont : numberFont, .foregroundColor: target ? ink : muted]
-            let measured = label.size(withAttributes: attributes)
-            label.draw(at: CGPoint(x: width - AceTheme.Spacing.md - measured.width, y: y + (firstLine - measured.height) / 2), withAttributes: attributes)
-            switch host.marks[line] {
-            case "added", "modified":
-                UIColor(AceTheme.StatusText.done).setFill()
-                UIRectFill(CGRect(x: width - FileDiffStyle.bar, y: y, width: FileDiffStyle.bar, height: frame.height))
-            case "removed":
-                UIColor(AceTheme.StatusText.failed).setFill()
-                UIRectFill(CGRect(x: 0, y: y, width: width, height: AceDesign.Size.rail))
-            default: break
-            }
-            return true
-        }
-    }
-}
-
-extension UIColor {
-    /// "#rrggbb"; black when it doesn't parse.
-    convenience init(hex: String) {
-        let digits = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
-        let value = UInt32(digits, radix: 16) ?? 0
-        self.init(red: CGFloat((value >> 16) & 255) / 255, green: CGFloat((value >> 8) & 255) / 255, blue: CGFloat(value & 255) / 255, alpha: 1)
     }
 }
