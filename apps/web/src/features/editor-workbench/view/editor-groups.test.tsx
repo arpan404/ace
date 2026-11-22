@@ -1,4 +1,5 @@
 import { groupsOf } from "@ace/ui-core/editor-workbench";
+import { treeEntriesDragType } from "@/lib/workspace/index.ts";
 import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import {
@@ -62,7 +63,7 @@ test("a file dragged from this thread's explorer opens kept in the group it drop
   area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
   const data = transfer();
   data.setData(
-    "application/x-ace-tree-entries",
+    treeEntriesDragType,
     JSON.stringify({ threadId: "t1", entries: [{ path: "src/new.ts", folder: false }] }),
   );
   fireEvent.dragOver(area, { dataTransfer: data, clientX: 150, clientY: 150 });
@@ -81,7 +82,7 @@ test("a file dragged onto a group's outer third opens in a new group on that sid
   area.getBoundingClientRect = () => new DOMRect(0, 0, 300, 300);
   const data = transfer();
   data.setData(
-    "application/x-ace-tree-entries",
+    treeEntriesDragType,
     JSON.stringify({ threadId: "t1", entries: [{ path: "b.ts", folder: false }] }),
   );
   fireEvent.dragOver(area, { dataTransfer: data, clientX: 290, clientY: 150 });
@@ -97,7 +98,7 @@ test("a file dragged from another thread's explorer opens nothing", async () => 
   const area = editorArea(1);
   const data = transfer();
   data.setData(
-    "application/x-ace-tree-entries",
+    treeEntriesDragType,
     JSON.stringify({ threadId: "t2", entries: [{ path: "b.ts", folder: false }] }),
   );
   fireEvent.dragOver(area, { dataTransfer: data });

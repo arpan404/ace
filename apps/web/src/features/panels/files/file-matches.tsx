@@ -6,7 +6,7 @@ import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
-import { MiddleName, MiddleText } from "./middle-name.tsx";
+import { FolderLabel, MiddleName } from "./middle-name.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { writeTreeDrag } from "./use-tree-drag.ts";
 
@@ -110,10 +110,9 @@ export function FileMatches(props: {
               {/* The folder takes only the room the name leaves, so the name shows whole. */}
               <span className="flex min-w-0 flex-1 overflow-hidden">
                 {parent && (
-                  <MiddleText
+                  <FolderLabel
                     part="match-folder"
-                    text={parent}
-                    tail={parent.length - parent.lastIndexOf("/")}
+                    folder={parent}
                     className="text-xs text-subtle-foreground"
                   />
                 )}
