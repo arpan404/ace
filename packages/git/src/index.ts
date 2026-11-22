@@ -1,4 +1,5 @@
 export { WorktreeRemovalRefused } from "./worktree-cleanup.ts";
+import { excludeAcePrivate } from "./ace-private.ts";
 import { backupWorktree } from "./worktree-backup.ts";
 import {
   inspectWorktreeCleanup,
@@ -489,6 +490,15 @@ export class GitService {
         return `${branch.head ?? "unborn"}:${tree}`;
       }),
     );
+  }
+
+  /**
+   * Name ace's private `.ace-upload-*` entries (uploads, Recently deleted) in the local exclude
+   * of the repository holding `path`, before any of them can appear there.
+   */
+  async excludeAcePrivate(path: string): Promise<void> {
+    const root = await this.repository.root(path);
+    await this.repository.serial(root, () => excludeAcePrivate(this.repository, root));
   }
 
   /** The top level of the Git worktree holding `path`: the unit a source control change rewrites. */

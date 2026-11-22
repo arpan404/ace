@@ -79,6 +79,12 @@ export class WorkspaceReservations {
   dropCheckoutHold(top: string): void {
     this.statement("DELETE FROM checkout_holds WHERE top=?").run(top);
   }
+  /** Project folders the daemon knows (their canonical roots), for idle per-checkout upkeep. */
+  knownRoots(limit = 1000): string[] {
+    return this.statement("SELECT DISTINCT root FROM workspace_canonical_roots LIMIT ?")
+      .all(limit)
+      .map((row) => z.string().parse(row.root));
+  }
   /** Holds a daemon that stopped mid-change left behind. */
   checkoutHolds(): { top: string; commandId: string; at: number; threads: ThreadId[] }[] {
     return this.statement("SELECT top,command_id,at,threads FROM checkout_holds")

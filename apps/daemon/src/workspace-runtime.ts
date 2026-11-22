@@ -405,6 +405,15 @@ export class WorkspaceRuntime {
     this.opened.add(listener);
     return () => this.opened.delete(listener);
   }
+  /**
+   * Name ace's private entries (uploads, Recently deleted) in every known project's local Git
+   * exclude, one project at a time, so a Files delete never leaves one a terminal could stage.
+   * Run once after startup, off the open path; a folder that isn't a repository is skipped.
+   */
+  async excludePrivateEntries(): Promise<void> {
+    for (const root of this.store.workspaceReservations.knownRoots())
+      await this.git.excludeAcePrivate(root).catch(() => {});
+  }
   /** Threads with an open terminal, where a person may commit outside any agent turn. */
   terminalThreads(): ThreadId[] {
     return [...new Set([...this.terminals.values()].map((entry) => entry.threadId))];

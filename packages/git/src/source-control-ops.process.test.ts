@@ -722,6 +722,52 @@ describe("source control git operations", () => {
     }
   });
 
+  it("a discard names ace's private entries in the local exclude before it makes the first one", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "draft.txt"), "draft\n");
+      const status = await git.sourceControlStatus(repo);
+      let excludedFirst = false;
+      await git.discard({
+        worktree: repo,
+        files: [reviewed(status, "draft.txt")],
+        // Recently deleted parks the file inside the checkout, as the files service does.
+        trash: async (root, path) => {
+          excludedFirst = (await readFile(join(root, ".git", "info", "exclude"), "utf8")).includes(
+            ".ace-upload-*",
+          );
+          await mkdir(join(root, ".ace-upload-trash-1"), { recursive: true });
+          await rename(join(root, path), join(root, ".ace-upload-trash-1", path));
+        },
+      });
+      expect(excludedFirst).toBe(true);
+      // So a terminal's `git add -A` right after never picks it up.
+      runGit(repo, ["add", "-A"]);
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("a plain commit refuses ace's private entries that were staged by hand", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await mkdir(join(repo, ".ace-upload-trash-4"), { recursive: true });
+      await writeFile(join(repo, ".ace-upload-trash-4", "x.txt"), "deleted\n");
+      runGit(repo, ["add", "-f", ".ace-upload-trash-4/x.txt"]);
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      await expectGitError(
+        git.commit({ worktree: repo, message: "oops", expectedHead: head, stagedOnly: true }),
+        "private_path_staged",
+      );
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();

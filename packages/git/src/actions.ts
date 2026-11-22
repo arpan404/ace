@@ -4,7 +4,7 @@ import { z } from "zod";
 import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions, type ReviewedFile } from "./types.ts";
-import { excludeAcePrivate, personPathspecs } from "./ace-private.ts";
+import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
 import { reviewedCommit } from "./reviewed-commit.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
@@ -102,6 +102,8 @@ export async function commitChanges(
     }
     if (status.conflicted.length)
       throw new GitError("conflicts", "Resolve conflicts before committing");
+    if (status.staged.some((entry) => isAcePrivate(entry.path)))
+      throw new GitError("private_path_staged", failureMessage("private_path_staged"));
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
     if (options.stagedOnly && !paths) {

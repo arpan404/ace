@@ -11,6 +11,11 @@ export const acePrivatePattern = ".ace-upload-*";
 
 const excludeLine = `${acePrivatePattern}\n`;
 
+/** Whether a repository path is, or lies inside, one of ace's private entries. */
+export function isAcePrivate(path: string): boolean {
+  return path.split("/").some((part) => part.startsWith(".ace-upload-"));
+}
+
 /**
  * Name ace's private entries in the repository's local exclude (`info/exclude`, never committed),
  * so status, `git add -A` from any terminal, stashes and checkpoints all skip them. Idempotent.

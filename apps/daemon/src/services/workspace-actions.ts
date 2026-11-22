@@ -130,6 +130,13 @@ export async function startWorkspaceActions({
       return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);
     },
   });
+  // Off the open path: name ace's private entries in each known project's Git exclude.
+  const upkeep = setTimeout(() => {
+    workspace
+      .excludePrivateEntries()
+      .catch((error: unknown) => log.log("warn", "Could not update Git excludes", logError(error)));
+  }, 0);
+  upkeep.unref();
   services.workspaceActions = workspace;
   // Live-update the preparation deadline from settings, unless an explicit per-environment
   // option pins it (tests). The settings service already resolves the environment override.

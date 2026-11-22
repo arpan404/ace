@@ -279,6 +279,19 @@ describe("daemon source control handlers", () => {
     }
   });
 
+  it("names ace's private entries in each known checkout's local exclude when the daemon opens", async () => {
+    const { runtime, store, repo } = await setupFixture();
+    try {
+      await runtime.excludePrivateEntries();
+      expect(await readFile(join(repo, ".git", "info", "exclude"), "utf8")).toContain(
+        ".ace-upload-*",
+      );
+    } finally {
+      await runtime.close();
+      await store.close();
+    }
+  });
+
   it("serves enriched git.status, git.branches, git.diff stage views, and stash commands", async () => {
     const { runtime, store, thread, repo, cmd } = await setupFixture();
     try {

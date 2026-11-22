@@ -1,4 +1,4 @@
-import { acePrivatePattern } from "./ace-private.ts";
+import { isAcePrivate } from "./ace-private.ts";
 import { longWriteTimeoutMs } from "./deadlines.ts";
 import { failureMessage } from "./failure-text.ts";
 import { fileFingerprint } from "./file-fingerprint.ts";
@@ -7,7 +7,6 @@ import type { Repository } from "./repository.ts";
 import { withIndex } from "./temporary-index.ts";
 import { GitError, type ReviewedFile } from "./types.ts";
 
-const privatePrefix = acePrivatePattern.slice(0, -1);
 const text = (output: { stdout: Buffer }) => output.stdout.toString("utf8").trim();
 const nulList = (output: { stdout: Buffer }) =>
   output.stdout.toString("utf8").split("\0").filter(Boolean);
@@ -108,7 +107,7 @@ export async function reviewedCommit(
         call(root, ["diff-index", "--cached", "--name-only", "-z", base, "--"], { env }),
       ),
     );
-    if (staged.some((path) => path.split("/").some((part) => part.startsWith(privatePrefix))))
+    if (staged.some(isAcePrivate))
       throw new GitError("private_path_staged", failureMessage("private_path_staged"));
     try {
       await call(root, ["commit", "--file=-", ...(options.amend ? ["--amend"] : [])], {
