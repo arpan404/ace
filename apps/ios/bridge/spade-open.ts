@@ -9,6 +9,8 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
+import { SpadeKeptEvents, type SpadeKeep } from "./spade-kept-events.ts";
+import { spadeKeptHead, spadeKeptRows } from "./spade-kept-rows.ts";
 import { spadeConversationHead, spadeConversationRows } from "./spade-rows.ts";
 import { segment, spadeText } from "./spade-text.ts";
 import { SpadeWorkerTree } from "./spade-worker-tree.ts";
@@ -17,7 +19,9 @@ import { SpadeWorkerWatch } from "./spade-worker-watch.ts";
 /*
  * The one Spade conversation open on the phone, followed live (`@ace/ui-core/spade-chat`): its
  * rows as Swift draws them, only those that changed, and the seen mark once it is caught up.
- * The list it names bots and groups from is the runtime's (`spade.ts`).
+ * A bot's conversation starts from the events the phone kept from its last open, so it shows at
+ * once and reads only what came after (`spade-kept-events.ts`). The list it names bots and
+ * groups from is the runtime's (`spade.ts`).
  */
 
 /** What the open conversation reads from the runtime around it. */
@@ -37,6 +41,8 @@ export interface SpadeOpenHost {
   approvers(bot: string): string | null;
   /** Read the bots again now, so a row settles once its conversation is seen. */
   readList(): void;
+  /** Where opened conversations' events are kept between launches; none keeps them this run only. */
+  keep: SpadeKeep | undefined;
 }
 
 /** The conversation open on the phone: a bot's, or a group's. */
@@ -58,9 +64,11 @@ export class SpadeOpenChat {
   /** The open chat's bot's tree, for whether a bot worker has started or finished. */
   private readonly tree: SpadeWorkerTree;
   private readonly host: SpadeOpenHost;
+  private readonly kept: SpadeKeptEvents;
 
   constructor(host: SpadeOpenHost) {
     this.host = host;
+    this.kept = new SpadeKeptEvents(host.keep, host.later);
     this.live = new SpadeDaemonLive(host.owner, host.id);
     this.workers = new SpadeWorkerWatch(host.owner, () => this.publish());
     this.tree = new SpadeWorkerTree({ read: (path) => this.read(path), later: host.later }, () =>
@@ -136,17 +144,40 @@ export class SpadeOpenChat {
         follow.stop();
       };
     };
-    if (group === undefined) {
-      const follow = new SpadeConversationFollow(link, conversationId, deps);
-      this.open = { kind: "bot", id: conversationId, follow, stop: track(follow) };
-    } else {
+    const begin = (follow: SpadeConversationFollow | SpadeGroupFollow) => {
+      follow.start();
+      follow.setReady(this.host.ready());
+    };
+    if (group !== undefined) {
       const follow = new SpadeGroupFollow(link, conversationId, deps);
       this.open = { kind: "group", id: conversationId, group, follow, stop: track(follow) };
+      begin(follow);
+      return this.publish();
     }
-    const { follow } = this.open;
-    follow.start();
-    follow.setReady(this.host.ready());
+    // Kept this run, it shows in this very frame; from the last launch, once read from disk.
+    const kept = this.kept.now(conversationId);
+    const recorder = this.kept.record(conversationId, link);
+    const follow = new SpadeConversationFollow(recorder.link, conversationId, deps);
+    const untrack = track(follow);
+    const unreset = follow.onReset(() => recorder.reset());
+    const stop = () => {
+      unreset();
+      untrack();
+      recorder.stop();
+    };
+    this.open = { kind: "bot", id: conversationId, follow, stop };
+    if (kept) {
+      follow.seed(kept);
+      begin(follow);
+      return this.publish();
+    }
     this.publish();
+    void this.kept.load(conversationId).then((events) => {
+      if (this.open?.follow !== follow) return;
+      follow.seed(events);
+      begin(follow);
+      this.publish();
+    });
   }
 
   private read(path: string): Promise<string> {
@@ -163,7 +194,7 @@ export class SpadeOpenChat {
     if (!open) return;
     const { sink } = this.host;
     if (open.kind === "bot") {
-      const { view, problem } = open.follow.get();
+      const { view, problem, kept } = open.follow.get();
       const bot = this.botOf(open.id);
       const facts = this.workers.facts(
         () => this.host.agents(),
@@ -171,12 +202,14 @@ export class SpadeOpenChat {
       );
       const approvers = bot ? this.host.approvers(bot.id) : null;
       const rows = spadeConversationRows(view, bot?.name || "Spade", facts, approvers);
+      // Its workers are read from the kept rows too, beside Spade's own answer.
       this.workers.showing(rows);
       this.tree.showing(bot?.id, rows);
-      this.putRows(open.id, rows);
-      sink.put("spade:conversation", () =>
-        spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null),
-      );
+      this.putRows(open.id, kept ? spadeKeptRows(rows) : rows);
+      sink.put("spade:conversation", () => {
+        const head = spadeConversationHead(open.id, view, problem, bot ? botFace(bot) : null);
+        return kept ? spadeKeptHead(head) : head;
+      });
       if (view.caughtUp) this.markSeen();
       return;
     }

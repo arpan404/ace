@@ -18,6 +18,7 @@ import {
   type SpadeReach,
 } from "./spade-rows.ts";
 import { SpadePeople, SpadeSharing } from "./spade-sharing.ts";
+import type { SpadeKeep } from "./spade-kept-events.ts";
 import { SpadeOpenChat } from "./spade-open.ts";
 import { spadeText } from "./spade-text.ts";
 
@@ -32,6 +33,8 @@ export interface SpadeDeps {
   now(): number;
   id(): string;
   later(delay: number, callback: () => void): () => void;
+  /** Where opened conversations' events are kept between launches (`spade-kept-events.ts`). */
+  keep?: SpadeKeep;
 }
 
 export const NativeSpadeAction = z.discriminatedUnion("type", [
@@ -125,6 +128,7 @@ export class NativeSpade {
       hostId: () => this.hostId,
       approvers: (bot) => this.sharing.approvers(bot),
       readList: () => this.readList(),
+      keep: deps.keep,
     });
     this.hosting = new SpadeHosting({
       read: (path) => spadeText(owner, deps.id, "GET", path),

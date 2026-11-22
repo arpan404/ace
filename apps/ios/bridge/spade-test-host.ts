@@ -10,6 +10,7 @@ import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
 import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
 import type { Picked } from "./thread-attachments.ts";
 import type { SpadeHostingWire } from "./spade-hosting.ts";
+import type { SpadeKeep } from "./spade-kept-events.ts";
 
 /*
  * Spade's bridge over the real SDK and an in-process fake daemon with a fake Spade behind
@@ -59,6 +60,8 @@ export class Patches {
 export async function setUp(
   seed: (spade: FakeSpadeApi, daemon: FakeDaemon) => void = () => {},
   wait: typeof later = later,
+  /** The phone's snapshot store, which outlives one runtime (`memoryKeep`). */
+  keep?: SpadeKeep,
 ) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
@@ -85,6 +88,7 @@ export async function setUp(
     now: () => Date.now(),
     id: () => crypto.randomUUID(),
     later: wait,
+    ...(keep ? { keep } : {}),
   });
   stops.push(() => spade.stop());
   spade.start();
@@ -115,6 +119,19 @@ export async function setUp(
       new AbortController().signal,
     );
   return { daemon, api, spade, patches, ask, stage, staged };
+}
+
+/** The phone's snapshot store in memory, as JSON, so one launch's runtime leaves it to the next. */
+export function memoryKeep(): SpadeKeep & { held: Map<string, string> } {
+  const held = new Map<string, string>();
+  return {
+    held,
+    get: async (key) => {
+      const text = held.get(key);
+      return text === undefined ? undefined : (JSON.parse(text) as unknown);
+    },
+    set: async (key, value) => void held.set(key, JSON.stringify(value)),
+  };
 }
 
 /** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */

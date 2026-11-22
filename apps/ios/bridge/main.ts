@@ -375,6 +375,8 @@ async function start(json: string): Promise<void> {
     now: () => host.now(),
     id: () => host.uuid(),
     later: (delay, callback) => scheduler.set(delay, callback),
+    // Opened conversations' events, so the next open shows at once and reads only the tail.
+    ...(snapshots ? { keep: snapshots } : {}),
   });
   spade.start();
 
