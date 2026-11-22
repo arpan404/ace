@@ -42,7 +42,10 @@ const updates = [
     },
   },
   { type: "text-delta", text: "All " },
-  { type: "text-delta", text: "good." },
+  // Two identical updates in a row: each must show exactly once.
+  { type: "text-delta", text: "good " },
+  { type: "text-delta", text: "good " },
+  { type: "text-delta", text: "here." },
 ];
 
 /** What SDK 1.0.35 stores for an update, as its own mapping does (none for shell output). */
@@ -82,8 +85,11 @@ function stored(update: Record<string, unknown>, runId: string): unknown {
   }
 }
 
-/** A fake SDK whose runs write the store in 1.0.35's order: onDelta first, then the event. */
-function fakeSdk(): { boundary: RuntimeSdkBoundary; store: () => LocalAgentStore } {
+/** Whether the fake SDK calls onDelta before it stores the update's event (1.0.35), or after. */
+type Order = "callback-first" | "write-first";
+
+/** A fake SDK whose runs write the store as SDK 1.0.35 does, in either order per update. */
+function fakeSdk(order: Order): RuntimeSdkBoundary {
   let store: LocalAgentStore | undefined;
   const append = (runId: string, message: unknown) =>
     store!.runEvents.append({
@@ -126,9 +132,10 @@ function fakeSdk(): { boundary: RuntimeSdkBoundary; store: () => LocalAgentStore
           status: "RUNNING",
         });
         for (const update of updates) {
-          await options?.onDelta?.({ update });
           const message = stored(update, runId);
-          if (message) await append(runId, message);
+          if (order === "write-first" && message) await append(runId, message);
+          await options?.onDelta?.({ update });
+          if (order === "callback-first" && message) await append(runId, message);
         }
         const run = await store!.runs.get({ agentId: "agent", runId });
         if (run)
@@ -159,6 +166,8 @@ function fakeSdk(): { boundary: RuntimeSdkBoundary; store: () => LocalAgentStore
     Agent: {
       async create(options: { local: { store: LocalAgentStore; cwd: string } }) {
         store = options.local.store;
+        const blobId = "ab".repeat(32);
+        await store.checkpoints.create({ agentId: "agent", blobId, data: new Uint8Array([1]) });
         await store.agents.create({
           agent: {
             agentId: "agent",
@@ -166,15 +175,19 @@ function fakeSdk(): { boundary: RuntimeSdkBoundary; store: () => LocalAgentStore
             status: "idle",
             createdAt: 1,
             updatedAt: 1,
-          },
+            latestCheckpoint: { schemaVersion: 1, rootBlobId: blobId },
+          } as never,
         });
         return agent;
       },
-      resume: async () => agent,
+      async resume(_id: string, options: { local: { store: LocalAgentStore } }) {
+        store = options.local.store;
+        return agent;
+      },
       cancelRun: async () => {},
     },
   } as unknown as RuntimeSdkBoundary;
-  return { boundary, store: () => store! };
+  return boundary;
 }
 
 /** The transcript a translator shows for `frames`: messages, reasoning and tool calls. */
@@ -208,84 +221,90 @@ function shown(frames: CursorEnvelope[]) {
   });
 }
 
-it("a recovered tail is exact at every cut: nothing shows twice and nothing is missing", async () => {
-  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-")));
-  try {
-    const fake = fakeSdk();
-    const frames: CursorEnvelope[] = [];
-    const finished = Promise.withResolvers<void>();
-    const host = new HostRuntime(
-      fake.boundary,
-      async (frame) => {
-        for (const inner of unbatch(frame)) {
-          frames.push(inner);
-          if (inner.kind === "result") finished.resolve();
-        }
-      },
-      () => home,
-      {},
-    );
-    const limits = CursorLimitsSchema.parse({});
-    await host.open({
+const limits = CursorLimitsSchema.parse({});
+/** A host process's run of `open`, as the daemon sees it: the frames it stored, in order. */
+async function host(
+  boundary: RuntimeSdkBoundary,
+  home: string,
+  generation: string,
+  run: (host: HostRuntime, stored: () => CursorEnvelope[]) => Promise<void>,
+): Promise<CursorEnvelope[]> {
+  const frames: CursorEnvelope[] = [];
+  const runtime = new HostRuntime(
+    boundary,
+    async (frame) => {
+      frames.push(...unbatch(frame));
+    },
+    () => home,
+    {},
+  );
+  await run(runtime, () => frames);
+  await runtime.close();
+  return frames.filter((frame) => frame.kind !== "close");
+}
+/** A daemon start after a crash: its host reopens with what `record` lacks of the open turn. */
+function reopen(boundary: RuntimeSdkBoundary, home: string, record: CursorEnvelope[], n: number) {
+  const fold = new UnsettledRuns();
+  for (const frame of record) fold.add(frame);
+  return host(boundary, home, `reopen-${n}`, async (runtime) => {
+    await runtime.open({
       threadId: "seam",
       cwd: home,
-      generation: "host1",
+      generation: `reopen-${n}`,
+      nativeSessionId: "agent",
+      recover: fold.result(),
       policy: "full-access",
       limits,
     });
-    await host.send({
-      operationId: "op",
-      commandId: "op",
-      segment: 0,
-      input: [{ type: "text", text: "go" }],
-    });
-    await finished.promise;
-    const live = frames.filter((frame) => frame.kind !== "result");
-    const whole = shown(frames);
-    expect(whole).toContain("assistant: Let me check.");
-    const first = live.findIndex((frame) => frame.kind === "send") + 1;
-    for (let cut = first; cut <= live.length; cut++) {
-      const committed = live.slice(0, cut);
-      const fold = new UnsettledRuns();
-      for (const frame of committed) fold.add(frame);
-      const recovered: CursorEnvelope[] = [];
-      await recoverCursorCheckpoint(
-        { Agent: { cancelRun: async () => {} } },
-        fake.store(),
-        {
-          cwd: home,
+  });
+}
+
+it.each(["callback-first", "write-first"] as const)(
+  "a recovered tail is exact at every crash point, %s, and through a second crash mid-recovery",
+  async (order) => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-")));
+    try {
+      const boundary = fakeSdk(order);
+      let reopened = 0;
+      const frames = await host(boundary, home, "live", async (runtime, stored) => {
+        await runtime.open({
           threadId: "seam",
-          generation: "host2",
-          nativeSessionId: "agent",
-          recover: fold.result(),
+          cwd: home,
+          generation: "live",
           policy: "full-access",
-          autoReviewAvailable: false,
           limits,
-        },
-        (found) =>
-          recovered.push({
-            schemaVersion: 1,
-            generation: "host2",
-            operationId: "open",
-            segment: 0,
-            ...found,
-          }),
-      );
-      const reopened = {
-        schemaVersion: 1 as const,
-        generation: "host2",
-        operationId: "open",
-        segment: 0,
-        kind: "open",
-        body: { cwd: home },
-      };
-      expect({ cut, shown: shown([...committed, reopened, ...recovered]) }).toEqual({
-        cut,
-        shown: whole,
+        });
+        await runtime.send({
+          operationId: "op",
+          commandId: "op",
+          segment: 0,
+          input: [{ type: "text", text: "go" }],
+        });
+        await expect.poll(() => stored().some((frame) => frame.kind === "result")).toBe(true);
       });
+      const whole = shown(frames);
+      expect(whole).toContain("assistant: Let me check.");
+      expect(whole).toContain("assistant: All good good here.");
+      const live = frames.filter((frame) => frame.kind !== "result");
+      const first = live.findIndex((frame) => frame.kind === "send") + 1;
+      for (let cut = first; cut <= live.length; cut++) {
+        const committed = live.slice(0, cut);
+        const recovery = await reopen(boundary, home, committed, ++reopened);
+        expect({ cut, shown: shown([...committed, ...recovery]) }).toEqual({ cut, shown: whole });
+        // The reopen dies after storing only some of what it read back; the next one goes on.
+        for (let kept = 1; kept < recovery.length; kept++) {
+          const partial = [...committed, ...recovery.slice(0, kept)];
+          const again = await reopen(boundary, home, partial, ++reopened);
+          expect({ cut, kept, shown: shown([...partial, ...again]) }).toEqual({
+            cut,
+            kept,
+            shown: whole,
+          });
+        }
+      }
+    } finally {
+      await rm(home, { recursive: true, force: true });
     }
-    await host.close();
-  } finally {
-    await rm(home, { recursive: true, force: true });
-  }
-});
+  },
+  60_000,
+);

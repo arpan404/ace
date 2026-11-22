@@ -26,7 +26,8 @@ import {
   observeRunEvents,
   assertStoreFree,
 } from "./sdk-store.ts";
-import { updateIdentity } from "./event-identity.ts";
+import { RunSeams } from "./run-seams.ts";
+import { storedMessage } from "./recovery.ts";
 import { recoverCursorCheckpoint, type Recovered } from "./recovery.ts";
 import { FrameBatch, type BatchTimer } from "./frame-batch.ts";
 import { nativeCursorOptions } from "./agent-options.ts";
@@ -77,8 +78,8 @@ export class HostRuntime {
   private callbackBytes = 0;
   private root: string | undefined;
   private batch: FrameBatch | undefined;
-  /** The last run event the SDK stored: the seam with ace's record (event-identity.ts). */
-  private lastEvent: { runId: string; seq: number } | undefined;
+  /** Where frames stand against the SDK's stored events (run-seams.ts). */
+  private seams = new RunSeams();
   private wallClock: () => number;
   private timer: BatchTimer | undefined;
   private store: LocalAgentStore | undefined;
@@ -151,6 +152,8 @@ export class HostRuntime {
     body: unknown,
     scope = this.sendOptions,
     nativeRun?: Pick<SdkRunBoundary, "id">,
+    /** A recovered event's own place in the store, which it covers once ace has it. */
+    recoveredSeq?: number,
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
@@ -196,7 +199,9 @@ export class HostRuntime {
         ...(scope?.commandId ? { commandId: scope.commandId } : {}),
         segment: scope?.segment ?? 0,
         ...(this.agent ? { agentId: this.agent.agentId } : {}),
-        ...this.seam(kind, body, nativeRun),
+        ...(recoveredSeq === undefined
+          ? this.seams.stamp(kind, body, nativeRun?.id, this.sending)
+          : { ...(nativeRun ? { runId: nativeRun.id } : {}), eventSeq: recoveredSeq }),
         kind,
         body: safe,
         ...(prepared.raw ? { raw: prepared.raw } : {}),
@@ -209,26 +214,6 @@ export class HostRuntime {
       this.callbacks--;
       this.callbackBytes -= admittedBytes;
     }
-  }
-  /**
-   * Where a content frame stands against the SDK's stored events: the run, the last event it
-   * had stored, and the event this update becomes. Before the run is known (inside the SDK's
-   * send), the run is the one whose events are being stored.
-   */
-  private seam(
-    kind: string,
-    body: unknown,
-    nativeRun: Pick<SdkRunBoundary, "id"> | undefined,
-  ): Partial<CursorEnvelope> {
-    const content = ["delta", "delta-chunk", "shell-output", "blob"].includes(kind);
-    const runId = nativeRun?.id ?? (content && this.sending ? this.lastEvent?.runId : undefined);
-    if (!runId) return {};
-    const next = kind === "delta" ? updateIdentity(body) : undefined;
-    return {
-      runId,
-      eventSeq: this.lastEvent?.runId === runId ? this.lastEvent.seq : 0,
-      ...(next ? { nextEvent: next } : {}),
-    };
   }
   /** Stores one frame through the batch, which keeps order and coalesces streamed chunks. */
   private publish(envelope: CursorEnvelope, bytes: number): Promise<void> {
@@ -347,7 +332,7 @@ export class HostRuntime {
         options.limits.maxCheckpointBytes,
       );
       this.store = observeRunEvents(this.storeOwner.store, (event) => {
-        this.lastEvent = event;
+        this.seams.stored(event.runId, event.seq, storedMessage(event.payload));
       });
       this.scrub = createRedactor(
         {
@@ -401,6 +386,7 @@ export class HostRuntime {
           found.body,
           undefined,
           found.runId ? { id: found.runId } : undefined,
+          found.kind === "recovered" ? found.seq : undefined,
         );
       await this.batch?.flush();
       return { agentId: this.agent.agentId };
@@ -467,7 +453,7 @@ export class HostRuntime {
       // input never reached Cursor and delivers it again. The turn starts at Cursor's first
       // sign of having it: an update for it, or the `segment` naming its run.
       await this.frame("send", { input: input.input, attemptedAt: this.wallClock() });
-      this.lastEvent = undefined;
+      this.seams.sending();
       let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(sdkInput(input.input), {
         model: {

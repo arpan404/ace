@@ -16,9 +16,9 @@ const Progress = z.object({
   segment: z.number().int().nonnegative(),
   runId: z.string().min(1).max(512).optional(),
   eventSeq: z.number().int().nonnegative().optional(),
-  nextEvent: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/)
+  pendingEvents: z
+    .array(z.string().regex(/^[a-f0-9]{64}$/))
+    .max(64)
     .optional(),
   body: z.unknown(),
 });
@@ -30,28 +30,33 @@ export type Unsettled = NonNullable<NonNullable<SessionContext["resume"]>["unset
 /** How far ace's record of one run reaches into the SDK's stored events. */
 interface Seam {
   through: number;
-  next?: string;
+  pending: string[];
 }
 /** Folds committed frames, in order, into what the open turn's record lacks. Pure. */
 export class UnsettledRuns {
   private runs = new Map<string, Seam>();
   private attempt: Unsettled["attempt"];
   private current: string | undefined;
-  /** A frame of `runId` stamped against the SDK's stored events moves the seam forward. */
-  private advance(runId: string, eventSeq: number | undefined, next: string | undefined): void {
-    const seam = this.runs.get(runId) ?? { through: 0 };
+  /**
+   * A frame of `runId` stamped against the SDK's stored events: each stamp says all there is,
+   * so the newest one stands, live or recovered.
+   */
+  private advance(
+    runId: string,
+    eventSeq: number | undefined,
+    pending: string[] | undefined,
+  ): void {
+    const seam = this.runs.get(runId) ?? { through: 0, pending: [] };
     if (eventSeq === undefined || eventSeq < seam.through) {
       this.runs.set(runId, seam);
       return;
     }
-    // No event stored since the last frame: the update that frame carried is still the next.
-    const carried = eventSeq === seam.through ? (next ?? seam.next) : next;
-    this.runs.set(runId, { through: eventSeq, ...(carried ? { next: carried } : {}) });
+    this.runs.set(runId, { through: eventSeq, pending: pending ?? [] });
   }
   add(data: unknown): void {
     const frame = Progress.safeParse(data);
     if (!frame.success) return;
-    const { kind, runId, eventSeq, nextEvent, body } = frame.data;
+    const { kind, runId, eventSeq, pendingEvents, body } = frame.data;
     if (kind === "send") {
       const attempted = Attempted.safeParse(body);
       this.attempt = attempted.success
@@ -70,7 +75,7 @@ export class UnsettledRuns {
       const id = admitted.success ? admitted.data.nativeRunId : runId;
       if (id) {
         this.current = id;
-        this.advance(id, eventSeq, nextEvent);
+        this.advance(id, eventSeq, pendingEvents);
       }
       return;
     }
@@ -94,12 +99,12 @@ export class UnsettledRuns {
       this.attempt = undefined;
       this.current = runId;
     }
-    this.advance(runId, eventSeq, nextEvent);
+    this.advance(runId, eventSeq, pendingEvents);
   }
   result(): Unsettled {
     const runs = [...this.runs].slice(-64).map(([runId, seam]) => {
       const run: Unsettled["runs"][number] = { runId, through: seam.through };
-      if (seam.next) run.next = seam.next;
+      if (seam.pending.length) run.pending = seam.pending;
       return run;
     });
     return { runs, ...(this.attempt ? { attempt: this.attempt } : {}) };

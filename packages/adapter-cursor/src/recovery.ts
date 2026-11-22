@@ -30,7 +30,7 @@ const StreamEvent = z.object({ type: z.literal("sdk_message"), message: z.unknow
 /** One thing recovery found, in the order the host publishes it after its open frame. */
 export type Recovered =
   | { kind: "admission"; body: Record<string, unknown>; runId?: string }
-  | { kind: "recovered"; body: unknown; runId: string }
+  | { kind: "recovered"; body: unknown; runId: string; seq: number }
   | { kind: "recovery"; body: Record<string, unknown>; runId: string };
 
 type Recover = OpenOptions["recover"];
@@ -79,21 +79,29 @@ async function attemptedRun(
   return undefined;
 }
 
+/** A stored event's SDK message; any other payload as it is, never dropped. */
+export function storedMessage(payload: unknown): unknown {
+  const stored = StreamEvent.safeParse(payload);
+  return stored.success ? stored.data.message : payload;
+}
+
 /**
- * The run's stored messages ace's record lacks: those after the last event its frames cover,
- * less the one right after it when ace committed that event's update too (event-identity.ts).
+ * The run's stored events ace's record lacks: those after the last one its frames cover, less
+ * the ones whose updates ace already has but whose events came later (`pending`, oldest first).
+ * Events after the covered point are this run's in order, so the first content events there are
+ * exactly those pending updates': each is matched by its place, and its identity confirms it.
  */
 async function tail(
   store: LocalAgentStore,
   runId: string,
-  { through, next }: { through: number; next?: string | undefined },
+  { through, pending = [] }: { through: number; pending?: string[] | undefined },
   limits: Limits,
-  push: (message: unknown) => void,
+  push: (message: unknown, seq: number) => void,
 ): Promise<void> {
   let afterOffset: string | undefined;
   let events = 0;
   let lastSeq = 0;
-  let seamChecked = next === undefined;
+  let waiting = 0;
   for (;;) {
     const page = await store.runEvents.list({
       runId,
@@ -109,14 +117,13 @@ async function tail(
       lastSeq = event.seq;
       afterOffset = event.offset;
       if (event.seq <= through) continue;
-      const stored = StreamEvent.safeParse(event.payload);
-      // Unknown event shapes are kept as raw data, never dropped.
-      const message = stored.success ? stored.data.message : event.payload;
-      if (!seamChecked) {
-        seamChecked = true;
-        if (storedIdentity(message) === next) continue;
+      const message = storedMessage(event.payload);
+      const identity = storedIdentity(message);
+      if (identity !== undefined && waiting < pending.length) {
+        const expected = pending[waiting++];
+        if (identity === expected) continue;
       }
-      push(message);
+      push(message, event.seq);
     }
     if (!page.nextOffset || page.items.length === 0) return;
     if (page.nextOffset !== afterOffset) throw new Error("SDK run event cursor did not advance");
@@ -157,8 +164,8 @@ export async function recoverCursorCheckpoint(
   if (agent.agentId !== agentId || agent.cwd !== options.cwd)
     throw new Error("SDK checkpoint belongs to another workspace/agent");
   const recover = options.recover ?? { runs: [] };
-  const through = new Map<string, { through: number; next?: string | undefined }>(
-    recover.runs.map((run) => [run.runId, { through: run.through, next: run.next }]),
+  const through = new Map<string, { through: number; pending?: string[] | undefined }>(
+    recover.runs.map((run) => [run.runId, { through: run.through, pending: run.pending }]),
   );
   // Unreadable, the agent counts as touched since any attempt: the catalog decides.
   const agentRuns = AgentRuns.catch({ updatedAt: Number.POSITIVE_INFINITY }).parse(document);
@@ -196,8 +203,8 @@ export async function recoverCursorCheckpoint(
     // Stopped first, so the tail read after it is the whole of what the run will ever write.
     if (interrupted)
       await sdk.Agent.cancelRun(run.runId, { runtime: "local", store, cwd: options.cwd });
-    await tail(store, run.runId, seen, options.limits, (message) =>
-      push({ kind: "recovered", body: message, runId: run.runId }),
+    await tail(store, run.runId, seen, options.limits, (message, seq) =>
+      push({ kind: "recovered", body: message, runId: run.runId, seq }),
     );
     push({
       kind: "recovery",

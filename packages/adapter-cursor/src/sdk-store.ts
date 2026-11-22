@@ -71,7 +71,7 @@ export async function checkpointRevision(store: LocalAgentStore, agentId: string
  */
 export function observeRunEvents(
   store: LocalAgentStore,
-  appended: (event: { runId: string; seq: number }) => void,
+  appended: (event: { runId: string; seq: number; payload: unknown }) => void,
 ): LocalAgentStore {
   return {
     ...store,
@@ -80,7 +80,7 @@ export function observeRunEvents(
       delete: (input) => store.runEvents.delete(input),
       append: async (input) => {
         const stored = await store.runEvents.append(input);
-        appended({ runId: stored.runId, seq: stored.seq });
+        appended({ runId: stored.runId, seq: stored.seq, payload: input.payload });
         return stored;
       },
     },
