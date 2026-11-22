@@ -3,7 +3,9 @@
 Date: 2026-10-02. Status: accepted. Narrowly amended by
 [ADR 0119](0119-spade-endpoint-keys.md): Spade keeps the API keys of endpoints the person adds in the
 OS keychain; CLI logins are unchanged. Amended by
-[ADR 0140](0140-spade-cloud.md): Spade Cloud brokers connector app sign-ins and stores no tokens.
+[ADR 0140](0140-spade-cloud.md): Spade Cloud brokers connector app sign-ins and stores no tokens. Amended by
+[ADR 0213](0213-spade-provider-accounts-and-openai-sign-in.md): Spade signs in to OpenAI with a
+ChatGPT account itself and keeps those tokens in the OS keychain only.
 
 ## Context
 

@@ -2,7 +2,8 @@
 
 Status: accepted. Date: 2026-11-10. Owner decision of 2026-11-10. Narrowly amends
 [ADR 0002](0002-local-cli-providers.md), which says ace never collects or stores provider
-credentials.
+credentials. Extended by [ADR 0213](0213-spade-provider-accounts-and-openai-sign-in.md) to the
+OAuth tokens of ChatGPT accounts Spade signs in to itself, kept the same way.
 
 ## Context
 

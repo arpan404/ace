@@ -24,7 +24,9 @@ untrusted-content rules.
 
 ## Options considered
 
-- **Read the CLI's login and call the provider's API from Spade.** Forbidden by ADR 0002.
+- **Read the CLI's login and call the provider's API from Spade.** Forbidden by ADR 0002. Spade
+  still never reads a CLI's login, but since [ADR 0213](0213-spade-provider-accounts-and-openai-sign-in.md)
+  it may sign in to OpenAI with a ChatGPT account itself; this route is unchanged.
 - **Run the CLI from Spade.** Spade would duplicate the daemon's provider adapters, account
   homes, usage records and process supervision. Rejected: duplicate logic across packages is a
   bug.
