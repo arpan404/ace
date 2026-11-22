@@ -1,9 +1,10 @@
 //! A connected app's tool definitions, pinned per connection (ADR 0202, amendment 5). The first
-//! time a tool is used, Spade keeps a digest of its definition as its server listed it (its own
-//! name, description and input schema). A tool whose definition differs from the pinned one
-//! (renamed to look like a read, say) loses its read and any Always allow until a call of it is
-//! approved again, by the reviewer or the person; then the new definition is pinned. Kept in
-//! Spade's settings, so a restart keeps them.
+//! time any of a connection's tools is used, Spade keeps a digest of the definition of every tool
+//! the connection lists then (its own name, description and input schema). A tool whose
+//! definition differs from the pinned one, or a tool that wasn't listed then (one renamed to look
+//! like a read, say), loses its read and any Always allow until a call of it is approved, by the
+//! reviewer or the person; then its definition is pinned. Kept in Spade's settings, so a restart
+//! keeps them.
 
 use serde_json::Value;
 use spade_core::effect::AppReading;
@@ -37,14 +38,12 @@ impl Engine {
         let found = self.tools.get_for(conversation, tool)?;
         let (app, _) = found.app()?;
         let definition = found.definition()?;
+        self.seed_pins(conversation, &app);
         let changed = match self.store.setting(&key(&app, tool)) {
             Ok(Some(pinned)) => pinned != definition,
-            Ok(None) => {
-                self.pin(&app, tool, &definition);
-                false
-            }
-            // Unreadable: read as changed, so nothing rests on a pin Spade can't see.
-            Err(_) => true,
+            // Not listed when the connection was first used: new since, so unproven. Unreadable:
+            // read as changed too, so nothing rests on a pin Spade can't see.
+            Ok(None) | Err(_) => true,
         };
         let reading = found.app_reading(arguments, changed)?;
         Some(AppCall {
@@ -53,6 +52,24 @@ impl Engine {
             changed,
             reading,
         })
+    }
+
+    /// On a connection's first use, pins every tool it lists then.
+    fn seed_pins(&self, conversation: &str, app: &str) {
+        let seeded = format!("app_pins_seeded:{app}");
+        if !matches!(self.store.setting(&seeded), Ok(None)) {
+            return;
+        }
+        for tool in self.tools.sourced_for(conversation) {
+            if let (Some((of, _)), Some(definition)) = (tool.app(), tool.definition())
+                && of == app
+            {
+                self.pin(app, &tool.def().spec.name, &definition);
+            }
+        }
+        if let Err(error) = self.store.set_setting(&seeded, Some("1")) {
+            tracing::warn!(%error, app, "an app's tool definitions couldn't be pinned");
+        }
     }
 
     /// Pins `definition` for `app`'s `tool`: on first use, or once a call of a changed one was

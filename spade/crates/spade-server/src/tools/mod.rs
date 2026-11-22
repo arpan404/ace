@@ -377,7 +377,7 @@ impl Toolbox {
     }
 
     /// The sources' tools `conversation` may use now, those sharing a name left out.
-    fn sourced_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
+    pub(crate) fn sourced_for(&self, conversation: &str) -> Vec<Arc<dyn Tool>> {
         unambiguous(
             self.sources
                 .iter()
