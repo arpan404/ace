@@ -921,6 +921,17 @@
           "minItems": 1,
           "type": "array"
         },
+        "stageListed": {
+          "items": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string",
+            "x-ace-constraint": "Repository-relative path without NUL bytes."
+          },
+          "maxItems": 1000,
+          "minItems": 1,
+          "type": "array"
+        },
         "stagedOnly": {
           "type": "boolean"
         },

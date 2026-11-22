@@ -133,20 +133,32 @@ test("Commit takes only what is staged; with nothing staged it stages the listed
       .map((row) => row.textContent),
   ).toEqual([expect.stringContaining("app"), expect.stringContaining("new")]);
 
-  // Nothing staged now: the button stages the listed files, then commits the index.
+  // A file appears after the view read the status: the person never saw it listed.
+  app.daemon.workspace.sourceControl.changeUnseen(thread, {
+    unstaged: { path: "src/late.ts", status: "modified" },
+  });
+  // Nothing staged now: the daemon stages exactly the listed files, then commits the index.
   await userEvent.type(box, "Finish remaining changes");
   await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
   await userEvent.click(
     await screen.findByRole("menuitem", { name: "Stage all, commit and push" }),
   );
-  await waitFor(() => {
-    expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(2);
-    expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
-  });
+  await screen.findByText("Committed and pushed");
   expect(app.daemon.workspace.sourceControl.commits(thread)[1]).toMatchObject({
     stagedOnly: true,
     paths: [],
+    stageListed: ["src/app.ts", "src/new.ts"],
   });
+  // The unlisted file is still a change, not staged and not committed.
+  const left = await within(explorer).findByRole("region", { name: "Changes" });
+  await waitFor(() =>
+    expect(
+      within(left)
+        .getAllByRole("option")
+        .map((row) => row.textContent),
+    ).toEqual([expect.stringContaining("late")]),
+  );
+  expect(within(explorer).queryByRole("region", { name: "Staged changes" })).toBeNull();
   // Amend isn't offered in this view.
   await userEvent.click(within(explorer).getByRole("button", { name: "More commit actions" }));
   expect(screen.queryByRole("menuitem", { name: /Amend/ })).toBeNull();
@@ -204,4 +216,38 @@ test("one Git action at a time: Commit waits while a stage is still finishing", 
   await waitFor(() => expect(commit.hasAttribute("disabled")).toBe(false));
   await userEvent.click(commit);
   await waitFor(() => expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(1));
+});
+
+test("Stage all and commit refuses when something was staged after the view read the status", async () => {
+  const { app, explorer } = await openSourceControl({
+    branch: "main",
+    unstaged: [{ path: "src/app.ts", status: "modified" }],
+  });
+  const box = await within(explorer).findByRole("textbox", { name: "Commit message" });
+  await userEvent.type(box, "Everything");
+  // An agent stages part of a file meanwhile; the view hasn't seen it.
+  app.daemon.workspace.sourceControl.changeUnseen(thread, {
+    staged: { path: "src/agent.ts", status: "modified" },
+  });
+  await userEvent.click(within(explorer).getByRole("button", { name: "Stage all and commit" }));
+  await waitFor(() => {
+    expect(within(explorer).getByRole("alert").textContent).toContain(
+      "Something was staged meanwhile. Review and commit again.",
+    );
+  });
+  expect(app.daemon.workspace.sourceControl.commits(thread)).toHaveLength(0);
+  // The view read the checkout again: the agent's staged file is there to review.
+  const staged = await within(explorer).findByRole("region", { name: "Staged changes" });
+  expect(within(staged).getByRole("option", { name: /agent/ })).toBeTruthy();
+});
+
+test("Push sends the branch and the ahead count clears once it lands", async () => {
+  const { explorer } = await openSourceControl({
+    branch: "main",
+    ahead: 2,
+    unstaged: [{ path: "src/app.ts", status: "modified" }],
+  });
+  await userEvent.click(await within(explorer).findByRole("button", { name: "Push (2 ahead)" }));
+  await screen.findByText("Pushed branch");
+  await within(explorer).findByRole("button", { name: "Push" });
 });

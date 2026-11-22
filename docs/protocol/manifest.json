@@ -9,8 +9,8 @@
       "sha256": "cfe94945a5ab6c0ff2c6efd1409361657c88c74f332b71542b5e34d32507e4e0"
     },
     "commands.md": {
-      "bytes": 62272,
-      "sha256": "3635f9e879f19667155c8a174ed260d5aca623e543961dd6578dafd6200f0b7d"
+      "bytes": 62494,
+      "sha256": "a71cb7e864658dc8ec4ff0f9e174163d2986ff737fa3290a1d03ee5b6cdae9f8"
     },
     "events.md": {
       "bytes": 21143,
@@ -1405,8 +1405,8 @@
       "sha256": "9d81a29a1e885281a89e8c1e208cd8d84e18683844c6a6182d25e21455f7a3d0"
     },
     "schema/CommandPayload.json": {
-      "bytes": 58560,
-      "sha256": "72a3a48b19c11a4107028476e46b45a94cec40d7ab777785a7446217cbef3003"
+      "bytes": 58876,
+      "sha256": "8267638fd5a95cea5729c3fc882dd2fc94645178eb277eb184c5ee11440aee75"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -7017,6 +7017,6 @@
       "sha256": "f2e5ee1ffe97d6957bbcd5fd6bf3841f863c0fd1ff73ae199a3990875547e29f"
     }
   },
-  "input": "74361a3e18825d1518719d9d7daf9d793374132700fc7dac7f6dd1d7418abeaa",
+  "input": "38bf333459e6036596cfa9946d2f92c2fc1c5e86bc9b0f5613d7e351bcf65c28",
   "version": 1
 }

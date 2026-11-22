@@ -139,6 +139,36 @@ describe("daemon source control handlers", () => {
     }
   });
 
+  it("Stage all and commit refuses when something got staged after the view read the status", async () => {
+    const { runtime, store, thread, repo, cmd } = await setupFixture();
+    try {
+      await writeFile(join(repo, "file.txt"), "listed\n");
+      await writeFile(join(repo, "agent.txt"), "agent\n");
+      runGit(repo, ["add", "agent.txt"]);
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+      const commit = () =>
+        runtime.execute(
+          cmd({
+            type: "git.commit",
+            threadId: thread.id,
+            message: "all",
+            expectedHead: head,
+            stagedOnly: true,
+            stageListed: ["file.txt"],
+          }),
+        );
+      expect(await commit()).toMatchObject({ ok: false, error: "git_staged_meanwhile" });
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+
+      runGit(repo, ["reset", "-q", "--", "agent.txt"]);
+      expect(await commit()).toMatchObject({ ok: true });
+      expect(runGit(repo, ["show", "--name-only", "--format=", "HEAD"])).toBe("file.txt");
+    } finally {
+      await runtime.close();
+      await store.close();
+    }
+  });
+
   it("serves git.status sections and the staged and unstaged diff of one file", async () => {
     const { runtime, store, thread, repo, cmd } = await setupFixture();
     try {

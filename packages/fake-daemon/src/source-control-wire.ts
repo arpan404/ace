@@ -33,7 +33,13 @@ interface ThreadSourceControl {
   detached: boolean;
   fetchError?: string | undefined;
   fetchErrorBehind?: number | undefined;
-  commits: { message: string; stagedOnly: boolean; paths: string[]; head: string }[];
+  commits: {
+    message: string;
+    stagedOnly: boolean;
+    paths: string[];
+    stageListed: string[];
+    head: string;
+  }[];
 }
 
 function byPath<T extends { path: string }>(entries: readonly T[]): T[] {
@@ -136,6 +142,19 @@ export class FakeSourceControlWire {
     this.syncDetails(threadId, state);
   }
 
+  /**
+   * Change the checkout without telling anyone, as an agent or a terminal would between a
+   * status read and the person's click: stage `staged`, or leave `unstaged` as a new change.
+   */
+  changeUnseen(
+    threadId: string,
+    change: { staged?: GitStatusSectionEntry; unstaged?: GitStatusSectionEntry },
+  ): void {
+    const state = this.ensure(threadId, []);
+    if (change.staged) state.staged = byPath([...state.staged, change.staged]);
+    if (change.unstaged) state.unstaged = byPath([...state.unstaged, change.unstaged]);
+  }
+
   commits(threadId: string): readonly ThreadSourceControl["commits"][number][] {
     return this.states.get(threadId)?.commits ?? [];
   }
@@ -197,7 +216,15 @@ export class FakeSourceControlWire {
       return { ok: false, error: "git_head_moved" };
     }
     const state = this.ensure(threadId, fallbackFiles);
-    if (payload.stagedOnly && !payload.paths) {
+    if (state.conflicted.length > 0) return { ok: false, error: "git_conflicts" };
+    if (payload.stageListed) {
+      // Like the daemon: refuse if anything was staged since the view read the status, else
+      // stage exactly the listed paths and commit the index.
+      if (state.staged.length > 0) return { ok: false, error: "git_staged_meanwhile" };
+      const listed = new Set(payload.stageListed);
+      state.unstaged = state.unstaged.filter((entry) => !listed.has(entry.path));
+      state.untracked = state.untracked.filter((entry) => !listed.has(entry.path));
+    } else if (payload.stagedOnly && !payload.paths) {
       if (state.staged.length === 0) {
         return { ok: false, error: "git_nothing_to_commit" };
       }
@@ -225,6 +252,7 @@ export class FakeSourceControlWire {
       message: payload.message,
       stagedOnly: Boolean(payload.stagedOnly),
       paths: [...(payload.paths ?? [])],
+      stageListed: [...(payload.stageListed ?? [])],
       head: hex,
     });
     this.syncDetails(threadId, state, { head: hex });

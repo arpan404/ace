@@ -186,6 +186,51 @@ describe("source control git operations", () => {
     }
   });
 
+  it("Stage all and commit stages exactly the listed files, and refuses if anything was staged meanwhile", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "listed edit\n");
+      await writeFile(join(repo, "listed.txt"), "listed\n");
+      await writeFile(join(repo, "late.txt"), "appeared after the view read the status\n");
+      const head = runGit(repo, ["rev-parse", "HEAD"]);
+
+      // An agent staged part of a file after the person's view read the status.
+      await writeFile(join(repo, "agent.txt"), "agent\n");
+      runGit(repo, ["add", "agent.txt"]);
+      await expectGitError(
+        git.commit({
+          worktree: repo,
+          message: "all",
+          expectedHead: head,
+          stageListed: ["a.txt", "listed.txt"],
+        }),
+        "staged_meanwhile",
+      );
+      expect(runGit(repo, ["rev-parse", "HEAD"])).toBe(head);
+      expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("agent.txt");
+
+      runGit(repo, ["reset", "-q", "--", "agent.txt"]);
+      await git.commit({
+        worktree: repo,
+        message: "all",
+        expectedHead: head,
+        stageListed: ["a.txt", "listed.txt"],
+      });
+      expect(runGit(repo, ["show", "--name-only", "--format=", "HEAD"]).split("\n")).toEqual([
+        "a.txt",
+        "listed.txt",
+      ]);
+      // What the view never listed stays out.
+      expect(runGit(repo, ["status", "--porcelain"]).split("\n").toSorted()).toEqual([
+        "?? agent.txt",
+        "?? late.txt",
+      ]);
+    } finally {
+      await git.close();
+    }
+  });
+
   it("rejects paths that escape the repository or target .git", async () => {
     const repo = await createRepo();
     const git = new GitService();

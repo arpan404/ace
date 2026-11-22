@@ -967,6 +967,7 @@ Example:
 | expectedHead | yes | union | {"anyOf":[{"type":"string","pattern":"^[a-f0-9]{40,64}$"},{"type":"null"}]} |
 | paths | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
 | stagedOnly | no | boolean |  |
+| stageListed | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
 
 Example:
 
@@ -975,6 +976,9 @@ Example:
   "expectedHead": null,
   "message": "example",
   "paths": [
+    "example"
+  ],
+  "stageListed": [
     "example"
   ],
   "threadId": "example",

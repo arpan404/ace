@@ -188,17 +188,18 @@ export function SourceControlView(props: {
   const handleCommit = async (mode: CommitMode) => {
     const trimmed = message.trim();
     if (!trimmed) return;
-    // Nothing staged: stage exactly the files the view lists, then commit the index. Either way
-    // the commit is the person's own `git commit` of what is staged.
+    // Nothing staged: the daemon stages exactly the files the view lists, then commits the
+    // index, and refuses if anything got staged since this status was read. Either way the
+    // commit is the person's own `git commit` of what is staged.
     const listed = sc.sections.staged.length === 0 ? changePaths : undefined;
-    const committed = await sc.runAction("commit", async () => {
-      if (listed) await stageFiles(client, threadId, listed);
-      return commitChanges(client, threadId, {
+    const committed = await sc.runAction("commit", () =>
+      commitChanges(client, threadId, {
         message: trimmed,
         expectedHead: sc.head,
+        stageListed: listed,
         draftFingerprint,
-      });
-    });
+      }),
+    );
     if (!committed) return;
     // The commit landed: its message is spent even if the push below fails.
     setMessage("");

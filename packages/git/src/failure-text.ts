@@ -42,6 +42,7 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   push_lease_stale: "The remote branch moved past the leased revision; fetch and review first",
   path_outside_repo: "Path is outside the repository",
   no_upstream: "This repository has no remote to fetch from",
+  staged_meanwhile: "Something was staged meanwhile. Review and commit again.",
   private_path_staged:
     "ace's own Recently deleted files are staged; unstage them before committing",
 };

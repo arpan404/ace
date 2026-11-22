@@ -126,6 +126,7 @@ export type GitErrorCode =
   | "path_outside_repo"
   | "no_upstream"
   | "private_path_staged"
+  | "staged_meanwhile"
   | GitFailureCode;
 
 /**

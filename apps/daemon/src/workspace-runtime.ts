@@ -1019,6 +1019,7 @@ export class WorkspaceRuntime {
             expectedHead: p.expectedHead,
             paths: p.paths,
             stagedOnly: p.stagedOnly,
+            stageListed: p.stageListed,
             draftFingerprint: p.draftFingerprint,
           }),
         );

@@ -131,6 +131,8 @@ export function commitChanges(
   options: {
     message: string;
     expectedHead: string | null;
+    /** Nothing was staged: the daemon stages exactly these listed paths first. */
+    stageListed?: readonly string[] | undefined;
     draftFingerprint?: string | undefined;
   },
 ): Promise<CommandResult> {
@@ -141,6 +143,7 @@ export function commitChanges(
     expectedHead: options.expectedHead,
     // The index as it is: what the person staged, nothing more.
     stagedOnly: true,
+    ...(options.stageListed?.length ? { stageListed: [...options.stageListed] } : {}),
     ...(options.draftFingerprint ? { draftFingerprint: options.draftFingerprint } : {}),
   });
 }

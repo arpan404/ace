@@ -5,6 +5,7 @@ import { maxCommitMessageLength } from "@ace/protocol";
 import type { Repository } from "./repository.ts";
 import { GitError, type PushOptions } from "./types.ts";
 import { excludeAcePrivate, isAcePrivate, personPathspecs } from "./ace-private.ts";
+import { validateRepoPaths } from "./source-control-ops.ts";
 import { failureMessage } from "./failure-text.ts";
 const head = z.string().regex(/^[a-f0-9]{40,64}$/);
 /** Pathspec bytes one commit may name: well inside every platform's argument limit. */
@@ -38,6 +39,11 @@ export async function commitChanges(
     paths?: readonly string[] | undefined;
     /** Commit the index as it is: what the person staged, nothing more. */
     stagedOnly?: boolean | undefined;
+    /**
+     * Stage all and commit: with nothing staged now (else `staged_meanwhile`), stage exactly
+     * these listed paths, then commit the index.
+     */
+    stageListed?: readonly string[] | undefined;
     beforeCommit?: (() => void) | undefined;
   },
 ): Promise<string> {
@@ -49,6 +55,7 @@ export async function commitChanges(
   // ace's own reads keep the checkout's protections; `add` and `commit` are the person's.
   const read = <T>(operation: () => Promise<T>) => repository.cli.bookkeeping(operation);
   const root = await read(() => repository.root(options.worktree));
+  const listed = options.stageListed ? validateRepoPaths(root, options.stageListed) : undefined;
   return repository.serial(root, async () => {
     const info = await read(() => repository.info(root));
     if (info.head !== expected)
@@ -57,7 +64,9 @@ export async function commitChanges(
     if (options.draftFingerprint) {
       // A staged-only commit's draft was written for the staged files.
       const drafted =
-        paths?.data ?? (options.stagedOnly ? status.staged.map((entry) => entry.path) : undefined);
+        paths?.data ??
+        listed ??
+        (options.stagedOnly ? status.staged.map((entry) => entry.path) : undefined);
       if (
         !drafted?.length ||
         (await read(() => writingContext(repository, root, { kind: "commit", paths: drafted })))
@@ -71,7 +80,24 @@ export async function commitChanges(
       throw new GitError("private_path_staged", failureMessage("private_path_staged"));
     // Literal pathspecs: a file named "*.ts" or ":(glob)x" means that file.
     const literal = { GIT_LITERAL_PATHSPECS: "1" };
-    if (options.stagedOnly && !paths) {
+    if (listed) {
+      // The view listed these with nothing staged. Anything staged since (an agent's partial
+      // hunk) would be replaced by `git add`: refuse, and let the person look again.
+      if (status.staged.length > 0)
+        throw new GitError("staged_meanwhile", failureMessage("staged_meanwhile"));
+      await excludeAcePrivate(repository, root);
+      await repository.cli.call(
+        root,
+        ["add", "--all", "--pathspec-from-file=-", "--pathspec-file-nul"],
+        {
+          write: true,
+          beforeSpawn: options.beforeCommit,
+          timeoutMs: longWriteTimeoutMs,
+          captureBytes: 65536,
+          input: `${personPathspecs(listed).join("\0")}\0`,
+        },
+      );
+    } else if (options.stagedOnly && !paths) {
       if (status.staged.length === 0)
         throw new GitError("nothing_to_commit", "There is nothing staged to commit");
     } else {

@@ -283,6 +283,7 @@ export class GitService {
     draftFingerprint?: string | undefined;
     paths?: readonly string[] | undefined;
     stagedOnly?: boolean | undefined;
+    stageListed?: readonly string[] | undefined;
   }): Promise<string> {
     return commitChanges(this.repository, options);
   }

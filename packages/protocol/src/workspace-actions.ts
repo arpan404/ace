@@ -354,6 +354,15 @@ export const WorkspaceCommands = [
       .optional(),
     /** Commit only what is already staged in the index, without staging unstaged changes. */
     stagedOnly: z.boolean().optional(),
+    /**
+     * Stage all and commit: refused (`git_staged_meanwhile`) if anything is staged now;
+     * otherwise exactly these listed paths are staged, then the index is committed.
+     */
+    stageListed: z
+      .array(repoPath)
+      .min(1)
+      .max(2 * gitStatusLimit)
+      .optional(),
   }),
   ...GitSourceControlCommands,
   z.object({
