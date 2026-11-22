@@ -5,61 +5,166 @@ import Foundation
 /// wide table slides sideways under the finger while the transcript still scrolls up and down.
 ///
 /// Only a table written at the margin is taken out: one inside a list or quote stays with its
-/// prose. Text that defines link references or footnotes is never cut, so every reference keeps
-/// its definition, and nothing inside a code fence is read as a table. Pure and line by line, so
-/// a streamed answer costs one pass over its text.
+/// prose. Nothing inside a code fence is read as a table. A link reference definition is moved
+/// to the end of every piece, so each reference finds its definition wherever it was written,
+/// and one arriving late in a stream leaves the tables where they are. Text that defines a
+/// footnote is never cut: its note would show under every piece. Pure and line by line.
 enum MarkdownBlocks {
     enum Piece: Equatable, Sendable {
         case prose(String)
-        /// A table's own lines, header and delimiter rows first.
+        /// A table's own lines, header and delimiter rows first, then any link definitions.
         case table(String)
     }
 
-    static func split(_ written: String) -> [Piece] {
-        // Most text has no table at all: no delimiter row can be there without both.
-        guard written.contains("|"), written.contains("-") else { return [.prose(written)] }
-        // Swift reads "\r\n" as one character, so lines are cut only once every ending is "\n".
-        let text = written.utf8.contains(UInt8(ascii: "\r")) ? written.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") : written
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        var pieces: [Piece] = []
-        var prose: [Substring] = []
-        var fence: Fence?
-        var index = 0
-        func flushProse() {
-            // The blank lines around a table belong to neither side.
-            while let last = prose.last, isBlank(last) { prose.removeLast() }
-            while let first = prose.first, isBlank(first) { prose.removeFirst() }
-            if !prose.isEmpty { pieces.append(.prose(prose.joined(separator: "\n"))) }
-            prose = []
+    /// The whole text in one pass.
+    static func split(_ written: String) -> [Piece] { Splitter().split(written) }
+
+    /// Splits a streamed answer as it grows: each call reads on from the last place whose pieces
+    /// can no longer change (`Scan.Resume`), so a growing answer costs the lines it added, not
+    /// its whole text again. Text that doesn't carry on from the last call is read whole.
+    final class Splitter {
+        private var last: (text: String, scan: Scan)?
+
+        func split(_ written: String) -> [Piece] {
+            // Most text has no table at all: no delimiter row can be there without both.
+            guard written.utf8.contains(UInt8(ascii: "|")), written.utf8.contains(UInt8(ascii: "-")) else {
+                last = nil
+                return [.prose(written)]
+            }
+            // Swift reads "\r\n" as one character, so lines are cut only once every ending is "\n".
+            let text = written.utf8.contains(UInt8(ascii: "\r")) ? written.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n") : written
+            var scan = Scan()
+            if let last, let resume = last.scan.resume, text.utf8.count >= resume.offset,
+               text.utf8.prefix(resume.offset).elementsEqual(last.text.utf8.prefix(resume.offset)) {
+                scan = last.scan.rewound(to: resume)
+            }
+            scan.read(text)
+            last = (text, scan)
+            return scan.pieces(of: text)
         }
-        while index < lines.count {
-            let line = lines[index]
-            if let open = fence {
-                if open.closes(line) { fence = nil }
+    }
+
+    /// What a read found so far: the pieces without their definitions, the definitions, and
+    /// where a later read of a longer text may start.
+    struct Scan {
+        /// A line start before which every piece is final: the lines it rests on are whole
+        /// (a later line follows them), so nothing appended can change them.
+        struct Resume {
+            /// UTF-8 offset of the line it starts at.
+            let offset: Int
+            let pieces: Int
+            let definitions: Int
+            let footnote: Bool
+            /// The line before it, which decides whether a table may start there.
+            let previous: String?
+        }
+        private(set) var found: [Piece] = []
+        private(set) var definitions: [String] = []
+        private(set) var footnote = false
+        private(set) var resume: Resume?
+
+        func rewound(to resume: Resume) -> Scan {
+            var scan = Scan()
+            scan.found = Array(found.prefix(resume.pieces))
+            scan.definitions = Array(definitions.prefix(resume.definitions))
+            scan.footnote = resume.footnote
+            scan.resume = resume
+            return scan
+        }
+
+        /// The text's pieces, each closed with every definition; the text whole when it defines a
+        /// footnote or holds no table.
+        func pieces(of text: String) -> [Piece] {
+            guard !footnote, found.contains(where: { if case .table = $0 { true } else { false } }) else { return [.prose(text)] }
+            guard !definitions.isEmpty else { return found }
+            let tail = "\n\n" + definitions.joined(separator: "\n")
+            return found.map { piece in
+                switch piece {
+                case .prose(let prose): .prose(prose + tail)
+                case .table(let table): .table(table + tail)
+                }
+            }
+        }
+
+        /// Reads `text` on from `resume` (the start when there is none).
+        mutating func read(_ text: String) {
+            let from = resume?.offset ?? 0
+            let start = text.utf8.index(text.utf8.startIndex, offsetBy: from)
+            let lines = text[start...].split(separator: "\n", omittingEmptySubsequences: false)
+            // Each line's UTF-8 offset in the text.
+            var offsets: [Int] = []
+            offsets.reserveCapacity(lines.count)
+            var at = from
+            for line in lines {
+                offsets.append(at)
+                at += line.utf8.count + 1
+            }
+            let previousLine = resume?.previous.map { Substring($0) }
+            func before(_ index: Int) -> Substring? { index > 0 ? lines[index - 1] : previousLine }
+            /// A line is whole once another follows it.
+            func whole(_ index: Int) -> Bool { index < lines.count - 1 }
+            func mark(_ index: Int) {
+                resume = Resume(offset: offsets[index], pieces: found.count, definitions: definitions.count,
+                                footnote: footnote, previous: before(index).map(String.init))
+            }
+            var prose: [Substring] = []
+            var fence: Fence?
+            var defining = false
+            var index = 0
+            func flushProse() {
+                // The blank lines around a table belong to neither side.
+                while let last = prose.last, isBlank(last) { prose.removeLast() }
+                while let first = prose.first, isBlank(first) { prose.removeFirst() }
+                if !prose.isEmpty { found.append(.prose(prose.joined(separator: "\n"))) }
+                prose = []
+            }
+            while index < lines.count {
+                let line = lines[index]
+                if let open = fence {
+                    if open.closes(line) { fence = nil }
+                    prose.append(line)
+                    index += 1
+                    continue
+                }
+                if let opened = Fence(opening: line) {
+                    fence = opened
+                    defining = false
+                    prose.append(line)
+                    index += 1
+                    continue
+                }
+                if isFootnote(line) { footnote = true }
+                // A definition can't break into a paragraph: only one after a blank line, the
+                // start, or another definition is one. A title may carry on, indented or quoted.
+                let afterBreak = before(index).map(isBlank) ?? true
+                if isDefinition(line), afterBreak || defining {
+                    definitions.append(String(line))
+                    defining = true
+                    index += 1
+                    while index < lines.count, isContinuation(lines[index]) {
+                        definitions[definitions.count - 1] += "\n" + lines[index]
+                        index += 1
+                    }
+                    continue
+                }
+                defining = false
+                if index + 1 < lines.count, startsTable(header: line, delimiter: lines[index + 1], after: before(index)) {
+                    var end = index + 2
+                    while end < lines.count, isRow(lines[end]) { end += 1 }
+                    flushProse()
+                    // Its header and delimiter rows whole, the prose before it is final.
+                    if whole(index + 1) { mark(index) }
+                    found.append(.table(lines[index..<end].joined(separator: "\n")))
+                    index = end
+                    // The line that ended it whole, so is the table.
+                    if whole(end) { mark(end) }
+                    continue
+                }
                 prose.append(line)
                 index += 1
-                continue
             }
-            if let opened = Fence(opening: line) {
-                fence = opened
-                prose.append(line)
-                index += 1
-                continue
-            }
-            if isDefinition(line) { return [.prose(text)] }
-            if index + 1 < lines.count, startsTable(header: line, delimiter: lines[index + 1], after: index > 0 ? lines[index - 1] : nil) {
-                var end = index + 2
-                while end < lines.count, isRow(lines[end]) { end += 1 }
-                flushProse()
-                pieces.append(.table(lines[index..<end].joined(separator: "\n")))
-                index = end
-                continue
-            }
-            prose.append(line)
-            index += 1
+            flushProse()
         }
-        flushProse()
-        return pieces.isEmpty ? [.prose(text)] : pieces
     }
 
     /// A header row at the margin, the delimiter row under it with as many cells, and above it a
@@ -99,6 +204,17 @@ enum MarkdownBlocks {
         guard !digits.isEmpty, digits.count <= 9 else { return false }
         let rest = line.dropFirst(digits.count)
         return (rest.first == "." || rest.first == ")") && (rest.dropFirst().first == " " || rest.count == 1)
+    }
+
+    /// A footnote's `[^label]: note`, at most three spaces in.
+    private static func isFootnote(_ line: Substring) -> Bool {
+        isDefinition(line) && line.drop { $0 == " " }.hasPrefix("[^")
+    }
+
+    /// A definition's title on the line after it: indented, or opened with a quote or a paren.
+    private static func isContinuation(_ line: Substring) -> Bool {
+        guard let first = line.first, !isBlank(line) else { return false }
+        return first == " " || first == "\t" || first == "\"" || first == "'" || first == "("
     }
 
     /// `[label]: target` or a footnote's `[^label]: note`, at most three spaces in.
