@@ -90,21 +90,24 @@ test("a fresh session forgets the previous session's attempt", async () => {
 });
 
 /** Stores a Cursor frame of `kind` for `id` as the actor does; its row. */
-function store(h: { store: Store; id: ThreadId }, seq: number, kind: string, operationId = "old") {
-  const result = h.store
-    .statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)")
-    .run(
-      h.id,
-      "host",
+function storeFrame(
+  h: { store: Store; id: ThreadId },
+  seq: number,
+  kind: string,
+  operationId = "old",
+) {
+  const result = h.store.statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)").run(
+    h.id,
+    "host",
+    seq,
+    JSON.stringify({
       seq,
-      JSON.stringify({
-        seq,
-        t: seq,
-        dir: "recv",
-        channel: "sdk",
-        data: frame(kind, {}, operationId),
-      }),
-    );
+      t: seq,
+      dir: "recv",
+      channel: "sdk",
+      data: frame(kind, {}, operationId),
+    }),
+  );
   return Number(result.lastInsertRowid);
 }
 const count = (h: { store: Store }) =>
@@ -113,9 +116,9 @@ const count = (h: { store: Store }) =>
 test("a new turn on a long Cursor thread drops the settled turns' frames a bounded batch per commit", async () => {
   const h = await thread();
   const recovery = new ProviderRecovery(h.store);
-  recovery.captured(h.id, "open", store(h, 1, "open"), false);
-  for (let seq = 2; seq < 1002; seq++) store(h, seq, "delta");
-  recovery.captured(h.id, "send", store(h, 1002, "send", "new"), true);
+  recovery.captured(h.id, "open", storeFrame(h, 1, "open"), false);
+  for (let seq = 2; seq < 1002; seq++) storeFrame(h, seq, "delta");
+  recovery.captured(h.id, "send", storeFrame(h, 1002, "send", "new"), true);
   recovery.trimStep(h.id);
   // One step deletes a bounded batch, not the thousand frames behind the new turn.
   expect(count(h)).toBe(1002 - 256);
@@ -127,9 +130,9 @@ test("a new turn on a long Cursor thread drops the settled turns' frames a bound
 test("a restart in the middle of that clean-up reads only the open frame and the new turn", async () => {
   const h = await thread();
   const recovery = new ProviderRecovery(h.store);
-  recovery.captured(h.id, "open", store(h, 1, "open"), false);
-  for (let seq = 2; seq < 600; seq++) store(h, seq, "delta");
-  recovery.captured(h.id, "send", store(h, 600, "send", "new"), true);
+  recovery.captured(h.id, "open", storeFrame(h, 1, "open"), false);
+  for (let seq = 2; seq < 600; seq++) storeFrame(h, seq, "delta");
+  recovery.captured(h.id, "send", storeFrame(h, 600, "send", "new"), true);
   recovery.trimStep(h.id);
   const seen: string[] = [];
   await recovery.restore(h.id, {

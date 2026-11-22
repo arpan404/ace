@@ -296,9 +296,9 @@ it("opening a long Cursor thread with a send in doubt does not read its run hist
 it("a cut-off run's tail is read from where ace's record ends, not from the run's first event", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-tail-offset-")));
   try {
-    const texts = Array.from({ length: 40 }, (_, index) => `t${index} `);
+    const said = Array.from({ length: 40 }, (_, index) => `t${index} `);
     const { store, reads } = counted(
-      await storeWith(root, [{ runId: "long", status: "finished", texts }]),
+      await storeWith(root, [{ runId: "long", status: "finished", texts: said }]),
     );
     const events = await store.runEvents.list({ runId: "long", limit: 100 });
     const covered = events.items[37];
@@ -307,7 +307,7 @@ it("a cut-off run's tail is read from where ace's record ends, not from the run'
     const { found } = await recover(root, store, {
       runs: [{ runId: "long", through: covered.seq, afterOffset: covered.offset }],
     });
-    expect(texts.slice(38).map((text) => text)).toEqual(
+    expect(said.slice(38)).toEqual(
       found.flatMap((item) =>
         item.kind === "recovered" ? [JSON.stringify(item.body).match(/"text":"([^"]*)"/)?.[1]] : [],
       ),
