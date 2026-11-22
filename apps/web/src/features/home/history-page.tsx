@@ -1,7 +1,9 @@
 import { useSidebarLoaded } from "@ace/client-react";
+import { ChatCircleIcon } from "@ace/icons";
 import { historySections, projectBadge, type HistoryItem } from "@ace/ui-core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SearchField } from "@/components/search-field.tsx";
+import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useViewListKeys } from "@/components/ui/view-row.tsx";
 import { VirtualList, type VirtualRowsHandle } from "@/components/virtual-rows.tsx";
@@ -10,7 +12,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
 import { useHeld } from "@/lib/held.ts";
-import { useProjectName } from "@/lib/projects.ts";
+import { useProjectDirectory, useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { HistoryRow } from "./history-row.tsx";
 import { ProjectMark } from "./row-parts.tsx";
@@ -33,6 +35,10 @@ const estimateOf = (entry: HistoryEntry) => (entry.kind === "thread" ? 58 : entr
 /** The full pages' one gutter (DESIGN.md §3, Full pages): 16px in a narrow column, 32px beside it. */
 const gutter = "[--forge-gutter:1rem] sm:[--forge-gutter:2rem]";
 
+/** The filter's values that name no project: every one, or every chat (each chat has its own). */
+const allProjects = "\u0000all";
+const chatsProject = "chats";
+
 /**
  * History: every settled thread, newest first under This week, Last week and Earlier, with a
  * search (titles, projects, branches and PRs of the loaded ones; the daemon's search for older
@@ -49,12 +55,22 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
   const skeleton = useHeld(!sidebarLoaded);
   const now = useNow();
   const projectName = useProjectName();
+  const isChat = useProjectDirectory().isChat;
   const filter = useOrganizerState().project;
   const paging = useSettledPaging(filter, useSidebarDevice());
   const foot = settledFoot(paging);
-  const items: readonly HistoryItem[] = searching ? search.matches : loaded;
+  const found: readonly HistoryItem[] = searching ? search.matches : loaded;
+  // Every chat has its own hidden project, so one "Chats" choice takes all of them.
+  const items = useMemo(
+    () => (props.project === chatsProject ? found.filter((item) => isChat(item.project)) : found),
+    [found, props.project, isChat],
+  );
   const sections = useMemo(
-    () => historySections(items, { project: props.project ?? null, now }),
+    () =>
+      historySections(items, {
+        project: props.project === chatsProject ? null : (props.project ?? null),
+        now,
+      }),
     [items, props.project, now],
   );
   const entries = useMemo(() => {
@@ -104,26 +120,24 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
           {...part("page-body")}
           className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-(--forge-gutter) pt-6 pb-10"
         >
-          {/* The header names the page (h1); this is its title over the list. */}
-          <h2 {...part("page-title")} className="text-xl font-semibold text-foreground">
-            History
-          </h2>
           <SearchField
             label="Search history"
             placeholder="Search settled threads, PRs, branches"
             value={query}
             onValueChange={setQuery}
           />
-          <ProjectChips project={props.project} onProject={props.onProject} />
+          <HistoryProjectFilter project={props.project} onProject={props.onProject} />
           {!sidebarLoaded ? (
             skeleton && <ListSkeleton label="settled threads" shape="row" />
           ) : sections.length === 0 && foot === undefined ? (
             <p className="py-6 text-ui text-muted-foreground">
               {searching
                 ? `Nothing settled matches “${query.trim()}”.`
-                : props.project
-                  ? `No settled threads in ${projectName(props.project)}.`
-                  : "No settled threads yet."}
+                : props.project === chatsProject
+                  ? "No settled chats yet."
+                  : props.project
+                    ? `No settled threads in ${projectName(props.project)}.`
+                    : "No settled threads yet."}
             </p>
           ) : (
             <div {...part("list")} {...keys}>
@@ -177,49 +191,57 @@ export function HistoryPage(props: { project: string | undefined; onProject(id?:
   );
 }
 
-const chip = (selected: boolean) =>
-  cn(
-    "inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-ui transition-colors duration-(--motion-fast) focus-ring",
-    selected
-      ? "bg-active font-medium text-foreground"
-      : "text-muted-foreground hover:bg-hover hover:text-foreground",
-  );
-
-/** All projects, then one chip per project with threads; the chosen one on the active fill. */
-function ProjectChips(props: { project: string | undefined; onProject(id?: string): void }) {
-  const projects = useProjects();
+/**
+ * One project menu: every project with settled threads, plus one "Chats" choice for the chats'
+ * own hidden projects (ADR 0099), which would otherwise list as a row of identical "Chat" chips.
+ */
+function HistoryProjectFilter(props: {
+  project: string | undefined;
+  onProject(id?: string): void;
+}) {
+  const counts = useProjects();
   const name = useProjectName();
-  const ids = projects.map((each) => each.id);
-  if (props.project !== undefined && !ids.includes(props.project)) ids.push(props.project);
+  const isChat = useProjectDirectory().isChat;
+  const chats = counts.filter((each) => isChat(each.id));
+  const ids = counts.flatMap((each) => (isChat(each.id) ? [] : [each.id]));
+  if (
+    props.project !== undefined &&
+    props.project !== chatsProject &&
+    !ids.includes(props.project)
+  ) {
+    ids.push(props.project);
+  }
+  ids.sort((a, b) => name(a).localeCompare(name(b)) || a.localeCompare(b));
+  const options = [
+    { value: allProjects, label: "All projects" },
+    ...(chats.length > 0 || props.project === chatsProject
+      ? [
+          {
+            value: chatsProject,
+            label: "Chats",
+            icon: <ChatCircleIcon aria-hidden size={16} className="text-muted-foreground" />,
+          },
+        ]
+      : []),
+    ...ids.map((id) => ({
+      value: id,
+      label: name(id),
+      icon: <ProjectMark id={id} badge={projectBadge({ id, name: name(id) })} />,
+    })),
+  ];
   return (
-    <div
-      {...part("filter-bar")}
-      role="group"
-      aria-label="Project"
-      className="-mx-3 flex flex-wrap gap-1"
-    >
-      <button
-        type="button"
-        {...part("label-chip", props.project === undefined && "selected")}
-        aria-pressed={props.project === undefined}
-        onClick={() => props.onProject(undefined)}
-        className={chip(props.project === undefined)}
-      >
-        All projects
-      </button>
-      {ids.map((id) => (
-        <button
-          key={id}
-          type="button"
-          {...part("label-chip", props.project === id && "selected")}
-          aria-pressed={props.project === id}
-          onClick={() => props.onProject(id)}
-          className={chip(props.project === id)}
-        >
-          <ProjectMark id={id} badge={projectBadge({ id, name: name(id) })} />
-          {name(id)}
-        </button>
-      ))}
+    <div {...part("filter-bar")} className="-ml-2">
+      <FilterMenu
+        label="Project"
+        value={props.project ?? allProjects}
+        options={options}
+        align="start"
+        onValueChange={(value) =>
+          props.onProject(
+            value === allProjects ? undefined : value === chatsProject ? chatsProject : value,
+          )
+        }
+      />
     </div>
   );
 }

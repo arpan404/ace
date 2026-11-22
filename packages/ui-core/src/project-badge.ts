@@ -72,3 +72,35 @@ export function projectLabel(
   if (folder) return folder;
   return id && !opaqueId.test(id) ? id : unnamedProject;
 }
+
+/** Every pair a name can offer, best first: its own initials, then the next distinct ones. */
+function initialsCandidates(name: string): string[] {
+  const parts = words(name).map((word) => Array.from(word));
+  const first = parts[0];
+  if (!first) return ["?"];
+  const lead = first[0] ?? "";
+  const pairs = [
+    projectInitials(name),
+    // Letters from different words first: the first word's initial with each other word's
+    // letters, then the first word's own later letters.
+    ...parts.slice(1).map((word) => lead + (word[0] ?? "")),
+    ...parts.slice(1).flatMap((word) => word.slice(1).map((letter) => lead + letter)),
+    ...first.slice(1).map((letter) => lead + letter),
+  ];
+  return [...new Set(pairs.map((pair) => pair.toLocaleUpperCase()))];
+}
+
+/**
+ * Initials for a list of projects shown together, so no two share a mark: each takes its own
+ * initials unless an earlier one already holds them, then the next pair its name offers. When a
+ * name runs out of pairs it keeps its own. Order decides who keeps the plain initials.
+ */
+export function distinctInitials(names: readonly string[]): string[] {
+  const taken = new Set<string>();
+  return names.map((name) => {
+    const options = initialsCandidates(name);
+    const pick = options.find((pair) => !taken.has(pair)) ?? options[0] ?? "?";
+    taken.add(pick);
+    return pick;
+  });
+}

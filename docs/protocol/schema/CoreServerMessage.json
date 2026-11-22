@@ -248,6 +248,10 @@
           "minLength": 1,
           "type": "string"
         },
+        "standingAppSocket": {
+          "const": true,
+          "type": "boolean"
+        },
         "standingHost": {
           "pattern": "^[A-Z2-7]{52}$",
           "type": "string"

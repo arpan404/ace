@@ -51,6 +51,8 @@ export interface SpadeJob {
   agents: number | undefined;
   /** The reply that started it, whose Stop also stops it. */
   reply: string;
+  /** When it started (ms), for the working line's clock when no reply is open; unknown at 0. */
+  startedAt?: number | undefined;
 }
 
 const record = (value: unknown): Record<string, unknown> | undefined =>
@@ -899,6 +901,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         name: event.name,
         agents: delegatedTasks(state.calls.get(event.job)?.arguments),
         reply: event.reply,
+        ...(stored.at > 0 ? { startedAt: stored.at } : {}),
       });
       return true;
     }

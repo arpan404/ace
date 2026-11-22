@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { spadeContractName } from "./contract-words.ts";
 import { spadeJson } from "./json.ts";
 
 /*
@@ -124,6 +125,6 @@ export function spadeCaseMarkWords(mark: SpadeCaseMark | undefined): string | un
 /** What started the run, in a few words: "From Morning fares", "From Flight watcher". */
 export function spadeCaseTriggerWords(trigger: SpadeCaseSummary["trigger"]): string | undefined {
   if (trigger.kind === "message" || !trigger.name) return undefined;
-  if (trigger.kind === "contract") return `Asked for ${trigger.name}`;
+  if (trigger.kind === "contract") return `Asked for ${spadeContractName(trigger.name)}`;
   return `From ${trigger.name}`;
 }

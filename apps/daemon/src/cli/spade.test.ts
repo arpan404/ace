@@ -198,12 +198,12 @@ test("ace feature off spade keeps Spade's own switch as it was", async ({ onTest
   expect(await saved(dir, "spade.enabled")).toBe(true);
 });
 
-test("ace feature turns the Store on and off, and names the features for anything else", async ({
+test("ace feature turns the Marketplace on and off, and names the features for anything else", async ({
   onTestFinished,
 }) => {
   const dir = await home(onTestFinished);
   expect(await readFeatures(dir)).toEqual({ spade: false, marketplace: false });
-  expect(await feature(dir, "marketplace", true)).toBe("The Store is turned on.");
+  expect(await feature(dir, "marketplace", true)).toBe("The Marketplace is turned on.");
   expect(await readFeatures(dir)).toEqual({ spade: false, marketplace: true });
   expect(await feature(dir, "marketplace", false)).toContain("keeps working");
   expect(betaFeature("store")).toBe("marketplace");

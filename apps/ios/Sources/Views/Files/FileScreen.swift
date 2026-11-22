@@ -48,6 +48,9 @@ struct FileScreen: View {
     @State var shownFolder: String?
     /// The version this edit began from: a save over anything newer asks first.
     @State var base: String?
+    /// A note being written on the selected code (`Annotations+FileScreen.swift`).
+    @State var noting: NoteDraft?
+    @Environment(\.codeNotesHandOff) var handOffNotes
 
     init(model: ClientModel, scope: FilesScope, target: FileTarget, mention: ((ComposerMention) -> Void)?, deleted: ((FileStrip) -> Void)? = nil,
          openFolder: ((String) -> Void)? = nil, slot: EditorSlot? = nil) {
@@ -98,6 +101,10 @@ struct FileScreen: View {
                 Button("Keep editing", role: .cancel) {}
             }
             .overlay(alignment: .bottom) { mentionLines }
+            .overlay(alignment: .bottomTrailing) { notesChip }
+            .sheet(item: $noting) { draft in noteSheet(draft) }
+            // Notes made here name this checkout, so a rename in another one leaves them.
+            .task(id: noteThread) { if let thread = noteThread { await model.checkoutKey(thread) } }
             .animation(.default, value: selectedLines)
             .sensoryFeedback(.success, trigger: mentioned)
             .modifier(FileActionPrompts(actions: actions))
@@ -188,11 +195,13 @@ struct FileScreen: View {
             let carried = editing ? slot?.draft()?.text : nil
             SourceTextView(document: SourceDocument(key: "\(path)|\(content.version ?? "")|\(editSession)|\(carried == nil ? "" : "draft")",
                                                     text: carried ?? text, language: content.language,
-                                                    marks: content.markedLines, original: carried == nil ? nil : text),
+                                                    marks: content.markedLines, original: carried == nil ? nil : text, file: path),
                            wrap: wrap, editable: editing, line: target.line, handle: handle, dirty: { dirty = $0 },
                            selected: mention == nil ? nil : { selectedLines = $0 },
                            mention: mention == nil ? nil : { mentionSelection($0) },
-                           left: slot?.left, touched: slot?.focus)
+                           left: slot?.left, touched: slot?.focus,
+                           annotate: noteThread == nil ? nil : { annotate($0) }, notes: noteMarks,
+                           edited: noteEdited, loaded: noteLoaded)
                 .ignoresSafeArea(.container, edges: .bottom)
         }
     }

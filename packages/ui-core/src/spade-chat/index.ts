@@ -18,6 +18,7 @@ export * from "./bot-talk.ts";
 export * from "./together.ts";
 export * from "./helper-words.ts";
 export * from "./delegations.ts";
+export * from "./needs-you.ts";
 export * from "./subagent-card.ts";
 export * from "./agents.ts";
 export * from "./packages.ts";

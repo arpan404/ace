@@ -491,19 +491,20 @@
   }
 
   /* ---------- The sticky foot of a review or a publish step ---------- */
-  /* Its hairline spans the modal, edge to edge; its contents keep the page's column. */
+  /* Its background covers the modal so nothing scrolls through it; its hairline stays in the page's column. */
   .mk-foot {
     position: sticky;
     bottom: 0;
     margin: 40px calc((100% - 100cqi) / 2) 0;
-    padding: 16px calc((100cqi - 100%) / 2) 20px;
+    padding: 0 calc((100cqi - 100%) / 2) 20px;
     background: var(--background);
-    border-top: 1px solid var(--border);
   }
   .mk-foot-inner {
     max-width: 880px;
     width: 100%;
     margin: 0 auto;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 12px;

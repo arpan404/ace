@@ -27,6 +27,7 @@ final class SourceGutter: UIView {
         let start = layout.textLayoutFragment(for: CGPoint(x: 0, y: max(0, top)))?.rangeInElement.location ?? layout.documentRange.location
         let width = bounds.width
         let muted = UIColor(AceTheme.Colours.subtleForeground), ink = UIColor(AceTheme.Colours.foreground)
+        let action = UIColor(AceDesign.Ink.action)
         layout.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
             let frame = fragment.layoutFragmentFrame
             if frame.minY > bottom { return false }
@@ -38,6 +39,12 @@ final class SourceGutter: UIView {
             let attributes: [NSAttributedString.Key: Any] = [.font: target ? strongFont : numberFont, .foregroundColor: target ? ink : muted]
             let measured = label.size(withAttributes: attributes)
             label.draw(at: CGPoint(x: width - AceTheme.Spacing.md - measured.width, y: y + (firstLine - measured.height) / 2), withAttributes: attributes)
+            // A code note starts here: a dot in the action colour by its number's left edge.
+            if host.notes[line] != nil {
+                let dot = AceTheme.Spacing.sm - AceDesign.Size.rail
+                action.setFill()
+                UIBezierPath(ovalIn: CGRect(x: AceTheme.Spacing.xs, y: y + (firstLine - dot) / 2, width: dot, height: dot)).fill()
+            }
             switch host.marks[line] {
             case "added", "modified":
                 UIColor(AceTheme.StatusText.done).setFill()

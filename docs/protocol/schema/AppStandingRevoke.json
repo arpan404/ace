@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppStandingRevoke.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "ephemeral": {
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "type": "string"
+    },
+    "key": {
+      "pattern": "^[A-Za-z0-9_-]{87}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "ephemeral"
+  ],
+  "type": "object"
+}

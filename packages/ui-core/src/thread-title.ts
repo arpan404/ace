@@ -62,3 +62,12 @@ export function provisionalTitle(
   const space = room.lastIndexOf(" ");
   return `${space > 0 ? room.slice(0, space) : room}…`;
 }
+
+/**
+ * A delegated child's title from its role slug: "Clean-iOS-settings" reads "Clean iOS settings",
+ * "research_pricing" reads "Research pricing". Words already spaced keep their own case.
+ */
+export function roleTitle(role: string): string {
+  const words = role.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim();
+  return words ? `${words.charAt(0).toUpperCase()}${words.slice(1)}` : role;
+}

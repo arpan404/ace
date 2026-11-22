@@ -1,11 +1,11 @@
 import type { SubagentState } from "../subagents.ts";
 import {
-  spadeContractTitle,
   type SpadeContractAsked,
   type SpadeContractEntry,
   type SpadeTalkEntry,
   type SpadeTalkExchange,
 } from "./bot-talk.ts";
+import { spadeContractName } from "./contract-words.ts";
 import type { SpadeStartedWorker, SpadeWorkersEntry } from "./delegations.ts";
 import { spadeSubagentHeader, spadeSubagentTone, type SpadeSubagentLine } from "./subagent-card.ts";
 
@@ -172,7 +172,7 @@ export function spadeTogetherLine(
         return line("Stopped before it replied");
     }
   }
-  const title = spadeContractTitle(row.call.contract);
+  const title = spadeContractName(row.call.contract);
   const result = firstLine(row.call.result);
   switch (row.call.outcome) {
     case undefined:
@@ -229,7 +229,7 @@ export function spadeTogetherTranscript(
         return [sent, said("other", "Stopped before it replied")];
     }
   }
-  const title = spadeContractTitle(row.call.contract);
+  const title = spadeContractName(row.call.contract);
   const input = row.call.input?.trim();
   const sent = said("self", input ? `Asked for the ${title}: ${input}` : `Asked for the ${title}`);
   switch (row.call.outcome) {
@@ -281,7 +281,7 @@ export function spadeContractAskedLine(
   asked: SpadeContractAsked,
   names: { from: string; working: boolean },
 ): SpadeSubagentLine {
-  const head = `${names.from} asked for the ${spadeContractTitle(asked.contract)}`;
+  const head = `${names.from} asked for the ${spadeContractName(asked.contract)}`;
   const ended = asked.ended;
   switch (ended?.outcome) {
     case "returned":

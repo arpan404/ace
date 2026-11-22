@@ -90,8 +90,12 @@ function crumbOf(page: Page) {
   }
 }
 
+/** The crumbs sit in the same column as the page under them, so both start at one left edge. */
 const widthOf = (page: Page | undefined) =>
-  page?.kind === "review" || page?.kind === "publish"
+  page?.kind === "review" ||
+  page?.kind === "publish" ||
+  page?.kind === "entry" ||
+  page?.kind === "app"
     ? "form"
     : page?.kind === "profile" || page?.kind === "catalogs" || page?.kind === "manage"
       ? "read"

@@ -94,7 +94,7 @@ describe("a bot's cases", () => {
       "From Morning fares",
     );
     expect(spadeCaseTriggerWords({ kind: "contract", name: "cheapest_fare" })).toBe(
-      "Asked for cheapest_fare",
+      "Asked for cheapest fare",
     );
     expect(spadeCaseTriggerWords({ kind: "message", name: undefined })).toBeUndefined();
   });

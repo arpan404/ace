@@ -121,6 +121,7 @@ const groups: readonly { label: string; ids: readonly KeymapId[] }[] = [
       "editor.splitRight",
       "editor.splitDown",
       "editor.explorer",
+      "editor.goToSymbol",
       "editor.nextHit",
       "editor.nextChange",
       "editor.composer",

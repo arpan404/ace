@@ -70,7 +70,7 @@ export function StoppedPill(props: { threadId: string; raised: boolean }) {
         floatingMotion("enter"),
         "absolute left-[calc(50%-var(--summary-inset,0px)/2)] z-20 -translate-x-1/2 pr-1 pl-3 whitespace-nowrap",
         props.raised
-          ? "bottom-[min(calc(var(--composer-clearance,0px)+3.25rem),calc(100%-5.25rem))]"
+          ? "bottom-[min(calc(var(--composer-clearance,0px)+1.25rem),calc(100%-5.25rem))]"
           : "bottom-[min(calc(var(--composer-clearance,0px)+0.75rem),calc(100%-2.75rem))]",
       )}
     >

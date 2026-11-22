@@ -81,7 +81,7 @@ test("a bot's workers show one row each, and one waiting on its plan says so and
         thread: planner,
         conversation: null,
         tone: "needs-you",
-        line: "Waiting for you to approve its plan",
+        line: "Wants you to approve its plan",
         asking: [planner],
       },
       {

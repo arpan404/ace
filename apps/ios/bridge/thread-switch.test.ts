@@ -406,6 +406,27 @@ test("a continuation waits while the agent's turn is still running", async () =>
   expect(commands("thread.fork")).toHaveLength(0);
 });
 
+test("a continuation carries the editor's code notes after the words, and says they went", async () => {
+  const thread = await continuing();
+  const note = {
+    id: "n1",
+    number: 1,
+    path: "src/cart.ts",
+    start: { line: 1, column: 0 },
+    end: { line: 1, column: 8 },
+    excerpt: "let sum",
+    comment: "Rename this",
+  };
+  thread.handle({ type: "code.set", notes: [note] });
+  sendOn(thread, "go");
+  await until(() => latest("thread.continued"), "the new thread");
+  const input = String(commands("thread.fork")[0]?.input);
+  expect(input.startsWith("Carry on.")).toBe(true);
+  expect(input).toContain("[1] src/cart.ts:2");
+  expect(input).toContain("Comment: Rename this");
+  expect(latest("thread.codeSent")?.ids).toEqual(["n1"]);
+});
+
 const notes = Buffer.alloc(2048, 7);
 const chunks: ChunkReader = async (_localId, offset, limit) =>
   notes.subarray(offset, offset + limit).toString("base64");

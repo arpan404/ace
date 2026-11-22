@@ -299,10 +299,3 @@ const plain = (value: unknown) =>
     : value === undefined || value === null
       ? ""
       : JSON.stringify(value);
-
-/** `cheapest_fare` → "cheapest fare": a contract's name as words, or its declared title. */
-export function spadeContractTitle(name: string, declared?: string): string {
-  const title = declared?.trim();
-  if (title) return title;
-  return name.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase() || name;
-}

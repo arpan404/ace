@@ -51,12 +51,12 @@ const peopleCommands: readonly CommandSpec[] = [
     ],
     output: "market.discover",
     description:
-      "Every Store command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help store-maintainer",
+      "Every Marketplace command goes through this machine's daemon, so its sources, signature checks and ace account are used. Maintainer tools: ace help store-maintainer",
   },
   {
     id: "market.search",
     words: ["store", "search"],
-    summary: "Search the Store",
+    summary: "Search the Marketplace",
     group: "spade-market",
     aliases: [{ words: ["market", "search"], quiet: true }],
     args: [
@@ -136,7 +136,7 @@ const peopleCommands: readonly CommandSpec[] = [
   {
     id: "market.installed",
     words: ["store", "installed"],
-    summary: "What's installed from the Store",
+    summary: "What's installed from the Marketplace",
     group: "spade-market",
     aliases: [{ words: ["market", "installed"], quiet: true }],
     flags: [{ name: "updates", summary: "Only entries with an update" }],
@@ -179,7 +179,7 @@ const peopleCommands: readonly CommandSpec[] = [
 const checkCommand: CommandSpec = {
   id: "market.check",
   words: ["store", "check"],
-  summary: "The Store's checks on a folder, before publishing",
+  summary: "The Marketplace's checks on a folder, before publishing",
   description: "Runs here, with no account and no daemon.",
   group: "spade-market",
   offline: true,

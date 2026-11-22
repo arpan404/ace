@@ -37,7 +37,7 @@ test("History pages older settled threads as its end comes into view, and retrie
   const lease = app.client.threads();
   try {
     const main = await screen.findByRole("main");
-    await within(main).findByRole("heading", { level: 2, name: "History" });
+    await screen.findByRole("heading", { level: 1, name: "History" });
     // The list's end is in view from the start: the first older page fails and offers a retry.
     const retry = await within(main).findByRole("button", {
       name: "Couldn’t load older threads. Retry",

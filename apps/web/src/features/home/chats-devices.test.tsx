@@ -74,6 +74,7 @@ test("the Chats device filter narrows the list and the search, apart from Thread
   await openChats(app);
   await chooseDevice("Build server");
   await waitFor(() => expect(titles(chatsNav())).toEqual(["Cron for weekdays at 6"]));
+  await userEvent.click(screen.getByRole("button", { name: "Search chats" }));
   const search = screen.getByRole("searchbox", { name: "Search chats" });
   await userEvent.type(search, "lisbon");
   expect(await within(chatsNav()).findByText("No chats match.")).toBeTruthy();
@@ -82,6 +83,8 @@ test("the Chats device filter narrows the list and the search, apart from Thread
   await waitFor(() => expect(titles(chatsNav())).toEqual(["Cron for weekdays at 6"]));
   // This Mac's own chats only, then all of them again.
   await userEvent.clear(search);
+  // Esc closes the search, which gives the title and its device filter back.
+  await userEvent.keyboard("{Escape}");
   await chooseDevice("This Mac");
   await waitFor(() => expect(titles(chatsNav())).toEqual(["Three days in Lisbon"]));
   await chooseDevice("All devices");

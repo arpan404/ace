@@ -108,7 +108,7 @@ export function seedFakeTalk(here: FakeSpadeApi, quill: FakeSpadeAgent): void {
     job: "t2",
     name: "contract_call",
     content: `<contract_result call="cc.quill.t2" bot="Flight watcher" contract="cheapest_fare" status="returned">\n${JSON.stringify(
-      { fare: "€78", currency: "EUR", carrier: "TAP" },
+      { fare: 78, currency: "EUR", carrier: "TAP" },
       null,
       2,
     )}\n</contract_result>`,
@@ -181,7 +181,7 @@ export function seedFakeTalk(here: FakeSpadeApi, quill: FakeSpadeAgent): void {
             type: "contract_ended",
             call,
             status: "returned",
-            output: { fare: "€78", currency: "EUR", carrier: "TAP" },
+            output: { fare: 78, currency: "EUR", carrier: "TAP" },
             untrusted: false,
           }
         : {

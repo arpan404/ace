@@ -347,7 +347,7 @@ function PrDetailLoaded(props: {
                         <DiffStat
                           additions={detail.additions}
                           deletions={detail.deletions}
-                          className="text-xs"
+                          className="text-xs leading-none"
                         />
                       ) : null
                     ) : (

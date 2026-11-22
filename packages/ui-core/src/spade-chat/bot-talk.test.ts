@@ -156,11 +156,11 @@ describe("one turn's work with other bots, in the sender's chat", () => {
     expect(header(cards(c)[0])).toBe("Quill is working with Writing and Flight watcher");
 
     answers(c, "j1", "Three days on the river.\nTwo on the hills.");
-    returns(c, "k1", { fare: "€78" });
+    returns(c, "k1", { fare: 78, currency: "EUR", carrier: "TAP" });
     const card = cards(c)[0];
     expect(rowsOf(card).map((row) => read(row))).toEqual([
       ["Writing", "Replied: Three days on the river."],
-      ["Flight watcher", "Cheapest fare: fare €78"],
+      ["Flight watcher", "Cheapest fare: €78 with TAP"],
     ]);
     expect(header(card)).toBe("Quill worked with Writing and Flight watcher");
   });
@@ -336,12 +336,12 @@ describe("a message from another bot, in the receiver's chat", () => {
       type: "contract_ended",
       call: "cc.c1",
       status: "returned",
-      output: { fare: "€78" },
+      output: { fare: 78, currency: "EUR", carrier: "TAP" },
       untrusted: false,
     });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     expect(line()).toEqual({
-      text: "Quill asked for the cheapest fare · fare €78",
+      text: "Quill asked for the cheapest fare · €78 with TAP",
       tone: "settled",
       live: false,
     });
