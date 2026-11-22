@@ -102,7 +102,7 @@ struct SpadeWorkersCard: View {
 
     /// A request that has no card here, as a line that opens the thread holding it.
     private func elsewhere(_ thread: String) -> some View {
-        Button { openURL(AceLink.thread(thread, machine: client.hostId)) } label: {
+        Button { openThread(thread) } label: {
             HStack(spacing: AceDesign.Space.related) {
                 Text("Open its request")
                     .aceFont(AceDesign.TextRole.meta)
