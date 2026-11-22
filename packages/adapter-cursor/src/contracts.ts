@@ -16,7 +16,7 @@ export const Limits = z.strictObject({
   maxCallbacks: z.number().int().positive().max(256).default(32),
   maxIdentities: z.number().int().positive().max(8192).default(2048),
   maxInputBytes: z.number().int().positive().max(524288).default(262144),
-  maxCheckpointBytes: z.number().int().positive().max(268_435_456).default(33_554_432),
+  maxCheckpointBytes: z.number().int().positive().max(268_435_456).default(134_217_728),
   historyPageSize: z.number().int().positive().max(200).default(100),
   heapMb: z.number().int().min(64).max(1024).default(256),
   timeoutMs: z.number().int().positive().max(300000).default(30000),

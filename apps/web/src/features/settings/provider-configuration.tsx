@@ -83,7 +83,7 @@ export function ProviderPreferences(props: {
             <Input
               id="cursor-checkpoint-mb"
               value={budget}
-              placeholder="32"
+              placeholder="128"
               type="number"
               inputMode="numeric"
               className="w-20 min-w-0"
