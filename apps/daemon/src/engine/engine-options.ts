@@ -13,10 +13,16 @@ import type { WorktreeGit } from "./worktree-title.ts";
 /** What the engine is built with: its ports to providers, the host and the person's settings. */
 export interface EngineOptions {
   /**
-   * Windows only: startup recovery could not prove every process of the previous run gone, so
-   * restart recovery must not report that run's provider work as stopped.
+   * Startup recovery could not prove every process of the previous run gone, so restart
+   * recovery must not report that run's provider work as stopped, nor read a store it may still
+   * be writing.
    */
   previousProcessesUnverified?: boolean;
+  /**
+   * Waits between attempts to open a Cursor host whose store is busy during a restart
+   * reconcile (cursor-reconcile.ts); once they run out the turn fails as a restart fails it.
+   */
+  cursorReconcileRetryMs?: readonly number[];
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
   /**
    * Settles once provider CLIs have been read. Restart recovery waits for it, so whether an

@@ -9,6 +9,7 @@ import { CursorTranslator, cursorCapabilities, type CursorEnvelope } from "@ace/
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command, ThreadId } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
+import { sessionStoreBusy } from "@ace/provider-kit/open-error";
 
 const deliver = (context: SessionContext, value: CursorEnvelope, seq: number) => {
   const payload = new ProviderPayload(JSON.stringify(value));
@@ -33,6 +34,10 @@ async function crashAt(
   host: {
     /** What Cursor's store says of the cut-off run. */
     stored?: "finished" | "running";
+    /** The first opens find Cursor's store busy (another writer holds it). */
+    busyOpens?: number;
+    /** The engine's waits between busy opens. */
+    retryMs?: number[];
     /** Cursor's store has a run for the attempted send (it was created before the crash). */
     attemptAdmitted?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
@@ -42,6 +47,9 @@ async function crashAt(
   } = {},
 ) {
   const { stored = "finished", openFails = false, resume = true, attemptAdmitted = false } = host;
+  let busy = host.busyOpens ?? 0;
+  /** The thread's state each time an open found the store busy. */
+  const whileBusy: (string | undefined)[] = [];
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
   const path = join(root, "state.sqlite");
   const child = fork(new URL("./cursor-recovery-child.ts", import.meta.url), [path, root, window], {
@@ -72,6 +80,13 @@ async function crashAt(
       async openSession(context) {
         opened.push(context.resume);
         if (openFails) throw new Error("Cursor SDK host could not start");
+        if (busy-- > 0) {
+          whileBusy.push(store.getThread(threadId)?.status.state);
+          // As the Cursor adapter marks it (store-fence.ts).
+          throw Object.assign(new Error("SQLITE_BUSY: database is locked"), {
+            code: sessionStoreBusy,
+          });
+        }
         let seq = 0;
         let operationId = "open";
         const emit = (kind: string, body: unknown, extra: Partial<CursorEnvelope> = {}) =>
@@ -138,7 +153,11 @@ async function crashAt(
     },
     { installed: true, auth: "logged_in", loginHint: "offline" },
   );
-  const engine = new Engine(store, { registry, selectInstance: () => "account-a" });
+  const engine = new Engine(store, {
+    registry,
+    selectInstance: () => "account-a",
+    ...(host.retryMs ? { cursorReconcileRetryMs: host.retryMs } : {}),
+  });
   await engine.flush();
   const held = engine.queue(threadId);
   const runs = store
@@ -168,6 +187,7 @@ async function crashAt(
     /** How each ended run ended, and the thread's state, before any Resume. */
     runs,
     status,
+    whileBusy,
     opened,
     sent,
     userTexts,
@@ -399,4 +419,28 @@ it("a send Cursor had already made a run for is acknowledged on reopen, never he
   expect(
     crash.items.some((item) => item.type === "notice" && item.code === "delivery_uncertain"),
   ).toBe(false);
+});
+
+it("a busy Cursor store at reconcile is tried again, and the thread shows working until it reads", async () => {
+  await using crash = await crashAt("admitted", {
+    stored: "finished",
+    resume: false,
+    busyOpens: 2,
+    retryMs: [20, 20, 20],
+  });
+  expect(crash.whileBusy).toEqual(["working", "working"]);
+  expect(crash.runs).toEqual(["completed"]);
+  expect(crash.status).toBe("done");
+});
+
+it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {
+  await using crash = await crashAt("admitted", {
+    resume: false,
+    busyOpens: 100,
+    retryMs: [10, 10],
+  });
+  expect(crash.whileBusy).toHaveLength(3);
+  expect(crash.runs).toEqual(["failed"]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "restart" });
+  expect(crash.sent).toEqual([]);
 });

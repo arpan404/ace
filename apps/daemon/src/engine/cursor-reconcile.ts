@@ -5,6 +5,7 @@ import type { EngineRepository } from "./repository.ts";
 import type { Recovery } from "./recovery.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { lostWork } from "./lost-work.ts";
+import { SessionOpenError, sessionStoreBusy } from "@ace/provider-kit/open-error";
 
 /*
  * A Cursor turn a daemon crash cut short is reconciled with Cursor's own store at startup,
@@ -30,7 +31,11 @@ export interface ReconcileDependencies {
   open(actor: ThreadActor): Promise<void>;
   close(actor: ThreadActor): Promise<void>;
   wake(id: ThreadId): void;
+  /** Waits between opens of a busy store; the turn shows working meanwhile. */
+  retryMs?: readonly number[];
 }
+/** About 12 s in all, doubling from a tenth of a second. */
+export const busyRetryMs: readonly number[] = [100, 200, 400, 800, 1600, 3200, 6000];
 
 /** What a restart has always applied to cut-off Cursor work it could not reconcile. */
 function restartFailure(repo: EngineRepository, id: ThreadId, at: number): Fact[] {
@@ -112,13 +117,24 @@ export async function reconcileCursorRestart(
     return;
   }
   const actor = deps.actor(id);
-  try {
-    await deps.open(actor);
-    await actor.flush();
-  } catch {
-    fail(actor);
-    deps.wake(id);
-    return;
+  // A store another writer holds is busy, not broken: the open is tried again, bounded.
+  const waits = [...(deps.retryMs ?? busyRetryMs)];
+  for (;;) {
+    try {
+      await deps.open(actor);
+      await actor.flush();
+      break;
+    } catch (error) {
+      const busy = error instanceof SessionOpenError && error.code === sessionStoreBusy;
+      const wait = busy ? waits.shift() : undefined;
+      if (wait === undefined) {
+        // The queue keeps its messages: only the turn fails.
+        fail(actor);
+        deps.wake(id);
+        return;
+      }
+      await new Promise<void>((resolve) => clock.setTimer(resolve, wait));
+    }
   }
   const state = repo.requireState(id);
   // No turn was running (a send Cursor may not have had): there is nothing to continue.

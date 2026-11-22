@@ -7,7 +7,7 @@ import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
-import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { SessionOpenError, sessionStoreBusy } from "@ace/provider-kit/open-error";
 import { StartupOutput, withStartupOutput } from "@ace/provider-kit/startup-output";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { AccessMode, PermissionMode, NativeSessionId } from "@ace/protocol";
@@ -321,7 +321,18 @@ export class Sessions {
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
   }
-  async open(actor: ThreadActor): Promise<void> {
+  open(actor: ThreadActor): Promise<void> {
+    return this.openSession(actor, false);
+  }
+  /**
+   * An open for a startup reconcile of a turn a restart cut short (cursor-reconcile.ts). One
+   * that finds the store busy leaves that turn as it was, to be tried again, instead of ending
+   * it with the failed open.
+   */
+  openToReconcile(actor: ThreadActor): Promise<void> {
+    return this.openSession(actor, true);
+  }
+  private async openSession(actor: ThreadActor, reconciling: boolean): Promise<void> {
     if (this.dependencies.repo.store.getThread(actor.id)?.continuation)
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
@@ -849,10 +860,11 @@ export class Sessions {
         actor.lifetime = undefined;
         lifetime.abort();
         try {
-          actor.apply([
-            { type: "process.exited", deliberate: fenced },
-            { type: "queue.changed", source: "provider", count: 0 },
-          ]);
+          if (!(reconciling && failure.code === sessionStoreBusy))
+            actor.apply([
+              { type: "process.exited", deliberate: fenced },
+              { type: "queue.changed", source: "provider", count: 0 },
+            ]);
         } finally {
           this.dependencies.released(actor.id);
         }

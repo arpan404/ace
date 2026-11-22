@@ -125,11 +125,13 @@ export class Engine {
       recovery: this.recovery,
       clock: this.clock,
       actor: (id) => this.actor(id),
-      open: (actor) => this.sessions.open(actor),
+      open: (actor) => this.sessions.openToReconcile(actor),
       close: (actor) => this.sessions.close(actor, "idle"),
       wake: (id) => this.wake(id),
+      ...(this.reconcileRetryMs ? { retryMs: this.reconcileRetryMs } : {}),
     }),
   );
+  private reconcileRetryMs: readonly number[] | undefined;
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -189,6 +191,7 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
+    this.reconcileRetryMs = options.cursorReconcileRetryMs;
     this.settleFailed = options.onSettleCleanupFailure ?? ((_thread, error) => this.report(error));
     this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.slotted(id, (a) => this.work(a)), this.report);

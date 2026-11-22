@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { SessionOpenError, sessionStoreUnusable } from "@ace/provider-kit/open-error";
+import {
+  SessionOpenError,
+  sessionStoreBusy,
+  sessionStoreUnusable,
+} from "@ace/provider-kit/open-error";
 import { assertCheckpointBudget, checkpointDirectory } from "./checkpoints.ts";
 import { markStoreUnusable } from "./store-fence.ts";
 
@@ -59,4 +63,11 @@ test("a fresh session generation opens its own checkpoint folder and keeps the o
   } finally {
     await rm(home, { recursive: true, force: true });
   }
+});
+
+test.each([
+  "SQLITE_BUSY: database is locked. Preserve the checkpoint and inspect this thread before retrying. Cursor SDK open failed; delivery may be uncertain.",
+  "SQLITE_LOCKED: database table is locked",
+])("a store another writer holds is busy, which passes, not unusable: %s", (message) => {
+  expect(engineCode(new Error(message))).toBe(sessionStoreBusy);
 });

@@ -1,4 +1,4 @@
-import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
+import { sessionStoreBusy, sessionStoreUnusable } from "@ace/provider-kit/open-error";
 
 /*
  * Which Cursor failures mean the thread's saved SDK session can never be opened again, so ace
@@ -51,9 +51,20 @@ export function cursorStoreUnusable(error: unknown): boolean {
   return said.some((message) => unusable.some((pattern) => pattern.test(message)));
 }
 
-/** `error`, carrying the engine's unusable-store code when it is one; otherwise unchanged. */
+const busy = /\bSQLITE_(?:BUSY|LOCKED)\b|\bdatabase (?:table )?is locked\b|\bdatabase is busy\b/i;
+/** True when `error` says the store is busy or locked by another writer: it passes. */
+export function cursorStoreBusy(error: unknown): boolean {
+  return messages(error).some((message) => busy.test(message));
+}
+
+/** `error`, carrying the engine's unusable- or busy-store code when it is one; otherwise unchanged. */
 export function markStoreUnusable(error: unknown): unknown {
-  if (!cursorStoreUnusable(error)) return error;
+  if (!cursorStoreUnusable(error)) {
+    // A busy store is not an unusable one: it carries its own code, so the engine can wait.
+    if (!cursorStoreBusy(error)) return error;
+    const message = messages(error)[0] ?? "Cursor's saved session is busy";
+    return Object.assign(new Error(message, { cause: error }), { code: sessionStoreBusy });
+  }
   const message = messages(error)[0] ?? "Cursor's saved session can't be opened";
   return Object.assign(new Error(message, { cause: error }), { code: sessionStoreUnusable });
 }
