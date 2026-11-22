@@ -9,7 +9,7 @@ import {
 } from "@ace/ui-core/spade-chat";
 import type { PatchSink } from "./agents.ts";
 import { botFace, spadeGroupHead, spadeGroupRows } from "./spade-group-rows.ts";
-import { SpadeKeptEvents, type SpadeKeep } from "./spade-kept-events.ts";
+import { keptStored, SpadeKeptEvents, type SpadeKeep } from "./spade-kept-events.ts";
 import { spadeKeptHead, spadeKeptRows } from "./spade-kept-rows.ts";
 import { SpadeRowCache } from "./spade-row-cache.ts";
 import { spadeConversationHead } from "./spade-rows.ts";
@@ -71,7 +71,7 @@ export class SpadeOpenChat {
 
   constructor(host: SpadeOpenHost) {
     this.host = host;
-    this.kept = new SpadeKeptEvents(host.keep, host.later);
+    this.kept = new SpadeKeptEvents(host.keep, host.later, (id) => `spade-events/${id}`);
     this.live = new SpadeDaemonLive(host.owner, host.id);
     this.workers = new SpadeWorkerWatch(host.owner, () => this.publish());
     this.tree = new SpadeWorkerTree({ read: (path) => this.read(path), later: host.later }, () =>
@@ -158,8 +158,6 @@ export class SpadeOpenChat {
       begin(follow);
       return this.publish();
     }
-    // Kept this run, it shows in this very frame; from the last launch, once read from disk.
-    const kept = this.kept.now(conversationId);
     const recorder = this.kept.record(conversationId, link);
     const follow = new SpadeConversationFollow(recorder.link, conversationId, deps);
     const untrack = track(follow);
@@ -172,15 +170,13 @@ export class SpadeOpenChat {
     this.open = { kind: "bot", id: conversationId, follow, stop };
     // The list says how far its history goes, so a first open reads its pages at once.
     follow.expect(this.botOf(conversationId)?.lastMessage?.seq ?? 0);
-    if (kept) {
-      follow.seed(kept);
-      begin(follow);
-      return this.publish();
-    }
     this.publish();
-    void this.kept.load(conversationId).then((events) => {
+    void this.kept.load(conversationId).then((log) => {
       if (this.open?.follow !== follow) return;
-      follow.seed(events);
+      if (log) {
+        recorder.adopt(log);
+        follow.seed(keptStored(log));
+      }
       begin(follow);
       this.publish();
     });

@@ -96,19 +96,22 @@ test("an 800-event conversation kept from the last launch shows at once and read
   );
 });
 
-test("a conversation opened again in the same run shows in the same frame", async () => {
+test("a conversation closed and opened again shows from what it kept before Spade answers", async () => {
   const keep = memoryKeep();
   const host = await launch(keep, (api, bot) => converse(api, bot, 3));
   const open = () =>
     host.spade.handle({ type: "spade.open", conversationId: host.bot.conversation });
   open();
   await until(() => (host.patches.bubbles.length === 6 ? true : undefined));
+  // Closed, nothing of it stays in memory: what it kept is in the store.
   host.spade.handle({ type: "spade.open", conversationId: null });
   converse(host.api, host.bot, 1, 3);
+  host.gate.hold = true;
 
   open();
 
-  expect(texts(host.patches.bubbles)).toHaveLength(6);
+  await until(() => (host.patches.bubbles.length === 6 ? true : undefined));
+  host.release();
   await until(() => (host.patches.bubbles.length === 8 ? true : undefined));
   expect(host.reads().at(-1)).toBe(
     `/v1/conversations/${host.bot.conversation}/events?after=11&limit=200`,
