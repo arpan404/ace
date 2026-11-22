@@ -152,7 +152,7 @@ pub(super) async fn review(
     // Everything untrusted the prompt still shows, from any turn since compaction: the same view
     // the memory gate answers to, so a page read before the person's latest message still counts.
     let untrusted = context::untrusted_in_view(events, registry);
-    // A connected app's tool: the app it acts in, for the reviewer (ADR 0202, amendment 2).
+    // A connected app's tool: the app it acts in, for the reviewer (ADR 0202, amendment 5).
     let app = engine
         .tools
         .get_for(id, under.name)

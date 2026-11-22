@@ -201,7 +201,7 @@ async fn a_form_asking_for_a_secret_is_never_shown_and_fails_the_call() -> Resul
     let main = main_conversation(&spade).await?;
     spade.say(&main, "Go on").await?;
     // A tool named for a secret is the person's to allow, whatever its server says
-    // (ADR 0202, amendment 2).
+    // (ADR 0202, amendment 5).
     let events = spade.wait_for(&main, "approval_requested").await?;
     assert!(of(&events, "approval_requested", "c1").is_some());
     allow(&spade, &main, "c1", false).await?;

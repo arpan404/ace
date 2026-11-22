@@ -106,7 +106,7 @@ export function SpadeRequestBubble(props: {
   // A step in a page or app (ADR 0171, amendment 3): its always allows that one app or site for
   // the bot, and only where Spade offers it; never an Always allow for the tool.
   const drive = item.ask === "drive";
-  // A connected app's write (ADR 0202, amendment 2): its always allows the app's writes for
+  // A connected app's write (ADR 0202, amendment 5): its always allows the app's writes for
   // the bot, a grant the person makes with their stamp, then this call runs.
   const forApp = item.ask === "app" && item.app ? item.app : undefined;
   const alwaysWord = outside

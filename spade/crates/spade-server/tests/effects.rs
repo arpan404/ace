@@ -1,5 +1,5 @@
 //! Decisions on effects, not words (ADR 0171), through the API: a tool that declares nothing goes
-//! to the reviewer on every call (ADR 0202, amendment 2); a typed send goes to the person; a push runs within
+//! to the reviewer on every call (ADR 0202, amendment 5); a typed send goes to the person; a push runs within
 //! its grant and goes to the person outside it; a bot set to run outside the sandbox has its
 //! commands reviewed; a per-call request to run outside runs that call once; the machine's
 //! defaults are inherited and a bot's own wins; a driving step runs under its Permissions switch
@@ -83,7 +83,7 @@ async fn a_tool_that_declares_nothing_goes_to_the_reviewer_on_every_call() -> Re
         })
     };
     spade.say(&conversation, "Do the thing").await?;
-    // The reviewer judges it (ADR 0202, amendment 2); this test's reviewer can't be reached, so
+    // The reviewer judges it (ADR 0202, amendment 5); this test's reviewer can't be reached, so
     // the person decides, told why.
     let events = spade.wait_for(&conversation, "approval_requested").await?;
     assert!(judged(&events, "c1"), "{events:?}");

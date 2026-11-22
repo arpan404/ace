@@ -1,7 +1,7 @@
 import { spadeRecord } from "./json.ts";
 
 /*
- * A connected app's tool in the person's words (ADR 0202, amendment 2): "list your shared Notion
+ * A connected app's tool in the person's words (ADR 0202, amendment 5): "list your shared Notion
  * pages", never "use Notion notion list shared pages". And requests from one app that arrive
  * together, as one card: "Quill wants to do 3 things in Notion", the calls listed quietly under
  * it. Wording only: what runs, what is reviewed and what asks is Spade's gate's to decide.

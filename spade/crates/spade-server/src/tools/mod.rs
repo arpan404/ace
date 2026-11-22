@@ -246,8 +246,23 @@ pub trait Tool: Send + Sync {
         false
     }
     /// For a connected app's tool, the connection's id and the app's name, which its Always
-    /// allow is kept under and the reviewer is told (ADR 0202, amendment 2).
+    /// allow is kept under and the reviewer is told (ADR 0202, amendment 5).
     fn app(&self) -> Option<(String, String)> {
+        None
+    }
+    /// For a connected app's tool, what Spade reads it as doing with these `arguments`, given
+    /// whether its definition changed since it was pinned (`spade_core::effect::app_tool`).
+    fn app_reading(
+        &self,
+        _arguments: &Value,
+        _changed: bool,
+    ) -> Option<spade_core::effect::AppReading> {
+        None
+    }
+    /// For a connected app's tool, a digest of its definition as its server lists it now: its
+    /// own name, description and input schema. Pinned per connection when first used, so a
+    /// tool renamed or redescribed since loses its read and any Always allow until reviewed.
+    fn definition(&self) -> Option<String> {
         None
     }
     /// What the tool is, beyond the name it is offered under: for a tool from a server, the

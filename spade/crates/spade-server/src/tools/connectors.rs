@@ -147,11 +147,17 @@ impl ConnectorCall {
 }
 
 impl ConnectorCall {
-    /// Its effect and whether each call goes to the person, from its server's word and its own
-    /// name and description (`spade_core::effect::app_tool`).
-    fn reading(&self) -> (Option<spade_core::effect::Effect>, bool) {
-        let said = spade_core::effect::named(&self.tool.tool.name, &self.tool.tool.description);
-        spade_core::effect::app_tool(self.facts(), said)
+    /// What Spade reads it as doing with `arguments`, from its server's word, its own name and
+    /// description, what the arguments reach, and whether its definition changed since pinned.
+    fn reading(&self, arguments: &Value, changed: bool) -> spade_core::effect::AppReading {
+        use spade_core::effect::{app_tool, named, shape};
+        let tool = &self.tool.tool;
+        app_tool(
+            self.facts(),
+            named(&tool.name, &tool.description),
+            shape(&tool.name, &tool.input_schema, arguments),
+            changed,
+        )
     }
 }
 
@@ -162,10 +168,10 @@ impl Tool for ConnectorCall {
 
     /// What its catalogue entry declares, raised by its annotations (ADR 0171); with no entry
     /// for it, what its own name says, where it says a read or something only the person decides
-    /// (ADR 0202, amendment 2). Otherwise a connector's tool, which holds the person's sign-in,
+    /// (ADR 0202, amendment 5). Otherwise a connector's tool, which holds the person's sign-in,
     /// declares nothing.
-    fn effect(&self, _arguments: &Value) -> Option<spade_core::effect::Effect> {
-        self.reading().0
+    fn effect(&self, arguments: &Value) -> Option<spade_core::effect::Effect> {
+        self.reading(arguments, false).effect
     }
 
     /// Its server's hints, with a delete its name makes marked destructive: the person decides
@@ -173,7 +179,8 @@ impl Tool for ConnectorCall {
     fn hints(&self) -> Option<spade_core::effect::Mcp> {
         let facts = self.facts();
         Some(spade_core::effect::Mcp {
-            destructive: facts.destructive || (facts.declared.is_none() && self.reading().1),
+            destructive: facts.destructive
+                || (facts.declared.is_none() && self.reading(&Value::Null, false).destructive),
             ..facts
         })
     }
@@ -187,6 +194,26 @@ impl Tool for ConnectorCall {
             self.tool.connector.clone(),
             self.tool.connector_name.clone(),
         ))
+    }
+
+    fn app_reading(
+        &self,
+        arguments: &Value,
+        changed: bool,
+    ) -> Option<spade_core::effect::AppReading> {
+        Some(self.reading(arguments, changed))
+    }
+
+    fn definition(&self) -> Option<String> {
+        use sha2::{Digest, Sha256};
+        let tool = &self.tool.tool;
+        let text = serde_json::json!([tool.name, tool.description, tool.input_schema]).to_string();
+        Some(
+            Sha256::digest(text.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        )
     }
 
     /// The connection, its server's address, the server's own tool name and its schema.

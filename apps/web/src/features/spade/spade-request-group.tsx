@@ -21,7 +21,7 @@ import { useCardFocus } from "./use-card-focus.ts";
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
 /**
- * Requests one connected app's tools made together, as one card (ADR 0202, amendment 2): one
+ * Requests one connected app's tools made together, as one card (ADR 0202, amendment 5): one
  * sentence ("Quill wants to do 3 things in Notion"), the calls listed quietly under it, the
  * reason once when they share it, then Deny and Allow for all of them, and "Always allow for
  * Notion" where every one of them offers it. Enter allows all, Escape denies all.

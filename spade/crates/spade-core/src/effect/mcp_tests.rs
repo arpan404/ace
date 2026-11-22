@@ -50,6 +50,7 @@ fn app_call(tool: Mcp) -> Call<'static> {
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -119,24 +120,23 @@ fn annotations_lower_an_effect_only_from_a_server_spade_trusts() {
 
 #[test]
 fn an_untrusted_servers_read_only_hint_reads_nothing_and_a_trusted_ones_reads_without_asking() {
-    // Its hint alone makes nothing a read: the reviewer judges it (ADR 0202, amendment 2).
+    // Its hint alone makes nothing a read: the reviewer judges it (ADR 0202, amendment 5).
     let untrusted = app_call(hints(true, false, false, None));
     assert_eq!(route(untrusted), undeclared_reviewed());
-    // In Full access it is decided like an app's declared write: it runs, screened by Spade's
-    // classifier, and goes to the reviewer while the classifier is off.
-    let full = Call {
-        mode: Mode::FullAccess,
-        ..untrusted
-    };
-    assert_eq!(route(full), Route::Run);
-    let unscreened = Call {
-        classifier: false,
-        ..full
-    };
-    assert_eq!(
-        route(unscreened),
-        Route::Review(Some(NO_CLASSIFIER.to_owned()))
-    );
+    // In Full access too: an unresolved app tool is reviewed, whether or not the classifier is
+    // on, never run on its say alone.
+    for classifier in [true, false] {
+        let full = Call {
+            mode: Mode::FullAccess,
+            classifier,
+            ..untrusted
+        };
+        assert_eq!(
+            route(full),
+            undeclared_reviewed(),
+            "classifier={classifier}"
+        );
+    }
     // With untrusted content in view, in either mode, the person decides.
     for mode in [Mode::AutoReview, Mode::FullAccess] {
         let tainted = Call {

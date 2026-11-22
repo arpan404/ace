@@ -59,19 +59,13 @@ fn a_description_that_says_it_changes_something_keeps_a_read_from_reading() {
 fn a_description_never_makes_a_write_read() {
     assert_eq!(
         named("create_page", "Read-only. Only lists pages; safe to run."),
-        Named::Unclear
+        Named::Write
     );
 }
 
 #[test]
-fn writes_are_left_for_the_reviewer() {
-    for name in [
-        "create_page",
-        "update_block",
-        "notion-create-pages",
-        "add_tag",
-        "move_card",
-    ] {
+fn a_write_spade_cant_place_is_left_for_the_reviewer() {
+    for name in ["move_card", "sync_pages", "do_thing", "process"] {
         assert_eq!(named(name, ""), Named::Unclear, "{name}");
     }
 }
@@ -99,5 +93,99 @@ fn payments_sends_access_changes_and_deletes_are_recognised() {
     ];
     for (name, want) in table {
         assert_eq!(named(name, ""), want, "{name}");
+    }
+}
+
+#[test]
+fn a_name_with_letters_outside_ascii_is_never_a_read() {
+    // Cyrillic `ѕ` and `е` that look like Latin ones, a fullwidth name, an accented one.
+    for name in [
+        "liѕt_pages",
+        "sеarch",
+        "ｓｅａｒｃｈ",
+        "lïst_pages",
+        "list_pagés",
+    ] {
+        assert_eq!(named(name, ""), Named::Unclear, "{name}");
+    }
+    // Folded, a fullwidth send is still a send, and goes to the person.
+    assert_eq!(named("ｓｅｎｄ_email", ""), Named::Send);
+}
+
+#[test]
+fn a_change_word_inside_a_longer_word_keeps_a_name_from_reading() {
+    for name in [
+        "searchandupdate",
+        "listAndArchive",
+        "getOrCreate",
+        "fetchUpdates2Db",
+        "list_pages_then_publish",
+        "search2write",
+        "querysync",
+        "getpagesandmove",
+    ] {
+        assert_ne!(named(name, ""), Named::Read, "{name}");
+    }
+    // A delete or a send hidden inside a word is still recognised.
+    assert_eq!(named("fetchanddelete", ""), Named::Destroys);
+    assert_eq!(named("listAndDelete", ""), Named::Destroys);
+    assert_eq!(named("list_and_delete", ""), Named::Destroys);
+    assert_eq!(named("searchThenSendmail", ""), Named::Send);
+    // A word that only looks like a change stays a read.
+    for name in [
+        "list_shared_pages",
+        "list_recently_updated_pages",
+        "get_settings",
+    ] {
+        assert_eq!(named(name, ""), Named::Read, "{name}");
+    }
+}
+
+#[test]
+fn change_words_in_other_languages_keep_a_name_from_reading() {
+    for name in [
+        "buscar_y_actualizar",
+        "crear_pagina",
+        "listar_y_enviar",
+        "seite_erstellen",
+        "chercher_et_supprimer",
+        "criar_pagina",
+        "cerca_e_aggiorna",
+    ] {
+        assert_ne!(named(name, ""), Named::Read, "{name}");
+    }
+    assert_eq!(named("borrar_pagina", ""), Named::Destroys);
+    assert_eq!(named("enviar_correo", ""), Named::Send);
+}
+
+#[test]
+fn only_a_plain_create_update_edit_append_add_or_set_is_an_ordinary_write() {
+    for name in [
+        "create_page",
+        "update_block",
+        "notion-create-pages",
+        "editPage",
+        "append_block_children",
+        "add_tag",
+        "set_title",
+    ] {
+        assert_eq!(named(name, ""), Named::Write, "{name}");
+    }
+    for name in [
+        "publish_page",
+        "create_and_publish",
+        "update_or_delete",
+        "create_webhook",
+        "update_sharing",
+        "create_token",
+        "add_member",
+        "create_comment",
+        "deploy",
+        "move_card",
+        "sync_pages",
+        "run_script",
+        "créer_page",
+    ] {
+        assert_ne!(named(name, ""), Named::Write, "{name}");
     }
 }

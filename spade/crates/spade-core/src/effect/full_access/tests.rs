@@ -34,6 +34,7 @@ fn full(tool: &str, effect: Option<Effect>) -> Call<'_> {
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -252,17 +253,15 @@ fn in_full_access_the_sandbox_is_never_widened() {
 }
 
 #[test]
-fn in_full_access_an_app_tool_that_declares_nothing_is_decided_like_an_app_write() {
+fn in_full_access_an_app_tool_that_declares_nothing_is_reviewed_as_on_the_auto_review() {
     // An app's tool with no trusted declaration and a name Spade can't read (ADR 0202,
-    // amendment 2): it runs, past Spade's classifier, which would raise a send or a payment.
+    // amendment 5): the reviewer judges it, the classifier on or off; it never runs on the
+    // classifier's say alone.
     let sync = app_tool("crm__sync", None);
-    assert_eq!(route(sync), Route::Run);
-    // With the classifier off, the reviewer judges it.
-    let blind = Call {
-        classifier: false,
-        ..sync
-    };
-    assert!(is_review(&route(blind)), "{:?}", route(blind));
+    for classifier in [true, false] {
+        let call = Call { classifier, ..sync };
+        assert!(is_review(&route(call)), "{:?}", route(call));
+    }
     // Untrusted content in view: the person, whatever they answered before.
     for remembered in [None, Some(true)] {
         let steered = Call {
@@ -331,11 +330,7 @@ fn in_full_access_a_sandbox_that_holds_an_app_tools_files_doesnt_hold_its_sends(
         place: Place::Sandbox,
         ..app_tool("mailer__send_email", effect)
     };
-    assert_eq!(
-        route(contained(None)),
-        Route::Run,
-        "the classifier screens it next"
-    );
+    assert!(is_review(&route(contained(None))), "never run unreviewed");
     let unscreened = Call {
         classifier: false,
         ..contained(None)

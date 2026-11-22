@@ -120,17 +120,20 @@ impl Engine {
             };
             return covering(&action).map(|grant| (Granted::Typed, grant));
         }
-        // A connected app's Always allow covers its tools of one class (ADR 0202, amendment 2):
-        // its writes, a tool that declares nothing included, or its reads; never what only the
-        // person decides, which the gate sends to them first whatever a grant says.
-        if let Some((app, _)) = self
-            .tools
-            .get_for(conversation, tool)
-            .and_then(|found| found.app())
-            && let Some(writes) = effect::app_class(declared)
-            && let Some(grant) = covering(&Action::App { app: &app, writes })
-        {
-            return Some((Granted::Tool, grant));
+        // A connected app's Always allow covers only its ordinary writes (ADR 0202, amendment
+        // 5), each while its definition is the one the person saw: never a read, a delete, a
+        // send, a payment, an access change, a publish or anything Spade can't place, and never
+        // a tool added or changed since. Any other app tool takes no grant at all.
+        if let Some(call) = self.app_call(conversation, tool, arguments) {
+            if !call.reading.grantable {
+                return None;
+            }
+            return covering(&Action::App {
+                app: &call.app,
+                tool,
+                definition: &call.definition,
+            })
+            .map(|grant| (Granted::Tool, grant));
         }
         // A generic grant covers only a tool that declares what it does, and never one that
         // could pay, send, drive a page or app, change access or read secrets.

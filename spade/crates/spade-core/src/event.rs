@@ -269,6 +269,16 @@ pub enum Known {
             deserialize_with = "crate::autonomy::escalate::lenient"
         )]
         stopped: Option<crate::autonomy::escalate::Stopped>,
+        /// What the gate read the call as doing when it asked (ADR 0202, amendment 5), for the
+        /// request's words: a client heads a request by it, never by the tool's name. Absent for
+        /// older events and a call that declares nothing; a word this build doesn't know reads
+        /// as `unknown`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::effect::lenient_effect"
+        )]
+        effect: Option<crate::effect::Effect>,
     },
     ApprovalAnswered {
         reply: String,

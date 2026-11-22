@@ -434,7 +434,7 @@ const Row = memo(function Row(props: {
             name={other.name}
           />
         )}
-        {/* Open requests one app made together answer on one card (ADR 0202, amendment 2). */}
+        {/* Open requests one app made together answer on one card (ADR 0202, amendment 5). */}
         {spadeGroupAppRequests(row.items).map((entry) =>
           entry.kind === "one" ? (
             <RunItem

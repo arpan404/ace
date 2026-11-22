@@ -17,9 +17,11 @@ mod full_access;
 pub mod named;
 mod permitted;
 pub mod runtime;
+pub mod shape;
 
 pub use full_access::NO_CLASSIFIER;
 pub use named::{Named, named};
+pub use shape::{Shape, shape};
 
 /// What a tool does, from least to most serious (the order a set of declarations is read in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -262,27 +264,76 @@ pub fn asks_each_call(tool: Mcp) -> bool {
     tool.destructive && tool.declared.is_none()
 }
 
-/// What a connected app's tool does and whether the person decides every call of it, read from
-/// what its server and catalogue say ([`mcp`]) and from its own name ([`named`], ADR 0202,
-/// amendment 2). A trusted declaration still wins. With none, the name decides only in two
-/// directions: a read runs, and a payment, a send, an access change or a delete goes to the
-/// person; anything else stays as the server's word made it (undeclared, for an untrusted
-/// server: the reviewer's). An annotation may narrow a read the name makes (a tool its server
-/// says may write or delete is not a read), never widen one: `delete_page` marked read-only is
-/// still a delete.
-pub fn app_tool(tool: Mcp, said: Named) -> (Option<Effect>, bool) {
+/// A connected app's tool as Spade reads it (ADR 0202, amendment 5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppReading {
+    /// What it does; `None`: unresolved, for the reviewer.
+    pub effect: Option<Effect>,
+    /// The person decides every call of it: a delete, by its server's word or its own name.
+    pub destructive: bool,
+    /// Its `read` is Spade's reading of its name, not a declaration: under untrusted content
+    /// the reviewer looks at it before it runs.
+    pub guessed: bool,
+    /// The person's Always allow for its app may cover it: an ordinary write by name
+    /// ([`Named::Write`]), with plain arguments, no delete and a definition unchanged since it
+    /// was pinned. Nothing else ever is.
+    pub grantable: bool,
+}
+
+/// What a connected app's tool does, read from what its server and catalogue say ([`mcp`]),
+/// its own name ([`named`]), what its arguments reach ([`shape`]) and whether its definition
+/// changed since Spade pinned it (`changed`). A trusted declaration still wins, and a trusted
+/// server's own read-only interface is a read. Otherwise the name decides only so far: a clear
+/// read with plain arguments and an unchanged definition reads (`guessed`); a payment, a send,
+/// an access change or a delete goes to the person; a read whose arguments reach a destination
+/// or run text, a renamed tool's read, a write and anything Spade can't place stay unresolved,
+/// for the reviewer. An annotation may narrow a read the name makes, never widen one.
+pub fn app_tool(tool: Mcp, said: Named, shape: Shape, changed: bool) -> AppReading {
+    let plain = shape == Shape::Plain;
+    let trusted_read = tool.trusted && tool.annotated && tool.read_only && !tool.destructive;
+    let reading = |effect, destructive| AppReading {
+        effect,
+        destructive,
+        guessed: false,
+        grantable: false,
+    };
     if tool.declared.is_some() {
-        return (mcp(tool), asks_each_call(tool));
+        let effect = mcp(tool);
+        return AppReading {
+            grantable: said == Named::Write
+                && plain
+                && !changed
+                && !tool.destructive
+                && matches!(effect, Some(Effect::Network | Effect::WriteLocal)),
+            ..reading(effect, asks_each_call(tool))
+        };
     }
     match said {
-        Named::Pay => (Some(Effect::Pay), tool.destructive),
-        Named::Send => (Some(Effect::SendAsPerson), tool.destructive),
-        Named::Access => (Some(Effect::ChangeAccess), tool.destructive),
-        Named::Destroys => (None, true),
-        Named::Read if tool.destructive => (None, true),
-        Named::Read if tool.annotated && !tool.read_only => (mcp(tool), false),
-        Named::Read => (Some(Effect::Read), false),
-        Named::Unclear => (mcp(tool), asks_each_call(tool)),
+        Named::Pay => reading(Some(Effect::Pay), tool.destructive),
+        Named::Send => reading(Some(Effect::SendAsPerson), tool.destructive),
+        Named::Access => reading(Some(Effect::ChangeAccess), tool.destructive),
+        Named::Destroys => reading(None, true),
+        Named::Read if tool.destructive => reading(None, true),
+        Named::Read if trusted_read => reading(Some(Effect::Read), false),
+        Named::Read if !plain || changed || tool.annotated && !tool.read_only => {
+            reading(mcp(tool).filter(|effect| *effect != Effect::Read), false)
+        }
+        Named::Read => AppReading {
+            guessed: true,
+            ..reading(Some(Effect::Read), false)
+        },
+        Named::Write => AppReading {
+            grantable: plain && !changed && !tool.destructive,
+            // A trusted server's word can say it writes outside the bot; never that it reads.
+            ..reading(
+                mcp(tool).filter(|effect| *effect != Effect::Read),
+                asks_each_call(tool),
+            )
+        },
+        Named::Unclear => reading(
+            mcp(tool).filter(|effect| *effect != Effect::Read || trusted_read),
+            asks_each_call(tool),
+        ),
     }
 }
 
@@ -299,19 +350,6 @@ pub fn ace(name: &str, risk: Risk, declared: Option<Effect>, _arguments: &Value)
         _ => Effect::Network,
     };
     declared.map_or(hinted, |declared| declared.max(hinted))
-}
-
-/// Which of a connected app's Always allows can cover a call with `effect` (ADR 0202, amendment
-/// 2): `Some(false)` its reads, `Some(true)` its writes (one that declares nothing, or a write
-/// outside the bot that isn't a publish), `None` for what no Always allow covers: a publish, a
-/// payment, a send in the person's name, a driving step, an access change, a secret or an effect
-/// Spade can't name. The gate decides a delete and untrusted content in view before any grant.
-pub fn app_class(effect: Option<Effect>) -> Option<bool> {
-    match effect {
-        Some(Effect::Read) => Some(false),
-        None | Some(Effect::WriteLocal | Effect::Network) => Some(true),
-        Some(_) => None,
-    }
 }
 
 /// The `_meta` key where ace declares one of its tools' effects.
@@ -426,6 +464,9 @@ pub struct Call<'a> {
     pub permits: crate::permission::Held,
     /// A tool of an app the person connected (a connector's), under the Apps switch.
     pub connected: bool,
+    /// Its `read` is Spade's reading of its name, not a declaration ([`AppReading::guessed`]):
+    /// under untrusted content the reviewer looks at it first.
+    pub guessed: bool,
 }
 
 /// Why the person is asked, when it isn't the usual request.
@@ -439,7 +480,7 @@ pub enum Ask {
     /// A driving step: its "always" allows the app or site for the bot, when it may be granted,
     /// and never stores an Always allow for the tool.
     Drive,
-    /// A connected app's write (ADR 0202, amendment 2): the request offers an Always allow for
+    /// A connected app's write (ADR 0202, amendment 5): the request offers an Always allow for
     /// the app's writes (`app` names the connection), which the person grants with their stamp
     /// as any grant; its own "always" stores nothing for the tool.
     App,
@@ -451,6 +492,14 @@ pub fn lenient_ask<'de, D: serde::Deserializer<'de>>(
 ) -> Result<Option<Ask>, D::Error> {
     let value = Option::<Value>::deserialize(deserializer)?;
     Ok(value.and_then(|value| serde_json::from_value(value).ok()))
+}
+
+/// A stored effect read leniently: a word this build doesn't know is [`Effect::Unknown`].
+pub fn lenient_effect<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Effect>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.as_ref().and_then(Effect::declared))
 }
 
 /// Where a call goes.
@@ -612,6 +661,9 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
         return review(call, Some(autonomy::Sensitive::TaintedRoutine.reason()));
     }
     match effect {
+        // A read only its name vouches for, with untrusted content in view: the reviewer
+        // checks it isn't something that content steered into a read's name.
+        Effect::Read if call.guessed && call.tainted => review(call, Some(GUESSED_READ)),
         Effect::Read => Route::Run,
         Effect::WriteLocal => {
             if call.checkpointed || call.rule == Decision::Run {
@@ -651,7 +703,7 @@ fn decide(call: Call<'_>, allowed: bool) -> Route {
     }
 }
 
-/// Where a tool that declares nothing goes (ADR 0202, amendment 2): one the person declined for
+/// Where a tool that declares nothing goes (ADR 0202, amendment 5): one the person declined for
 /// the bot is refused wherever it runs; inside the sandbox it runs. Elsewhere, while untrusted
 /// content is in view, the person decides (ADR 0130): nothing says it doesn't send what that
 /// content asked for. Only their Always allow for its app's writes hands it to the reviewer
@@ -870,6 +922,9 @@ const TAINTED_OUTWARD: &str = "It acts outside the bot's folder after reading un
 const GRANTED_TAINTED: &str = "A grant of the person's covers it, but untrusted content is in view: check its arguments \
      came from the person or the bot's own work, not from that content.";
 const TOO_LONG: &str = "It is too long for the reviewer to read whole, so you decide.";
+/// What the reviewer is told about a read only its name vouches for, under untrusted content.
+pub const GUESSED_READ: &str = "Only its name says it just reads, and untrusted content is in view: check it reads and \
+     that the content didn't steer it.";
 
 /// What stopped a sandboxed command, read from its output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

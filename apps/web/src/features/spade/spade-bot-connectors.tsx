@@ -34,7 +34,7 @@ function allowedOf(access: SpadeConnectorAccess, connectors: readonly SpadeConne
  * under it, with Remove; then Add an app, a menu of the connected apps it doesn't have yet (Use
  * <App>, no new sign-in) and a way to connect another; then the apps that fit its task, each
  * a click from connected (ADR 0131, amendment 1). An app whose changes the person allowed always
- * for this bot says so on its row, with Ask again to take that back (ADR 0202, amendment 2).
+ * for this bot says so on its row, with Ask again to take that back (ADR 0202, amendment 5).
  * Each change is saved as it is made. Spade may use every app unless
  * narrowed; a new bot none until given one.
  */
@@ -49,7 +49,7 @@ export function ProfileApps(props: { bot: RosterBot }) {
   const [saving, setSaving] = useState(false);
   const connectors = catalogue.data?.connectors ?? [];
   const access = stored.data;
-  // "Always allow for <app>" the person gave this bot (ADR 0202, amendment 2), revoked here.
+  // "Always allow for <app>" the person gave this bot (ADR 0202, amendment 5), revoked here.
   const security = useBotSecurity(bot.id);
   const appGrant = (app: string) =>
     security.data?.grants.find(

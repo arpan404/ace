@@ -5,7 +5,7 @@ import { beforeEach, expect, test } from "vitest";
 import { botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
 
 /*
- * A connected app's requests (ADR 0202, amendment 2): the calls one app makes together answer on
+ * A connected app's requests (ADR 0202, amendment 5): the calls one app makes together answer on
  * one card, and "Always allow for Notion" grants that bot the app's writes, with the person's
  * stamp, then allows them. The bot's Permissions › Apps row shows it and takes it back.
  */

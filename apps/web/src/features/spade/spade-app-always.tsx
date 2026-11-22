@@ -7,7 +7,7 @@ import { fault } from "./spade-profile-actions.ts";
 import { addGrant, securityKey } from "./spade-security-api.ts";
 
 /**
- * "Always allow for Notion" on a connected app's write (ADR 0202, amendment 2): a grant of that
+ * "Always allow for Notion" on a connected app's write (ADR 0202, amendment 5): a grant of that
  * app's writes for this bot, which Spade takes only with the person's stamp. ace's daemon stamps
  * it when this window has proved it is them; otherwise the person confirms here, and it is made
  * then. `allow` resolves true once the grant is made; `prompt` is what to show meanwhile (the

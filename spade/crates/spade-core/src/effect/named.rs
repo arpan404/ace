@@ -1,28 +1,39 @@
 //! What a connected app's tool does, read from its own name when nothing trusted says (ADR 0202,
-//! amendment 2). Most apps' MCP servers annotate nothing, so without this every tool of theirs
-//! would be undeclared. The reading is conservative: a tool reads only when its name is led by a
-//! read verb and nothing in its name or description says it changes anything. It never decides a
-//! write, a send or a payment runs: it only recognises reads, which then run, and the effects that
-//! always go to the person, which then go to them. Everything else stays undeclared, for the
-//! reviewer. An annotation may narrow what it reads (an app that says a tool may write or delete
-//! is believed); it never widens it (no server's `readOnlyHint` makes `delete_page` a read).
+//! amendment 5). Most apps' MCP servers annotate nothing, so without this every tool of theirs
+//! would be undeclared. The reading is conservative. A tool reads only when its name, folded to
+//! its compatibility form and split into words (`listSharedPages`, `list2pages`), is led by a
+//! read verb and holds no word for a change anywhere, inside a longer word too
+//! (`searchandupdate`) and in the other languages listed here; a name with letters outside ASCII
+//! never reads. It is an ordinary write only when its one verb is `create`, `update`, `edit`,
+//! `append`, `add`, `set` or `insert` and nothing in it reaches past the app's own content.
+//! Payments, sends, access changes and deletes are recognised wherever they appear. Everything
+//! else stays undeclared, for the reviewer. An annotation may narrow what it reads, never widen
+//! it, and what a call's arguments reach is read separately ([`super::shape`]).
 //!
 //! Pure: names and descriptions are untrusted text and are only ever matched against fixed words.
+
+use unicode_normalization::UnicodeNormalization;
 
 /// What a tool's name says it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Named {
-    /// Only reads: led by a read verb, with no word for a change in its name or description.
+    /// Only reads: led by a read verb, with no word for a change anywhere in its name (inside a
+    /// longer word too) or in its description, and nothing but ASCII letters, digits and
+    /// separators.
     Read,
+    /// An ordinary change to the app's own content: `create`, `update`, `edit`, `append`, `add`,
+    /// `set` or `insert`, with nothing else it could be. The only kind an app's Always allow
+    /// covers.
+    Write,
     /// Spends or moves money.
     Pay,
     /// Sends something in the person's name.
     Send,
-    /// Shares, invites, or changes sign-ins, keys, roles or who has access.
+    /// Shares, invites, or changes sign-ins, keys, roles or who has access, or names a secret.
     Access,
     /// Deletes, empties or overwrites something.
     Destroys,
-    /// Anything else: a write, or a name Spade can't read. The reviewer judges it.
+    /// Anything else: a change Spade can't place, or a name it can't read. The reviewer judges it.
     Unclear,
 }
 
@@ -32,7 +43,10 @@ const READS: &[&str] = &[
     "look", "show", "view", "count", "inspect", "browse", "preview", "peek", "whoami",
 ];
 
-/// Money moving.
+/// Ordinary changes to the app's own content.
+const WRITES: &[&str] = &["create", "update", "edit", "append", "add", "set", "insert"];
+
+/// Money moving, as a whole word.
 const PAYS: &[&str] = &[
     "pay",
     "payout",
@@ -50,7 +64,12 @@ const PAYS: &[&str] = &[
     "send_money",
 ];
 
-/// Access changing, whatever the verb.
+/// Money moving, anywhere in the name.
+const PAY_STEMS: &[&str] = &[
+    "transfer", "refund", "payout", "purchase", "checkout", "withdraw", "remit", "donate",
+];
+
+/// Access changing, as a whole word.
 const ACCESS: &[&str] = &[
     "share",
     "unshare",
@@ -63,41 +82,40 @@ const ACCESS: &[&str] = &[
     "deauthorize",
 ];
 
-/// What access is made of: changing one is an access change, and reading a secret hands it back.
-const ACCESS_NOUNS: &[&str] = &[
+/// Access changing, or a secret, anywhere in the name.
+const ACCESS_STEMS: &[&str] = &[
+    "share",
+    "invite",
+    "grant",
+    "revoke",
     "permission",
-    "permissions",
+    "password",
+    "secret",
+    "token",
+    "credential",
+    "apikey",
+    "impersonat",
+    "authoriz",
+    "collaborator",
+    "ownership",
+    "passcode",
+];
+
+/// What access is made of: changing one is an access change.
+const ACCESS_NOUNS: &[&str] = &[
     "role",
     "roles",
     "member",
     "members",
     "membership",
-    "collaborator",
-    "collaborators",
     "access",
     "acl",
     "owner",
-    "ownership",
     "sharing",
-];
-
-/// Secrets: any tool that names one goes to the person.
-const SECRETS: &[&str] = &[
-    "password",
-    "passwords",
-    "secret",
-    "secrets",
-    "token",
-    "tokens",
-    "credential",
-    "credentials",
-    "apikey",
-    "apikeys",
-    "passcode",
     "otp",
 ];
 
-/// Sends in the person's name, whatever follows.
+/// Sends in the person's name, as a whole word.
 const SENDS: &[&str] = &[
     "send",
     "reply",
@@ -111,6 +129,19 @@ const SENDS: &[&str] = &[
     "mail",
     "sms",
     "respond",
+];
+
+/// Sends, anywhere in the name.
+const SEND_STEMS: &[&str] = &[
+    "send",
+    "forward",
+    "notify",
+    "broadcast",
+    "tweet",
+    "enviar",
+    "envoy",
+    "inviare",
+    "senden",
 ];
 
 /// What a send is made of: writing one sends it.
@@ -133,7 +164,7 @@ const MESSAGES: &[&str] = &[
     "review",
 ];
 
-/// Deleting, emptying, overwriting.
+/// Deleting, emptying, overwriting, as a whole word.
 const DESTROYS: &[&str] = &[
     "delete",
     "del",
@@ -154,19 +185,35 @@ const DESTROYS: &[&str] = &[
     "discard",
 ];
 
-/// Any change, or two steps in one: none of these is ever in a read's name.
+/// Deleting, anywhere in the name, in the languages Spade lists cheaply.
+const DESTROY_STEMS: &[&str] = &[
+    "delete",
+    "remove",
+    "destroy",
+    "purge",
+    "erase",
+    "wipe",
+    "trash",
+    "truncate",
+    "overwrite",
+    "unlink",
+    "discard",
+    "borrar",
+    "elimin",
+    "supprim",
+    "loesch",
+    "losch",
+    "exclu",
+];
+
+/// Any change, or two steps in one, as a whole word: none is ever in a read's or an ordinary
+/// write's name.
 const CHANGES: &[&str] = &[
-    "create",
-    "add",
     "insert",
-    "append",
-    "update",
     "upsert",
-    "set",
     "put",
     "patch",
     "post",
-    "edit",
     "modify",
     "change",
     "write",
@@ -202,7 +249,6 @@ const CHANGES: &[&str] = &[
     "toggle",
     "enable",
     "disable",
-    "reserve",
     "restore",
     "apply",
     "accept",
@@ -236,6 +282,132 @@ const CHANGES: &[&str] = &[
     "or",
     "then",
     "plus",
+    "y",
+    "et",
+    "und",
+    "ou",
+    "oder",
+];
+
+/// A change anywhere in the name, inside a longer word too, in the languages Spade lists cheaply.
+const CHANGE_STEMS: &[&str] = &[
+    "create",
+    "update",
+    "delete",
+    "remove",
+    "insert",
+    "upsert",
+    "append",
+    "write",
+    "modif",
+    "patch",
+    "upload",
+    "import",
+    "publish",
+    "deploy",
+    "execut",
+    "invoke",
+    "trigger",
+    "submit",
+    "archive",
+    "rename",
+    "move",
+    "transfer",
+    "purchase",
+    "refund",
+    "destroy",
+    "purge",
+    "erase",
+    "truncate",
+    "overwrite",
+    "send",
+    "share",
+    "invite",
+    "revoke",
+    "grant",
+    "sync",
+    "approve",
+    "cancel",
+    "restore",
+    "merge",
+    "replace",
+    "assign",
+    "toggle",
+    "enable",
+    "disable",
+    "crear",
+    "borrar",
+    "actualiz",
+    "modific",
+    "elimin",
+    "enviar",
+    "supprim",
+    "envoy",
+    "erstell",
+    "loesch",
+    "aender",
+    "aktualis",
+    "senden",
+    "criar",
+    "exclu",
+    "atualiz",
+    "inviare",
+    "aggiorn",
+    "cancell",
+];
+
+/// What keeps a name from being an ordinary write, anywhere in it: what an Always allow may never
+/// cover, and what reaches outside the app's own content.
+const NOT_ORDINARY: &[&str] = &[
+    "publish",
+    "share",
+    "send",
+    "pay",
+    "delete",
+    "remove",
+    "access",
+    "credential",
+    "token",
+    "secret",
+    "password",
+    "permission",
+    "member",
+    "role",
+    "invite",
+    "webhook",
+    "url",
+    "email",
+    "mail",
+    "message",
+    "comment",
+    "post",
+    "deploy",
+    "release",
+    "merge",
+    "execut",
+    "script",
+    "code",
+    "sql",
+    "drive",
+    "click",
+    "sync",
+    "import",
+    "upload",
+    "export",
+    "key",
+    "owner",
+];
+
+/// Whole words that only look like a change: an adjective of a read (`list_shared_pages`).
+const BENIGN: &[&str] = &[
+    "shared",
+    "updated",
+    "created",
+    "modified",
+    "archived",
+    "published",
+    "sender",
+    "senders",
 ];
 
 /// Words in a description that say a tool changes something: any one keeps it from reading.
@@ -291,25 +463,29 @@ const DESCRIBED_CHANGES: &[&str] = &[
     "replaces",
 ];
 
-/// A name or text in lower-case words: split at anything not a letter or digit, and where a
-/// lower-case letter or digit meets an upper-case one (`listSharedPages`). `api_key` and
-/// `send_money` are joined back so they read as one word.
-fn words(text: &str) -> Vec<String> {
+/// A name or text in lower-case words: split at anything not a letter or digit, where a lower-case
+/// letter or digit meets an upper-case one (`listSharedPages`), and between letters and digits.
+/// `api_key` and `send_money` are joined back so they read as one word.
+pub fn words(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut word = String::new();
-    let mut last_lower = false;
+    let mut last: Option<char> = None;
     for c in text.chars() {
         if !c.is_alphanumeric() {
             if !word.is_empty() {
                 out.push(std::mem::take(&mut word));
             }
-            last_lower = false;
+            last = None;
             continue;
         }
-        if c.is_uppercase() && last_lower && !word.is_empty() {
+        let boundary = last.is_some_and(|before| {
+            (c.is_uppercase() && (before.is_lowercase() || before.is_numeric()))
+                || (c.is_numeric() != before.is_numeric())
+        });
+        if boundary && !word.is_empty() {
             out.push(std::mem::take(&mut word));
         }
-        last_lower = c.is_lowercase() || c.is_ascii_digit();
+        last = Some(c);
         word.extend(c.to_lowercase());
     }
     if !word.is_empty() {
@@ -318,13 +494,15 @@ fn words(text: &str) -> Vec<String> {
     let mut joined = Vec::with_capacity(out.len());
     let mut at = 0;
     while at < out.len() {
-        let pair = out.get(at + 1).map(|next| format!("{}{next}", out[at]));
-        match pair.as_deref() {
-            Some("apikey" | "apikeys") => {
-                joined.push(pair.unwrap_or_default());
+        let pair = out
+            .get(at + 1)
+            .map(|next| (out[at].as_str(), next.as_str()));
+        match pair {
+            Some(("api", "key" | "keys")) => {
+                joined.push("apikey".to_owned());
                 at += 2;
             }
-            Some(_) if out[at] == "send" && out[at + 1] == "money" => {
+            Some(("send", "money")) => {
                 joined.push("send_money".to_owned());
                 at += 2;
             }
@@ -337,48 +515,96 @@ fn words(text: &str) -> Vec<String> {
     joined
 }
 
-fn any(words: &[String], set: &[&str]) -> bool {
-    words.iter().any(|word| set.contains(&word.as_str()))
+/// One tool name, read once.
+struct Reading {
+    words: Vec<String>,
+    /// Its words run together, the ones that only look like a change left out: where a change
+    /// hidden inside a longer word is found.
+    joined: String,
+}
+
+impl Reading {
+    fn new(name: &str) -> Self {
+        // Compatibility forms folded first: a fullwidth `ｓｅｎｄ` is `send`.
+        let folded: String = name.nfkc().collect();
+        let words = words(&folded);
+        let joined = words
+            .iter()
+            .filter(|word| !BENIGN.contains(&word.as_str()))
+            .map(String::as_str)
+            .collect();
+        Self { words, joined }
+    }
+
+    fn has(&self, set: &[&str]) -> bool {
+        self.words.iter().any(|word| set.contains(&word.as_str()))
+    }
+
+    fn inside(&self, stems: &[&str]) -> bool {
+        stems.iter().any(|stem| self.joined.contains(stem))
+    }
+
+    /// A read verb and no word for any change, whole or inside a longer word.
+    fn reads(&self) -> bool {
+        self.has(READS)
+            && !self.has(CHANGES)
+            && !self.has(WRITES)
+            && !self.has(DESTROYS)
+            && !self.has(PAYS)
+            && !self.has(ACCESS)
+            && !self.inside(CHANGE_STEMS)
+            // A send verb reads as a noun only after a read verb: `search_email`, `get_mail`.
+            && !self
+                .words
+                .iter()
+                .any(|word| SENDS.contains(&word.as_str()) && !MESSAGES.contains(&word.as_str()))
+    }
+
+    /// An ordinary write verb, no read verb, no other change, nothing an Always allow may not
+    /// cover.
+    fn writes(&self) -> bool {
+        const PLAIN_STEMS: &[&str] = &["create", "update", "insert", "append"];
+        self.has(WRITES)
+            && !self.has(READS)
+            && !self.has(CHANGES)
+            && !self.inside(NOT_ORDINARY)
+            && !CHANGE_STEMS
+                .iter()
+                .any(|stem| !PLAIN_STEMS.contains(stem) && self.joined.contains(stem))
+    }
 }
 
 /// What `name` (the server's own tool name) and `description` say the tool does. The
-/// description can only keep a name from reading; it never makes one read, pay or send.
+/// description can only keep a name from reading; it never makes one read, pay or send. A name
+/// with anything but ASCII letters, digits and separators (a look-alike letter from another
+/// script, a fullwidth form) is never a read or an ordinary write, though a payment, a send, an
+/// access change or a delete is still recognised in it once folded.
 pub fn named(name: &str, description: &str) -> Named {
-    let name = words(name);
-    let changes = any(&name, CHANGES);
-    if any(&name, PAYS) {
+    let read = Reading::new(name);
+    let changes = read.has(CHANGES) || read.has(WRITES);
+    if read.has(PAYS) || read.inside(PAY_STEMS) {
         return Named::Pay;
     }
-    if any(&name, ACCESS) || any(&name, SECRETS) || (changes && any(&name, ACCESS_NOUNS)) {
+    if read.has(ACCESS) || read.inside(ACCESS_STEMS) || (changes && read.has(ACCESS_NOUNS)) {
         return Named::Access;
     }
-    if any(&name, SENDS) && !reads_only(&name) {
+    let sends = read.has(SENDS) && !read.reads();
+    if sends || read.inside(SEND_STEMS) || ((changes || read.has(DESTROYS)) && read.has(MESSAGES)) {
         return Named::Send;
     }
-    if (changes || any(&name, DESTROYS)) && any(&name, MESSAGES) {
-        return Named::Send;
-    }
-    if any(&name, DESTROYS) {
+    if read.has(DESTROYS) || read.inside(DESTROY_STEMS) {
         return Named::Destroys;
     }
-    if reads_only(&name) && !any(&words(description), DESCRIBED_CHANGES) {
+    if !name.is_ascii() {
+        return Named::Unclear;
+    }
+    if read.reads() && !Reading::new(description).has(DESCRIBED_CHANGES) {
         return Named::Read;
     }
+    if read.writes() {
+        return Named::Write;
+    }
     Named::Unclear
-}
-
-/// A name with a read verb and no word for any change: `list_shared_pages`, `notion-search`,
-/// `get_email` (an email read, not sent).
-fn reads_only(name: &[String]) -> bool {
-    any(name, READS)
-        && !any(name, CHANGES)
-        && !any(name, DESTROYS)
-        && !any(name, PAYS)
-        && !any(name, ACCESS)
-        && !name.iter().any(|word| {
-            // A send verb read as a noun only after a read verb: `search_email`, `get_mail`.
-            SENDS.contains(&word.as_str()) && !MESSAGES.contains(&word.as_str())
-        })
 }
 
 #[cfg(test)]

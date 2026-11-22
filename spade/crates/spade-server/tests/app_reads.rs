@@ -1,4 +1,4 @@
-//! A connected app whose server annotates nothing, as Notion's doesn't (ADR 0202, amendment 2),
+//! A connected app whose server annotates nothing, as Notion's doesn't (ADR 0202, amendment 5),
 //! against a fake app on 127.0.0.1: its reads run with no card and no reviewer, its writes go to
 //! the reviewer and reach the person only when it won't approve them, a send still goes to the
 //! person, and the person's Always allow for the app's writes needs their stamp and holds for

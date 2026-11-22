@@ -30,6 +30,7 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -459,6 +460,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
             helper: None,
             launch: None,
             stopped: None,
+            effect: None,
         })
     };
     let answered = |call: &str, allowed: bool| {
@@ -709,6 +711,7 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
             helper: None,
             launch: None,
             stopped: None,
+            effect: None,
         })
     };
     let answered = |call: &str, always: bool| {

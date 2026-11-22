@@ -37,6 +37,7 @@ fn call(
         org: None,
         permits: crate::permission::Held::default(),
         connected: false,
+        guessed: false,
     }
 }
 
@@ -196,7 +197,7 @@ fn a_tool_spade_cant_name_is_refused_unless_the_sandbox_holds_it() {
     }
     // A server in the sandbox that still reaches the network isn't held by it: a tool of its
     // that declares nothing reaches outside the bot, which this package declares, so the reviewer
-    // judges each call within it (ADR 0202, amendment 2). One declaring a word Spade doesn't know
+    // judges each call within it (ADR 0202, amendment 5). One declaring a word Spade doesn't know
     // stays refused.
     let remote = |effect| Call {
         place: Place::Sandbox,

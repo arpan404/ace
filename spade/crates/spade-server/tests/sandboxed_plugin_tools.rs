@@ -155,7 +155,7 @@ async fn a_contained_server_with_a_token_keeps_the_app_tool_rules(full_access: b
         .await?;
     let first = asked(&events);
     assert_eq!(first[0]["call_id"], "c1");
-    // It declares nothing: the reviewer judges it (ADR 0202, amendment 2), and this test's
+    // It declares nothing: the reviewer judges it (ADR 0202, amendment 5), and this test's
     // reviewer can't be reached, so the person decides. Never a plain run.
     let judged = events
         .iter()

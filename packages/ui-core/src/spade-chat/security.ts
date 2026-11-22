@@ -72,7 +72,7 @@ export type SpadeGrantScope =
   /** Driving pages of one site, by its host: reviewed without asking. */
   | { kind: "drive_site"; host: string }
   /**
-   * A connected app's Always allow (ADR 0202, amendment 2), by its connection's id: its writes
+   * A connected app's Always allow (ADR 0202, amendment 5), by its connection's id: its writes
    * (`writes`) or its reads run without asking. Never a payment, a send, an access change or a
    * delete.
    */
