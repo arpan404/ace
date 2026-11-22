@@ -20,7 +20,6 @@ test("Settings lists Spade's pages under its own label, and marks only the open 
   expect(spade.getAllByRole("link").map((link) => link.textContent)).toEqual([
     "General",
     "Models",
-    "Web search",
     "Apps",
     "Security",
   ]);
@@ -69,4 +68,30 @@ test("each connected app names the bots Spade lets use it, and leaves out a bot 
   // Its health on the first line, then the bots that use it.
   await waitFor(() => expect(line("GitHub")).toMatch(/Working.*Spade, Inbox/));
   expect(line("Notion")).toMatch(/Working.*Spade(?!, Inbox)/);
+});
+
+test("General says this month's ace searches against the allowance, from Spade's own count", async () => {
+  await spadeApp("/settings/spade", (api) => {
+    withSpade(api);
+    api.searchUsage = { signed_in: true, used: 1234, allowance: 5000, resets_at: null };
+  });
+  expect(await screen.findByText("ace search: 1,234 of 5,000 searches this month")).toBeTruthy();
+});
+
+test("signed out of ace, General says to sign in to search the web", async () => {
+  await spadeApp("/settings/spade", (api) => {
+    withSpade(api);
+    api.searchUsage = { signed_in: false, used: null, allowance: null, resets_at: null };
+  });
+  expect(await screen.findByText("Sign in to ace to search the web.")).toBeTruthy();
+});
+
+test("a Spade without the search count shows no search line in General", async () => {
+  const { spade } = await spadeApp("/settings/spade", (api) => {
+    withSpade(api);
+    api.searchUsage = null;
+  });
+  await screen.findByRole("region", { name: "Spending, every bot together" });
+  await waitFor(() => expect(spade.sent("GET", "/v1/usage/search").length).toBeGreaterThan(0));
+  expect(screen.queryByText(/ace search|search the web/)).toBeNull();
 });

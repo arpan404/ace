@@ -304,9 +304,8 @@ struct ReviewBar: View {
     var body: some View {
         Group {
             if let note, selection == nil {
-                Text(note.0)
+                ExpandableText(note.0, id: "review.note")
                     .foregroundStyle(note.1 ? AceTheme.StatusText.failed : AceTheme.Colours.mutedForeground)
-                    .lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .accessibilityIdentifier(note.1 ? "review.storage" : "review.notHere")
             } else if let selection {

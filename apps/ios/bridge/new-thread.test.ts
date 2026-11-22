@@ -352,6 +352,40 @@ test("a first message of only files starts the thread; one with nothing is refus
   });
 });
 
+test("a photo retried after its upload broke starts the thread with it: the broken upload is cancelled", async () => {
+  let broken = true;
+  const flaky: ChunkReader = async (localId, offset, limit) => {
+    // The first try dies after the daemon began it, leaving an unfinished upload in the draft.
+    if (broken && offset > 0) throw new Error("the staged file went away");
+    return staged(localId, offset, limit);
+  };
+  const compose = await connect(fixture(), flaky);
+  const agents = await readyAgents(compose);
+  const start = agents.start as { provider: string; model: string };
+  compose.compose({ kind: "attach", workspaceId: "ace", file: picked });
+  await until(
+    () => (latest("compose.attachments") as Attachments | undefined)?.files[0]?.state === "failed",
+  );
+  broken = false;
+  compose.compose({ kind: "attach.retry", localId: picked.localId });
+  await until(
+    () => (latest("compose.attachments") as Attachments | undefined)?.files[0]?.state === "ready",
+  );
+  compose.compose({
+    kind: "create",
+    commandId: "draft-command-0030",
+    workspaceId: "ace",
+    provider: start.provider,
+    model: start.model,
+    mode: "local",
+    text: "Retried",
+  });
+  expect((await until(() => latest("compose.start", "draft-command-0030"))).ok).toBe(true);
+  expect(createPayloads().at(-1)).toMatchObject({
+    context: { attachments: [{ sha256: photoSha }] },
+  });
+});
+
 test("the picker keeps its order when a model is picked and leaves out CLIs not installed", async () => {
   const compose = await connect(fixture());
   const agents = await readyAgents(compose);

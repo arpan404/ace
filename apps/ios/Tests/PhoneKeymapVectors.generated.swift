@@ -22,6 +22,13 @@ enum PhoneKeymapVectors {
         ("k", "send", [:], "invalid"),
         ("mod+n", "newThread", [:], ""),
     ]
+    static let resolutions: [(overrides: [String: String], id: String, keys: String)] = [
+        (["newThread": "mod+l"], "editor.goToLine", ""),
+        (["newThread": "mod+l"], "newThread", "mod+l"),
+        (["newThread": "mod+enter"], "send", ""),
+        (["searchThreads": "mod+t"], "newThread", "mod+n"),
+        (["close": "mod+l"], "editor.goToLine", "mod+l"),
+    ]
     static let formats: [(keys: String, text: String)] = [
         ("ctrl+mod+s", "⌃⌘S"),
         ("mod+enter", "⌘Return"),
