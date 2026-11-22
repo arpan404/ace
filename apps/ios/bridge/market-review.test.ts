@@ -441,12 +441,12 @@ test("an install refused for standing while its review is held keeps the way to 
   await read(review);
   daemon.marketplace.refuseInstall = {
     op: "error",
-    code: "person_grant",
-    message: "Ask the person",
+    code: "reauth",
+    message: "Confirm your identity to continue.",
   };
   expect(await ask({ op: "install", id: review.id, hash: review.hash })).toMatchObject({
     ok: false,
-    code: "person_grant",
+    code: "reauth",
     way: "confirm",
   });
 });

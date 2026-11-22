@@ -14,7 +14,7 @@ import { PauseCircleIcon } from "@ace/icons";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
 import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
-import { headGap } from "./work-log-view.tsx";
+import { underline } from "./work-log-view.tsx";
 
 /*
  * The live turn's one status line, at the top of its flow under its ask (DESIGN.md §8): one
@@ -55,7 +55,7 @@ export function LiveHead(props: { threadId: string }) {
   return (
     <div role="group" aria-label="Turn in progress" className="min-w-0">
       <ActivityLine activity={activity} subagents={subagents} />
-      <div aria-hidden className={headGap} />
+      <div aria-hidden className={underline} />
     </div>
   );
 }

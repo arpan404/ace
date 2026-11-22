@@ -15,8 +15,11 @@ private struct MarketOutcome: Decodable {
 
 extension ClientModel {
     /// One market operation, its answer decoded as `T` or its refusal thrown as `MarketRefusal`.
-    func market<T: Decodable>(_ operation: [String: Any], as type: T.Type, fresh: Bool = false) async throws -> T {
-        let payload = marketPayload(operation, fresh: fresh)
+    /// `confirmed` is the person's Confirm it's you: the bridge sends that change once more only.
+    func market<T: Decodable>(_ operation: [String: Any], as type: T.Type, fresh: Bool = false,
+                              confirmed: Bool = false) async throws -> T {
+        var payload = marketPayload(operation, fresh: fresh)
+        if confirmed { payload["confirmed"] = true }
         let changes = marketChanges(operation["op"])
         // Not connected: a change can't leave the phone, so nothing changed.
         if changes, connection != "ready" {
@@ -109,8 +112,9 @@ extension ClientModel {
         try await market(["op": "readReview", "id": id, "offset": offset], as: MarketReviewPage.self)
     }
     /// Install with the person's choices (`MarketInstallChoices`): bots, needs, routines, effects.
-    func marketInstall(_ review: MarketReview, choices: [String: Any]) async throws -> MarketInstall? {
-        try await market(["op": "install", "id": review.id, "hash": review.hash, "choices": choices], as: MarketDone.self).installed
+    func marketInstall(_ review: MarketReview, choices: [String: Any], confirmed: Bool = false) async throws -> MarketInstall? {
+        try await market(["op": "install", "id": review.id, "hash": review.hash, "choices": choices], as: MarketDone.self,
+                         confirmed: confirmed).installed
     }
     func marketCancel(_ review: MarketReview) async throws {
         _ = try await market(["op": "cancel", "id": review.id], as: MarketDone.self)
@@ -128,8 +132,10 @@ extension ClientModel {
         try await market(key.operation.merging(["op": "turnOn"]) { $1 }, as: MarketDone.self).installed
     }
     /// Turns exactly this installed version of a Spade skill on for the person's bots.
-    func marketTurnOnForBots(_ row: MarketInstall) async throws -> MarketInstall? {
-        try await market(["op": "turnOnForBots", "name": row.name, "hash": row.hash], as: MarketDone.self).installed
+    /// A version installed since `row` was read is refused as `conflict`, to read it again.
+    func marketTurnOnForBots(_ row: MarketInstall, confirmed: Bool = false) async throws -> MarketInstall? {
+        try await market(["op": "turnOnForBots", "name": row.name, "hash": row.hash], as: MarketDone.self,
+                         confirmed: confirmed).installed
     }
 
     private func marketPayload(_ operation: [String: Any], fresh: Bool) -> [String: Any] {

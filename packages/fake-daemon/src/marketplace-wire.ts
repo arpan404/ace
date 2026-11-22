@@ -160,6 +160,8 @@ export class FakeMarketplaceWire {
   readonly accepted: FakeMarketAcceptance[] = [];
   /** Refuses each install with this error while set, as a market that wants a fresh sign-in. */
   refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
+  /** Refuses each turn on for bots with this error while set, as a socket without standing. */
+  refuseTurnOnForBots: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -480,12 +482,20 @@ export class FakeMarketplaceWire {
         return { op: "done", installed: on };
       }
       case "turnOnForBots": {
+        if (this.refuseTurnOnForBots) return this.refuseTurnOnForBots;
         const item = this.#installed.get(key("spade-skill", operation.name));
         if (!item) return { op: "error", code: "not_found", message: "That skill isn't installed" };
-        const approved: MarketInstalled = { ...item, botsApproved: true };
-        this.#installed.set(key(item.type, item.name), approved);
+        // Exactly the version the person looked at, as the daemon checks it.
+        if (item.hash !== operation.hash)
+          return {
+            op: "error",
+            code: "conflict",
+            message: "A newer version of this skill was installed. Look again.",
+          };
+        this.#installed.set(key(item.type, item.name), { ...item, botsApproved: true });
         this.#changed();
-        return { op: "done", installed: approved };
+        // The daemon's answer names nothing: the client reads what's installed now.
+        return { op: "done" };
       }
       case "spadeSkills":
         return {

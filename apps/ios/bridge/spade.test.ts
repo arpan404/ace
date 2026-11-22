@@ -106,8 +106,16 @@ test("an open conversation shows its history, then a reply's words as they strea
 
   await until(() => patches.bubbles.length === 2);
   expect(patches.bubbles).toEqual([
-    { kind: "person", text: "Plan my week", sending: false, attached: null, images: [] },
-    { kind: "bot", text: "Here is a plan.", live: false, end: null },
+    {
+      kind: "person",
+      text: "Plan my week",
+      sending: false,
+      attached: null,
+      images: [],
+      files: [],
+      voice: null,
+    },
+    { kind: "bot", text: "Here is a plan.", live: false, end: null, images: [], files: [] },
   ]);
 
   api.store(bot.conversation, { type: "reply_started", reply: "r9" });
@@ -127,6 +135,8 @@ test("an open conversation shows its history, then a reply's words as they strea
     text: "Thinking it",
     live: true,
     end: null,
+    images: [],
+    files: [],
   });
   expect(patches.head).toMatchObject({
     answering: true,
@@ -150,7 +160,15 @@ test("a sent message shows at once, and stays once Spade has stored it", async (
 
   const sending = ask({ type: "spade.send", conversationId: bot.conversation, text: "Hello" });
   expect(patches.bubbles).toEqual([
-    { kind: "person", text: "Hello", sending: true, attached: null, images: [] },
+    {
+      kind: "person",
+      text: "Hello",
+      sending: true,
+      attached: null,
+      images: [],
+      files: [],
+      voice: null,
+    },
   ]);
 
   expect(await sending).toEqual({ ok: true });
@@ -457,7 +475,7 @@ test("a person's attached image reaches the phone as a picture it can fetch by h
   expect(person).toMatchObject({
     kind: "person",
     text: "What is this?",
-    attached: "1 file",
+    files: [expect.objectContaining({ name: "notes.pdf", ref: `document:${"b".repeat(64)}` })],
     images: [
       {
         kind: "image",

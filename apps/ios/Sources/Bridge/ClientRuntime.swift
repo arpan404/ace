@@ -89,7 +89,7 @@ final class ClientRuntime: ClientSession, @unchecked Sendable {
                                    deviceAliases: target.deviceAliases.isEmpty ? nil : target.deviceAliases, hostId: target.hostId, itemLimit: itemLimit,
                                    paired: target.secretKey.map { PairedConfig(secretKey: $0) },
                                    account: target.relay.map { _ in AccountConfig(link: PairingLinkProof.of(target, secrets: secrets)) },
-                                   inboxSort: inboxSort)
+                                   inboxSort: inboxSort, keptScope: target.keptScope)
         return (try? JSONEncoder().encode(config)).map { String(decoding: $0, as: UTF8.self) }
     }
     func startAccess(_ json: String) { boot(then: (name: "aceAccess", json: json)) }
@@ -197,4 +197,6 @@ private struct AccountConfig: Encodable { let link: PairingLinkProof? }
 private struct RuntimeConfig: Encodable {
     let deviceId: String; let installId: String?; let deviceAliases: [String]?; let hostId: String; let itemLimit: Int
     let paired: PairedConfig?; let account: AccountConfig?; let inboxSort: String?
+    /// Where this connection's kept Spade state is filed (`KeptScope`); nil keeps none.
+    let keptScope: String?
 }

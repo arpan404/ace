@@ -16,6 +16,14 @@ struct ThreadPage: View {
         if let thread = live ?? kept.flatMap({ $0.id == id ? $0 : nil }) {
             ThreadView(model: client, thread: thread, openThread: openThread)
                 .onChange(of: ObjectIdentifier(thread), initial: true) { kept = thread }
+        } else {
+            // No copy of it here yet (a runtime starting over): the thread's loading state, never
+            // a blank page.
+            let opening = ThreadOpening.of(.init(loaded: false, connection: client.connection,
+                                                 problem: client.problem?.message, machine: client.inbox[id]?.machine))
+            ConversationSkeleton(opening: opening) { client.retryOpening(id) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .background(AceTheme.Colours.background)
         }
     }
 }

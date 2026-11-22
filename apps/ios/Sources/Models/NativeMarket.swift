@@ -295,9 +295,10 @@ struct MarketInstalledList: Decodable, Equatable {
 /// Install, cancel, remove and turn on: what landed, when something did.
 struct MarketDone: Decodable { let installed: MarketInstall? }
 
-/// What a refusal's button offers.
+/// What a refusal's button offers. `confirm` is Confirm it's you, sent once more; `pairAgain`
+/// is a phone this machine can't take the person's standing from, sent to pair again.
 enum MarketWay: String, Decodable {
-    case retry, confirm, computer, reread
+    case retry, confirm, pairAgain, computer, reread
 }
 
 /// A refusal from the marketplace, one sentence from its code. `offline` means the machine
@@ -311,4 +312,6 @@ struct MarketRefusal: LocalizedError, Equatable {
     /// The line under the sentence: the check that refused it, or what this device's scan found.
     var reason: String? = nil
     var errorDescription: String? { message }
+    /// Refused for the person's standing: Confirm it's you, or Pair again (`MarketConfirmPerson`).
+    var asksForPerson: Bool { way == .confirm || way == .pairAgain }
 }

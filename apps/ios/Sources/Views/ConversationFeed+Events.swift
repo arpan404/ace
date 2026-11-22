@@ -153,13 +153,8 @@ extension ConversationFeed {
     func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
         model.readingWillMove = { captureTop(); holdOlderPage() }
-        // The window the thread opened from a screenful of joins above it: held like an older page.
-        model.liveWindowWillGrow = {
-            guard revealed, reading.thread == nil else { return }
-            intent.olderPage = true
-            captureTop()
-            holdOlderPage()
-        }
+        // The window the thread opened from (kept rows, a screenful) grows: held in place.
+        model.liveWindowWillGrow = { liveWindowWillGrow() }
         model.readingMoved = { reading.moved() }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
         restoreSessionIfReady()
@@ -287,6 +282,8 @@ extension ConversationFeed {
     static var assistiveScrolling: Bool { UIAccessibility.isVoiceOverRunning || UIAccessibility.isSwitchControlRunning }
     func endPageHold() {
         surface.stop(.page)
+        // A window's bottom hold ends with it, whatever ended it (`windowHoldEnded`).
+        growth.windowHoldEnded()
         guard surface.isFrozen else { return }
         surface.thaw()
         TranscriptJumpHooks.covered(false)

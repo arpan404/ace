@@ -81,15 +81,35 @@ export interface SpadeSaid {
   add(id: string, text: string, who: SpadeQuoteWho): void;
   /** The quote of an earlier message; undefined for an id not seen before (dropped silently). */
   quote(id: string): SpadeQuote | undefined;
+  /** How many messages have been added. */
+  readonly size: number;
+  /** Forgets every message added after the first `size`, as if the chat stopped there. */
+  truncate(size: number): void;
 }
 
 export function spadeSaid(): SpadeSaid {
-  const said = new Map<string, { text: string; who: SpadeQuoteWho }>();
+  // In the order added; each row keeps where its id was before, should it be added again.
+  const log: { id: string; text: string; who: SpadeQuoteWho; before: number | undefined }[] = [];
+  // Each id's latest place in the log.
+  const at = new Map<string, number>();
   return {
-    add: (id, text, who) => void said.set(id, { text, who }),
+    add: (id, text, who) => {
+      log.push({ id, text, who, before: at.get(id) });
+      at.set(id, log.length - 1);
+    },
     quote: (id) => {
-      const found = said.get(id);
+      const place = at.get(id);
+      const found = place === undefined ? undefined : log[place];
       return found && { id, who: found.who, text: spadeQuoteLine(found.text) };
+    },
+    get size() {
+      return log.length;
+    },
+    truncate: (size) => {
+      // Newest first, so an id added twice past `size` gets back its place before both.
+      for (const row of log.splice(size).toReversed())
+        if (row.before === undefined) at.delete(row.id);
+        else at.set(row.id, row.before);
     },
   };
 }

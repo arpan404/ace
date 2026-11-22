@@ -13,7 +13,7 @@ import {
   type SpadeGroupView,
 } from "./group-fold.ts";
 import { spadeView, type SpadeView } from "./view.ts";
-import { parseSpadeEvents, parseSpadeLiveFrame } from "./wire.ts";
+import { parseSpadeEvents, parseSpadeLiveFrame, type SpadeStored } from "./wire.ts";
 import { SpadeRequestError } from "./request-error.ts";
 
 /*
@@ -59,10 +59,17 @@ export interface SpadeFollowSnapshot<V = SpadeView> {
   view: V;
   /** Why the conversation can't be followed live, in words; undefined while it can. */
   problem: string | undefined;
+  /**
+   * The view is only what this device kept from an earlier open (`seed`): Spade hasn't answered
+   * since, so nothing in it is known to be still going or done.
+   */
+  kept: boolean;
 }
 
 /** Events per page when a conversation first opens. */
 const pageSize = 200;
+/** At most this many history pages are out at once, the one being folded included. */
+const pagesInFlight = 8;
 
 /** Ends after which a new stream picks up where the last left off, after a pause. */
 const resumable = new Set<SpadeFollowEnd>(["restarted", "closed", "unavailable", "limit"]);
@@ -115,6 +122,15 @@ export class SpadeLiveConversation<S, V> {
   private framePending = false;
   /** The first open reads the history in pages before it follows live. */
   private paged = false;
+  /** How many events Spade is known to hold (`expect`), for the pages read at once. */
+  private expected = 0;
+  /** The state began from events kept on this device (`seed`). */
+  private seeded = false;
+  /** The last kept event as read, to check against Spade's own copy before going on from it. */
+  private keptLast: string | undefined;
+  /** ...and Spade hasn't answered since, so the view may be out of date. */
+  private kept = false;
+  private resetListeners = new Set<() => void>();
   private paging = false;
   /** Stopped (unmounted): nothing opens again, however late a page or a timer finishes. */
   private stopped = true;
@@ -137,7 +153,7 @@ export class SpadeLiveConversation<S, V> {
     this.deps = deps;
     this.folder = folder;
     this.state = folder.empty();
-    this.snapshot = { view: folder.view(this.state), problem: undefined };
+    this.snapshot = { view: folder.view(this.state), problem: undefined, kept: false };
   }
 
   get = (): SpadeFollowSnapshot<V> => this.snapshot;
@@ -162,6 +178,40 @@ export class SpadeLiveConversation<S, V> {
   onEnded(listener: () => void): () => void {
     this.endListeners.add(listener);
     return () => this.endListeners.delete(listener);
+  }
+
+  /**
+   * Events this device kept from an earlier open, in `seq` order, folded before `start`: the
+   * conversation shows them at once (`kept` until the live stream catches up) and the first read
+   * asks only for the last of them and what came after. Spade's copy of that last one must be
+   * the kept one, or the kept events aren't its history and it is read again from the start.
+   */
+  seed(stored: readonly SpadeStored[]): void {
+    if (!this.stopped || this.seeded || this.lastSeq > 0) return;
+    for (const event of stored) this.folder.fold(this.state, { kind: "stored", stored: event });
+    const last = stored.at(-1);
+    if (this.lastSeq === 0 || last?.seq !== this.lastSeq) return;
+    this.seeded = true;
+    this.keptLast = JSON.stringify(last);
+    this.kept = true;
+    this.publish();
+  }
+
+  /**
+   * Spade holds at least `seq` events (a bot's last message, as its list says): the first read
+   * asks for every page up to there at once.
+   */
+  expect(seq: number): void {
+    this.expected = Math.max(this.expected, seq);
+  }
+
+  /**
+   * `listener` runs when the kept events turn out not to be Spade's (its history doesn't hold
+   * the last of them as kept) and the conversation is read again from its start.
+   */
+  onReset(listener: () => void): () => void {
+    this.resetListeners.add(listener);
+    return () => this.resetListeners.delete(listener);
   }
 
   /** The highest `seq` folded, for sends that need to know what the person saw. */
@@ -273,25 +323,67 @@ export class SpadeLiveConversation<S, V> {
   }
 
   private async pages() {
+    // Spade numbers a conversation's events from 1 with no gaps, so the pages up to how many it
+    // holds (`expect`) are asked for at once rather than one after another. Each is folded only
+    // if the page before ended right where it begins; otherwise the rest are read in turn.
+    // From kept events, the first read starts at the last kept one, to check it is Spade's.
+    const checking = this.keptLast;
+    const start = checking === undefined ? this.lastSeq : this.lastSeq - 1;
+    let first: Promise<SpadeStored[] | undefined> | undefined = this.readPage(start);
+    const ahead: { after: number; page: Promise<SpadeStored[] | undefined> }[] = [];
+    for (
+      let after = this.lastSeq + pageSize;
+      after < this.expected && ahead.length < pagesInFlight - 1;
+      after += pageSize
+    )
+      ahead.push({ after, page: this.readPage(after).catch(() => undefined) });
     for (;;) {
-      const after = this.lastSeq;
-      let body: string;
+      const after = first ? start : this.lastSeq;
+      let page: SpadeStored[] | undefined;
       try {
-        body = await this.link.read(
-          `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
-        );
+        page = await (first ?? this.readPage(after));
+        first = undefined;
       } catch (error) {
         if (this.stopped) return;
         if (error instanceof SpadeRequestError && error.status === 404)
           this.setProblem("This conversation isn't in Spade any more.");
         return;
       }
-      if (this.stopped) return;
-      const page = parseSpadeEvents(body);
-      if (!page) return;
-      for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
-      if (page.length < pageSize || this.lastSeq === after) return;
+      if (this.stopped || !page) return;
+      if (checking !== undefined && this.keptLast !== undefined) {
+        this.keptLast = undefined;
+        // Spade holds a different event where the kept ones end, or none: they aren't its.
+        if (JSON.stringify(page[0]) !== checking) {
+          ahead.length = 0;
+          this.forget();
+          continue;
+        }
+      }
+      if (!this.foldPage(page, after)) return;
+      for (let next = ahead.shift(); next; next = ahead.shift()) {
+        if (next.after !== this.lastSeq) break;
+        const early = await next.page;
+        if (this.stopped) return;
+        if (!early) break;
+        if (!this.foldPage(early, next.after)) return;
+      }
+      // Any left didn't line up: what follows is read in turn.
+      ahead.length = 0;
     }
+  }
+
+  /** One page of history after `after`; undefined when the answer isn't a list. */
+  private async readPage(after: number): Promise<SpadeStored[] | undefined> {
+    const body = await this.link.read(
+      `/v1/conversations/${segment(this.conversation)}/events?after=${after}&limit=${pageSize}`,
+    );
+    return parseSpadeEvents(body);
+  }
+
+  /** Folds a page read after `after`; whether more history may follow it. */
+  private foldPage(page: readonly SpadeStored[], after: number): boolean {
+    for (const stored of page) this.folder.fold(this.state, { kind: "stored", stored });
+    return page.length >= pageSize && this.lastSeq !== after;
   }
 
   private close() {
@@ -303,12 +395,26 @@ export class SpadeLiveConversation<S, V> {
   private frame(event: string, data: string) {
     for (const listener of this.sideListeners.get(event) ?? []) listener(data);
     const input = parseSpadeLiveFrame(event, data);
+    // Only the live stream catching up confirms what was kept: Stop and approvals wait for it.
+    if (input?.kind === "caught_up" && this.kept) {
+      this.kept = false;
+      this.schedule();
+    }
     if (input && this.folder.fold(this.state, input)) {
       this.retries = 0;
       this.schedule();
     }
     // Caught up: anything sent before this that Spade stored has arrived by now.
     this.settleSends(input?.kind === "caught_up");
+  }
+
+  /** The kept events aren't Spade's history: they go, and the reads start over from 1. */
+  private forget() {
+    this.state = this.folder.empty();
+    this.seeded = false;
+    this.kept = false;
+    this.keptLast = undefined;
+    for (const listener of this.resetListeners) listener();
   }
 
   private ended(reason: SpadeFollowEnd, status: number | undefined) {
@@ -342,7 +448,11 @@ export class SpadeLiveConversation<S, V> {
   }
 
   private publish() {
-    this.snapshot = { view: this.folder.view(this.state), problem: this.snapshot.problem };
+    this.snapshot = {
+      view: this.folder.view(this.state),
+      problem: this.snapshot.problem,
+      kept: this.kept,
+    };
     this.notify();
   }
 

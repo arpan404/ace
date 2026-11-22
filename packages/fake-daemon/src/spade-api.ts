@@ -344,7 +344,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.store(agent.conversation, { type: "reply_started", reply: id });
     this.store(agent.conversation, { type: "step_finished", reply: id, text });
     this.store(agent.conversation, { type: "reply_finished", reply: id, text });
-    agent.last_message = { from: "agent", text, at: this.now(), from_agent: null };
+    agent.last_message = {
+      from: "agent",
+      text,
+      at: this.now(),
+      from_agent: null,
+      seq: this.events.get(agent.conversation)?.length ?? 0,
+    };
     this.status(agent, "idle", null);
   }
 
@@ -909,6 +915,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         text: String(body.text ?? ""),
         at: this.now(),
         from_agent: null,
+        seq: this.events.get(conversation)?.length ?? 0,
       };
   }
 
@@ -1274,8 +1281,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
         request.body ? (JSON.parse(request.body) as unknown) : {},
       );
     if (sub === "events") {
-      const after = Number(new URLSearchParams(query).get("after") ?? 0);
-      return reply(list.filter((stored) => stored.seq > after));
+      const params = new URLSearchParams(query);
+      const after = Number(params.get("after") ?? 0);
+      // As Spade pages: at most `limit` events after `after`, oldest first.
+      const limit = params.has("limit") ? Math.max(1, Number(params.get("limit"))) : Infinity;
+      return reply(list.filter((stored) => stored.seq > after).slice(0, limit));
     }
     if (sub === "messages" && request.method === "POST") {
       const body = request.body ? (JSON.parse(request.body) as Json) : {};

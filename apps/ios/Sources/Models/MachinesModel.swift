@@ -143,12 +143,23 @@ import Observation
     }
     private enum AccountListing { case listed([AceMachine]), signedOut, unavailable }
     private func adopt(account listing: AccountListing) async {
+        // Signing out (or into another account) leaves nothing of the account's Spade behind.
+        var signingOut = false
+        if case .signedOut = listing { signingOut = accountSignedIn }
+        let reached = machines.filter { $0.isAccountMachine || $0.accountHostId != nil }
         switch listing {
         case .listed(let listed): accountMachines = listed; accountSignedIn = true
         case .signedOut: accountMachines = []; accountSignedIn = false
         case .unavailable: break
         }
         await follow(merged())
+        if signingOut { for entry in reached { forgetKeptSpade(entry) } }
+    }
+    /// What a machine's runtimes kept of Spade (the tab and conversations), for every principal.
+    private func forgetKeptSpade(_ entry: MachineEntry) {
+        let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
+        InboxCheckpoint.removeSpade(database: database)
+        SnapshotStore.forgetKeptSpade(database: database)
     }
     /// Follow the organizations' hosts: a new one connects, one gone (left, released) lets its
     /// runtime go and keeps what it stored, as a machine that only left the list does.
@@ -289,6 +300,7 @@ import Observation
         saveGrants()
         let database = ClientModel.database(hostId: entry.hostId, deviceId: entry.deviceId, in: storage)
         for suffix in ["", "-wal", "-shm", InboxCheckpoint.suffix] + ["", "-wal", "-shm"].map({ SnapshotStore.suffix + $0 }) { try? FileManager.default.removeItem(at: URL(fileURLWithPath: database.path + suffix)) }
+        InboxCheckpoint.removeSpade(database: database)
     }
     /// Take a machine off the ace account's list (from Profile). One reached through the account
     /// stops and loses its local data; a paired one stays paired.
