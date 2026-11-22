@@ -13,6 +13,7 @@ const Row = z.object({
   text: z.string(),
   original: z.string(),
   version: z.string(),
+  manualSave: z.boolean().optional(),
 });
 
 const store = "drafts";
@@ -36,6 +37,7 @@ const draftOf = (row: z.infer<typeof Row>): Draft => ({
   text: row.text,
   original: row.original,
   version: row.version,
+  ...(row.manualSave ? { manualSave: true } : {}),
 });
 
 /** Runs `run` in a readwrite transaction made now; resolves once it commits. */

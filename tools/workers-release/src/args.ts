@@ -3,7 +3,7 @@ import { environments, type Environment } from "./release.ts";
 /*
  * The deploy command's arguments:
  *
- *   deploy.ts <cloud|market|all> <staging|production> [--version <tag>] [--skip-staging-check]
+ *   deploy.ts <cloud|market|all> production [--version <tag>]
  */
 
 export const workers = ["cloud", "market"] as const;
@@ -14,12 +14,9 @@ export interface DeployArguments {
   workers: Worker[];
   environment: Environment;
   version: string | undefined;
-  /** Production without waiting for staging to run the same release. */
-  skipStagingCheck: boolean;
 }
 
-export const usage =
-  "Usage: deploy.ts <cloud|market|all> <staging|production> [--version <tag>] [--skip-staging-check]";
+export const usage = "Usage: deploy.ts <cloud|market|all> production [--version <tag>]";
 
 const isWorker = (value: string): value is Worker => (workers as readonly string[]).includes(value);
 const isEnvironment = (value: string): value is Environment =>
@@ -29,7 +26,6 @@ const isEnvironment = (value: string): value is Environment =>
 export function parseArguments(argv: readonly string[]): DeployArguments | string {
   const positional: string[] = [];
   let version: string | undefined;
-  let skipStagingCheck = false;
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index] ?? "";
     if (argument === "--version") {
@@ -38,8 +34,6 @@ export function parseArguments(argv: readonly string[]): DeployArguments | strin
       index += 1;
     } else if (argument.startsWith("--version=")) {
       version = argument.slice("--version=".length);
-    } else if (argument === "--skip-staging-check") {
-      skipStagingCheck = true;
     } else if (argument.startsWith("--")) {
       return `unknown option ${argument}`;
     } else {
@@ -50,12 +44,9 @@ export function parseArguments(argv: readonly string[]): DeployArguments | strin
   if (extra.length > 0) return `unexpected ${extra.join(" ")}`;
   if (target !== "all" && !isWorker(target)) return `unknown Worker "${target}"`;
   if (!isEnvironment(environment)) return `unknown environment "${environment}"`;
-  if (skipStagingCheck && environment !== "production")
-    return "--skip-staging-check only applies to production";
   return {
     workers: target === "all" ? [...workers] : [target],
     environment,
     version,
-    skipStagingCheck,
   };
 }

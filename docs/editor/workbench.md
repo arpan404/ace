@@ -74,12 +74,18 @@ side panel itself into groups (every tool would inherit editor semantics it has 
    minimum, per `allocateRoom`). It asks once per opening, never on tab switches, and a width the
    person dragged afterwards is kept. Below 640px of window the panel takes the canvas as today.
 5. **Layouts by room.** The editor measures its own width:
-   - under 760px (compact): one group visible, explorer stepped aside behind a "Show files" button
-     at the strip's left, and laid over the editor while open, closing once a file is picked;
-   - 760px and up: the explorer docks beside the editor area (left edge, 200–360px, resizable,
-     double-click resets to 236);
-   - extra groups exist in every layout, but under 760px only the focused group shows and its strip
-     names the others in its ⋯ menu ("Group 2: editor-groups.ts").
+   - the explorer docks beside the editor area whenever it shows, at every width, and never lies
+     over the code (left edge, 200–360px, resizable, double-click resets to 236). In a narrow
+     panel it narrows first, down to 160px, so the code keeps 320px;
+   - Hide files (a bare sidebar icon at the left of the explorer's header), Show files (the same
+     icon at the strip's left while it is hidden) and ⌘B inside the editor hide and show it,
+     remembered per thread; hidden, the editor area takes the whole panel (decided 2026-11-21,
+     replacing the compact layout's overlay, which hid the code's left edge);
+   - every pane the person makes is on screen (the person sees panes; "group" is the model's word
+     and never shows): side by side at 420px each, at 280px each when the panel can't widen
+     further, else stacked for display, keeping the stored split so full view shows it side by
+     side again. A left or right split that couldn't sit beside at 280px is made below or above
+     instead, and a drop's wash shows that half (owner, 2026-11-21: no switcher, no hidden panes).
 6. Full view (⇧⌘F outside the editor) gives the editor the whole work area as today; the chat stays
    one panel-strip tab away ("‹ Chat" where full view's way back sits).
 7. The phone-sized web layout keeps today's single-file behaviour: the editor takes the canvas with
@@ -110,8 +116,10 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 ### Groups and splits
 
 15. The editor area is a split tree: a node is a group or a split (row or column) with child sizes.
-    At most 9 groups. Split right (⌥⌘\) or down (⇧⌥⌘\) puts a second view of the focused editor in
-    a new group beside or under the focused one.
+    At most 4 panes beside the chat and 9 in full view; past that an edge takes no drop and shows
+    no wash. Split right (⌥⌘\) or down (⇧⌥⌘\) puts a second view of the focused editor in a new
+    pane beside or under the focused one. A tab dropped on the edge of another pane that already
+    shows its file only focuses that pane.
 16. Dragging a tab: onto another strip inserts it at the drop position; onto the middle third of a
     group's editor moves it into that group; onto an outer third makes a new group on that side.
     The drop target shows as the `--active` wash over the half or strip slot it will take. ⌥-drag
@@ -152,8 +160,8 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 ### What's open, what's unsaved
 
-29. **Open editors** is the first section of the explorer: one row per open editor, grouped under
-    "Group 1", "Group 2" when there is more than one group; each row shows the name, its folder in
+29. **Open editors** is the first section of the explorer: one row per open editor, flat, with a
+    hairline (no label) between one pane's files and the next's; each row shows the name, its folder in
     subtle ink, and the same slot as its tab. Its heading carries one action, Save all, shown only
     while something is unsaved. The section folds, and remembers that per device.
 30. Unsaved state shows in exactly two places that cannot disagree because they read one buffer:
@@ -204,26 +212,42 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 
 42. An open editor whose file changes on disk and has no unsaved edits reloads in place, keeping
     the caret and scroll anchored to the same text (not the same offset).
-43. Lines changed by an agent since the person last looked get a 3px bar in the working colour in
-    the gutter, and the first line of each changed block shows, after its text, the agent's mark
-    and "Claude Code · just now" in subtle ink (it ages: "· 4m"). Once the block has been on screen
-    for 2 s, or the person edits it, the bar turns into the ordinary changed-line mark (muted ink)
-    and the label goes; hovering any changed-line mark names who changed it and when.
-44. The person's own unsaved lines carry a muted ink bar. Lines changed since HEAD but not in this
-    session keep today's change marks. Three marks, three meanings, one place. A press on a
+43. Lines an agent wrote while the file was open (a reload, a merge, or a turn under review) get a
+    3px bar in the needs-you colour (amber) in the gutter, with the agent's mark on the first line of
+    each block; hovering either says who and when ("Claude Code changed this in turn 2"). A line
+    the person edits gives way to the ordinary change mark (the rest of its block stays the
+    agent's), an undo brings it back, and keeping a block in a review ends it. The marks are kept
+    on the device for the exact text they belong to, so a reload shows them again.
+44. Lines changed since HEAD carry a bar against the committed text, kept live as the person types
+    (worked out once typing pauses, off the main thread for large files): green for added lines,
+    blue for changed ones, a small red wedge between lines where lines were removed. A press on a
     change mark shows that hunk under its lines (what it replaced, then what is there now) with
-    Revert, which puts the committed lines back and saves through the versioned write, and Close.
+    Revert, which puts the committed lines back as one undoable edit and leaves them unsaved for
+    the person's own Save (a hunk worked out on text or a commit that has moved since reverts
+    nothing), and Close. F7 and ⇧F7 step through the file's changes. The
+    scrollbar carries an overview ruler of the changes, the agents' lines, find hits and the
+    caret line; a press on a tick brings its line into view.
+    44a. **Review in editor** (a turn's changed files in the transcript, a file's menu in Changes, the
+    Work card's last turn) opens the file with that turn's hunks, from the same diff Changes
+    shows, found in the text as it is now. Each opens under its lines with Keep and Comment (a code
+    annotation on its lines); F7 and ⇧F7 (or the arrows) step through them and on to the turn's
+    next file; Done ends the review. There is no Revert in review: a client can't prove a line is
+    still the turn's (the person may have pasted a copy). Reverting a turn is a later, daemon-side
+    action that applies the turn's exact reverse patch to the exact disk version it was made on.
 45. When an agent changes files open in the editor, the status line says so ("Claude Code changed
-    2 open files") with Next change (⌥F5), which steps through unseen blocks across open editors.
+    2 open files") with Next change (⌥F5), which steps through the agents' blocks across open
+    editors, line by line.
     Attribution: a change is credited to the thread whose live turn reported an edit tool call on
     that path within 10 s before the disk change; with none, it reads "Changed on disk" and no
     agent is named. A change from another thread names that thread ("Changed by Fix relay loop").
 46. **An agent changes a file the person is editing.** The moment the disk version moves under an
-    unsaved buffer, one line appears under that group's breadcrumbs: the agent's mark, "Claude Code
-    also changed this file.", then Merge (button) and Compare (text button). Merge runs a three-way
-    merge (base: the version the person started from; theirs: disk; mine: the buffer). Clean, it
-    applies in one undoable step and both sets of marks show; overlapping blocks show inline with
-    "Keep mine" and "Take theirs" per block, and Save waits until each is answered. Compare opens a
+    unsaved buffer, one bar appears at the group's foot: the agent's mark, what happened in words
+    ("Claude Code changed lines 2–3 while you were editing line 5. No overlap."), then Merge
+    (button) and Compare (text button). Merge runs a three-way merge (base: the version the person
+    started from; theirs: disk; mine: the buffer). Clean, it applies in one undoable step, unsaved,
+    and both sets of marks show; overlapping blocks show in place of the editor, the person's lines
+    beside the agent's, with "Keep mine" and "Take theirs" per block (or for all of them from the
+    bar), and Save waits until each is answered. Compare opens a
     diff of disk against the buffer in a new tab. The line stays until merged or until the person
     saves (which then asks: "Replace Claude Code's changes in places.ts?" with Replace and Cancel;
     Merge is the default answer).
@@ -307,6 +331,7 @@ side panel itself into groups (every tool would inherit editor semantics it has 
 | Search file contents                  | ⇧⌘F               | same      | Editor (exists) |
 | Next / previous search hit            | F4 / ⇧F4          | same      | Editor          |
 | Next / previous agent change          | ⌥F5 / ⇧⌥F5        | same      | Editor          |
+| Next / previous change in the file    | F7 / ⇧F7          | same      | Editor          |
 | Go to line                            | ⌃G, or `:n` in ⌘P | same      | Editor          |
 | Rename in explorer                    | F2                | same      | files (exists)  |
 | Back to the composer                  | Esc               | same      | Editor          |

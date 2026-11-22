@@ -29,11 +29,18 @@ function command(
 ): CommandSpec {
   return {
     id: ["market", ...verb].join("."),
-    words: ["market", ...verb],
+    words: ["store", ...verb],
     summary,
     group: "spade-market",
     output: "market.publish",
     ...rest,
+    aliases: [
+      { words: ["market", ...verb], quiet: true },
+      ...(rest.nounDefault && verb.length > 1
+        ? [{ words: ["market", ...verb.slice(0, -1)], quiet: true }]
+        : []),
+      ...(rest.aliases ?? []),
+    ],
   };
 }
 const mutation = (
@@ -58,7 +65,7 @@ export const marketPublishCommands: readonly CommandSpec[] = [
     ],
     examples: [
       {
-        command: "ace market publish suit ./dusk-harbor --version 1.2.0 --draft",
+        command: "ace store publish suit ./dusk-harbor --version 1.2.0 --draft",
         summary: "A draft and its scan",
       },
     ],

@@ -42,7 +42,7 @@ const outcomes: Readonly<Record<MarketError["code"], readonly [Outcome, CliError
 const hints: Partial<Record<MarketError["code"], string>> = {
   signed_out: "Sign in with ace login, then run it again.",
   reauth: "Do this in the ace app signed in as you: the CLI can't prove it's you.",
-  person_grant: "Do this in an ace app you're signed in on: the market takes it only from you.",
+  person_grant: "Do this in an ace app you're signed in on: the Store takes it only from you.",
   not_member:
     "Install from an organization's registry in an ace app signed in to that organization.",
   registry_trust: "Trust the organization's registry key in an ace app, on this machine.",
@@ -51,15 +51,19 @@ const hints: Partial<Record<MarketError["code"], string>> = {
   expired: "The review ran out; run the command again for a fresh one.",
 };
 
-/** The market's refusal as the CLI reports it (ADR 0178 §12.3–§12.4). Pure. */
+/** The Store's refusal as the CLI reports it (ADR 0178 §12.3–§12.4). Pure. */
 /**
- * `unavailable` also answers a marketplace turned off in Settings › Beta (`TurnedOff` in the
+ * `unavailable` also answers the Store turned off in Settings › Beta (`TurnedOff` in the
  * daemon, which says so in these words); that one alone is `turned_off`, with the switch's hint.
  */
+const sourceTurnedOff = (message: string) =>
+  message === "store.acehq.dev is turned off" || message === "market.acehq.dev is turned off";
+
 const turnedOff = (error: MarketError) =>
   error.code === "unavailable" &&
-  (error.message.startsWith("The marketplace is turned off") ||
-    error.message === "market.acehq.dev is turned off");
+  (error.message.startsWith("The Store is turned off") ||
+    error.message.startsWith("The marketplace is turned off") ||
+    sourceTurnedOff(error.message));
 
 export function marketFailure(error: MarketError): CliFailure {
   const [outcome, mapped] = outcomes[error.code];
@@ -77,11 +81,11 @@ export function marketFailure(error: MarketError): CliFailure {
     error.code === "signed_out" ? "Sign in to publish." : error.message.trim() || error.code;
   const hint =
     error.code === "blocked"
-      ? "The draft is kept. Fix the files and update it, or ask for a look with ace market appeal REF@VERSION --note TEXT."
+      ? "The draft is kept. Fix the files and update it, or ask for a look with ace store appeal REF@VERSION --note TEXT."
       : turnedOff(error)
-        ? error.message.startsWith("market.acehq.dev")
-          ? "Turn the source back on with ace market source on market."
-          : "Turn the marketplace on with ace features on marketplace."
+        ? sourceTurnedOff(error.message)
+          ? "Turn the source back on with ace store source on market."
+          : "Turn the Store on with ace feature on marketplace."
         : hints[error.code];
   return new CliFailure(outcome, message, error.scan ? { scan: error.scan } : undefined, {
     code,

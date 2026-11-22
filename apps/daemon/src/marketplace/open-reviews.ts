@@ -112,7 +112,7 @@ export class OpenReviews {
     const source = store.source(sourceId);
     if (!source || !source.enabled) return error("not_found", "That source isn't on");
     if (registry && source.kind !== "market")
-      return error("invalid", "Only market.acehq.dev has organizations' registries");
+      return error("invalid", "Only store.acehq.dev has organizations' registries");
     if (this.#pending.size >= maxPending)
       return error("busy", "Too many reviews are open; finish or cancel one");
     const ports = { ...(await this.#preparePorts(source.id)), registry };

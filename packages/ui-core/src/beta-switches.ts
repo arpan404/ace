@@ -8,7 +8,7 @@ export const betaSwitches = {
     description: "ace's assistant, with its own place in the rail.",
   },
   marketplace: {
-    title: "Marketplace",
+    title: "Store",
     description: "Suits, skills, plugins and bots made by others, to browse and install.",
   },
 } as const;
