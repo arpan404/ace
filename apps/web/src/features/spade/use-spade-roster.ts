@@ -4,6 +4,7 @@ import {
   spadeShownMain,
   spadeWithLive,
   type SpadeAgent,
+  type SpadeMainOn,
   type SpadeMainState,
 } from "@ace/ui-core/spade-chat";
 import { useQueries, useQueryClient } from "@tanstack/react-query";
@@ -110,14 +111,16 @@ export function useSpadeRoster(ready: boolean) {
   const live = useLiveRows().bots;
   const bots = useMemo(() => {
     const all: RosterBot[] = [];
+    // Each machine's main bot, the only ones the election reads, gathered as they are listed.
+    const candidates: (SpadeMainOn & { agent: RosterBot })[] = [];
     machines.forEach((machine, index) => {
       const data = results[index]?.data;
       if (!data) return;
       const spade = spadeMachineOf(machine);
       const away = !machine.client;
       const unavailable = !away && !answering[index];
-      for (const agent of data)
-        all.push({
+      for (const agent of data) {
+        const bot: RosterBot = {
           ...(away || unavailable
             ? // What a bot was doing when its Spade last answered isn't true any more.
               { ...agent, state: "idle" as const, status: undefined }
@@ -125,24 +128,19 @@ export function useSpadeRoster(ready: boolean) {
           machine: spade,
           away,
           unavailable,
-        });
+        };
+        all.push(bot);
+        if (agent.kind === "main")
+          candidates.push({
+            agent: bot,
+            machine: spade.key,
+            host: machine.id,
+            createdAt: agent.createdAt,
+            answering: answering[index] === true,
+          });
+      }
     });
     // Spade is the main bot of the machine the fleet chose, read last time if it is away now.
-    const candidates = all.flatMap((agent) => {
-      const index = machines.findIndex((machine) => spadeMachineKey(machine) === agent.machine.key);
-      const machine = machines[index];
-      return agent.kind === "main" && machine
-        ? [
-            {
-              agent,
-              machine: agent.machine.key,
-              host: machine.id,
-              createdAt: agent.createdAt,
-              answering: answering[index] === true,
-            },
-          ]
-        : [];
-    });
     const shown = spadeShownMain(
       candidates,
       records.map((main) => main?.host),
