@@ -518,6 +518,7 @@ export async function startServer(options: ServerOptions): Promise<{
       }),
       trees: orgTrees,
       fail,
+      send,
     });
     /** Whether this socket is the organization's host shell (ADR 0206 §2.2): its owners only. */
     const hostShell = () =>

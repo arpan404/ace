@@ -35,7 +35,8 @@ export class Handles {
   /** Closes, and forgets, every handle `decide` no longer allows. Returns how many closed. */
   revalidate(decide: Decider): number {
     let closed = 0;
-    for (const handle of [...this.#live]) {
+    // Deleting the entry being visited is safe while iterating a Set.
+    for (const handle of this.#live) {
       const decision = decide(handle.operation, handle.resource);
       if (decision.allowed) continue;
       this.#live.delete(handle);

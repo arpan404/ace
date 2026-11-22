@@ -114,10 +114,8 @@ export function mcpAdmission(deps: {
 }): CallAdmission {
   return (tool, input, caller) => {
     if (deps.org() === undefined || spadeSession(caller.sessionId)) return true;
-    const thread = ThreadId.safeParse(caller.threadId);
-    if (!thread.success) return false;
     // The tree its lease was minted for, fixed then: never what the call's arguments say.
-    const root = deps.trees.root({ thread: thread.data });
+    const root = deps.trees.root({ thread: caller.threadId });
     if (root === undefined) return false;
     const operation = mcpOperation(tool);
     if (operation === undefined) return false;

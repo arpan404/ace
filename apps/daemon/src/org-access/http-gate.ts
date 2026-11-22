@@ -107,6 +107,8 @@ export function orgHttpGate(remote: boolean, deps: HttpGateDeps, next: Handler):
     if (decision.allowed) return next(request, response);
     request.resume();
     response.writeHead(403, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: "forbidden", message: refusalMessage(decision.reason) }));
+    response.end(
+      JSON.stringify({ error: "org_host_refused", message: refusalMessage(decision.reason) }),
+    );
   };
 }

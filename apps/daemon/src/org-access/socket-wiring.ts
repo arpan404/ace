@@ -1,4 +1,4 @@
-import { ThreadId, type ServerMessage } from "@ace/protocol";
+import { CommandId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { tree, unplaced } from "./decide.ts";
 import { refusalMessage, socketGate } from "./gate.ts";
 import type { PrincipalFacts } from "./principal.ts";
@@ -40,6 +40,7 @@ export function orgSocketPolicy(deps: {
   facts: () => Omit<PrincipalFacts, "org">;
   trees: TreeResolver;
   fail: Fail;
+  send: (message: ServerMessage) => void;
 }) {
   const gate = socketGate(deps);
   const releases = new Map<string, () => void>();
@@ -64,7 +65,19 @@ export function orgSocketPolicy(deps: {
       if (gate.personal()) return false;
       const decision = gate.message(message);
       if (decision.allowed) return false;
-      deps.fail("forbidden", refusalMessage(decision.reason), false, scopeOf(message));
+      const words = refusalMessage(decision.reason);
+      // A refused command fails for good, named by its id, as the engine refuses one.
+      const command = message.type === "command" ? Reflect.get(message, "command") : undefined;
+      const commandId = CommandId.safeParse(Reflect.get(Object(command), "id"));
+      if (commandId.success)
+        deps.send({
+          type: "error",
+          code: "forbidden",
+          message: words,
+          commandId: commandId.data,
+          retryable: false,
+        });
+      else deps.fail("forbidden", words, false, scopeOf(message));
       return true;
     },
     /**

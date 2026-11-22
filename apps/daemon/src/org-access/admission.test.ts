@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ThreadId } from "@ace/protocol";
+import { AgentId, ThreadId } from "@ace/protocol";
 import { mcpAdmission } from "./mcp-operations.ts";
 import { Handles, runIfStillAllowed } from "./handles.ts";
 import { structuralTrees } from "./trees.ts";
 
 const t = (id: string) => ThreadId.parse(id);
-const caller = (threadId: string, sessionId = "s_1") => ({ sessionId, threadId, agentId: "a_1" });
+const caller = (threadId: string, sessionId = "s_1") => ({
+  sessionId,
+  threadId: ThreadId.parse(threadId),
+  agentId: AgentId.parse("a_1"),
+});
 const trees = structuralTrees((thread) => (thread === t("t_child") ? t("t_root") : undefined));
 
 describe("ace MCP calls on an org host", () => {
