@@ -33,6 +33,12 @@ export async function createDaemonPreview(
   store: Store,
   options: DaemonPreviewOptions,
   now: () => number,
+  /**
+   * Whether this home is an organization's host now (ADR 0209 §4.2). A preview is a tree's
+   * content and no preview is bound to a tree yet, so there every session fails, the host's own
+   * and any made before enrollment, on its very next request.
+   */
+  orgHost: () => boolean = () => false,
 ): Promise<DaemonPreview> {
   const { createPreviewGateway } = await import("@ace/preview");
   return createPreviewGateway({
@@ -40,6 +46,7 @@ export async function createDaemonPreview(
     now,
     authority: {
       async authorize(token) {
+        if (orgHost()) return null;
         // Authentication records last-seen bookkeeping, so it passes the write boundary.
         const device = await store.write(() => store.devices.authenticate(token, now()));
         return device && allows(device, "operate")
@@ -47,6 +54,7 @@ export async function createDaemonPreview(
           : null;
       },
       async isPaired(identity) {
+        if (orgHost()) return false;
         if (identity === hostPreviewIdentity) return true;
         const split = identity.lastIndexOf(":");
         if (split <= 0) return false;

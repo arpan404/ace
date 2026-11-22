@@ -143,7 +143,7 @@ export class FakeMarketplaceWire {
     {
       id: "market",
       kind: "market",
-      address: "https://market.acehq.dev",
+      address: "https://store.acehq.dev",
       enabled: true,
       entries: 0,
     },

@@ -7,7 +7,7 @@ import {
   RobotIcon,
   ScrollIcon,
   StackIcon,
-  StorefrontIcon,
+  StoreIcon,
   WrenchIcon,
 } from "@ace/icons";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -203,8 +203,8 @@ function AddMenu() {
           Install a plugin…
         </MenuItem>
         {marketplace && (
-          <MenuItem icon={<Icon icon={StorefrontIcon} />} onClick={() => openMarket("tools")}>
-            From the marketplace
+          <MenuItem icon={<Icon icon={StoreIcon} />} onClick={() => openMarket("tools")}>
+            From the Store
           </MenuItem>
         )}
       </MenuContent>

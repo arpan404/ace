@@ -228,3 +228,49 @@ struct AutomationIdea: Decodable, Sendable, Identifiable {
     let form: AutomationFormValues
     var id: String { prompt }
 }
+
+/// A webhook automation's part of its screen (`bridge/automation-webhooks.ts`), every line worded
+/// by `@ace/ui-core/automations`. It never carries the secret; only `AutomationWebhookReply` does,
+/// once, right after a rotate.
+struct AutomationWebhookView: Decodable, Sendable, Equatable {
+    struct Address: Decodable, Sendable, Equatable, Identifiable {
+        let via: String
+        /// "Your URL", "Tailscale", "ace cloud".
+        let name: String
+        let url: String
+        var id: String { via }
+    }
+    struct Line: Decodable, Sendable, Equatable { let text: String; let warn: Bool }
+    struct Confirm: Decodable, Sendable, Equatable { let title: String; let body: String; let confirm: String }
+    struct Confirms: Decodable, Sendable, Equatable { let rotate: Confirm; let revoke: Confirm }
+    struct Variable: Decodable, Sendable, Equatable { let name: String; let means: String }
+    /// Whether a secret exists.
+    let active: Bool
+    let addresses: [Address]
+    /// Why there is no address, or what comes first.
+    let gap: Line?
+    /// What its runs may do, when that needs saying.
+    let access: Line?
+    let confirms: Confirms
+    let headers: [String]
+    let variables: [Variable]
+}
+
+struct AutomationWebhookState: Decodable, Sendable {
+    let ok: Bool
+    let error: String?
+    let webhook: AutomationWebhookView?
+}
+
+/// The answer to Create, Rotate or Revoke. `secret` is there after a rotate only; the screen holds
+/// it in memory until Done or until it closes, and never writes or logs it.
+struct AutomationWebhookReply: Decodable, Sendable {
+    let ok: Bool
+    let error: String?
+    let webhook: AutomationWebhookView?
+    let secret: String?
+    /// "Copy it now: it won't be shown again…", beside the secret.
+    let note: String?
+    /// Create was refused because a secret was made elsewhere meanwhile; Rotate replaces it.
+    let exists: Bool?
+}

@@ -46,14 +46,32 @@ const sameSpade = (a: LocalSpade | undefined, b: LocalSpade | undefined) =>
  */
 export function spadeDirect(
   endpoints: Pick<SpadeEndpointWatch, "current" | "refresh">,
-  options: { nonce(): string },
+  options: {
+    nonce(): string;
+    /**
+     * Whether the daemon beside this app is an organization's host (ADR 0209 §3). There Spade's
+     * token would answer any window, proven or not, so the direct path is off and every request
+     * goes through the window's member socket, which the daemon decides.
+     */
+    orgHost?: () => boolean;
+  },
 ) {
-  const streams = new Map<string, { controller: AbortController; owner: number }>();
+  const off = () => options.orgHost?.() === true;
+  const streams = new Map<
+    string,
+    {
+      controller: AbortController;
+      owner: number;
+      ended: (reason: Extract<SpadeLiveEvent, { kind: "ended" }>["reason"]) => void;
+    }
+  >();
   /** Readings whose Spade proved it holds their token (each re-read is a new reading). */
   const trusted = new WeakMap<LocalSpade, Promise<boolean>>();
 
   /** Spade's health, from the Spade at `spade` that holds its token only; marks it trusted. */
   async function check(spade: LocalSpade): Promise<SpadeHealth | undefined> {
+    // No proof request leaves for Spade from an organization's host either.
+    if (off()) return undefined;
     const answer = await proveSpade(spade, options.nonce(), AbortSignal.timeout(healthMs));
     if (answer) trusted.set(spade, Promise.resolve(true));
     return answer;
@@ -86,16 +104,20 @@ export function spadeDirect(
     attempt: (spade: LocalSpade) => Promise<T>,
     retry: (result: T) => boolean,
   ): Promise<T | undefined> {
+    // Checked before each call that leaves this process, the retry's too (ADR 0209 §3).
+    if (off()) return undefined;
     const spade = await trustedSpade();
-    if (!spade) return undefined;
+    if (!spade || off()) return undefined;
     const result = await attempt(spade);
     if (!retry(result)) return result;
     const again = await endpoints.refresh();
-    if (!again || sameSpade(spade, again) || !(await proven(again))) return result;
+    if (!again || sameSpade(spade, again) || !(await proven(again)) || off()) return result;
     return attempt(again);
   }
 
   async function request(input: SpadeDirectRequest): Promise<SpadeDirectAnswer> {
+    // Nothing is sent, so the page sends it through the daemon instead.
+    if (off()) return { kind: "unreachable" };
     const checked = checkSpadePath(input.path);
     if (!checked.ok) return { kind: "error", code: "invalid_path", message: checked.message };
     const body = input.body === undefined ? undefined : Buffer.from(input.body, "utf8");
@@ -126,6 +148,9 @@ export function spadeDirect(
       (result) => result === "unreachable" || (typeof result === "object" && unauthorized(result)),
     );
     if (outcome === undefined || outcome === "unreachable") return { kind: "unreachable" };
+    // Enrolled while Spade answered: its answer isn't handed on, and as it may have reached
+    // Spade, it isn't sent again another way either.
+    if (off()) return { kind: "error", code: "failed", message: "Spade didn't answer." };
     if (outcome === "failed")
       return { kind: "error", code: "failed", message: "Spade didn't answer." };
     if (outcome.kind === "too_large")
@@ -138,13 +163,16 @@ export function spadeDirect(
   }
 
   async function endpoint(): Promise<SpadeEndpointInfo> {
+    if (off()) return null;
     const spade = await trustedSpade();
-    if (!spade) return null;
+    // Asked again as it answers: the proof took time, and the home may be enrolled since.
+    if (!spade || off()) return null;
     const { version, api, hostId } = spade;
     return { address: `${spade.host}:${spade.port}`, version, api, hostId };
   }
 
   async function health(): Promise<SpadeHealthInfo> {
+    if (off()) return null;
     // Asked afresh every time (it says whether Spade is up now), and proved like any request.
     const spade = await endpoints.current();
     let answer = spade && (await check(spade));
@@ -152,7 +180,7 @@ export function spadeDirect(
       const again = await endpoints.refresh();
       if (again && !sameSpade(spade, again)) answer = await check(again);
     }
-    if (!answer) return null;
+    if (!answer || off()) return null;
     return {
       ...(answer.version === undefined ? {} : { version: answer.version }),
       ...(answer.api === undefined ? {} : { api: answer.api }),
@@ -173,8 +201,9 @@ export function spadeDirect(
     const ended = (reason: Extract<SpadeLiveEvent, { kind: "ended" }>["reason"], status?: number) =>
       emit({ streamId, kind: "ended", reason, ...(status === undefined ? {} : { status }) });
     if (!checkLivePath(path).ok) return ended("invalid_path");
+    if (off()) return ended("unreachable");
     if (streams.size >= maxStreams) return ended("limit");
-    const stream = { controller: new AbortController(), owner };
+    const stream = { controller: new AbortController(), owner, ended };
     streams.set(streamId, stream);
     let framed = false;
     void withSpade<LiveEnd>(
@@ -183,6 +212,15 @@ export function spadeDirect(
           signal: stream.controller.signal,
           maxEventChars: maxSpadeResponseBytes,
           onEvent(event) {
+            // Each frame is checked as it goes: a missed watch event never lets one through.
+            if (off()) {
+              if (streams.get(streamId) === stream) {
+                streams.delete(streamId);
+                stream.controller.abort();
+                ended("unreachable");
+              }
+              return;
+            }
             framed = true;
             emit({ streamId, kind: "frame", event: event.event.slice(0, 128), data: event.data });
           },
@@ -194,7 +232,8 @@ export function spadeDirect(
       .then((result) => {
         if (streams.get(streamId) !== stream) return;
         streams.delete(streamId);
-        if (!result) return ended("unreachable");
+        // Asked again as it ends: enrolled since, Spade's status isn't handed on either.
+        if (!result || off()) return ended("unreachable");
         if (result.kind === "aborted") return;
         if (result.kind === "refused") return ended("refused", result.status);
         ended(result.kind);
@@ -214,12 +253,25 @@ export function spadeDirect(
     stream.controller.abort();
   }
 
+  /**
+   * The daemon's owner may have changed: once it is an organization's host, every direct stream
+   * ends now, as unreachable, so its window opens it again through its member socket.
+   */
+  function modeChanged(): void {
+    if (!off()) return;
+    for (const [streamId, stream] of streams) {
+      streams.delete(streamId);
+      stream.controller.abort();
+      stream.ended("unreachable");
+    }
+  }
+
   /** A window closed or loaded another page: its streams have no one to go to. */
   function closeOwner(owner: number): void {
     for (const [streamId, stream] of streams) if (stream.owner === owner) closeLive(streamId);
   }
 
-  return { request, endpoint, health, openLive, closeLive, closeOwner };
+  return { request, endpoint, health, openLive, closeLive, closeOwner, modeChanged };
 }
 
 export type SpadeDirect = ReturnType<typeof spadeDirect>;

@@ -99,8 +99,10 @@ test("at the pane cap, edges take no drop and Split right is off", async () => {
   fireEvent.drop(area, { dataTransfer: data, clientX: 290, clientY: 150 });
   expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
   expect(editor.seen.every((layout) => groupsOf(layout).length <= 2)).toBe(true);
-  // Off: a press makes no third pane.
-  fireEvent.click(within(region(1)).getByRole("button", { name: "Split right" }));
+  // Visibly off (focusable, so its tooltip can say why), and a press makes no third pane.
+  const split = within(region(1)).getByRole("button", { name: "Split right" });
+  expect(split.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(split);
   expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
 });
 
@@ -231,4 +233,65 @@ test("a stored uneven split keeps its proportions, each group held to its 420px"
   const slots = [region(1), region(2)].map((each) => each.parentElement);
   expect(slots.map((slot) => slot?.style.flexGrow)).toEqual(["0.75", "0.25"]);
   expect(slots.map((slot) => slot?.style.minWidth)).toEqual(["420px", "420px"]);
+});
+
+/** Four panes stacked, the second focused: the shape a narrow panel shows. */
+const fourStacked = () => ({
+  root: {
+    kind: "split" as const,
+    direction: "column" as const,
+    sizes: [0.25, 0.25, 0.25, 0.25],
+    children: ["g1", "g2", "g3", "g4"].map((id) => ({
+      kind: "group" as const,
+      id,
+      tabs: [tab(`${id}.ts`)],
+      active: `${id}.ts`,
+      mru: [`${id}.ts`],
+    })),
+  },
+  focused: "g2",
+});
+/** A pane shows its file (breadcrumbs and code) or only its strip. */
+const open = () =>
+  [1, 2, 3, 4].map(
+    (n) => within(region(n)).queryByRole("navigation", { name: "File path" }) !== null,
+  );
+
+test("stacked panes without room open the focused one and fold the rest to their strips", async () => {
+  editorSize(500, 600);
+  await mountEditor(fourStacked());
+  expect(open()).toEqual([false, true, false, false]);
+  // The open pane takes all the room the strips leave: its share is the whole, theirs none.
+  const slots = [1, 2, 3, 4].map((n) => region(n).parentElement?.style.flexGrow);
+  expect(slots).toEqual(["0", "1", "0", "0"]);
+  // Every pane is still on screen, at least as its strip.
+  expect([1, 2, 3, 4].map((n) => tabNames(n)[0])).toEqual(["g1.ts", "g2.ts", "g3.ts", "g4.ts"]);
+});
+
+test("a click on a folded pane's strip opens it and folds the one before", async () => {
+  editorSize(500, 600);
+  await mountEditor(fourStacked());
+  fireEvent.pointerDown(within(strip(3)).getByRole("tab", { name: /g3\.ts/ }));
+  fireEvent.click(within(strip(3)).getByRole("tab", { name: /g3\.ts/ }));
+  expect(open()).toEqual([false, false, true, false]);
+});
+
+test("⌘4 inside the editor opens the fourth stacked pane", async () => {
+  editorSize(500, 600);
+  await mountEditor(fourStacked());
+  fireEvent.keyDown(within(strip(2)).getByRole("tab", { name: /g2\.ts/ }), {
+    code: "Digit4",
+    key: "4",
+    metaKey: true,
+  });
+  expect(open()).toEqual([false, false, false, true]);
+});
+
+test("stacked panes the person resizes keep their sizes, every pane open", async () => {
+  editorSize(500, 600);
+  await mountEditor(fourStacked());
+  const [first] = screen.getAllByRole("separator", { name: "Resize panes" });
+  if (!first) throw new Error("no edge");
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  expect(open()).toEqual([true, true, true, true]);
 });

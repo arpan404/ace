@@ -146,7 +146,7 @@ export function AppShell() {
                     <LocalBoundary label="search" fallback={null}>
                       <SearchHost />
                     </LocalBoundary>
-                    <LocalBoundary label="the Marketplace" fallback={null}>
+                    <LocalBoundary label="the Store" fallback={null}>
                       <MarketHost />
                     </LocalBoundary>
                     <LocalBoundary label="the project picker" fallback={null}>

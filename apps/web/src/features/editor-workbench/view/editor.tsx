@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import type { EditorHost, StatusNotice } from "./editor-host.ts";
 import {
+  collapsedPanes,
   displayPanes,
   evenSplit,
   focusedGroup,
   focusGroup,
   groupsFit,
   groupsOf,
+  paneShape,
   resizeSplit,
   roomNeeded,
   type GroupNode,
@@ -54,6 +56,11 @@ export function Editor(props: EditorProps) {
   }, [needed, onNeedRoom]);
   const context = groupContext(props, box);
   const focused = focusedGroup(layout);
+  // Stacked panes without room are an accordion, unless the person dragged this shape's sizes:
+  // those hold until a pane comes or goes.
+  const shape = paneShape(layout.root);
+  const [resized, setResized] = useState<string | undefined>(undefined);
+  const folded = resized === shape ? noneFolded : collapsedPanes(shown.root, focused.id, box);
   // Status lives outside the editor's state: a caret move redraws the status line alone.
   const [status] = useState(createStatusStore);
   const host: EditorHost = { ...props, reportStatus: status.report };
@@ -90,6 +97,7 @@ export function Editor(props: EditorProps) {
         host={host}
         actions={bindGroupActions(group.id, context)}
         stripLead={leadOf(group)}
+        folded={folded.has(group.id)}
       />
     );
   };
@@ -124,8 +132,12 @@ export function Editor(props: EditorProps) {
         <SplitGrid
           node={shown.root}
           pane={shown.pane}
+          folded={folded}
           renderGroup={renderGroup}
-          onResize={(at, sizes) => onLayoutChange(resizeSplit(layout, at, sizes))}
+          onResize={(at, sizes) => {
+            setResized(shape);
+            onLayoutChange(resizeSplit(layout, at, sizes));
+          }}
           onEven={(at) => onLayoutChange(evenSplit(layout, at))}
         />
       </div>
@@ -133,6 +145,8 @@ export function Editor(props: EditorProps) {
     </div>
   );
 }
+
+const noneFolded: ReadonlySet<string> = new Set();
 
 /** The status line on the focused group's report: the one part a status change redraws. */
 function FocusedStatusLine(props: {

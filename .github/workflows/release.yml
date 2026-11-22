@@ -333,41 +333,11 @@ jobs:
           TITLE: ${{ needs.prepare.outputs.title }}
         run: node apps/desktop/scripts/pipeline/notes.ts "$TAG" "$TITLE"
 
-  deploy-staging:
-    name: Deploy staging
-    needs: [gate, prepare, upload]
-    if: ${{ !cancelled() && needs.upload.result == 'success' }}
-    runs-on: [self-hosted, linux, omarchy]
-    environment: staging
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
-      CI: "1"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ needs.gate.outputs.sha }}
-          submodules: recursive
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          package-manager-cache: false
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - run: bun install --frozen-lockfile
-      # The cloud Workers to staging, smoke-tested; Workers already at this release are skipped.
-      - run: bun run deploy:workers staging --version "$TAG"
-
   deploy-production:
     name: Deploy production
-    needs: [gate, prepare, deploy-staging]
+    needs: [gate, prepare, upload]
     # After every platform built and before publish, so the cloud is ready when apps update.
-    if: ${{ !cancelled() && needs.deploy-staging.result == 'success' }}
+    if: ${{ !cancelled() && needs.upload.result == 'success' }}
     runs-on: [self-hosted, linux, omarchy]
     environment: production
     timeout-minutes: 30
@@ -522,7 +492,6 @@ jobs:
         build-windows,
         upload,
         notes,
-        deploy-staging,
         deploy-production,
         deploy-web,
         publish,
@@ -551,4 +520,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: >-
           node apps/desktop/scripts/pipeline/notify.ts "$TAG" "$RUN_URL"
-          gate prepare build-mac build-linux build-windows upload notes deploy-staging deploy-production deploy-web publish
+          gate prepare build-mac build-linux build-windows upload notes deploy-production deploy-web publish

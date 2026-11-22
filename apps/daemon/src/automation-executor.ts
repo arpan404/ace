@@ -23,13 +23,25 @@ const deviceId = DeviceId.parse("automation");
  * the person's pause included, a due run is skipped and Run now refused. Their runs reach the
  * engine's internal handler, which never checks the gate, so the automations check it here.
  */
-export function automationAdmission(context: ServiceContext): { admission?: Admission } {
+export function automationAdmission(context: Pick<ServiceContext, "maintenance" | "orgHost">): {
+  admission?: Admission;
+} {
   const gate = context.maintenance;
-  if (!gate) return {};
+  // An organization's host runs no automation yet: a run is a new tree, and nothing records
+  // whose it would be, so it can't be decided against its owner's access (ADR 0209 §4.2).
+  const orgHost = () => context.orgHost?.org() !== undefined;
+  if (!gate && !context.orgHost) return {};
   return {
-    admission: { open: () => gate.admit(), onReopen: (listener) => gate.onReopen(listener) },
+    admission: {
+      open: () => !orgHost() && (gate?.admit() ?? true),
+      closedReason: () => (orgHost() ? orgHostAutomationRefusal : undefined),
+      onReopen: (listener) => gate?.onReopen(listener) ?? (() => {}),
+    },
   };
 }
+
+/** What a skipped run, and a refused Run now, say on an organization's host. */
+export const orgHostAutomationRefusal = "Skipped: an organization's host runs no automations yet.";
 
 /**
  * Runs a person's automation in its own one thread: the first run creates the thread, and every

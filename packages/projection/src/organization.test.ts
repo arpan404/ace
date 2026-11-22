@@ -133,3 +133,23 @@ test("close settling waits for every PR to merge or close and respects the close
   expect(settleDecision(original, policy, at).settledAt).toBeUndefined();
   expect(settleDecision(original, { ...policy, closed: true }, at).settledReason).toBe("pr_closed");
 });
+
+test.each([
+  ["not_sent", 7],
+  ["uncertain", 7],
+  ["restart", null],
+] as const)("settling by hand over a %s queue records the hold it settled over", (reason, over) => {
+  const unsent = thread({
+    status: { state: "failed" },
+    queue: { revision: 7, paused: true, reason, resumeAt: null, pendingCount: 1 },
+  });
+  const settle = Command.parse({
+    id: "settle",
+    deviceId: "device",
+    payload: { type: "thread.settle", threadId: unsent.id },
+  });
+  expect(organizationDecision(unsent, settle, at)).toMatchObject({
+    type: "thread.client.updated",
+    changes: { settledAt: at, settledReason: "manual", settledOverQueue: over },
+  });
+});

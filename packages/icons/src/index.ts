@@ -249,6 +249,7 @@ export { StarIcon } from "./glyphs/star.ts";
 export { StopCircleIcon } from "./glyphs/stop-circle.ts";
 export { StopIcon } from "./glyphs/stop.ts";
 export { StorefrontIcon } from "./glyphs/storefront.ts";
+export { StoreIcon } from "./glyphs/store.ts";
 export { SunIcon } from "./glyphs/sun.ts";
 export { TagIcon } from "./glyphs/tag.ts";
 export { TargetIcon } from "./glyphs/target.ts";

@@ -580,14 +580,14 @@ test("each app shows its own mark, and a server added by address its first lette
   await waitFor(() => expect(tile("nas.local")?.textContent).toBe("N"));
 });
 
-test("with the Marketplace on, Connect an app opens its Apps, the one catalogue", async () => {
+test("with the Store on, Connect an app opens its Apps, the one catalogue", async () => {
   const history = createMemoryHistory({ initialEntries: ["/settings/spade/apps"] });
   await spadeApp("/settings/spade/apps", seed, {
     history,
     daemon: (daemon) => daemon.services.settings.write("beta.marketplace", true),
   });
   await userEvent.click(await screen.findByRole("button", { name: "Connect an app" }));
-  await waitFor(() => expect(history.location.pathname).toBe("/market"));
+  await waitFor(() => expect(history.location.pathname).toBe("/store"));
   expect(new URLSearchParams(history.location.search).get("at")).toBe("apps");
   expect(screen.queryByRole("dialog", { name: "Connect an app" })).toBeNull();
 });

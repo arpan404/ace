@@ -6,6 +6,7 @@ import {
   proveStanding,
   type StandingKey,
 } from "@ace/client/standing";
+import { appStandingKey, type AppStandingKey } from "./app-standing-key.ts";
 import { accountFetch, accountOrigin, windowAccountSession } from "./account-config.ts";
 import { keepStanding, type StandingProver } from "./standing-keeper.ts";
 import { windowSessionStorage } from "./window-session.ts";
@@ -46,6 +47,31 @@ const pairedProver: StandingProver = async (challenge) => {
   return { type: "device.standing", proof: await provePaired({ challenge, key }) };
 };
 
+/**
+ * The desktop app's own windows: its main process proves their sockets with the device key it
+ * keeps in the OS keychain (ADR 0190, amendment 1), with no browser and no backend round trip.
+ * The window only asks; main fetches the daemon's challenge, signs and sends the statement for
+ * the sockets it tagged. Undefined for a socket main didn't tag, outside the desktop app, and
+ * before the key is enrolled.
+ */
+export function appProver(app: AppStandingKey, origin: string | undefined): StandingProver {
+  return async (challenge) =>
+    origin && challenge.appSocket === true && (await app.prove(origin))
+      ? { type: "proven" }
+      : undefined;
+}
+
+/**
+ * Once a desktop window proved the owner's grant on a socket main tagged, main may enroll the
+ * device key, if a browser sign-in just happened (main knows; the window can't say so). The
+ * first Confirm it's you is the only one: every socket after proves with the key.
+ */
+export function enrollAppKey(app: AppStandingKey, origin: string | undefined) {
+  return async (challenge: StandingChallenge): Promise<void> => {
+    if (origin && challenge.appSocket === true) await app.enroll(origin);
+  };
+}
+
 const timers = {
   set(delayMs: number, callback: () => void) {
     const timer = setTimeout(callback, delayMs);
@@ -58,9 +84,19 @@ const timers = {
  * connects as a device this browser paired.
  */
 export function proveFromWindow(client: ClientApi, paired = false): ClientApi {
+  const app = paired ? undefined : appStandingKey();
+  const origin = accountOrigin();
   const keeper = paired
     ? keepStanding(client, pairedProver, timers, windowProver)
-    : keepStanding(client, windowProver, timers);
+    : app
+      ? keepStanding(
+          client,
+          appProver(app, origin),
+          timers,
+          windowProver,
+          enrollAppKey(app, origin),
+        )
+      : keepStanding(client, windowProver, timers);
   keepers.set(client, keeper.proveNow);
   return client;
 }

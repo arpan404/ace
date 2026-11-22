@@ -116,6 +116,33 @@ test("a settled thread held at a usage limit or with only a command left running
   expect(built.inbox).toEqual(["asks", "works"]);
 });
 
+test("a thread the person settled with their own message not sent stays in Settled", () => {
+  const notSent = {
+    queue: { revision: 1, paused: true, reason: "not_sent", resumeAt: null, pendingCount: 1 },
+  };
+  const paused = {
+    queue: { revision: 1, paused: true, reason: "manual", resumeAt: null, pendingCount: 1 },
+  };
+  const built = panel([
+    entry("failed-send", { state: "failed" }, now - 3 * day, {
+      ...notSent,
+      ...settledAt(now - 3 * day),
+      settledOverQueue: 1,
+    }),
+    entry("paused", { state: "done" }, now - 2 * day, { ...paused, ...settledAt(now - 2 * day) }),
+    entry("still-works", { state: "done" }, now - day, {
+      ...notSent,
+      live: { runningSubagentCount: 1 },
+      ...settledAt(now - day),
+      settledOverQueue: 1,
+    }),
+    entry("unsettled", { state: "failed" }, now, notSent),
+  ]);
+  expect(built.settled).toEqual(["paused", "failed-send"]);
+  // An unsettled thread with a message not sent asks for the person; a working tree is work.
+  expect(built.inbox).toEqual(["unsettled", "still-works"]);
+});
+
 test("a client shows the daemon's places as given, and places only entries that came without one", () => {
   const input = { baseline: 0, now };
   const fromDaemon = entry("a", { state: "done" }, now, seen(now));
@@ -361,4 +388,31 @@ test("settling a pinned finished thread moves it to Settled before the daemon pl
     expect(tabs.pinned).toEqual([]);
     expect(tabs.settled).toEqual(["done"]);
   }
+});
+
+test("settling a thread whose message wasn't sent moves it to Settled at once and after the daemon confirms", () => {
+  const input = { baseline: 0, now };
+  const queue = {
+    revision: 4,
+    paused: true,
+    reason: "not_sent" as const,
+    resumeAt: null,
+    pendingCount: 1,
+  };
+  const before = withPlace(
+    entry("unsent", { state: "failed" }, now, { queue, readAt: now }),
+    input,
+  );
+  const select = placeReader({ fallback: input });
+  expect(threadTabs([before], select).inbox).toEqual(["unsent"]);
+  const optimistic = patchedEntry(before, [{ patch: { settled: true }, at: now }]);
+  const confirmed = withPlace(optimistic, input);
+  for (const snapshot of [optimistic, confirmed]) {
+    const tabs = threadTabs([snapshot], select);
+    expect(tabs.inbox).toEqual([]);
+    expect(tabs.settled).toEqual(["unsent"]);
+  }
+  // Another send fails after the settle: the queue moves on and the thread comes back.
+  const failsAgain = withPlace({ ...confirmed, queue: { ...queue, revision: 5 } }, input);
+  expect(threadTabs([failsAgain], select).inbox).toEqual(["unsent"]);
 });

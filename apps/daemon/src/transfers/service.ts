@@ -169,15 +169,19 @@ export function startTransfers(context: ServiceContext): void {
     ignoredByDefault: async () =>
       (await services.settings?.get("remote.transferIgnoredFiles"))?.value ?? true,
     continueRefusal: async (id) => {
+      // An organization's host moves no tree off itself (ADR 0209 §4.2).
+      if (context.orgHost?.org() !== undefined) return "org_host";
       const runtime = services.workspaceActions;
       if (!runtime) return "workspace_unavailable";
       return runtime.continueRefusal(id);
     },
     // A delegated child moves with its parent; a thread already moving can't move again.
     liveRefusal: (id) =>
-      services.agentControl?.delegations.journal.get(id)
-        ? "thread_is_child"
-        : ownership.refusal(id)?.code,
+      context.orgHost?.org() !== undefined
+        ? "org_host"
+        : services.agentControl?.delegations.journal.get(id)
+          ? "thread_is_child"
+          : ownership.refusal(id)?.code,
   });
   const agents = new AgentTransfers({
     store,
