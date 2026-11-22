@@ -224,15 +224,15 @@ test.skipIf(process.platform === "win32")(
 );
 
 test("history reads on cold checkouts run no more than two Git processes at once", async () => {
-  let running = 0;
+  let live = 0;
   let peak = 0;
   const counted = new GitService({
     processRuntime: {
       spawn: (command, args, options) => {
         const child = spawnGitProcess(command, args, options);
-        running++;
-        peak = Math.max(peak, running);
-        child.once("exit", () => running--);
+        live++;
+        peak = Math.max(peak, live);
+        child.once("exit", () => live--);
         return child;
       },
     },
@@ -244,7 +244,9 @@ test("history reads on cold checkouts run no more than two Git processes at once
   await counted.resolveCommit({ worktree: repos[0] ?? "", ref: "HEAD" }).catch(() => {});
   peak = 0;
   const reads = await Promise.all(
-    repos.slice(1).map((repo, index) => counted.fileLog({ worktree: repo, path: `f${index + 1}.ts` })),
+    repos
+      .slice(1)
+      .map((repo, index) => counted.fileLog({ worktree: repo, path: `f${index + 1}.ts` })),
   );
   expect(reads.every((read) => read.entries.length === 1)).toBe(true);
   expect(peak).toBeLessThanOrEqual(2);
