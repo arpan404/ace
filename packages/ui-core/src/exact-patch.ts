@@ -81,7 +81,6 @@ function withEndings(text: string): string[] {
   return lines;
 }
 
-
 /**
  * The committed text of a file from its text on disk and its part of `git diff`, exact to the
  * byte; undefined when the diff doesn't fit the text (it was read for another version) or a hunk

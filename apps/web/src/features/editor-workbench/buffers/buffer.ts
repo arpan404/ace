@@ -220,7 +220,7 @@ export class Buffer implements TextBuffer {
     if (next.kind === "status") this.#setStatus(next.status);
     else {
       const clash: Clash | undefined = next.clash && { ...next.clash, by: this.#author() };
-      this.#adopt(next.text, next.base, next.dirty, clash);
+      this.#adopt(next.text, next.base, next.dirty, clash, next.manualSave === true);
       if (next.dropDraft) void this.#persist();
     }
     this.#settled();
@@ -581,7 +581,7 @@ export class Buffer implements TextBuffer {
 
   // State and storage.
 
-  #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash): void {
+  #adopt(text: string, base: Theirs, dirty: boolean, clash?: Clash, manualSave = false): void {
     this.#free();
     const doc = new EditorDocument(text);
     // Tab, Enter and the indent keys write what the file already uses, else the device's default.
@@ -590,8 +590,8 @@ export class Buffer implements TextBuffer {
     this.#doc = doc;
     this.#base = base;
     this.#dirty = dirty;
-    // Read afresh: no Revert of this text is waiting.
-    this.#covered = this.#reverts;
+    // Read afresh: no Revert waits, unless the draft it came from kept one waiting.
+    this.#covered = manualSave ? this.#reverts - 1 : this.#reverts;
     this.#cleanAt = dirty ? Number.NaN : doc.contentId();
     this.#clash = clash;
     this.bytes = utf8Length(text);
@@ -661,7 +661,12 @@ export class Buffer implements TextBuffer {
       if (this.#dirty) this.#markClean();
       written = this.#slot.write(() => this.#ctx.drafts.delete(key), true);
     } else if (this.keeps()) {
-      const draft = { text, original: base.text, version: base.version };
+      const draft = {
+        text,
+        original: base.text,
+        version: base.version,
+        ...(this.#reverts !== this.#covered ? { manualSave: true } : {}),
+      };
       written = this.#slot.write(() => this.#ctx.drafts.put(key, draft));
     } else written = this.#slot.settled();
     this.#ctx.changed();

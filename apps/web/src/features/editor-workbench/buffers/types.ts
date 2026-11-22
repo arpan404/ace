@@ -34,8 +34,11 @@ export interface FilePort {
   write(key: BufferKey, text: string, expected: string | null): Promise<WriteResult>;
 }
 
-/** Unsaved text kept on the device, with the version and text it started from. */
-export type Draft = Omit<MigratedDraft, "path">;
+/**
+ * Unsaved text kept on the device, with the version and text it started from, and whether a
+ * Revert in it waits for the person's own Save (so a reload never lets auto save write it).
+ */
+export type Draft = Omit<MigratedDraft, "path"> & { manualSave?: boolean | undefined };
 
 /**
  * Device storage for drafts (IndexedDB in the app). A failed write rejects. Puts and deletes
