@@ -13,13 +13,13 @@ const longDay = new Intl.DateTimeFormat("en-US", {
   timeZone: "UTC",
 });
 
-/** One data blue (`--activity`), stronger for busier days; an empty day is a faint square. */
+/** Ink tiers, stronger for busier days; an empty day is a faint square. Never a status hue. */
 const levelClass: Record<ActivityCell["level"], string> = {
   0: "bg-foreground/[0.07]",
-  1: "bg-[color-mix(in_oklab,var(--activity)_30%,transparent)]",
-  2: "bg-[color-mix(in_oklab,var(--activity)_52%,transparent)]",
-  3: "bg-[color-mix(in_oklab,var(--activity)_76%,transparent)]",
-  4: "bg-(--activity)",
+  1: "bg-foreground/[0.22]",
+  2: "bg-foreground/[0.38]",
+  3: "bg-foreground/[0.58]",
+  4: "bg-foreground/[0.82]",
 };
 
 /**
