@@ -76,6 +76,22 @@
   },
   "overrides": [
     {
+      "files": ["packages/fake-daemon/src/**/*.ts", "apps/web/src/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-globals": [
+          "error",
+          {
+            "name": "Buffer",
+            "message": "This code runs in the browser (the fake world, the web app), which has no Node Buffer: use TextEncoder or Uint8Array."
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*test-support*.ts"],
+      "rules": { "no-restricted-globals": "off" }
+    },
+    {
       "files": ["apps/web/src/**/*.{ts,tsx}"],
       "jsPlugins": ["./tools/lint/ace-live-actions.mjs"],
       "rules": {
