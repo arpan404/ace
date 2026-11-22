@@ -1,7 +1,7 @@
 import AuthenticationServices
 import SwiftUI
 
-/// Profile, as an iOS account page: the person, then their account's machines, a year of their
+/// Profile, as an iOS account page: the person, their spaces, then their account's machines, a year of their
 /// agents' work, Sign out, Delete account, and the legal pages. The words follow web's Profile.
 struct AceAccountView: View {
     /// Nil for the debug fixture, which has no account machines.
@@ -10,6 +10,7 @@ struct AceAccountView: View {
     var inbox: MachineInbox?
     /// The app's account (the header's avatar shows the same), else this page's own.
     @Environment(AceAccountModel.self) private var shared: AceAccountModel?
+    @Environment(SpacesModel.self) private var spaces: SpacesModel?
     @State private var own = AceAccountModel()
     /// `--spike-account`'s machines, where there is no machines model (the fixture).
     @State private var spikeMachines = SpikeAccountMachines.make()
@@ -42,6 +43,7 @@ struct AceAccountView: View {
         .task(id: activityKey) { await readActivity() }
         .refreshable {
             await machines?.refreshAccount()
+            await spaces?.reload()
             await spikeMachines?.load()
             await readActivity()
         }
@@ -60,6 +62,7 @@ struct AceAccountView: View {
             if let error = model.error { Section { ServiceProblem(message: error) }.insetRowBackground() }
             browserFailure
             if model.account == nil { signIn }
+            if model.account != nil, let spaces, spaces.signedIn { SpacesSection(spaces: spaces) }
             if model.account != nil, let listed { accountMachines(listed) }
             if let inbox, !inbox.sessions.isEmpty {
                 ProfileActivitySections(report: activity, problem: activityProblem) {

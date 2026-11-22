@@ -12,7 +12,7 @@ import { FileRowItems } from "./file-row-items.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 import type { TreeDrag } from "./use-tree-drag.ts";
-import { MiddleName } from "./middle-name.tsx";
+import { MiddleName } from "@/components/path/middle-name.tsx";
 import type { LineCounts } from "./use-line-counts.ts";
 import { RenameField, type RowField } from "./file-tree-rename.tsx";
 
