@@ -91,3 +91,45 @@ export function splitSide(layout: EditorLayout, groupId: string, side: Side, roo
   const tried = insertGroup(layout, groupId, side, emptyGroup(`${groupId}~new`));
   return roomNeeded(tried.root, tight).width <= room.width ? side : stackedSide[side];
 }
+
+/** The height at which stacked panes each still show a useful run of lines (about ten). */
+export const comfortableHeight = 240;
+
+function holds(node: SplitNode, groupId: string): boolean {
+  return node.kind === "group" ? node.id === groupId : node.children.some((c) => holds(c, groupId));
+}
+
+/**
+ * Stacked panes that would each get less than `comfortableHeight` in `box` become an accordion:
+ * in every column split the child holding the focused pane stays open and the others fold to
+ * their strips (still on screen, a click away). Side-by-side panes share their row's state, so a
+ * pane beside the focused one stays open with it. The ids of the folded panes.
+ */
+export function collapsedPanes(node: SplitNode, focused: string, box: Room): ReadonlySet<string> {
+  const folded = new Set<string>();
+  if (node.kind === "group" || box.height <= 0) return folded;
+  if (roomNeeded(node, { width: 0, height: comfortableHeight }).height <= box.height) return folded;
+  // A focus the tree doesn't hold (a stale id) opens its first pane.
+  const first = (n: SplitNode): string => (n.kind === "group" ? n.id : first(n.children[0] ?? n));
+  const open = holds(node, focused) ? focused : first(node);
+  const walk = (n: SplitNode, shown: boolean): void => {
+    if (n.kind === "group") {
+      if (!shown) folded.add(n.id);
+      return;
+    }
+    for (const child of n.children)
+      walk(child, n.direction === "column" ? shown && holds(child, open) : shown);
+  };
+  walk(node, true);
+  return folded;
+}
+
+/**
+ * The layout's shape: its panes and how they're split, not their sizes. Sizes the person dragged
+ * are kept (the accordion steps aside) until the shape changes.
+ */
+export function paneShape(node: SplitNode): string {
+  return node.kind === "group"
+    ? node.id
+    : `${node.direction}(${node.children.map(paneShape).join(",")})`;
+}
