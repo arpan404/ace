@@ -25,6 +25,11 @@ export function recoverEngine(
   canContinue: (id: ThreadId) => boolean = () => false,
   /** Windows only: some process of the previous run may still be running. */
   processesUnverified = false,
+  /**
+   * Cursor work the restart cut short, to reconcile with Cursor's store before it is called
+   * failed (cursor-reconcile.ts). Without it, it fails here as before.
+   */
+  reconcile?: (id: ThreadId) => void,
 ): void {
   /** Threads whose work this restart cut short, decided once sends' uncertainty is known. */
   const interruptedWork = new Map<ThreadId, Omit<RestartFacts, "uncertain" | "waitingOnPerson">>();
@@ -123,6 +128,9 @@ export function recoverEngine(
         const backend = repo.backend(state.threadId);
         const interrupted = lostWork(state, 0, backend, clock.now());
         const live = !state.processExit && interrupted !== undefined;
+        // Left running for its reconcile, which ends it as Cursor's store says it ended.
+        const reconciles =
+          live && backend === "cursor-sdk" && !processesUnverified && reconcile !== undefined;
         // A graceful shutdown captured its continuation before closing the provider, so its
         // state shows a deliberate exit; the captured continuation is the evidence either way.
         const captured = repo.queue.get(state.threadId);
@@ -143,7 +151,7 @@ export function recoverEngine(
             canContinue: canContinue(state.threadId),
             streak: recovery.streaks.get(state.threadId),
           });
-        if (live && backend === "cursor-sdk")
+        if (live && backend === "cursor-sdk" && !reconciles)
           repo.apply(
             state.threadId,
             [
@@ -195,7 +203,8 @@ export function recoverEngine(
           interruptedWork.delete(state.threadId);
           return;
         }
-        if (live)
+        if (reconciles) reconcile(state.threadId);
+        else if (live)
           repo.apply(
             state.threadId,
             [
@@ -284,8 +293,12 @@ export function recoverEngine(
               "queue.resume",
               "thread.limit",
             ].includes(intent.kind)
-          )
+          ) {
             repo.queue.uncertain(intent.id);
+            // Cursor's store can show whether it ever had this send (cursor-reconcile.ts).
+            if (repo.backend(intent.threadId) === "cursor-sdk" && !processesUnverified)
+              reconcile?.(intent.threadId);
+          }
           fail(
             intent,
             "Delivery interrupted by daemon restart; execution is uncertain. Review before resending.",

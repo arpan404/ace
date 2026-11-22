@@ -38,6 +38,8 @@ import { ProviderKind, ThreadId } from "@ace/protocol";
 import { Recovery, RecoveryPreferences } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
+import { CursorReconciles } from "./cursor-reconcile.ts";
+import { attachChild } from "./child-attachment.ts";
 import { DelegationFacts } from "./delegation-facts.ts";
 import { continuesNatively, heldInterrupted } from "./restart-eligibility.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
@@ -115,6 +117,19 @@ export class Engine {
   private liveness: ThreadLiveness;
   private delegationFacts: DelegationFacts;
   private readyPromise: Promise<void>;
+  /** Cursor turns a restart cut short, reconciled with Cursor's store once ready. */
+  private reconciles = new CursorReconciles(
+    (error) => this.report(error),
+    () => ({
+      repo: this.repo,
+      recovery: this.recovery,
+      clock: this.clock,
+      actor: (id) => this.actor(id),
+      open: (actor) => this.sessions.open(actor),
+      close: (actor) => this.sessions.close(actor, "idle"),
+      wake: (id) => this.wake(id),
+    }),
+  );
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
@@ -408,6 +423,7 @@ export class Engine {
         unreadable,
         (id) => continuesNatively(this.repo, this.registry, id),
         options.previousProcessesUnverified === true,
+        (id) => this.reconciles.add(id),
       );
     const recovery = this.recovery;
     const repo = this.repo;
@@ -419,6 +435,7 @@ export class Engine {
         models.migrateCachedDefaults(unreadable);
         if (!this.closing) recover();
         this.readyState = true;
+        this.reconciles.start();
         for (const id of this.pendingSettles) this.stopSettled(id);
         this.pendingSettles.clear();
       })();
@@ -426,6 +443,7 @@ export class Engine {
       recover();
       this.readyState = true;
       this.readyPromise = Promise.resolve();
+      this.reconciles.start();
     }
   }
   private stopSettled(id: ThreadId): void {
@@ -663,40 +681,8 @@ export class Engine {
     );
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
-  attachChild(
-    parentId: ThreadId,
-    parentAgentId: AgentId,
-    child: Thread,
-    role: string,
-    background: boolean,
-  ): void {
-    this.repo.permissions.parent(child.id, parentId, this.clock.now());
-    const state = this.repo.requireState(parentId);
-    const parent = state.indexes.agentKeysById[parentAgentId];
-    if (!parent) throw new Error("Unknown parent agent");
-    this.repo.apply(
-      parentId,
-      [
-        {
-          type: "agent.seen",
-          agent: `ace-child:${child.id}`,
-          parent,
-          origin: "ace",
-          fidelity: "summary",
-          native: { provider: child.provider },
-          cwd: this.repo.session(child.id).cwd,
-          role,
-          background,
-        },
-        {
-          type: "agent.external",
-          agent: `ace-child:${child.id}`,
-          threadId: child.id,
-          status: child.status,
-        },
-      ],
-      this.clock.now(),
-    );
+  attachChild(...args: [ThreadId, AgentId, Thread, string, boolean]): void {
+    attachChild(this.repo, this.clock.now(), ...args);
   }
   updateChild(parentId: ThreadId, child: Thread): void {
     this.repo.apply(
@@ -1442,6 +1428,7 @@ export class Engine {
     try {
       await this.readyPromise;
       await Promise.resolve();
+      await this.reconciles.settled();
       do {
         await this.settledTrees.settled();
         await Promise.all([...this.actors.values()].map((actor) => actor.flush()));

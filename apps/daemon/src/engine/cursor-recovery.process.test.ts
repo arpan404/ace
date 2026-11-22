@@ -28,7 +28,18 @@ const threadId = ThreadId.parse("crashed-thread");
  * same database with a fake Cursor host that speaks the host's frames, and lets the person
  * resume. Returns what the new host was told and asked to send.
  */
-async function crashAt(window: "submitted" | "attempted" | "admitted") {
+async function crashAt(
+  window: "submitted" | "attempted" | "admitted",
+  host: {
+    /** What Cursor's store says of the cut-off run. */
+    stored?: "finished" | "running";
+    /** The new host can't open at all, so Cursor's store can't be read. */
+    openFails?: boolean;
+    /** Whether the person presses Resume; without it only ace acts. */
+    resume?: boolean;
+  } = {},
+) {
+  const { stored = "finished", openFails = false, resume = true } = host;
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
   const path = join(root, "state.sqlite");
   const child = fork(new URL("./cursor-recovery-child.ts", import.meta.url), [path, root, window], {
@@ -58,6 +69,7 @@ async function crashAt(window: "submitted" | "attempted" | "admitted") {
       createTranslator: (init) => new CursorTranslator(init),
       async openSession(context) {
         opened.push(context.resume);
+        if (openFails) throw new Error("Cursor SDK host could not start");
         let seq = 0;
         let operationId = "open";
         const emit = (kind: string, body: unknown, extra: Partial<CursorEnvelope> = {}) =>
@@ -87,7 +99,9 @@ async function crashAt(window: "submitted" | "attempted" | "admitted") {
         for (const run of unsettled?.runs ?? [])
           await emit(
             "recovery",
-            { nativeStatus: "finished", interrupted: false, result: "finished after the crash" },
+            stored === "finished"
+              ? { nativeStatus: "finished", interrupted: false, result: "finished after the crash" }
+              : { nativeStatus: "running", interrupted: true },
             { runId: run.runId },
           );
         return {
@@ -113,7 +127,11 @@ async function crashAt(window: "submitted" | "attempted" | "admitted") {
   const engine = new Engine(store, { registry, selectInstance: () => "account-a" });
   await engine.flush();
   const held = engine.queue(threadId);
-  for (const type of ["queue.resume", "thread.resume"] as const) {
+  const runs = store
+    .readEvents({ afterSeq: 0, limit: 1000 })
+    .flatMap((event) => (event.payload.type === "run.ended" ? [event.payload.state] : []));
+  const status = store.getThread(threadId)?.status.state;
+  for (const type of resume ? (["queue.resume", "thread.resume"] as const) : []) {
     engine.handler.handle(
       Command.parse({
         id: `${type}-command`,
@@ -133,6 +151,9 @@ async function crashAt(window: "submitted" | "attempted" | "admitted") {
     );
   return {
     held,
+    /** How each ended run ended, and the thread's state, before any Resume. */
+    runs,
+    status,
     opened,
     sent,
     userTexts,
@@ -150,14 +171,6 @@ it("a send the daemon recorded but the host never attempted is delivered again o
   expect(crash.held.reason).not.toBe("uncertain");
   expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
   expect(crash.userTexts.filter((text) => text === "first")).toHaveLength(1);
-});
-
-it("a send the host attempted but Cursor never admitted is never sent twice and never lost", async () => {
-  await using crash = await crashAt("attempted");
-  expect(crash.sent.filter((text) => text.endsWith("first"))).toEqual([]);
-  // Held for the person, still in the queue: whether Cursor got it is not known to the daemon.
-  expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
-  expect(crash.held.pendingCount).toBeGreaterThan(0);
 });
 
 it("a send Cursor admitted before the crash is acknowledged, not resent, and its run is read back on reopen", async () => {
@@ -331,4 +344,34 @@ it("an SDK delta burst coalesces canonical writes and keeps every chunk", async 
     await store.close();
     await rm(root, { recursive: true, force: true });
   }
+});
+
+it("a run Cursor finished just before the daemon crashed ends finished, with no continuation turn", async () => {
+  await using crash = await crashAt("admitted", { stored: "finished", resume: false });
+  expect(crash.runs).toEqual(["completed"]);
+  expect(crash.status).toBe("done");
+  expect(crash.held).toMatchObject({ paused: false, pendingCount: 0 });
+  expect(crash.sent).toEqual([]);
+  expect(JSON.stringify(crash.items)).toContain("finished after the crash");
+});
+
+it("a run the crash really cut off fails and its continuation waits for the person", async () => {
+  await using crash = await crashAt("admitted", { stored: "running", resume: false });
+  expect(crash.runs).toEqual(["failed"]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "restart" });
+  expect(crash.sent).toEqual([]);
+});
+
+it("a send Cursor never received goes back in the queue by itself and is sent once", async () => {
+  await using crash = await crashAt("attempted", { resume: false });
+  expect(crash.opened[0]?.unsettled?.attempt).toMatchObject({ operationId: "first-command" });
+  expect(crash.sent.filter((text) => text.endsWith("first"))).toHaveLength(1);
+  expect(crash.held.reason).not.toBe("uncertain");
+  expect(crash.userTexts.filter((text) => text === "first")).toHaveLength(1);
+});
+
+it("a send stays held as uncertain only when Cursor's store can't be read", async () => {
+  await using crash = await crashAt("attempted", { openFails: true, resume: false });
+  expect(crash.sent).toEqual([]);
+  expect(crash.held).toMatchObject({ paused: true, reason: "uncertain" });
 });

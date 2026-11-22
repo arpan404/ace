@@ -28,6 +28,10 @@ const Progress = z.object({
 const Attempted = z.object({ attemptedAt: z.number().finite().nonnegative() });
 const Admitted = z.object({ nativeRunId: z.string().min(1).max(512) });
 const Settled = z.object({ settled: z.literal(true) });
+const Admission = z.object({
+  kind: z.literal("admission"),
+  body: z.object({ admitted: z.boolean(), commandId: z.string().min(1).max(512).optional() }),
+});
 /** What a reopened Cursor host reads back from its store: see `SessionContext.resume`. */
 export type Unsettled = NonNullable<
   NonNullable<import("@ace/engine-api").SessionContext["resume"]>["unsettled"]
@@ -99,9 +103,11 @@ export class ProviderRecovery {
   private store: Store;
   private readFrames: StatementSync;
   private readAttempt: StatementSync;
+  private readAdmission: StatementSync;
+  private readOutput: StatementSync;
   constructor(store: Store) {
     this.store = store;
-    [this.readFrames, this.readAttempt] = store.atomic(
+    [this.readFrames, this.readAttempt, this.readAdmission, this.readOutput] = store.atomic(
       (db) =>
         [
           db.prepare(
@@ -110,7 +116,14 @@ export class ProviderRecovery {
           db.prepare(
             "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND json_extract(frame,'$.data.kind')='send' AND json_extract(frame,'$.data.commandId')=? LIMIT 1",
           ),
-        ] satisfies [StatementSync, StatementSync],
+          db.prepare(
+            "SELECT frame FROM engine_provider_frames WHERE thread_id=? AND json_extract(frame,'$.data.kind')='admission' ORDER BY rowid DESC LIMIT 1",
+          ),
+          // A segment, a run id or any output under the send's operation is admission evidence.
+          db.prepare(
+            "SELECT 1 FROM engine_provider_frames WHERE thread_id=? AND (json_extract(frame,'$.data.commandId')=? OR json_extract(frame,'$.data.operationId')=?) AND json_extract(frame,'$.data.kind') NOT IN ('send','admission','error','cancel','host-exit','host-output','snapshot') LIMIT 1",
+          ),
+        ] satisfies [StatementSync, StatementSync, StatementSync, StatementSync],
     );
   }
   /**
@@ -160,6 +173,28 @@ export class ProviderRecovery {
    */
   attempted(threadId: ThreadId, commandId: string): boolean {
     return this.store.atomic(() => this.readAttempt.get(threadId, commandId) !== undefined);
+  }
+  /**
+   * The newest admission a reopened Cursor host read back from its store, if any: whether Cursor
+   * ever had the send the daemon saw attempted (ADR 0043, amendment of 2026-11-22).
+   */
+  lastAdmission(threadId: ThreadId): { commandId?: string; admitted: boolean } | undefined {
+    const row = this.store.atomic(() => this.readAdmission.get(threadId));
+    if (!row) return undefined;
+    const frame = CapturedFrame.safeParse(JSON.parse(z.string().parse(row.frame)));
+    const body = Admission.safeParse(frame.success ? frame.data.data : undefined);
+    return body.success
+      ? {
+          admitted: body.data.body.admitted,
+          ...(body.data.body.commandId ? { commandId: body.data.body.commandId } : {}),
+        }
+      : undefined;
+  }
+  /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
+  admissionRecorded(threadId: ThreadId, commandId: string): boolean {
+    return this.store.atomic(
+      () => this.readOutput.get(threadId, commandId, commandId) !== undefined,
+    );
   }
   /** Forgets a session's frames (and an earlier build's boundary cursor): it starts fresh. */
   reset(threadId: ThreadId): void {

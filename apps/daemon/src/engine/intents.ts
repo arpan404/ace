@@ -223,6 +223,15 @@ export class IntentStore {
       return undefined;
     return { ...header(row), command: Command.parse(JSON.parse(String(row.payload))) };
   }
+  /** A send held as uncertain, by its command: the one a provider may or may not have. */
+  uncertainSend(id: ThreadId, commandId: string): Intent | undefined {
+    const row = this.sql(
+      `SELECT ${columns},payload FROM intents WHERE thread_id=? AND command_id=? AND uncertain=1 AND acknowledged=0 AND kind IN (${deliveryKinds}) LIMIT 1`,
+    ).get(id, commandId);
+    return row
+      ? { ...header(row), command: Command.parse(JSON.parse(String(row.payload))) }
+      : undefined;
+  }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN (${deliveryKinds}) AND delivery='queue' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
