@@ -132,11 +132,17 @@ async function treeOf(thread: string) {
  * a second thread's tree (its own checkout) renders next to it, as two Files tabs show.
  */
 export async function renderTree(
-  options: { marks?: ReadonlyMap<string, RowMark>; beside?: string } = {},
+  options: {
+    marks?: ReadonlyMap<string, RowMark>;
+    beside?: string;
+    /** The checkout's uncommitted changes, as `git diff HEAD` prints them. */
+    gitDiff?: string;
+  } = {},
 ) {
   let now = 1_000;
   const daemon = new FakeDaemon({ clock: () => (now += 1) });
   new ScenarioPlayer(daemon, coldStartReplay()).runThrough("turn-2");
+  if (options.gitDiff !== undefined) daemon.workspace.setGitDiff(threadId, options.gitDiff);
   if (options.beside)
     new ScenarioPlayer(daemon, coldStartReplay(options.beside)).runThrough("turn-2");
   const client = fakeClient(daemon);

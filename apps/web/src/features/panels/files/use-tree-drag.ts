@@ -1,11 +1,12 @@
 import { cleanPath, folderKey, pathParts, type FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { z } from "zod";
+import { treeEntriesDragType } from "@/lib/workspace/index.ts";
 import type { TreeEntry } from "./tree-commands.ts";
 import { entryOf } from "./tree-row-keys.ts";
 
-/** Tree rows being dragged, as the drag carries them. */
-const treeDragType = "application/x-ace-tree-entries";
+/** Tree rows being dragged, as the drag carries them (an editor group reads them too). */
+const treeDragType = treeEntriesDragType;
 /** How long a drag rests on a closed folder before it opens. */
 const openDelay = 600;
 
@@ -21,6 +22,22 @@ type DraggedRows = z.infer<typeof DraggedRows>;
 
 /** Tree rows a drag carries, by source thread. The drag's data can't be read before the drop. */
 const sourceType = (threadId: string) => `${treeDragType}+${encodeURIComponent(threadId)}`;
+
+/**
+ * Start a drag of `entries` from `threadId`'s explorer: the tree's rows under their type (with
+ * the source thread readable before the drop), and the paths as plain text for anything else.
+ */
+export function writeTreeDrag(
+  transfer: DataTransfer,
+  threadId: string,
+  entries: readonly TreeEntry[],
+): void {
+  const dragged: DraggedRows = { threadId, entries: [...entries] };
+  transfer.setData(treeDragType, JSON.stringify(dragged));
+  transfer.setData(sourceType(threadId), "");
+  transfer.setData("text/plain", entries.map((entry) => entry.path).join("\n"));
+  transfer.effectAllowed = "copyMove";
+}
 
 /** The rows a drop carries, read leniently: another window's drag may carry anything. */
 function draggedRows(event: DragEvent<HTMLElement>): DraggedRows | undefined {
@@ -113,14 +130,8 @@ export function useTreeDrag(options: {
     /** A row's drag handlers: it drags itself (or its selection) and takes drops. */
     row: (row: FolderRow) => ({
       draggable: true,
-      onDragStart: (event: DragEvent<HTMLElement>) => {
-        const entries = options.covered(entryOf(row));
-        const dragged: DraggedRows = { threadId: options.threadId, entries };
-        event.dataTransfer.setData(treeDragType, JSON.stringify(dragged));
-        event.dataTransfer.setData(sourceType(options.threadId), "");
-        event.dataTransfer.setData("text/plain", entries.map((entry) => entry.path).join("\n"));
-        event.dataTransfer.effectAllowed = "copyMove";
-      },
+      onDragStart: (event: DragEvent<HTMLElement>) =>
+        writeTreeDrag(event.dataTransfer, options.threadId, options.covered(entryOf(row))),
       onDragOver: (event: DragEvent<HTMLElement>) => {
         if (!over(event, dropFolder(row))) return;
         if (row.kind !== "folder" || row.expanded || opening.current?.folder === row.key) return;
