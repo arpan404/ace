@@ -59,6 +59,8 @@ async function crashAt(
      * past the attempted send, more than the reopen's window reads.
      */
     legacyFrames?: number;
+    /** This many more sends held as uncertain beside the attempted one. */
+    moreHeld?: number;
     /** The host reopens without reading back the attempt (a legacy search gave up). */
     noAdmission?: boolean;
     /** The re-sent message never reaches Cursor: the host attempts it and nothing follows. */
@@ -100,6 +102,16 @@ async function crashAt(
     await exit;
   }
   const store = new Store(path);
+  // Held by earlier restarts as this one held the attempted send: copies of its row as now.
+  let holdMore = () => {
+    holdMore = nothing;
+    for (let n = 1; n <= (host.moreHeld ?? 0); n++)
+      store
+        .statement(
+          "INSERT INTO intents (command_id, thread_id, kind, payload, status, attempts, error, awaiting, acknowledged, delivery, trigger, position, uncertain) SELECT ?, thread_id, kind, payload, status, attempts, error, awaiting, acknowledged, delivery, trigger, position + ?, uncertain FROM intents WHERE command_id='first-command'",
+        )
+        .run(`held-${n}`, n);
+  };
   if (host.legacyFrames) {
     store
       .statement(
@@ -180,6 +192,7 @@ async function crashAt(
       createTranslator: (init) => new CursorTranslator(init),
       async openSession(context) {
         opened.push(context.resume);
+        holdMore();
         if (openFails) throw new Error("Cursor SDK host could not start");
         if (busy-- > 0) {
           if (host.failAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
@@ -614,6 +627,19 @@ it("an earlier build's send past the frames its reopen reads is said unconfirmed
   expect(said(crash)).toContain(
     "Delivery unconfirmed: ace couldn't confirm whether Cursor received this message. It is held in the queue: check the conversation before sending it again",
   );
+  expect(crash.statusAfter()).toBe("waiting");
+});
+
+it("every send held as uncertain on an earlier build's thread is said unconfirmed, past any batch", async () => {
+  await using crash = await crashAt("attempted", {
+    resume: false,
+    legacyFrames: 4100,
+    moreHeld: 70,
+  });
+  const unconfirmed = said(crash).filter((text) => text.startsWith("Delivery unconfirmed: "));
+  // Past a page of 64: every one of the 71.
+  expect(unconfirmed).toHaveLength(71);
+  expect(said(crash).join(" | ")).not.toMatch(/not sent/i);
   expect(crash.statusAfter()).toBe("waiting");
 });
 

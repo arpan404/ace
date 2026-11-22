@@ -232,15 +232,21 @@ export class IntentStore {
       ? { ...header(row), command: Command.parse(JSON.parse(String(row.payload))) }
       : undefined;
   }
-  /** The thread's sends held as uncertain, oldest first, a few at most. */
+  /** Every send of the thread held as uncertain, oldest first, read 64 at a time. */
   uncertainSends(id: ThreadId): Intent[] {
-    return this.sql(
-      `SELECT ${columns},payload FROM intents WHERE thread_id=? AND uncertain=1 AND acknowledged=0 AND kind IN (${deliveryKinds}) ORDER BY id LIMIT 16`,
-    )
-      .all(id)
-      .map((row) =>
-        Object.assign(header(row), { command: Command.parse(JSON.parse(String(row.payload))) }),
-      );
+    const page = this.sql(
+      `SELECT ${columns},payload FROM intents WHERE thread_id=? AND id>? AND uncertain=1 AND acknowledged=0 AND kind IN (${deliveryKinds}) ORDER BY id LIMIT 64`,
+    );
+    const all: Intent[] = [];
+    for (let after = 0; ;) {
+      const rows = page.all(id, after);
+      for (const row of rows)
+        all.push(
+          Object.assign(header(row), { command: Command.parse(JSON.parse(String(row.payload))) }),
+        );
+      if (rows.length < 64) return all;
+      after = Number(rows.at(-1)?.id);
+    }
   }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
