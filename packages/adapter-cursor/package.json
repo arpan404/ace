@@ -12,7 +12,8 @@
     "./instance": "./src/instance.ts",
     "./sandbox-helper": "./src/sandbox-helper.ts",
     "./store-fence": "./src/store-fence.ts",
-    "./unsettled": "./src/unsettled.ts"
+    "./unsettled": "./src/unsettled.ts",
+    "./host-wire": "./src/host-wire.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"

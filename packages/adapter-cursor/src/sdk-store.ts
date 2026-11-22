@@ -1,5 +1,6 @@
 import { validateLegacyCheckpoint } from "./legacy-checkpoints.ts";
 import { access } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createHash } from "node:crypto";
@@ -84,4 +85,29 @@ export function observeRunEvents(
       },
     },
   };
+}
+
+/**
+ * Throws, saying SQLITE_BUSY, when another process holds the SDK's SQLite store for writing.
+ * The SDK itself waits on a held store (busy_timeout, then retries), so a reconcile would only
+ * time out; this asks once, without waiting, before recovery or resume write to it.
+ */
+export async function assertStoreFree(root: string): Promise<void> {
+  const index = join(root, "index.db");
+  if (!(await exists(index))) return;
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(index, { timeout: 0 });
+    db.exec("BEGIN IMMEDIATE");
+    db.exec("ROLLBACK");
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    if (/\b(?:locked|busy)\b/i.test(text))
+      throw new Error("SQLITE_BUSY: Cursor's saved session is held by another process", {
+        cause: error,
+      });
+    throw error;
+  } finally {
+    db?.close();
+  }
 }

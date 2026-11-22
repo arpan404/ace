@@ -692,6 +692,12 @@ export class Sessions {
             // No input can have been consumed until open returns a usable session.
             if (opening) actor.generation++;
             else actor.retireGeneration();
+            // A reconcile owns the run it opens for: a host that dies opening (a busy store's,
+            // say) ends nothing; the reconcile tries again or fails the run itself.
+            if (opening && reconciling) {
+              if (!actor.poisoned) this.dependencies.released(actor.id);
+              return;
+            }
             // Say so in the transcript only when the death cost work, not after an idle exit.
             const before = this.dependencies.repo.requireState(actor.id);
             const lost =

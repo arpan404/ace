@@ -20,7 +20,12 @@ import {
   type OpenOptions,
   type SendOptions,
 } from "./contracts.ts";
-import { openSdkCheckpointStore, checkpointRevision, observeRunEvents } from "./sdk-store.ts";
+import {
+  openSdkCheckpointStore,
+  checkpointRevision,
+  observeRunEvents,
+  assertStoreFree,
+} from "./sdk-store.ts";
 import { updateIdentity } from "./event-identity.ts";
 import { recoverCursorCheckpoint, type Recovered } from "./recovery.ts";
 import { FrameBatch, type BatchTimer } from "./frame-batch.ts";
@@ -333,6 +338,8 @@ export class HostRuntime {
         options.limits.maxCheckpointBytes,
         options.nativeSessionId,
       );
+      // Held by another writer, the store is busy, not broken: the engine tries again.
+      await assertStoreFree(this.root);
       this.storeOwner = await openSdkCheckpointStore(
         this.sdk,
         this.root,

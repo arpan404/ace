@@ -22,6 +22,7 @@ export { CursorHostSlots } from "./slots.ts";
 export { recoverCursorCheckpoint } from "./recovery.ts";
 
 export { openSdkCheckpointStore } from "./sdk-store.ts";
+export { checkpointDirectory } from "./checkpoints.ts";
 
 export { validateCursorAuthHome } from "./auth-home.ts";
 
