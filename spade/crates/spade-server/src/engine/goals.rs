@@ -103,7 +103,9 @@ impl Engine {
             .verifier
             .clone()
             .unwrap_or_else(|| self.role_model(id, spade_core::routing::Role::Verify));
-        let prompt = verify::prompt(&events, &task).session(id);
+        let prompt = verify::prompt(&events, &task)
+            .session(id)
+            .effort(self.role_effort(id, spade_core::routing::Role::Verify));
         let admitted = self
             .admit(id, &model)
             .for_role(spade_core::routing::Role::Verify);

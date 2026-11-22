@@ -116,14 +116,20 @@ async fn stop_ends_the_wait_before_a_retry_and_nothing_more_is_sent() -> Result 
 #[tokio::test]
 async fn a_request_the_endpoint_refuses_for_good_fails_at_once_without_a_retry() -> Result {
     let spade = Spade::start_with(
-        vec![Script::failing(400), Script::reply("Never."), title()],
+        vec![
+            Script::failing(400),
+            Script::failing(400),
+            Script::reply("Never."),
+            title(),
+        ],
         Vec::new(),
         retry(Duration::from_millis(10)),
     )
     .await?;
     let id = spade.ask("Hello").await?;
     spade.wait_for(&id, "reply_failed").await?;
-    assert_eq!(streamed(&spade), 1);
+    // Sent once more without its reasoning effort (ADR 0213), then never again.
+    assert_eq!(streamed(&spade), 2);
     Ok(())
 }
 

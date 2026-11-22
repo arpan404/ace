@@ -4,7 +4,7 @@ import { useId, useState, type ReactNode } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
-import { fault, Refusal } from "./spade-settings-rows.tsx";
+import { Beside, fault, Refusal } from "./spade-settings-rows.tsx";
 
 /**
  * One role's route in Settings (ADR 0205 §2): its model, then up to three it falls back to, in
@@ -22,6 +22,8 @@ export function RouteSettingRow(props: {
   follows?: string | undefined;
   /** The role runs tool work: a model that can't call tools can't be picked. */
   forBots: boolean;
+  /** A control beside the model: how hard it thinks (`EffortSelect`). */
+  beside?: ReactNode;
   save(route: string[] | null): Promise<unknown>;
 }) {
   const id = useId();
@@ -51,15 +53,17 @@ export function RouteSettingRow(props: {
         htmlFor={id}
         density="compact"
       >
-        <SpadeModelPicker
-          id={id}
-          label={props.title}
-          value={first}
-          none={props.none}
-          follows={props.follows}
-          forBots={props.forBots}
-          onChange={(value) => void choose(value ? [value, ...rest] : [])}
-        />
+        <Beside beside={props.beside}>
+          <SpadeModelPicker
+            id={id}
+            label={props.title}
+            value={first}
+            none={props.none}
+            follows={props.follows}
+            forBots={props.forBots}
+            onChange={(value) => void choose(value ? [value, ...rest] : [])}
+          />
+        </Beside>
       </SettingRow>
       {rest.map((model, at) => (
         <FallbackRow

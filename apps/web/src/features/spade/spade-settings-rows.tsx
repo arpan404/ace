@@ -100,6 +100,8 @@ export function ModelSettingRow(props: {
   inline?: boolean;
   /** It picks a model that runs bots: one that can't call tools can't be picked. */
   forBots?: boolean | undefined;
+  /** A control beside the model: how hard it thinks (`EffortSelect`). */
+  beside?: ReactNode;
   save(model: string | null): Promise<unknown>;
 }) {
   const id = useId();
@@ -125,15 +127,28 @@ export function ModelSettingRow(props: {
       density="compact"
       inline={props.inline === true}
     >
-      <SpadeModelPicker
-        id={id}
-        label={props.title}
-        value={shown}
-        none={props.none}
-        follows={props.follows}
-        forBots={props.forBots}
-        onChange={(value) => void choose(value)}
-      />
+      <Beside beside={props.beside}>
+        <SpadeModelPicker
+          id={id}
+          label={props.title}
+          value={shown}
+          none={props.none}
+          follows={props.follows}
+          forBots={props.forBots}
+          onChange={(value) => void choose(value)}
+        />
+      </Beside>
     </SettingRow>
+  );
+}
+
+/** A row's control with another beside it, wrapping under it when the row is narrow. */
+export function Beside(props: { beside?: ReactNode; children: ReactNode }) {
+  if (!props.beside) return props.children;
+  return (
+    <div className="flex flex-wrap items-start justify-end gap-2">
+      {props.children}
+      {props.beside}
+    </div>
   );
 }

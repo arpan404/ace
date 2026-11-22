@@ -364,6 +364,7 @@ pub fn prompt_with(
         messages: messages_with(events, images),
         max_tokens: None,
         session: None,
+        effort: spade_models::Effort::Provider,
     }
 }
 

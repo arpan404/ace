@@ -171,7 +171,9 @@ pub(super) async fn review(
         shown: under.shown,
         concern: under.concern,
     };
-    let prompt = autonomy::prompt(&case).session(id);
+    let prompt = autonomy::prompt(&case)
+        .session(id)
+        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
     let (outcome, cost) = match super::judge::judge::<Judgment>(
         engine,
         id,

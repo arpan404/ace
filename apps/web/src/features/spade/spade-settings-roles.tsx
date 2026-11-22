@@ -18,6 +18,7 @@ import {
 } from "./spade-roles-api.ts";
 import { LoadingRows } from "./spade-settings-loading.tsx";
 import { CouldNotRead, fault, Refusal } from "./spade-settings-rows.tsx";
+import { EffortSelect, effortDefault } from "./spade-settings-effort.tsx";
 import { RouteSettingRow } from "./spade-settings-route.tsx";
 
 /**
@@ -26,7 +27,8 @@ import { RouteSettingRow } from "./spade-settings-route.tsx";
  * strongest model the person uses), which its picker shows. Reviewing steps is the review's
  * model, set here and only here. Each role is a route (ADR 0205 §2): up to four models in order,
  * the next serving when one can't answer; Bots' fallbacks is what every bot's own model falls
- * back to. Then whether a failed helper runs again on the bot's own model.
+ * back to. Beside each model, how hard it thinks (ADR 0213), and a row for the bots' own turns.
+ * Then whether a failed helper runs again on the bot's own model.
  */
 export function GlobalRoles(props: { fastModel: string | undefined }) {
   const client = useSpadeClient();
@@ -61,9 +63,18 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
     );
   const set = roles.data.roles;
   const routes = roles.data.routes;
+  const { efforts, effortDefaults } = roles.data;
   const fast = props.fastModel;
   return (
     <SettingSection label={label}>
+      <SettingRow title="Bots' own turns" density="compact">
+        <EffortSelect
+          title="Bots' own turns"
+          value={efforts.main}
+          none={effortDefault(effortDefaults.main)}
+          save={(effort) => change({ efforts: { main: effort } })}
+        />
+      </SettingRow>
       <RouteSettingRow
         title="Bots' fallbacks"
         description={
@@ -93,6 +104,14 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
             none={strongest ? "Strongest model" : fast ? "Fast model" : "Each bot's own"}
             follows={strongest ? undefined : fast}
             forBots={spadeRoleNeedsTools(role)}
+            beside={
+              <EffortSelect
+                title={spadeRoleNames[role]}
+                value={efforts[role]}
+                none={effortDefault(effortDefaults[role])}
+                save={(effort) => change({ efforts: { [role]: effort } })}
+              />
+            }
             save={(route) => change({ roles: { [role]: route } })}
           />
         );
