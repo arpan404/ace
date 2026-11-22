@@ -131,8 +131,8 @@ test("a git diff cut off by the daemon's size cap marks nothing from the cut hun
   ].join("\n");
   // The daemon's 256 KiB cap falls just after "-two": the rest of the hunk never arrives.
   const room = 262_144 - filler.length - 1 - cut.length;
-  const patch = `${filler}${"x".repeat(room)}\n${cut}+TWO\n three\n`;
-  app.daemon.workspace.setGitDiff(thread, patch);
+  const capped = `${filler}${"x".repeat(room)}\n${cut}+TWO\n three\n`;
+  app.daemon.workspace.setGitDiff(thread, capped);
   await app.open(`/t/${thread}`);
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Control>}p{/Control}");
