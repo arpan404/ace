@@ -52,12 +52,14 @@ async function manage(panel: HTMLElement, label: string) {
   await userEvent.click(await screen.findByRole("menuitem", { name: label }));
   return screen.findByRole("dialog", { name: label.replace("…", "") });
 }
+/** New file or New folder from the explorer's header: named in the tree, made on Enter. */
 async function create(panel: HTMLElement, label: "New file" | "New folder", path: string) {
-  const dialog = await manage(panel, label);
-  await userEvent.clear(within(dialog).getByRole("textbox", { name: "Path" }));
-  await userEvent.type(within(dialog).getByRole("textbox", { name: "Path" }), path);
-  await userEvent.click(within(dialog).getByRole("button", { name: label }));
-  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  await userEvent.click(within(panel).getByRole("button", { name: label }));
+  const field = await within(panel).findByRole("textbox", { name: `${label} name` });
+  await userEvent.type(field, `${path}{Enter}`);
+  await waitFor(() =>
+    expect(within(panel).queryByRole("textbox", { name: `${label} name` })).toBeNull(),
+  );
 }
 async function bytes(app: ReturnType<typeof harness>, path: string) {
   const chunks: Uint8Array<ArrayBuffer>[] = [];
@@ -152,11 +154,13 @@ test("new folders appear, F2 renames a file, and the Move shortcut changes its f
   await within(panel).findByRole("tab", { name: "plan.txt", selected: true });
 });
 
-test("Delete moves a file to recovery and Undo restores its contents and row", async () => {
+test("Delete moves a file to recovery at once and Undo restores its contents and row", async () => {
   const { app, panel } = await openFiles();
   const before = await bytes(app, "README.md");
-  const dialog = await rowKey(panel, "README.md", "{Delete}");
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
+  const row = await within(panel).findByRole("treeitem", { name: "README.md" });
+  row.focus();
+  await userEvent.keyboard("{Delete}");
+  expect(screen.queryByRole("dialog")).toBeNull();
   await waitFor(() =>
     expect(within(panel).queryByRole("treeitem", { name: "README.md" })).toBeNull(),
   );
@@ -186,19 +190,13 @@ test("a row context menu deletes a folder and Recently deleted restores it witho
   const row = await within(panel).findByRole("treeitem", { name: "drafts" });
   await userEvent.pointer({ target: row, keys: "[MouseRight]" });
   await userEvent.click(await screen.findByRole("menuitem", { name: /Delete/ }));
-  let dialog = await screen.findByRole("dialog", { name: "Delete" });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete" }));
-  await waitFor(() => {
-    if (within(dialog).queryByRole("alert"))
-      throw new Error(within(dialog).getByRole("alert").textContent ?? "Delete failed");
-    expect(screen.queryByRole("dialog", { name: "Delete" })).toBeNull();
-  });
+  await waitFor(() => expect(within(panel).queryByRole("treeitem", { name: "drafts" })).toBeNull());
   await app.client.request({
     type: "files.request",
     threadId,
     operation: { op: "create", path: "drafts", expected: null, text: "New file" },
   });
-  dialog = await manage(panel, "Recently deleted");
+  const dialog = await manage(panel, "Recently deleted");
   const deleted = await within(dialog).findByRole("list", { name: "Deleted files" });
   await userEvent.click(await within(deleted).findByRole("button", { name: "Restore" }));
   expect(await within(dialog).findByRole("alert")).toBeTruthy();

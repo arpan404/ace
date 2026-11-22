@@ -1,6 +1,8 @@
 import { useClient, useConnectionState } from "@ace/client-react";
 import type { FolderPage } from "@ace/protocol";
 import {
+  chainedOpenFolders,
+  compactFolderRows,
   folderKey,
   folderPageArrived,
   folderPageFailed,
@@ -9,7 +11,6 @@ import {
   folderRequestRepeated,
   folderRequestSettled,
   folderRequestStarted,
-  folderRows,
   folderStopped,
   foldersToRelist,
   noFolderRequests,
@@ -103,7 +104,14 @@ export function useFolderTree(options: {
     () => [...new Set(["", ...expanded])].map(folderKey).toSorted().join("\0"),
     [expanded],
   );
-  const open = useMemo(() => new Set(openKey.split("\0")), [openKey]);
+  const chosen = useMemo(() => new Set(openKey.split("\0")), [openKey]);
+  // A folder whose only entry is a folder shows as one row with it, so opening the first opens
+  // the chain: each folder in it is listed and watched as an open one.
+  const chainedKey = useMemo(
+    () => [...chainedOpenFolders(folders, chosen)].toSorted().join("\0"),
+    [folders, chosen],
+  );
+  const open = useMemo(() => new Set(chainedKey.split("\0")), [chainedKey]);
   const visibleKey = useMemo(() => [...visibleOpenFolders(open)].toSorted().join("\0"), [open]);
   const visible = useMemo(() => new Set(visibleKey.split("\0")), [visibleKey]);
   const order = useMemo(() => visibleKey.split("\0"), [visibleKey]);
@@ -318,7 +326,7 @@ export function useFolderTree(options: {
     wasOnline.current = online;
   }, [online, watch]);
 
-  const rows = useMemo(() => folderRows(folders, open), [folders, open]);
+  const rows = useMemo(() => compactFolderRows(folders, open), [folders, open]);
   const showMore = useCallback((folder: string) => request(folder, "more"), [request]);
   const retry = useCallback(
     (folder: string) => request(folder, retryPage(foldersRef.current[folder]).mode),

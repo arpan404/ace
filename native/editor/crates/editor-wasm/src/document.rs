@@ -81,6 +81,13 @@ impl EditorDocument {
         self.core.version() as f64
     }
 
+    /// Which text the document holds as its undo history sees it: undo back to a saved point
+    /// gives back the id it had then, and a new edit always takes a fresh one.
+    #[wasm_bindgen(js_name = contentId)]
+    pub fn content_id(&self) -> f64 {
+        self.core.content_id() as f64
+    }
+
     /// Every cursor as `(anchor line, anchor column, head line, head column)` quads, in document
     /// order.
     pub fn selections(&self) -> Vec<u32> {

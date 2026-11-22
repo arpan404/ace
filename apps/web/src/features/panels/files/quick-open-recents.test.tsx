@@ -2,6 +2,7 @@ import { coldStartReplay } from "@ace/fake-daemon";
 import { configure, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
+import { z } from "zod";
 import { harness } from "@/test/harness.tsx";
 import { folderFixture } from "./folders-test-support.ts";
 
@@ -59,4 +60,57 @@ test("after quick open opens a file, the keyboard is in the file, not back in th
     name: "Source of apps/web/src/relay/socket.ts",
   });
   await waitFor(() => expect(source.contains(document.activeElement)).toBe(true));
+});
+
+/** Answer the checkout's path search as "still building the index" until the returned call. */
+function buildingIndex(client: unknown) {
+  const Completion = z.object({
+    type: z.literal("context.request"),
+    operation: z.object({ op: z.literal("mention.complete") }),
+  });
+  const patched = client as { request(input: unknown, options?: unknown): Promise<unknown> };
+  const request = patched.request.bind(patched);
+  let building = true;
+  patched.request = async (input, options) => {
+    const reply = await request(input, options);
+    if (!building || !Completion.safeParse(input).success) return reply;
+    const Reply = z.looseObject({ result: z.looseObject({ kind: z.literal("completion") }) });
+    const parsed = Reply.safeParse(reply);
+    if (!parsed.success) return reply;
+    return { ...parsed.data, result: { ...parsed.data.result, paths: [], ready: false } };
+  };
+  return () => {
+    building = false;
+  };
+}
+
+test("while the checkout's index builds, quick open lists the open and recent files that match", async () => {
+  const app = await openThread();
+  await pick("socket.ts");
+  await pick("README.md");
+  // README.md is closed again: a recent file now, no longer an open one.
+  const side = await panel();
+  await userEvent.click(within(side).getByRole("tab", { name: "README.md" }));
+  await userEvent.keyboard("{Alt>}{Control>}w{/Alt}{/Control}");
+  await waitFor(() => expect(within(side).queryByRole("tab", { name: "README.md" })).toBeNull());
+
+  const built = buildingIndex(app.client);
+  await userEvent.keyboard("{Control>}p{/Control}");
+  await userEvent.type(await screen.findByRole("combobox", { name: "Search files" }), "e");
+  const list = await screen.findByRole("listbox", { name: "Files" });
+  const names = () =>
+    within(list)
+      .queryAllByRole("option")
+      .map((option) => option.querySelector("span")?.textContent);
+  // Both hold an "e", so both show at once; events.ts waits for the index.
+  await waitFor(() => expect(names()).toEqual(expect.arrayContaining(["socket.ts", "README.md"])));
+  expect(names()).not.toContain("events.ts");
+  expect(screen.getByRole("status", { name: "Searching" })).toBeTruthy();
+  // Once the index is built, the rest of the checkout's matches join them, each file once.
+  built();
+  await waitFor(() => expect(names()).toContain("events.ts"));
+  const paths = within(list)
+    .getAllByRole("option")
+    .map((option) => option.textContent);
+  expect(new Set(paths).size).toBe(paths.length);
 });

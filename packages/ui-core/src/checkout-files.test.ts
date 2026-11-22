@@ -57,6 +57,9 @@ test("bytes with a NUL or broken UTF-8 are binary; a code point cut at a chunk e
 test("a file's language and image type come from its extension", () => {
   expect(fileLanguage("apps/web/main.tsx")).toBe("tsx");
   expect(fileLanguage("Makefile")).toBeUndefined();
+  expect(fileLanguage("README.md")).toBe("markdown");
+  expect(fileLanguage("docs/guide.MDX")).toBe("markdown");
+  expect(fileLanguage("config/app.yml")).toBe("yaml");
   expect(imageType("assets/logo.SVG")).toBe("image/svg+xml");
   expect(imageType("src/app.ts")).toBeUndefined();
 });

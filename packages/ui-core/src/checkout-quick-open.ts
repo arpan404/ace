@@ -24,8 +24,41 @@ export interface QuickOpenRow {
 const shortList = 8;
 
 /**
- * The rows quick open offers. With a query: the daemon's matches, best first, files only. With
- * none: up to eight files opened recently, then up to eight `changed` files not among them.
+ * How well a path's name answers what was typed: 0 the name itself or its stem ("tabs" for
+ * tabs.ts; typed with a folder, the path's end), 1 a name that starts with it, 2 a name that
+ * holds it, 3 letters found in order.
+ */
+function nameTier(query: string, path: string): number {
+  const typed = query.toLowerCase().replace(/\s+/g, "");
+  const full = path.toLowerCase().replace(/\/$/, "");
+  if (typed.includes("/") && (full === typed || full.endsWith(`/${typed}`))) return 0;
+  const word = typed.slice(typed.lastIndexOf("/") + 1);
+  const name = full.slice(full.lastIndexOf("/") + 1);
+  if (!word) return 3;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  if (name === word || stem === word) return typed.includes("/") ? 1 : 0;
+  if (name.startsWith(word)) return 1;
+  return name.includes(word) ? 2 : 3;
+}
+
+/**
+ * `paths` (the daemon's fuzzy matches, best first) with the names that answer `query` best
+ * moved up: the exact name, then names that start with it, then names that hold it, then the
+ * rest. The daemon's order stands within each tier, so "workspace-tabs.ts" lists that file
+ * before "workspace/bottom-tabs.ts", which only matches letter by letter.
+ */
+export function rankPathMatches(query: string, paths: readonly string[]): string[] {
+  return paths
+    .map((path, index) => ({ path, index, tier: nameTier(query, path) }))
+    .toSorted((a, b) => a.tier - b.tier || a.index - b.index)
+    .map((each) => each.path);
+}
+
+/**
+ * The rows quick open offers. With a query: the daemon's matches, the best names first
+ * (`rankPathMatches`), files only. With none: up to eight files opened recently, then up to
+ * eight `changed` files not among them.
  */
 export function quickOpenRows(
   query: string,
@@ -35,7 +68,10 @@ export function quickOpenRows(
   changedGroup = "Edited in this thread",
 ): QuickOpenRow[] {
   if (query)
-    return matches.filter((path) => !path.endsWith("/")).map((path) => ({ path, group: "Files" }));
+    return rankPathMatches(
+      query,
+      matches.filter((path) => !path.endsWith("/")),
+    ).map((path) => ({ path, group: "Files" }));
   const opened = recent.slice(0, shortList);
   const seen = new Set(opened);
   return [

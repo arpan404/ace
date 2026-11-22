@@ -1,12 +1,21 @@
 import { lazy, Suspense, useCallback, useEffect } from "react";
+import { whenIdle } from "@/lib/idle.ts";
 import { useLocal } from "../store.ts";
 import { quickOpen } from "./quick-open-store.ts";
 
-// The palette's code loads the first time it opens; the overlay itself is a few lines that ride
-// with the tab kinds.
-const QuickOpenDialog = lazy(() =>
-  import("./quick-open.tsx").then((module) => ({ default: module.QuickOpenDialog })),
-);
+// The palette's code is its own small chunk (it never reaches the code editor), fetched once the
+// thread screen is idle; the overlay itself is a few lines that ride with the tab kinds. Once
+// fetched it renders directly: going through `lazy` would suspend the first render, and React
+// holds a suspended reveal back for about 300ms.
+let loaded: typeof import("./quick-open.tsx").QuickOpenDialog | undefined;
+const loadDialog = () =>
+  import("./quick-open.tsx").then((module) => {
+    loaded = module.QuickOpenDialog;
+    return module;
+  });
+const LazyDialog = lazy(() => loadDialog().then((module) => ({ default: module.QuickOpenDialog })));
+
+const close = () => quickOpen.set(() => undefined);
 
 /** Overlays mounted per thread, so a remount doesn't count as leaving. */
 const mounted = new Map<string, number>();
@@ -17,6 +26,7 @@ export function QuickOpenOverlay(props: { scope: string }) {
     quickOpen,
     useCallback((scope: string | undefined) => scope === props.scope, [props.scope]),
   );
+  useEffect(() => whenIdle(() => void loadDialog()), []);
   // Leaving the thread's screen puts its palette away; it doesn't wait there for a return. A
   // remount (Strict Mode, a kinds reload) mounts it again before the check runs.
   useEffect(() => {
@@ -30,9 +40,10 @@ export function QuickOpenOverlay(props: { scope: string }) {
     };
   }, [props.scope]);
   if (!open) return null;
+  const Dialog = loaded ?? LazyDialog;
   return (
     <Suspense fallback={null}>
-      <QuickOpenDialog threadId={props.scope} onClose={() => quickOpen.set(() => undefined)} />
+      <Dialog threadId={props.scope} onClose={close} />
     </Suspense>
   );
 }

@@ -131,6 +131,19 @@ const names: Record<string, string> = {
   c: "C",
   cpp: "C++",
   cs: "C#",
+  markdown: "Markdown",
+  css: "CSS",
+  scss: "SCSS",
+  html: "HTML",
+  xml: "XML",
+  yaml: "YAML",
+  toml: "TOML",
+  sql: "SQL",
+  ruby: "Ruby",
+  php: "PHP",
+  lua: "Lua",
+  zig: "Zig",
+  graphql: "GraphQL",
 };
 
 /** A language's name as people say it. */

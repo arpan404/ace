@@ -15,6 +15,15 @@ export function normaliseNewlines(text: string): string {
   return text.replace(/\r\n?/g, "\n");
 }
 
+/**
+ * A drag made inside ace (a tab, explorer rows, a workspace tab) carries its own
+ * `application/x-ace-…` type: it is the group's to place, never text for the document.
+ */
+export function carriesAceDrag(transfer: { types: Iterable<string> | ArrayLike<string> } | null) {
+  if (!transfer) return false;
+  return Array.from(transfer.types).some((type) => type.startsWith("application/x-ace-"));
+}
+
 export interface EditorInputHandlers {
   composingText: string | undefined;
   /** True when an editing key was applied; the caller then skips its navigation keys. */
@@ -90,6 +99,10 @@ export function useEditorInput(
       return;
     }
     const type = event.inputType ?? "";
+    if (type === "insertFromDrop" && carriesAceDrag(event.dataTransfer)) {
+      block();
+      return;
+    }
     if (type === "insertLineBreak" || type === "insertParagraph") {
       block();
       state.edit((target) => target.smartNewline());
@@ -197,7 +210,9 @@ export function useEditorInput(
   };
 
   const onDrop = (event: DragEvent<HTMLTextAreaElement>) => {
+    // The box never takes the text itself; an ace drag goes on to the group's drop zone.
     event.preventDefault();
+    if (carriesAceDrag(event.dataTransfer)) return;
     if (!readOnly) insert(normaliseNewlines(event.dataTransfer.getData("text/plain")));
   };
 

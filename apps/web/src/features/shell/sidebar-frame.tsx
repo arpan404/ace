@@ -63,7 +63,14 @@ const SidebarSheet = lazy(() =>
  * Settings draw their list into its body.
  */
 export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen, setSidebarWidth, hideRightPanel, rightPanelShown } = useLayout();
+  const {
+    layout,
+    setSidebarOpen,
+    setSidebarWidth,
+    hideRightPanel,
+    rightPanelShown,
+    rightPanelFull,
+  } = useLayout();
   // A Suit may move the sidebar, set its starting width and fold the rail away (ADR 0150).
   const suitLayout = useSuitLayout();
   const right = suitLayout?.sidebar === "right";
@@ -98,7 +105,7 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
     allocateRoom({
       window: windowWidth,
       sidebar: { open: layout.sidebarOpen, inline: wide && !setup, width: settled + rail },
-      panel: { open: rightPanelShown, dock: "side", expanded: false, size: 0 },
+      panel: { open: rightPanelShown, dock: "side", expanded: rightPanelFull, size: 0 },
     }).sidebar === "yielded";
   const inline = !setup && layout.sidebarOpen && !yielded;
   const shown = wide ? inline : sheetOpen;
