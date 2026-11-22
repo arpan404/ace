@@ -125,8 +125,9 @@ export function EditorTimeline(props: {
           ) : active.error ? (
             <p className="px-3 py-2 text-xs text-subtle-foreground">{active.error}</p>
           ) : active.entries.length === 0 ? (
+            // A walk stopped before its first commit proves nothing about there being none.
             <p className="px-3 py-2 text-xs text-subtle-foreground">
-              No commits for this file yet.
+              {active.stopped ? stoppedWords[active.stopped] : "No commits for this file yet."}
             </p>
           ) : (
             <>

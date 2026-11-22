@@ -254,6 +254,28 @@ describe("EditorTimeline and EditorCommitCompare", () => {
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
+  test("a walk that ran out of time before any commit says it stopped early, not that there are none", async () => {
+    const daemon = new FakeDaemon({ clock: () => nowMs });
+    daemon.workspace.setGitLog(threadId, "src/paged.ts", [], "budget");
+    const client = fakeClient(daemon);
+    await client.start();
+    await waitFor(() => expect(client.state).toBe("ready"));
+    render(
+      <ClientProvider client={client}>
+        <EditorTimeline
+          threadId={threadId}
+          path="src/paged.ts"
+          open
+          onOpenChange={() => {}}
+          onOpenCommit={() => {}}
+          now={() => nowMs}
+        />
+      </ClientProvider>,
+    );
+    expect(await screen.findByText("Stopped early: history is very long.")).toBeTruthy();
+    expect(screen.queryByText("No commits for this file yet.")).toBeNull();
+  });
+
   test("a walk that ran out of time says it stopped early", async () => {
     const daemon = new FakeDaemon({ clock: () => nowMs });
     daemon.workspace.setGitLog(
