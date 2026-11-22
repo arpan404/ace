@@ -76,6 +76,7 @@ import { DeviceTabControl, DeviceTabs } from "./device-tabs.ts";
 import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
+import { EarlyActions } from "./early-actions.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -102,9 +103,18 @@ const Config = z.object({
     .catch(undefined),
 });
 const Action = z.discriminatedUnion("type", [
-  /** `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`). */
-  z.object({ type: z.literal("open"), threadId: z.string().min(1), warm: z.boolean().optional() }),
-  z.object({ type: z.literal("back") }),
+  /**
+   * `warm`: native kept its copy of the thread from an earlier visit (`native-ledger.ts`).
+   * `epoch`: native's navigation generation for it, which the visit takes, so an open or back
+   * lost on the way never leaves every later patch under a generation native isn't drawing.
+   */
+  z.object({
+    type: z.literal("open"),
+    threadId: z.string().min(1),
+    warm: z.boolean().optional(),
+    epoch: z.number().int().min(0).optional(),
+  }),
+  z.object({ type: z.literal("back"), epoch: z.number().int().min(0).optional() }),
   /** The open thread's first screen is on show, under native's navigation generation `epoch`. */
   z.object({
     type: z.literal("thread.shown"),
@@ -225,6 +235,8 @@ function deviceAgent(threadId: string, agentId: string) {
   const agent = threadId === visit.threadId ? visit.store?.agent(agentId) : undefined;
   return agent && { name: agentName(agent), provider: agent.native?.provider ?? "" };
 }
+/** Actions native sent before `start` made the client (`early-actions.ts`). */
+const beforeStart = new EarlyActions();
 function error(): void {
   pump.put("error", () => ({
     type: "error",
@@ -583,11 +595,22 @@ async function start(json: string): Promise<void> {
   browser.useMedia(media.route, media.deliver);
   screen.useMedia(media.route, media.deliver);
   devices.useMedia(media.route, media.deliver);
+  // What native sent while the client didn't exist, in order, now that it does.
+  for (const held of beforeStart.take()) handle(held);
   await client.start();
 }
 function action(json: string): void {
   try {
     const raw: unknown = JSON.parse(json);
+    // Before the client exists (the runtime still booting) actions wait for it, never alert.
+    if (!client && beforeStart.hold(raw)) return;
+    handle(raw);
+  } catch {
+    error();
+  }
+}
+function handle(raw: unknown): void {
+  try {
     const deviceControl = NativeDeviceControl.safeParse(raw);
     if (deviceControl.success) {
       devices?.handle(deviceControl.data);
@@ -699,10 +722,10 @@ function action(json: string): void {
     }
     switch (value.type) {
       case "open":
-        visit.open(client, value.threadId, value.warm ?? false);
+        visit.open(client, value.threadId, value.warm ?? false, undefined, value.epoch);
         break;
       case "back":
-        visit.back();
+        visit.back(value.epoch);
         break;
       case "thread.shown":
         visit.shown(value.threadId, value.epoch);

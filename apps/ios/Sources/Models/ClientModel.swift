@@ -27,7 +27,12 @@ import QuartzCore
     var loaded = false
     let screen = ThreadScreenModel()
     /// A replacement snapshot assembles offscreen until its ready fence arrives.
-    @ObservationIgnored var refresh: ThreadModel?
+    @ObservationIgnored var refresh: ThreadModel? {
+        didSet { if replacing != (refresh != nil) { replacing = refresh != nil } }
+    }
+    /// A replacement is staged behind the rows on screen (`refresh`): what shows isn't the
+    /// machine's current copy yet. Observed, unlike `refresh`.
+    private(set) var replacing = false
     /// The revision the current staging began with, if any.
     @ObservationIgnored var refreshRevision: Int?
     /// The `itemsBefore` the begin carried, for eviction inference.
@@ -75,6 +80,8 @@ import QuartzCore
     /// and relay starts a new runtime whose sockets count from 1 again). What was read on an
     /// earlier connection is out of date. Each `ClientModel` counts from zero.
     private(set) var connectionEpoch = 0
+    /// The open last sent, until its fence lands (`retryOpening`).
+    @ObservationIgnored var openAsked: OpenAsked?
     /// Each change of the runtime's connection state, after it applies; the machine list uses
     /// it to move a machine between its routes (`MachineRoutePlan`).
     @ObservationIgnored var onConnection: ((String) -> Void)?
@@ -530,6 +537,7 @@ import QuartzCore
             readingWillMove?()
         }
         var activityChanged = false
+        var becameReady = false
         for patch in patches {
             patchCount += 1
             if readingHold != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
@@ -587,6 +595,7 @@ import QuartzCore
             case .connection(let state, let generation, let socket):
                 let changed = state != connection
                 if changed { LaunchTrace.mark("connection", state) }
+                if changed, state == "ready" { becameReady = true }
                 connection = state
                 self.socket = state == "ready" ? socket : nil
                 // An admitted connection needs no code, whatever an earlier attempt was asked.
@@ -788,6 +797,8 @@ import QuartzCore
                         }
                     }
                     snapshotRetries[id] = nil
+                    // The open has its answer: a Retry may ask again (`ThreadOpenRetry`).
+                    if openAsked?.threadId == id { openAsked = nil }
                     thread.requiresSnapshot = false
                     thread.loaded = true
                     ThreadOpenTrace.shared.ready(id)
@@ -854,6 +865,12 @@ import QuartzCore
         if let thread = thread?.refresh ?? thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }
         }
+        // The open thread has nothing to show yet as the connection comes up: whatever it asked
+        // for on the way may never have arrived, so it asks again (`ThreadOpenRetry.reopensOnReady`).
+        if becameReady, let shown = thread,
+           ThreadOpenRetry.reopensOnReady(loaded: shown.loaded, hasRows: !shown.order.isEmpty) {
+            open(shown.id, isSnapshotRetry: true)
+        }
     }
     /// A new list keeps the rows it names until each fresh copy lands, so the inbox never blanks
     /// or jumps to the top while the rest arrive; it drops every other row. A kept row is no
@@ -893,7 +910,10 @@ import QuartzCore
         ThreadOpenTrace.shared.open(id, warm: warm)
         ThreadOpenTrace.shared.showing(true)
         thread = opened
-        action(["type": "open", "threadId": id, "warm": warm])
+        // The bridge's visit takes this generation, so an open lost on the way never leaves it
+        // behind native's (`thread-visit.ts`).
+        let sent = action(["type": "open", "threadId": id, "warm": warm, "epoch": generation])
+        openAsked = sent ? OpenAsked(threadId: id, connection: connectionEpoch) : nil
         intake.opened(id, epoch: generation)
     }
     /// A rejected or mismatched snapshot fence retries the current open once, preserving
@@ -910,7 +930,7 @@ import QuartzCore
     }
     func back() {
         fenceFrames()
-        generation += 1; action(["type": "back"])
+        generation += 1; action(["type": "back", "epoch": generation])
         if let thread {
             shelf.keep(thread)
             snapshotRetries[thread.id] = nil
