@@ -24,9 +24,13 @@ it("a command whose access ended while it waited in its lane is refused when its
   const ran: string[] = [];
   const sent: ServerMessage[] = [];
   // An earlier command holds the thread's lane.
-  let free = () => {};
-  const busy = new Promise<void>((resolve) => (free = resolve));
-  void lanes.run(commandLane(command("cmd_first"), device), device, "cmd_first", () => busy);
+  const busy = Promise.withResolvers<void>();
+  void lanes.run(
+    commandLane(command("cmd_first"), device),
+    device,
+    "cmd_first",
+    () => busy.promise,
+  );
   let stillAllowed = true;
   const admission: CommandAdmission = {
     options: { store: { getThread: () => undefined } } as unknown as ServerOptions,
@@ -56,7 +60,7 @@ it("a command whose access ended while it waited in its lane is refused when its
   const admitted = admitCommand(command("cmd_waiting"), admission);
   // Her standing lapses while the command waits its turn.
   stillAllowed = false;
-  free();
+  busy.resolve();
   await admitted;
   await lanes.settled();
   expect(ran).toEqual([]);
