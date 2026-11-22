@@ -41,41 +41,9 @@ struct MarketInstalledView: View {
 
     var body: some View {
         List {
-            if let problem {
-                Section {
-                    ProblemRow(problem.message, id: "market.installed.problem", retry: problem.way == .retry ? reread : nil)
-                }
-                .insetRowBackground()
-            }
-            if offline {
-                Section {
-                    Text("Your machine is offline. Nothing can change until it's back.")
-                        .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
-                        .accessibilityIdentifier("market.installed.offline")
-                }
-                .insetRowBackground()
-            }
-            if let page {
-                if let empty = page.empty {
-                    EmptyState(icon: .storefront, title: "Nothing installed", line: empty)
-                        .frame(maxWidth: .infinity)
-                        .listRowBackground(Color.clear)
-                } else {
-                    Section {
-                        if let upToDate = page.upToDate {
-                            Text(upToDate).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
-                        }
-                        ForEach(page.waiting) { row($0) }
-                    } header: { InsetHeader(page.updatesTitle) }
-                    .insetRowBackground()
-                    if !page.rest.isEmpty {
-                        Section { ForEach(page.rest) { row($0) } } header: { InsetHeader("Installed") }
-                            .insetRowBackground()
-                    }
-                }
-            } else if problem == nil {
-                Section { SkeletonRows(count: 4, label: "Reading what's installed").listRowInsets(EdgeInsets()) }
-            }
+            problemSection
+            offlineSection
+            listSections
         }
         .insetGroupedList()
         .animation(.default, value: page)
@@ -117,6 +85,62 @@ struct MarketInstalledView: View {
         }
     }
 
+    @ViewBuilder private var problemSection: some View {
+        if let problem {
+            Section {
+                ProblemRow(problem.message, id: "market.installed.problem", retry: retryProblem)
+            }
+            .insetRowBackground()
+        }
+    }
+
+    @ViewBuilder private var offlineSection: some View {
+        if offline {
+            Section {
+                Text("Your machine is offline. Nothing can change until it's back.")
+                    .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("market.installed.offline")
+            }
+            .insetRowBackground()
+        }
+    }
+
+    @ViewBuilder private var listSections: some View {
+        if let page {
+            if let empty = page.empty {
+                emptyState(empty)
+            } else {
+                updatesSection(page)
+                restSection(page)
+            }
+        } else if problem == nil {
+            Section { SkeletonRows(count: 4, label: "Reading what's installed").listRowInsets(EdgeInsets()) }
+        }
+    }
+
+    private func emptyState(_ line: String) -> some View {
+        EmptyState(icon: .storefront, title: "Nothing installed", line: line)
+            .frame(maxWidth: .infinity)
+            .listRowBackground(Color.clear)
+    }
+
+    private func updatesSection(_ page: MarketInstalledPage) -> some View {
+        Section {
+            if let upToDate = page.upToDate {
+                Text(upToDate).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
+            }
+            ForEach(page.waiting) { row($0) }
+        } header: { InsetHeader(page.updatesTitle) }
+        .insetRowBackground()
+    }
+
+    @ViewBuilder private func restSection(_ page: MarketInstalledPage) -> some View {
+        if !page.rest.isEmpty {
+            Section { ForEach(page.rest) { row($0) } } header: { InsetHeader("Installed") }
+                .insetRowBackground()
+        }
+    }
+
     private var question: String {
         switch asking {
         case .remove(let item): item.removeQuestion
@@ -153,7 +177,11 @@ struct MarketInstalledView: View {
         }
     }
 
-    private func reread() { Task { await load() } }
+    /// Try again, for a refusal whose way out is to ask again.
+    private var retryProblem: (() -> Void)? {
+        guard problem?.way == .retry else { return nil }
+        return { Task { await load() } }
+    }
 
     private func load(fresh: Bool = false) async {
         do {
