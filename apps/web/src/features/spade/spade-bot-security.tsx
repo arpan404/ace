@@ -6,7 +6,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState, useRef } from "react";
-import { SettingFooter, SettingRow } from "@/components/setting-row.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -153,7 +153,7 @@ function useGrantChange(bot: RosterBot) {
 }
 
 const access = [
-  { value: "read", label: "Read" },
+  { value: "read", label: "Read only" },
   { value: "write", label: "Read and write" },
 ] as const;
 
@@ -194,40 +194,34 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
           </Button>
         </SettingRow>
       ))}
-      <SettingFooter className="justify-start">
-        <form
-          className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (typed) add(typed);
-          }}
-        >
-          {/* Each control says what it is, so the row reads as a sentence. */}
-          <label className="flex min-w-0 flex-1 items-center gap-2 text-ui text-muted-foreground">
-            Folder
-            <Input
-              aria-label="Folder path"
-              placeholder="Path"
-              value={path}
-              className="min-w-0 flex-1"
-              disabled={change.saving}
-              onChange={(event) => setPath(event.target.value)}
-            />
-          </label>
-          <span className="flex shrink-0 items-center gap-2 text-ui text-muted-foreground">
-            Access
-            <Select<"read" | "write">
-              label="Access"
-              className="w-36 shrink-0"
-              value={write}
-              options={access}
-              onValueChange={setWrite}
-            />
-          </span>
+      {/* The path on its own line, then its access and the button: one height, one left edge. */}
+      <form
+        data-setting-slot=""
+        className="flex flex-col gap-2 py-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (typed) add(typed);
+        }}
+      >
+        <Input
+          aria-label="Folder path"
+          placeholder="Folder path"
+          value={path}
+          disabled={change.saving}
+          onChange={(event) => setPath(event.target.value)}
+        />
+        <div className="flex items-center gap-2">
+          <Select<"read" | "write">
+            label="Access"
+            className="min-w-0 flex-1"
+            value={write}
+            options={access}
+            onValueChange={setWrite}
+          />
           {picker && !typed ? (
             <Button
-              size="sm"
               variant="secondary"
+              className="h-8 shrink-0"
               disabled={change.saving}
               onClick={() => void picker.choose().then((chosen) => chosen && add(chosen))}
             >
@@ -236,15 +230,15 @@ function ProfileFolders(props: { bot: RosterBot; security: SpadeBotSecurity }) {
           ) : (
             <Button
               type="submit"
-              size="sm"
               variant="secondary"
+              className="h-8 shrink-0"
               disabled={change.saving || !typed.startsWith("/")}
             >
               Add folder
             </Button>
           )}
-        </form>
-      </SettingFooter>
+        </div>
+      </form>
       {change.refusal && (
         <p data-setting-slot="" className="py-2 text-xs">
           <Refusal onConfirmed={change.retry}>{change.refusal}</Refusal>

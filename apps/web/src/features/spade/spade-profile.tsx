@@ -129,7 +129,7 @@ export function SpadeProfile(props: {
                 tabIndex={selected ? 0 : -1}
                 onClick={() => props.onTab(each)}
                 className={cn(
-                  "h-8 flex-1 rounded-full text-ui font-medium transition-colors duration-(--motion-fast) focus-ring",
+                  "h-8 flex-auto rounded-full px-2 text-ui font-medium whitespace-nowrap transition-colors duration-(--motion-fast) focus-ring",
                   selected
                     ? "bg-background text-foreground shadow-[0_0_0_1px_var(--border)]"
                     : "text-muted-foreground hover:text-foreground",
