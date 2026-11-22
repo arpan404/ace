@@ -1,10 +1,9 @@
 /**
- * Releases ace cloud and the market to staging or production (docs/release/workers.md): D1
+ * Releases ace cloud and the market to production (docs/release/workers.md): D1
  * migrations, the new version at 100%, a smoke of every hostname, and a rollback to the previous
  * version if the smoke fails. Exit codes are `exitCodes` in release.ts.
  *
- *   node tools/workers-release/src/deploy.ts <cloud|market|all> <staging|production> \
- *     [--version <tag>] [--skip-staging-check]
+ *   node tools/workers-release/src/deploy.ts <cloud|market|all> production [--version <tag>]
  *
  * Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID, and a clean checkout: the version
  * message names the commit it was built from.
@@ -49,7 +48,6 @@ async function deployWorker(
   worker: Worker,
   environment: Environment,
   release: Release,
-  skipStagingCheck: boolean,
 ): Promise<RunResult> {
   const cwd = appDirectories[worker];
   const config = unstable_readConfig(
@@ -57,7 +55,6 @@ async function deployWorker(
     { hideWarnings: true },
   );
   const problems = await checkMigrations([migrationRoots[worker]]);
-  const waitForStaging = environment === "production" && !skipStagingCheck;
   return runDeploy(
     {
       worker,
@@ -69,7 +66,6 @@ async function deployWorker(
     },
     {
       port: wranglerWorker(runProcess, cwd, environment),
-      staging: waitForStaging ? wranglerWorker(runProcess, cwd, "staging") : undefined,
       smoke: (origin) => smoke(cwd, origin),
       sleep: (ms) => sleep(ms),
       log: (line) => console.log(`[${worker} ${environment}] ${line}`),
@@ -97,7 +93,7 @@ async function main(): Promise<number> {
   for (const worker of parsed.workers) {
     let result: RunResult;
     try {
-      result = await deployWorker(worker, parsed.environment, release, parsed.skipStagingCheck);
+      result = await deployWorker(worker, parsed.environment, release);
     } catch (error) {
       // Only the config and the reads before the deploy throw: runDeploy settles the rest.
       const message = error instanceof Error ? error.message : String(error);

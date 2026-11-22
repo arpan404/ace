@@ -8,6 +8,7 @@ import {
   lineWidth,
   measureElement,
 } from "./geometry.ts";
+import { cssFont } from "@/lib/css-font.ts";
 
 /* Measurement and screen-reader mirroring: everything that needs the laid-out DOM. */
 
@@ -25,7 +26,7 @@ export function useCellWidth(
   useLayoutEffect(() => {
     const element = scroller.current;
     // oxlint-disable-next-line react-compiler/set-state-in-effect -- the cell width comes from the laid-out font, once per font.
-    if (element) setCell(charWidthFor(getComputedStyle(element).font));
+    if (element) setCell(charWidthFor(cssFont(getComputedStyle(element))));
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- a new font is read from the laid-out element, not from the key.
   }, [scroller, font]);
 
@@ -33,7 +34,7 @@ export function useCellWidth(
     const measure = () => {
       clearMeasurements();
       const element = scroller.current;
-      if (element) setCell(charWidthFor(getComputedStyle(element).font));
+      if (element) setCell(charWidthFor(cssFont(getComputedStyle(element))));
     };
     document.fonts?.addEventListener("loadingdone", measure);
     if (typeof matchMedia !== "function")

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { decodeBase64url } from "@ace/account-grant";
 import type { MarketKeySet } from "@ace/protocol/marketplace";
 import {
+  legacyMarketOrigin,
   marketOrigin,
   marketPublicKey,
   shippedMarketKeys,
@@ -14,7 +15,7 @@ import { aceClientName, namedFetch } from "@ace/client/ace-client";
 import { option, type Args } from "../args.ts";
 import { CliFailure, usageFailure } from "../output.ts";
 
-/* What every maintainer tool shares: the signing key, the market's address and the signer's io. */
+/* What every maintainer tool shares: the signing key, the Store's address and the signer's io. */
 
 /** Every maintainer command's help and first error say what it needs. */
 export const maintainerNeeds = "Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.";
@@ -36,9 +37,9 @@ export async function readKey(path: string | undefined): Promise<MarketSigningKe
 }
 
 /**
- * Where the maintainer tools send ACE_MARKET_SIGNER_TOKEN: market.acehq.dev, or a development
- * market named on purpose with `--dev-market`. The old `--url` may only name market.acehq.dev,
- * so a mistyped or planted origin never receives the token.
+ * Where the maintainer tools send ACE_MARKET_SIGNER_TOKEN: store.acehq.dev, or a development
+ * Store named on purpose with `--dev-market`. The old `--url` may only name store.acehq.dev (or
+ * legacy market.acehq.dev), so a mistyped or planted origin never receives the token.
  */
 export function marketUrl(args: Args): URL {
   const dev = option(args, "dev-market");
@@ -54,11 +55,15 @@ export function marketUrl(args: Args): URL {
   }
   const named = option(args, "url");
   const url = new URL(marketOrigin);
-  if (named !== undefined && parsed(named, "--url").origin !== url.origin)
-    throw usageFailure(`The signer token goes only to ${url.host}, not ${named}.`, {
-      argument: "--url",
-      hint: "For a development market, name it with --dev-market URL.",
-    });
+  if (named !== undefined) {
+    const given = parsed(named, "--url");
+    if (given.origin !== url.origin && given.origin !== legacyMarketOrigin)
+      throw usageFailure(`The signer token goes only to ${url.host}, not ${named}.`, {
+        argument: "--url",
+        hint: "For a development Store, name it with --dev-market URL.",
+      });
+    return given;
+  }
   return url;
 }
 

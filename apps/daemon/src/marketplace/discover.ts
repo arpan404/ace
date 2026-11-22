@@ -76,7 +76,7 @@ export async function discover(
   ports: { store: MarketStore; http: MarketHttp | undefined; marks: RowMarks; now: () => number },
   source: StoredSource | undefined,
 ): Promise<MarketResult> {
-  if (!source?.enabled) return failure("unavailable", "market.acehq.dev is turned off");
+  if (!source?.enabled) return failure("unavailable", "store.acehq.dev is turned off");
   let problem = "The market can't be reached, and Discover hasn't been read yet";
   if (ports.http)
     try {
@@ -107,7 +107,7 @@ export async function publisherPage(
   handle: string,
 ): Promise<MarketResult> {
   if (!source?.enabled || !ports.http)
-    return failure("unavailable", "market.acehq.dev is turned off");
+    return failure("unavailable", "store.acehq.dev is turned off");
   let raw: unknown;
   try {
     raw = await ports.http.publisher(handle);
@@ -144,7 +144,7 @@ export async function report(
   http: MarketHttp | undefined,
   operation: Extract<MarketOperation, { op: "report" }>,
 ): Promise<MarketResult> {
-  if (!http) return failure("unavailable", "market.acehq.dev is turned off");
+  if (!http) return failure("unavailable", "store.acehq.dev is turned off");
   const { op: _op, ...body } = operation;
   let reply;
   try {

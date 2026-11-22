@@ -328,3 +328,23 @@ test("hidden lines draw no rows, rows skip over them, and they stay hidden as li
   index.setHidden([]);
   expect(index.total()).toBe(5);
 });
+
+test("measuring a line on demand that changes its row count moves the revision", () => {
+  const index = new WrapIndex(source(["short", "x".repeat(200), "short"]));
+  index.setColumns(20);
+  const before = index.revision();
+  // Read-only: the count as known, nothing measured.
+  expect(index.rowCount(1)).toBe(1);
+  expect(index.revision()).toBe(before);
+
+  // Measured as a render reads it: 10 rows now, and the revision moves.
+  expect(index.rowsOf(1)).toHaveLength(10);
+  expect(index.rowCount(1)).toBe(10);
+  expect(index.revision()).toBeGreaterThan(before);
+
+  // Measuring again to the same count leaves it.
+  const after = index.revision();
+  index.rowsOf(0);
+  index.rowsOf(1);
+  expect(index.revision()).toBe(after);
+});

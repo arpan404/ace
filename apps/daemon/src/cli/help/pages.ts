@@ -10,7 +10,7 @@ export const groupTitles: Record<CommandGroup, string> = {
   work: "Work",
   machine: "This machine",
   providers: "Providers and access",
-  "spade-market": "Spade and the market",
+  "spade-market": "Spade and the Store",
   "agent-tools": "Agent tools",
 };
 
@@ -73,7 +73,7 @@ export function nounPage(table: CommandTable, words: readonly string[]): string 
   );
   if (short.length) lines.push("", `Shortcuts: ${short.join("; ")}.`);
   if (noun?.description) lines.push("", noun.description);
-  if (prefix === "market") lines.push("", "Maintainer tools: ace help market-maintainer");
+  if (prefix === "store") lines.push("", "Maintainer tools: ace help store-maintainer");
   lines.push("", `ace help ${prefix} COMMAND for one command.`);
   return lines.join("\n");
 }

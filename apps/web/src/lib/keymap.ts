@@ -284,7 +284,7 @@ export const keymap = {
   "editor.focusGroup": {
     keys: "mod+1",
     web: "alt+mod+1",
-    label: "Focus group 1 to 9",
+    label: "Focus pane 1 to 9",
     scope: "editor",
     fixed: true,
   },
@@ -292,14 +292,14 @@ export const keymap = {
   "editor.moveEditorBack": {
     keys: "ctrl+mod+arrowleft",
     nonApple: "shift+mod+pageup",
-    label: "Move the editor to the previous group",
+    label: "Move the editor to the previous pane",
     scope: "editor",
     fixed: true,
   },
   "editor.moveEditorOn": {
     keys: "ctrl+mod+arrowright",
     nonApple: "shift+mod+pagedown",
-    label: "Move the editor to the next group",
+    label: "Move the editor to the next pane",
     scope: "editor",
     fixed: true,
   },

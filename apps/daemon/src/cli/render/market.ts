@@ -49,7 +49,7 @@ export function entryLines(entry: MarketEntryDetail): string[] {
     );
   }
   if (entry.versions.length > 10) lines.push(`  and ${entry.versions.length - 10} older.`);
-  lines.push(`Install it with ace market install ${ref(entry.summary)}.`);
+  lines.push(`Install it with ace store install ${ref(entry.summary)}.`);
   return lines;
 }
 
@@ -75,7 +75,7 @@ export function installedRow(entry: MarketInstalled): string {
 }
 
 export function installedLines(installed: readonly MarketInstalled[]): string[] {
-  return installed.length ? installed.map(installedRow) : ["Nothing is installed from the market."];
+  return installed.length ? installed.map(installedRow) : ["Nothing is installed from the Store."];
 }
 
 export function sourceLines(sources: readonly MarketSource[]): string[] {
@@ -93,14 +93,14 @@ export function discoverLines(discover: MarketDiscover): string[] {
     lines.push("Trending", ...discover.trending.slice(0, 5).map((t) => `  ${entryRow(t.entry)}`));
   if (discover.fresh.length)
     lines.push("New", ...discover.fresh.slice(0, 5).map((e) => `  ${entryRow(e)}`));
-  if (lines.length === 0) lines.push("The market has nothing to show yet.");
+  if (lines.length === 0) lines.push("The Store has nothing to show yet.");
   lines.push(
     "",
-    "  ace market search QUERY       find entries",
-    "  ace market show TYPE/NAME     an entry, its publisher and versions",
-    "  ace market install TYPE/NAME  read its review, then install",
-    "  ace market installed          what's installed, and updates",
-    "  ace help publishing           publishing your own",
+    "  ace store search QUERY       find entries",
+    "  ace store show TYPE/NAME     an entry, its publisher and versions",
+    "  ace store install TYPE/NAME  read its review, then install",
+    "  ace store installed          what's installed, and updates",
+    "  ace help publishing          publishing your own",
   );
   return lines;
 }
@@ -121,7 +121,7 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
       const findings = report?.findings.filter((finding) => finding.level !== "note") ?? [];
       return [
         `Draft ${draft.id}: ${draft.type}/${draft.name} ${draft.version}, ${draft.files} files, ${Math.ceil(draft.size / 1024)} KB.`,
-        ...(draft.scan?.state === "scanning" ? ["The market is still scanning it."] : []),
+        ...(draft.scan?.state === "scanning" ? ["The Store is still scanning it."] : []),
         ...(report
           ? findings.length
             ? findings.map((finding) => `  ${finding.level}: ${findingSentence(finding)}`)
@@ -130,7 +130,7 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
         ...draft.problems.map(
           (problem) => `  ${problem.path ? `${problem.path}: ` : ""}${problem.message}`,
         ),
-        `Publish it with ace market draft publish ${draft.id}.`,
+        `Publish it with ace store draft publish ${draft.id}.`,
       ];
     }
     case "me": {
@@ -138,7 +138,7 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
       const lines = [
         me.profile
           ? `@${me.profile.handle}: ${me.profile.displayName}${me.profile.verified ? ", verified" : ""}${me.state === "active" ? "" : ` (${me.state})`}`
-          : "No publisher profile yet: ace market profile create --handle HANDLE --name NAME.",
+          : "No publisher profile yet: ace store profile create --handle HANDLE --name NAME.",
       ];
       for (const entry of me.entries) lines.push(`${ref(entry)}  ${entry.title}`);
       for (const draft of me.drafts)

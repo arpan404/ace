@@ -9,13 +9,13 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
-import { FolderLabel } from "@/features/panels/files/middle-name.tsx";
+import { FolderLabel } from "@/components/path/middle-name.tsx";
 import { fileName, folderOf } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
 /**
- * The explorer's first section (spec 29): one row per open editor, under "Group 1", "Group 2"
- * when there is more than one group, each with its folder and the same slot as its tab. Save all
+ * The explorer's first section (spec 29): one row per open editor, flat, with a hairline between
+ * one pane's files and the next's, each with its folder and the same slot as its tab. Save all
  * shows only while something is unsaved. Folding is the caller's to remember per device.
  */
 export function OpenEditors(
@@ -57,11 +57,8 @@ export function OpenEditors(
         <ul className="flex flex-col">
           {groups.map((group, index) => (
             <li key={group.id}>
-              {groups.length > 1 && (
-                <div className="pt-1.5 pr-3 pb-0.5 pl-6 text-xs text-subtle-foreground">
-                  Group {index + 1}
-                </div>
-              )}
+              {/* Panes apart by a hairline, never a label: the person sees files, not groups. */}
+              {index > 0 && <hr className="mx-3 my-1 border-0 border-t border-border-soft" />}
               <ul>
                 {group.tabs.map((tab) => (
                   <OpenEditorRow

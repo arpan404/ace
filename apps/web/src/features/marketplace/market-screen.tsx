@@ -120,15 +120,15 @@ export function MarketScreen(props: {
   return (
     <MarketNavContext value={nav}>
       <ViewFrame
-        label="Marketplace"
+        label="Store"
         sidebar={<MarketSidebar query={query} onQuery={onQuery} />}
         place="sidebar"
       >
-        <Screen page={top ? "market-entry" : "marketplace"} title="Marketplace">
+        <Screen page={top ? "market-entry" : "marketplace"} title="Store">
           <div className="contents" data-market-trying={tryOn.trying ? "" : undefined}>
             <div
               role="region"
-              aria-label="Marketplace"
+              aria-label="Store"
               className="mk-modal"
               data-page=""
               data-edge={edge ? "" : undefined}

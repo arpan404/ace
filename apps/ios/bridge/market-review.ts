@@ -42,7 +42,7 @@ type Bot = Extract<MarketReview["body"], { type: "spade-bot" }>;
 const actionWords = { install: "Get", update: "Update", installed: "Installed", none: null };
 
 const hostOf = (from: string | undefined) =>
-  from ? from.replace(/^https:\/\//, "") : "market.acehq.dev";
+  from ? from.replace(/^https:\/\//, "") : "store.acehq.dev";
 
 export function entryAnswer(result: Result<"read">) {
   const { entry } = result;

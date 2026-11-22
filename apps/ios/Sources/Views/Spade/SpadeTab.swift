@@ -189,11 +189,22 @@ struct SpadeBotRow: View {
         HStack(spacing: AceDesign.Space.row) {
             SpadeBotFace(bot: bot)
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
-                Text(bot.name)
-                    .aceFont(AceDesign.TextRole.rowTitle)
-                    .fontWeight(bot.state == "unseen" ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
-                    .foregroundStyle(AceDesign.Ink.primary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
+                    Text(bot.name)
+                        .aceFont(AceDesign.TextRole.rowTitle)
+                        .fontWeight(bot.state == "unseen" ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
+                        .foregroundStyle(AceDesign.Ink.primary)
+                        .lineLimit(1)
+                    // A bot an organization shares (ADR 0206 §2.3): the quieter word after its name.
+                    if let shared = bot.shared {
+                        Text("Shared")
+                            .aceFont(AceDesign.TextRole.meta)
+                            .foregroundStyle(AceDesign.Ink.muted)
+                            .layoutPriority(1)
+                            .accessibilityLabel(shared)
+                            .accessibilityIdentifier("spade.bot.shared")
+                    }
+                }
                 Text(bot.line)
                     .aceFont(AceDesign.TextRole.meta)
                     .foregroundStyle(lineInk)

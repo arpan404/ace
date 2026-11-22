@@ -181,7 +181,7 @@ test("a skill's review shows its scan findings with their levels, its SKILL.md a
   });
   expect(review.facts).toEqual(
     expect.arrayContaining([
-      "From market.acehq.dev, reviewed by ace.",
+      "From store.acehq.dev, reviewed by ace.",
       "Teaches Spade's bots “triage-mail”: triage-mail in one line.",
     ]),
   );
@@ -382,7 +382,7 @@ test("an installed Suit's page says where it is and asks before removing it", as
     actionWord: "Installed",
     publisherMark: "By ace",
     reviewMark: "Reviewed by ace",
-    sourceText: "market.acehq.dev",
+    sourceText: "store.acehq.dev",
     installedNote: "Wear it from ace on your computer.",
     removeQuestion: "Remove Harbour dusk?",
     removeLine: "The Suit comes off this machine.",

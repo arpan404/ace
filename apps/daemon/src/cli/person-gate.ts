@@ -64,7 +64,7 @@ export function marketPersonOnly(commandId: string): boolean {
 const what: Record<PersonOnly, string> = {
   answer: "Answering a request",
   setting: "Changing a setting",
-  market: "This market action",
+  market: "This Store action",
   install: "Installing a bot",
 };
 

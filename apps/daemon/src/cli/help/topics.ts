@@ -57,7 +57,7 @@ nothing ever waits for input and tools like ace sim and ace browser know your th
     permissions are the person's: ace request allow|deny|answer, ace config set|unset and
     ace feature|spade on|off exit 2 (code person_only) from your shell. Hand back to the
     person instead; they answer in the app, on a paired device or in their own terminal.
-  - In the market you may read, search, check, make and publish drafts, and read your
+  - In the Store you may read, search, check, make and publish drafts, and read your
     status and versions. Everything else (installing, removing, withdrawing, transfers,
     sources, listings, visibility) is the person's and becomes a request in your thread
     (ace help publishing).`,
@@ -76,13 +76,13 @@ On a remote, --project takes a project id from ace project list; paths are refus
   },
   {
     name: "publishing",
-    summary: "Publishing Suits, skills and bots to the market",
-    text: `  ace market check ./my-suit --type suit                 the market's checks, here
-  ace market publish suit ./my-suit --version 1.2.0 --draft
+    summary: "Publishing Suits, skills and bots to the Store",
+    text: `  ace store check ./my-suit --type suit                  the Store's checks, here
+  ace store publish suit ./my-suit --version 1.2.0 --draft
                                                          a draft and its scan
-  ace market draft publish DRAFT                         publish it
-  ace market status                                      your entries and their versions
-  ace market describe suit/my-suit --title "My Suit"     the listing's words
+  ace store draft publish DRAFT                          publish it
+  ace store status                                       your entries and their versions
+  ace store describe suit/my-suit --title "My Suit"      the listing's words
 
 Publishing needs this machine signed in to your ace account (ace login). Withdrawing,
 transferring, handle changes, editing a verified profile and verification ask you to sign
@@ -96,12 +96,12 @@ that. Settings › Beta › Ask me before agents publish makes every agent publi
 request too.`,
   },
   {
-    name: "market-maintainer",
-    summary: "The market's maintainer tools",
+    name: "store-maintainer",
+    summary: "The Store's maintainer tools",
     text: `Maintainer tool: needs ACE_MARKET_SIGNER_TOKEN and a signing key.
 
-ace market maintainer COMMAND talks to market.acehq.dev directly, never through the daemon
-or an ace account, and sends the signer token there only. A development market must be
+ace store maintainer COMMAND talks to store.acehq.dev directly, never through the daemon
+or an ace account, and sends the signer token there only. A development Store must be
 named with --dev-market URL (https, or http on this machine). --json and --jq work as
 everywhere.
 

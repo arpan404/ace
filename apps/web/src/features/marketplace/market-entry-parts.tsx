@@ -154,7 +154,7 @@ export function versionFacts(detail: MarketEntryDetail): FactRow[] {
     ]);
   rows.push(
     ["Downloads", summary.downloads.toLocaleString("en-US")],
-    ["Source", summary.from?.replace(/^https:\/\//, "") ?? "market.acehq.dev"],
+    ["Source", summary.from?.replace(/^https:\/\//, "") ?? "store.acehq.dev"],
   );
   return rows;
 }

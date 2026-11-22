@@ -75,7 +75,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
   );
   return (
     <ViewSidebar
-      title="Marketplace"
+      title="Store"
       toolbar={
         <PanelSearch
           label="Search bots, apps and more"
@@ -85,7 +85,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
         />
       }
     >
-      <nav aria-label="Marketplace">
+      <nav aria-label="Store">
         <ul className="mt-1 flex flex-col gap-px">
           {shown.map((place) => row(place.id, place.name, place.icon))}
         </ul>

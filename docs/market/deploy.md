@@ -1,6 +1,6 @@
-# Deploying the market Worker
+# Deploying the Store Worker
 
-`apps/market` is ace's marketplace at `market.acehq.dev` (ADR 0168, ADR 0174): the catalog API,
+`apps/market` is the ace Store at `store.acehq.dev` (and legacy `market.acehq.dev`, ADR 0168, ADR 0174): the catalog API,
 Discover, publishers' profiles and publishing, the scan pipeline, and the signer's routes. The
 Worker serves the API only: the public web page was removed at the owner's request, `GET /` answers a
 small JSON body and any other path outside `/v1` is a JSON 404. Deploying it is the owner's step;
@@ -21,9 +21,10 @@ Run each command from `apps/market`.
    | `ace-market-counts`     | `MARKET_COUNTS`     | `migrations/counts`     |
    | `ace-market-moderation` | `MARKET_MODERATION` | `migrations/moderation` |
    | `ace-market-lists`      | `MARKET_LISTS`      | `migrations/lists`      |
+   | `ace-market-orgs`       | `MARKET_ORGS`       | `migrations/orgs`       |
 
    ```sh
-   for name in suits skills plugins bots publishers counts moderation lists; do
+   for name in suits skills plugins bots publishers counts moderation lists orgs; do
      bunx wrangler d1 create "ace-market-$name"
    done
    bunx wrangler r2 bucket create ace-market-objects
@@ -38,7 +39,7 @@ Run each command from `apps/market`.
 
    ```sh
    for binding in MARKET_SUITS MARKET_SKILLS MARKET_PLUGINS MARKET_BOTS \
-       MARKET_PUBLISHERS MARKET_COUNTS MARKET_MODERATION MARKET_LISTS; do
+       MARKET_PUBLISHERS MARKET_COUNTS MARKET_MODERATION MARKET_LISTS MARKET_ORGS; do
      bunx wrangler d1 migrations apply "$binding" --remote --env production
    done
    ```
@@ -66,7 +67,7 @@ Run each command from `apps/market`.
 
    Publishing grants are checked against ace cloud's `/v1/keys` (`ACE_ACCOUNT_KEYS_URL`, set in
    `wrangler.jsonc`) and must name `cloud.acehq.dev` as their issuer (`ACE_GRANT_ISSUER` changes
-   it, for a staging backend). Leave `ACE_GRANT_KEYS` unset in production. ace cloud must be
+   it for tests). Leave `ACE_GRANT_KEYS` unset in production. ace cloud must be
    deployed with its migration `0003_session_signed_in.sql` first: market grants carry the
    session's sign-in time and a verified email (ADR 0174 §2), and an older backend's grants are
    refused.
@@ -80,11 +81,11 @@ Run each command from `apps/market`.
    bunx wrangler deploy --env production
    ```
 
-   The custom domain `market.acehq.dev` is attached by the route in `wrangler.jsonc`. Request
-   logs stay off (`observability.enabled: false`). After this first deploy, release tags deploy
-   the market with `bun run deploy:workers`, staging (`staging.market.acehq.dev`) first, with a
-   smoke and an automatic rollback ([docs/release/workers.md](../release/workers.md)).
-   `bun run smoke https://market.acehq.dev` checks it by hand without writing anything.
+   The custom domains `store.acehq.dev` and `market.acehq.dev` are attached by the routes in
+   `wrangler.jsonc`. Request logs stay off (`observability.enabled: false`). After this first
+   deploy, release tags deploy the Store with `bun run deploy:workers production`, with a smoke
+   and an automatic rollback ([docs/release/workers.md](../release/workers.md)).
+   `bun run smoke https://store.acehq.dev` checks it by hand without writing anything.
 
 5. **Seed it.** Mint a market grant for ace's own account: `POST https://cloud.acehq.dev/v1/grants`
    with the account's session as the bearer and
@@ -93,19 +94,19 @@ Run each command from `apps/market`.
 
    ```sh
    ACE_MARKET_GRANT=<token> ACE_MARKET_SIGNER_TOKEN=<signer token> \
-     node scripts/seed.ts https://market.acehq.dev
+     node scripts/seed.ts https://store.acehq.dev
    ```
 
    Before the seed, put ace's own account on the official list, so it publishes as `ace`
    (ADR 0174 §14):
 
    ```sh
-   ACE_MARKET_SIGNER_TOKEN=<signer token> ace market official add <account id> --key <key file>
+   ACE_MARKET_SIGNER_TOKEN=<signer token> ace store maintainer official add <account id> --key <key file>
    ```
 
    The signer token, when given, also uploads `seed/categories.json`. Every version published as
-   `ace` is held for a maintainer: run `ace market review`, approve ace's entries, run
-   `ace market sign`, then mark them reviewed and pick the featured list and collections.
+   `ace` is held for a maintainer: run `ace store maintainer review`, approve ace's entries, run
+   `ace store maintainer sign`, then mark them reviewed and pick the featured list and collections.
 
 6. **The cron** runs every quarter hour (`triggers.crons`): download totals, scan steps that
    didn't fit a request, trending in batches, verification re-checks and pruning, each step
