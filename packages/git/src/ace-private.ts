@@ -1,5 +1,5 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { appendFile, lstat, mkdir, readFile, realpath } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Repository } from "./repository.ts";
 
 /**
@@ -21,18 +21,50 @@ export function isAcePrivate(path: string): boolean {
  * so status, `git add -A` from any terminal, stashes and checkpoints all skip them. Idempotent.
  */
 export async function excludeAcePrivate(repository: Repository, root: string): Promise<void> {
-  const located = await repository.cli.call(root, ["rev-parse", "--git-path", "info/exclude"]);
-  const relative = located.stdout.toString("utf8").trim();
-  if (!relative) return;
-  const path = isAbsolute(relative) ? relative : join(root, relative);
+  const located = await repository.cli.call(root, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+    "--git-path",
+    "info/exclude",
+  ]);
+  const [commonDir, excludePath] = located.stdout.toString("utf8").trim().split("\n");
+  if (!commonDir || !excludePath) return;
+  const path = isAbsolute(excludePath) ? excludePath : join(root, excludePath);
+  // Only a plain file in a plain folder inside the repository's own git dir: never through a
+  // symlink to somewhere else. Otherwise skip; every add ace runs excludes these entries itself.
+  if (!(await plainInside(await realpath(commonDir), dirname(path), path))) return;
   const current = await readFile(path, "utf8").catch((error: unknown) => {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return "";
+    if (isMissing(error)) return "";
     throw error;
   });
   if (current.split("\n").includes(acePrivatePattern)) return;
   const separator = current === "" || current.endsWith("\n") ? "" : "\n";
   await mkdir(dirname(path), { recursive: true });
   await appendFile(path, `${separator}# ace: uploads and Recently deleted\n${excludeLine}`);
+}
+
+const isMissing = (error: unknown) =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+
+/** `folder` and `file` are no symlinks (or absent), and `folder` resolves inside `gitDir`. */
+async function plainInside(gitDir: string, folder: string, file: string): Promise<boolean> {
+  for (const [path, kind] of [
+    [folder, "directory"],
+    [file, "file"],
+  ] as const) {
+    const stat = await lstat(path).catch((error: unknown) => {
+      if (isMissing(error)) return undefined;
+      throw error;
+    });
+    if (!stat) continue;
+    if (stat.isSymbolicLink()) return false;
+    if (kind === "directory" ? !stat.isDirectory() : !stat.isFile()) return false;
+  }
+  const parent = await realpath(dirname(folder)).catch(() => undefined);
+  if (!parent) return false;
+  const inside = relative(gitDir, join(parent, basename(folder)));
+  return inside !== "" && inside !== ".." && !inside.startsWith(`..${sep}`) && !isAbsolute(inside);
 }
 
 /**

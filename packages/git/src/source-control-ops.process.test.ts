@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -228,6 +228,35 @@ describe("source control git operations", () => {
       ]);
     } finally {
       await git.close();
+    }
+  });
+
+  it("never writes the exclude rule through a symlink, and still keeps private entries out", async () => {
+    for (const linked of ["file", "folder"] as const) {
+      const repo = await createRepo();
+      const outside = await mkdtemp(join(tmpdir(), "ace-sc-outside-"));
+      tempDirs.push(outside);
+      await writeFile(join(outside, "exclude"), "# someone else's file\n");
+      const info = join(repo, ".git", "info");
+      await rm(info, { recursive: true, force: true });
+      if (linked === "folder") await symlink(outside, info);
+      else {
+        await mkdir(info);
+        await symlink(join(outside, "exclude"), join(info, "exclude"));
+      }
+      const git = new GitService();
+      try {
+        await mkdir(join(repo, ".ace-upload-trash-1"), { recursive: true });
+        await writeFile(join(repo, ".ace-upload-trash-1", "gone.txt"), "deleted\n");
+        await writeFile(join(repo, "a.txt"), "edit\n");
+        await git.stage({ worktree: repo });
+        // The file the symlink points at is untouched...
+        expect(await readFile(join(outside, "exclude"), "utf8")).toBe("# someone else's file\n");
+        // ...and the explicit pathspec excludes still kept the private entry out.
+        expect(runGit(repo, ["diff", "--cached", "--name-only"])).toBe("a.txt");
+      } finally {
+        await git.close();
+      }
     }
   });
 
