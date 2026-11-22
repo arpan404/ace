@@ -329,10 +329,9 @@ struct InboxView: View {
     /// How many on Threads, Chats or Spade need the person: the daemon's own count, as the web
     /// rail's. The iPad sidebar's dots and the tab bar's badges.
     private func needsYouCount(_ place: InboxTab) -> Int {
-        let tabs = inbox.merged.tabs
         switch place {
-        case .threads: return tabs.first { $0.id == "inbox" }?.needsYou ?? 0
-        case .chats: return tabs.filter(\.chats).reduce(0) { $0 + $1.needsYou }
+        case .threads: return inbox.merged.tabs.first { $0.id == "inbox" }?.needsYou ?? 0
+        case .chats: return inbox.merged.tabs.filter(\.chats).reduce(0) { $0 + $1.needsYou }
         case .spade: return inbox.spadeSessions.reduce(0) { $0 + ($1.client.spade.bots?.filter { $0.state == "needs-you" }.count ?? 0) }
         default: return 0
         }
