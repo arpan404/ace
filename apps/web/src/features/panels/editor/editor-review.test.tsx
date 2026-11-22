@@ -175,3 +175,49 @@ test("a Keep the gutter refuses (the text moved before it ran) is not recorded",
 
   expect((await peekOf()).textContent).toContain("1 of 3");
 });
+
+test("keeping the last file's changes goes back to an earlier file's pending change, not the end", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("root-replied");
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  const card = await openWorkCard();
+  await userEvent.click(
+    await within(card).findByRole("button", { name: /^Review turn 2 in editor/ }),
+  );
+  expect((await peekOf()).textContent).toContain("turn 2 · 1 of 1");
+
+  // Past replay.ts's only change without keeping it: on to outbox.ts.
+  fireEvent.keyDown(within(view()).getByRole("textbox"), { key: "F7" });
+  const outbox = "apps/web/src/relay/outbox.ts";
+  await screen.findByRole("region", { name: `Source of ${outbox}` });
+  // Keep every change shown there.
+  for (let kept = 0; kept < 5; kept++) {
+    const peek = await peekOf().catch(() => undefined);
+    if (!peek || !screen.queryByRole("region", { name: `Source of ${outbox}` })) break;
+    await userEvent.click(within(peek).getByRole("button", { name: "Keep" }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+
+  // replay.ts's change is still pending: the review takes the person back there, still open.
+  await screen.findByRole("region", { name: `Source of ${replayTs.path}` });
+  expect((await peekOf()).textContent).toContain("turn 2 · 1 of 1");
+});
+
+test("a Keep still pending when another review starts doesn't touch the new review", async () => {
+  await reviewTurnOne();
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("2 of 3"));
+  await keepNow();
+  await waitFor(async () => expect((await peekOf()).textContent).toContain("3 of 3"));
+
+  // The last Keep is still with the gutter when the person starts the review again.
+  fireEvent.click(within(await peekOf()).getByRole("button", { name: "Keep" }));
+  const [again] = screen.getAllByRole("button", { name: "Review in editor" });
+  if (!again) throw new Error("no Review in editor");
+  fireEvent.click(again);
+  await new Promise((resolve) => setTimeout(resolve, 400));
+
+  // The new review is open from its start; the old Keep neither ended nor moved it.
+  expect((await peekOf()).textContent).toContain("1 of 3");
+});

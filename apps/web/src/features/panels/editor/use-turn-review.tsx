@@ -23,6 +23,7 @@ import { useFileChanges } from "@/lib/diffs/use-file-diffs.ts";
 import { useTurns } from "@/lib/diffs/use-turns.ts";
 import { threadCheckoutRoot, threadProvider } from "@/lib/thread-fields.ts";
 import {
+  currentReview,
   endReview,
   requestReveal,
   useEditorReview,
@@ -80,9 +81,15 @@ export function useTurnReview(input: {
         : noFiles,
     [turn, checkout],
   );
-  const own = useMemo(() => files.filter((file) => file.path === path), [files, path]);
-  const diff = useFileChanges(own).files[0];
+  // Every file's diff of the turn (the Changes diff worker caches them): this file's hunks, and
+  // how many each file has, so the review ends only when every change of the turn is kept.
+  const diffs = useFileChanges(files).files;
+  const diff = diffs.find((each) => each.path === path);
   const hunks = useMemo(() => (diff ? turnHunks(diff.rows) : []), [diff]);
+  const counts = useMemo(
+    () => new Map(diffs.map((each) => [each.path, turnHunks(each.rows).length])),
+    [diffs],
+  );
 
   // Found again by their lines whenever the text has moved (the gutter settles after each pause
   // in typing). Only to show, step through and keep: nothing here changes the text.
@@ -96,7 +103,9 @@ export function useTurnReview(input: {
     : [];
 
   // Progress lives outside the view: a tab switch or a remount comes back to the same change.
-  const key = review ? `${threadId}\u0000${review.token}\u0000${path}` : "";
+  /** Where a file's progress in this review is kept. */
+  const keyOf = (file: string) => (review ? `${threadId}\u0000${review.token}\u0000${file}` : "");
+  const key = keyOf(path);
   const state = useSyncExternalStore(progress.subscribe, () => progress.get(key));
   const setState = (next: Omit<Progress, "side">) =>
     progress.set(key, { ...next, side: state?.side ?? false });
@@ -129,19 +138,30 @@ export function useTurnReview(input: {
       setState({ index: next, done: finished });
       return reveal(at);
     }
-    // Past this file's last change: on to the turn's next file (its progress kept first, so
-    // coming back finds the changes kept), else back to the first here.
+    // Past this file's last change: this file's progress is kept first (so coming back finds
+    // it), then on to the next file of the turn, in this direction and wrapping round, that still
+    // has a change to keep, opened at its first one.
+    setState({ index, done: finished });
     const paths = files.map((file) => file.path);
-    const other = paths[paths.indexOf(path) + direction];
-    if (other !== undefined) {
-      setState({ index, done: finished });
+    const here = paths.indexOf(path);
+    for (let offset = 1; offset < paths.length; offset++) {
+      const other =
+        paths[(((here + direction * offset) % paths.length) + paths.length) % paths.length];
+      if (other === undefined) continue;
+      const otherKey = keyOf(other);
+      const kept = progress.get(otherKey)?.done ?? noneDone;
+      const total = counts.get(other) ?? 0;
+      const next = Array.from({ length: total }, (_, at) => at).find((at) => !kept.has(at));
+      if (next === undefined) continue;
+      if (progress.get(otherKey)) progress.set(otherKey, { index: next, done: kept, side: false });
       return open(other, { keep: true, focus: true });
     }
+    // No other file has one: back to the first change still to keep here.
     const wrap = located.findIndex((hunk, at) => hunk !== undefined && !finished.has(at));
     const at = located[wrap];
     setState({ index: Math.max(0, wrap), done: finished });
     if (at) return reveal(at);
-    // Nothing left to keep here and no file after this one: the review is over.
+    // Every change of the turn, in every file, is kept: the review is over.
     if (finished.size >= hunks.length) endReview(threadId);
   };
   // Keep acts on the change where it is at the press: found again in the text now, it must be
@@ -159,8 +179,11 @@ export function useTurnReview(input: {
   const keep = () => {
     const now = atPress();
     if (!now) return gutter.edited();
+    // A Keep belongs to the review it was made in: if another review started meanwhile, its
+    // completion changes nothing.
+    const made = review.token;
     void gutter.keep(now.start - 1, now.start - 1 + Math.max(1, now.added.length)).then((kept) => {
-      if (!kept) return;
+      if (!kept || currentReview(threadId)?.token !== made) return;
       step(1, new Set(progress.get(key)?.done ?? done).add(index));
     });
   };

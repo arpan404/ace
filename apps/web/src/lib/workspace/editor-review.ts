@@ -34,6 +34,11 @@ export function endReview(thread: string): void {
   emit();
 }
 
+/** The thread's review as it is now, outside React (a Keep that completes later checks it). */
+export function currentReview(thread: string): EditorReview | undefined {
+  return reviews.get(thread);
+}
+
 /** The thread's review, if one is under way. */
 export function useEditorReview(thread: string): EditorReview | undefined {
   return useSyncExternalStore(subscribe, () => reviews.get(thread));
