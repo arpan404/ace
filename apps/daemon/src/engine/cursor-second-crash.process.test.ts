@@ -56,9 +56,10 @@ async function frozenAt(...args: [string, string, string, string, string, string
  * three runs here. Returns what boot three's host was asked to send, and the thread's end state.
  */
 async function twoCrashes(
-  window: "attempted" | "admitted-followup",
+  window: "attempted" | "admitted-followup" | "fork-attempted",
   seeded: Parameters<typeof seedStore>[2] | undefined,
-  secondKill: string,
+  /** Boot two's kill point; without one, the thread's next start is the one checked. */
+  secondKill: string | undefined,
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-second-crash-")));
   const database = join(root, "state.sqlite");
@@ -70,7 +71,7 @@ async function twoCrashes(
   // Created after boot one's attempt, as the SDK would have created it.
   if (seeded) await seedStore(home, root, { ...seeded, createdAt: Date.now() });
   else await seedStore(home, root, { status: "finished", texts: [], createdAt: 1, none: true });
-  await frozenAt(database, entry, home, sends, secondKill, join(root, "frozen"));
+  if (secondKill) await frozenAt(database, entry, home, sends, secondKill, join(root, "frozen"));
   // Boot two's host is gone with it; nothing it sent counts for boot three.
   await writeFile(sends, "");
   const store = new Store(database);
@@ -167,5 +168,23 @@ it("a send Cursor never had is sent once on the next start when the reopen that 
   await using run = await twoCrashes("attempted", undefined, "admission");
   expect(run.sent).toHaveLength(1);
   expect(run.sent[0]).toContain("first");
+  expect(run.queue.reason).not.toBe("uncertain");
+}, 60_000);
+
+it("a fork's first message Cursor had when the daemon was killed after attempting it is acknowledged, never lost", async () => {
+  await using run = await twoCrashes(
+    "fork-attempted",
+    { status: "finished", result: "forked answer", texts: ["forked answer"], createdAt: 0 },
+    undefined,
+  );
+  expect(run.sent).toEqual([]);
+  expect(run.queue.reason).not.toBe("uncertain");
+  expect(run.answers).toEqual(["forked answer"]);
+}, 60_000);
+
+it("a fork's first message Cursor never had when the daemon was killed after attempting it is sent once", async () => {
+  await using run = await twoCrashes("fork-attempted", undefined, undefined);
+  expect(run.sent).toHaveLength(1);
+  expect(run.sent[0]).toContain("forked");
   expect(run.queue.reason).not.toBe("uncertain");
 }, 60_000);

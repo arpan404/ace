@@ -63,6 +63,17 @@ registry.register(
         instanceId: "account-a",
         async send(input, _delivery, intent) {
           operation = intent ?? "first-command";
+          // The fork's source: its first turn finishes, so the fork has a turn to start from.
+          if (window === "fork-attempted" && operation === "first-command") {
+            await frame(context, "send", { input, attemptedAt: Date.now() });
+            await frame(context, "segment", { nativeRunId: "run-0" }, { runId: "run-0" });
+            await frame(context, "result", { status: "finished" }, { runId: "run-0" });
+            return;
+          }
+          if (window === "fork-attempted") {
+            await frame(context, "send", { input, attemptedAt: Date.now() });
+            return reached();
+          }
           // The engine has recorded the submission; the host has stored nothing yet.
           if (window === "submitted") return reached();
           await frame(context, "send", { input, attemptedAt: Date.now() });
@@ -100,7 +111,12 @@ registry.register(
   },
   { installed: true, auth: "logged_in", loginHint: "offline" },
 );
-const engine = new Engine(store, { registry, threadId: () => "crashed-thread" });
+// A fork is the second thread: it is the one the parent checks after the crash.
+const ids = window === "fork-attempted" ? ["source-thread", "crashed-thread"] : [];
+const engine = new Engine(store, {
+  registry,
+  threadId: () => ids.shift() ?? "crashed-thread",
+});
 const command = Command.parse({
   id: "first-command",
   deviceId: "device",
@@ -113,6 +129,28 @@ const command = Command.parse({
 });
 const result = engine.handler.handle(command, store);
 if (!result.ok) throw new Error(result.error);
+if (window === "fork-attempted") {
+  await engine.flush();
+  const finished = store
+    .readEvents({ afterSeq: 0, limit: 1000 })
+    .findLast((event) => event.payload.type === "run.ended");
+  if (finished?.payload.type !== "run.ended") throw new Error("The fork's source never finished");
+  const fork = engine.handler.handle(
+    Command.parse({
+      id: "fork-command",
+      deviceId: "device",
+      payload: {
+        type: "thread.fork",
+        threadId: "source-thread",
+        point: { type: "turn", runId: finished.payload.runId },
+        input: "forked",
+        budgetBytes: 4096,
+      },
+    }),
+    store,
+  );
+  if (!fork.ok) throw new Error(fork.error);
+}
 void engine.flush();
 // The parent kills this process once the named point is committed, with no timed sleep.
 process.on("message", () => {});

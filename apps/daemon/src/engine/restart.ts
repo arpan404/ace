@@ -301,6 +301,8 @@ export function recoverEngine(
             [
               "thread.send",
               "thread.create",
+              // A fork's first message is a send like any other: Cursor may have it.
+              "thread.fork",
               "thread.resume",
               "queue.resume",
               "thread.limit",
