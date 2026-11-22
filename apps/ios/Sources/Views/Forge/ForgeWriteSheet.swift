@@ -54,6 +54,13 @@ struct ForgeWriteSheet: View {
     private var empty: Bool { compose.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     @ViewBuilder private var buttons: some View {
+        if let agent = compose.agent {
+            // Kept on the phone, so it doesn't wait on the host taking comments.
+            Button { send(agent) } label: { Text(agent.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }
+                .buttonStyle(.textAction())
+                .disabled(empty || desk.writing)
+                .accessibilityIdentifier("forge.write.agent")
+        }
         HStack(spacing: AceTheme.Spacing.sm) {
             if let secondary = compose.secondary {
                 Button { send(secondary) } label: { Text(secondary.label).frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap) }

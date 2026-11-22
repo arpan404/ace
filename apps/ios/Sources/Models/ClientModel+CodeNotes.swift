@@ -14,6 +14,24 @@ extension ClientModel {
         sendCodeNotes(thread)
         return id
     }
+    /// A new note on whole new-side lines of a diff of `path` (from line `first`, 1-based); nil
+    /// once the thread is full or the lines hold no code.
+    @discardableResult
+    func addDiffNote(_ thread: String, path: String, first: Int, texts: [String], comment: String) -> String? {
+        guard canOperate, !codeNotes.full(thread) else { return nil }
+        let id = UUID().uuidString
+        codeNotes.add(thread, path: path, first: first, texts: texts, comment: comment, id: id, checkout: checkoutKeys[thread])
+        guard codeNotes.number(thread, id: id) != nil else { return nil }
+        sendCodeNotes(thread)
+        return id
+    }
+    /// A diff of `path` was read again, showing `lines` of the new side: `thread`'s notes there
+    /// stay, move or turn outdated (`CodeNotes.shown`).
+    func diffShown(_ thread: String, path: String, lines: [Int: String]) {
+        let before = codeNotes
+        codeNotes.shown(thread, path: path, lines: lines)
+        if codeNotes != before { sendCodeNotes(thread) }
+    }
     func commentCodeNote(_ thread: String, id: String, _ comment: String) {
         codeNotes.comment(thread, id: id, comment)
         sendCodeNotes(thread)

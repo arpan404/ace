@@ -7,7 +7,9 @@ import SwiftUI
 /// Suggest changes on lines of the new side. The row under its name sets Wrap, Side by side
 /// (where it fits), Rendered for Markdown, and marks the file Viewed. An image shows both
 /// versions. Conversations no shown line holds follow the diff. A range of commits shows its
-/// own diff alone: conversations and new comments belong to All commits.
+/// own diff alone: conversations and new comments belong to All commits. Lines of the new side
+/// can instead take a note for the agent, on the next message of the thread working on the pull
+/// request; a diff read again checks that thread's notes on the file against its lines.
 struct ForgeFileView: View {
     let client: ClientModel
     let route: ForgeRoute
@@ -19,6 +21,8 @@ struct ForgeFileView: View {
     @State private var pickNote: String?
     @State private var refused = 0
     @State private var marked = 0
+    /// The note just left for the agent, said under the diff until lines are picked again.
+    @State private var noted: ForgeNoted?
     @State private var renderedOn = true
     /// The commits the rendered or image view has on screen; nil until it has drawn.
     @State private var shownRevisions: ForgeFileRevisions?
@@ -83,6 +87,9 @@ struct ForgeFileView: View {
                 withAnimation { self.pick = nil; pickNote = nil }
             })
             .transition(.opacity)
+        } else if let noted, composing == nil {
+            ForgeNotedLine(noted: noted, open: fixer.map { fixer in { fixer.openThread(InboxKey(machineId: fixer.machineId, id: noted.thread)) } })
+                .transition(.opacity)
         } else if let message = desk?.message, composing == nil {
             Text(message).aceFont(AceTheme.Typography.caption, relativeTo: .footnote).foregroundStyle(AceTone.failed.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -143,6 +150,7 @@ struct ForgeFileView: View {
         let line = file.lines[index]
         guard let anchor = line.anchor else { return }
         withAnimation {
+            noted = nil
             if var current = pick, current.extending {
                 if current.extend(to: anchor, hunk: line.hunk) {
                     pick = current
@@ -203,6 +211,7 @@ struct ForgeFileView: View {
             if read.headSha != file?.headSha { pick = nil }
             file = read
             failure = nil
+            await checkNotes(read)
         } catch is CancellationError {
         } catch { failure = error.localizedDescription }
     }
@@ -229,8 +238,74 @@ struct ForgeFileView: View {
             secondary: .init(label: "Add single comment") { body in
                 done(await desk.run(["kind": "line.comment", "headSha": head, "anchor": place, "body": body]))
             },
+            agent: note(on: pick, in: file, desk, done: done),
             suggestion: suggestion,
             suggestionOff: file.suggestions == true && pick.side == "RIGHT" && picked.contains(where: \.clipped) ? "Suggestions unavailable because selected lines are shortened." : nil,
             off: off)
+    }
+}
+
+extension ForgeFileView {
+    /// The words as a note for the agent on the picked new-side lines; nil where the phone can't
+    /// leave one (it can't act, no thread could take it, or the lines are old or shortened).
+    fileprivate func note(on pick: ForgeLinePick, in file: ForgeFileDiff, _ desk: ForgeReviewDesk,
+                          done: @escaping (Bool) -> Bool) -> ForgeCompose.Choice? {
+        guard let fixer, client.canOperate, let texts = pick.newSide(in: file.lines) else { return nil }
+        let client = client, target = desk.target, path = file.path, first = pick.start
+        return .init(label: "Note for the agent") { comment in
+            guard let thread = await fixer.thread(client, target) else {
+                desk.report("No thread is working on this pull request. Start one from its page, then leave the note.")
+                return false
+            }
+            await client.checkoutKey(thread.id)
+            guard let id = client.addDiffNote(thread.id, path: path, first: first, texts: texts, comment: comment),
+                  let number = client.codeNotes.number(thread.id, id: id) else {
+                desk.report(client.codeNotes.full(thread.id) ? "That thread's next message already has \(CodeNotes.limit) notes." : "Couldn't leave the note.")
+                return false
+            }
+            withAnimation { noted = ForgeNoted(thread: thread.id, title: thread.title, number: number) }
+            return done(true)
+        }
+    }
+
+    /// The pull request's thread's notes on this file stay, move or turn outdated by the lines read.
+    fileprivate func checkNotes(_ read: ForgeFileDiff) async {
+        guard let fixer, let desk else { return }
+        guard let thread = await fixer.thread(client, desk.target) else { return }
+        client.diffShown(thread.id, path: read.path, lines: read.newSide)
+    }
+}
+
+/// A note left for the agent from a pull request's file: which thread's next message has it.
+struct ForgeNoted: Equatable {
+    let thread: String
+    let title: String
+    let number: Int
+}
+
+/// Under the diff once a note is left: "Note 2 is on Fix cart's next message", with Open.
+struct ForgeNotedLine: View {
+    let noted: ForgeNoted
+    let open: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: AceTheme.Spacing.md) {
+            Text("Note \(noted.number) is on \(noted.title.isEmpty ? "the thread" : noted.title)'s next message")
+                .aceFont(AceTheme.Typography.caption, relativeTo: .footnote)
+                .foregroundStyle(AceTheme.Colours.mutedForeground)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("forge.noted")
+            if let open {
+                Button("Open", action: open)
+                    .buttonStyle(.textAction())
+                    .accessibilityIdentifier("forge.noted.open")
+            }
+        }
+        .padding(.horizontal, AceTheme.Spacing.lg)
+        .frame(minHeight: AceDesign.Size.rowDetail)
+        .aceGlass(in: AceShape.capsule)
+        .padding(.horizontal, AceTheme.Spacing.md)
+        .padding(.bottom, AceTheme.Spacing.sm)
     }
 }
