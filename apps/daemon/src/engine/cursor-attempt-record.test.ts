@@ -63,6 +63,32 @@ const frame = (kind: string, body: unknown, operationId = "send-1") => ({
   body,
 });
 
+/** Stores a Cursor frame of `kind` for `id` as the actor does; its row. */
+function storeFrame(
+  h: { store: Store; id: ThreadId },
+  seq: number,
+  kind: string,
+  operationId = "old",
+) {
+  const result = h.store
+    .statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)")
+    .run(
+      h.id,
+      "host",
+      seq,
+      JSON.stringify({
+        seq,
+        t: seq,
+        dir: "recv",
+        channel: "sdk",
+        data: frame(kind, {}, operationId),
+      }),
+    );
+  return Number(result.lastInsertRowid);
+}
+const count = (h: { store: Store }) =>
+  Number(h.store.statement("SELECT COUNT(*) AS n FROM engine_provider_frames").get()?.n);
+
 test("whether Cursor had an attempted send is read from its record, not by searching the thread's frames", async () => {
   const { store, id } = await thread();
   const recovery = new ProviderRecovery(store);
@@ -80,38 +106,6 @@ test("whether Cursor had an attempted send is read from its record, not by searc
   // The thread's frames hold none of this: every answer came from the record.
   expect(store.statement("SELECT COUNT(*) AS n FROM engine_provider_frames").get()?.n).toBe(0);
 });
-
-test("a fresh session forgets the previous session's attempt", async () => {
-  const { store, id } = await thread();
-  const recovery = new ProviderRecovery(store);
-  recovery.note(id, frame("send", { input: [], attemptedAt: 1, runFramed: true }));
-  recovery.reset(id);
-  expect(recovery.attempted(id, "send-1")).toBe(false);
-});
-
-/** Stores a Cursor frame of `kind` for `id` as the actor does; its row. */
-function storeFrame(
-  h: { store: Store; id: ThreadId },
-  seq: number,
-  kind: string,
-  operationId = "old",
-) {
-  const result = h.store.statement("INSERT INTO engine_provider_frames VALUES (?,?,?,?)").run(
-    h.id,
-    "host",
-    seq,
-    JSON.stringify({
-      seq,
-      t: seq,
-      dir: "recv",
-      channel: "sdk",
-      data: frame(kind, {}, operationId),
-    }),
-  );
-  return Number(result.lastInsertRowid);
-}
-const count = (h: { store: Store }) =>
-  Number(h.store.statement("SELECT COUNT(*) AS n FROM engine_provider_frames").get()?.n);
 
 test("a new turn on a long Cursor thread drops the settled turns' frames a bounded batch per commit", async () => {
   const h = await thread();
@@ -171,4 +165,30 @@ test("a fresh session on a thread with many old frames sets them aside at once a
   expect(count(h)).toBe(1);
   await recovery.restore(h.id, reader);
   expect(seen).toEqual(["open"]);
+});
+
+test("a send in doubt keeps its delivery evidence through a fresh session, after the old frames are gone", async () => {
+  const h = await thread();
+  const recovery = new ProviderRecovery(h.store);
+  recovery.captured(h.id, "open", storeFrame(h, 1, "open"), false);
+  recovery.note(h.id, frame("send", { input: [], attemptedAt: 1, runFramed: true }));
+  storeFrame(h, 2, "send", "send-1");
+  // The saved session can't open again: the thread moves to a fresh one.
+  recovery.reset(h.id);
+  for (let step = 0; step < 4; step++) recovery.trimStep(h.id);
+  recovery.captured(h.id, "open", storeFrame(h, 3, "open", "fresh"), false);
+  for (let step = 0; step < 4; step++) recovery.trimStep(h.id);
+  expect(count(h)).toBe(1);
+  // It was attempted: never taken for a send that never reached Cursor, and never re-sent.
+  expect(recovery.attempted(h.id, "send-1")).toBe(true);
+  // Nothing the fresh session reads back settles it: it stays for the person.
+  expect(recovery.lastAdmission(h.id)).toBeUndefined();
+  // A send of the fresh session has a record of its own, and the old one is kept beside it.
+  recovery.note(h.id, {
+    ...frame("send", { input: [], attemptedAt: 2, runFramed: true }),
+    commandId: "send-2",
+    operationId: "send-2",
+  });
+  expect(recovery.attempted(h.id, "send-2")).toBe(true);
+  expect(recovery.attempted(h.id, "send-1")).toBe(true);
 });

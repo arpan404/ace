@@ -263,3 +263,10 @@ export function storedFramesRecord(json: string): {
 } {
   return JSON.parse(json) as { open?: number; below?: number; trimmed?: boolean };
 }
+
+/** Cursor attempt records of retired sessions, as this build wrote them (ADR 0125). */
+export function storedAttemptRecords(
+  json: string,
+): import("@ace/adapter-cursor/unsettled").AttemptRecord[] {
+  return JSON.parse(json) as import("@ace/adapter-cursor/unsettled").AttemptRecord[];
+}

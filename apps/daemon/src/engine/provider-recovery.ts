@@ -13,7 +13,7 @@ import {
   type Unsettled,
 } from "@ace/adapter-cursor/unsettled";
 import type { Store } from "../store.ts";
-import { storedAttemptRecord, storedFramesRecord } from "../stored-decode.ts";
+import { storedAttemptRecord, storedAttemptRecords, storedFramesRecord } from "../stored-decode.ts";
 
 const CapturedFrame = z.object({
   seq: z.number().int().nonnegative(),
@@ -52,6 +52,8 @@ export class ProviderRecovery {
   private trimFrames: StatementSync;
   private readFrame: StatementSync;
   private lastFrame: StatementSync;
+  private readRetired: StatementSync;
+  private writeRetired: StatementSync;
   constructor(store: Store) {
     this.store = store;
     [
@@ -66,6 +68,8 @@ export class ProviderRecovery {
       this.trimFrames,
       this.readFrame,
       this.lastFrame,
+      this.readRetired,
+      this.writeRetired,
     ] = store.atomic(
       (db) =>
         [
@@ -103,7 +107,15 @@ export class ProviderRecovery {
             "SELECT rowid,frame FROM engine_provider_frames WHERE thread_id=? AND rowid=?",
           ),
           db.prepare("SELECT MAX(rowid) AS last FROM engine_provider_frames WHERE thread_id=?"),
+          db.prepare(
+            "SELECT value FROM engine_state_records WHERE thread_id=? AND section='cursorRetired' AND key='root'",
+          ),
+          db.prepare(
+            "INSERT INTO engine_state_records VALUES (?,'cursorRetired','root',?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
+          ),
         ] satisfies [
+          StatementSync,
+          StatementSync,
           StatementSync,
           StatementSync,
           StatementSync,
@@ -177,6 +189,15 @@ export class ProviderRecovery {
     const row = this.store.atomic(() => this.readRecord.get(threadId));
     return row ? storedAttemptRecord(String(row.value)) : undefined;
   }
+  /** Sends of retired sessions, with their delivery evidence (see `reset`). */
+  private retired(threadId: ThreadId): AttemptRecord[] {
+    const row = this.store.atomic(() => this.readRetired.get(threadId));
+    return row ? storedAttemptRecords(String(row.value)) : [];
+  }
+  /** Frames an earlier build stored, with none of this build's records: only then are they searched. */
+  private legacy(threadId: ThreadId, record: AttemptRecord | undefined): boolean {
+    return !record && this.frames(threadId).below === undefined && !this.retired(threadId).length;
+  }
   /** Folds one committed Cursor frame into the attempt record, in the commit's transaction. */
   note(threadId: ThreadId, data: unknown): void {
     const before = this.record(threadId);
@@ -191,6 +212,8 @@ export class ProviderRecovery {
   attempted(threadId: ThreadId, commandId: string): boolean {
     const record = this.record(threadId);
     if (record?.commandId === commandId) return true;
+    if (this.retired(threadId).some((kept) => kept.commandId === commandId)) return true;
+    if (!this.legacy(threadId, record)) return false;
     return this.store.atomic(
       () => this.readAttempt.get(threadId, threadId, commandId) !== undefined,
     );
@@ -206,6 +229,7 @@ export class ProviderRecovery {
         ? undefined
         : { commandId: record.commandId, admitted: record.admitted };
     }
+    if (!this.legacy(threadId, record)) return undefined;
     const row = this.store.atomic(() => this.readAdmission.get(threadId, threadId));
     if (!row) return undefined;
     const frame = CapturedFrame.safeParse(JSON.parse(z.string().parse(row.frame)));
@@ -220,7 +244,11 @@ export class ProviderRecovery {
   /** True when anything of `commandId`'s send beyond the attempt itself was recorded. */
   admissionRecorded(threadId: ThreadId, commandId: string): boolean {
     const record = this.record(threadId);
-    if (record) return record.commandId === commandId && record.evidence;
+    if (record?.commandId === commandId) return record.evidence;
+    const kept = this.retired(threadId).find((retired) => retired.commandId === commandId);
+    // A retired session's send: only it could have had it, and it is gone. Never re-sent.
+    if (kept) return true;
+    if (!this.legacy(threadId, record)) return false;
     return this.store.atomic(
       () => this.readOutput.get(threadId, threadId, commandId, commandId) !== undefined,
     );
@@ -232,6 +260,12 @@ export class ProviderRecovery {
    */
   reset(threadId: ThreadId): void {
     this.store.atomic(() => {
+      // A send the retired session may have had keeps its evidence, apart from its frames.
+      const record = this.record(threadId);
+      if (record) {
+        const kept = [...this.retired(threadId), record].slice(-16);
+        this.writeRetired.run(threadId, JSON.stringify(kept));
+      }
       const last = Number(this.lastFrame.get(threadId)?.last ?? 0);
       this.writeFramesRecord.run(threadId, JSON.stringify({ below: last + 1, trimmed: false }));
       this.store.statement("DELETE FROM engine_provider_cursors WHERE thread_id=?").run(threadId);
