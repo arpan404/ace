@@ -25,12 +25,14 @@ export const SpadeSharedAccess = z.object({
 });
 export type SpadeSharedAccess = z.infer<typeof SpadeSharedAccess>;
 
+const SpadeSharedAccessReply = z.object({ access: SpadeSharedAccess });
+
 /** `GET /v1/org`'s answer. */
 export const spadeOrgView = (text: string): SpadeOrgView => SpadeOrgView.parse(JSON.parse(text));
 
 /** `GET /v1/agents/{id}/access`'s answer. */
 export const spadeSharedAccess = (text: string): SpadeSharedAccess =>
-  z.object({ access: SpadeSharedAccess }).parse(JSON.parse(text)).access;
+  SpadeSharedAccessReply.parse(JSON.parse(text)).access;
 
 /** The word beside a shared bot's name, and the line under it on its page. */
 export const sharedWord = "Shared";
