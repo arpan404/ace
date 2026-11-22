@@ -1,11 +1,9 @@
+import { webhookWays } from "@ace/ui-core/automations";
 import { HairlineRow, RowGroup } from "@/components/hairline-row.tsx";
 import { automationsQueryKey } from "@/features/automation-data/index.ts";
 import { settingKeys, type SettingDef } from "./data/setting-keys.ts";
 import { useSettingControl } from "./data/use-settings.ts";
 import { PathSwitch } from "./path-switch.tsx";
-
-/** What each way in means for a webhook's request body (ADR 0173, Consequences). */
-const throughCloud = "ace cloud carries webhook bodies in plain text, never the secret.";
 
 /**
  * Settings › a machine › Automation webhooks: one switch per way a signed webhook can reach
@@ -19,29 +17,25 @@ export function AutomationWebhooks() {
     <RowGroup label="Automation webhooks" anchor="automation-webhooks">
       <WayRow
         id="webhooks-custom"
-        title="At your own URL"
-        label="Automation webhooks at your own URL"
+        title={webhookWays.custom.title}
+        label={webhookWays.custom.label}
         setting={settingKeys.publicUrlWebhooks}
-        sub={
-          hasUrl
-            ? "Senders reach your own proxy, which keeps request bodies off ace cloud."
-            : "Add your own URL under Connect an app first."
-        }
+        sub={hasUrl ? webhookWays.custom.sub : webhookWays.custom.blocked}
         blocked={!hasUrl}
       />
       <WayRow
         id="webhooks-tailscale"
-        title="Over Tailscale"
-        label="Automation webhooks over Tailscale"
+        title={webhookWays.tailscale.title}
+        label={webhookWays.tailscale.label}
         setting={settingKeys.tailscaleWebhooks}
-        sub="Senders reach this machine's ts.net name, which keeps request bodies off ace cloud."
+        sub={webhookWays.tailscale.sub}
       />
       <WayRow
         id="webhooks-relay"
-        title="Through ace cloud"
-        label="Automation webhooks through ace cloud"
+        title={webhookWays.relay.title}
+        label={webhookWays.relay.label}
         setting={settingKeys.relayWebhooks}
-        sub={throughCloud}
+        sub={webhookWays.relay.sub}
       />
     </RowGroup>
   );
