@@ -45,7 +45,11 @@ export function MiddleName(props: {
   );
 }
 
-/** Plain text cut in the middle, its last `tail` characters always shown (a folder's path). */
+/**
+ * Plain text cut in the middle (a folder's path): the head gives way to "…" first and the last
+ * `tail` characters stay. With no room even for them, the tail clips as well ("…/wor…"), so the
+ * text is never cut off without a mark or dropped.
+ */
 export function MiddleText(props: {
   text: string;
   tail: number;
@@ -54,9 +58,11 @@ export function MiddleText(props: {
 }) {
   const { head, end } = split(props.text, props.tail);
   return (
-    <span data-part={props.part} className={cn("flex min-w-0", props.className)}>
-      <span className="min-w-0 truncate whitespace-pre">{head}</span>
-      {end && <span className="shrink-0 whitespace-pre">{end}</span>}
+    <span data-part={props.part} className={cn("flex min-w-0 overflow-hidden", props.className)}>
+      {/* The head keeps one character's room, enough for its "…". */}
+      <span className="min-w-[1ch] truncate whitespace-pre">{head}</span>
+      {/* Shrinks only once the head is spent: its share of any shortfall is tiny. */}
+      {end && <span className="min-w-0 shrink-[0.001] truncate whitespace-pre">{end}</span>}
     </span>
   );
 }

@@ -1,5 +1,5 @@
 import { CaretDownIcon, CaretRightIcon } from "@ace/icons";
-import { useLayoutEffect, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useAgentMark, useSnapshot, type EditorBuffers } from "./editor-buffers.ts";
 import {
@@ -9,7 +9,8 @@ import {
   type GroupActions,
 } from "./group-actions.ts";
 import { groupsOf, type EditorTab, type GroupNode } from "@ace/ui-core/editor-workbench";
-import { fileName, folderOf, folderVariants } from "./paths.ts";
+import { MiddleText } from "@/features/panels/files/middle-name.tsx";
+import { fileName, folderOf, folderTail } from "./paths.ts";
 import { slotShows, TabSlot } from "./tab-slot.tsx";
 
 /**
@@ -114,7 +115,13 @@ function OpenEditorRow(props: {
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-ring-inset"
       >
         <span className={cn("shrink-0", tab.preview && "italic")}>{name}</span>
-        <FolderHint folder={folderOf(tab.path)} />
+        {folderOf(tab.path) && (
+          <MiddleText
+            text={folderOf(tab.path)}
+            tail={folderTail(folderOf(tab.path))}
+            className="flex-1 text-xs text-subtle-foreground"
+          />
+        )}
       </button>
       <TabSlot
         shows={slotShows(unsaved, tab.pinned, hovered, hovered, mark !== undefined)}
@@ -124,46 +131,6 @@ function OpenEditorRow(props: {
         onClose={() => actions.close([tab.path])}
       />
     </li>
-  );
-}
-
-/**
- * The row's folder in subtle ink, giving way in its middle by whole folders: the longest of
- * `folderVariants` that fits the row's room, measured as the room changes, or none. TODO: switch to
- * `MiddleText` from panels/files/middle-name.tsx once #2519 is on main.
- */
-function FolderHint(props: { folder: string }) {
-  const forms = folderVariants(props.folder);
-  const [box, setBox] = useState<HTMLSpanElement | null>(null);
-  const [shown, setShown] = useState(0);
-  const key = forms.join("\n");
-  useLayoutEffect(() => {
-    if (!box || typeof ResizeObserver === "undefined") return;
-    const all = key.split("\n");
-    const context = document.createElement("canvas").getContext("2d");
-    // Called once on observe and on every resize: the first form whose text fits the room.
-    const observer = new ResizeObserver(() => {
-      if (!context) return;
-      // Built from its parts: the `font` shorthand reads empty where variants are set.
-      const style = getComputedStyle(box);
-      context.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      if ("letterSpacing" in context) context.letterSpacing = style.letterSpacing;
-      const room = box.clientWidth;
-      const fits = all.findIndex((form) => context.measureText(form).width <= room);
-      // Nothing fits: no folder at all rather than a chopped one (the row's title has the path).
-      setShown(fits);
-    });
-    observer.observe(box);
-    return () => observer.disconnect();
-  }, [box, key]);
-  if (forms.length === 0) return null;
-  return (
-    <span
-      ref={setBox}
-      className="min-w-0 flex-1 truncate text-xs whitespace-nowrap text-subtle-foreground"
-    >
-      {shown === -1 ? "" : forms[Math.min(shown, forms.length - 1)]}
-    </span>
   );
 }
 
