@@ -1,3 +1,4 @@
+import { nativeChunks } from "./thread-attachments.ts";
 import { NativeTranscript, NativeTranscriptRequest } from "./native-transcript.ts";
 import { openPastSession, PastSessionOpenRequest } from "./past-sessions.ts";
 import { readSimulatorTools, SimulatorToolsRequest } from "./simulator-tools.ts";
@@ -349,7 +350,12 @@ export class NativeServices {
       }
       const spadeRequest = NativeSpadeRequest.safeParse(raw);
       if (spadeRequest.success && this.spade) {
-        const deps = { id: () => host.uuid(), now: this.now, images: this.images };
+        const deps = {
+          id: () => host.uuid(),
+          now: this.now,
+          images: this.images,
+          chunks: nativeChunks,
+        };
         const outcome = await answerSpade(
           this.owner,
           this.spade,

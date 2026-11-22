@@ -1,8 +1,9 @@
 import SwiftUI
 
 /// One bubble of a Spade conversation as the bridge put it (`bridge/spade-rows.ts`): the
-/// person's on the right in the accent with its pictures above it as a thread message's, the
-/// bot's on the left on the page's fill with its words as markdown, an approval as a raised card
+/// person's on the right in the accent with its pictures and documents above it as a thread
+/// message's and a voice message's Play, the bot's on the left on the page's fill with its words
+/// as markdown and what its tools showed under them, an approval as a raised card
 /// with its answers, a card of questions, a quiet line for the rest.
 struct SpadeBubbleView: View {
     let bubble: SpadeModel.Bubble
@@ -17,16 +18,19 @@ struct SpadeBubbleView: View {
     var sending: (String) -> Bool = { _ in false }
     /// What a card's inputs hold, by call, kept beyond the card's view.
     var drafts: (String) -> Binding<[SpadeQuestionCard.Draft]> = { _ in .constant([]) }
+    /// A voice message's recording, by its hash; nil when it couldn't be read.
+    var audio: @MainActor (String) async -> Data? = { _ in nil }
 
     var body: some View {
         switch bubble {
-        case let .person(text, sending, attached, images):
+        case let .person(text, sending, attached, images, files, voice):
             HStack(spacing: AceTheme.Spacing.none) {
                 Spacer(minLength: UserBubble.inset)
                 VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
-                    // Spade names a picture by its hash alone, so no message id is needed to read it.
-                    if !images.isEmpty { MessageAttachments(itemId: "", attachments: images, more: 0) }
+                    // Spade names a picture or document by its hash alone, so no message id is needed.
+                    if !images.isEmpty || !files.isEmpty { MessageAttachments(itemId: "", attachments: images + files, more: 0) }
                     if let attached { Text(attached).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted) }
+                    if let voice { SpadeVoicePlay(voice: voice, read: audio, onAccent: true).opacity(sending ? AceTheme.Opacity.disabled(.light) : 1) }
                     if !text.isEmpty {
                         Text(text)
                             .aceFont(AceDesign.TextRole.message)
@@ -39,23 +43,30 @@ struct SpadeBubbleView: View {
                     }
                 }
             }
-            // Contained, not combined: each picture stays its own button that opens it.
-            .accessibilityElement(children: images.isEmpty ? .combine : .contain)
+            // Contained, not combined: each picture, file and Play stays its own button.
+            .accessibilityElement(children: images.isEmpty && files.isEmpty && voice == nil ? .combine : .contain)
             .accessibilityIdentifier("spade.bubble.person")
-        case let .bot(text, live, end):
+        case let .bot(text, live, end, images, files):
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                if !text.isEmpty { AceMarkdown(text: text, streaming: live) }
-                if let end {
-                    Text(end.text)
-                        .aceFont(AceDesign.TextRole.meta)
-                        .foregroundStyle(end.alert ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
+                if !text.isEmpty || end != nil {
+                    VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                        if !text.isEmpty { AceMarkdown(text: text, streaming: live) }
+                        if let end {
+                            Text(end.text)
+                                .aceFont(AceDesign.TextRole.meta)
+                                .foregroundStyle(end.alert ? AceTheme.StatusText.failed : AceDesign.Ink.muted)
+                        }
+                    }
+                    .padding(.horizontal, AceDesign.Space.margin)
+                    .padding(.vertical, AceDesign.Space.related)
+                    .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
+                    .accessibilityElement(children: .combine)
                 }
+                // What its tools showed: pictures open full size, documents in Quick Look.
+                if !images.isEmpty || !files.isEmpty { MessageAttachments(itemId: "", attachments: images + files, more: 0) }
             }
-            .padding(.horizontal, AceDesign.Space.margin)
-            .padding(.vertical, AceDesign.Space.related)
-            .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
             .padding(.trailing, AceDesign.Space.section)
-            .accessibilityElement(children: .combine)
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("spade.bubble.bot")
         case let .ask(callId, sentence, detail, reason, always, approvers):
             SpadeApprovalCard(sentence: sentence, detail: detail, reason: reason, always: always, approvers: approvers) { allowed, forever in

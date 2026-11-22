@@ -86,11 +86,13 @@ export async function spadeText(
   path: string,
   body?: unknown,
   signal?: AbortSignal,
+  /** How long an upload may take; the transport's default otherwise. */
+  timeoutMs?: number,
 ): Promise<string> {
   const answer = await spadeExchange(
     owner,
     { method, path, ...(body === undefined ? {} : { body: JSON.stringify(body) }) },
-    { id, signal },
+    { id, signal, ...(timeoutMs ? { timeoutMs } : {}) },
   );
   if (answer.kind === "error") throw new SpadeRequestError(answer.message, undefined, answer.code);
   const text = answer.encoding === "text" ? answer.body : "";

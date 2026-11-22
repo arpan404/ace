@@ -19,7 +19,12 @@ import {
 import type { SpadeStatus } from "@ace/protocol";
 import { botFace, groupFaces, initialOf, type SpadeFaceRow } from "./spade-group-rows.ts";
 import { spadeQuestionCardRow, type SpadeQuestionCardRow } from "./spade-question-rows.ts";
-import { spadeImageLines } from "./spade-image.ts";
+import {
+  spadeDocumentLines,
+  spadeImageLines,
+  spadeVoiceLine,
+  type SpadeVoiceLine,
+} from "./spade-image.ts";
 import type { AttachmentLine } from "./thread-rows.ts";
 import {
   spadeWorkersRow,
@@ -180,10 +185,14 @@ export type SpadeBubbleRow =
       kind: "person";
       text: string;
       sending: boolean;
-      /** What it carries that isn't drawn as a picture: "1 file · Voice message". */
+      /** What it carries that isn't drawn; null now that every kind is (kept for older Swift). */
       attached: string | null;
       /** Its pictures, as a thread's message carries them, read by hash (`spade.image`). */
       images: AttachmentLine[];
+      /** Its documents, file lines that open (`spade.document`). */
+      files: AttachmentLine[];
+      /** A voice message's recording, to play (`spade.audio`); its words are `text`. */
+      voice: SpadeVoiceLine | null;
     }
   | {
       kind: "bot";
@@ -193,6 +202,9 @@ export type SpadeBubbleRow =
       live: boolean;
       /** How it ended when it didn't finish on its own; `alert` when it failed. */
       end: { text: string; alert: boolean } | null;
+      /** What its tools showed the person, after its words: pictures, and documents that open. */
+      images: AttachmentLine[];
+      files: AttachmentLine[];
     }
   /** An approval waiting on the person: Allow and Deny, and Always allow when it holds. */
   | {
@@ -211,15 +223,6 @@ export type SpadeBubbleRow =
   | SpadeWorkersRow
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
-
-const attachedLine = (images: number, documents: number, voice: boolean): string | null => {
-  const parts = [
-    images ? `${images} ${images === 1 ? "image" : "images"}` : "",
-    documents ? `${documents} ${documents === 1 ? "file" : "files"}` : "",
-    voice ? "Voice message" : "",
-  ].filter(Boolean);
-  return parts.length ? parts.join(" · ") : null;
-};
 
 /** A request's detail in plain words: the command, the path, the note, the message. */
 export function spadeDetailText(detail: SpadeRequestDetail | undefined): string | null {
@@ -259,8 +262,10 @@ export function spadeBubbleRow(
         kind: "person",
         text: bubble.text,
         sending: bubble.sending,
-        attached: attachedLine(0, bubble.documents.length, bubble.voice !== undefined),
+        attached: null,
         images: spadeImageLines(bubble.images),
+        files: spadeDocumentLines(bubble.documents),
+        voice: spadeVoiceLine(bubble.voice),
       };
     case "bot": {
       const end = bubble.end
@@ -271,10 +276,10 @@ export function spadeBubbleRow(
             alert: bubble.end === "failed",
           }
         : null;
-      const shared = attachedLine(bubble.images.length, bubble.documents.length, false);
-      const text = [bubble.text, shared && `_${shared}_`].filter(Boolean).join("\n\n");
-      if (!text && !end) return undefined;
-      return { kind: "bot", text, live: bubble.live, end };
+      const images = spadeImageLines(bubble.images);
+      const files = spadeDocumentLines(bubble.documents);
+      if (!bubble.text && !end && !images.length && !files.length) return undefined;
+      return { kind: "bot", text: bubble.text, live: bubble.live, end, images, files };
     }
     case "ask": {
       const card = spadeRequestCard(bubble.name, bubble.arguments, who);

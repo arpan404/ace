@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach } from "vitest";
 import { ClientCore } from "@ace/client";
 import { FakeDaemon, FakeSpadeApi, fakeTransport } from "@ace/fake-daemon";
@@ -7,6 +8,7 @@ import { NativeSpade } from "./spade.ts";
 import { ImageBudget, imageBudgetBytes } from "./image-budget.ts";
 import { answerSpade, type NativeSpadeRequest } from "./spade-requests.ts";
 import type { SpadeBubbleRow, SpadeListRow } from "./spade-rows.ts";
+import type { Picked } from "./thread-attachments.ts";
 import type { SpadeHostingWire } from "./spade-hosting.ts";
 
 /*
@@ -86,6 +88,19 @@ export async function setUp(
   });
   stops.push(() => spade.stop());
   spade.start();
+  // What Swift has staged (`AttachmentStaging`), read back a chunk at a time as Swift answers.
+  const staged = new Map<string, Uint8Array>();
+  const chunks = async (localId: string, offset: number, limit: number) => {
+    const bytes = staged.get(localId);
+    if (!bytes) throw new Error("Attachment unavailable");
+    return Buffer.from(bytes.subarray(offset, offset + limit)).toString("base64");
+  };
+  const stage = (name: string, mimeType: string, bytes: Uint8Array): Picked => {
+    const localId = crypto.randomUUID();
+    staged.set(localId, bytes);
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    return { localId, name, mimeType, bytes: bytes.length, sha256 };
+  };
   const ask = (request: NativeSpadeRequest) =>
     answerSpade(
       owner,
@@ -95,10 +110,11 @@ export async function setUp(
         id: () => crypto.randomUUID(),
         now: () => Date.now(),
         images: new ImageBudget(imageBudgetBytes),
+        chunks,
       },
       new AbortController().signal,
     );
-  return { daemon, api, spade, patches, ask };
+  return { daemon, api, spade, patches, ask, stage, staged };
 }
 
 /** A hundred times faster than the phone's clock: the away pace is seconds, not milliseconds. */

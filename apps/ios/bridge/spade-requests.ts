@@ -14,7 +14,21 @@ import {
 } from "./spade-question-rows.ts";
 import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
 import type { ImageBudget } from "./image-budget.ts";
-import { readSpadeImage, SpadeImageRequest } from "./spade-image.ts";
+import {
+  readSpadeFile,
+  readSpadeImage,
+  SpadeAudioRequest,
+  SpadeDocumentRequest,
+  SpadeImageRequest,
+} from "./spade-image.ts";
+import {
+  prepareSpadeSend,
+  SpadeAttachmentsWire,
+  spadeUploadMs,
+  spadeWords,
+  type SpadeOutgoing,
+} from "./spade-attachments.ts";
+import type { ChunkReader } from "./thread-attachments.ts";
 import type { NativeAttachment } from "./native-attachment.ts";
 import {
   answerSpadeNewBot,
@@ -42,10 +56,12 @@ import { segment, spadeText, type NativeSpade } from "./spade.ts";
 const conversationId = z.string().min(1).max(256);
 
 export const NativeSpadeRequest = z.discriminatedUnion("type", [
+  /** Words, files and a recording (`spade-attachments.ts`); words may be empty when it carries any. */
   z.object({
     type: z.literal("spade.send"),
     conversationId,
-    text: z.string().trim().min(1).max(200_000),
+    text: z.string().trim().max(200_000),
+    ...SpadeAttachmentsWire,
   }),
   z.object({ type: z.literal("spade.stop"), conversationId }),
   z.object({
@@ -96,6 +112,8 @@ export const NativeSpadeRequest = z.discriminatedUnion("type", [
   }),
   /** A picture in a conversation, by its hash, for its thumbnail or the full-screen viewer. */
   SpadeImageRequest,
+  SpadeDocumentRequest,
+  SpadeAudioRequest,
   ...spadeSettingsRequests,
   ...spadeNewBotRequests,
 ]);
@@ -129,21 +147,36 @@ export async function answerSpade(
   owner: ClientCore,
   spade: NativeSpade,
   request: NativeSpadeRequest,
-  deps: { id(): string; now(): number; images: ImageBudget },
+  deps: { id(): string; now(): number; images: ImageBudget; chunks: ChunkReader },
   signal: AbortSignal,
 ): Promise<Answer> {
   const ask = (
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
     route: string,
     body?: unknown,
-  ) => spadeText(owner, deps.id, method, route, body, signal);
+    timeoutMs?: number,
+  ) => spadeText(owner, deps.id, method, route, body, signal, timeoutMs);
   if (isSettings(request)) return answerSpadeSettings(owner, spade, request, deps, ask, signal);
   if (isNewBot(request)) return answerSpadeNewBot(spade, request, ask);
   switch (request.type) {
-    case "spade.send":
-      return send(spade, request.conversationId, request.text, deps, () =>
-        ask("POST", `${path(request.conversationId)}/messages`, { text: request.text }),
+    case "spade.send": {
+      // Words alone show at once; a message carrying files waits until all of it is read.
+      const prepared =
+        request.files?.length || request.voice
+          ? await prepareSpadeSend(request, deps.chunks, ask, signal)
+          : spadeWords(request.text);
+      if ("problem" in prepared)
+        return { ok: false, title: "Couldn't send", message: prepared.problem };
+      const length = JSON.stringify(prepared.body).length;
+      return send(spade, request.conversationId, prepared, deps, () =>
+        ask(
+          "POST",
+          `${path(request.conversationId)}/messages`,
+          prepared.body,
+          spadeUploadMs(length),
+        ),
       );
+    }
     case "spade.stop":
       try {
         await ask("POST", `${path(request.conversationId)}/stop`);
@@ -176,6 +209,14 @@ export async function answerSpade(
         return { ok: true, ...image };
       } catch (error) {
         return refused("Couldn't show the image", error);
+      }
+    case "spade.document":
+    case "spade.audio":
+      try {
+        return { ok: true, ...(await readSpadeFile(owner, deps.id, request, signal)) };
+      } catch (error) {
+        const what = request.type === "spade.audio" ? "the voice message" : request.name;
+        return refused(`Couldn't open ${what}`, error);
       }
     case "spade.enable":
       return setRunning(owner, spade, true, signal);
@@ -285,13 +326,21 @@ async function readBack(
 async function send(
   spade: NativeSpade,
   conversation: string,
-  text: string,
+  message: SpadeOutgoing,
   deps: { id(): string },
   post: () => Promise<string>,
 ): Promise<Outcome> {
   const follow = spade.follow(conversation);
   const key = `local-${deps.id()}`;
-  follow?.apply({ kind: "sent", key, text, images: [], documents: [] });
+  const text = typeof message.body.text === "string" ? message.body.text : "";
+  follow?.apply({
+    kind: "sent",
+    key,
+    text,
+    images: message.images,
+    documents: message.documents,
+    ...(message.voice ? { voice: message.voice } : {}),
+  });
   try {
     await post();
     spade.refresh();
