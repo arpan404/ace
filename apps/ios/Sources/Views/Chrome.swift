@@ -8,7 +8,7 @@ extension View {
     func aceGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
         modifier(SurfaceGlass(shape: shape, composer: false, interactive: interactive))
     }
-    /// The home screen's bar of places (the phone's tab bar, the iPad sidebar's foot): glass that
+    /// The home screen's bar of places at the iPad sidebar's foot: glass that
     /// carries the page's colour, so the rows scrolling under it stay out of its words.
     func barGlass<S: Shape>(in shape: S) -> some View {
         modifier(BarGlass(shape: shape))

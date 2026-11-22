@@ -299,11 +299,14 @@ export const pauseOn =
   (set: Scheduler["set"]) =>
   (ms: number, signal: AbortSignal): Promise<void> =>
     new Promise<void>((resolve) => {
-      const cancel = set(ms, resolve);
-      signal.addEventListener("abort", () => (cancel(), resolve()), { once: true });
+      if (signal.aborted) return resolve();
+      const onAbort = () => (cancel(), resolve());
+      const cancel = set(ms, () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      });
+      signal.addEventListener("abort", onAbort, { once: true });
     });
-/** No wait at all: for callers with no timer to give (tests); the phone passes `pauseOn`. */
-const noPause = (): Promise<void> => Promise.resolve();
 
 export class NativeMarket {
   readonly #owner: Owner;
@@ -319,7 +322,7 @@ export class NativeMarket {
   constructor(
     owner: Owner,
     now: () => number,
-    pause: (ms: number, signal: AbortSignal) => Promise<void> = noPause,
+    pause: (ms: number, signal: AbortSignal) => Promise<void>,
     botName: (id: string) => string | undefined = () => undefined,
     standing: () => PairedStanding | undefined = () => undefined,
   ) {

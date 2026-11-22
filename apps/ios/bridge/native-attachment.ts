@@ -134,7 +134,7 @@ async function readStored(
     ((thumbnail && !standIn ? previewBytes : Math.max(attachment.bytes, previewBytes)) * 4) / 3,
   );
   const budgeted = <T>(bytes: number, run: () => Promise<T>) =>
-    images ? images.run(bytes, run) : run();
+    images ? images.run(bytes, run, signal) : run();
   const result = await budgeted(most, fetch).catch(async (error: unknown) => {
     // The daemon refused a preview it advertised (no decoder): a small picture is drawn from its
     // original instead. Busy, offline or aborted reads are the caller's to try again.

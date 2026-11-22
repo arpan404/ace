@@ -397,6 +397,11 @@ export const MarketOperation = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("home") }),
   z.strictObject({ op: z.literal("read"), ...entryKey }),
+  /**
+   * What a listed Suit or bot looks like, for its card: a bot's face, a Suit's `suit.json`, from
+   * its checked bytes. Opens no review and waits on no install; the daemon keeps each version's.
+   */
+  z.strictObject({ op: z.literal("look"), ...entryKey, version: MarketVersion.optional() }),
   z.strictObject({
     op: z.literal("prepare"),
     ...entryKey,
@@ -471,6 +476,7 @@ export const marketReadOperations: readonly MarketOperation["op"][] = [
   "search",
   "home",
   "read",
+  "look",
   "readReview",
   "installed",
   "spadeSkills",
@@ -557,6 +563,14 @@ export const MarketResult = z.discriminatedUnion("op", [
   }),
   z.strictObject({ op: z.literal("read"), entry: MarketEntryDetail }),
   z.strictObject({ op: z.literal("review"), review: MarketReview }),
+  /** Neither for an entry without one: a bot recipe with no face, a type with no look. */
+  z.strictObject({
+    op: z.literal("look"),
+    /** The recipe's stored face fields, as a review's body carries them. */
+    face: z.record(z.string().max(40), z.unknown()).optional(),
+    /** `suit.json` exactly as the archive has it. */
+    suit: z.string().max(256_000).optional(),
+  }),
   z.strictObject({
     op: z.literal("reviewPage"),
     review: MarketReview,

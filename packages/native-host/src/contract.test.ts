@@ -58,9 +58,17 @@ const platform = (without: ("inflate" | "trace")[] = [], monotonicMs?: () => num
     btoa: typeof btoa;
     AbortController: typeof AbortController;
     AbortSignal: typeof AbortSignal;
-    setTimeout: (callback: () => void, ms?: number) => number;
+    setTimeout: (
+      callback: (...args: unknown[]) => void,
+      ms?: unknown,
+      ...args: unknown[]
+    ) => number;
     clearTimeout: (id?: number) => void;
-    setInterval: (callback: () => void, ms?: number) => number;
+    setInterval: (
+      callback: (...args: unknown[]) => void,
+      ms?: unknown,
+      ...args: unknown[]
+    ) => number;
     clearInterval: (id?: number) => void;
     performance: { now(): number };
   };
@@ -88,6 +96,23 @@ describe("Web APIs backed by the host", () => {
     }, 5);
     await pause(80);
     expect(ticks).toBe(3);
+  });
+
+  it("passes extra arguments and reads a numeric-string delay, as the web does", async () => {
+    const { setTimeout: later, setInterval: every, clearInterval: stop } = platform();
+    const seen: unknown[][] = [];
+    later((...args) => seen.push(args), "5", "a", 2);
+    let ticks = 0;
+    const id = every(
+      (...args) => {
+        seen.push(args);
+        if (++ticks === 2) stop(id);
+      },
+      0,
+      "tick",
+    );
+    await pause(60);
+    expect(seen).toEqual([["tick"], ["tick"], ["a", 2]]);
   });
 
   it("reads performance.now from the host's monotonic clock", () => {

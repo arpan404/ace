@@ -1,12 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// Hides the system tab bar for this window while the sidebar carries the tabs, through the tab
-/// bar controller itself. Hidden only through SwiftUI's toolbar visibility, the bar is laid out
-/// shown first; the split view's columns keep the room it took at launch (an empty band over the
-/// sidebar, an extra row in the detail column's bar) and never give it back.
+/// Hides or shows the system tab bar for this window through the tab bar controller itself:
+/// hidden while the sidebar carries the tabs, shown over a phone's lists. Hidden only through
+/// SwiftUI's toolbar visibility, the bar is laid out shown first; the split view's columns keep
+/// the room it took at launch (an empty band over the sidebar, an extra row in the detail
+/// column's bar) and never give it back. A window turning compact again shows it here.
 struct TabBarPlace: UIViewControllerRepresentable {
     let hidden: Bool
+    var animated = false
     /// Changes when something else may lay the tabs out again and show the bar (the window
     /// appearing, a thread opening, the side panel's inspector column opening or closing): the
     /// place is set once more after that settles.
@@ -15,6 +17,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ probe: Probe, context: Context) {
         probe.hidden = hidden
+        probe.animated = animated
         probe.apply()
         if probe.relayout != relayout {
             probe.relayout = relayout
@@ -36,6 +39,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
     final class Probe: UIViewController {
         var pending: Task<Void, Never>?
         var hidden = false
+        var animated = false
         var relayout = ""
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
@@ -53,7 +57,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
             guard viewIfLoaded?.window != nil else { return }
             guard let tabs = tabBarController ?? sequence(first: parent, next: { $0?.parent }).compactMap({ $0 as? UITabBarController }).first else { return }
             guard tabs.isTabBarHidden != hidden else { return }
-            tabs.setTabBarHidden(hidden, animated: false)
+            tabs.setTabBarHidden(hidden, animated: animated)
         }
     }
 }

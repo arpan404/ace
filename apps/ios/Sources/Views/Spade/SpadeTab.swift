@@ -5,13 +5,11 @@ import SwiftUI
 /// fleet chose to host it, then whoever needs the person, then working, failed, finished and the
 /// rest, each with its face, its name, one line and, with several machines, the machine it runs
 /// on. A bot opens its conversation on its own machine. Every word about a bot is its bridge's.
-struct SpadeTab<Bar: View>: View {
+struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
-    /// The phone's tab bar (`HomeBar`), at the list's foot: it steps away with the list for a
-    /// conversation, as Projects' does for a page.
-    @ViewBuilder let bar: () -> Bar
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
     /// The machine New bot makes its bot on, once chosen; asking shows the choice first.
@@ -35,7 +33,6 @@ struct SpadeTab<Bar: View>: View {
             Group {
                 if machines.isEmpty { Color.clear } else { SpadeList(inbox: inbox) }
             }
-            .homeBar { bar() }
             .navigationTitle(HomeTabs.title(.spade))
             .toolbar {
                 if !machines.isEmpty {
@@ -56,6 +53,8 @@ struct SpadeTab<Bar: View>: View {
                         // A worker's chat opened from this one is on the same machine.
                         path.append(SpadeRoute(conversation: $0.conversation, group: $0.group, machine: route.machine))
                     }
+                    // A conversation has no tab bar, as Projects' pages: its composer takes the foot.
+                    .toolbarVisibility(.hidden, for: .tabBar)
                 }
             }
         }
@@ -100,7 +99,9 @@ struct SpadeTab<Bar: View>: View {
                 .toggleStyle(.systemSwitch)
             }
         }
-        .modifier(HomeTabBar(relayout: "spade \(path.count)"))
+        // A phone's tab bar shows over the bots and steps away for a conversation.
+        .modifier(HomeTabBar(hidden: sizeClass == .regular || !path.isEmpty, animated: sizeClass != .regular,
+                             relayout: "spade \(path.count)"))
         // Another space, or a machine that stops showing Spade: its conversations close.
         .onChange(of: machineKeys) { _, keys in path.removeAll { !keys.contains($0.machine) } }
     }

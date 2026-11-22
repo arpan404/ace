@@ -128,22 +128,16 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// One of the home bar's buttons, by its place's id: `threads`, `chats`, `spade`, `search` or
-    /// `compose` on a phone. A regular window has the sidebar's foot (`sidebar.<id>`) instead.
+    /// One of the system tab bar's places, by its id: `threads`, `chats`, `spade` or `search` on a
+    /// phone. A regular window has the sidebar's foot (`sidebar.<id>`) instead.
     func homeTab(_ id: String) -> XCUIElement { buttons["tab.\(id)"] }
-    /// The list's compose button: the header's (`inbox.compose`) in a regular window, the home
-    /// bar's on a phone. Waits up to 25 s for either to show, then returns the header's, so a
-    /// caller's own wait still fails with its message when neither came.
+    /// The list's compose button in its top bar (`inbox.compose`), on a phone and in a regular
+    /// window alike. Waits up to 25 s for it to show, so a caller's own wait still fails with its
+    /// message when it never came.
     var newThreadButton: XCUIElement {
-        let header = buttons["inbox.compose"]
-        let tab = homeTab("compose")
-        let deadline = Date().addingTimeInterval(25)
-        while Date() < deadline {
-            if header.exists { return header }
-            if tab.exists { return tab }
-            Thread.sleep(forTimeInterval: 0.25)
-        }
-        return header
+        let compose = buttons["inbox.compose"]
+        _ = compose.waitForExistence(timeout: 25)
+        return compose
     }
     /// Waits for an inbox row and scrolls until it shows: the fixture lists more threads than fit.
     @MainActor @discardableResult func revealRow(_ identifier: String, timeout: TimeInterval = 30) -> XCUIElement {

@@ -51,11 +51,16 @@ struct InboxSplit<Sidebar: View, Page: View, Side: View, Empty: View>: View {
                             .environment(\.closeOpenThread, route.thread.map { key in
                                 CloseOpenThread(id: key.id) { path = [] }
                             })
+                            // A page has no tab bar: it goes with the push, as the list's
+                            // composer and keyboard need the foot.
+                            .toolbarVisibility(.hidden, for: .tabBar)
                     }
             }
             .environment(\.panelPlace, .none)
-            // The system's tab bar never shows: the list's first page carries ace's own (`HomeBar`).
-            .modifier(HomeTabBar(relayout: "stack \(path.count) \(selecting)"))
+            // The system's tab bar shows over the list and steps away for a page or Select
+            // mode, whose own bar takes its place.
+            .modifier(HomeTabBar(hidden: !path.isEmpty || selecting, animated: true,
+                                 relayout: "stack \(path.count) \(selecting)"))
             .onAppear { drawer.close() }
         }
     }
