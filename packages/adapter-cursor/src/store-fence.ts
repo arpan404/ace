@@ -3,20 +3,20 @@ import { sessionStoreUnusable } from "@ace/provider-kit/open-error";
 /*
  * Which Cursor failures mean the thread's saved SDK session can never be opened again, so ace
  * continues in a fresh session instead of retrying (ADR 0211). The adapter's own guards say so
- * in words only ("…; use context handoff", a fenced journal, a store over its budget), and those
+ * in words only ("…; use context handoff", a store over its budget), and those
  * words can arrive wrapped: in a host request's rejection or as the cause of a failed history
  * check. Unsafe files (a symlink where a store should be) are never handed off: a fresh folder
  * beside them would not be safer. Pure.
  */
 
+// Only states of the store itself: its size, a format or identity it can't be opened with, a
+// history too large to read back. Momentary pressure (a busy store, a full disk, a slow ack)
+// is never here: it passes, and a fresh session would throw the saved one away for nothing.
 const unusable = [
   /\buse (?:explicit |bounded )?(?:portable )?context handoff\b/i,
-  /\bSDK journal is fenced\b/i,
-  /\bSDK (?:JSONL |aggregate )?checkpoint (?:growth |reservation backlog |blob |inventory )?exceeds\b/i,
-  /\bSDK checkpoint (?:writes are|quota is) fenced\b/i,
+  /\bSDK (?:JSONL )?checkpoint (?:blob )?exceeds\b/i,
   /\bSDK (?:recovery run|durable event) inventory exceeds budget\b/i,
   /\bSDK recovery metadata (?:bytes )?exceeds? budget\b/i,
-  /\bSDK observe identity budget exceeded\b/i,
   /\bSDK translation provenance is fenced\b/i,
 ];
 const unsafe = /\bUnsafe SDK checkpoint\b|\bsymlink\b/i;

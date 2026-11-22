@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { SessionOpenError, sessionStoreUnusable } from "@ace/provider-kit/open-error";
-import { checkCheckpointBudget, checkpointDirectory } from "./checkpoints.ts";
+import { assertCheckpointBudget, checkpointDirectory } from "./checkpoints.ts";
 import { markStoreUnusable } from "./store-fence.ts";
 
 /** The code the engine reads once the open failure has crossed the provider boundary. */
@@ -11,13 +11,9 @@ const engineCode = (error: unknown) =>
   new SessionOpenError("cursor session opening failed", markStoreUnusable(error)).code;
 
 test.each([
-  "SDK boundary failed: SDK journal is fenced or uninitialized. Cursor SDK open failed; delivery may be uncertain. Inspect history before resending.",
-  "SDK checkpoint exceeds recovery budget; preserve source and use explicit context handoff",
-  "SDK checkpoint inventory exceeds budget; use explicit context handoff",
-  "Unsafe or oversized SDK boundary journal; use context handoff",
-  "SDK boundary journal exceeds recovery budget; use context handoff",
+  "SDK checkpoint exceeds its budget; use context handoff",
+  "Cursor's saved session is too large to keep: SDK checkpoint exceeds its budget; use context handoff. ace continues this thread in a fresh session with its context.",
   "SDK recovery run inventory exceeds budget",
-  "ace could not write Cursor's checkpoint: SDK aggregate checkpoint growth exceeds budget; previous checkpoint retained. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
   "Unclaimed SDK checkpoint has orphaned or conflicting identity; use context handoff",
 ])("a saved session Cursor can't open again is reported as unusable: %s", (message) => {
   expect(engineCode(new Error(message))).toBe(sessionStoreUnusable);
@@ -26,7 +22,7 @@ test.each([
 test("an unverifiable history is unusable when its cause says the store is", () => {
   const error = new Error(
     "Cursor SDK history could not be verified. Your thread and queued message are preserved.",
-    { cause: new Error("SDK aggregate checkpoint growth exceeds budget") },
+    { cause: new Error("SDK checkpoint exceeds its budget; use context handoff") },
   );
   expect(engineCode(error)).toBe(sessionStoreUnusable);
 });
@@ -38,6 +34,9 @@ test.each([
   "Unsafe SDK checkpoint entry; use explicit context handoff",
   "ENOSPC: no space left on device",
   "ace could not write Cursor's checkpoint: ENOSPC: no space left on device. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
+  // Momentary write pressure from an earlier build: never a reason to throw the session away.
+  "ace could not write Cursor's checkpoint: SDK checkpoint reservation backlog exceeds budget. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
+  "SDK checkpoint quota is fenced",
 ])("a failure that may pass, or an unsafe store, keeps its own code: %s", (message) => {
   expect(engineCode(Object.assign(new Error(message), { code: "auth" }))).not.toBe(
     sessionStoreUnusable,
@@ -49,14 +48,14 @@ test("a fresh session generation opens its own checkpoint folder and keeps the o
   try {
     const old = checkpointDirectory(home, "thread-1");
     await mkdir(old, { recursive: true });
-    await writeFile(join(old, "store.db"), "the old saved session");
+    await writeFile(join(old, "index.db"), "the old saved session");
     const fresh = checkpointDirectory(home, "thread-1", 1);
     expect(fresh).not.toBe(old);
     // The old folder is over this budget; the new generation starts empty beside it.
-    await expect(checkCheckpointBudget(old, 8)).rejects.toThrow("exceeds");
-    expect(await checkCheckpointBudget(fresh, 8)).toMatchObject({ bytes: 0, files: 0 });
+    await expect(assertCheckpointBudget(old, 8)).rejects.toThrow("exceeds");
+    await expect(assertCheckpointBudget(fresh, 8)).resolves.toBeUndefined();
     expect(checkpointDirectory(home, "thread-1", 1)).toBe(fresh);
-    expect(await readFile(join(old, "store.db"), "utf8")).toBe("the old saved session");
+    expect(await readFile(join(old, "index.db"), "utf8")).toBe("the old saved session");
   } finally {
     await rm(home, { recursive: true, force: true });
   }
