@@ -59,10 +59,11 @@ export function MiddleText(props: {
   const { head, end } = split(props.text, props.tail);
   return (
     <span data-part={props.part} className={cn("flex min-w-0 overflow-hidden", props.className)}>
-      {/* The head keeps one character's room, enough for its "…". */}
-      <span className="min-w-[1ch] truncate whitespace-pre">{head}</span>
-      {/* Shrinks only once the head is spent: its share of any shortfall is tiny. */}
-      {end && <span className="min-w-0 shrink-[0.001] truncate whitespace-pre">{end}</span>}
+      {/* The head takes nearly all of a shortfall, down to room for its "…". */}
+      <span className="min-w-[0.85em] shrink-[1000] truncate whitespace-pre">{head}</span>
+      {/* Then the tail clips too. Its factor stays 1: flex applies only part of the shortfall
+          when the shrinking items' factors sum to less than 1. */}
+      {end && <span className="min-w-0 truncate whitespace-pre">{end}</span>}
     </span>
   );
 }
