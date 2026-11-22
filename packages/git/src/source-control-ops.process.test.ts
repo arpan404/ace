@@ -363,6 +363,55 @@ describe("source control git operations", () => {
     }
   });
 
+  it("refuses to switch onto a branch that would overwrite an ignored or untracked file", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      runGit(repo, ["switch", "-c", "with-env"]);
+      await writeFile(join(repo, ".env"), "TOKEN=committed-by-someone\n");
+      runGit(repo, ["add", ".env"]);
+      runGit(repo, ["commit", "-m", "track .env"]);
+      runGit(repo, ["switch", "main"]);
+      await writeFile(join(repo, ".gitignore"), ".env\n");
+      runGit(repo, ["add", ".gitignore"]);
+      runGit(repo, ["commit", "-m", "ignore .env"]);
+      // The person's own secrets, ignored here, tracked on the other branch.
+      await writeFile(join(repo, ".env"), "TOKEN=mine\n");
+
+      await expectGitError(
+        git.switchBranch({ worktree: repo, branch: "with-env", allowUncommitted: true }),
+        "untracked_overwritten",
+      );
+      expect(await readFile(join(repo, ".env"), "utf8")).toBe("TOKEN=mine\n");
+      expect(runGit(repo, ["branch", "--show-current"])).toBe("main");
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("refuses a pull whose incoming commits would overwrite an ignored file", async () => {
+    const { local, peer } = await createRepoWithRemote();
+    const git = new GitService({ transportProtocols: ["file"] });
+    try {
+      await writeFile(join(local, ".gitignore"), ".env\n");
+      runGit(local, ["add", ".gitignore"]);
+      runGit(local, ["commit", "-m", "ignore .env"]);
+      runGit(local, ["push", "origin", "main"]);
+      runGit(peer, ["pull", "origin", "main"]);
+      await writeFile(join(peer, ".env"), "TOKEN=from-peer\n");
+      runGit(peer, ["add", "-f", ".env"]);
+      runGit(peer, ["commit", "-m", "track .env"]);
+      runGit(peer, ["push", "origin", "main"]);
+      await writeFile(join(local, ".env"), "TOKEN=mine\n");
+
+      await expectGitError(git.pull({ worktree: local }), "untracked_overwritten");
+      expect(await readFile(join(local, ".env"), "utf8")).toBe("TOKEN=mine\n");
+      expect((await git.sourceControlStatus(local)).behind).toBe(1);
+    } finally {
+      await git.close();
+    }
+  });
+
   it("pushes, lists, and pops stashes including untracked files", async () => {
     const repo = await createRepo();
     const git = new GitService();

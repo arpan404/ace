@@ -119,6 +119,8 @@ const copy: Record<string, string> = {
   git_path_outside_repo: "That path is outside the repository and can't be changed.",
   git_changed_since_review:
     "A file changed after you reviewed it, so nothing was discarded. Look at it again first.",
+  git_untracked_overwritten:
+    "Files Git doesn't track or ignores, like a .env, would be overwritten. Move them aside first.",
   git_path_occupied:
     "Another file now has the renamed file's old name, so nothing was discarded. Move it first.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the

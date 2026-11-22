@@ -48,6 +48,8 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   path_outside_repo: "Path is outside the repository",
   changed_since_review: "A file changed after you reviewed it; look again before discarding",
   path_occupied: "Another file already uses that name",
+  untracked_overwritten:
+    "Files Git doesn't track, or ignores, would be overwritten; move them first",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */

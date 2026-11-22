@@ -255,10 +255,11 @@ export async function switchBranch(
           )
         ).exitCode === 0;
       args = localExists
-        ? ["switch", "--no-guess", "--", options.branch]
+        ? ["switch", "--no-guess", "--no-overwrite-ignore", "--", options.branch]
         : [
             "switch",
             "--no-guess",
+            "--no-overwrite-ignore",
             "--track",
             "-c",
             options.branch,
@@ -266,7 +267,8 @@ export async function switchBranch(
             `refs/remotes/${remote}/${options.branch}`,
           ];
     } else {
-      args = ["switch", "--no-guess", "--", options.branch];
+      // An ignored file (a `.env`) the target branch tracks is the person's: never replace it.
+      args = ["switch", "--no-guess", "--no-overwrite-ignore", "--", options.branch];
     }
     const result = await repository.cli.call(root, args, {
       write: true,
@@ -276,6 +278,10 @@ export async function switchBranch(
     });
     if (result.exitCode !== 0) {
       const stderr = result.stderr;
+      if (/untracked working tree files would be (?:overwritten|removed)/i.test(stderr))
+        throw new GitError("untracked_overwritten", failureMessage("untracked_overwritten"), {
+          stderr,
+        });
       if (
         /would be overwritten by (?:checkout|switch)|local changes to the following files/i.test(
           stderr,

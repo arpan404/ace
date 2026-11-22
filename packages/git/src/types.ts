@@ -131,6 +131,7 @@ export type GitErrorCode =
   | "path_outside_repo"
   | "changed_since_review"
   | "path_occupied"
+  | "untracked_overwritten"
   | GitFailureCode;
 
 /**

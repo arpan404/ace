@@ -415,15 +415,24 @@ export async function pullBranch(
         throw new GitError("remote_ref_not_found", "The branch does not exist on the remote");
     }
 
-    const merged = await repository.cli.call(root, ["merge", "--ff-only", "--", targetRef], {
-      write: true,
-      allowFailure: true,
-      timeoutMs: longWriteTimeoutMs,
-      captureBytes: 65_536,
-      env: { GIT_TRACE2_EVENT: "1" },
-    });
+    // `--no-overwrite-ignore`: an ignored file the incoming commits track stays the person's.
+    const merged = await repository.cli.call(
+      root,
+      ["merge", "--ff-only", "--no-overwrite-ignore", "--", targetRef],
+      {
+        write: true,
+        allowFailure: true,
+        timeoutMs: longWriteTimeoutMs,
+        captureBytes: 65_536,
+        env: { GIT_TRACE2_EVENT: "1" },
+      },
+    );
     if (merged.exitCode !== 0) {
       const stderr = merged.stderr;
+      if (/untracked working tree files would be (?:overwritten|removed)/i.test(stderr))
+        throw new GitError("untracked_overwritten", failureMessage("untracked_overwritten"), {
+          stderr,
+        });
       if (/not possible to fast-forward|diverging branches/i.test(stderr))
         throw new GitError("pull_diverged", failureMessage("pull_diverged"), { stderr });
       if (/would be overwritten by merge|local changes to the following files/i.test(stderr))
