@@ -228,6 +228,11 @@ export function recoverEngine(
         if (lost.length) repo.apply(id, lost, clock.now());
       }),
     );
+  // A Cursor host stores its attempt before it calls Cursor (ADR 0043, amendment of
+  // 2026-11-22): a submitted send without one never reached Cursor, so it goes again, once.
+  const neverReachedCursor = (intent: IntentHeader) =>
+    repo.backend(intent.threadId) === "cursor-sdk" &&
+    !repo.recovery.attempted(intent.threadId, intent.commandId);
   const unreadableIntent = (thread: unknown, error: unknown) => {
     const id = ThreadId.safeParse(thread);
     if (!id.success || !skippableAtStartup(error)) throw error;
@@ -263,8 +268,8 @@ export function recoverEngine(
               "queue.resume",
               "thread.limit",
             ].includes(intent.kind) &&
-            intent.submittedGeneration === undefined &&
-            !intent.acknowledged
+            !intent.acknowledged &&
+            (intent.submittedGeneration === undefined || neverReachedCursor(intent))
           ) {
             repo.pending.defer(intent);
             return;

@@ -1,42 +1,48 @@
-// Offline SDK boundary fixture. No provider is imported or contacted.
+// Offline Cursor host fixture for a daemon that is killed mid-send. No provider is contacted.
+// It speaks the host's frames in the host's order: the attempt (`send`) is committed before
+// Cursor could see the input, then its admission (`segment`), then output. The parent kills
+// this process at one of those points, named by the third argument, once it is committed.
 import { Store } from "../store.ts";
 import { Engine } from "./index.ts";
 import { AdapterRegistry } from "./registry.ts";
-import { CursorJournal, CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
+import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
 
-const database = process.argv[2];
-const root = process.argv[3];
-if (!database || !root) throw new Error("Missing fixture paths");
+const [database, root, window] = process.argv.slice(2);
+if (!database || !root || !window) throw new Error("Missing fixture arguments");
 const store = new Store(database);
 const workspace = store.createWorkspace(root, "Crash workspace");
-const journal = new CursorJournal(root, 65536, 4096);
-await journal.recover(0, async () => {});
 const registry = new AdapterRegistry();
 let operation = "open";
-const frame = async (context: SessionContext, kind: string, body: unknown, delivered = true) => {
-  const envelope = await journal.append({
-    schemaVersion: 1,
-    generation: "before-crash",
-    operationId: operation,
-    commandId: operation,
-    segment: 0,
-    agentId: "native-agent",
-    kind,
-    body,
-  });
-  if (!delivered) return;
-  const payload = new ProviderPayload(JSON.stringify(envelope));
-  context.onFrame({
-    seq: (envelope.boundaryOffset ?? 0) * 1024,
-    t: 1,
+let seq = 0;
+const frame = (context: SessionContext, kind: string, body: unknown, extra = {}) => {
+  const payload = new ProviderPayload(
+    JSON.stringify({
+      schemaVersion: 1,
+      generation: "before-crash",
+      operationId: operation,
+      commandId: operation,
+      segment: 0,
+      agentId: "native-agent",
+      kind,
+      body,
+      ...extra,
+    }),
+  );
+  return context.onFrame({
+    seq: ++seq,
+    t: seq,
     dir: kind === "send" ? "send" : "recv",
     channel: "sdk",
     data: payload.data,
     payload,
   });
+};
+const reached = () => {
+  process.send?.({ reached: window });
+  return new Promise<never>(() => {});
 };
 registry.register(
   {
@@ -57,9 +63,18 @@ registry.register(
         instanceId: "account-a",
         async send(input, _delivery, intent) {
           operation = intent ?? "first-command";
-          await frame(context, "send", { input });
-          await frame(context, "delta", { type: "text-delta", text: "before" });
-          await frame(context, "delta", { type: "text-delta", text: " after" }, false);
+          // The engine has recorded the submission; the host has stored nothing yet.
+          if (window === "submitted") return reached();
+          await frame(context, "send", { input, attemptedAt: Date.now() });
+          if (window === "attempted") return reached();
+          await frame(context, "segment", { nativeRunId: "run-1" }, { runId: "run-1" });
+          await frame(
+            context,
+            "delta",
+            { type: "text-delta", text: "before" },
+            { runId: "run-1", streamSeq: 1 },
+          );
+          return reached();
         },
         async interrupt() {},
         async resolve() {},
@@ -83,7 +98,6 @@ const command = Command.parse({
 });
 const result = engine.handler.handle(command, store);
 if (!result.ok) throw new Error(result.error);
-await engine.flush();
-process.send?.({ ready: true });
-// Parent kills this process at an explicit committed boundary, with no timed sleep.
+void engine.flush();
+// The parent kills this process once the named point is committed, with no timed sleep.
 process.on("message", () => {});
