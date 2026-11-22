@@ -1,4 +1,4 @@
-import type { FakeSpadeApi } from "@ace/fake-daemon";
+import { fakeAskApp, type FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
  * `?fakeWorld=spade`, a connected app (ADR 0202, amendment 5): Quill has Notion, whose server
@@ -60,13 +60,14 @@ export function seedFakeNotion(here: FakeSpadeApi) {
   store({ type: "step_finished", reply: "r-quill-1", text: seen });
   store({ type: "reply_finished", reply: "r-quill-1", text: seen });
   store({ type: "user_message", text: "make a page for each trip note" });
-  here.askApp(
+  fakeAskApp(
+    here,
     quill,
     "notion",
     ["Lisbon", "Porto", "Sintra"].map((title, at) => ({
       callId: `q${at + 4}`,
       name: "notion__create_page",
-      args: { title: `${title} trip`, parent: "Trips" },
+      args: { title: `${title} trip`, parent: { page_id: "Trips" } },
       reason:
         "It may change something in the app, and the bot has read untrusted content, so you decide.",
     })),

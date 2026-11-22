@@ -72,11 +72,11 @@ export type SpadeGrantScope =
   /** Driving pages of one site, by its host: reviewed without asking. */
   | { kind: "drive_site"; host: string }
   /**
-   * A connected app's Always allow (ADR 0202, amendment 5), by its connection's id: its writes
-   * (`writes`) or its reads run without asking. Never a payment, a send, an access change or a
-   * delete.
+   * A connected app's Always allow (ADR 0202, amendment 5), by its connection's id: the ordinary
+   * writes it names (`tools`, each pinned to the definition the person saw) run without asking.
+   * Never a payment, a send, an access change, a publish or a delete.
    */
-  | { kind: "app"; app: string; writes: boolean }
+  | { kind: "app"; app: string; writes: boolean; tools: Record<string, string> }
   | { kind: "other"; name: string };
 
 export type SpadeGrant = SpadeGrantScope & {
@@ -196,7 +196,13 @@ function scope(raw: Record<string, unknown>): SpadeGrantScope {
   if (kind === "pr_comment") return { kind, repo: word("repo"), ownOnly: raw.own_only === true };
   if (kind === "drive_app") return { kind, app: word("app") };
   if (kind === "drive_site") return { kind, host: word("host") };
-  if (kind === "app") return { kind, app: word("app"), writes: raw.writes === true };
+  if (kind === "app")
+    return {
+      kind,
+      app: word("app"),
+      writes: raw.writes === true,
+      tools: argumentsShape.parse(raw.tools),
+    };
   return { kind: "other", name: kind };
 }
 

@@ -1,4 +1,10 @@
-import { spadeAppOfTool, spadeAppRequestGroup, type SpadeBubble } from "@ace/ui-core/spade-chat";
+import {
+  spadeAppOfTool,
+  spadeAppRequestGroup,
+  type SpadeAppCallLine,
+  type SpadeBubble,
+} from "@ace/ui-core/spade-chat";
+import { Button } from "@/components/ui/button.tsx";
 import { useRef, useState } from "react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { AppMark } from "@/components/ui/app-mark.tsx";
@@ -21,10 +27,12 @@ import { useCardFocus } from "./use-card-focus.ts";
 type Ask = Extract<SpadeBubble, { kind: "ask" }>;
 
 /**
- * Requests one connected app's tools made together, as one card (ADR 0202, amendment 5): one
- * sentence ("Quill wants to do 3 things in Notion"), the calls listed quietly under it, the
- * reason once when they share it, then Deny and Allow for all of them, and "Always allow for
- * Notion" where every one of them offers it. Enter allows all, Escape denies all.
+ * Requests one connected app's tools made together, of one gate kind, as one card (ADR 0202,
+ * amendment 5): one sentence headed by what the gate read them as doing ("Quill wants to make 3
+ * changes in Notion"), never by the tools' names, then each call with where it goes and the
+ * gate's reason, its full arguments a tap away (Details) before anything is allowed. Deny all and
+ * Allow all answer each; "Always allow for Notion" shows only where every call is an ordinary
+ * write Spade offers it for, and covers those tools as shown. Enter allows all, Escape denies.
  */
 export function SpadeRequestGroup(props: {
   items: readonly Ask[];
@@ -44,15 +52,21 @@ export function SpadeRequestGroup(props: {
     items.map((item) => ({
       tool: spadeAppOfTool(item.name)?.tool ?? item.name,
       arguments: item.arguments,
+      effect: item.effect,
+      ask: item.ask,
+      reason: item.reason,
     })),
   );
   const reasons = new Set(items.map((item) => item.reason));
   const [reason] = reasons;
+  const shared = reasons.size === 1 ? reason : undefined;
   const always = useAppAlways(props.botId);
   const forApp =
-    connection !== undefined && items.every((item) => item.ask === "app" && item.app === connection)
+    connection !== undefined &&
+    items.every((item) => item.ask === "app" && item.app === connection && item.definition)
       ? connection
       : undefined;
+  const tools = Object.fromEntries(items.map((item) => [item.name, item.definition ?? ""]));
   const [answering, setAnswering] = useState<RequestAnswer>();
   const raised = useRef<HTMLDivElement>(null);
   useCardFocus(raised, 0);
@@ -67,7 +81,7 @@ export function SpadeRequestGroup(props: {
     if (!forApp || answering !== undefined) return;
     setAnswering("always");
     void always
-      .allow(forApp, () => answerAll("allow", true))
+      .allow(forApp, tools, () => answerAll("allow", true))
       .then((made) => {
         if (!made) setAnswering(undefined);
       });
@@ -107,14 +121,21 @@ export function SpadeRequestGroup(props: {
         </p>
       </NeedsYouLine>
       <CardBody>
-        <ul aria-label="Calls" className="flex flex-col gap-0.5 text-ui text-muted-foreground">
-          {words.lines.map((line, index) => (
-            <li key={items[index]?.callId ?? index} className="wrap-anywhere">
-              {line}
-            </li>
-          ))}
+        <ul aria-label="Calls" className="flex flex-col gap-1.5 text-ui">
+          {words.lines.map((line, index) => {
+            const item = items[index];
+            return (
+              <CallLine
+                key={item?.callId ?? index}
+                line={line}
+                arguments={item?.arguments}
+                // A reason every call shares is said once, under the list.
+                showReason={shared === undefined}
+              />
+            );
+          })}
         </ul>
-        {reasons.size === 1 && reason && <CardWhy>{reason}</CardWhy>}
+        {shared && <CardWhy>{shared}</CardWhy>}
         {always.prompt}
       </CardBody>
       <ApproversLine botId={props.botId} />
@@ -145,5 +166,42 @@ export function SpadeRequestGroup(props: {
         }
       />
     </RaisedCard>
+  );
+}
+
+/**
+ * One call on the card: what it does, where it goes, the gate's reason when calls differ, and
+ * Details, which opens its full arguments (nested values included) in place.
+ */
+function CallLine(props: { line: SpadeAppCallLine; arguments: unknown; showReason: boolean }) {
+  const { line } = props;
+  const [open, setOpen] = useState(false);
+  const label = line.target ? `${line.text} · ${line.target}` : line.text;
+  return (
+    <li className="flex flex-col gap-0.5">
+      <div className="flex items-baseline gap-2">
+        <span className="min-w-0 flex-1 wrap-anywhere text-muted-foreground">{label}</span>
+        <Button
+          size="xs"
+          variant="ghost"
+          aria-expanded={open}
+          aria-label={`Details of ${label}`}
+          onClick={() => setOpen((shown) => !shown)}
+        >
+          {open ? "Hide" : "Details"}
+        </Button>
+      </div>
+      {props.showReason && line.reason && (
+        <p className="text-xs text-subtle-foreground">{line.reason}</p>
+      )}
+      {open && (
+        <pre
+          aria-label={`Arguments of ${label}`}
+          className="no-scrollbar max-h-64 overflow-auto rounded-lg bg-chat-well px-3 py-2 font-mono text-xs leading-5 whitespace-pre-wrap wrap-anywhere"
+        >
+          {JSON.stringify(props.arguments ?? {}, null, 2)}
+        </pre>
+      )}
+    </li>
   );
 }

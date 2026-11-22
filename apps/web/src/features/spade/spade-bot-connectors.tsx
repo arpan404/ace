@@ -51,18 +51,18 @@ export function ProfileApps(props: { bot: RosterBot }) {
   const access = stored.data;
   // "Always allow for <app>" the person gave this bot (ADR 0202, amendment 5), revoked here.
   const security = useBotSecurity(bot.id);
-  const appGrant = (app: string) =>
-    security.data?.grants.find(
+  const appGrants = (app: string) =>
+    security.data?.grants.filter(
       (grant) => grant.kind === "app" && grant.app === app && grant.writes,
-    );
-  const alwaysFor = (app: string) => appGrant(app) !== undefined;
+    ) ?? [];
+  const alwaysFor = (app: string) => appGrants(app).length > 0;
   const askAgain = async (app: string) => {
-    const grant = appGrant(app);
-    if (!grant) return;
+    const grants = appGrants(app);
+    if (!grants.length) return;
     setSaving(true);
     setProblem(undefined);
     try {
-      await removeGrant(client, bot.id, grant.id);
+      for (const grant of grants) await removeGrant(client, bot.id, grant.id);
       await cache.invalidateQueries({ queryKey: securityKey });
     } catch (error) {
       setProblem(fault(error));

@@ -399,6 +399,9 @@ export class FakeSpadeSecurity {
       const refused = this.permissions.refusal();
       if (refused) return refused;
       const kind = String(body.kind ?? "");
+      // An app's Always allow names the tools it covers, as Spade requires.
+      if (kind === "app" && Object.keys((body.tools as object | undefined) ?? {}).length === 0)
+        return problem(422, "an app's Always allow names the tools it covers");
       if (!["folder", "tool", "git_push", "pr_comment", "app"].includes(kind))
         return problem(400, `unknown variant \`${kind}\``);
       if (kind === "folder" && !String(body.path ?? "").startsWith("/"))
@@ -406,7 +409,7 @@ export class FakeSpadeSecurity {
       const made: FakeSpadeGrant = {
         ...body,
         ...(kind === "folder" ? { write: body.write === true } : {}),
-        ...(kind === "app" ? { writes: body.writes === true } : {}),
+        ...(kind === "app" ? { writes: body.writes === true, tools: body.tools ?? {} } : {}),
         id: `gr${++this.next}`,
         kind,
         by: "person",

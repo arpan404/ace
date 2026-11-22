@@ -180,6 +180,8 @@ export interface SpadeRequestLookups {
   title?: ((name: string) => string | undefined) | undefined;
   /** A connected app's name by its connection's id: its tools read in the person's words. */
   appName?: ((connection: string) => string | undefined) | undefined;
+  /** What the gate read the call as doing: a lookup's words are used only for a read. */
+  effect?: string | undefined;
   /** A note's text by its id. */
   noteText?: ((id: string) => string | undefined) | undefined;
   /** A bot's name by its id (`bot_message`). */
@@ -206,7 +208,7 @@ export function spadeRequestCard(
   const titled = options.title?.(name);
   const base =
     ofApp && appName
-      ? spadeAppToolPhrase(ofApp.tool, appName)
+      ? spadeAppToolPhrase(ofApp.tool, appName, options.effect)
       : titled
         ? `use ${titled}`
         : spadeToolWords(name).base;

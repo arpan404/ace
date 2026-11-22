@@ -164,6 +164,14 @@ const known = z.discriminatedUnion("type", [
      * missing on older events and other requests, or a word this client doesn't know.
      */
     stopped: z.enum(spadeStoppedKinds).nullish().catch(undefined),
+    /** What the gate read the call as doing (ADR 0202, amendment 5): a request is headed by it. */
+    effect: z.string().min(1).max(40).nullish().catch(undefined),
+    /**
+     * For a connected app's tool, the definition (a digest of its name, description and input)
+     * the person is shown; an app's Always allow is pinned to it. An undeclared tool's request
+     * from an older Spade carries the tool's identity here instead.
+     */
+    tool_key: z.string().min(1).max(400).nullish().catch(undefined),
     /**
      * A driving step's app or site its "always" allows for the bot, when it may be allowed; for a
      * connected app's write (`ask: app`), the connection whose writes the person may allow always.
