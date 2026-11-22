@@ -66,7 +66,6 @@ export function ProfileDetails(props: { bot: RosterBot; panels?: ProfilePanels |
       <ProfileSection label="Runs with">
         <SettingRow
           title="Model"
-          inline
           description={modelProblem && <span className="text-destructive">{modelProblem}</span>}
         >
           <SpadeModelPicker

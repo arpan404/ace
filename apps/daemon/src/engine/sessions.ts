@@ -1,3 +1,4 @@
+import { mayRequeue, requeueNeedsProof, settleCursorAttempt } from "./cursor-attempt.ts";
 import { interruptedNotice } from "./thread-liveness.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
@@ -6,7 +7,7 @@ import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
 import type { EngineModels } from "./models.ts";
-import { SessionOpenError } from "@ace/provider-kit/open-error";
+import { SessionOpenError, sessionStoreBusy } from "@ace/provider-kit/open-error";
 import { StartupOutput, withStartupOutput } from "@ace/provider-kit/startup-output";
 import { createDiagnosticRedactor } from "@ace/redaction/diagnostic";
 import { AccessMode, PermissionMode, NativeSessionId } from "@ace/protocol";
@@ -46,6 +47,11 @@ const SessionIdentity = z.strictObject({
 
 interface SessionDependencies {
   waitForProvider?(provider: import("@ace/protocol").ProviderKind): Promise<void>;
+  /**
+   * Cursor only: a bounded check that the previous run's process groups are gone, asked only
+   * before a send in doubt would be sent again as never admitted.
+   */
+  processesGone?(): Promise<boolean>;
   commandEvent?(event: ProviderCommandEvent): void;
   models: EngineModels;
   repo: EngineRepository;
@@ -322,7 +328,18 @@ export class Sessions {
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
   }
-  async open(actor: ThreadActor): Promise<void> {
+  open(actor: ThreadActor): Promise<void> {
+    return this.openSession(actor, false);
+  }
+  /**
+   * An open for a startup reconcile of a turn a restart cut short (cursor-reconcile.ts). One
+   * that finds the store busy leaves that turn as it was, to be tried again, instead of ending
+   * it with the failed open.
+   */
+  openToReconcile(actor: ThreadActor): Promise<void> {
+    return this.openSession(actor, true);
+  }
+  private async openSession(actor: ThreadActor, reconciling: boolean): Promise<void> {
     if (this.dependencies.repo.store.getThread(actor.id)?.continuation)
       throw new Error("Cursor CLI threads are read-only; continue in a new thread");
     await this.dependencies.repo.store.writable();
@@ -463,8 +480,17 @@ export class Sessions {
         rootKey,
         ...(identity ? { acpIdentity: identity } : {}),
       });
-      if (backend === "cursor-sdk")
-        await this.dependencies.repo.recovery.restore(actor.id, actor.translator);
+      const unsettled =
+        backend === "cursor-sdk"
+          ? await this.dependencies.repo.recovery.restore(actor.id, actor.translator)
+          : undefined;
+      // Proven before the host reads Cursor's store: a dying host may still be creating the
+      // attempted send's run, and only a read made after its processes are gone is final.
+      const provenGone =
+        unsettled?.attempt?.commandId &&
+        mayRequeue(this.dependencies.repo, actor.id, unsettled.attempt.commandId)
+          ? ((await this.dependencies.processesGone?.()) ?? false)
+          : undefined;
       // The previous provider process is gone: work that lived inside it has stopped.
       actor.apply([
         ...settleSessionBoundTasks(
@@ -509,6 +535,7 @@ export class Sessions {
           this.dependencies.repo.requireState(actor.id).interactions[key]?.id,
       };
       attemptingResume = metadata.nativeSessionId !== undefined;
+      const storeGeneration = this.dependencies.repo.transitions.generations.get(actor.id);
       const session = await adapter.openSession({
         ...context,
         outputFlow: actor.outputFlow,
@@ -594,6 +621,7 @@ export class Sessions {
             }
           : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+        ...(storeGeneration ? { storeGeneration } : {}),
         ...(metadata.model === undefined || isDefaultSelection(metadata.model)
           ? {}
           : { model: metadata.model }),
@@ -603,11 +631,7 @@ export class Sessions {
               resume: {
                 nativeSessionId: metadata.nativeSessionId,
                 ...(backend ? { backend } : {}),
-                ...(backend === "cursor-sdk"
-                  ? {
-                      afterFrameOffset: this.dependencies.repo.recovery.offset(actor.id),
-                    }
-                  : {}),
+                ...(unsettled ? { unsettled } : {}),
                 ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
               },
             }),
@@ -689,6 +713,12 @@ export class Sessions {
             // No input can have been consumed until open returns a usable session.
             if (opening) actor.generation++;
             else actor.retireGeneration();
+            // A reconcile owns the run it opens for: a host that dies opening (a busy store's,
+            // say) ends nothing; the reconcile tries again or fails the run itself.
+            if (opening && reconciling) {
+              if (!actor.poisoned) this.dependencies.released(actor.id);
+              return;
+            }
             // Say so in the transcript only when the death cost work, not after an idle exit.
             const before = this.dependencies.repo.requireState(actor.id);
             const lost =
@@ -761,6 +791,22 @@ export class Sessions {
           this.dependencies.clock.now(),
         );
       });
+      // After the transition state above is stored: settling may clear the handoff it holds.
+      if ((session.backend ?? backend) === "cursor-sdk") {
+        // A send read as never admitted goes again only when the read came after the last
+        // run's processes were proven gone (above); otherwise it stays uncertain.
+        const gone = requeueNeedsProof(this.dependencies.repo, actor.id)
+          ? provenGone === true
+          : true;
+        this.dependencies.repo.store.atomic(() =>
+          settleCursorAttempt(
+            this.dependencies.repo,
+            actor.id,
+            this.dependencies.clock.now(),
+            gone,
+          ),
+        );
+      }
       this.forgetRefusedOptions(actor, session.refusedOptions, rootKey);
       // Before it takes input: a choice made while it opened, or modes the session reported
       // only now (a first session whose agent's modes weren't known yet), reach it.
@@ -852,10 +898,11 @@ export class Sessions {
         actor.lifetime = undefined;
         lifetime.abort();
         try {
-          actor.apply([
-            { type: "process.exited", deliberate: fenced },
-            { type: "queue.changed", source: "provider", count: 0 },
-          ]);
+          if (!(reconciling && failure.code === sessionStoreBusy))
+            actor.apply([
+              { type: "process.exited", deliberate: fenced },
+              { type: "queue.changed", source: "provider", count: 0 },
+            ]);
         } finally {
           this.dependencies.released(actor.id);
         }

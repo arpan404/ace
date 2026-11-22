@@ -42,8 +42,8 @@ export const systemClock: EngineClock = {
 };
 
 /** Frame folding never waits for provider I/O. One mailbox orders frames and ticks. */
-/** A Cursor frame's journal writes: provenance, its raw chunk and the boundary cursor. */
-interface CursorJournalEntry {
+/** A Cursor frame's record: the frame itself and its raw chunk. */
+interface CursorRecordEntry {
   frame: Frame;
   /** A send on a settled thread starts a turn, which trims older provenance first. */
   beginsTurn: boolean;
@@ -359,8 +359,8 @@ export class ThreadActor {
     this.pendingFrames = [];
     this.pendingBytes = 0;
     // Translation runs once: translators keep state. A retry after a rollback reuses these facts
-    // and writes the Cursor journal again, since that rolled back with the rest.
-    let translated: { facts: Fact[]; journal: CursorJournalEntry[] } | undefined;
+    // and writes the Cursor record again, since that rolled back with the rest.
+    let translated: { facts: Fact[]; journal: CursorRecordEntry[] } | undefined;
     // A retried batch never streams its facts a second time.
     let streamedFacts: boolean | undefined;
     let statusBefore: ThreadState["status"] | undefined;
@@ -377,7 +377,7 @@ export class ThreadActor {
             live.map((entry) => entry.frame),
             cursorSdk,
           );
-          this.writeCursorJournal(translated.journal);
+          this.writeCursorRecord(translated.journal);
           const facts = translated.facts;
           const toolBoundary = facts.some(
             (fact) =>
@@ -420,7 +420,7 @@ export class ThreadActor {
           if (sdk && !streamed && !cursorSdk) this.repo.store.atomic(settle);
           else settle();
         };
-        // Cursor's journal commits provenance, offsets and facts in the batch's one transaction.
+        // Cursor's frames and facts commit in the batch's one transaction.
         if (sdk && cursorSdk) this.repo.store.atomic(fold);
         else fold();
       },
@@ -442,29 +442,22 @@ export class ThreadActor {
     );
   }
   /**
-   * A batch's facts and the Cursor journal writes they need, without writing anything: a write
-   * that fails rolls back, and the retry writes the journal again but must not translate again.
+   * A batch's facts and the Cursor frame records they need, without writing anything: a write
+   * that fails rolls back, and the retry writes the record again but must not translate again.
    */
   private translateBatch(
     frames: Frame[],
     cursorBackend: boolean,
-  ): { facts: Fact[]; journal: CursorJournalEntry[] } {
-    const journal: CursorJournalEntry[] = [];
-    // The boundary the journal will have reached at each frame: an earlier frame of the batch
-    // may commit the boundary a later duplicate carries.
-    let offset: number | undefined;
+  ): { facts: Fact[]; journal: CursorRecordEntry[] } {
+    const journal: CursorRecordEntry[] = [];
     const facts = frames.flatMap((frame) => {
       if (!(frame.channel === "sdk" && cursorBackend)) return this.translateFrame(frame);
-      const boundary = this.repo.recovery.boundary(frame);
-      offset ??= this.repo.recovery.offset(this.id);
-      if (boundary !== undefined && boundary <= offset) return [];
       journal.push({
         frame,
         beginsTurn:
           CursorSend.safeParse(frame.data).success &&
           this.repo.quiescent(this.repo.requireState(this.id)),
       });
-      if (boundary !== undefined) offset = boundary;
       return this.translateFrame(frame);
     });
     return {
@@ -478,16 +471,23 @@ export class ThreadActor {
       journal,
     };
   }
-  /** The outer mailbox transaction commits provenance, offsets and facts together. */
-  private writeCursorJournal(journal: CursorJournalEntry[]): void {
+  /** The outer mailbox transaction commits the frames and facts together. */
+  private writeCursorRecord(journal: CursorRecordEntry[]): void {
     for (const { frame, beginsTurn } of journal) {
-      if (beginsTurn) this.repo.recovery.beginTurn(this.id);
       const body = sdkBody.safeParse(frame.data);
       if (body.success && body.data.kind === "blob")
         this.repo.store.appendRawChunk(this.id, body.data.body);
-      this.repo.captureFrame(this.id, frame);
-      this.repo.recovery.commit(this.id, frame);
+      const row = this.repo.captureFrame(this.id, frame);
+      this.repo.recovery.captured(
+        this.id,
+        body.success ? body.data.kind : undefined,
+        row,
+        beginsTurn,
+      );
+      this.repo.recovery.note(this.id, frame.data);
     }
+    // Frames of settled turns go a bounded batch per commit, never all at once (ADR 0170).
+    if (journal.length) this.repo.recovery.trimStep(this.id);
   }
   private translateFrame(decoded: Frame): Fact[] {
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];

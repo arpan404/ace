@@ -7,9 +7,11 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Envelope, object, string, nativeIdentity, type CursorEnvelope } from "./contracts.ts";
 import { Children } from "./children.ts";
 import { Transcript } from "./transcript.ts";
+import { StreamedAnswer } from "./streamed-answer.ts";
 import { ToolEvents } from "./tool-events.ts";
 import { translateDelta } from "./delta-events.ts";
 import { cursorFailure } from "./failure-kind.ts";
+import { storedUpdate, storeGap } from "./recovered-tail.ts";
 
 const InputParts = z.array(ContentPart).max(64);
 
@@ -42,6 +44,20 @@ export class CursorTranslator implements Translator {
   private current: CursorEnvelope | undefined;
   private noticeIndex = 0;
   private noticeSequence = -1;
+  /** The attempted send whose admission (its `segment`) starts the turn. */
+  private attempt: CursorEnvelope | undefined;
+  /** The admitted turn's own namespace: a recovered tail continues its items, not new ones. */
+  private turnNamespace = "";
+  /** Whether the open turn showed any answer text, live or recovered. */
+  private sawText = false;
+  /** The turn's last answer so far: root text since its last tool call. */
+  private answer = new StreamedAnswer();
+  /** A recovered run's saved answer, as its parts arrive (recovery.ts). */
+  private saved = "";
+  /** Whether anything of the open turn came back from Cursor's store, and what never can. */
+  private recoveredAny = false;
+  private gaps = new Set<string>();
+  private now = 0;
   constructor(options: CursorTranslatorOptions) {
     this.root = options.rootKey;
     this.max = options.maxIdentities ?? 2048;
@@ -71,7 +87,8 @@ export class CursorTranslator implements Translator {
   tick(_now: number): Fact[] {
     return [];
   }
-  translate(frame: Frame, _now: number): Fact[] {
+  translate(frame: Frame, now: number): Fact[] {
+    this.now = now;
     this.diagnostics = [];
     this.noticeIndex = 0;
     this.noticeSequence = frame.seq;
@@ -99,267 +116,18 @@ export class CursorTranslator implements Translator {
       this.current = event;
       const body = object(event.body);
       const namespace = `${event.generation}:${event.operationId}:${event.segment}`;
-      if (event.kind === "open") {
-        this.rootSeen = true;
-        this.cwd = string(body.cwd) ?? "";
-        const model = string(body.model);
-        return [
-          {
-            type: "agent.seen",
-            agent: this.root,
-            origin: "root",
-            fidelity: "full",
-            cwd: this.cwd,
-            ...(model ? { model } : {}),
-            native: { provider: "cursor", ...(event.agentId ? { nativeId: event.agentId } : {}) },
-          },
-        ];
-      }
-      if (event.kind === "send") {
-        const facts: Fact[] = [];
-        if (this.operation !== event.operationId || !this.active) {
-          this.tools.trim();
-          this.children.trim();
-          this.usagePosition = 0;
-          this.operation = event.operationId;
-          this.active = true;
-          facts.push({
-            type: "turn.started",
-            agent: this.root,
-            nativeTurnId: `sdk:${event.operationId}`,
-            trigger: "user",
-          });
-        }
-        facts.push(...this.transcript.end());
-        const input = InputParts.safeParse(body.input);
-        if (input.success && input.data.length)
-          facts.push({
-            type: "item.upsert",
-            agent: this.root,
-            item: `${namespace}:user:${event.commandId ?? event.segment}`,
-            draft: {
-              type: "message",
-              role: "user",
-              parts: input.data,
-              complete: true,
-              ...(event.commandId && event.commandId.length <= 256
-                ? { nativeId: event.commandId }
-                : {}),
-            },
-          });
-        this.segment = event.segment;
-        this.replacement = false;
-        this.interrupted = false;
-        this.transcript = new Transcript(namespace, this.max);
-        return facts;
-      }
-      if (event.kind === "observe") return [];
-      if (event.kind === "recovery")
-        return [
-          ...this.children.preserve(),
-          this.notice(
-            string(body.text) ?? "SDK checkpoint recovery reconciled",
-            event,
-            body.interrupted ? "warning" : "info",
-          ),
-        ];
-      if (event.kind === "snapshot")
-        return [
-          this.notice(
-            "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
-            event,
-            "warning",
-          ),
-        ];
-      // A shared host/store failure fences execution even when an old segment caused it.
-      if (
-        event.kind === "error" &&
-        ["boundary_overflow", "checkpoint_budget"].includes(string(body.code) ?? "")
-      )
-        return [
-          ...this.tools.preserve(),
-          ...this.children.preserve(),
-          this.notice(
-            string(body.message) ?? "SDK host resource budget failed; checkpoint retained",
-            event,
-            "error",
-          ),
-          {
-            type: "process.exited",
-            deliberate: false,
-            // The fence's own words name the cause, such as ace's storage failing.
-            message: string(body.message)?.slice(0, 512) ?? "Cursor's turn was fenced",
-          },
-        ];
-      if (event.kind === "blob") return [{ type: "signal", agent: this.root }];
-      if (event.kind === "shell-output") {
-        const parent = nativeIdentity(body.parentCallId);
-        const child = parent ? this.children.calls.get(`${namespace}:call:${parent}`) : undefined;
-        if (parent && !child)
-          return [this.notice("Shell output has no observed owning child", event, "warning")];
-        return this.tools.output(
-          body,
-          child?.key ?? this.root,
-          namespace,
-          event,
-          this.transcript,
-          this.operation,
-          this.segment,
-          this.cwd,
-          (text, data, level) => this.notice(text, data, level),
-        );
-      }
-      const stale = event.operationId !== this.operation || event.segment !== this.segment;
-      if (event.kind === "host-exit") {
-        const unsettled =
-          [...this.children.calls.values()].some((child) => !child.settled) ||
-          [...this.tools.calls.values()].some((tool) => !tool.terminal);
-        const preserved = this.children.preserve();
-        if (!this.active && !unsettled) return preserved;
-        return [
-          ...preserved,
-          this.notice(
-            "Cursor stopped unexpectedly. Unfinished work needs your attention.",
-            event,
-            "warning",
-            "cursor.work-stopped",
-          ),
-        ];
-      }
-      if (stale && !(event.kind === "error" && event.operationId === "open" && !this.rootSeen)) {
-        // Surviving child facts belong to their original call namespace, never the replacement root.
-        if (event.kind === "delta" && body.type === "tool-call-completed") {
-          const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
-          if (this.tools.calls.has(call) || this.children.calls.has(call)) {
-            return this.delta(body, this.tools.calls.get(call)?.agent ?? this.root, namespace, 0);
-          }
-        }
-        if (["delta", "delta-chunk"].includes(event.kind) && body.type === "tool-call-delta") {
-          const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
-          const child = this.children.calls.get(call);
-          if (child && !child.settled)
-            return this.delta(object(body.taskUpdate), child.key, namespace, 1);
-        }
-        return [];
-      }
-      switch (event.kind) {
-        case "segment":
-          return [];
-        case "delta-chunk":
-        case "delta":
-          return this.delta(body, this.root, namespace, 0);
-        case "message": {
-          // Local 1.0.35 maps onDelta into these same messages. Never append both channels.
-          if (
-            ["assistant", "thinking", "tool_call", "usage", "user", "system", "status"].includes(
-              string(body.type) ?? "",
-            )
-          )
-            return [{ type: "signal", agent: this.root }];
-          if (body.type === "task")
-            return [this.notice("SDK task summary has no independent child identity", event)];
-          return [];
-        }
-        case "cancel": {
-          if (frame.dir === "send") {
-            this.replacement = body.replacement === true;
-            this.interrupted = !this.replacement;
-          }
-          return [];
-        }
-        case "result": {
-          if (!this.active) return [];
-          if (!["finished", "cancelled", "error"].includes(string(body.status) ?? ""))
-            return [
-              ...this.tools.preserve(),
-              ...this.children.preserve(),
-              this.notice(
-                "Unrecognized SDK terminal status; execution remains uncertain",
-                event,
-                "warning",
-              ),
-            ];
-          const facts = [
-            ...this.transcript.end(),
-            ...this.tools.preserve(),
-            ...this.children.preserve(),
-          ];
-          if (body.status === "error")
-            facts.push(
-              this.notice(
-                string(object(body.error).message) ?? "Cursor SDK run failed",
-                event,
-                "error",
-                "cursor.run-failed",
-              ),
-            );
-          if (this.replacement) return facts;
-          this.active = false;
-          const outcome =
-            body.status === "finished"
-              ? "completed"
-              : body.status === "cancelled" || this.interrupted
-                ? "interrupted"
-                : "failed";
-          facts.push({
-            type: "turn.ended",
-            agent: this.root,
-            nativeTurnId: `sdk:${event.operationId}`,
-            outcome,
-            ...(outcome === "failed"
-              ? {
-                  error: failedRun(
-                    object(body.error).code,
-                    string(object(body.error).message) ?? "Cursor SDK run failed",
-                    object(body.error).retryable,
-                  ),
-                }
-              : {}),
-          });
-          return facts;
-        }
-        case "error": {
-          const facts: Fact[] = [];
-          if (!this.rootSeen) {
-            this.rootSeen = true;
-            facts.push({
-              type: "agent.seen",
-              agent: this.root,
-              origin: "root",
-              fidelity: "full",
-              native: { provider: "cursor" },
-              cwd: this.cwd,
-            });
-          }
-          const text = string(body.message) ?? "SDK failure; delivery or execution is uncertain";
-          const failure = cursorFailure(body.code, text, body.retryable);
-          facts.push(
-            ...this.tools.preserve(),
-            ...this.children.preserve(),
-            this.notice(
-              text,
-              event,
-              "error",
-              failure.code ?? (failure.kind === "quota" ? "quota" : "cursor.run-failed"),
-            ),
-          );
-          if (this.active && !this.replacement && body.settled === true) {
-            this.active = false;
-            facts.push({
-              type: "turn.ended",
-              agent: this.root,
-              nativeTurnId: `sdk:${event.operationId}`,
-              outcome: "failed",
-              error: failedRun(body.code, string(body.message) ?? "SDK run failed", body.retryable),
-            });
-          }
-          return facts;
-        }
-        case "close":
-          return this.children.preserve();
-        default:
-          return [];
-      }
+      // Output for the attempted send is admission too: the host holds it until `segment`, but
+      // frames an earlier build stored, and recordings of it, interleave the two.
+      const attempt = this.attempt;
+      const admitted =
+        attempt &&
+        attempt.operationId === event.operationId &&
+        attempt.segment === event.segment &&
+        ["delta", "delta-chunk", "message", "shell-output", "blob", "result"].includes(event.kind)
+          ? this.admit(attempt)
+          : [];
+      const facts = this.step(frame, event, body, namespace);
+      return admitted.length ? [...admitted, ...facts] : facts;
     } catch {
       if (this.overflow) return [];
       this.overflow = true;
@@ -373,6 +141,433 @@ export class CursorTranslator implements Translator {
         { type: "process.exited", deliberate: false, message: "SDK translation budget exceeded" },
       ];
     }
+  }
+  private step(
+    frame: Frame,
+    event: CursorEnvelope,
+    body: Record<string, unknown>,
+    namespace: string,
+  ): Fact[] {
+    if (event.kind === "open") {
+      // A saved answer comes whole from one host's reopen: parts an earlier one sent are void.
+      this.saved = "";
+      this.rootSeen = true;
+      this.cwd = string(body.cwd) ?? "";
+      const model = string(body.model);
+      return [
+        {
+          type: "agent.seen",
+          agent: this.root,
+          origin: "root",
+          fidelity: "full",
+          cwd: this.cwd,
+          ...(model ? { model } : {}),
+          native: { provider: "cursor", ...(event.agentId ? { nativeId: event.agentId } : {}) },
+        },
+      ];
+    }
+    // The attempt is stored before Cursor sees the input; nothing shows until Cursor admits it
+    // (ADR 0043, amendment of 2026-11-22), so a send that never reached Cursor starts nothing.
+    if (event.kind === "send") {
+      this.attempt = event;
+      // Working while Cursor takes the input (seconds, for a cold model), without a run that
+      // would take the input before Cursor has it.
+      return this.active
+        ? []
+        : [{ type: "wake.expected", agent: this.root, until: this.now + 600_000 }];
+    }
+    if (event.kind === "segment") {
+      const attempt = this.attempt;
+      if (
+        !attempt ||
+        attempt.operationId !== event.operationId ||
+        attempt.segment !== event.segment
+      )
+        return [];
+      return this.admit(attempt);
+    }
+    if (event.kind === "admission") {
+      const attempt = this.attempt;
+      if (
+        !attempt ||
+        attempt.operationId !== string(body.operationId) ||
+        attempt.segment !== body.segment
+      )
+        return [];
+      if (body.admitted === true) return this.admit(attempt);
+      this.attempt = undefined;
+      // Cursor's store had no run for it. Whether it was sent is the daemon's to say: only it
+      // knows whether the last run's processes were proven gone before that read.
+      return [{ type: "wake.expected", agent: this.root, until: this.now }];
+    }
+    if (event.kind === "recovered") {
+      if (!this.active || !event.runId) return [];
+      this.recoveredAny = true;
+      const gap = storeGap(event.body);
+      if (gap && this.gaps.size < 4) this.gaps.add(gap);
+      const update = storedUpdate(event.body);
+      return update ? this.delta(update, this.root, this.turnNamespace, 0) : [];
+    }
+    if (event.kind === "recovered-result") {
+      if (this.saved.length < 4 * 1024 * 1024) this.saved += string(body.text) ?? "";
+      return [];
+    }
+    if (event.kind === "recovery") return this.recover(event, body);
+    if (event.kind === "snapshot")
+      return [
+        this.notice(
+          "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
+          event,
+          "warning",
+        ),
+      ];
+    // A shared host/store failure fences execution even when an old segment caused it.
+    if (
+      event.kind === "error" &&
+      ["boundary_overflow", "checkpoint_budget"].includes(string(body.code) ?? "")
+    )
+      return [
+        ...this.tools.preserve(),
+        ...this.children.preserve(),
+        this.notice(
+          string(body.message) ?? "SDK host resource budget failed; checkpoint retained",
+          event,
+          "error",
+        ),
+        {
+          type: "process.exited",
+          deliberate: false,
+          // The fence's own words name the cause, such as ace's storage failing.
+          message: string(body.message)?.slice(0, 512) ?? "Cursor's turn was fenced",
+        },
+      ];
+    if (event.kind === "blob") return [{ type: "signal", agent: this.root }];
+    if (event.kind === "shell-output") {
+      const parent = nativeIdentity(body.parentCallId);
+      const child = parent ? this.children.calls.get(`${namespace}:call:${parent}`) : undefined;
+      if (parent && !child)
+        return [this.notice("Shell output has no observed owning child", event, "warning")];
+      return this.tools.output(
+        body,
+        child?.key ?? this.root,
+        namespace,
+        event,
+        this.transcript,
+        this.operation,
+        this.segment,
+        this.cwd,
+        (text, data, level) => this.notice(text, data, level),
+      );
+    }
+    const stale = event.operationId !== this.operation || event.segment !== this.segment;
+    if (event.kind === "host-exit") {
+      const unsettled =
+        [...this.children.calls.values()].some((child) => !child.settled) ||
+        [...this.tools.calls.values()].some((tool) => !tool.terminal);
+      const preserved = this.children.preserve();
+      if (!this.active && !unsettled) return preserved;
+      return [
+        ...preserved,
+        this.notice(
+          "Cursor stopped unexpectedly. Unfinished work needs your attention.",
+          event,
+          "warning",
+          "cursor.work-stopped",
+        ),
+      ];
+    }
+    // A failure of the attempted send is the person's to see though no turn started.
+    const attemptFailed = event.kind === "error" && this.attempt?.operationId === event.operationId;
+    if (
+      stale &&
+      !attemptFailed &&
+      !(event.kind === "error" && event.operationId === "open" && !this.rootSeen)
+    ) {
+      // Surviving child facts belong to their original call namespace, never the replacement root.
+      if (event.kind === "delta" && body.type === "tool-call-completed") {
+        const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
+        if (this.tools.calls.has(call) || this.children.calls.has(call)) {
+          return this.delta(body, this.tools.calls.get(call)?.agent ?? this.root, namespace, 0);
+        }
+      }
+      if (["delta", "delta-chunk"].includes(event.kind) && body.type === "tool-call-delta") {
+        const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
+        const child = this.children.calls.get(call);
+        if (child && !child.settled)
+          return this.delta(object(body.taskUpdate), child.key, namespace, 1);
+      }
+      return [];
+    }
+    switch (event.kind) {
+      case "segment":
+        return [];
+      case "delta-chunk":
+      case "delta":
+        return this.delta(body, this.root, namespace, 0);
+      case "message":
+        // Frames from an earlier build: the stream's copy of onDelta, never shown twice.
+        return [{ type: "signal", agent: this.root }];
+      case "cancel": {
+        if (frame.dir === "send") {
+          this.replacement = body.replacement === true;
+          this.interrupted = !this.replacement;
+        }
+        return [];
+      }
+      case "result": {
+        if (!this.active) return [];
+        if (!["finished", "cancelled", "error"].includes(string(body.status) ?? ""))
+          return [
+            ...this.tools.preserve(),
+            ...this.children.preserve(),
+            this.notice(
+              "Unrecognized SDK terminal status; execution remains uncertain",
+              event,
+              "warning",
+            ),
+          ];
+        const facts = [
+          ...this.transcript.end(),
+          ...this.tools.preserve(),
+          ...this.children.preserve(),
+        ];
+        if (body.status === "error")
+          facts.push(
+            this.notice(
+              string(object(body.error).message) ?? "Cursor SDK run failed",
+              event,
+              "error",
+              "cursor.run-failed",
+            ),
+          );
+        if (this.replacement) return facts;
+        this.active = false;
+        const outcome =
+          body.status === "finished"
+            ? "completed"
+            : body.status === "cancelled" || this.interrupted
+              ? "interrupted"
+              : "failed";
+        facts.push({
+          type: "turn.ended",
+          agent: this.root,
+          nativeTurnId: `sdk:${event.operationId}`,
+          outcome,
+          ...(outcome === "failed"
+            ? {
+                error: failedRun(
+                  object(body.error).code,
+                  string(object(body.error).message) ?? "Cursor SDK run failed",
+                  object(body.error).retryable,
+                ),
+              }
+            : {}),
+        });
+        return facts;
+      }
+      case "error": {
+        const facts: Fact[] = [];
+        // A send Cursor refused or failed to take: nothing is starting any more.
+        if (this.attempt?.operationId === event.operationId) {
+          this.attempt = undefined;
+          facts.push({ type: "wake.expected", agent: this.root, until: this.now });
+        }
+        if (!this.rootSeen) {
+          this.rootSeen = true;
+          facts.push({
+            type: "agent.seen",
+            agent: this.root,
+            origin: "root",
+            fidelity: "full",
+            native: { provider: "cursor" },
+            cwd: this.cwd,
+          });
+        }
+        const text = string(body.message) ?? "SDK failure; delivery or execution is uncertain";
+        const failure = cursorFailure(body.code, text, body.retryable);
+        facts.push(
+          ...this.tools.preserve(),
+          ...this.children.preserve(),
+          this.notice(
+            text,
+            event,
+            "error",
+            failure.code ?? (failure.kind === "quota" ? "quota" : "cursor.run-failed"),
+          ),
+        );
+        if (this.active && !this.replacement && body.settled === true) {
+          this.active = false;
+          facts.push({
+            type: "turn.ended",
+            agent: this.root,
+            nativeTurnId: `sdk:${event.operationId}`,
+            outcome: "failed",
+            error: failedRun(body.code, string(body.message) ?? "SDK run failed", body.retryable),
+          });
+        }
+        return facts;
+      }
+      case "close":
+        return this.children.preserve();
+      default:
+        return [];
+    }
+  }
+  /** Cursor admitted the attempted send: the turn starts and its input shows. */
+  private admit(event: CursorEnvelope): Fact[] {
+    this.attempt = undefined;
+    const body = object(event.body);
+    const namespace = `${event.generation}:${event.operationId}:${event.segment}`;
+    const facts: Fact[] = [];
+    if (this.operation !== event.operationId || !this.active) {
+      this.tools.trim();
+      this.children.trim();
+      this.usagePosition = 0;
+      this.operation = event.operationId;
+      this.active = true;
+      facts.push({
+        type: "turn.started",
+        agent: this.root,
+        nativeTurnId: `sdk:${event.operationId}`,
+        trigger: "user",
+      });
+    }
+    facts.push(...this.transcript.end());
+    const input = InputParts.safeParse(body.input);
+    if (input.success && input.data.length)
+      facts.push({
+        type: "item.upsert",
+        agent: this.root,
+        item: `${namespace}:user:${event.commandId ?? event.segment}`,
+        draft: {
+          type: "message",
+          role: "user",
+          parts: input.data,
+          complete: true,
+          ...(event.commandId && event.commandId.length <= 256
+            ? { nativeId: event.commandId }
+            : {}),
+        },
+      });
+    this.segment = event.segment;
+    this.replacement = false;
+    this.interrupted = false;
+    this.transcript = new Transcript(namespace, this.max);
+    this.turnNamespace = namespace;
+    this.sawText = false;
+    this.answer.reset();
+    this.recoveredAny = false;
+    this.gaps.clear();
+    return facts;
+  }
+  /**
+   * A run's outcome read back from the SDK store after a restart. It ends the open turn as
+   * the run ended, so a run that finished just before the crash shows finished with its answer;
+   * a run that was still working was stopped first, never shown done.
+   */
+  private recover(event: CursorEnvelope, body: Record<string, unknown>): Fact[] {
+    const status = string(body.nativeStatus) ?? "unknown";
+    // The saved answer in parts, or whole from an earlier build's frame.
+    const result = typeof body.resultParts === "number" ? this.saved : string(body.result);
+    this.saved = "";
+    // The stored result is the turn's final answer: whatever of it was never shown is shown,
+    // so a finished turn never ends on a fragment.
+    const missing =
+      status === "finished" && result && this.active
+        ? this.answer.missing(result, body.resultCut === true)
+        : undefined;
+    const answer = missing
+      ? [
+          ...(missing.apart ? this.transcript.end() : []),
+          ...this.delta(
+            { type: "text-delta", text: missing.text },
+            this.root,
+            this.turnNamespace,
+            0,
+          ),
+        ]
+      : [];
+    const fromResult =
+      missing && this.sawText
+        ? [
+            this.notice(
+              missing.apart
+                ? "The answer above is Cursor's saved result for this turn; what ace showed of it as it streamed differs."
+                : "The end of this answer is from Cursor's saved result for this turn.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
+        : [];
+    const what =
+      status === "finished"
+        ? "Cursor finished this run while ace was restarting."
+        : status === "running" || status === "queued"
+          ? "ace restarted while this Cursor run was working, so it was stopped. Nothing was sent again."
+          : `Cursor's run ended (${status}) while ace was restarting.`;
+    const source =
+      this.recoveredAny || answer.length
+        ? " What it did after the live stream was cut off is recovered from Cursor's saved session."
+        : "";
+    const facts: Fact[] = [
+      ...answer,
+      ...this.transcript.end(),
+      ...this.tools.preserve(),
+      ...this.children.preserve(),
+      this.notice(
+        `${what}${source}`,
+        event,
+        body.interrupted ? "warning" : "info",
+        "cursor.recovered",
+      ),
+      ...fromResult,
+      ...(body.resultCut === true
+        ? [
+            this.notice(
+              "Cursor's saved answer is longer than ace shows; it is cut after the first 4 MiB.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
+        : []),
+      ...[...this.gaps].map((gap) => this.notice(gap, event, "info", "cursor.recovered")),
+      ...(body.tailOmitted === true
+        ? [
+            this.notice(
+              "This turn began before ace was updated, so what Cursor did after the restart can't be lined up with what is shown here; it isn't repeated.",
+              event,
+              "info",
+              "cursor.recovered",
+            ),
+          ]
+        : []),
+    ];
+    this.gaps.clear();
+    if (!this.active || !this.operation) return facts;
+    this.active = false;
+    // A run a restart cut off is not done: it stopped part-way and needs the person's look.
+    const outcome =
+      status === "finished" ? "completed" : status === "cancelled" ? "interrupted" : "failed";
+    facts.push({
+      type: "turn.ended",
+      agent: this.root,
+      nativeTurnId: `sdk:${this.operation}`,
+      outcome,
+      ...(outcome === "failed"
+        ? {
+            error: failedRun(
+              undefined,
+              string(body.error) ??
+                (body.interrupted
+                  ? "ace restarted while Cursor was working, so the run was stopped"
+                  : "Cursor SDK run failed"),
+            ),
+          }
+        : {}),
+    });
+    return facts;
   }
   private notice(
     text: string,
@@ -408,6 +603,13 @@ export class CursorTranslator implements Translator {
     namespace: string,
     depth: number,
   ): Fact[] {
+    if (depth === 0 && agent === this.root) {
+      if (body.type === "text-delta") {
+        this.sawText = true;
+        this.answer.add(string(body.text) ?? "");
+      } else if (typeof body.type === "string" && body.type.startsWith("tool-call"))
+        this.answer.reset();
+    }
     return translateDelta(
       body,
       agent,

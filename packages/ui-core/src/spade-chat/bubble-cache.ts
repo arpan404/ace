@@ -2,9 +2,11 @@ import {
   spadeBubblePass,
   spadeBubblesFinish,
   spadeBubbleStep,
+  type SpadeAnswering,
   type SpadeBubble,
   type SpadeBubblePass,
 } from "./bubbles.ts";
+import { spadeSaid, type SpadeSaid } from "./replies.ts";
 import type { SpadeEntry } from "./fold.ts";
 import type { SpadeView } from "./view.ts";
 
@@ -24,12 +26,15 @@ import type { SpadeView } from "./view.ts";
 interface Mark {
   held: { paths: readonly string[]; key: string | undefined };
   recalled: readonly string[];
+  answering: SpadeAnswering | undefined;
   inputs: boolean;
   onlyBeats: boolean;
   onlyGroups: boolean;
   count: number;
   /** How many requests had been placed (`SpadeBubblePass.shown`). */
   shown: number;
+  /** How many messages it could quote (`SpadeBubblePass.said`). */
+  said: number;
 }
 
 export class SpadeBubbleCache {
@@ -41,6 +46,8 @@ export class SpadeBubbleCache {
   private shown: string[] = [];
   /** Before each entry, and after the last. */
   private marks: Mark[] = [];
+  /** What the chat could quote, in order: each mark's are the first `Mark.said`. */
+  private readonly said = spadeSaid();
 
   bubbles(view: SpadeView): SpadeBubble[] {
     const approvals = JSON.stringify(view.approvals);
@@ -50,7 +57,10 @@ export class SpadeBubbleCache {
       while (from < same && view.entries[from] === this.entries[from]) from++;
     }
     const mark = from > 0 ? this.marks[from] : undefined;
-    const pass = mark ? resume(mark, this.shown, view) : spadeBubblePass(view);
+    this.said.truncate(mark?.said ?? 0);
+    const pass = mark
+      ? resume(mark, this.shown, view, this.said)
+      : spadeBubblePass(view, this.said);
     this.made.length = mark?.count ?? 0;
     this.marks.length = from;
     for (let index = from; index < view.entries.length; index++) {
@@ -64,7 +74,7 @@ export class SpadeBubbleCache {
     this.entries = view.entries;
     this.approvals = approvals;
     // The closing bubbles are worked out on copies, so the next view resumes from the marks.
-    return spadeBubblesFinish(resume(end, pass.shown, view), this.made.slice(), view);
+    return spadeBubblesFinish(resume(end, pass.shown, view, this.said), this.made.slice(), view);
   }
 }
 
@@ -73,20 +83,28 @@ function markOf(pass: SpadeBubblePass, count: number): Mark {
   return {
     held: { paths: pass.held.paths.slice(), key: pass.held.key },
     recalled: pass.recalled,
+    answering: pass.answering,
     inputs: pass.inputs,
     onlyBeats: pass.onlyBeats,
     onlyGroups: pass.onlyGroups,
     count,
     shown: pass.shown.length,
+    said: pass.said.size,
   };
 }
 
 /** A pass that goes on from `mark`, for `view`. */
-function resume(mark: Mark, shown: readonly string[], view: SpadeView): SpadeBubblePass {
+function resume(
+  mark: Mark,
+  shown: readonly string[],
+  view: SpadeView,
+  said: SpadeSaid,
+): SpadeBubblePass {
   return {
-    ...spadeBubblePass(view),
+    ...spadeBubblePass(view, said),
     held: { paths: mark.held.paths.slice(), key: mark.held.key },
     recalled: mark.recalled,
+    answering: mark.answering,
     inputs: mark.inputs,
     onlyBeats: mark.onlyBeats,
     onlyGroups: mark.onlyGroups,

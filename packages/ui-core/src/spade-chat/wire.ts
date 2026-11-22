@@ -5,6 +5,7 @@ import { spadeCapabilityEvents } from "./wire-capabilities.ts";
 import { spadeCardEvents } from "./cards.ts";
 import { spadePanelEvents } from "./panels.ts";
 import { spadeNoticeEvents } from "./notices.ts";
+import { spadeReplyToField } from "./replies.ts";
 
 /**
  * Why a reply failed (`reply_failed`'s `kind`): the endpoint couldn't be reached, refused the key,
@@ -115,6 +116,8 @@ const known = z.discriminatedUnion("type", [
     voice: spadeVoiceField,
     /** What Spade fixed with it: the time, and the notes it recalled (`- [n_…] text`). */
     context: z.string().nullish().catch(undefined),
+    /** The message it replies to, as Spade stored it (ADR 0212 §4). */
+    reply_to: spadeReplyToField,
   }),
   z.object({ type: z.literal("reply_started"), reply, model: z.string().optional() }),
   z.object({ type: z.literal("reply_progress"), reply, text }),
@@ -310,6 +313,15 @@ const known = z.discriminatedUnion("type", [
     name: z.string().catch(""),
     machine_name: z.string().nullish().catch(undefined),
     contract: z.string(),
+  }),
+  /** A contract call made to this bot ended: its output fit, or it never did (ADR 0200 §7). */
+  z.object({
+    type: z.literal("contract_ended"),
+    call: z.string(),
+    status: z.enum(["returned", "failed", "stopped"]).catch("failed"),
+    output: z.unknown().optional(),
+    problems: z.array(z.string()).catch([]).default([]),
+    why: z.string().catch("").default(""),
   }),
   z.object({
     type: z.literal("job_finished"),

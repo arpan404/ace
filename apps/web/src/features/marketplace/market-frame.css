@@ -17,9 +17,9 @@
     --mk-muted: var(--muted-foreground);
     --mk-subtle: var(--subtle-foreground);
     --mk-faint: var(--faint-foreground);
-    --mk-display: 44px;
-    --mk-display-sm: 32px;
-    --mk-lead: 17px;
+    --mk-display: var(--text-2xl);
+    --mk-display-sm: var(--text-xl);
+    --mk-lead: var(--text-base);
     --mk-gutter: 40px;
     --mk-section-gap: 56px;
     --mk-bar-height: 60px;

@@ -76,6 +76,48 @@ test("through messages, replies, approvals, jobs, files, failures and sends, it 
     expect(step.cached, `after input ${index}`).toEqual(step.whole);
 });
 
+test("through quotes and another bot's message answered back, it matches a whole pass", () => {
+  const c = conversation();
+  c.stored({ type: "user_message", text: "Can you book the 9:10?" });
+  c.stored({ type: "reply_started", reply: "r1" });
+  c.delta("r1", "Booking");
+  // Names m4, the message that arrives next: never a quote, as it came after.
+  c.stored({ type: "step_finished", reply: "r1", text: '<msg reply="m4">About that.</msg>' });
+  c.stored({ type: "user_message", text: "Window seat please" });
+  c.stored({ type: "reply_finished", reply: "r1", text: "" });
+  c.stored({ type: "reply_started", reply: "r2" });
+  c.stored({ type: "step_finished", reply: "r2", text: '<msg reply="m1">Booked the 9:10.</msg>' });
+  c.stored({ type: "reply_finished", reply: "r2", text: "" });
+  c.stored({
+    type: "user_message",
+    text: "<msg>Fares are up.</msg><msg>TAP is €212.</msg>",
+    from_agent: { id: "quill", name: "Quill" },
+  });
+  c.stored({ type: "reply_started", reply: "r3" });
+  c.delta("r3", "Noted");
+  c.stored({ type: "step_finished", reply: "r3", text: '<msg reply="m9.2">Noted.</msg>' });
+  c.stored({ type: "reply_finished", reply: "r3", text: "" });
+  // A new approval works every bubble out again from the first entry, past every later message.
+  c.stored({ type: "reply_started", reply: "r4" });
+  c.stored({
+    type: "step_finished",
+    reply: "r4",
+    text: "",
+    calls: [{ id: "c1", name: "send_email" }],
+  });
+  c.stored({ type: "approval_requested", reply: "r4", call_id: "c1", name: "send_email" });
+
+  const last = c.steps.at(-1)?.whole;
+  const bots = Array.isArray(last) ? last.filter((bubble) => bubble.kind === "bot") : [];
+  expect(bots.map((bubble) => [bubble.text, bubble.quote?.text, bubble.repliedTo?.name])).toEqual([
+    ["About that.", undefined, undefined],
+    ["Booked the 9:10.", "Can you book the 9:10?", undefined],
+    ["Noted.", "TAP is €212.", "Quill"],
+  ]);
+  for (const [index, step] of c.steps.entries())
+    expect(step.cached, `after input ${index}`).toEqual(step.whole);
+});
+
 test("a reply's live words leave every bubble before it as it was", () => {
   const c = conversation();
   for (let index = 0; index < 50; index++) {

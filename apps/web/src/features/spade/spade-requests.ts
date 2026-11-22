@@ -1,3 +1,4 @@
+import type { SpadeQuote } from "@ace/ui-core/spade-chat";
 import type { DeviceContextItem } from "@ace/protocol";
 import type { ClientApi } from "@ace/client";
 import type { SpadeExchange } from "@ace/client/spade-http";
@@ -109,11 +110,14 @@ export function spadeBody(message: {
   voice?: { data: string; mediaType: string } | undefined;
   /** Devices the person named with `@` for the work (ADR 0198). */
   devices?: readonly DeviceContextItem[] | undefined;
+  /** The message it replies to, by id (ADR 0212 §4). */
+  replyTo?: SpadeQuote | undefined;
 }) {
   const documents = message.documents ?? [];
   const devices = message.devices ?? [];
   return {
     text: message.text,
+    ...(message.replyTo ? { reply_to: message.replyTo.id } : {}),
     ...(devices.length
       ? {
           devices: devices.map((device) =>

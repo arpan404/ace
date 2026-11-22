@@ -12,6 +12,9 @@ struct SourceDocument: Equatable {
     /// The file as saved, when `text` is a draft carried over from an earlier editor: changes are
     /// measured against it.
     var original: String? = nil
+    /// Which file this is, when notes are kept on it: new text for the same file is followed from
+    /// the text before it, another file's never is.
+    var file: String? = nil
 }
 
 /// Lets toolbar buttons reach the text view: its find navigator, the text being edited and go to
@@ -49,6 +52,14 @@ struct SourceTextView: UIViewRepresentable {
     var left: ((String) -> Void)? = nil
     /// The person tapped the text or began typing in it.
     var touched: (() -> Void)? = nil
+    /// Annotate (editing) or Comment (reading) on a selection: its range, for a note on it.
+    var annotate: ((TextSpan) -> Void)? = nil
+    /// The 1-based lines a note starts on, with its number: a marker in the gutter.
+    var notes: [Int: Int] = [:]
+    /// The person typed: what the edit replaced, and the text's lines (0-based) after it.
+    var edited: ((TextReplacement, (Int) -> String) -> Void)? = nil
+    /// Other text loaded over what the view showed (nil the first time), and the new text's lines.
+    var loaded: (@MainActor ([String]?, [String]) -> Void)? = nil
 
     func makeUIView(context: Context) -> SourceContainer {
         let view = SourceContainer()
@@ -69,7 +80,12 @@ struct SourceTextView: UIViewRepresentable {
         context.coordinator.parent = self
         handle.view = view.text
         view.text.isEditable = editable
+        if view.notes != notes { view.notes = notes; view.gutter.setNeedsDisplay() }
         if context.coordinator.key != document.key {
+            let same = !context.coordinator.key.isEmpty && document.file != nil && context.coordinator.file == document.file
+            let earlier = same ? view.text.text : nil
+            context.coordinator.file = document.file
+            if let loaded, !notes.isEmpty { Self.tell(loaded, earlier: earlier, now: document.text) }
             context.coordinator.key = document.key
             context.coordinator.original = document.original ?? document.text
             context.coordinator.wasDirty = document.original.map { $0 != document.text } ?? false
@@ -84,13 +100,26 @@ struct SourceTextView: UIViewRepresentable {
     @MainActor final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: SourceTextView
         var key = ""
+        /// The file the loaded text is (`SourceDocument.file`).
+        var file: String?
         var original = ""
         var wasDirty = false
         init(parent: SourceTextView) { self.parent = parent }
+        /// What the edit in progress replaces, measured before it lands (`textViewDidChange`).
+        var pending: TextReplacement?
         func textViewDidChange(_ textView: UITextView) {
-            (textView.superview?.superview as? SourceContainer)?.textChanged()
+            let container = textView.superview?.superview as? SourceContainer
+            container?.textChanged()
+            if let pending, let container, let edited = parent.edited { edited(pending) { container.lineText($0) } }
+            pending = nil
             let now = textView.text != original
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
+        }
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            if parent.edited != nil, let container = textView.superview?.superview as? SourceContainer {
+                pending = container.replacement(range, with: text)
+            }
+            return true
         }
         @objc func tapped() { parent.touched?() }
         func textViewDidBeginEditing(_ textView: UITextView) { parent.touched?() }
@@ -101,9 +130,14 @@ struct SourceTextView: UIViewRepresentable {
             selected(lines(textView))
         }
         func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard let mention = parent.mention, !textView.isEditable, let lines = lines(textView) else { return nil }
-            let action = UIAction(title: "Mention in message", image: UIImage(ace: .at)) { _ in mention(lines) }
-            return UIMenu(children: [action] + suggestedActions)
+            var actions: [UIMenuElement] = []
+            if let annotate = parent.annotate, let span = span(textView) {
+                actions.append(UIAction(title: textView.isEditable ? "Annotate" : "Comment", image: UIImage(ace: .notePencil)) { _ in annotate(span) })
+            }
+            if let mention = parent.mention, !textView.isEditable, let lines = lines(textView) {
+                actions.append(UIAction(title: "Mention in message", image: UIImage(ace: .at)) { _ in mention(lines) })
+            }
+            return actions.isEmpty ? nil : UIMenu(children: actions + suggestedActions)
         }
         /// The 1-based lines a non-empty selection touches while reading.
         private func lines(_ textView: UITextView) -> ClosedRange<Int>? {
@@ -134,6 +168,8 @@ final class SourceContainer: UIView {
     /// The text's UTF-16 length; a go-to line to bring back once the keyboard resizes the view.
     private var length = 0, revealOnResize: Int?, lastHeight: CGFloat = 0
     var marks: [Int: String] = [:]
+    /// The 1-based lines a code note starts on, with its number.
+    var notes: [Int: Int] = [:]
     var targetLine: Int?
     var wrap = false {
         didSet { if wrap != oldValue { setNeedsLayout() } }

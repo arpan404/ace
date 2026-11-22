@@ -22,7 +22,6 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command.tsx";
-import { closeHint, KeyHints, navigateHint, selectHint } from "@/components/ui/key-hints.tsx";
 import { usePhone } from "@/lib/breakpoints.ts";
 import { cn } from "@/lib/cn.ts";
 import { searchSettleMs } from "@/lib/debounced.ts";
@@ -151,11 +150,6 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
       onValueChange={setQuery}
       onItemHighlighted={warm}
     >
-      <ScopeTabs
-        scope={scope}
-        onScope={setScope}
-        onLeave={() => field.current?.focus({ preventScroll: true })}
-      />
       <CommandInput
         ref={field}
         aria-label="Search commands"
@@ -167,6 +161,11 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
           if (event.shiftKey) focusScopeTabs(event.currentTarget.closest('[role="dialog"]'));
           else setScope((open) => stepScope(open, 1));
         }}
+      />
+      <ScopeTabs
+        scope={scope}
+        onScope={setScope}
+        onLeave={() => field.current?.focus({ preventScroll: true })}
       />
       <CommandEmpty>{empties[scope](query.trim() !== "")}</CommandEmpty>
       <CommandList>
@@ -254,7 +253,6 @@ export default function PaletteBody(props: { close(): void; push(page: PalettePa
           </CommandGroup>
         )}
       </CommandList>
-      {!phone && <KeyHints hints={[navigateHint, selectHint, closeHint]} />}
     </Command>
   );
 }

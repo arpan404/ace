@@ -247,3 +247,26 @@ export const storedMarketWithdrawn = (text: string) =>
   JSON.parse(text) as import("./marketplace/listings.ts").WithdrawnState;
 export const storedMarketJournal = (text: string) =>
   JSON.parse(text) as import("./marketplace/journal.ts").Journal;
+
+/** A Cursor attempt record this build wrote (ADR 0125): read as stored. */
+export function storedAttemptRecord(
+  json: string,
+): import("@ace/adapter-cursor/unsettled").AttemptRecord {
+  return JSON.parse(json) as import("@ace/adapter-cursor/unsettled").AttemptRecord;
+}
+
+/** Where a Cursor thread's frames stand (provider-recovery.ts), as this build wrote it. */
+export function storedFramesRecord(json: string): {
+  open?: number;
+  below?: number;
+  trimmed?: boolean;
+} {
+  return JSON.parse(json) as { open?: number; below?: number; trimmed?: boolean };
+}
+
+/** Cursor attempt records of retired sessions, as this build wrote them (ADR 0125). */
+export function storedAttemptRecords(
+  json: string,
+): import("@ace/adapter-cursor/unsettled").AttemptRecord[] {
+  return JSON.parse(json) as import("@ace/adapter-cursor/unsettled").AttemptRecord[];
+}

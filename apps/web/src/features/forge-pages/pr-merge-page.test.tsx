@@ -1,4 +1,4 @@
-import { seedForgeBrowse, workbench } from "@ace/fake-daemon";
+import { movingPullRequest, seedForgeBrowse, workbench } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -56,6 +56,17 @@ test("an unlinked pull request waiting on checks and review turns auto-merge on,
   ).toBeTruthy();
 });
 
+test("a review comment's markdown renders, not its backticks", async () => {
+  const app = withRepository();
+  app.daemon.workspace.seedPullRequests([movingPullRequest(Date.now())]);
+  await app.open("/pulls/ace/250");
+  const panel = await screen.findByRole("article", { name: "Pull request #250" });
+  // The review comment says "Does `seen` need to reset per page?": the inline code is drawn.
+  const code = await within(panel).findByText("seen", { selector: "code" });
+  expect(code.textContent).toBe("seen");
+  expect(panel.textContent).not.toContain("`seen`");
+});
+
 test("where the repository doesn't allow auto-merge, a PR waiting on checks can't merge and says why", async () => {
   const app = withRepository();
   app.daemon.workspace.setForgeRead(
@@ -87,6 +98,8 @@ test("where the repository doesn't allow auto-merge, a PR waiting on checks can'
   const panel = await screen.findByRole("article", { name: "Pull request #231" });
   const merge = await within(panel).findByRole("button", { name: "Squash and merge" });
   expect((merge as HTMLButtonElement).disabled).toBe(true);
+  // Why it can't go yet is one quiet sentence beside it, not only a tooltip.
+  expect(merge.parentElement?.parentElement?.textContent).toContain("Checks are still running");
   await userEvent.hover(merge.parentElement ?? merge);
   expect((await screen.findByRole("tooltip")).textContent).toContain(
     "This repository doesn't allow auto-merge for this account.",

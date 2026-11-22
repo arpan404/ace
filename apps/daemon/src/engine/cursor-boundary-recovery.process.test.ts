@@ -9,7 +9,7 @@ import type { SessionContext } from "@ace/engine-api";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 
 it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
-  "validates explicit Cursor continuation after %s while retaining translator overflow fences",
+  "validates explicit Cursor continuation after %s, and continues a translator overflow in a fresh session",
   async (failure) => {
     const root = await mkdtemp(join(tmpdir(), "cursor-boundary-recovery-"));
     const store = new Store(join(root, "events.sqlite"));
@@ -27,14 +27,20 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
           context.signal.addEventListener("abort", () => context.onExit({ deliberate: false }), {
             once: true,
           });
-          if (opened > 1) expect(context.resume?.nativeSessionId).toBe("pinned-agent");
+          // A translator overflow makes the old session's provenance unusable: ace continues in a
+          // fresh session (ADR 0211), whose own journal starts at the first boundary.
+          if (opened > 1 && failure === "identity_overflow") {
+            expect(context.resume).toBeUndefined();
+            expect(context.storeGeneration).toBe(1);
+            offset = 0;
+          } else if (opened > 1) expect(context.resume?.nativeSessionId).toBe("pinned-agent");
           context.onSessionIdentity?.({
             backend: "cursor-sdk",
             instanceId: "fixture",
             nativeSessionId: "pinned-agent",
           });
           let operationId = "open";
-          const emit = async (kind: string, body: unknown, durable = true) => {
+          const emit = async (kind: string, body: unknown) => {
             const seq = ++offset;
             const payload = new ProviderPayload(
               JSON.stringify({
@@ -45,7 +51,6 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
                 agentId: "pinned-agent",
                 kind,
                 body,
-                ...(durable ? { boundaryOffset: seq } : {}),
               }),
             );
             await context.onFrame({
@@ -65,6 +70,7 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
             async send(input, _delivery, intent) {
               operationId = intent ?? "send";
               await emit("send", { input });
+              await emit("segment", { nativeRunId: `run-${opened}` });
               if (opened === 1) {
                 if (failure === "identity_overflow") {
                   await emit("delta", {
@@ -85,8 +91,7 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
                       },
                     },
                   });
-                  await emit("error", { code: failure, message: "Checkpoint retained" }, false);
-                  offset--; // Emergency fences are not entries in the durable SDK journal.
+                  await emit("error", { code: failure, message: "Checkpoint retained" });
                 }
               } else {
                 await emit("delta", { type: "text-delta", text: "continued" });
@@ -137,14 +142,6 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
         ),
       ).toMatchObject({ ok: true });
       await engine.flush();
-      if (failure === "identity_overflow") {
-        expect(opened).toBe(1);
-        expect(store.getThread(result.threadId)?.status.state).not.toBe("done");
-        expect(JSON.stringify(store.snapshotThread(result.threadId))).toContain(
-          "SDK translation provenance is fenced",
-        );
-        return;
-      }
       expect(opened).toBe(2);
       const snapshot = store.snapshotThread(result.threadId);
       expect(snapshot.itemOrder.map((id) => snapshot.items[id])).toEqual(
@@ -165,7 +162,8 @@ it.each(["boundary_overflow", "checkpoint_budget", "identity_overflow"])(
         state: "completed",
       });
       // The replacement finishes, but the screenshot lost with the old host remains uncertain.
-      expect(store.getThread(result.threadId)?.status.state).toBe("waiting");
+      if (failure !== "identity_overflow")
+        expect(store.getThread(result.threadId)?.status.state).toBe("waiting");
     } finally {
       await engine.close();
       store.close();

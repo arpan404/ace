@@ -94,7 +94,9 @@ describe("a reply that used memory", () => {
     expect(recalled()).toEqual([]);
     stored({ type: "step_finished", reply: "r1", text: "Booked an aisle seat from SFO." });
     stored({ type: "reply_finished", reply: "r1", text: "Booked.", cost_micros: 0 });
-    expect(recalled()).toEqual([{ kind: "recalled", key: "r1:recalled", notes: ["n_4", "n_9"] }]);
+    expect(recalled()).toEqual([
+      { kind: "recalled", key: "r1:recalled", notes: ["n_4", "n_9"], turn: "r1" },
+    ]);
     // A message with nothing recalled adds no line.
     stored({ type: "user_message", text: "Thanks" });
     stored({ type: "reply_started", reply: "r2" });

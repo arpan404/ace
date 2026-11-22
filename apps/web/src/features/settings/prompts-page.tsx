@@ -137,7 +137,7 @@ export function PromptsSettingsScreen() {
                           role="status"
                           className="rounded-sm text-xs text-status-failed focus-ring"
                         >
-                          Invalid frontmatter
+                          This skill's header couldn't be read
                         </span>
                       </Tip>
                     )}

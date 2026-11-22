@@ -1,4 +1,4 @@
-import { ClientError, type ClientCore } from "@ace/client";
+import { ClientError, type ClientCore, type Scheduler } from "@ace/client";
 import {
   MarketOperation,
   type MarketInstalled,
@@ -288,11 +288,19 @@ const checkWait = { timeoutMs: 10_000 };
 const checkPause = 2_000;
 /** At most this many reads' last answers are kept for the offline screen. */
 const keptAnswers = 32;
-const pauseFor = (ms: number, signal: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
+/**
+ * A pause on `set`'s timer that ends early when `signal` aborts. The phone passes the host
+ * scheduler: JavaScriptCore has no `setTimeout`.
+ */
+export const pauseOn =
+  (set: Scheduler["set"]) =>
+  (ms: number, signal: AbortSignal): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const cancel = set(ms, resolve);
+      signal.addEventListener("abort", () => (cancel(), resolve()), { once: true });
+    });
+/** No wait at all: for callers with no timer to give (tests); the phone passes `pauseOn`. */
+const noPause = (): Promise<void> => Promise.resolve();
 
 export class NativeMarket {
   readonly #owner: Owner;
@@ -308,7 +316,7 @@ export class NativeMarket {
   constructor(
     owner: Owner,
     now: () => number,
-    pause: (ms: number, signal: AbortSignal) => Promise<void> = pauseFor,
+    pause: (ms: number, signal: AbortSignal) => Promise<void> = noPause,
     botName: (id: string) => string | undefined = () => undefined,
     standing: () => PairedStanding | undefined = () => undefined,
   ) {

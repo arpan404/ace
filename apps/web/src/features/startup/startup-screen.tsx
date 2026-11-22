@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { StartFailure } from "@/components/start-failure.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { StartupLayout, StartupStatus } from "./startup-layout.tsx";
@@ -86,13 +87,8 @@ export function StartupScreen(props: { daemon?: DesktopDaemon | undefined; reloa
       onLeft={() => startup.dispatch({ type: "left" })}
     >
       {view.failure !== undefined ? (
-        <div
-          role="alert"
-          {...part("page-section", "failed", "failure")}
-          className="fx-view-in flex max-w-[360px] flex-col gap-1.5"
-        >
-          <p className="text-ui font-semibold text-foreground">ace couldn't start</p>
-          <p className="text-sm leading-normal text-muted-foreground">{view.failure}</p>
+        <div {...part("page-section", "failed", "failure")} className="fx-view-in">
+          <StartFailure role="alert" description={view.failure} className="max-w-[360px]" />
         </div>
       ) : (
         <StartupStatus message={view.message} />

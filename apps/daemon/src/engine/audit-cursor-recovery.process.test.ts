@@ -16,13 +16,12 @@ function provider() {
         generation: "generation",
         operationId: `turn-${operation}`,
         segment: 0,
-        boundaryOffset: ++offset,
         kind,
         body,
       }),
     );
     await context.onFrame({
-      seq: offset,
+      seq: ++offset,
       t: offset,
       dir: "recv",
       channel: "sdk",
@@ -44,6 +43,7 @@ function provider() {
         async send(input) {
           operation++;
           await emit(context, "send", { input });
+          await emit(context, "segment", { nativeRunId: `run-${operation}` });
           await emit(context, "delta", { type: "text-delta", text: `answer-${operation}` });
           await emit(context, "result", { status: "finished" });
         },

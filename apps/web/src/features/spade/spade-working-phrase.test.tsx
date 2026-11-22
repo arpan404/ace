@@ -82,5 +82,5 @@ test("the list row says the same phrase, holds it, and a question for the person
     question: "Window or aisle?",
   });
   await chat.findByRole("group", { name: /Window or aisle\?/ });
-  expect(await rowLine()).toBe("ScoutAsked you a question");
+  expect(await rowLine()).toBe("ScoutNeeds you");
 });

@@ -253,6 +253,13 @@ export function inputLine(input: SystemInput): EventLine | undefined {
     case "schedule":
       return { icon: "automation", text: "Scheduled run started" };
     case "handoff": {
+      // The saved session couldn't be opened again, so the same provider started afresh.
+      const fresh = input.origin?.freshSession ? input.origin.from : undefined;
+      if (fresh)
+        return {
+          icon: "restart",
+          text: `${providerNames[fresh.provider]}'s saved session couldn't be opened again, so ace started a fresh one with this thread's context`,
+        };
       const to = input.origin?.to;
       if (to) return switchLine(input.origin?.from, to, input.origin?.lossy ?? true);
       return {
@@ -359,6 +366,15 @@ export function promptText(input: SystemInput): string {
   const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(text);
   const task = (match?.[2] ?? agentMessageBody(text) ?? text).trim();
   return task || input.text;
+}
+
+/**
+ * A delegated child's first message without ace's frame ("Role: greeter\n\nTask:\n…" is how the
+ * agent reads it): just the task, as an ordinary first message. Undefined for any other text.
+ */
+export function delegationBrief(text: string): string | undefined {
+  const match = /^Role: ([^\n]*)\n\nTask:\n([\s\S]*)$/.exec(text.trimStart());
+  return match?.[2]?.trim() || undefined;
 }
 
 /**

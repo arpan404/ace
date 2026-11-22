@@ -14,7 +14,9 @@
     "git_auth_failed",
     "git_failed",
     "git_dirty_worktree",
-    "git_invalid_ref"
+    "git_invalid_ref",
+    "git_no_upstream",
+    "git_path_outside_repo"
   ],
   "type": "string"
 }

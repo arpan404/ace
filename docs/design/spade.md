@@ -84,20 +84,42 @@ Spade is one of ace's places. It adds no navigation of its own.
   The transcript runs to the top under it.
 - **Bubbles.** The bot's on `--chat-bubble`, left, at most 64ch; the person's on `--chat-mine`
   (the accent) with `--chat-mine-foreground`, right, at most 56ch. Both 18 corners
-  (`--chat-bubble-radius`), 18px sides, 10px ends, prose 15/24. Headings, lists and links render
-  inside a bot's bubble; nothing is wider than it.
+  (`--chat-bubble-radius`), 18px sides, 10px ends, prose 15/24. Lists and links render inside a
+  bot's bubble; nothing is wider than it.
+- **Short messages (ADR 0212).** A bot texts like a person: one turn is several short bubbles,
+  each arriving as its words do (`<msg>` in its words, split by `@ace/ui-core/spade-chat`). The
+  bot is working until its last message is out; the working line stays under the bubble still
+  filling.
+- **Document card.** Long words (a `<doc>` the bot wrote, or a message past about 12 lines or
+  holding a heading or a table) are a card on the bot's side, never a wall: `--chat-bubble` fill
+  at the 18 corner, the document mark in the muted ink, the title in 14/20 at 500, two lines of
+  preview in the muted ink, and Open as a ghost text button, which shows every word in a dialog.
+  A long message keeps its first paragraph as a bubble above the card. Nothing is cut without the
+  card.
+- **Reply.** Every stored message, the bot's or the person's, offers Reply in its hover actions
+  (and a long press on touch). The composer then opens with one line inside its surface, above
+  the words, on a 2px rule: "Replying to Flights · …" with × to stop. It is the composer's own
+  line, never a strip loose over the transcript, and starts 24px down so Scroll to end can rest on
+  the composer's top edge above it. A sent reply, and a bot's reply to an earlier message,
+  carries one quiet line above its bubble on the same rule: the sender's name in 12/16 at 500,
+  then their first line, muted. Clicking it scrolls to the original and lights it a moment with
+  the focus ring. A quote to a message that isn't there shows nothing. In a club the person can
+  reply to any member's message.
 - **Code.** Inline code and code blocks in a bot's bubble sit on `--chat-code`. A block hangs 6px
   in from the bubble's edge at a 12 corner (concentric), with a 32px header holding the language
   and Copy, code in 13/20 mono, scrolling sideways. Inline code in the person's bubble sits on
   `--chat-mine-code`.
-- **Runs.** 4px between bubbles of a run, 16px between turns. In a one-to-one chat no face sits
-  beside a bubble: the pill and the working line carry it. In a club, each member's run starts
-  with its face and name.
-- **Time lines.** Only after a 30-minute gap or on a new day, 12/16 subtle, 24px above and 12px
-  below. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
+- **Runs.** A sender's consecutive bubbles, the person's too, are one run: 4px between them,
+  16px between turns. A bubble's actions (its time, Reply, Copy, Read aloud, More) float over its
+  top edge on hover, so they take no room in the run. In a one-to-one chat no face sits beside a
+  bubble: the pill and the working line carry it. In a club, each member's run starts with its
+  face and name, once.
+- **Time lines.** Only after a five-minute gap or on a new day, 12/16 subtle, 24px above and 12px
+  below; every bubble's exact time shows on hover. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
   by default.
-- **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
-  what it is doing and a running time. It goes when the reply ends. Only a working face moves
+- **Working line.** Under the last bubble while the bot works: its 32px face, moving, and what it
+  is doing in a small bubble of its own (`--chat-bubble`, 18 corner), where its next message will
+  be, as the other side typing, then a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
 - **Steps.** As steps finish, they fold into one quiet line under the reply
   ("Ran 3 commands, changed 2 files"). The line starts closed and counts failures
@@ -110,17 +132,43 @@ Spade is one of ace's places. It adds no navigation of its own.
   for the whole turn and each undoable step offers it in the detail. The confirmation lists which
   files go back, which new files are removed and which deleted files come back (paths in mono on
   `--chat-well`). It also lists the actions undo can't take back (ADR 0167, spade/docs/security.md).
-- **Workers it started (ADR 0161).** The ace agents and bots one call starts are one card in the
-  turn that started them, drawn with ace's own delegated-child rows (one component with a
-  thread's): one row while a lone worker runs, else "Started 4 agents" with each state's count in
-  its tone, opening to a row per worker. A row is its provider's mark (a bot's face), its name,
-  "Delegated · model", "on <machine>" when it runs elsewhere, its state in words and its last
-  line; it opens the agent's thread on its machine, or the bot's chat. States come live from
-  ace's thread list on the bot's machine, else the bot's tree; nothing reads done while either
-  says it runs. The bot's own words about them stay as written. A worker waiting on the person
-  shows Review on its row, and its request waits at the end of the chat as ace's own card
-  (Approve plan, an answer), answered there for the agent through its machine; a bot that waits
-  opens its chat. "Needs you" in the list and a notice open the chat at that card.
+- **Workers it started (ADR 0161).** The ace agents and bots one call starts are one subagent
+  card in the turn that started them, Spade's own and not ace's thread rows: on the bot's bubble
+  fill with no edge or lift, the bot's face and one sentence on top ("Quill is working with 4
+  agents", once every one has ended "Quill worked with 4 agents · 12m"), then a row per agent on
+  the card's one left edge. A row is a small mark in its own colours (a provider's, as ace draws it, or a bot's face),
+  its name, "on <machine>" when it runs elsewhere, its state in words (Working, Waiting for you,
+  Done, Failed) with its step (the short Working phrase) or what it found, how long it has run,
+  and Open as a text button: the agent's thread on its machine, or the bot's chat. States come
+  live from ace's thread list on the bot's machine, else the bot's tree; the card never says
+  worked while any agent works or waits on the person, or while what it reads isn't current. One
+  that waits on the person stays a flat row (rows are flat, a hairline between them that starts at the text: `border` on the light bubble, `border-strong` on the dark one, where the softer borders vanish, as ace lists are) and says in the needs-you text colour what for
+  ("Waiting for you to approve its plan"), with Review as a text button beside Open; there is no line for it outside
+  the card. Its request waits at the end of the chat as ace's own card (Approve plan, an answer),
+  answered there for the agent through its machine, and Review goes to it; with nothing to
+  answer there (a bot, a request not loaded) Review opens the agent. Past five rows the rest fold
+  into "and 3 more", which opens; a waiting one is never folded. "Needs you" in the list and a
+  notice open the chat at that request. The bot's own words about them stay as written. The words
+  and rules are in `@ace/ui-core/spade-chat` (`subagent-card.ts`) for every client.
+- **Working with other bots (ADR 0127, ADR 0200 §7).** Everything one turn did with other
+  bots and agents is one card, the subagent card above, a turn apart from what is around it, and
+  never hidden with the work: the messages it sent other bots (`bot_message`), the contracts it
+  called (`contract_call`) and the agents it started. Its first line is the bot's face and one
+  sentence, "Quill worked with Writing and Flight watcher" ("is working with" while anything in it
+  is owed or at work; ace agents counted, "and 2 agents"), with the turn's time on the right. One
+  flat row per message, call or agent: the other bot's face (16px, its own colours), its name,
+  and a second line in plain words of what came back ("Replied: Three days on the river…",
+  "Cheapest fare: …"), its live working phrase in the step's light while a reply is owed, or what
+  went wrong in the failed colour ("Couldn't get the seat map: closed until check-in"). A row's
+  time shows only while it runs; one caret on the right. A message's or a call's row opens in
+  place to the exchange (what this bot sent, then what came back, each under a small name label,
+  in full) and closes again; an agent's row opens its thread or chat. In the receiver's chat a
+  bot's message is input: on the person's side, in an outline bubble rather than the accent,
+  under the sender's face and name; the finished answer that went back carries one quiet line,
+  "Replied to Quill". A contract call it was given is one compact line, "Quill asked for the
+  cheapest fare · what it returned". The first-time approval card ("Quill wants to message
+  Writing") is unchanged. The words and rules are in `@ace/ui-core/spade-chat` (`together.ts`,
+  `bot-talk.ts`) for every client.
 - **What it had in mind.** Under a finished reply whose message recalled notes, one quiet line
   ("Had 2 notes in mind") opens to them; each opens where it's from.
 - **A failed run** says where it happened and offers the way out, in the bubble's place.

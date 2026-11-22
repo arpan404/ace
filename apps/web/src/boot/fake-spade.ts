@@ -16,8 +16,9 @@ import { seedFakeCapabilities } from "./fake-spade-capabilities.ts";
 import { seedFakeReach } from "./fake-spade-reach.ts";
 import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
-import { seedFakeDelegation } from "./fake-spade-delegation.ts";
+import { seedFakeDelegation, seedFakeSurvey } from "./fake-spade-delegation.ts";
 import { seedFakeModelAccess } from "./fake-spade-models.ts";
+import { seedFakeTexting } from "./fake-spade-texting.ts";
 
 /*
  * `?fakeWorld=spade`: Spade running on This Mac with its bots, mid-trip-planning, and a bot on the
@@ -562,6 +563,7 @@ export function seedFakeSpade(
     here.notes.add({ text, agent: "flights", scope: "agent", source: "bot" });
 
   seedFakeCards(here);
+  seedFakeTexting(here, minutes);
   seedFakeAgentCards(here);
   seedFakeAgentPanels(here);
   seedFakeSuggest(here);
@@ -570,6 +572,7 @@ export function seedFakeSpade(
   seedFakeLibrary(here, now);
   seedFakeWork(daemon, here, minutes);
   seedFakeDelegation(daemon, here, minutes);
+  seedFakeSurvey(daemon, here, minutes);
   seedFakeGroup(here, now);
   seedFakeCreate(here, minutes);
   seedFakePackages(here, now);

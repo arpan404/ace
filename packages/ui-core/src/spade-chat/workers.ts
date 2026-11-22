@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { spadeJson, spadeRecord } from "./json.ts";
 import { spadeGoalLine, type SpadeGoalProgress } from "./goal.ts";
+import { spadeNeedsYouWords } from "./needs-you.ts";
 
 /*
  * A bot's tree of workers (ADR 0161), as `GET /v1/agents/{id}/tree` answers it: the bots it
@@ -126,7 +127,7 @@ const aceLines: Record<string, { line: string; tone: SpadeWorkerTone; running: b
 
 function botRow(node: SpadeWorkerNode): Pick<SpadeWorkerRow, "line" | "tone" | "running"> {
   if (node.needsYou || node.state === "waiting")
-    return { line: node.status ?? "Needs you", tone: "needs-you", running: true };
+    return { line: spadeNeedsYouWords(node.status), tone: "needs-you", running: true };
   if (node.queued) return { line: "Waiting to start", tone: "rest", running: true };
   if (node.state === "working")
     return {

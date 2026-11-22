@@ -119,6 +119,11 @@ export const MessageOrigin = z.object({
   /** A context handoff: every model whose work the new agent received, oldest first. */
   sources: z.array(HandoffModel).max(8).optional(),
   lossy: z.boolean().optional(),
+  /**
+   * A `handoff` into a fresh session of the same provider: the thread's saved session could not
+   * be opened again, so ace started a new one with the thread's context (ADR 0211).
+   */
+  freshSession: z.literal(true).optional(),
   /** A `restart` continuation resuming a turn its provider dropped on its own, not a restart. */
   afterExit: z.boolean().optional(),
   /** A `person` message sent from another thread by `@` its agent (ADR 0198): that thread. */

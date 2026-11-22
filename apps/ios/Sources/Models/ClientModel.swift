@@ -93,6 +93,10 @@ import QuartzCore
     var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
+    /// Notes pinned to code in the editor, by thread, for each one's next message.
+    var codeNotes = CodeNotes()
+    /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
+    @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
     /// the reading view's negative epoch.
     @ObservationIgnored var reading: ThreadModel?
@@ -824,7 +828,11 @@ import QuartzCore
             case .files(let patch): files.apply(patch)
             case .transfers(let patch): transfers.apply(patch)
             case .screen(let id, let epoch, let screen):
-                if let target = scoped(id, epoch) { target.screen.apply(screen) }
+                if case .codeSent(let ids) = screen {
+                    // Kept by thread, not by visit: a message saved after the person left its
+                    // thread still took these notes, so they never go a second time.
+                    codeNotes.sent(id, ids: ids)
+                } else if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .deviceTabs(let patch): if let opened = deviceTabs.apply(patch) { showDeviceTab(opened) }
             case .devices(let patch): devices.apply(patch)

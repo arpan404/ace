@@ -78,14 +78,8 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
   if (used.length === 0)
     return (
       <>
-        {waking ? (
-          <Waking bot={bot} caption={`${whose(bot.name)} screen`} />
-        ) : (
-          <div className="flex flex-col items-center gap-3 px-2 py-8 text-center">
-            <SpadeFace avatar={bot.avatar} size={56} state="idle" />
-            <p className="text-ui text-muted-foreground">{`${bot.name} hasn't used its computer yet.`}</p>
-          </div>
-        )}
+        {/* One empty state: the Activity section below says it hasn't used its computer yet. */}
+        {waking && <Waking bot={bot} caption={`${whose(bot.name)} screen`} />}
         <ProfileSection label="Activity" bare>
           <SpadeActivity bot={bot} scope="computer" />
         </ProfileSection>

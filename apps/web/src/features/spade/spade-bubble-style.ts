@@ -16,6 +16,12 @@ export const bubbleWidth = {
 /** The bot's words. */
 export const chatBubble = `${shape} ${bubbleWidth.bot} bg-chat-bubble text-foreground`;
 
+/**
+ * Another bot's message to this one: input, so on the person's side at their width, but drawn
+ * in outline on the page rather than filled in the accent, so it is never taken for theirs.
+ */
+export const inputBubble = `${shape} ${bubbleWidth.mine} border border-border bg-transparent text-foreground dark:border-border-strong`;
+
 /** The person's words, in the accent. */
 export const mineBubble = `${shape} ${bubbleWidth.mine} bg-chat-mine text-chat-mine-foreground`;
 

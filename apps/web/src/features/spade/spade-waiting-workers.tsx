@@ -1,19 +1,19 @@
-import { spadeAskingWords, type SpadeStartedWorker } from "@ace/ui-core/spade-chat";
+import type { SpadeStartedWorker } from "@ace/ui-core/spade-chat";
 import { Link } from "@tanstack/react-router";
 import { Suspense, useEffect, useRef } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
-import { StatusGlyph } from "@/components/status-glyph.tsx";
+import { buttonVariants } from "@/components/ui/button.tsx";
 import { DeferredInteractionCard, useOpenRequest } from "@/features/thread/index.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { OnBotMachine, type WorkerHandlers } from "./spade-delegation.tsx";
 import { useSpadeWorkers, type SpadeWorkerEntry } from "./use-spade-workers.ts";
 
 /*
- * What the bot's tree waits on the person for, at the end of its chat: each worker it started
- * that waits on them, with what it asks right here. An ace agent's plan, question or approval is
- * ace's own card, and answering it resolves the agent's request (on its machine); a bot it made
- * that waits opens its chat. So "Needs you" always leads somewhere (AGENTS.md priority 1).
- * `data-request="workers"` is where a notice or the bot list's "Needs you" lands.
+ * What the bot's ace agents wait on the person for, at the end of its chat: each one's open plan,
+ * question or approval as ace's own card, answered here for the agent (on its machine). Every
+ * other waiting worker (a bot it made, a request not loaded or not answerable here) is answered
+ * from its row in the subagent card, whose Review opens it, so "Needs you" always leads somewhere
+ * (AGENTS.md priority 1). `data-request="workers"` is where a notice or the bot list's "Needs you"
+ * lands; with no card here, that is the first waiting row's Review.
  */
 
 export function SpadeWaitingWorkers(props: {
@@ -35,35 +35,36 @@ function Waiting(props: {
   const { entries, fresh } = useSpadeWorkers(props.handlers.bot, props.workers, 0, props.reachable);
   // Only what is current says a worker waits on the person.
   const waiting = fresh ? entries.filter((entry) => entry.state === "human") : [];
+  const asks = props.reachable ? waiting.filter((entry) => entry.kind === "ace") : [];
   const region = useRef<HTMLDivElement>(null);
   const shown = waiting.length > 0;
   const { reveal } = props;
   useEffect(() => {
     if (!shown || !reveal) return;
     const frame = requestAnimationFrame(() => {
-      region.current?.scrollIntoView?.({ block: "center", behavior: "smooth" });
-      region.current?.focus({ preventScroll: true });
+      const card = region.current?.querySelector("[data-worker-request] > *");
+      const target = card
+        ? region.current
+        : document.querySelector<HTMLElement>("[data-worker-review]");
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      target?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
   }, [shown, reveal]);
-  if (!shown) return null;
+  if (!asks.length) return null;
   return (
     <div
       ref={region}
       role="region"
-      aria-label="Waiting for you"
+      aria-label="Needs you"
       tabIndex={-1}
       data-request="workers"
       // Focused as the chat opens on it, for the keyboard: a target, not a control, so no ring.
-      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 outline-none"
+      className="mt-(--chat-turn-gap) flex w-full max-w-150 min-w-0 flex-col gap-3 outline-none empty:hidden"
     >
-      {waiting.map((entry) =>
-        entry.kind === "ace" && props.reachable ? (
-          <AceAsk key={entry.id} entry={entry} />
-        ) : (
-          <Asks key={entry.id} entry={entry} handlers={props.handlers} />
-        ),
-      )}
+      {asks.map((entry) => (
+        <AceAsk key={entry.id} entry={entry} />
+      ))}
     </div>
   );
 }
@@ -72,66 +73,27 @@ function Waiting(props: {
 function AceAsk(props: { entry: SpadeWorkerEntry }) {
   const { entry } = props;
   const request = useOpenRequest(entry.id);
+  if (!request) return null;
   return (
     // A target "Needs you" brings into view and to the keyboard, not a control: no ring around it
     // (the card's own buttons keep theirs).
     <div data-worker-request={entry.id} tabIndex={-1} className="outline-none">
-      {request ? (
-        <Suspense fallback={<Asks entry={entry} handlers={undefined} />}>
-          <DeferredInteractionCard.Component
-            threadId={entry.id}
-            interactionId={request.id}
-            asker={entry.title}
-            frame="card"
-            aside={
-              <Link
-                {...threadOn(entry.machineHost, entry.id)}
-                className={buttonVariants({ variant: "ghost", size: "sm" })}
-              >
-                Open
-              </Link>
-            }
-          />
-        </Suspense>
-      ) : (
-        <Asks entry={entry} handlers={undefined} />
-      )}
+      <Suspense fallback={null}>
+        <DeferredInteractionCard.Component
+          threadId={entry.id}
+          interactionId={request.id}
+          asker={entry.title}
+          frame="card"
+          aside={
+            <Link
+              {...threadOn(entry.machineHost, entry.id)}
+              className={buttonVariants({ variant: "ghost", size: "sm" })}
+            >
+              Open
+            </Link>
+          }
+        />
+      </Suspense>
     </div>
-  );
-}
-
-/**
- * A waiting worker the chat can't answer for in place (a bot, a request with nothing to choose,
- * not loaded yet): who waits and on what, and Open, which goes where it is answered.
- */
-function Asks(props: { entry: SpadeWorkerEntry; handlers: WorkerHandlers | undefined }) {
-  const { entry, handlers } = props;
-  const words = entry.kind === "ace" ? spadeAskingWords(entry.asking) : "Needs you";
-  return (
-    <p
-      data-worker-request={entry.kind === "bot" ? entry.id : undefined}
-      className="flex min-h-9 min-w-0 items-center gap-[7px] text-ui"
-    >
-      <StatusGlyph state="needs-you" />
-      <span className="min-w-0 truncate">
-        <span className="font-medium text-foreground">{entry.title}</span>
-        {entry.machine && <span className="text-subtle-foreground"> on {entry.machine}</span>}
-        <span className="text-muted-foreground"> · {words}</span>
-      </span>
-      {entry.kind === "ace" ? (
-        <Link
-          {...threadOn(entry.machineHost, entry.id)}
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          Open
-        </Link>
-      ) : (
-        handlers?.onOpenBot && (
-          <Button variant="ghost" size="sm" onClick={() => handlers.onOpenBot?.(entry.id)}>
-            Open
-          </Button>
-        )
-      )}
-    </p>
   );
 }

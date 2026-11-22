@@ -18,7 +18,7 @@ const fatalModule = new URL("./host-fatal.ts", import.meta.url).pathname;
 export interface FakeSdkScenario {
   /** Milliseconds the SDK's auth status takes, as a slow network would. */
   statusDelayMs?: number;
-  /** The run's streamed message; it then stays running until cancelled. */
+  /** The run's streamed update (through onDelta, as the SDK sends it); it then stays running. */
   message?: unknown;
   /** The run finishes with this error right after its message instead of waiting. */
   runError?: string;
@@ -44,14 +44,20 @@ const scenario = ${JSON.stringify(scenario)};
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const cancelled = Promise.withResolvers();
 let store;
+let onDelta;
 const run = {
   id: "run",
   async *stream() {
     if (scenario.checkpointBlobBytes)
+      await store.agents
+        .create({ agent: { agentId: "agent", cwd: "/", status: "running", createdAt: 1, updatedAt: 1 } })
+        .catch(() => {});
+    if (scenario.checkpointBlobBytes)
       await store.checkpoints
-        .create({ agentId: "agent", data: new Uint8Array(scenario.checkpointBlobBytes) })
+        .create({ agentId: "agent", blobId: "ab".repeat(32), data: new Uint8Array(scenario.checkpointBlobBytes) })
         .catch(() => process.stderr.write("sdk-checkpoint-refused\\n"));
-    yield scenario.message ?? { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } };
+    await onDelta?.({ update: scenario.message ?? { type: "text-delta", text: "hi" } });
+    yield { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } };
     if (scenario.runError === undefined) await cancelled.promise;
   },
   async wait() {
@@ -71,7 +77,7 @@ const run = {
 const agent = {
   agentId: "agent",
   async [Symbol.asyncDispose]() {},
-  async send() { process.stderr.write("sdk-send\\n"); return run; },
+  async send(_input, options) { onDelta = options?.onDelta; process.stderr.write("sdk-send\\n"); return run; },
 };
 const boundary = {
   ...sdk,
@@ -140,6 +146,8 @@ export async function runtimeFixture(
   });
   return {
     host,
+    /** The host's HOME: its checkpoint folder is `checkpointDirectory(root, "host-runtime")`. */
+    root,
     fenced: fenced.promise,
     events,
     /** Lines the fake SDK wrote, such as "sdk-send" and "sdk-cancel". */

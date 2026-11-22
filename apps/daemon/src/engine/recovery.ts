@@ -332,6 +332,33 @@ export class Recovery {
     this.captures.clear(id);
   }
   /**
+   * A Cursor turn a restart cut short that its reconcile read back as finished: the restart's
+   * hold and its "continue" were for that turn, so they go in the same transaction as the turn's
+   * end. A crash right after it can't leave the queue held behind a completed turn. Under a
+   * restart hold no new turn starts, so the turn that completed is the cut-off one.
+   */
+  private releaseCompletedRestart(state: ThreadState, at: number): void {
+    const id = state.threadId;
+    if (this.repo.backend(id) !== "cursor-sdk") return;
+    const queue = this.repo.queue.get(id);
+    if (queue.trigger !== "restart" || !queue.paused || queue.reason !== "restart") return;
+    if (queue.limited || state.agents[state.rootKey ?? ""]?.activeRun) return;
+    this.repo.pending.finishContinuation(id);
+    this.repo.queue.set(
+      id,
+      {
+        continuation: null,
+        trigger: null,
+        paused: false,
+        reason: null,
+        holdToken: queue.holdToken + 1,
+      },
+      at,
+    );
+    this.captures.clear(id);
+    this.sync(id);
+  }
+  /**
    * Startup found this thread's turn cut short by the restart and safe to continue: send its
    * restart continuation now, through the same resume path as the person's Continue, ahead of
    * any queued messages. Counts toward the loop guard.
@@ -388,6 +415,7 @@ export class Recovery {
     ) {
       this.streaks.clear(state.threadId);
       this.dropStaleCapture(state, at);
+      this.releaseCompletedRestart(state, at);
     }
     if (
       !facts.some(

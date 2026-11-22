@@ -6,7 +6,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { settleAction, SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { cn } from "@/lib/cn.ts";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RowItems, useRowDialogs } from "./row-menu-items.tsx";
 import { useRowMenuShortcuts } from "./use-row-menu-shortcuts.ts";
 
@@ -26,6 +26,8 @@ export interface RowActionsProps {
   /** H asked for the snooze menu: it opens until the person closes it. */
   snoozeRequested?: boolean | undefined;
   onSnoozeClosed?: (() => void) | undefined;
+  /** A menu opened from the row: its details card has to go, the menu covers where it was. */
+  onMenuOpen?: ((open: boolean) => void) | undefined;
 }
 
 export function RowActions(props: RowActionsProps) {
@@ -33,9 +35,16 @@ export function RowActions(props: RowActionsProps) {
   const settle = settleAction(props.entry, props.flags, actions);
   const title = props.entry.title;
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  const { onSnoozeClosed } = props;
+  const { onSnoozeClosed, onMenuOpen } = props;
+  const snoozing = snoozeOpen || props.snoozeRequested === true;
+  useEffect(() => {
+    onMenuOpen?.(snoozing);
+  }, [snoozing, onMenuOpen]);
+  // The menus stay inside the sidebar's column, never over the rail beside it.
+  const [column, setColumn] = useState<Element | null>(null);
   return (
     <div
+      ref={(node) => setColumn(node?.closest("nav") ?? null)}
       // Centred on the row's one line, or an Active row's top line beside its status (10px
       // padding, 16px line), so the row never moves.
       className={cn(
@@ -65,7 +74,7 @@ export function RowActions(props: RowActionsProps) {
             />
           }
         />
-        <MenuContent align="end">
+        <MenuContent align="end" {...(column ? { collisionBoundary: column } : {})}>
           <SnoozeItems entry={props.entry} actions={actions} snoozed={props.flags.snoozed} />
         </MenuContent>
       </Menu>
@@ -81,7 +90,13 @@ export function RowActions(props: RowActionsProps) {
           {settle.label}
         </button>
       )}
-      <RowMoreMenu entry={props.entry} flags={props.flags} onRename={props.onRename} />
+      <RowMoreMenu
+        entry={props.entry}
+        flags={props.flags}
+        onRename={props.onRename}
+        onOpen={onMenuOpen}
+        boundary={column}
+      />
     </div>
   );
 }
@@ -91,8 +106,14 @@ export function RowMoreMenu(props: {
   entry: ThreadListEntry;
   flags: ThreadRowFlags;
   onRename(): void;
+  onOpen?: ((open: boolean) => void) | undefined;
+  boundary?: Element | null | undefined;
 }) {
   const [open, setOpen] = useState(false);
+  const { onOpen } = props;
+  useEffect(() => {
+    onOpen?.(open);
+  }, [open, onOpen]);
   const onKeyDown = useRowMenuShortcuts({ ...props, onClose: () => setOpen(false) });
   const dialogs = useRowDialogs(props.entry);
   return (
@@ -108,7 +129,11 @@ export function RowMoreMenu(props: {
             />
           }
         />
-        <MenuContent align="end" onKeyDownCapture={onKeyDown}>
+        <MenuContent
+          align="end"
+          onKeyDownCapture={onKeyDown}
+          {...(props.boundary ? { collisionBoundary: props.boundary } : {})}
+        >
           <RowItems
             entry={props.entry}
             state={props.flags}

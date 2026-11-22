@@ -250,7 +250,7 @@ test("approval inside a subagent holds the parent in a needs-you state naming th
 
 for (const [outcome, label, at] of [
   ["completed", "Worked for 6m 32s", 393_000],
-  ["failed", "Failed after 40s", 41_000],
+  ["failed", "Worked for 40s", 41_000],
 ] as const) {
   test(`${outcome} turns retain a collapsible log with their server duration`, async () => {
     const { app, setTime } = await running();
@@ -537,16 +537,12 @@ for (const outcome of ["completed", "interrupted", "failed"] as const) {
         },
       ]),
     );
-    const label =
-      outcome === "completed"
-        ? "Worked for"
-        : outcome === "interrupted"
-          ? "Worked for"
-          : "Failed after";
+    // A failed turn's head says only how long it worked: its row below says it failed.
+    const label = "Worked for";
     expect(
       await screen.findByRole("button", { name: new RegExp(`^${label} 1m 46s`) }),
     ).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^(Worked for|Failed after)/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Worked for/ })).toHaveLength(1);
     expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
     if (outcome === "failed")
       expect(

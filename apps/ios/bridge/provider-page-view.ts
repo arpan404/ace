@@ -138,7 +138,7 @@ export interface ProviderPage {
     path: string | null;
     /** ACP agents run the command approved when they were added. */
     approvedCommand: string | null;
-    /** Cursor's checkpoint budget in MB as saved ("" for the default 32), else null. */
+    /** Cursor's checkpoint budget in MB as saved ("" for the default 8192), else null. */
     checkpoint: string | null;
     nativeMode: { value: string; label: string; options: { id: string; label: string }[] } | null;
     /** The CLI can be removed from the computer from here. */

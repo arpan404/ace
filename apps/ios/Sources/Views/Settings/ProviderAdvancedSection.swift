@@ -82,7 +82,7 @@ struct ProviderAdvancedSection: View {
         if let saved = page.settings.checkpoint {
             LabeledContent("Checkpoint budget per thread") {
                 HStack(spacing: AceDesign.Space.tight) {
-                    TextField("32", text: $checkpoint).multilineTextAlignment(.trailing).keyboardType(.numberPad)
+                    TextField("8192", text: $checkpoint).multilineTextAlignment(.trailing).keyboardType(.numberPad)
                         .focused($focus, equals: .checkpoint).frame(maxWidth: AceDesign.Size.numberField)
                         .accessibilityIdentifier("provider.checkpoint")
                     Text("MB").foregroundStyle(AceDesign.Ink.muted)

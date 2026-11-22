@@ -217,6 +217,7 @@ fn message(run: &str, heartbeat: bool) -> Event {
         })),
         from_group: None,
         from_thread: None,
+        reply_to: None,
     })
 }
 
@@ -263,6 +264,19 @@ fn only_a_quiet_answer_to_a_heartbeat_alone_is_silent() {
     ];
     let silent = silent_replies(&events);
     assert_eq!(silent, HashSet::from(["r1".to_owned()]));
+}
+
+#[test]
+fn a_quiet_answer_wrapped_as_a_message_is_as_silent_and_one_with_words_still_shows() {
+    let events = [
+        message("b1", true),
+        Event::reply_started("r1", "fake/m"),
+        finished("r1", "<msg>[quiet]</msg>"),
+        message("b2", true),
+        Event::reply_started("r2", "fake/m"),
+        finished("r2", "<msg>[quiet]</msg><msg>The deploy failed.</msg>"),
+    ];
+    assert_eq!(silent_replies(&events), HashSet::from(["r1".to_owned()]));
 }
 
 #[test]

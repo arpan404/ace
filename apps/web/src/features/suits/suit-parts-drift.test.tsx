@@ -427,7 +427,7 @@ const pagesScreen = [
   "stat",
   "chart",
   "filter-bar",
-  "label-chip",
+  // No label-chip: History's project filter is one menu now; the Code review pages draw it.
   "chat-row",
 ] as const;
 
@@ -547,7 +547,7 @@ test("the Marketplace page names its places, titles, featured pair, stages and T
     },
   });
   await app.open("/chats?store=discover");
-  await screen.findByRole("region", { name: "Store" });
+  await screen.findByRole("region", { name: "Marketplace" });
   await waitFor(() => expect(missing(marketScreen)).toEqual([]));
 });
 

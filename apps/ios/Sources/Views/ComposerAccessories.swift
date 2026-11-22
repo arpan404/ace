@@ -13,13 +13,16 @@ struct ComposerAccessories: View {
     var adding: [PasteIntake.Adding] = []
     /// A pasted file's words, handed back to the message as text; nil offers nothing.
     var asText: ((String) -> Void)? = nil
+    /// The thread the composer writes to, for the editor's code notes on its next message.
+    var threadId: String? = nil
+    private var codeNotes: [CodeNote] { threadId.map { model.codeNotes[$0] } ?? [] }
     private var notice: String? { screen.tune?.notice.isEmpty == false ? screen.tune?.notice : nil }
     /// "Continues in a new thread with your next message": Send does something else now, so it's said.
     private var continues: String? {
         guard screen.controls?.continues == true, let note = screen.controls?.note, !note.isEmpty else { return nil }
         return note
     }
-    private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty || !screen.quotes.isEmpty }
+    private var hasChips: Bool { model.sheets.chip != nil || !screen.annotations.isEmpty || !screen.quotes.isEmpty || !codeNotes.isEmpty }
     /// Whether anything rides above the capsule at all.
     private var shows: Bool {
         let files = !screen.attachments.isEmpty || !adding.isEmpty
@@ -52,6 +55,11 @@ struct ComposerAccessories: View {
                         HStack(spacing: AceDesign.Space.related) {
                             if !screen.quotes.isEmpty {
                                 QuoteChips(items: screen.quotes, remove: { model.removeQuote($0) }, clear: { model.clearQuotes() })
+                                    .transition(.opacity)
+                            }
+                            if let threadId, !codeNotes.isEmpty {
+                                CodeNoteChips(items: codeNotes, remove: { model.removeCodeNote(threadId, id: $0) },
+                                              clear: { model.clearCodeNotes(threadId) })
                                     .transition(.opacity)
                             }
                             if let chip = model.sheets.chip {
