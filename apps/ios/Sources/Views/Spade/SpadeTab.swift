@@ -17,6 +17,10 @@ struct SpadeTab<Bar: View>: View {
     /// The machine New bot makes its bot on, once chosen; asking shows the choice first.
     @State private var making: SpadeMachineChoice?
     @State private var asking = false
+    /// A Settings page asked for from New bot's sheet (Pair again names the sheet's own
+    /// machine), opened once that sheet has closed.
+    @State private var settingsAfterMaking: SettingsRoute?
+    @Environment(\.openSettingsPage) private var openSettingsPage
     @State private var settings: SpadeMachineChoice?
 
     private var machines: [MachineSession] { inbox.spadeSessions }
@@ -68,11 +72,18 @@ struct SpadeTab<Bar: View>: View {
                     .accessibilityIdentifier("spade.newBot.machine.\(host.hostId)")
             }
         }
-        .sheet(item: $making) { choice in
+        .sheet(item: $making, onDismiss: {
+            guard let route = settingsAfterMaking else { return }
+            settingsAfterMaking = nil
+            openSettingsPage(route)
+        }) { choice in
+            // The chosen machine's client: its refusals, and Pair again, are that machine's.
             if let client = inbox.client(choice.id) {
-                SpadeNewBotSheet(client: client) { conversation in
+                SpadeNewBotSheet(client: client, machineName: inbox.name(choice.id)) { conversation in
                     path = [SpadeRoute(conversation: conversation, group: nil, machine: choice.id)]
                 }
+                // Settings can't show over this sheet: it closes, then the page opens.
+                .environment(\.openSettingsPage) { route in settingsAfterMaking = route; making = nil }
             }
         }
         .sheet(item: $settings) { choice in

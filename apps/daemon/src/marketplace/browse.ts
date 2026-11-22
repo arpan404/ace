@@ -6,6 +6,7 @@ import type {
 } from "@ace/protocol/marketplace";
 import { entryKey, search, verifyManifest, type FeedEntry } from "@ace/marketplace";
 import { EntryBody, VersionBody, type MarketKeySet } from "@ace/protocol/marketplace";
+import { offeredUpdate } from "@ace/ui-core/market";
 import type { MarketHttp } from "./http.ts";
 import { marketError } from "./market-error.ts";
 import {
@@ -108,7 +109,7 @@ export async function homeOf(
       entries: reviewed.filter((summary) => summary.categories.includes(category.id)).length,
     })),
     installed: installed.length,
-    updates: installed.filter((item) => item.update).length,
+    updates: installed.filter((item) => offeredUpdate(item)).length,
   };
 }
 

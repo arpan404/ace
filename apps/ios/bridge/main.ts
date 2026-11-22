@@ -18,7 +18,7 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import { nativeTransport, socketEvent } from "./socket.ts";
+import { nativeTransport, socketEvent, type PairedStanding } from "./socket.ts";
 import {
   accountCredential,
   accountGate,
@@ -154,6 +154,8 @@ let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
+/** What this paired machine last said of the phone's proof of standing on its socket. */
+let pairedStanding: PairedStanding | undefined;
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -233,6 +235,11 @@ async function start(json: string): Promise<void> {
     build: "ios-turn-steps-v1",
   });
   const paired = config.paired;
+  pairedStanding = undefined;
+  const standing = (state: PairedStanding) => {
+    pairedStanding = state;
+    pump.put("standing", () => ({ type: "standing", state }));
+  };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;
   const credential = paired
@@ -270,7 +277,10 @@ async function start(json: string): Promise<void> {
     // A thread paints from one screenful. The rest of its window is asked for once native has
     // drawn that screenful (`thread.shown`), so the window never replaces it before it shows.
     openTail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
-    transport: () => nativeTransport(trust, early),
+    // A paired machine's socket proves the person's standing natively (ADR 0190 §7); the
+    // script hears only whether the machine took it. An account machine's standing is the
+    // account route's (§3), not this one.
+    transport: () => nativeTransport(trust, early, paired ? standing : undefined),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
     // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
@@ -511,6 +521,7 @@ async function start(json: string): Promise<void> {
     new HostCare(client, admission),
     () => host.now(),
     automations,
+    () => pairedStanding,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);

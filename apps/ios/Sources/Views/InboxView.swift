@@ -74,6 +74,9 @@ struct InboxView: View {
 
     var body: some View {
         sheets
+            // Any page inside opens a Settings page as Search's places do (Pair again, from the
+            // Store in Settings, Search or Spade's New bot).
+            .environment(\.openSettingsPage) { present(PlaceSheet.page($0, id: nextSerial())) }
             // An outside app's sign-in opens over whatever the person is doing (ADR 0122).
             .outsideAccessPrompt(inbox)
             .modifier(InboxRename(inbox: inbox, key: $renamingRow))
@@ -221,7 +224,10 @@ struct InboxView: View {
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks,
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions,
+                   account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
+                                               settings: { open(.settings) }),
+                   query: $searchQuery, focusAsks: searchFocusAsks,
                    hasLock: lock != nil)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }

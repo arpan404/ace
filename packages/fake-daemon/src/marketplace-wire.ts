@@ -13,6 +13,7 @@ import type {
   MarketSource,
 } from "@ace/protocol/marketplace";
 import { search } from "@ace/marketplace";
+import { offeredUpdate } from "@ace/ui-core/market";
 import { FakeMarketPick, type MarketPickSeed } from "./marketplace-pick.ts";
 import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
 
@@ -159,6 +160,8 @@ export class FakeMarketplaceWire {
   readonly accepted: FakeMarketAcceptance[] = [];
   /** Refuses each install with this error while set, as a market that wants a fresh sign-in. */
   refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
+  /** Refuses each turn on for bots with this error while set, as a socket without standing. */
+  refuseTurnOnForBots: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -196,6 +199,11 @@ export class FakeMarketplaceWire {
     if (seed.pick) this.pick.seed(seed.pick);
   }
 
+  /** Drops a held review, as the daemon does once it is 30 minutes old. */
+  sweep(id: string): void {
+    this.#reviews.delete(id);
+  }
+
   /** Hears `marketplace.changed` after installs and removals. */
   subscribe(listener: (message: MarketServerMessage) => void): () => void {
     this.#listeners.add(listener);
@@ -207,7 +215,7 @@ export class FakeMarketplaceWire {
     const message: MarketServerMessage = {
       type: "marketplace.changed",
       installed: installed.length,
-      updates: installed.filter((item) => item.update).length,
+      updates: installed.filter((item) => offeredUpdate(item)).length,
     };
     for (const listener of this.#listeners) listener(message);
   }
@@ -297,7 +305,7 @@ export class FakeMarketplaceWire {
             ).length,
           })),
           installed: installed.length,
-          updates: installed.filter((item) => item.update).length,
+          updates: installed.filter((item) => offeredUpdate(item)).length,
         };
       }
       case "read": {
@@ -390,6 +398,8 @@ export class FakeMarketplaceWire {
         };
       }
       case "install": {
+        // The machine checks who may install before it looks the review up, as the daemon does.
+        if (this.refuseInstall) return this.refuseInstall;
         const stored = this.#reviews.get(operation.id);
         if (!stored)
           return {
@@ -405,7 +415,6 @@ export class FakeMarketplaceWire {
           };
         if (stored.review.blocked)
           return { op: "error", code: "refused", message: stored.review.blocked };
-        if (this.refuseInstall) return this.refuseInstall;
         const { review } = stored;
         const acceptance = { review, choices: operation.choices };
         this.accepted.push(acceptance);
@@ -452,12 +461,20 @@ export class FakeMarketplaceWire {
         return { op: "done", installed: on };
       }
       case "turnOnForBots": {
+        if (this.refuseTurnOnForBots) return this.refuseTurnOnForBots;
         const item = this.#installed.get(key("spade-skill", operation.name));
         if (!item) return { op: "error", code: "not_found", message: "That skill isn't installed" };
-        const approved: MarketInstalled = { ...item, botsApproved: true };
-        this.#installed.set(key(item.type, item.name), approved);
+        // Exactly the version the person looked at, as the daemon checks it.
+        if (item.hash !== operation.hash)
+          return {
+            op: "error",
+            code: "conflict",
+            message: "A newer version of this skill was installed. Look again.",
+          };
+        this.#installed.set(key(item.type, item.name), { ...item, botsApproved: true });
         this.#changed();
-        return { op: "done", installed: approved };
+        // The daemon's answer names nothing: the client reads what's installed now.
+        return { op: "done" };
       }
       case "spadeSkills":
         return {

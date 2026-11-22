@@ -43,4 +43,69 @@ import Testing
         #expect(row.status == "Installed · Turn on for your bots")
         #expect(row.key == MarketInstalledKey(type: "spade-skill", name: "triage", bot: nil))
     }
+
+    // Browse (#2500).
+
+    private static let discover: [String: Any] = ["type": "market.native", "operation": ["op": "discover"]]
+    private static let sources: [String: Any] = ["type": "market.native", "operation": ["op": "sources"]]
+
+    private func decode<T: Decodable>(_ value: [String: Any], as type: T.Type) throws -> T {
+        try JSONDecoder().decode(type, from: JSONSerialization.data(withJSONObject: value))
+    }
+
+    @Test func aKeptDiscoverKeepsEachTrendingRowsPlaceAndHowItMoved() throws {
+        let model = ClientModel(now: { 0 })
+        var ranked = Self.listing
+        ranked["rank"] = 2
+        ranked["movement"] = "Up 3"
+        try keep(model, Self.discover, ["ok": true, "offline": false, "hero": NSNull(), "featured": [], "trending": [ranked],
+                                        "fresh": [], "collections": [], "publishers": [], "empty": false])
+        let discover = try #require(model.keptMarketDiscover)
+        #expect(!discover.empty)
+        #expect(discover.trending.first?.rank == 2)
+        #expect(discover.trending.first?.movement == "Up 3")
+        #expect(discover.trending.first?.row.title == "Harbour dusk")
+    }
+
+    @Test func keptSourcesSayWhenUnreadableListingsWereReadAndWhichCanBeRemoved() throws {
+        let model = ClientModel(now: { 0 })
+        let git: [String: Any] = ["id": "git:abc", "kind": "git", "title": "https://example.com/c.git", "address": "https://example.com/c.git",
+                                  "enabled": true, "removable": true, "entriesText": "2 entries", "listings": "Listings from 3:04 PM",
+                                  "problem": "Not found."]
+        try keep(model, Self.sources, ["ok": true, "offline": false, "sources": [git], "stale": "Listings from 3:04 PM"])
+        let sources = try #require(model.keptMarketSources)
+        #expect(sources.stale == "Listings from 3:04 PM")
+        #expect(sources.sources.first?.removable == true)
+        #expect(sources.sources.first?.problem == "Not found.")
+    }
+
+    @Test func aListingMadeIntoTwoBotsKeepsEachBotsCopySoRemoveTakesTheOneChosen() throws {
+        func copy(_ bot: String, _ name: String, update: Bool) -> [String: Any] {
+            var install = Self.waiting
+            install["type"] = "spade-bot"; install["name"] = "inbox"; install["id"] = "spade-bot/inbox#\(bot)"
+            install["bot"] = bot; install["update"] = update ? "2.0.0" : NSNull()
+            return ["install": install, "label": name, "update": update,
+                    "question": "Remove \(name)'s skills and plugins? The bot stays yours."]
+        }
+        var row = Self.listing
+        row["action"] = ["kind": "update", "word": "Update", "reason": NSNull(),
+                         "copies": [copy("bot-1", "Inbox", update: false), copy("bot-2", "Support", update: true)]]
+        let action = try #require(try decode(row, as: MarketListing.self).action)
+        #expect(action.copies.map(\.label) == ["Inbox", "Support"])
+        #expect(action.copies.map(\.install.key) == [
+            MarketInstalledKey(type: "spade-bot", name: "inbox", bot: "bot-1"),
+            MarketInstalledKey(type: "spade-bot", name: "inbox", bot: "bot-2"),
+        ])
+        #expect(action.copies.first?.question == "Remove Inbox's skills and plugins? The bot stays yours.")
+        #expect(action.updates.map(\.label) == ["Support"])
+    }
+
+    @Test func aRowWhoseInstallsAreUnknownOffersNoButton() throws {
+        var row = Self.listing
+        row["action"] = ["kind": "unknown", "word": NSNull(), "reason": NSNull(), "copies": []]
+        let action = try #require(try decode(row, as: MarketListing.self).action)
+        #expect(action.kind == "unknown")
+        #expect(action.word == nil)
+        #expect(action.copies.isEmpty)
+    }
 }

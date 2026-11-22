@@ -6,6 +6,8 @@ struct MachinesView: View {
     let inbox: MachineInbox
     /// Directory operations; nil for the debug fixture, which only shows connections.
     var machines: MachinesModel?
+    /// The machine whose Pair again is being asked about (`pairAgainDialog`).
+    @State private var pairingAgain: String?
 
     var body: some View {
         List {
@@ -55,6 +57,7 @@ struct MachinesView: View {
             }
         }
         .insetGroupedList()
+        .pairAgainDialog($pairingAgain, machines: machines, inbox: inbox)
         .nativeTitle("Machines")
         .toolbar {
             if machines != nil {
@@ -78,6 +81,10 @@ struct MachinesView: View {
     }
     /// Turn a machine off on this phone, or on again; it stays paired either way.
     @ViewBuilder private func turnOnOrOff(_ hostId: String) -> some View {
+        if machines != nil, MachineFacts(inbox: inbox, machines: machines, hostId: hostId).withoutStanding {
+            Button("Pair again") { pairingAgain = hostId }
+                .accessibilityIdentifier("machines.row.\(hostId).pairAgain")
+        }
         if let machines, !machines.unsupported.contains(hostId) {
             let off = machines.isOff(hostId)
             Button(off ? "Turn on" : "Turn off") { Task { await machines.setOn(hostId, off) } }
@@ -137,6 +144,9 @@ struct ConnectionDot: View {
     let needsPairing: Bool
     /// The SDK is connecting or reconnecting to it right now.
     let trying: Bool
+    /// A paired machine that refused this phone's proof of the person's standing, or one this
+    /// phone holds no key for: it pairs again to install bots and plugins (ADR 0190 §7).
+    let withoutStanding: Bool
     let icon: AceIcon.Name
     /// New work is paused there ("Pause new work").
     let paused: Bool
@@ -156,6 +166,7 @@ struct ConnectionDot: View {
             : off ? StatusDisplay(label: "Off on this iPhone", token: "neutral")
             : client?.machineStatus?.status ?? StatusDisplay(label: "Connecting…", token: "neutral")
         trying = !needsPairing && !off && ["connecting", "reconnecting"].contains(client?.connection ?? "")
+        withoutStanding = !needsPairing && entry?.isAccountMachine != true && client?.standing == .missing
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay
@@ -179,6 +190,7 @@ struct ConnectionDot: View {
             parts.append(connection.label)
             if let lastSeen, let age = ActivityTime.elapsed(since: lastSeen, now: Date()) { parts.append(age) }
         }
+        if withoutStanding { parts.append("Pair again to install here") }
         if paused { parts.append("New work paused") }
         if readOnly == true { parts.append("View only") }
         return parts.joined(separator: " · ")

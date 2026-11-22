@@ -12,7 +12,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .automations: "Automations"
         case .usage: "Usage"
         case .skills: "Skills and plugins"
-        case .market: "Marketplace"
+        case .market: "Store"
         case .providers: "Providers"
         case .spade: "Spade"
         case .sourceControl: "Source control"
@@ -29,7 +29,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .automations: .timer
         case .usage: .chartBar
         case .skills: .sparkle
-        case .market: .storefront
+        case .market: .store
         case .providers: .plugsConnected
         case .spade: .smiley
         case .sourceControl: .gitBranch
@@ -62,7 +62,7 @@ enum SettingsTool: String, Hashable, CaseIterable {
         case .projects: ProjectsView(model: model)
         case .automations: AutomationsView(model: model)
         case .usage: UsageView(inbox: inbox, machine: machine)
-        case .skills: SkillsLibraryView(model: model)
+        case .skills: SkillsLibraryView(model: model, machineName: inbox.name(machine))
         case .market: MarketplaceView(inbox: inbox, machine: machine)
         case .providers: ProviderSettingsView(model: model)
         case .spade: SpadeSettingsView(client: model)
