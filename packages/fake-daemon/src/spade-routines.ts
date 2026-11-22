@@ -41,6 +41,11 @@ function words(trigger: Json): string | undefined {
       thread_needs_you: "When an agent thread needs you",
     }[String(trigger.event)];
   if (trigger.kind !== "schedule") return undefined;
+  const interval = /^every (\d+ )?(minute|hour)s?$/.exec(String(trigger.schedule).trim());
+  if (interval) {
+    const unit = interval[2] ?? "hour";
+    return interval[1] ? `Every ${interval[1]}${unit}s` : `Every ${unit}`;
+  }
   const match = /^(daily|weekdays) at (\d{1,2}:\d{2})$/.exec(String(trigger.schedule).trim());
   if (!match) return undefined;
   return `${match[1] === "daily" ? "Every day" : "Weekdays"} at ${match[2]}`;
@@ -112,6 +117,7 @@ export class FakeSpadeRoutines {
     const routine = this.routines.find((candidate) => candidate.id === id);
     if (!routine) return problem(404, "no such routine");
     if (sub === "run" && method === "POST") {
+      if (routine.paused) return problem(409, "This routine is paused.");
       routine.last_run = {
         id: `run_${++this.sequence}`,
         at: this.now(),
