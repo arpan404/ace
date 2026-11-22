@@ -342,18 +342,20 @@ test.each([
   },
 );
 
+const mib4 = 4 * 1024 * 1024;
 test.each([
-  ["ASCII, not on a 4,096 boundary", `${"a".repeat(4 * 1024 * 1024 + 1237)}`],
-  [
-    "a four-byte character astride the cut, split between deltas",
-    `${"a".repeat(4 * 1024 * 1024 - 2)}🌊tail`,
-  ],
-  ["6 MiB streamed, far past the cut", "é".repeat(3 * 1024 * 1024 + 5)],
+  ["ASCII, not on a 4,096 boundary", "a".repeat(mib4 + 1237), undefined],
+  // Split between deltas, with the bytes left at the cut: a pair takes 4, a lone half 3.
+  ["a pair split between deltas with 2 bytes left", `${"a".repeat(mib4 - 2)}🌊tail`, mib4 - 1],
+  ["a pair split between deltas with 3 bytes left", `${"a".repeat(mib4 - 3)}🌊tail`, mib4 - 2],
+  ["a pair split between deltas with 4 bytes left", `${"a".repeat(mib4 - 4)}🌊tail`, mib4 - 3],
+  ["a pair inside one delta with 3 bytes left", `${"a".repeat(mib4 - 3)}🌊tail`, mib4 - 10],
+  ["a pair inside one delta with 4 bytes left", `${"a".repeat(mib4 - 4)}🌊tail`, mib4 - 10],
+  ["6 MiB streamed, far past the cut", "é".repeat(3 * 1024 * 1024 + 5), undefined],
 ] as const)(
   "a cut saved answer that is exactly the start of what streamed adds nothing (%s)",
-  (_name, streamed) => {
-    // A delta ends between the halves of the four-byte character at the cut (second case).
-    const t = streamedThenCut(streamed, cut4MiB(streamed), 4 * 1024 * 1024 - 1);
+  (_name, streamed, split) => {
+    const t = streamedThenCut(streamed, cut4MiB(streamed), split);
     expect(t.text("assistant")).toEqual([streamed]);
     expect(t.notices().join(" | ")).not.toContain("differs");
     expect(t.status()).toBe("done");
