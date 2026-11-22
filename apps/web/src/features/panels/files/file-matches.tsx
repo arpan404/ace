@@ -1,8 +1,7 @@
-import { FolderIcon } from "@ace/icons";
 import { cleanPath, fuzzyPositions, pathParts } from "@ace/ui-core";
 import { useEffect } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
+import { fileIcon, folderIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
@@ -96,7 +95,7 @@ export function FileMatches(props: {
               )}
             >
               <Icon
-                icon={folder ? FolderIcon : fileIcon(clean)}
+                icon={folder ? folderIcon(clean) : fileIcon(clean)}
                 size={16}
                 className="shrink-0 text-subtle-foreground"
               />

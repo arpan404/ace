@@ -1,11 +1,11 @@
-import { CaretRightIcon, FolderIcon, FolderOpenIcon } from "@ace/icons";
+import { CaretRightIcon } from "@ace/icons";
 import type { FolderRow } from "@ace/ui-core";
 import { useEffect, useRef, type CSSProperties, type KeyboardEvent, type MouseEvent } from "react";
 import type { ProviderKind } from "@ace/protocol";
 import { DiffStat } from "@/components/diff-stat.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
-import { fileIcon } from "@/components/file-icon.ts";
+import { fileIcon, folderIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
@@ -152,7 +152,7 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
       >
         <span aria-hidden className="size-4 shrink-0" />
         <Icon
-          icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
+          icon={folder ? folderIcon(row.key, row.expanded) : fileIcon(row.key)}
           size={16}
           className="mt-1.5 shrink-0 self-start text-subtle-foreground"
         />
@@ -231,9 +231,9 @@ export function FileTreeRowView(props: FileTreeRowViewProps) {
           )}
         </span>
         <Icon
-          icon={folder ? (row.expanded ? FolderOpenIcon : FolderIcon) : fileIcon(row.key)}
+          icon={folder ? folderIcon(row.key, row.expanded) : fileIcon(row.key)}
           size={16}
-          className="shrink-0 text-subtle-foreground"
+          className={cn("shrink-0 text-subtle-foreground", row.ignored && "opacity-60")}
         />
         <EndName text={row.name} kind={folder ? "folder" : "file"} />
         {props.counts && !folder && (

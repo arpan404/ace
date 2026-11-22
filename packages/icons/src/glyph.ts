@@ -15,6 +15,8 @@ export interface IconProps extends Omit<SVGProps<SVGSVGElement>, "ref" | "color"
   size?: number | string;
   weight?: IconWeight;
   color?: string;
+  /** The colour of the parts drawn as accents (`accented`); the ink when not given. */
+  accent?: string;
   /** Flipped left to right, for right-to-left layouts. */
   mirrored?: boolean;
   /** A title for assistive tech. */
@@ -80,13 +82,19 @@ function mask(id: string, cuts: ReactNode[]): ReactNode {
 }
 
 /** Every element of a glyph in one weight; `id` keeps this instance's masks its own. */
-function draw(parts: readonly Part[], weight: IconWeight, ink: string, id: string): ReactNode[] {
+function draw(
+  parts: readonly Part[],
+  weight: IconWeight,
+  inks: { ink: string; accent: string },
+  id: string,
+): ReactNode[] {
   const stroke = strokeOf(weight);
   const look = lookOf(weight);
   const defs: ReactNode[] = [];
   const paintOne = (part: Part, paint: Paint, key: string): ReactNode => {
     const extra =
       part.dashed && typeof part.outline !== "string" ? dashes(part.outline.r, stroke) : {};
+    const ink = part.accent ? inks.accent : inks.ink;
     const drawn = element(part.outline, { ...paintProps(paint, stroke, ink), ...extra }, key);
     if ((!part.hole && !part.gap) || paint === "cut" || paint === "cutSpot") return drawn;
     const holeId = `${id}-h${key}`;
@@ -167,6 +175,7 @@ export function glyph(name: string, build: () => readonly Part[]): Icon {
       size = "1em",
       weight = "regular",
       color = "currentColor",
+      accent,
       mirrored,
       alt,
       style,
@@ -187,7 +196,7 @@ export function glyph(name: string, build: () => readonly Part[]): Icon {
         ...svg,
       },
       alt ? createElement("title", { key: "title" }, alt) : null,
-      ...draw(parts, weight, color, id),
+      ...draw(parts, weight, { ink: color, accent: accent ?? color }, id),
       children,
     );
   };

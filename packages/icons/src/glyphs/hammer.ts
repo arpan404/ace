@@ -1,9 +1,9 @@
 import { glyph } from "../glyph.ts";
 import { polygon, turned } from "../geometry.ts";
-import { line, shape } from "../parts.ts";
+import { line, shape, type Part } from "../parts.ts";
 
 /** Work under way: a hammer, its head across the handle. */
-export const HammerIcon = /* @__PURE__ */ glyph("Hammer", () => [
+export const hammer = (): Part[] => [
   shape(
     polygon(
       turned(
@@ -20,4 +20,6 @@ export const HammerIcon = /* @__PURE__ */ glyph("Hammer", () => [
     ),
   ),
   line("M10.9 10.9 19.75 19.75"),
-]);
+];
+
+export const HammerIcon = /* @__PURE__ */ glyph("Hammer", hammer);

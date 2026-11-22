@@ -6,7 +6,7 @@ The convention every UI change in ace follows and every UI review checks, for de
 
 1. **Every element shows state the user acts on.** If it only describes the UI, it goes.
 2. **Hierarchy by one step at a time.** Text tiers, weights, surfaces and hairlines each move exactly one step between neighbours; never two devices for one distinction.
-3. **Colour means state.** Status hues are the only colour in lists and chrome. Project identity is monochrome ink; provider marks keep their brand colours.
+3. **Colour means state.** Status hues are the only colour in lists and chrome. Project identity is monochrome ink; provider marks keep their brand colours, and so do file-type icons (§Icons).
 4. **Edges before air.** Separate things with hairlines, weight and size before adding space.
 5. **Materials, not panels.** Floating layers are glass with an edge and a shadow; content is opaque. The composer carries a soft lift shadow; buttons stay flat.
 6. **Density is a setting, hierarchy is not.** Compact removes padding, never tiers.
@@ -83,7 +83,7 @@ Corners are fixed at this scale; there is no setting to rescale them.
 
 ### Icons
 
-ace's own set (`@ace/icons`, [ADR 0156](docs/adr/0156-ace-draws-its-own-icons.md)), `regular` weight. 16px beside 13–14px text, 14px beside 12px, 12px for status glyphs (`bold` at 12px only). Provider marks keep their own colours everywhere, sidebar thread rows included; project marks are quiet (greyed and dimmed) on settled rows. When a provider has more than one account, the account's mark sits as an 11px ink bubble on the provider glyph's bottom-right corner (`ProviderAccountIcon`), its outline cut out of the glyph with a mask rather than a ring, so it reads on any surface. One account: no bubble. Thread rows never draw the bubble. Favicons and app icons at 16px with `rounded-xs`.
+ace's own set (`@ace/icons`, [ADR 0156](docs/adr/0156-ace-draws-its-own-icons.md)), `regular` weight. 16px beside 13–14px text, 14px beside 12px, 12px for status glyphs (`bold` at 12px only). Provider marks keep their own colours everywhere, sidebar thread rows included; project marks are quiet (greyed and dimmed) on settled rows. When a provider has more than one account, the account's mark sits as an 11px ink bubble on the provider glyph's bottom-right corner (`ProviderAccountIcon`), its outline cut out of the glyph with a mask rather than a ring, so it reads on any surface. One account: no bubble. Thread rows never draw the bubble. Favicons and app icons at 16px with `rounded-xs`. File-type icons are the one coloured family in file rows (explorer, tabs, Open editors, quick open, search, Changes, attachment chips), all drawn by `components/file-icon.ts` from `@ace/ui-core/file-types`: each type its own outline, two-tone in its tone (`--file-*`, the same in every theme of a scheme, 3:1 on every row surface), so colour never carries the type alone. Plain, text and lock files take the row's ink. Folders keep the row's ink; source, tests, docs, `.github`, scripts and assets folders carry a mark in their tone, and `node_modules` is dimmed.
 
 ### Motion
 

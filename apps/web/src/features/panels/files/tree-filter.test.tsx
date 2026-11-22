@@ -79,14 +79,13 @@ test("a click on a match opens it as a glance, and clearing the filter brings th
   expect(await within(panel).findByRole("tree", { name: "Checkout files" })).toBeTruthy();
 });
 
-test("a long name is cut at its end, keeping its extension, and its tooltip holds the whole path", async () => {
+test("a long name shows whole until its row measures it, and its tooltip holds the whole path", async () => {
   const { daemon, tree } = await renderTree();
   const path = "apps/web/src/relay/pull-request-tabs-strip.tsx";
   daemon.checkouts.seed(threadId, path, "export {};\n");
   await expand(tree, ["apps/", "apps/web/", "apps/web/src/", "apps/web/src/relay/"]);
   const long = await row(tree, path);
   expect(long.getAttribute("title")).toBe(path);
-  // The part that never shrinks is the extension: "pull-request-tabs-st….tsx".
-  expect(long.querySelector("[data-part='name-end']")?.textContent).toBe(".tsx");
+  // Where it is cut is `endLabel`'s (end-name.test.ts); jsdom has no layout to cut it in.
   expect(long.textContent).toBe("pull-request-tabs-strip.tsx");
 });
