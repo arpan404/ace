@@ -103,10 +103,10 @@ extension XCUIApplication {
         XCTAssertTrue(item.waitForExistence(timeout: 10), "⋯ offers \(page)")
         item.tap()
     }
-    /// Search, before a query: its places and the latest threads. From the list's top bar on a
-    /// phone, the sidebar's foot in a regular window.
+    /// Search, before a query: its places and the latest threads. The tab bar's Search on a phone,
+    /// the sidebar's foot in a regular window.
     @MainActor func openSearch() {
-        let search = buttons.matching(NSPredicate(format: "identifier IN {'inbox.search', 'tab.search', 'sidebar.search'} OR label == 'Search'")).firstMatch
+        let search = buttons.matching(NSPredicate(format: "identifier IN {'tab.search', 'sidebar.search'} OR label == 'Search'")).firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 30))
         search.tap()
         XCTAssertTrue(buttons["search.place.settings"].waitForExistence(timeout: 10))
@@ -129,7 +129,7 @@ extension XCUIApplication {
         XCTAssertTrue(back.waitForExistence(timeout: 5), "no back button showed")
         back.tap()
     }
-    /// One of the system tab bar's places, by its id: `threads`, `chats` or `spade` on a
+    /// One of the system tab bar's places, by its id: `threads`, `chats`, `spade` or `search` on a
     /// phone. A regular window has the sidebar's foot (`sidebar.<id>`) instead.
     func homeTab(_ id: String) -> XCUIElement { buttons["tab.\(id)"] }
     /// The compose button (`inbox.compose`): the tab bar's round button on a phone, the list's top

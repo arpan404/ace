@@ -159,12 +159,12 @@ struct InboxView: View {
         }
     }
 
-    /// Search: a place of its own, but not in a phone's bar; Projects' and Chats' top bars open it
-    /// (`inbox.search`), so the bar keeps its room. Hidden from the bar, the tab stays selectable.
+    /// Search, a place of the bar. Its page carries its own field under the title; the compose
+    /// tab holds the only search role and no tab-level search is set, so the system never gives
+    /// Compose Search's field.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
         Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
-            .defaultVisibility(.hidden, for: .tabBar)
     }
 
     /// New thread, New chat on Chats, in the slot iOS 26 gives the search role: its own round glass
@@ -194,7 +194,6 @@ struct InboxView: View {
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
-        .modifier(SearchInTabBar(on: SearchHome.fieldInBar(regular: sizeClass == .regular), query: $searchQuery, focusAsks: searchFocusAsks))
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -254,7 +253,7 @@ struct InboxView: View {
                    account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
                                                settings: { open(.settings) }),
                    query: $searchQuery, focusAsks: searchFocusAsks,
-                   hasLock: lock != nil, fieldInBar: SearchHome.fieldInBar(regular: sizeClass == .regular))
+                   hasLock: lock != nil)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }

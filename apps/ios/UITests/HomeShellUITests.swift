@@ -17,22 +17,22 @@ import XCTest
         // along the foot of the screen in the system's tab bar.
         let spade = app.homeTab("spade")
         XCTAssertTrue(spade.waitForExistence(timeout: 15))
-        let order = [projects, app.homeTab("chats"), spade]
-        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade"])
+        let order = [projects, app.homeTab("chats"), spade, app.homeTab("search")]
+        XCTAssertEqual(order.map(\.label), ["Projects", "Chats", "Spade", "Search"])
         let xs = order.map(\.frame.midX)
         XCTAssertEqual(xs, xs.sorted())
         XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
         // New thread is the round button at the bar's end, not in the list's top bar; Search is
-        // in the top bar, not the bar.
+        // a tab of the bar, before it.
         let compose = app.buttons["inbox.compose"]
         XCTAssertTrue(compose.waitForExistence(timeout: 15))
         XCTAssertEqual(compose.label, "New thread")
         XCTAssertGreaterThan(compose.frame.minY, app.frame.height * 0.8)
         XCTAssertGreaterThan(compose.frame.minX, spade.frame.maxX)
-        XCTAssertFalse(app.homeTab("search").exists)
-        let search = app.buttons["inbox.search"]
+        let search = app.homeTab("search")
         XCTAssertTrue(search.exists)
-        XCTAssertLessThan(search.frame.maxY, app.frame.midY)
+        XCTAssertLessThan(search.frame.maxX, compose.frame.minX)
+        XCTAssertFalse(app.buttons["inbox.search"].exists)
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'coming soon'")).firstMatch.exists)
         // Inbox, Snoozed and Settled under the title; Chats is its own tab, not one of them.
         XCTAssertTrue(app.buttons["threads.tab.inbox"].exists)
@@ -68,6 +68,16 @@ import XCTest
         let project = app.buttons["newThread.project"]
         XCTAssertTrue(project.waitForExistence(timeout: 10))
         XCTAssertEqual(project.value as? String, "No project", "a chat starts with no project")
+        // Compose leaves the showing tab alone: dismissed, Chats is still selected and shown, and
+        // Compose opens again.
+        let close = app.buttons["newThread.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.homeTab("chats").isSelected, "composing leaves Chats selected")
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "chat.")).firstMatch.exists)
+        app.newThreadButton.tap()
+        XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10), "Compose opens again")
     }
 
     func testSearchListsThePlacesAndOpensOne() {
@@ -86,7 +96,7 @@ import XCTest
         capture("settings")
     }
 
-    func testSearchShowsItsFieldAtOnce() {
+    func testSearchShowsItsFieldAtOnceAndASecondTapFocusesIt() {
         let app = launch()
         app.openSearch()
         // No pull-down: the field is there as the tab opens.
@@ -94,7 +104,12 @@ import XCTest
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         XCTAssertTrue(field.isHittable, "Search's field is hidden until the list is pulled down")
         capture("search-field")
-        XCTAssertFalse(app.keyboards.firstMatch.exists, "Search opens without raising the keyboard")
+        // The first tap shows Search without the keyboard; tapping its tab again focuses the field.
+        let tab = app.homeTab("search")
+        XCTAssertTrue(tab.isHittable, "Search's tab stays in the bar while Search shows")
+        XCTAssertFalse(app.keyboards.firstMatch.exists, "the first tap shows Search without raising the keyboard")
+        tab.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "a second tap on Search focuses its field")
     }
 
     func testTappingProjectsAgainOnAScrolledListGoesBackToTheTop() {
