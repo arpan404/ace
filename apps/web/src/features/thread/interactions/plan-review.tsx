@@ -16,7 +16,7 @@ export function PlanReview(props: {
   const [revising, setRevising] = useState(false);
   return (
     <div className="flex flex-col gap-3">
-      <div className="max-h-80 overflow-auto rounded-md bg-code px-3.5 py-2.5">
+      <div className="max-h-72 overflow-auto overscroll-contain">
         {props.children}
       </div>
       {revising && (
