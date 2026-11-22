@@ -148,3 +148,75 @@ test("a git diff cut off by the daemon's size cap marks nothing from the cut hun
   expect(marks(view)).toEqual([]);
   expect(await bytes(app, "src/cut.ts")).toBe("one\nTWO\nthree\n");
 });
+
+/** Opens `path` (text `disk`) under a whole-checkout diff the daemon cuts at its 256 KiB cap. */
+async function openUnderCap(path: string, disk: string, section: string, cutAt: number) {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.checkouts.seed(thread, path, disk);
+  const filler = [
+    "diff --git a/big.txt b/big.txt",
+    "--- a/big.txt",
+    "+++ b/big.txt",
+    "@@ -0,0 +1 @@",
+    "+",
+  ].join("\n");
+  // The cap falls `cutAt` characters into the file's section.
+  const room = 262_144 - filler.length - 1 - cutAt;
+  app.daemon.workspace.setGitDiff(thread, `${filler}${"x".repeat(room)}\n${section}`);
+  await app.open(`/t/${thread}`);
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Control>}p{/Control}");
+  const name = path.split("/").at(-1) ?? path;
+  await userEvent.type(await screen.findByRole("combobox", { name: "Search files" }), name);
+  await screen.findByRole("option", { name: new RegExp(name.replace(".", "\\.")) });
+  await userEvent.keyboard("{Enter}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const view = await within(panel).findByRole("region", { name: `Source of ${path}` });
+  await waitFor(() => expect(view.textContent?.length).toBeGreaterThan(0));
+  await new Promise((resolve) => setTimeout(resolve, 800));
+  return { app, view };
+}
+
+test.each([
+  {
+    name: "between two hunks (the second never arrives)",
+    hunks: [
+      "@@ -1,2 +1,2 @@",
+      " one",
+      "-two",
+      "+TWO",
+      "@@ -9,2 +9,2 @@",
+      " nine",
+      "-ten",
+      "+TEN",
+      "",
+    ],
+    cutAfter: "+TWO\n",
+  },
+  {
+    name: "inside the last removed line (its text cut short)",
+    hunks: ["@@ -1,2 +1,2 @@", " one", "+TWO", "-two, the whole line", ""],
+    cutAfter: "-two, the",
+  },
+])(
+  "a capped diff, cut $name, marks nothing against the commit and arms no Revert",
+  async ({ hunks, cutAfter }) => {
+    const disk = "one\nTWO\nthree\nfour\nfive\nsix\nseven\neight\nnine\nTEN\n";
+    const section = [
+      "diff --git a/src/capped.ts b/src/capped.ts",
+      "--- a/src/capped.ts",
+      "+++ b/src/capped.ts",
+      ...hunks,
+    ].join("\n");
+    const { app, view } = await openUnderCap(
+      "src/capped.ts",
+      disk,
+      section,
+      section.indexOf(cutAfter) + cutAfter.length,
+    );
+
+    expect(marks(view)).toEqual([]);
+    expect(await bytes(app, "src/capped.ts")).toBe(disk);
+  },
+);

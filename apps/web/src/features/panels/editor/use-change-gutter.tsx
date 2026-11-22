@@ -75,10 +75,12 @@ export function useChangeGutter(input: {
     // until it is in, the marks keep the last one and Revert waits (an older read's hunks would
     // undo newly committed work).
     if (base === undefined || version === undefined || !settled) return gutter.unsettle();
+    // A diff the daemon cut at its size cap proves nothing about any file (a cut can fall between
+    // hunks, or inside a line): no committed text is taken from it, and Revert stays off.
+    if (truncated) return gutter.unsettle();
     // Rebuilt from git's own patch, byte for byte: line endings and final newlines as committed.
-    // A file missing from a diff the daemon cut short is unknown, not as committed, and a patch
-    // with a hunk cut short gives nothing: Revert stays off either way.
-    const head = patch ? committedFromPatch(base, patch) : truncated ? undefined : base;
+    // A patch with a hunk cut short gives nothing.
+    const head = patch ? committedFromPatch(base, patch) : base;
     if (head === undefined) return gutter.unsettle();
     gutter.setHead(head, `${commit ?? ""}\u0000${version}`);
   }, [buffer, gutter, version, patch, settled, truncated, commit]);
