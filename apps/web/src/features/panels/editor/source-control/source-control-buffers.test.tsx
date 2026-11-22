@@ -9,6 +9,8 @@ import { folderFixture } from "../../files/folders-test-support.ts";
 /*
  * Source control rewrites files on disk (discard, switch, pull); it never touches an open
  * editor's unsaved text. The person's buffer survives every one of them, even when the file goes.
+ * The actions themselves change the files (the fake writes what Git would); the test only plays
+ * the folder watcher.
  */
 
 configure({ asyncUtilTimeout: 10000 });
@@ -27,6 +29,10 @@ test("an unsaved buffer survives a discard, a branch switch and a pull that dele
     refs: [{ name: "main" }, { name: "feat/buffers" }],
     behind: 1,
     unstaged: [{ path, status: "modified" }],
+    // What Git writes: HEAD's text on discard, main's on switching, nothing after the pull.
+    committed: { [path]: "export const version = 1;\n" },
+    branchFiles: { main: { [path]: "export const version = 0;\n" } },
+    incoming: { [path]: null },
   });
   await app.open(`/t/${thread}`);
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
@@ -52,7 +58,7 @@ test("an unsaved buffer survives a discard, a branch switch and a pull that dele
     within(await screen.findByRole("dialog")).getByRole("button", { name: "Discard" }),
   );
   await within(explorer).findByText("No changes in this checkout.");
-  app.daemon.checkouts.overwrite(thread, path, "export const version = 1;\n");
+  expect(await readBack(app)).toBe("export const version = 1;\n");
   folders.changed(["src"]);
   await within(side).findByText(/changed on disk|also changed this file/);
   expect(source()).toContain("mine export const version = 2;");
@@ -61,7 +67,7 @@ test("an unsaved buffer survives a discard, a branch switch and a pull that dele
   await userEvent.click(within(explorer).getByRole("button", { name: "Branch: feat/buffers" }));
   await userEvent.click(await screen.findByRole("button", { name: "main" }));
   await within(explorer).findByRole("button", { name: "Branch: main" });
-  app.daemon.checkouts.overwrite(thread, path, "export const version = 0;\n");
+  expect(await readBack(app)).toBe("export const version = 0;\n");
   folders.changed(["src"]);
   await waitFor(() => expect(source()).toContain("mine export const version = 2;"));
 
@@ -69,7 +75,6 @@ test("an unsaved buffer survives a discard, a branch switch and a pull that dele
   // disk to compare with) and keeps the unsaved text, ready to save the file again.
   await userEvent.click(within(explorer).getByRole("button", { name: "Pull (1 behind)" }));
   await within(explorer).findByRole("button", { name: "Pull" });
-  app.daemon.checkouts.vanish(thread, path);
   folders.changed(["src"]);
   await waitFor(() =>
     expect(within(side).queryByText(/changed on disk|also changed this file/)).toBeNull(),

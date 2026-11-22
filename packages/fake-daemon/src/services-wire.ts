@@ -148,6 +148,9 @@ export class FakeServicesWire {
       (workspaceId) => this.files.projectPaths(workspaceId),
     );
     this.workspace = new FakeWorkspaceWire(context);
+    this.workspace.sourceControl.useDisk({
+      write: (threadId, path, text) => this.files.writeAsGit(threadId, path, text),
+    });
     this.automations = new FakeAutomationWire(
       context.now,
       () => settings.get("automations.enabled") === true,

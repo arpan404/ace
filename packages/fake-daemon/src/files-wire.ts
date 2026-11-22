@@ -80,9 +80,14 @@ export class FakeFilesWire {
     const bytes = new TextEncoder().encode(text);
     this.files.set(key, { ...file, bytes, version: `outside-${++this.sequence}` });
   }
-  /** Delete a checkout file as a program outside ace would (a branch switch, a pull). */
-  vanish(threadId: string, path: string): void {
-    if (!this.files.delete(this.key(threadId, path))) throw new Error("NOT_FOUND");
+  /** Write (or, with null, delete) a checkout file as Git would: seeded when it isn't there. */
+  writeAsGit(threadId: string, path: string, text: string | null): void {
+    if (text === null) {
+      this.files.delete(this.key(threadId, path));
+      return;
+    }
+    if (this.files.has(this.key(threadId, path))) this.overwrite(threadId, path, text);
+    else this.seed(threadId, path, text);
   }
   /**
    * Put a file of raw bytes (and its folders) in a thread's checkout: images, or noise that

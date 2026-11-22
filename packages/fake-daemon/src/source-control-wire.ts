@@ -36,6 +36,17 @@ export interface FakeSourceControlSeed {
   pullError?: string | undefined;
   /** What a failed pull's fetch still learned: the remote moved this far ahead. */
   pullErrorBehind?: number | undefined;
+  /** HEAD's text of tracked files: a discard writes it back into the checkout. */
+  committed?: Readonly<Record<string, string>> | undefined;
+  /** What switching to a branch writes into the checkout (null: the file goes). */
+  branchFiles?: Readonly<Record<string, Readonly<Record<string, string | null>>>> | undefined;
+  /** What a successful pull writes into the checkout (null: the file goes). */
+  incoming?: Readonly<Record<string, string | null>> | undefined;
+}
+
+/** The thread's checkout as the fake files wire keeps it: what Git actions write into. */
+export interface FakeCheckoutDisk {
+  write(threadId: string, path: string, text: string | null): void;
 }
 
 interface ThreadSourceControl {
@@ -57,6 +68,9 @@ interface ThreadSourceControl {
   detached: boolean;
   pullError?: string | undefined;
   pullErrorBehind?: number | undefined;
+  committed: Readonly<Record<string, string>>;
+  branchFiles: Readonly<Record<string, Readonly<Record<string, string | null>>>>;
+  incoming: Readonly<Record<string, string | null>>;
   commits: { message: string; amend: boolean; stagedOnly: boolean; head: string }[];
   /** Bumped whenever the staged set changes, like the daemon's index fingerprint. */
   indexVersion: number;
@@ -119,8 +133,19 @@ export class FakeSourceControlWire {
   private commitSeq = 0;
   private context: FakeServiceContext;
 
+  private disk: FakeCheckoutDisk | undefined;
+
   constructor(context: FakeServiceContext) {
     this.context = context;
+  }
+
+  /** Let Git actions change the checkout's files, as the daemon's real ones do. */
+  useDisk(disk: FakeCheckoutDisk): void {
+    this.disk = disk;
+  }
+
+  private writeAll(threadId: string, files: Readonly<Record<string, string | null>>): void {
+    for (const [path, text] of Object.entries(files)) this.disk?.write(threadId, path, text);
   }
 
   private ensure(threadId: string, fallbackFiles: readonly GitStatusFile[]): ThreadSourceControl {
@@ -143,6 +168,9 @@ export class FakeSourceControlWire {
         detached: false,
         commits: [],
         indexVersion: 0,
+        committed: {},
+        branchFiles: {},
+        incoming: {},
       };
       this.states.set(threadId, state);
     }
@@ -181,6 +209,9 @@ export class FakeSourceControlWire {
     if (seed.detached !== undefined) state.detached = seed.detached;
     if (seed.pullError !== undefined) state.pullError = seed.pullError;
     if (seed.pullErrorBehind !== undefined) state.pullErrorBehind = seed.pullErrorBehind;
+    if (seed.committed !== undefined) state.committed = seed.committed;
+    if (seed.branchFiles !== undefined) state.branchFiles = seed.branchFiles;
+    if (seed.incoming !== undefined) state.incoming = seed.incoming;
     this.syncDetails(threadId, state);
   }
 
@@ -423,6 +454,9 @@ export class FakeSourceControlWire {
           if (payload.files.some((file) => shown.get(file.path) !== file.fingerprint))
             return { ok: false, error: "git_changed_since_review" };
           const target = new Set(payload.files.map((file) => file.path));
+          // Tracked files go back to HEAD's text; untracked ones leave the checkout.
+          for (const path of target)
+            this.disk?.write(threadId, path, state.committed[path] ?? null);
           state.unstaged = state.unstaged.filter((e) => !target.has(e.path));
           state.untracked = state.untracked.filter((e) => !target.has(e.path));
           this.syncDetails(threadId, state);
@@ -437,6 +471,7 @@ export class FakeSourceControlWire {
           state.upstream = payload.remote
             ? `${payload.remote}/${payload.branch}`
             : `origin/${payload.branch}`;
+          this.writeAll(threadId, state.branchFiles[payload.branch] ?? {});
           this.syncDetails(threadId, state, { branch: payload.branch });
           return { ok: true };
         }
@@ -461,6 +496,7 @@ export class FakeSourceControlWire {
           }
           if (!state.upstream && !payload.remote) return { ok: false, error: "git_no_upstream" };
           state.behind = 0;
+          this.writeAll(threadId, state.incoming);
           this.syncDetails(threadId, state);
           return { ok: true };
         }
