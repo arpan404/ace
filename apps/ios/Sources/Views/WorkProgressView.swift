@@ -62,7 +62,7 @@ private struct LogRowView: View {
         case "thought": LogStep(id: row.id, source: source)
         case "background": BackgroundStep(row: row, source: source)
         // In the weight of a step row, on the rail's line with no mark of its own, as the web's.
-        case "moment": if let event = source.moments[row.id] { SystemRow(event: event) }
+        case "moment": if let event = source.moments[row.id] { SystemRow(event: event, id: row.id) }
         default: LogStep(id: row.id, source: source)
         }
     }

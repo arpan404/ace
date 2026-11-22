@@ -8,6 +8,7 @@ import {
 } from "./agents.ts";
 import { faceForId, parseStoredBotFace, type BotFace } from "../bot-face/index.ts";
 import { spadeJson, spadeRecord } from "./json.ts";
+import { spadeWorkingPhrase } from "./working-phrase.ts";
 
 /*
  * Spade's teams (ADR 0132, spade/docs/teams.md): groups of bots with their own transcript,
@@ -176,7 +177,8 @@ export function spadeGroupLine(group: SpadeGroup): {
 } {
   if (group.state === "waiting")
     return { text: group.status ?? "Waiting for you", tone: "needs-you" };
-  if (group.state === "working") return { text: group.status ?? "Working", tone: "working" };
+  // What it does now, as the club's Working line says it.
+  if (group.state === "working") return { text: spadeWorkingPhrase(group.status), tone: "working" };
   const last = group.lastMessage;
   // Until the first message: who is in it.
   if (!last?.text) return { text: group.members.map((member) => member.name).join(", ") };

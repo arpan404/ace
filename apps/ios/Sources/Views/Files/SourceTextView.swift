@@ -11,11 +11,18 @@ struct SourceDocument: Equatable {
     let marks: [Int: String]
 }
 
-/// Lets toolbar buttons reach the text view: its find navigator and the text being edited.
+/// Lets toolbar buttons reach the text view: its find navigator, the text being edited and go to
+/// line.
 @MainActor final class SourceHandle {
     weak var view: UITextView?
     func find() { view?.findInteraction?.presentFindNavigator(showingReplace: view?.isEditable == true) }
     var text: String { view?.text ?? "" }
+    private var container: SourceContainer? { view?.superview?.superview as? SourceContainer }
+    /// Lines in the text as it is now, edits included.
+    var lineCount: Int { container?.lineStarts.count ?? 1 }
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int { container?.lineLength(line) ?? 0 }
+    func go(to target: GoToLine.Target) { container?.go(line: target.line, column: target.column) }
 }
 
 /// Source in SF Mono with line numbers in a gutter that stays put while lines scroll sideways,
@@ -105,6 +112,8 @@ final class SourceContainer: UIView {
     /// Where each line starts, in UTF-16 units, for the gutter's numbers.
     private(set) var lineStarts: [Int] = [0]
     private var longest = 0
+    /// The text's UTF-16 length; a go-to line to bring back once the keyboard resizes the view.
+    private var length = 0, revealOnResize: Int?, lastHeight: CGFloat = 0
     var marks: [Int: String] = [:]
     var targetLine: Int?
     var wrap = false {
@@ -147,14 +156,7 @@ final class SourceContainer: UIView {
     private var lineHeight: CGFloat { UIFontMetrics(forTextStyle: .footnote).scaledValue(for: AceTheme.Typography.code.lineHeight, compatibleWith: traitCollection) }
     private var charWidth: CGFloat { ("M" as NSString).size(withAttributes: [.font: font]).width }
     /// The 1-based line holding UTF-16 offset `offset`.
-    func line(at offset: Int) -> Int {
-        var low = 0, high = lineStarts.count - 1
-        while low < high {
-            let mid = (low + high + 1) / 2
-            if lineStarts[mid] <= offset { low = mid } else { high = mid - 1 }
-        }
-        return low + 1
-    }
+    func line(at offset: Int) -> Int { lineIndex(at: offset) + 1 }
     var gutterWidth: CGFloat { max(40, CGFloat(String(lineStarts.count).count) * charWidth + AceTheme.Spacing.xl) }
 
     private func attributes() -> [NSAttributedString.Key: Any] {
@@ -192,6 +194,7 @@ final class SourceContainer: UIView {
         countLines()
         highlight.isHidden = true
         targetLine = nil
+        revealOnResize = nil
         setNeedsLayout()
         layoutIfNeeded()
         sideways.contentOffset = .zero
@@ -214,6 +217,7 @@ final class SourceContainer: UIView {
         }
         lineStarts = starts
         longest = max(widest, column)
+        length = offset
     }
 
     /// After typing: numbers and widths follow the new text.
@@ -241,7 +245,11 @@ final class SourceContainer: UIView {
         gutter.setNeedsDisplay()
         if let line = pendingLine, bounds.height > 0 {
             DispatchQueue.main.async { [weak self] in self?.reveal(line: line) }
+        } else if let line = revealOnResize, bounds.height != lastHeight {
+            revealOnResize = nil
+            DispatchQueue.main.async { [weak self] in self?.reveal(line: line); self?.revealCaret() }
         }
+        lastHeight = bounds.height
     }
 
     /// The 0-based line holding UTF-16 offset `offset`.
@@ -252,6 +260,51 @@ final class SourceContainer: UIView {
             if lineStarts[middle] <= offset { low = middle } else { high = middle - 1 }
         }
         return low
+    }
+
+    /// A 1-based line's length in UTF-16 units, without its line break.
+    func lineLength(_ line: Int) -> Int {
+        guard line > 0, line <= lineStarts.count else { return 0 }
+        let end = line < lineStarts.count ? lineStarts[line] - 1 : length
+        return max(0, end - lineStarts[line - 1])
+    }
+
+    /// Go to line: the caret lands on `line` at `column` (both 1-based, clamped to the text) and
+    /// the line scrolls into view, tinted. While editing the keyboard comes up, and the line is
+    /// brought back into view once it has made the view shorter.
+    func go(line: Int, column: Int) {
+        let line = min(max(1, line), lineStarts.count)
+        let offset = lineStarts[line - 1] + min(max(0, column - 1), lineLength(line))
+        text.selectedRange = NSRange(location: offset, length: 0)
+        if text.isEditable, !text.isFirstResponder {
+            revealOnResize = line
+            text.becomeFirstResponder()
+        }
+        reveal(line: line)
+        revealCaret()
+    }
+
+    /// After go to line: a column off screen (further down a wrapped line, or past the right edge)
+    /// scrolls into view too, clear of the gutter laid over the left edge.
+    private func revealCaret() {
+        guard let position = text.selectedTextRange?.end else { return }
+        let caret = text.caretRect(for: position)
+        guard !caret.isNull, !caret.isInfinite else { return }
+        let seen = text.bounds
+        if caret.minY < seen.minY || caret.maxY > seen.maxY {
+            let inset = text.adjustedContentInset
+            let maxY = max(-inset.top, text.contentSize.height - text.bounds.height + inset.bottom)
+            text.setContentOffset(CGPoint(x: 0, y: min(max(-inset.top, caret.midY - seen.height / 2), maxY)), animated: false)
+        }
+        // The text is as wide as its longest line inside the sideways scroller, at x 0.
+        let left = gutterWidth + AceTheme.Spacing.md
+        let from = sideways.contentOffset.x
+        if caret.minX < from + left || caret.maxX > from + sideways.bounds.width - AceTheme.Spacing.xl {
+            let maxX = max(0, sideways.contentSize.width - sideways.bounds.width)
+            let x = caret.minX - left - (sideways.bounds.width - left) / 2
+            sideways.setContentOffset(CGPoint(x: min(max(0, x), maxX), y: 0), animated: false)
+        }
+        gutter.setNeedsDisplay()
     }
 
     /// A line to reveal once the view has its size.

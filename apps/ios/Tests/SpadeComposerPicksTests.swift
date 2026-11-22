@@ -37,13 +37,16 @@ import Foundation
         var picks = SpadeComposerPicks()
         let photo = staged("Photo.jpg", "image/jpeg")
         picks.add(photo)
-        let out = try #require(picks.send(" Look "))
+        let sent = picks.send(" Look ")
+        let out = try #require(sent)
         #expect(out == .init(text: "Look", files: [photo], voice: nil))
         #expect(picks.strip.map(\.state) == ["uploading"])
-        #expect(picks.remove(photo.localId) == nil)
+        let removedWhileSending = picks.remove(photo.localId)
+        #expect(removedWhileSending == nil)
         picks.add(staged("Other.png", "image/png"))
         #expect(picks.files == [photo])
-        #expect(picks.send("again") == nil)
+        let sentAgain = picks.send("again")
+        #expect(sentAgain == nil)
     }
 
     @Test func aRefusedMessageGivesItsPicksBackAndATakenOneLetsThemGo() {
@@ -66,7 +69,8 @@ import Foundation
         let second = staged("Voice message.m4a", "audio/mp4")
         #expect(picks.record(.init(file: first, seconds: 2)) == nil)
         #expect(picks.record(.init(file: second, seconds: 3)) == first)
-        #expect(picks.remove(second.localId) == second)
+        let removed = picks.remove(second.localId)
+        #expect(removed == second)
         #expect(picks.voice == nil)
     }
 

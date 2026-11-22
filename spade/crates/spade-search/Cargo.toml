@@ -1,7 +1,7 @@
 [package]
 name = "spade-search"
 version = "0.1.0"
-description = "Spade's web search: the person's own SearXNG, or Brave with their key"
+description = "Spade's web search through ace cloud (ADR 0210)"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,7 +11,6 @@ publish.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-spade-keys = { path = "../spade-keys" }
 thiserror.workspace = true
 
 [dev-dependencies]

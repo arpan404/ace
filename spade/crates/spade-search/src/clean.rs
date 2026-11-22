@@ -1,10 +1,12 @@
 //! Turns raw search results into short plain text the model can read. Pure: no I/O.
 
 use crate::SearchResult;
+use crate::wire::Raw;
 
 /// The longest snippet kept, in characters.
 const SNIPPET: usize = 400;
 const TITLE: usize = 200;
+const SITE: usize = 100;
 
 /// Removes tags, decodes the common entities and collapses whitespace.
 pub(crate) fn text(raw: &str, longest: usize) -> String {
@@ -36,15 +38,16 @@ pub(crate) fn text(raw: &str, longest: usize) -> String {
 }
 
 /// Cleans, drops results without a web address, removes repeated addresses, keeps `count`.
-pub(crate) fn results(raw: Vec<(String, String, String)>, count: usize) -> Vec<SearchResult> {
+pub(crate) fn results(raw: Vec<Raw>, count: usize) -> Vec<SearchResult> {
     let mut seen = std::collections::HashSet::new();
     raw.into_iter()
-        .filter(|(_, url, _)| url.starts_with("https://") || url.starts_with("http://"))
-        .filter(|(_, url, _)| seen.insert(url.trim_end_matches('/').to_owned()))
-        .map(|(title, url, snippet)| SearchResult {
-            title: text(&title, TITLE),
-            url,
-            snippet: text(&snippet, SNIPPET),
+        .filter(|r| r.url.starts_with("https://") || r.url.starts_with("http://"))
+        .filter(|r| seen.insert(r.url.trim_end_matches('/').to_owned()))
+        .map(|r| SearchResult {
+            title: text(&r.title, TITLE),
+            url: r.url,
+            snippet: text(&r.snippet, SNIPPET),
+            site: text(&r.site, SITE),
         })
         .take(count)
         .collect()
@@ -74,12 +77,18 @@ mod tests {
 
     #[test]
     fn non_web_and_repeated_addresses_are_dropped_and_the_count_holds() {
+        let raw = |title: &str, url: &str| Raw {
+            title: title.into(),
+            url: url.into(),
+            snippet: String::new(),
+            site: String::new(),
+        };
         let raw = vec![
-            ("A".into(), "https://a.example/".into(), "a".into()),
-            ("A again".into(), "https://a.example".into(), "a".into()),
-            ("Mail".into(), "mailto:x@example.com".into(), "".into()),
-            ("B".into(), "http://b.example/page".into(), "b".into()),
-            ("C".into(), "https://c.example/".into(), "c".into()),
+            raw("A", "https://a.example/"),
+            raw("A again", "https://a.example"),
+            raw("Mail", "mailto:x@example.com"),
+            raw("B", "http://b.example/page"),
+            raw("C", "https://c.example/"),
         ];
         let kept: Vec<_> = results(raw, 2).into_iter().map(|r| r.title).collect();
         assert_eq!(kept, vec!["A", "B"]);

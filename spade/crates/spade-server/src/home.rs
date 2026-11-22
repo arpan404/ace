@@ -26,10 +26,8 @@ use std::path::{Path, PathBuf};
 /// before it (docs/ace-integration.md).
 pub const API_VERSION: u32 = 1;
 
-/// The presets built in (always read from here, see `presets`), and the search settings Spade
-/// starts with when the data folder has none.
+/// The presets built in (always read from here, see `presets`).
 pub const DEFAULT_MODELS: &str = include_str!("../../../config/models.json");
-pub const DEFAULT_SEARCH: &str = include_str!("../../../config/search.json");
 
 #[derive(Debug, thiserror::Error)]
 pub enum HomeError {
@@ -83,15 +81,6 @@ impl Home {
 
     pub fn database(&self) -> PathBuf {
         self.dir.join("spade.sqlite")
-    }
-
-    /// The file at `name`, written from `default` first if it does not exist.
-    pub fn file_or_default(&self, name: &str, default: &str) -> Result<PathBuf, HomeError> {
-        let path = self.dir.join(name);
-        if !path.exists() {
-            write_atomic(&path, default.as_bytes(), false)?;
-        }
-        Ok(path)
     }
 
     /// Writes the API token, readable only by this user.
