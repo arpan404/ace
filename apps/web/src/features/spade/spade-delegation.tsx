@@ -3,20 +3,24 @@ import type { AgentStatus } from "@ace/protocol";
 import { useThread } from "@ace/client-react";
 import { messageText, subagentRunning } from "@ace/ui-core";
 import {
-  spadeSubagentStateWords,
-  spadeSubagentStep,
-  spadeSubagentTone,
+  spadeSubagentLine,
+  spadeSubagentName,
+  spadeSubagentsSpan,
   type SpadeAvatar,
   type SpadeStartedWorker,
 } from "@ace/ui-core/spade-chat";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useContext, type ReactNode } from "react";
 import { SubagentElapsed, subagentDetailLine } from "@/features/thread/index.ts";
 import { useLive } from "@/lib/live-connection.ts";
 import { threadOn } from "@/lib/machine-routes.ts";
 import { MachineScope } from "@/lib/machine-scope.tsx";
 import { CardFace } from "./spade-card.tsx";
-import { openWord, SpadeSubagentCard, SpadeSubagentRow } from "./spade-subagent-card.tsx";
+import {
+  SpadeSubagentCard,
+  SpadeSubagentRow,
+  type SpadeSubagentOpen,
+} from "./spade-subagent-card.tsx";
 import {
   firstLine,
   useBotMachine,
@@ -91,6 +95,7 @@ function Card(props: {
     props.reachable,
   );
   const face = useContext(CardFace);
+  const span = spadeSubagentsSpan(entries);
   return (
     <div className="w-full max-w-150 min-w-0">
       <SpadeSubagentCard
@@ -98,12 +103,24 @@ function Card(props: {
         face={face}
         agents={entries}
         current={fresh}
+        elapsed={
+          fresh &&
+          span && (
+            <SubagentElapsed
+              startedAt={span.startedAt}
+              endedAt={span.endedAt}
+              running={entries.some((entry) => subagentRunning(entry.state))}
+              fresh={fresh}
+            />
+          )
+        }
         renderRow={(at) => {
           const entry = entries[at];
           return (
             entry && (
               <WorkerRow
                 entry={entry}
+                botName={props.botName}
                 fresh={fresh}
                 handlers={props.handlers}
                 reachable={props.reachable}
@@ -166,6 +183,7 @@ const sameWords = (a: Words, b: Words) =>
 
 function WorkerRow(props: {
   entry: SpadeWorkerEntry;
+  botName: string;
   fresh: boolean;
   handlers: WorkerHandlers;
   reachable: boolean;
@@ -184,26 +202,27 @@ function WorkerRow(props: {
           undefined,
         ).detail ?? words?.line)
       : undefined;
-  const facts = { ...entry, detail };
-  const label = `Open ${entry.title}${entry.machine ? ` on ${entry.machine}` : ""}`;
-  const openIt = () => {
-    if (entry.kind === "ace") void navigate(threadOn(entry.machineHost, entry.id));
-    else handlers.onOpenBot?.(entry.id);
-  };
+  const open: SpadeSubagentOpen | undefined =
+    entry.kind === "ace"
+      ? { kind: "link", to: threadOn(entry.machineHost, entry.id) }
+      : handlers.onOpenBot
+        ? { kind: "button", onOpen: () => handlers.onOpenBot?.(entry.id) }
+        : undefined;
   return (
     <SpadeSubagentRow
       row={{
         id: entry.id,
         kind: entry.kind,
-        title: entry.title,
+        name: spadeSubagentName(entry.title, props.botName),
         state: entry.state,
         // Only what is current says a state; else the connection's word stands in for it.
-        stateWords: live.current ? spadeSubagentStateWords(facts) : live.word,
-        tone: live.current ? spadeSubagentTone(entry.state) : "stale",
-        step: live.current ? spadeSubagentStep(facts) : undefined,
+        line: live.current
+          ? spadeSubagentLine({ ...entry, detail })
+          : { text: live.word, tone: "stale", live: false },
         provider: entry.provider,
         face: entry.kind === "bot" ? handlers.face(entry.id) : undefined,
         machine: entry.machine,
+        // Its time: running, or how long it took once it ended.
         elapsed: live.current && (
           <SubagentElapsed
             startedAt={entry.startedAt}
@@ -212,30 +231,15 @@ function WorkerRow(props: {
             fresh={props.fresh}
           />
         ),
-        open:
-          entry.kind === "ace" ? (
-            <Link
-              {...threadOn(entry.machineHost, entry.id)}
-              aria-label={label}
-              className={openWord}
-            >
-              Open
-            </Link>
-          ) : (
-            handlers.onOpenBot && (
-              <button
-                type="button"
-                aria-label={label}
-                className={openWord}
-                onClick={() => handlers.onOpenBot?.(entry.id)}
-              >
-                Open
-              </button>
-            )
-          ),
-        onReview: () => {
-          if (!showWorkerRequest(entry.id)) openIt();
-        },
+        open,
+        onReview:
+          live.current && entry.state === "human"
+            ? () => {
+                if (showWorkerRequest(entry.id)) return;
+                if (entry.kind === "ace") void navigate(threadOn(entry.machineHost, entry.id));
+                else handlers.onOpenBot?.(entry.id);
+              }
+            : undefined,
       }}
     />
   );

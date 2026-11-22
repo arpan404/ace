@@ -3,9 +3,10 @@ import type { SubagentState } from "../subagents.ts";
 import {
   spadeShownSubagents,
   spadeSubagentHeader,
+  spadeSubagentLine,
+  spadeSubagentName,
+  spadeSubagentsNeedYou,
   spadeSubagentsSpan,
-  spadeSubagentStateWords,
-  spadeSubagentStep,
 } from "./index.ts";
 
 const current = { current: true };
@@ -23,16 +24,11 @@ test("the header never reads finished while an agent works or waits on the perso
     );
 });
 
-test("the header says how long the agents took once every one ended", () => {
-  const span = { startedAt: 0, endedAt: 12 * 60_000 };
-  expect(
-    spadeSubagentHeader("Quill", ["done", "failed", "done", "cancelled"], { ...current, span }),
-  ).toBe("Quill worked with 4 agents · 12m");
-  expect(spadeSubagentHeader("Quill", ["done"], current)).toBe("Quill worked with 1 agent");
-  const instant = { startedAt: 5, endedAt: 400 };
-  expect(spadeSubagentHeader("Quill", ["done"], { ...current, span: instant })).toBe(
-    "Quill worked with 1 agent",
+test("the header says the bot worked with its agents once every one ended", () => {
+  expect(spadeSubagentHeader("Quill", ["done", "failed", "done", "cancelled"], current)).toBe(
+    "Quill worked with 4 agents",
   );
+  expect(spadeSubagentHeader("Quill", ["done"], current)).toBe("Quill worked with 1 agent");
 });
 
 test("a copy that isn't current never reads finished, even when every agent last said done", () => {
@@ -41,39 +37,75 @@ test("a copy that isn't current never reads finished, even when every agent last
   );
 });
 
-test("the span is known only once every agent has ended", () => {
+test("the header counts the agents waiting on the person, and says nothing when none do", () => {
+  expect(spadeSubagentsNeedYou(["working", "human", "done", "human"])).toBe("2 needs you");
+  expect(spadeSubagentsNeedYou(["working", "done"])).toBeUndefined();
+});
+
+test("the agents' time runs from the first start, and ends only once every one has ended", () => {
   expect(
     spadeSubagentsSpan([
       { startedAt: 10, endedAt: 50 },
       { startedAt: 5, endedAt: 90 },
     ]),
   ).toEqual({ startedAt: 5, endedAt: 90 });
-  expect(spadeSubagentsSpan([{ startedAt: 10, endedAt: 50 }, { startedAt: 5 }])).toBeUndefined();
+  expect(spadeSubagentsSpan([{ startedAt: 10, endedAt: 50 }, { startedAt: 5 }])).toEqual({
+    startedAt: 5,
+    endedAt: undefined,
+  });
+  expect(spadeSubagentsSpan([{}])).toBeUndefined();
 });
 
-test("an agent waiting on the person says what it waits for, and nothing more", () => {
-  const plan = { kind: "ace" as const, state: "human" as const, asking: "plan_review" };
-  expect(spadeSubagentStateWords(plan)).toBe("Waiting for you to approve its plan");
-  expect(spadeSubagentStep({ ...plan, detail: "Reading the pricing pages" })).toBeUndefined();
-  expect(spadeSubagentStateWords({ kind: "bot", state: "human" })).toBe("Waiting for you");
+test("a slug reads as words: the bot's own name dropped, spaces for dashes, sentence case", () => {
+  expect(spadeSubagentName("Research-pricing", "Research")).toBe("Pricing");
+  expect(spadeSubagentName("research_feature-tables", "Research")).toBe("Feature tables");
+  expect(spadeSubagentName("Market-germany", "Survey")).toBe("Market germany");
+  // A name a person wrote keeps its capitals; one that is only the bot's name stays as it is.
+  expect(spadeSubagentName("Compare G2 reviews", "Research")).toBe("Compare G2 reviews");
+  expect(spadeSubagentName("Research", "Research")).toBe("Research");
+  expect(spadeSubagentName("Researcher-notes", "Research")).toBe("Researcher notes");
 });
 
-test("a working agent's step is the short Working phrase, and a bare Working adds nothing", () => {
+test("a working agent's second line is its live phrase, plain Working when it says nothing", () => {
   expect(
-    spadeSubagentStep({
+    spadeSubagentLine({
       kind: "bot",
       state: "working",
       status: "**Reading** the G2 and Capterra reviews for the top three vendors",
     }),
-  ).toBe("Reading the G2 and Capterra reviews");
-  expect(spadeSubagentStep({ kind: "bot", state: "working", status: "Thinking" })).toBeUndefined();
-  expect(spadeSubagentStep({ kind: "ace", state: "working", detail: undefined })).toBeUndefined();
+  ).toEqual({ text: "Reading the G2 and Capterra reviews", tone: "working", live: true });
+  expect(spadeSubagentLine({ kind: "ace", state: "working" }).text).toBe("Working");
+  expect(spadeSubagentLine({ kind: "bot", state: "working", status: "Thinking" }).text).toBe(
+    "Working",
+  );
 });
 
-test("an ace agent that ended keeps what it said last; a bot's old status is dropped", () => {
+test("an agent waiting on the person says what it waits for, in the needs-you tone", () => {
+  const plan = { kind: "ace" as const, state: "human" as const, asking: "plan_review" };
+  expect(spadeSubagentLine({ ...plan, detail: "Reading the pricing pages" })).toEqual({
+    text: "Waiting for you to approve its plan",
+    tone: "needs-you",
+    live: false,
+  });
+  expect(spadeSubagentLine({ kind: "bot", state: "human" }).text).toBe("Waiting for you");
+});
+
+test("a finished agent shows what it found, else Done; a bot's old status is dropped", () => {
   const said = "Two of the four answer support within an hour; the notes are in support.md.";
-  expect(spadeSubagentStep({ kind: "ace", state: "done", detail: said })).toBe(said);
-  expect(spadeSubagentStep({ kind: "bot", state: "done", status: "Writing" })).toBeUndefined();
+  expect(spadeSubagentLine({ kind: "ace", state: "done", detail: said })).toEqual({
+    text: said,
+    tone: "settled",
+    live: false,
+  });
+  expect(spadeSubagentLine({ kind: "ace", state: "done" }).text).toBe("Done");
+  expect(spadeSubagentLine({ kind: "bot", state: "done", status: "Writing" }).text).toBe("Done");
+});
+
+test("a failed agent says Failed and why, in the failed tone", () => {
+  expect(
+    spadeSubagentLine({ kind: "ace", state: "failed", detail: "Hit the usage limit" }),
+  ).toEqual({ text: "Failed · Hit the usage limit", tone: "failed", live: false });
+  expect(spadeSubagentLine({ kind: "bot", state: "failed" }).text).toBe("Failed");
 });
 
 test("more than five agents fold the rest, and one waiting on the person is never folded", () => {

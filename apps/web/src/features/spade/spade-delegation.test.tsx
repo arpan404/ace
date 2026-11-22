@@ -22,7 +22,7 @@ function aceChild(
   id: string,
   title: string,
   provider: ProviderKind,
-  how: "working" | "done" | "plan",
+  how: "working" | "done" | "plan" | "failed",
 ): Scenario {
   const words =
     how === "plan"
@@ -39,10 +39,18 @@ function aceChild(
             },
           },
         ]
-      : [
-          facts.message("root", "say", "assistant", `Comparing what ${title} found so far.`),
-          ...(how === "done" ? [facts.endTurn("root")] : []),
-        ];
+      : how === "failed"
+        ? [
+            facts.endTurn("root", "failed", {
+              kind: "provider",
+              code: "session_lost",
+              message: "Lost the provider session",
+            }),
+          ]
+        : [
+            facts.message("root", "say", "assistant", `Comparing what ${title} found so far.`),
+            ...(how === "done" ? [facts.endTurn("root")] : []),
+          ];
   return {
     thread: { id, workspaceId: "relay", title, provider },
     steps: [
@@ -64,7 +72,7 @@ interface Child {
   id: string;
   name: string;
   provider: ProviderKind;
-  how: "working" | "done" | "plan";
+  how: "working" | "done" | "plan" | "failed";
 }
 
 const children: readonly Child[] = [
@@ -125,7 +133,7 @@ function seedResearch(spade: FakeSpadeApi, only: readonly Child[] = children) {
     spade.work.addAce("research", {
       id: each.id,
       name: each.name,
-      state: each.how === "plan" ? "needs_you" : each.how === "done" ? "done" : "working",
+      state: each.how === "plan" ? "needs_you" : each.how === "working" ? "working" : each.how,
     });
   }
   const said = "The four research agents are paused pending your approval in the sidebar.";
@@ -168,19 +176,15 @@ test("a bot that delegates to four agents shows one card, one row per agent with
   ).toBeTruthy();
   const { rows } = await card("Research is working with 4 agents");
   await waitFor(() => expect(rows()).toHaveLength(4));
+  // Names read as words: the bot's own name, which the card already says, is dropped.
   await waitFor(() =>
-    expect(rowOf(rows(), "Research-pricing").textContent).toContain(
-      "Waiting for you to approve its plan",
-    ),
+    expect(rowOf(rows(), "Pricing").textContent).toContain("Waiting for you to approve its plan"),
   );
-  // A working agent says what it does now beside its state.
-  await waitFor(() =>
-    expect(rowOf(rows(), "Research-reviews").textContent).toMatch(/Working · \S/),
-  );
-  expect(rowOf(rows(), "Research-features").textContent).toContain("Working");
-  const support = rowOf(rows(), "Research-support");
-  expect(support.textContent).toContain("Done");
-  // What the agent said last.
+  expect(rowOf(rows(), "Reviews").getAttribute("data-subagent-state")).toBe("working");
+  expect(rowOf(rows(), "Features").getAttribute("data-subagent-state")).toBe("working");
+  const support = rowOf(rows(), "Support");
+  expect(support.getAttribute("data-subagent-state")).toBe("done");
+  // A finished agent's second line is what it found.
   await waitFor(() =>
     expect(support.textContent).toContain("Comparing what Research-support found so far."),
   );
@@ -194,7 +198,7 @@ function three(how: readonly Child["how"][], first?: Pick<Child, "id" | "name">)
   });
 }
 
-test("each row's Open goes to that agent's thread", async () => {
+test("each row opens that agent's thread", async () => {
   const only = three(["working", "working", "working"]);
   const history = createMemoryHistory({ initialEntries: ["/spade/research"] });
   await spadeApp("/spade/research", (spade) => seedResearch(spade, only), {
@@ -203,11 +207,13 @@ test("each row's Open goes to that agent's thread", async () => {
   });
   // Conversation, not work: there with Show work off, as it is by default.
   const { card: found } = await card("Research is working with 3 agents");
-  for (const each of only)
-    expect(found.getByRole("link", { name: `Open ${each.name}` }).getAttribute("href")).toBe(
-      `/t/${each.id}`,
-    );
-  await userEvent.click(found.getByRole("link", { name: "Open Research-reviews" }));
+  for (const [name, id] of [
+    ["Reviews", "research-reviews"],
+    ["Features", "research-features"],
+    ["Support", "research-support"],
+  ])
+    expect(found.getByRole("link", { name: `Open ${name}` }).getAttribute("href")).toBe(`/t/${id}`);
+  await userEvent.click(found.getByRole("link", { name: "Open Reviews" }));
   await waitFor(() => expect(history.location.pathname).toBe("/t/research-reviews"));
 });
 
@@ -236,7 +242,7 @@ test("a bot the bot made shows its face and state, and Open goes to its chat", a
   );
   const { card: found, rows } = await card("Research is working with 1 agent");
   await waitFor(() =>
-    expect(rowOf(rows(), "Writer").textContent).toContain("Working · Drafting the pricing brief"),
+    expect(rowOf(rows(), "Writer").textContent).toContain("Drafting the pricing brief"),
   );
   await userEvent.click(found.getByRole("button", { name: "Open Writer" }));
   await waitFor(() => expect(history.location.pathname).toBe("/spade/writer"));
@@ -251,11 +257,11 @@ test("a child that needs the person waits in its own row of the card, with its a
     daemon: (daemon) => play(daemon, only),
   });
   const { card: found, rows } = await card("Research is working with 3 agents");
-  const review = await found.findByRole("button", { name: "Review what Research-pricing needs" });
-  expect(rowOf(rows(), "Research-pricing").contains(review)).toBe(true);
-  expect(rowOf(rows(), "Research-pricing").textContent).toContain(
-    "Waiting for you to approve its plan",
-  );
+  const review = await found.findByRole("button", { name: "Review what Pricing needs" });
+  expect(rowOf(rows(), "Pricing").contains(review)).toBe(true);
+  // The first line counts who waits on the person.
+  expect(within(found.getByRole("banner")).getByText("1 needs you")).toBeTruthy();
+  expect(rowOf(rows(), "Pricing").textContent).toContain("Waiting for you to approve its plan");
   // Its plan waits at the chat's end as ace's own card; nothing else is said of it outside the card.
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   expect(await within(region).findByText("Plan for Research-pricing")).toBeTruthy();
@@ -268,7 +274,9 @@ test("the card never reads finished while a child still works or waits on the pe
     daemon: (daemon) => play(daemon, only),
   });
   const { rows } = await card("Research is working with 3 agents");
-  await waitFor(() => expect(rowOf(rows(), "Research-support").textContent).toContain("Working"));
+  await waitFor(() =>
+    expect(rowOf(rows(), "Support").getAttribute("data-subagent-state")).toBe("working"),
+  );
   expect(screen.queryByRole("region", { name: /Research worked with/ })).toBeNull();
 });
 
@@ -278,13 +286,23 @@ test("once every child has ended the card says the bot worked with them", async 
     daemon: (daemon) => play(daemon, only),
   });
   const { rows } = await card("Research worked with 3 agents");
-  for (const row of rows()) expect(row.textContent).toContain("Done");
+  for (const row of rows()) expect(row.getAttribute("data-subagent-state")).toBe("done");
+});
+
+test("a failed child says so and why, and the card still says the bot worked with them", async () => {
+  const only = three(["done", "failed", "done"]);
+  await spadeApp("/spade/research", (spade) => seedResearch(spade, only), {
+    daemon: (daemon) => play(daemon, only),
+  });
+  const { rows } = await card("Research worked with 3 agents");
+  await waitFor(() => expect(rowOf(rows(), "Features").textContent).toContain("Failed"));
+  expect(rowOf(rows(), "Features").textContent).toContain("Lost the provider session");
 });
 
 test("more than five children fold into and N more, which opens to every row", async () => {
   const many: Child[] = Array.from({ length: 8 }, (_, at) => ({
     id: `research-${at}`,
-    name: `Research-${at}`,
+    name: `Research-agent-${at}`,
     provider: "claude",
     how: at === 7 ? "plan" : "done",
   }));
@@ -294,7 +312,7 @@ test("more than five children fold into and N more, which opens to every row", a
   const { card: found, rows } = await card("Research is working with 8 agents");
   await waitFor(() => expect(rows()).toHaveLength(5));
   // The one that needs the person is never folded away.
-  expect(rowOf(rows(), "Research-7").textContent).toContain("Waiting for you");
+  expect(rowOf(rows(), "Agent 7").textContent).toContain("Waiting for you");
   await userEvent.click(found.getByRole("button", { name: "and 3 more" }));
   expect(rows()).toHaveLength(8);
   await userEvent.click(found.getByRole("button", { name: "Show fewer" }));
@@ -328,9 +346,7 @@ test("Needs you in the bot list opens the chat at the waiting card, and Review g
   await waitFor(() => expect(document.activeElement).toBe(region));
 
   const { card: found } = await card("Research is working with 4 agents");
-  await userEvent.click(
-    await found.findByRole("button", { name: "Review what Research-pricing needs" }),
-  );
+  await userEvent.click(await found.findByRole("button", { name: "Review what Pricing needs" }));
   await waitFor(() =>
     expect(document.activeElement?.getAttribute("data-worker-request")).toBe("research-pricing"),
   );
@@ -351,8 +367,8 @@ test("a child on another machine shows that machine, opens there and is answered
   if (!server) throw new Error("no build server");
   play(server, pricing);
   const { card: found, rows } = await card("Research is working with 1 agent");
-  const open = await found.findByRole("link", { name: "Open Research-pricing on Build server" });
-  expect(rowOf(rows(), "Research-pricing").textContent).toContain("on Build server");
+  const open = await found.findByRole("link", { name: "Open Pricing on Build server" });
+  expect(rowOf(rows(), "Pricing").textContent).toContain("on Build server");
   expect(open.getAttribute("href")).toBe("/t/research-pricing?machine=build-server");
   const region = await screen.findByRole("region", { name: "Waiting for you" });
   await userEvent.click(await within(region).findByRole("button", { name: "Approve plan" }));
