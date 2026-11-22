@@ -24,6 +24,13 @@ struct PlaceSheet: Identifiable {
         }
     }
 
+    /// A Settings page opened from anywhere (`openSettingsPage`), with Back landing on its list:
+    /// a machine's page sits on Machines.
+    static func page(_ route: SettingsRoute, id: Int) -> PlaceSheet {
+        if case .machine = route { return PlaceSheet(id: id, root: .settings, start: [.machines, route]) }
+        return PlaceSheet(id: id, root: .settings, start: [route])
+    }
+
     /// A search command for a settings page or a machine tool (`settings:appearance`,
     /// `tool:providers`), opened inside Settings so Back lands on its list.
     static func of(command id: String, machine: String?, serial: Int) -> PlaceSheet? {
@@ -36,6 +43,13 @@ struct PlaceSheet: Identifiable {
         }
         return nil
     }
+}
+
+extension EnvironmentValues {
+    /// Opens a Settings page over the home from anywhere, as Search's places do: Settings' sheet
+    /// takes the place of the one showing, and a sheet that isn't Settings' closes first and hands
+    /// the page on (SpadeTab's New bot). Inside Settings' own stack, `settingsPush` pushes instead.
+    @Entry var openSettingsPage: (SettingsRoute) -> Void = { _ in }
 }
 
 /// What a palette command (`bridge/palette.ts`) does on the home screen, by its id.

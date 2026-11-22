@@ -154,6 +154,8 @@ let archive: ArchiveBrowser | undefined;
 let compose: ComposeActions | undefined;
 let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
+/** What this paired machine last said of the phone's proof of standing on its socket. */
+let pairedStanding: PairedStanding | undefined;
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -233,8 +235,11 @@ async function start(json: string): Promise<void> {
     build: "ios-turn-steps-v1",
   });
   const paired = config.paired;
-  const standing = (state: PairedStanding) =>
+  pairedStanding = undefined;
+  const standing = (state: PairedStanding) => {
+    pairedStanding = state;
     pump.put("standing", () => ({ type: "standing", state }));
+  };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;
   const credential = paired
@@ -516,6 +521,7 @@ async function start(json: string): Promise<void> {
     new HostCare(client, admission),
     () => host.now(),
     automations,
+    () => pairedStanding,
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);

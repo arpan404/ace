@@ -197,14 +197,57 @@ import Testing
         #expect(!state.canInstall)
     }
 
-    @Test func anyInstallRefusedForStandingSaysToInstallFromTheComputer() throws {
+    @Test func anyInstallRefusedForStandingOffersConfirmItsYouInPlaceOfInstall() throws {
         var state = MarketReviewState()
         // A skill with scripts can need the person's standing too, not only bots and plugins.
         let review = try Self.review(type: "spade-skill")
         state.opened(review)
         try Self.readAll(&state, review)
-        state.refused(MarketRefusal(code: "person_only", message: "The install didn't finish.", way: .confirm, offline: false))
+        state.refused(MarketRefusal(code: "reauth", message: "Sign in again to do this.", way: .confirm, offline: false))
+        #expect(state.needsPerson)
+        #expect(!state.canInstall)
+        #expect(state.canConfirm)
+        // The retry is under way: neither can be pressed again.
+        state.started()
+        #expect(!state.canConfirm)
+    }
+
+    @Test func aRefusedConfirmItsYouKeepsInstallOffUntilTheReviewIsReadAgain() throws {
+        var state = MarketReviewState()
+        let review = try Self.review(type: "spade-plugin")
+        state.opened(review)
+        try Self.readAll(&state, review)
+        state.refused(MarketRefusal(code: "reauth", message: "Sign in again to do this.", way: .confirm, offline: false))
+        state.started(confirmed: true)
+        state.refused(MarketRefusal(code: "reauth", message: "Sign in again to do this.", way: nil, offline: false))
+        #expect(state.exhausted)
+        #expect(state.refusal?.message == "Sign in again to do this.")
+        #expect(!state.canInstall)
+        #expect(!state.canConfirm)
+        // A review read again starts over.
+        state.opened(try Self.review(id: "review-2", type: "spade-plugin"))
+        #expect(!state.exhausted)
+    }
+
+        @Test func anInstallFromAPhoneWithoutStandingCanOnlyPairAgain() throws {
+        var state = MarketReviewState()
+        let review = try Self.review(type: "spade-plugin")
+        state.opened(review)
+        try Self.readAll(&state, review)
+        state.refused(MarketRefusal(code: "reauth", message: "Pair this iPhone again to install here.", way: .pairAgain, offline: false))
+        #expect(state.needsPerson)
+        #expect(!state.canInstall)
+        #expect(!state.canConfirm)
+    }
+
+    @Test func anInstallThatNeedsAPersonsGrantSaysToInstallFromTheComputer() throws {
+        var state = MarketReviewState()
+        let review = try Self.review()
+        state.opened(review)
+        try Self.readAll(&state, review)
+        state.refused(MarketRefusal(code: "person_grant", message: "The install didn't finish.", way: .computer, offline: false))
         #expect(state.needsComputer)
+        #expect(!state.needsPerson)
         #expect(!state.canInstall)
     }
 
