@@ -83,11 +83,11 @@ test("a working agent's second line is its live phrase, plain Working when it sa
 test("an agent waiting on the person says what it waits for, in the needs-you tone", () => {
   const plan = { kind: "ace" as const, state: "human" as const, asking: "plan_review" };
   expect(spadeSubagentLine({ ...plan, detail: "Reading the pricing pages" })).toEqual({
-    text: "Waiting for you to approve its plan",
+    text: "Wants you to approve its plan",
     tone: "needs-you",
     live: false,
   });
-  expect(spadeSubagentLine({ kind: "bot", state: "human" }).text).toBe("Waiting for you");
+  expect(spadeSubagentLine({ kind: "bot", state: "human" }).text).toBe("Needs you");
 });
 
 test("a finished agent shows what it found, else Done; a bot's old status is dropped", () => {

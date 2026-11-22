@@ -38,7 +38,7 @@ test("Spade is the list's first row, then each bot with what it asks or its last
         .map((row) => row.textContent),
     ).toEqual([
       "SpadeNo messages yet",
-      "InboxWaiting for you",
+      "InboxNeeds you",
       "GardenYou: Water the tomatoes at 6",
     ]),
   );

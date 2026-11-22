@@ -192,7 +192,7 @@ describe("what stays open", () => {
     expect(c.view().approvals).toEqual([
       expect.objectContaining({ callId: "c1", sentence: "Spade wants to send an email." }),
     ]);
-    expect(c.view().working).toMatchObject({ label: "Waiting for you", moving: false });
+    expect(c.view().working).toMatchObject({ label: "Needs you", moving: false });
     expect(c.view().busy).toBe(true);
     c.stored({ type: "approval_answered", reply: "r1", call_id: "c1", allowed: false });
     expect(c.view().approvals).toEqual([]);

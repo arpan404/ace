@@ -196,7 +196,7 @@ function seedScene(
   const bot = here.addAgent({
     ...scene.bot,
     ...(waiting
-      ? { state: "waiting", waiting_for: "worker", status: "A worker needs you" }
+      ? { state: "waiting", waiting_for: "worker", status: "Asks about the hotel" }
       : { state: "idle" }),
     last_activity: minutes(waiting ? 3 : scene.startedMin - 1),
   });

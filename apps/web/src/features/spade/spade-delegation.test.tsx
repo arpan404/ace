@@ -178,7 +178,7 @@ test("a bot that delegates to four agents shows one card, one row per agent with
   await waitFor(() => expect(rows()).toHaveLength(4));
   // Names read as words: the bot's own name, which the card already says, is dropped.
   await waitFor(() =>
-    expect(rowOf(rows(), "Pricing").textContent).toContain("Waiting for you to approve its plan"),
+    expect(rowOf(rows(), "Pricing").textContent).toContain("Wants you to approve its plan"),
   );
   expect(rowOf(rows(), "Reviews").getAttribute("data-subagent-state")).toBe("working");
   expect(rowOf(rows(), "Features").getAttribute("data-subagent-state")).toBe("working");
@@ -261,11 +261,11 @@ test("a child that needs the person waits in its own row of the card, with its a
   expect(rowOf(rows(), "Pricing").contains(review)).toBe(true);
   // The first line counts who waits on the person.
   expect(within(found.getByRole("banner")).getByText("1 needs you")).toBeTruthy();
-  expect(rowOf(rows(), "Pricing").textContent).toContain("Waiting for you to approve its plan");
+  expect(rowOf(rows(), "Pricing").textContent).toContain("Wants you to approve its plan");
   // Its plan waits at the chat's end as ace's own card; nothing else is said of it outside the card.
-  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  const region = await screen.findByRole("region", { name: "Needs you" });
   expect(await within(region).findByText("Plan for Research-pricing")).toBeTruthy();
-  expect(within(region).queryByText(/Waiting for you to approve its plan/)).toBeNull();
+  expect(within(region).queryByText(/Wants you to approve its plan/)).toBeNull();
 });
 
 test("the card never reads finished while a child still works or waits on the person", async () => {
@@ -312,7 +312,7 @@ test("more than five children fold into and N more, which opens to every row", a
   const { card: found, rows } = await card("Research is working with 8 agents");
   await waitFor(() => expect(rows()).toHaveLength(5));
   // The one that needs the person is never folded away.
-  expect(rowOf(rows(), "Agent 7").textContent).toContain("Waiting for you");
+  expect(rowOf(rows(), "Agent 7").textContent).toContain("Wants you to approve its plan");
   await userEvent.click(found.getByRole("button", { name: "and 3 more" }));
   expect(rows()).toHaveLength(8);
   await userEvent.click(found.getByRole("button", { name: "Show fewer" }));
@@ -323,7 +323,7 @@ test("a child waiting on plan review shows its plan at the chat's end, and Appro
   const { app } = await spadeApp("/spade/research", seedResearch, {
     daemon: (daemon) => play(daemon),
   });
-  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  const region = await screen.findByRole("region", { name: "Needs you" });
   expect(await within(region).findByText("Plan for Research-pricing")).toBeTruthy();
   await userEvent.click(within(region).getByRole("button", { name: "Approve plan" }));
   await waitFor(() =>
@@ -334,15 +334,15 @@ test("a child waiting on plan review shows its plan at the chat's end, and Appro
   );
   expect(app.daemon.isPending("research-pricing", "plan")).toBe(false);
   // Nothing waits any more: the chat has nothing left to say it needs the person for.
-  await waitFor(() => expect(screen.queryByRole("region", { name: "Waiting for you" })).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Needs you" })).toBeNull());
 });
 
 test("Needs you in the bot list opens the chat at the waiting card, and Review goes to its request", async () => {
   await spadeApp("/spade", seedResearch, { daemon: (daemon) => play(daemon) });
   const row = await botRow("Research");
-  expect(row.textContent).toContain("A worker needs you");
+  expect(row.textContent).toContain("Needs you");
   await userEvent.click(row);
-  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  const region = await screen.findByRole("region", { name: "Needs you" });
   await waitFor(() => expect(document.activeElement).toBe(region));
 
   const { card: found } = await card("Research is working with 4 agents");
@@ -370,7 +370,7 @@ test("a child on another machine shows that machine, opens there and is answered
   const open = await found.findByRole("link", { name: "Open Pricing on Build server" });
   expect(rowOf(rows(), "Pricing").textContent).toContain("on Build server");
   expect(open.getAttribute("href")).toBe("/t/research-pricing?machine=build-server");
-  const region = await screen.findByRole("region", { name: "Waiting for you" });
+  const region = await screen.findByRole("region", { name: "Needs you" });
   await userEvent.click(await within(region).findByRole("button", { name: "Approve plan" }));
   await waitFor(() =>
     expect(server.resolution("research-pricing", "plan")).toMatchObject({

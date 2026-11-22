@@ -170,7 +170,7 @@ function working(
     return jobs.length ? { label: spadeJobsLine(jobs), since: undefined, moving: true } : undefined;
   const tool = [...state.running.values()].at(-1);
   if (tool) return { label: spadeToolWords(tool.name).doing, since, moving: true };
-  if (waiting) return { label: "Waiting for you", since, moving: false };
+  if (waiting) return { label: "Needs you", since, moving: false };
   if (jobs.length) return { label: spadeJobsLine(jobs), since, moving: true };
   return { label: "Working", since, moving: true };
 }

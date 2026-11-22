@@ -224,7 +224,7 @@ export function parseSpadeRunningAnswer(
 }
 
 const spadeRunningReadsWords: Record<SpadeRunningReads, string> = {
-  needs_you: "Waiting on you",
+  needs_you: "Needs you",
   working: "Working",
   failed: "Failed",
   sleeping: "Sleeping",
