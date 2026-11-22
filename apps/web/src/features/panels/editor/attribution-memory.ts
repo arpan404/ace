@@ -52,13 +52,17 @@ function load(storage: KeyValue): Store {
   }
 }
 
-/** Newest written first, cut to the size bound. */
+const utf8 = new TextEncoder();
+/** Bytes a text takes once stored (UTF-8), not its UTF-16 length. */
+const bytesOf = (text: string) => utf8.encode(text).length;
+
+/** Newest written first, cut to the size bound in bytes. */
 function bounded(store: Store, bytes: number): [string, z.infer<typeof Entry>][] {
   const entries = Object.entries(store).toSorted(([, a], [, b]) => b.written - a.written);
   const kept: [string, z.infer<typeof Entry>][] = [];
   let size = 2;
   for (const entry of entries) {
-    const more = JSON.stringify(entry[0]).length + JSON.stringify(entry[1]).length + 2;
+    const more = bytesOf(JSON.stringify(entry[0])) + bytesOf(JSON.stringify(entry[1])) + 2;
     if (size + more > bytes) break;
     size += more;
     kept.push(entry);

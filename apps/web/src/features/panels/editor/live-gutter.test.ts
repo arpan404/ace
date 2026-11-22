@@ -378,3 +378,28 @@ test("a line the person edited stays theirs to undo back across an unrelated age
   expect(buffer.document()?.text()).toBe("one\nagent a\nagent b\nfour\n");
   expect(agentLines(gutter)).toEqual([1, 2]);
 });
+
+test("Keep retires only the kept lines: an edited agent line elsewhere still comes back on undo", async () => {
+  const { checkout, registry, buffer, gutter, pause } = await opened();
+  checkout.write("places.ts", "one\nagent a\nagent b\nagent c\nfour\n");
+  registry.diskChanged(file);
+  await settle();
+  await pause();
+
+  type(buffer, 1, "mine");
+  gutter.edited();
+  await pause();
+  expect(agentLines(gutter)).toEqual([2, 3]);
+
+  // The person keeps the agent's last line.
+  gutter.keep(3, 4);
+  await gutter.settled();
+  expect(agentLines(gutter)).toEqual([2]);
+
+  // Undoing their edit still brings the agent's first line back; the kept one stays kept.
+  buffer.document()?.undo();
+  buffer.edited();
+  gutter.edited();
+  await pause();
+  expect(agentLines(gutter)).toEqual([1, 2]);
+});

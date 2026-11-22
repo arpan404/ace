@@ -12,6 +12,7 @@ import {
   landBlocks,
   overlay,
   projectBlocks,
+  retireLines,
   sameBlocks,
   withoutLines,
   type AgentBlock,
@@ -207,13 +208,37 @@ export class LiveGutter {
    * being the agent's, measured from here on.
    */
   keep(start: number, end: number): void {
-    const kept = withoutLines(this.#shown, start, end);
-    if (kept.length === this.#shown.length) return;
-    // Kept lines end their layers' claim: what is left becomes one layer of the text now.
-    const text = this.#buffer.document()?.text();
-    this.#layers = kept.length && text !== undefined ? [{ text, blocks: kept }] : [];
-    this.#shown = kept;
-    this.#publish({ ...this.#state, agent: kept });
+    // Shown at once without them; each layer then retires them, measured afresh, in order.
+    const shown = withoutLines(this.#shown, start, end);
+    if (shown.length !== this.#shown.length) {
+      this.#shown = shown;
+      this.#publish({ ...this.#state, agent: shown });
+    }
+    this.#enqueue(() => this.#retire(start, end));
+  }
+
+  /** Each layer gives up the lines that read now as `start..end`, and only those. */
+  async #retire(start: number, end: number): Promise<void> {
+    const doc = this.#buffer.document();
+    if (this.#disposed || !doc) return;
+    const text = doc.text();
+    const layers = this.#layers;
+    const moved = await Promise.all(
+      layers.map((layer) =>
+        layer.text === text ? [] : this.#deps.diff.lineChanges(layer.text, text),
+      ),
+    );
+    if (this.#disposed || this.#layers !== layers) return;
+    const retired = layers.map((layer, index) => ({
+      layer: { ...layer, blocks: retireLines(layer.blocks, moved[index] ?? [], start, end) },
+      changes: moved[index] ?? [],
+    }));
+    const left = retired.filter((each) => each.layer.blocks.length > 0);
+    this.#layers = left.map((each) => each.layer);
+    this.#shown = overlay(
+      left.map((each) => projectBlocks(each.layer.blocks, each.changes)).toReversed(),
+    );
+    this.#publish({ ...this.#state, agent: this.#shown });
     this.#remember();
   }
 

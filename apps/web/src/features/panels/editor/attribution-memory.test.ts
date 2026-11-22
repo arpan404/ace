@@ -59,3 +59,18 @@ test("a full device keeps the newest file by letting older ones go", () => {
   expect(memory.read("d")).toBeDefined();
   expect(device.size()).toBeLessThanOrEqual(700);
 });
+
+test("the size bound counts bytes as stored, so multibyte names don't slip past it", () => {
+  const device = storage();
+  let clock = 0;
+  const memory = deviceAttribution(device, { bytes: 700, blocks: 100 }, () => ++clock);
+  const wide = {
+    ...saved(1),
+    blocks: [{ ...saved(1).blocks[0]!, who: { ...who, name: "代理人".repeat(30) } }],
+  };
+  for (const name of ["ファイル一", "ファイル二", "ファイル三"]) memory.write(name, wide);
+
+  const stored = device.getItem("ace.editor.agent-lines") ?? "";
+  expect(new TextEncoder().encode(stored).length).toBeLessThanOrEqual(700);
+  expect(memory.read("ファイル三")).toBeDefined();
+});

@@ -202,3 +202,44 @@ export function overlay(sets: readonly (readonly AgentBlock[])[]): AgentBlock[] 
   }
   return out.toSorted((a, b) => a.start - b.start || a.end - b.end);
 }
+
+/**
+ * `blocks` (in their own text's lines) without the lines that read now, through `changes`, as
+ * 0-based lines `start..end` of the text now: the person kept those, and only those leave. Lines
+ * hidden now (edited) are kept, so an undo still brings them back. Linear in the blocks' lines.
+ */
+export function retireLines(
+  blocks: readonly AgentBlock[],
+  changes: readonly WholeLineChange[],
+  start: number,
+  end: number,
+): AgentBlock[] {
+  const out: AgentBlock[] = [];
+  for (const block of blocks) {
+    if (block.start === block.end) {
+      const now = mapBlocks([block], changes)[0];
+      if (!now || now.start < start || now.start >= Math.max(end, start + 1)) out.push(block);
+      continue;
+    }
+    let run: AgentBlock | undefined;
+    let next = 0;
+    let delta = 0;
+    for (let line = block.start; line < block.end; line++) {
+      for (let change = changes[next]; change; change = changes[++next]) {
+        const above = change.end <= line && (change.end > change.start || change.start <= line);
+        if (!above) break;
+        delta += linesOf(change.text).length - (change.end - change.start);
+      }
+      const over = changes[next];
+      const hidden = over !== undefined && over.end > over.start && line >= over.start;
+      const kept = !hidden && line + delta >= start && line + delta < end;
+      if (!kept && run && run.end === line) run.end = line + 1;
+      else if (!kept) {
+        if (run) out.push(run);
+        run = { ...block, start: line, end: line + 1 };
+      }
+    }
+    if (run) out.push(run);
+  }
+  return out;
+}
