@@ -122,10 +122,15 @@ struct HomeTabBar: ViewModifier {
     var animated = false
     /// Changes when the tabs may be laid out again (`TabBarPlace.relayout`).
     var relayout = "home"
+    @Environment(\.homeTab) private var selected
+    @Environment(\.homePlace) private var place
     func body(content: Content) -> some View {
         content
             .toolbarVisibility(hidden ? .hidden : .visible, for: .tabBar)
-            .background { TabBarPlace(hidden: hidden, animated: animated, relayout: relayout).frame(width: 0, height: 0) }
+            .background {
+                TabBarPlace(hidden: hidden, animated: animated, relayout: relayout, selected: place == nil || place == selected)
+                    .frame(width: 0, height: 0)
+            }
     }
 }
 

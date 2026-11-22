@@ -132,11 +132,11 @@ struct InboxView: View {
 
     @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
         Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-            stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
+            stack(.threads, path: $threadsPath, drawer: $threadsDrawer).environment(\.homePlace, .threads)
         }
         .placeTab(.threads, waiting: waiting(.threads))
         Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-            stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+            stack(.chats, path: $chatsPath, drawer: $chatsDrawer).environment(\.homePlace, .chats)
         }
         .placeTab(.chats, waiting: waiting(.chats))
     }
@@ -145,7 +145,7 @@ struct InboxView: View {
     /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
                 .placeTab(.spade, waiting: waiting(.spade))
         }
     }
@@ -154,15 +154,29 @@ struct InboxView: View {
     /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
                 .accessibilityIdentifier("tab.\(HomeTabs.identifier(.review))")
         }
     }
 
-    /// Search's role sets it apart: on iOS 26 the bar draws it as its own glass circle at the end.
+    /// Search, a place of the bar. Its page carries its own field under the title; the compose
+    /// tab holds the only search role and no tab-level search is set, so the system never gives
+    /// Compose Search's field.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search, role: .search) { search }
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
+    }
+
+    /// New thread, New chat on Chats, in the slot iOS 26 gives the search role: its own round glass
+    /// button at the bar's end, beside the tabs. It isn't a place: choosing it runs compose and
+    /// leaves the tab showing (`tabChoice`). A regular window composes from the list's top bar.
+    @TabContentBuilder<InboxTab> private var composeTab: some TabContent<InboxTab> {
+        if sizeClass != .regular && inbox.canStartThreads {
+            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose, role: .search) {
+                Color.clear
+            }
+            .accessibilityIdentifier("inbox.compose")
+        }
     }
 
     private var tabs: some View {
@@ -173,11 +187,13 @@ struct InboxView: View {
             spadeTab
             reviewTab
             searchTabs
+            composeTab
         }
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
+        .environment(\.homeTab, tab)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -222,6 +238,8 @@ struct InboxView: View {
     /// shows beside them, and a binding made afresh each render would redraw them on every change.
     private var tabChoice: Binding<InboxTab> {
         Binding(get: { tab }, set: { chosen in
+            // The compose slot starts a thread and leaves the showing tab as it was.
+            if chosen == .compose { compose(chat: tab == .chats); return }
             if chosen == tab { retap.ask(chosen) }
             if chosen == .search && tab == .search { searchFocusAsks += 1 }
             tab = chosen
@@ -329,10 +347,9 @@ struct InboxView: View {
     /// How many on Threads, Chats or Spade need the person: the daemon's own count, as the web
     /// rail's. The iPad sidebar's dots and the tab bar's badges.
     private func needsYouCount(_ place: InboxTab) -> Int {
-        let tabs = inbox.merged.tabs
         switch place {
-        case .threads: return tabs.first { $0.id == "inbox" }?.needsYou ?? 0
-        case .chats: return tabs.filter(\.chats).reduce(0) { $0 + $1.needsYou }
+        case .threads: return inbox.merged.tabs.first { $0.id == "inbox" }?.needsYou ?? 0
+        case .chats: return inbox.merged.tabs.filter(\.chats).reduce(0) { $0 + $1.needsYou }
         case .spade: return inbox.spadeSessions.reduce(0) { $0 + ($1.client.spade.bots?.filter { $0.state == "needs-you" }.count ?? 0) }
         default: return 0
         }
