@@ -164,7 +164,10 @@ type SpadeBubbleOf =
       ask?: SpadeAskKind;
       /** Which of Spade's judges stopped it and put it to the person (ADR 0163, amendment 3). */
       stopped?: SpadeStoppedKind;
-      /** For a driving step, the app or site the card offers to allow for the bot. */
+      /**
+       * For a driving step, the app or site the card offers to allow for the bot; for a connected
+       * app's write (`ask: "app"`), the connection whose writes it offers to allow always.
+       */
       app?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;

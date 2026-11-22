@@ -151,7 +151,9 @@ export type SpadeGrantRequest =
   | { kind: "folder"; path: string; write: boolean }
   | { kind: "tool"; tool: string; arguments: Record<string, string> }
   | { kind: "git_push"; repo: string; branch: string }
-  | { kind: "pr_comment"; repo: string; own_only: boolean };
+  | { kind: "pr_comment"; repo: string; own_only: boolean }
+  /** A connected app's Always allow, by its connection's id: its writes, or its reads. */
+  | { kind: "app"; app: string; writes: boolean };
 
 export async function addGrant(target: SpadeTarget, agent: string, scope: SpadeGrantRequest) {
   const body = await spadeHttp(target, "POST", agentPath(agent, "grants"), { body: scope });

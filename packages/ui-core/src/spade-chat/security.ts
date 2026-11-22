@@ -34,7 +34,7 @@ export type SpadeAutonomy = "auto_review" | "full_access";
  * list Spade's gate keeps, `spade_core::effect::full_access`).
  */
 export const spadeFullAccessSentence =
-  "It works without asking you or the reviewer, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, or first uses an app tool that doesn't say what it does; the screen, the browser and devices follow its Permissions; an app's writes are still reviewed after it reads something untrusted; and it never reads your secrets.";
+  "It works without asking you or the reviewer, except that it still asks before it pays, sends anything in your name, changes sign-ins or who has access, or deletes something in an app; the screen, the browser and devices follow its Permissions; after it reads something untrusted, an app's writes are reviewed, or asked of you when the app doesn't say what they do; and it never reads your secrets.";
 
 /** What every bot inherits unless it sets its own. */
 export interface SpadeBotDefaults {
@@ -71,6 +71,12 @@ export type SpadeGrantScope =
   | { kind: "drive_app"; app: string }
   /** Driving pages of one site, by its host: reviewed without asking. */
   | { kind: "drive_site"; host: string }
+  /**
+   * A connected app's Always allow (ADR 0202, amendment 2), by its connection's id: its writes
+   * (`writes`) or its reads run without asking. Never a payment, a send, an access change or a
+   * delete.
+   */
+  | { kind: "app"; app: string; writes: boolean }
   | { kind: "other"; name: string };
 
 export type SpadeGrant = SpadeGrantScope & {
@@ -190,6 +196,7 @@ function scope(raw: Record<string, unknown>): SpadeGrantScope {
   if (kind === "pr_comment") return { kind, repo: word("repo"), ownOnly: raw.own_only === true };
   if (kind === "drive_app") return { kind, app: word("app") };
   if (kind === "drive_site") return { kind, host: word("host") };
+  if (kind === "app") return { kind, app: word("app"), writes: raw.writes === true };
   return { kind: "other", name: kind };
 }
 

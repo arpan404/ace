@@ -1,3 +1,4 @@
+import { spadeAppOfTool, spadeAppToolPhrase } from "./app-request-words.ts";
 import { spadeRecord } from "./json.ts";
 import { spadeToolWords } from "./words.ts";
 
@@ -177,6 +178,8 @@ function detailOf(
 export interface SpadeRequestLookups {
   /** A deferred tool's title by its connector's name. */
   title?: ((name: string) => string | undefined) | undefined;
+  /** A connected app's name by its connection's id: its tools read in the person's words. */
+  appName?: ((connection: string) => string | undefined) | undefined;
   /** A note's text by its id. */
   noteText?: ((id: string) => string | undefined) | undefined;
   /** A bot's name by its id (`bot_message`). */
@@ -197,8 +200,16 @@ export function spadeRequestCard(
   options: SpadeRequestLookups = {},
 ): SpadeRequestCard {
   const { name, args } = unwrap(rawName, rawArgs);
+  // A connected app's tool, in words: "list your shared Notion pages".
+  const ofApp = spadeAppOfTool(name);
+  const appName = ofApp && options.appName?.(ofApp.connection);
   const titled = options.title?.(name);
-  const base = titled ? `use ${titled}` : spadeToolWords(name).base;
+  const base =
+    ofApp && appName
+      ? spadeAppToolPhrase(ofApp.tool, appName)
+      : titled
+        ? `use ${titled}`
+        : spadeToolWords(name).base;
   const fields = spadeRecord(args);
   const to = recipient(fields?.to ?? fields?.recipient ?? fields?.recipients);
   return {

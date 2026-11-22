@@ -291,7 +291,7 @@ export interface SpadeQuestionCard {
   askedForLater: boolean;
 }
 
-export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive";
+export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive" | "app";
 
 /** Whether the person's answer to a request `stopped` asked holds for that call only. */
 export const spadeAnsweredOnce = (stopped: SpadeStoppedKind | undefined): boolean =>
@@ -309,7 +309,10 @@ export interface SpadeRequest {
   ask?: SpadeAskKind;
   /** Which of Spade's judges put it to the person, when one did. */
   stopped?: SpadeStoppedKind;
-  /** For a driving step, the app or site its "always" allows for the bot. */
+  /**
+   * For a driving step, the app or site its "always" allows for the bot; for a connected app's
+   * write (`ask: "app"`), the connection whose writes the person may allow always.
+   */
   app?: string;
   helper?: { job: string; task: string };
   answer: "allowed" | "denied" | undefined;

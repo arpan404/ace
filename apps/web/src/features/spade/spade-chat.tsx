@@ -23,6 +23,7 @@ import {
   withSpadeDigests,
   type SpadeDigest,
   type SpadeRestAction,
+  spadeGroupAppRequests,
 } from "@ace/ui-core/spade-chat";
 import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Disclosure } from "@/components/ui/disclosure.tsx";
@@ -39,6 +40,7 @@ import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
 import { KeepCaseDialog } from "./spade-keep-case.tsx";
 import { SpadeRequestBubble, type RequestAnswer } from "./spade-request-bubble.tsx";
+import { SpadeRequestGroup } from "./spade-request-group.tsx";
 import { SpadeOutsideBubble } from "./spade-outside-bubble.tsx";
 import { SpadeQuestionBubble } from "./spade-question-bubble.tsx";
 import type { QuestionReply } from "./use-spade-conversation.ts";
@@ -432,15 +434,28 @@ const Row = memo(function Row(props: {
             name={other.name}
           />
         )}
-        {row.items.map((item, index) => (
-          <RunItem
-            key={item.key}
-            item={item}
-            when={row.whens[index]}
-            bot={bot}
-            handlers={props.handlers}
-          />
-        ))}
+        {/* Open requests one app made together answer on one card (ADR 0202, amendment 2). */}
+        {spadeGroupAppRequests(row.items).map((entry) =>
+          entry.kind === "one" ? (
+            <RunItem
+              key={entry.item.key}
+              item={entry.item}
+              when={row.whens[entry.index]}
+              bot={bot}
+              handlers={props.handlers}
+            />
+          ) : (
+            <SpadeRequestGroup
+              key={entry.items[0]?.key ?? entry.connection}
+              items={entry.items.filter(
+                (item): item is Extract<SpadeChatItem, { kind: "ask" }> => item.kind === "ask",
+              )}
+              botId={bot.id}
+              botName={bot.name}
+              onAnswer={props.handlers.onAnswer}
+            />
+          ),
+        )}
       </div>
     );
   }
