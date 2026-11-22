@@ -6,6 +6,8 @@ import {
   type SpadeTaskLine,
   parseSpadeAvatar,
   spadeBubbles,
+  spadeTurnsWithWork,
+  spadeWithoutWork,
   spadeChatRows,
   spadePlainText,
   type SpadeChatRow,
@@ -34,6 +36,7 @@ import { useSeconds } from "@/lib/time.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
+import { useShowWork } from "./spade-show-work.ts";
 import { SkillProposal } from "./spade-skill-bubble.tsx";
 import { SpadeContractLine } from "./spade-contract-line.tsx";
 import { SpadeHelperLine } from "./spade-helper-line.tsx";
@@ -145,19 +148,27 @@ export function SpadeChat(props: {
   const keep = useMemo(() => ({ owner: client, conversation: bot.id }), [client, bot.id]);
   const proposals = props.proposals;
   const digests = props.digests;
+  // Each reply's work (its steps, the notes it had in mind) stays out of the chat unless the
+  // person shows it: for every reply in Settings, or for one from its More menu.
+  const showWork = useShowWork();
+  const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
+  const bubbles = useMemo(() => spadeBubbles(view), [view]);
+  const workTurns = useMemo(() => spadeTurnsWithWork(bubbles), [bubbles]);
   const rows = useMemo(
     () =>
       // The notes it saves stay in its Memory dialog, never in the chat.
       spadeChatRows(
         withSpadeDigests(
-          withProposals(spadeBubbles(view), view.entries, proposals ?? []).filter(
-            (item) => item.kind !== "remembered",
-          ),
+          withProposals(
+            spadeWithoutWork(bubbles, { all: showWork, turns: opened }),
+            view.entries,
+            proposals ?? [],
+          ).filter((item) => item.kind !== "remembered"),
           digests ?? [],
         ),
         { now },
       ),
-    [view, proposals, digests, now],
+    [bubbles, showWork, opened, view.entries, proposals, digests, now],
   );
   const from = useNewestFirst(rows.length);
   const started = useMemo(() => startedWorkers(rows), [rows]);
@@ -193,6 +204,19 @@ export function SpadeChat(props: {
   // The finished reply being kept as a test (ADR 0204): its review is open.
   const [keeping, setKeeping] = useState<string>();
   const handlers: Handlers = {
+    work: (turn) =>
+      turn === undefined || showWork || !workTurns.has(turn)
+        ? undefined
+        : {
+            shown: opened.has(turn),
+            toggle: () =>
+              setOpened((before) => {
+                const next = new Set(before);
+                if (next.has(turn)) next.delete(turn);
+                else next.add(turn);
+                return next;
+              }),
+          },
     endpointName: props.endpointName,
     onProposal: props.onProposal,
     onAnswer: props.onAnswer,
@@ -332,6 +356,8 @@ function openReply(entries: readonly SpadeEntry[]) {
 }
 
 interface Handlers {
+  /** A reply's Show work, by its turn: undefined when it has no work to show, or all shows. */
+  work(turn: string | undefined): { shown: boolean; toggle(): void } | undefined;
   endpointName: ((id: string) => string | undefined) | undefined;
   onProposal: ((id: string, save: boolean) => Promise<boolean>) | undefined;
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
@@ -478,6 +504,7 @@ function RunItem(props: {
               copy={said && spadePlainText(said)}
               speak={said}
               onKeep={item.keep && !item.live ? () => handlers.onKeep(item.keep ?? "") : undefined}
+              work={item.live ? undefined : handlers.work(item.turn)}
             >
               <div
                 {...part(

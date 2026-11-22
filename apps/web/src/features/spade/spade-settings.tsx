@@ -18,6 +18,7 @@ import { VoiceRows } from "./spade-voice-settings.tsx";
 import { ReviewRows, SpendingSection, useOversightSettings } from "./spade-oversight-settings.tsx";
 import { ReachSection } from "./spade-reach-settings.tsx";
 import { LoadingRows, SwitchSkeleton } from "./spade-settings-loading.tsx";
+import { setShowWork, useShowWork } from "./spade-show-work.ts";
 import { CouldNotRead, ModelSettingRow, useSpadeRunning } from "./spade-settings-rows.tsx";
 import { modelsKey, useSpadeModels } from "./use-spade-models.ts";
 import { useSpadeClient } from "./spade-machine.tsx";
@@ -83,9 +84,34 @@ export function SpadeSettings() {
           )}
         </SettingCard>
       </div>
+      <ChatSection />
       {line.ready && <ReachSection ready={line.ready} />}
       {(line.ready || reading) && <SpendingSection settings={oversight} />}
     </>
+  );
+}
+
+/**
+ * How Spade's chats read, on this device: Show work in chat puts each reply's steps and the notes
+ * it had in mind back under it. Off, a reply's More menu shows them for that reply.
+ */
+function ChatSection() {
+  const id = useId();
+  const on = useShowWork();
+  return (
+    <div className={settingsGroup}>
+      <SettingCard>
+        <SettingRow
+          title="Show work in chat"
+          description="Each reply's steps and the notes it had in mind, under it."
+          htmlFor={id}
+          density="compact"
+          inline
+        >
+          <Switch id={id} checked={on} onCheckedChange={setShowWork} />
+        </SettingRow>
+      </SettingCard>
+    </div>
   );
 }
 
