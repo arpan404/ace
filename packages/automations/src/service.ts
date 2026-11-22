@@ -458,7 +458,8 @@ export class AutomationService {
     const automation = this.store.definition(id);
     if (!automation || !automation.enabled) throw new Error("Automation is disabled or missing");
     // The person asked for this run, so they hear why it can't start; a fire is skipped instead.
-    if (kind === "manual" && !this.admits()) throw new Error(pausedRefusal);
+    if (kind === "manual" && !this.admits())
+      throw new Error(this.deps.admission?.closedReason?.() ?? pausedRefusal);
     const event = AutomationEvent.parse(input);
     const admission = this.store.transaction(() => this.admit(automation, event, kind, note));
     if (admission.created) this.publish(admission.run);
@@ -497,7 +498,9 @@ export class AutomationService {
     }
     // A fire while new work is paused is skipped, kept in the history, and never queued: the
     // automation waits for its next time.
-    const skip = this.admits() ? undefined : pausedResult;
+    const skip = this.admits()
+      ? undefined
+      : (this.deps.admission?.closedReason?.() ?? pausedResult);
     return {
       ...this.store.claim(automation, event, kind, id, this.deps.now(), input, failure, skip),
       input,

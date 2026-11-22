@@ -33,6 +33,9 @@ export async function publishArtifact(
       category: input.category,
       sourceThread: input.sourceThread,
       ...(input.id ? { id: input.id } : {}),
+      // Asked once more right before the registry takes it (ADR 0209 §3): the rename and the
+      // registry's own reads take time. A refusal leaves the file to the cleanup below.
+      guard: assertAuthorized,
     });
     published = true;
     return id;

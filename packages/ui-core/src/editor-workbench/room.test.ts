@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { displayPanes, groupsFit, roomNeeded, splitSide, type SplitNode } from "./index.ts";
+import {
+  collapsedPanes,
+  displayPanes,
+  groupsFit,
+  paneShape,
+  roomNeeded,
+  splitSide,
+  type SplitNode,
+} from "./index.ts";
 import { column, group, layoutOf, row } from "./layout.fixture.ts";
 
 const one = group("g1", ["a.ts"]);
@@ -115,5 +123,39 @@ describe("where a new pane goes", () => {
     ],
   ] as const)("%s", (_name, node, side, room, placed) => {
     expect(splitSide(layoutOf(node), "g1", side, room)).toBe(placed);
+  });
+});
+
+const ids = (set: ReadonlySet<string>) => [...set].toSorted();
+
+describe("stacked panes as an accordion", () => {
+  const stack = column(["g1", "g2", "g3", "g4"].map((id) => group(id, ["a.ts"])));
+  const mixed = column([group("g1", []), row([group("g2", []), group("g3", [])])]);
+
+  it.each([
+    [
+      "four stacked panes in 600px: the focused one opens, the rest are strips",
+      stack,
+      "g2",
+      600,
+      ["g1", "g3", "g4"],
+    ],
+    ["four stacked panes with 240px each stay open", stack, "g2", 1000, []],
+    ["side-by-side panes never fold", two, "g1", 200, []],
+    ["one pane never folds", one, "g1", 100, []],
+    ["a pane beside the focused one stays open with it", mixed, "g2", 300, ["g1"]],
+    ["a row the focused pane isn't in folds whole", mixed, "g1", 300, ["g2", "g3"]],
+  ] as const)("%s", (_name, node, focused, height, folded) => {
+    expect(ids(collapsedPanes(node, focused, { width: 500, height }))).toEqual([...folded]);
+  });
+});
+
+describe("a layout's shape", () => {
+  it("doesn't change with sizes, so a resize keeps the person's sizes", () => {
+    expect(paneShape(row([group("g1", []), group("g2", [])], [0.7, 0.3]))).toBe(paneShape(two));
+  });
+
+  it("changes when a pane comes or goes, so the accordion takes over again", () => {
+    expect(paneShape(three)).not.toBe(paneShape(two));
   });
 });

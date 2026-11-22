@@ -191,3 +191,49 @@ test("a change only the person may make goes through the daemon, which stamps it
   await spadeHttp(transport, "PUT", "/v1/agents/a_1/pin", { body: { pinned: true } });
   expect(direct.sent.map((request) => request.path)).toEqual(["/v1/agents/a_1/pin"]);
 });
+
+test("every change that may loosen a bot goes through the daemon in the desktop app, so it can carry the person's stamp", async () => {
+  const { client, asked } = daemon();
+  // Spade straight from the app refuses an unstamped raise, as the real one does.
+  const direct = desktop({
+    kind: "text",
+    status: 403,
+    contentType: "application/json",
+    body: '{"error":"Confirm your identity to continue."}',
+  });
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  const changes: [method: "PUT" | "POST" | "DELETE", path: string, body?: unknown][] = [
+    ["PUT", "/v1/agents/a_1/security/permissions", { key: "computer_use", on: true }],
+    ["PUT", "/v1/security/permissions", { key: "browser", on: true }],
+    ["PUT", "/v1/security/never-apps", { apps: [] }],
+    ["PUT", "/v1/agents/a_1/security/network", { mode: "open" }],
+    ["DELETE", "/v1/agents/a_1/security/plugin-network"],
+    ["PUT", "/v1/security/commands", { commands: "outside" }],
+    ["POST", "/v1/agents/a_1/grants", { kind: "folder", path: "/tmp", write: true }],
+    ["PUT", "/v1/agents/a_1/connectors", { connectors: [] }],
+    ["PUT", "/v1/agents/a_1/package/effects", { key: "send", on: true }],
+    ["PUT", "/v1/main/host", { host: "h", version: 1, at: 1, by: "seed" }],
+  ];
+  for (const [method, path, body] of changes)
+    expect(await spadeHttp(transport, method, path, body === undefined ? {} : { body })).toBe(
+      '"daemon"',
+    );
+  expect(direct.sent).toEqual([]);
+  expect(asked.map((request) => request.path)).toEqual(changes.map(([, path]) => path));
+});
+
+test("a change Spade refuses straight from the app for want of the person's stamp is sent again through the daemon", async () => {
+  const { client, asked } = daemon();
+  const direct = desktop({
+    kind: "text",
+    status: 403,
+    contentType: "application/json",
+    body: '{"error":"Confirm your identity to continue."}',
+  });
+  const transport = new SpadeTransport(client, direct.spade, deps);
+  expect(await spadeHttp(transport, "PUT", "/v1/agents/a_1/reach", { body: { on: true } })).toBe(
+    '"daemon"',
+  );
+  expect(direct.sent.map((request) => request.path)).toEqual(["/v1/agents/a_1/reach"]);
+  expect(asked.map((request) => request.path)).toEqual(["/v1/agents/a_1/reach"]);
+});

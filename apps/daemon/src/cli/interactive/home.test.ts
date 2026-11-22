@@ -148,7 +148,7 @@ describe("home view", () => {
     expect(lines[1]).toContain("ace/relay-sleep");
     expect(lines[1]).toContain("claude");
     expect(lines.at(-1)).toBe(
-      "n new thread · r requests 1 · p projects · s Spade · m market · , settings · d doctor · ? help · q quit",
+      "n new thread · r requests 1 · p projects · s Spade · m Store · , settings · d doctor · ? help · q quit",
     );
     for (const line of lines) expect(textWidth(line)).toBeLessThanOrEqual(110);
   });

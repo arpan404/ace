@@ -54,6 +54,13 @@ export function PersonConfirmation(
     setSigning(true);
     setProblem(undefined);
     try {
+      // A window that holds the person's sign-in, or the desktop app's kept key, proves with no
+      // browser at all (ADR 0190, amendment 1); only a window that can't signs in again.
+      if (!props.freshSignIn && !props.beforeProof && (await proveAgain(client))) {
+        if (!active.signal.aborted) props.onConfirmed();
+        return;
+      }
+      if (active.signal.aborted) return;
       const signed = await store.signInAgain(openExternalWhenReady);
       const session = store.get().session;
       if (!signed || !session) {

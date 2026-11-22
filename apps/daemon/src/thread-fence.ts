@@ -47,6 +47,7 @@ const inertClientFields = new Set([
   "readAt",
   "settledAt",
   "settledReason",
+  "settledOverQueue",
   "snoozedUntil",
   "snoozeWake",
   "snoozeWoke",

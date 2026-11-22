@@ -258,6 +258,7 @@ export class ClientCore implements ClientCoreApi, ConnectionControl {
                     nonce: message.standingNonce,
                     binding: this.connection.channelBinding,
                     device: this.options.deviceId,
+                    ...(message.standingAppSocket ? { appSocket: true } : {}),
                   };
             this.#newSocket();
             this.#hostId = message.hostId;

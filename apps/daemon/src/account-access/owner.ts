@@ -21,22 +21,91 @@ import { z } from "zod";
  * organization's, or a local reset) hands the machine on.
  */
 
-const PersonOwner = z.object({ account: z.string().min(1).max(256) });
+/** The most app keys the owner keeps: one per desktop app install, a few reinstalls over. */
+const maxAppKeys = 8;
+const AppKey = z.string().regex(/^[A-Za-z0-9_-]{87}$/);
+const PersonOwner = z.object({
+  account: z.string().min(1).max(256),
+  /**
+   * The public halves of the owner's desktop app keys (ADR 0190, amendment 1). Only the key's
+   * signature counts, so reading them proves nothing; a key that doesn't parse is dropped.
+   */
+  appKeys: z.array(z.unknown()).max(64).optional(),
+});
 /** An organization's host (ADR 0206 §2.1): its members' grants carry standing, nobody's person's. */
 const OrgOwner = z.object({
   kind: z.literal("org"),
   org: z.string().regex(/^org_[A-Za-z0-9]{1,64}$/),
 });
-type Owner = { kind: "person"; account: string } | { kind: "org"; org: string };
+type Owner =
+  | { kind: "person"; account: string; appKeys: readonly string[] }
+  | { kind: "org"; org: string };
 const file = (dataDir: string) => join(dataDir, "ace-owner.json");
+/**
+ * The organization whose data this home holds (ADR 0209 amendment 1). Written when the machine is
+ * given to an organization and never removed by ace: a release clears the owner, not the seal,
+ * so the org's threads stay behind its access policy and no person's proof claims the home.
+ */
+const sealFile = (dataDir: string) => join(dataDir, "ace-org-seal.json");
+const Seal = z.object({ kind: z.literal("org-seal"), org: OrgOwner.shape.org });
+/** The organization an `ace-org-seal.json` body names. */
+export const sealOrgOf = (raw: unknown): string | undefined => Seal.safeParse(raw).data?.org;
+/**
+ * What a seal that is there but can't be read or parsed stands for: an organization ace can't
+ * name. It never matches a real one (`org_` ids have no `?`), so the home stays sealed, no
+ * person claims it, and no member is admitted.
+ */
+export const UNREADABLE_SEAL = "org_?unreadable";
+const missing = (error: unknown) =>
+  error instanceof Error && "code" in error && error.code === "ENOENT";
+/**
+ * The organization a read of `ace-org-seal.json` names: undefined only when there is no seal
+ * file at all (`ENOENT`). Any other read error, or a body that isn't a seal, fails closed.
+ */
+export function sealOf(read: { text: string } | { error: unknown }): string | undefined {
+  if ("error" in read) return missing(read.error) ? undefined : UNREADABLE_SEAL;
+  try {
+    return sealOrgOf(JSON.parse(read.text)) ?? UNREADABLE_SEAL;
+  } catch {
+    return UNREADABLE_SEAL;
+  }
+}
+/** The organization an `ace-owner.json` body names, or undefined for a person's machine. */
+export const ownerOrgOf = (raw: unknown): string | undefined => {
+  const org = OrgOwner.safeParse(raw);
+  return org.success ? org.data.org : undefined;
+};
 const parseOwner = (raw: unknown): Owner => {
   const org = OrgOwner.safeParse(raw);
   if (org.success) return { kind: "org", org: org.data.org };
-  return { kind: "person", account: PersonOwner.parse(raw).account };
+  const person = PersonOwner.parse(raw);
+  const appKeys = (person.appKeys ?? []).flatMap((key) => {
+    const parsed = AppKey.safeParse(key);
+    return parsed.success ? [parsed.data] : [];
+  });
+  return { kind: "person", account: person.account, appKeys: appKeys.slice(-maxAppKeys) };
 };
 
-export function machineOwner(dataDir: string) {
+export function machineOwner(
+  dataDir: string,
+  hooks: {
+    /**
+     * The home was sealed just now, before anything else of the enrollment is written: work an
+     * org host refuses (parcels in flight) ends here, whether or not the owner record follows.
+     */
+    sealed?: () => void;
+  } = {},
+) {
   let owner: Owner | undefined;
+  let seal: string | undefined;
+  const writeSeal = async (org: string) => {
+    await mkdir(dataDir, { recursive: true, mode: 0o700 });
+    const temporary = `${sealFile(dataDir)}.${randomUUID()}`;
+    await writeFile(temporary, JSON.stringify({ kind: "org-seal", org }), { mode: 0o600 });
+    await rename(temporary, sealFile(dataDir));
+    seal = org;
+    hooks.sealed?.();
+  };
   let generation = 0;
   let changing = false;
   let turn: Promise<unknown> = Promise.resolve();
@@ -49,7 +118,13 @@ export function machineOwner(dataDir: string) {
   const write = async (next: Owner) => {
     await mkdir(dataDir, { recursive: true, mode: 0o700 });
     const temporary = `${file(dataDir)}.${randomUUID()}`;
-    const body = next.kind === "org" ? { kind: "org", org: next.org } : { account: next.account };
+    const body =
+      next.kind === "org"
+        ? { kind: "org", org: next.org }
+        : {
+            account: next.account,
+            ...(next.appKeys.length ? { appKeys: [...next.appKeys] } : {}),
+          };
     await writeFile(temporary, JSON.stringify(body), { mode: 0o600 });
     await rename(temporary, file(dataDir));
   };
@@ -75,12 +150,26 @@ export function machineOwner(dataDir: string) {
       } catch {
         owner = undefined;
       }
+      // Only a missing seal is no seal: one that can't be read or parsed fails closed.
+      seal = await readFile(sealFile(dataDir), "utf8").then(
+        (text) => sealOf({ text }),
+        (error: unknown) => sealOf({ error }),
+      );
+      // A home given to an organization before seals existed is sealed now; only a home with no
+      // seal file at all. A seal for another organization than the owner record stands, and the
+      // record answers for nobody: the mismatch fails closed.
+      if (owner?.kind === "org" && seal === undefined) await writeSeal(owner.org);
+      else if (owner?.kind === "org" && seal !== owner.org) owner = undefined;
     },
+    /** The organization whose data this home holds, enrolled or released; undefined if none. */
+    sealed: (): string | undefined => seal,
     /**
      * The owner's account id: undefined before any person's proof was taken, and on an
      * organization's host, where no person owns the machine (`org`).
      */
-    current: (): string | undefined => (owner?.kind === "person" ? owner.account : undefined),
+    current: (): string | undefined =>
+      // A person's record beside a seal (an enrollment cut off after its seal) owns nothing.
+      owner?.kind === "person" && seal === undefined ? owner.account : undefined,
     /** The organization whose host this is (ADR 0206 §2.1), or undefined. */
     org: (): string | undefined => (owner?.kind === "org" ? owner.org : undefined),
     /** The generation a proof starting now is checked against (`holds`, `claim`). */
@@ -95,9 +184,30 @@ export function machineOwner(dataDir: string) {
     claim(account: string, seen: number): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
+        // A sealed home is an organization's, released or mid-enrollment, whatever person's
+        // record sits beside the seal: personal use starts on a fresh home.
+        if (seal !== undefined) return false;
         if (owner !== undefined) return owner.kind === "person" && owner.account === account;
         // Nothing was proven without an owner, so no standing needs to end here.
-        const next: Owner = { kind: "person", account };
+        const next: Owner = { kind: "person", account, appKeys: [] };
+        await write(next);
+        owner = next;
+        return true;
+      });
+    },
+    /** The owner's desktop app keys (ADR 0190, amendment 1); none on an org's host. */
+    appKeys: (): readonly string[] => (owner?.kind === "person" ? owner.appKeys : []),
+    /**
+     * Keeps `key` as one of `account`'s app keys, proven under `seen`: false unless they still
+     * own the machine and nothing changed since. The oldest goes past the limit.
+     */
+    addAppKey(account: string, key: string, seen: number): Promise<boolean> {
+      return exclusive(async () => {
+        if (changing || seen !== generation) return false;
+        if (owner?.kind !== "person" || owner.account !== account) return false;
+        if (!AppKey.safeParse(key).success) return false;
+        if (owner.appKeys.includes(key)) return true;
+        const next: Owner = { ...owner, appKeys: [...owner.appKeys, key].slice(-maxAppKeys) };
         await write(next);
         owner = next;
         return true;
@@ -111,13 +221,26 @@ export function machineOwner(dataDir: string) {
     enroll(account: string, org: string, seen: number, drop: () => void): Promise<boolean> {
       return exclusive(async () => {
         if (changing || seen !== generation) return false;
+        // An enrollment never rewrites a seal: a sealed home isn't a person's to give.
+        if (seal !== undefined) return false;
         if (owner?.kind !== "person" || owner.account !== account) return false;
         const next: Owner = { kind: "org", org };
         await change(drop, async () => {
+          // Sealed first: a crash between the two leaves the home sealed, never open.
+          await writeSeal(org);
           await write(next);
           owner = next;
         });
         return true;
+      });
+    },
+    /** Forgets `key` (signing out of the app that holds it); nothing else changes. */
+    removeAppKey(key: string): Promise<void> {
+      return exclusive(async () => {
+        if (owner?.kind !== "person" || !owner.appKeys.includes(key)) return;
+        const next: Owner = { ...owner, appKeys: owner.appKeys.filter((each) => each !== key) };
+        await write(next);
+        owner = next;
       });
     },
     /**

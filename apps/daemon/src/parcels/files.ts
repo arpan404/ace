@@ -126,12 +126,19 @@ export class ParcelFiles {
       return 0;
     }
   }
-  /** Writes `bytes` at `offset`, dropping anything past it first (a crash's partial write). */
-  async append(parcelId: string, offset: number, bytes: Buffer): Promise<void> {
+  /**
+   * Writes `bytes` at `offset`, dropping anything past it first (a crash's partial write).
+   * `guard` is asked before the file opens, again before it is cut and again before the bytes
+   * are written, since enrollment can land while any of those waits; a throw stops there.
+   */
+  async append(parcelId: string, offset: number, bytes: Buffer, guard?: () => void): Promise<void> {
     await this.dir("in");
+    guard?.();
     const file = await open(this.part(parcelId), constants.O_WRONLY | constants.O_CREAT, 0o600);
     try {
+      guard?.();
       await file.truncate(offset);
+      guard?.();
       await file.write(bytes, 0, bytes.length, offset);
     } finally {
       await file.close();
@@ -141,9 +148,20 @@ export class ParcelFiles {
    * Checks the whole arriving file against `sha256` and places it read-only under its name.
    * A mismatch removes it, so the sender starts over.
    */
-  async finish(parcelId: string, name: string, size: number, sha256: string): Promise<string> {
+  async finish(
+    parcelId: string,
+    name: string,
+    size: number,
+    sha256: string,
+    /**
+     * Asked before the arriving file is opened (an empty parcel's is made then) and right before
+     * the parcel is placed under its name; a throw places nothing.
+     */
+    guard?: () => void,
+  ): Promise<string> {
     const part = this.part(parcelId);
     await this.dir("in");
+    guard?.();
     // An empty parcel never had a chunk written: its file is made here.
     const file = await open(part, constants.O_RDWR | constants.O_CREAT, 0o600);
     const hash = createHash("sha256");
@@ -168,6 +186,7 @@ export class ParcelFiles {
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const placed = join(folder, name);
     await chmod(part, 0o400);
+    guard?.();
     await rename(part, placed);
     return placed;
   }

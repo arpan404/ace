@@ -7,6 +7,7 @@
 export { Editor, type EditorProps } from "./editor.tsx";
 export { OpenEditors } from "./open-editors.tsx";
 export type { EditorLayoutProps } from "./group-actions.ts";
+export { paneCapReason } from "./group-actions.ts";
 export {
   editorBuffers,
   useEditorBuffers,

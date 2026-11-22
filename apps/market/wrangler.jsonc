@@ -59,8 +59,7 @@
       "database_id": "00000000-0000-4000-8000-000000000008",
       "migrations_dir": "migrations/lists",
     },
-    // Organizations' private registries (ADR 0206 §5.1). Not in production yet: until it is
-    // created there, the Worker has no registries and answers their routes 404.
+    // Organizations' private registries (ADR 0206 §5.1).
     {
       "binding": "MARKET_ORGS",
       "database_name": "ace-market-orgs",
@@ -85,11 +84,14 @@
   "observability": { "enabled": false },
   // Download totals reach the index's changes every quarter hour (src/store/downloads.ts).
   "triggers": { "crons": ["*/15 * * * *"] },
-  // market.acehq.dev: deploy with `--env production`. The top level is for development and tests.
+  // store.acehq.dev (and legacy market.acehq.dev): deploy with `--env production`. The top level is for development and tests.
   "env": {
     "production": {
       "name": "ace-market",
-      "routes": [{ "pattern": "market.acehq.dev", "custom_domain": true }],
+      "routes": [
+        { "pattern": "store.acehq.dev", "custom_domain": true },
+        { "pattern": "market.acehq.dev", "custom_domain": true },
+      ],
       "vars": {
         // ACE_GRANT_KEYS is unset here, so publishing grants are checked against these.
         "ACE_ACCOUNT_KEYS_URL": "https://cloud.acehq.dev/v1/keys",
@@ -145,6 +147,12 @@
           "database_id": "de6592b1-26ae-447d-84f9-cba09f4fe58a",
           "migrations_dir": "migrations/lists",
         },
+        {
+          "binding": "MARKET_ORGS",
+          "database_name": "ace-market-orgs",
+          "database_id": "9d8f1710-479f-4250-b2ab-199a9b7b90d4",
+          "migrations_dir": "migrations/orgs",
+        },
       ],
       "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects" }],
       "ratelimits": [
@@ -152,79 +160,6 @@
         { "name": "PUBLISHES", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } },
         { "name": "DOWNLOADS", "namespace_id": "2003", "simple": { "limit": 1, "period": 60 } },
         { "name": "REPORTS", "namespace_id": "2004", "simple": { "limit": 5, "period": 60 } },
-      ],
-      "observability": { "enabled": false },
-      "triggers": { "crons": ["*/15 * * * *"] },
-    },
-    // Staging at staging.market.acehq.dev: `--env staging`, deployed before production on every
-    // release (docs/release/workers.md). Its own databases and bucket; publishing grants come
-    // from staging ace cloud.
-    "staging": {
-      "name": "ace-market-staging",
-      "routes": [{ "pattern": "staging.market.acehq.dev", "custom_domain": true }],
-      "vars": {
-        "ACE_ACCOUNT_KEYS_URL": "https://staging.cloud.acehq.dev/v1/keys",
-        "ACE_ORG_STANDING_URL": "https://staging.cloud.acehq.dev/v1/grants/standing",
-        "ACE_GRANT_ISSUER": "staging.cloud.acehq.dev",
-      },
-      // OWNER: replace each placeholder with the id `wrangler d1 create <database_name>` prints.
-      // The deploy script refuses to deploy staging while any placeholder is here.
-      "d1_databases": [
-        {
-          "binding": "MARKET_SUITS",
-          "database_name": "ace-market-suits-staging",
-          "database_id": "REPLACE-WITH-ace-market-suits-staging-ID",
-          "migrations_dir": "migrations/catalogue",
-        },
-        {
-          "binding": "MARKET_SKILLS",
-          "database_name": "ace-market-skills-staging",
-          "database_id": "REPLACE-WITH-ace-market-skills-staging-ID",
-          "migrations_dir": "migrations/catalogue",
-        },
-        {
-          "binding": "MARKET_PLUGINS",
-          "database_name": "ace-market-plugins-staging",
-          "database_id": "REPLACE-WITH-ace-market-plugins-staging-ID",
-          "migrations_dir": "migrations/catalogue",
-        },
-        {
-          "binding": "MARKET_BOTS",
-          "database_name": "ace-market-bots-staging",
-          "database_id": "REPLACE-WITH-ace-market-bots-staging-ID",
-          "migrations_dir": "migrations/catalogue",
-        },
-        {
-          "binding": "MARKET_PUBLISHERS",
-          "database_name": "ace-market-publishers-staging",
-          "database_id": "REPLACE-WITH-ace-market-publishers-staging-ID",
-          "migrations_dir": "migrations/publishers",
-        },
-        {
-          "binding": "MARKET_COUNTS",
-          "database_name": "ace-market-counts-staging",
-          "database_id": "REPLACE-WITH-ace-market-counts-staging-ID",
-          "migrations_dir": "migrations/counts",
-        },
-        {
-          "binding": "MARKET_MODERATION",
-          "database_name": "ace-market-moderation-staging",
-          "database_id": "REPLACE-WITH-ace-market-moderation-staging-ID",
-          "migrations_dir": "migrations/moderation",
-        },
-        {
-          "binding": "MARKET_LISTS",
-          "database_name": "ace-market-lists-staging",
-          "database_id": "REPLACE-WITH-ace-market-lists-staging-ID",
-          "migrations_dir": "migrations/lists",
-        },
-      ],
-      "r2_buckets": [{ "binding": "OBJECTS", "bucket_name": "ace-market-objects-staging" }],
-      "ratelimits": [
-        { "name": "READS", "namespace_id": "2101", "simple": { "limit": 600, "period": 60 } },
-        { "name": "PUBLISHES", "namespace_id": "2102", "simple": { "limit": 60, "period": 60 } },
-        { "name": "DOWNLOADS", "namespace_id": "2103", "simple": { "limit": 1, "period": 60 } },
-        { "name": "REPORTS", "namespace_id": "2104", "simple": { "limit": 5, "period": 60 } },
       ],
       "observability": { "enabled": false },
       "triggers": { "crons": ["*/15 * * * *"] },

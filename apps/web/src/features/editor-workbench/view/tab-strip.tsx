@@ -148,8 +148,10 @@ export function TabStrip(props: {
           shortcut="editor.splitRight"
           size="sm"
           icon={SquareSplitHorizontalIcon}
-          // An empty group has nothing to show twice.
-          disabled={group.active === undefined}
+          // An empty pane has nothing to show twice; at the pane cap no pane is made, and the
+          // tooltip says why.
+          disabled={group.active === undefined || actions.capped !== undefined}
+          reason={actions.capped}
           // ⌥-click splits down, as ⇧⌥⌘\ does.
           onClick={(event) => actions.split(event.altKey ? "down" : "right")}
         />

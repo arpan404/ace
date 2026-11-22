@@ -41,7 +41,7 @@ bypassing actor can create a restricted tag, so only the owner can start a relea
 
 ### Environments
 
-**Settings › Environments**: create `release`, `staging` and `production`. For each:
+**Settings › Environments**: create `release` and `production`. For each:
 
 - No required reviewers (the tag push is the approval).
 - Deployment branches and tags: **Selected branches and tags**, adding branch `main` (for a
@@ -50,7 +50,6 @@ bypassing actor can create a restricted tag, so only the owner can start a relea
 | Environment  | Secrets                                                                                                                                       | Variables                                                                                                                                                                                                                                                              |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `release`    | `ACE_RELEASE_PRIVATE_KEY` (the Ed25519 PEM), `MAC_KEYCHAIN_PASSWORD`, `AZURE_CLIENT_SECRET` (if Windows is signed with Azure Trusted Signing) | `ACE_RELEASE_PUBLIC_KEY` (PEM), `CSC_NAME`, `APPLE_KEYCHAIN_PROFILE` (`ace-notary`), and for Windows signing `ACE_WINDOWS_PUBLISHER`, `ACE_AZURE_SIGNING_ENDPOINT`, `ACE_AZURE_SIGNING_ACCOUNT`, `ACE_AZURE_CERTIFICATE_PROFILE`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` |
-| `staging`    | `CLOUDFLARE_API_TOKEN` (a token scoped to the staging Workers and D1)                                                                         | `CLOUDFLARE_ACCOUNT_ID`                                                                                                                                                                                                                                                |
 | `production` | `CLOUDFLARE_API_TOKEN` (production Workers and D1, and Pages edit for the web app), `MARKETING_DEPLOY_HOOK` (optional)                        | `CLOUDFLARE_ACCOUNT_ID`                                                                                                                                                                                                                                                |
 
 Delete the old repository-level `CLOUDFLARE_API_TOKEN` secret once `production` has its own:
@@ -269,7 +268,7 @@ Start-ScheduledTask -TaskName 'ace release runner'
 
 - Settings › Actions › Runners shows `omarchy-1..3`, `ace-mac` and `ace-win` idle.
 - Push a beta tag (`ace-<next>-beta-<N>`). Watch Actions › Release: prepare plans all four
-  platforms, each build runs on its machine, notes appear on the draft, staging and production
-  deploy, and the beta publishes as a prerelease. The owner gets the notify hook's message.
+  platforms, each build runs on its machine, notes appear on the draft, production deploys, and
+  the beta publishes as a prerelease. The owner gets the notify hook's message.
 - Renew the runner token and update the runner folders when GitHub announces a new minimum
   runner version (the runners don't update themselves: `--disableupdate`).

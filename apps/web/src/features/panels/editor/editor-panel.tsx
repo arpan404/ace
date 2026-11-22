@@ -32,6 +32,7 @@ import {
   Editor,
   BufferEditor,
   OpenEditors,
+  paneCapReason,
   useEditorBuffers,
   type EditorCompareProps,
   type BufferEditorProps,
@@ -139,9 +140,12 @@ export function EditorPanel(props: TabViewProps) {
   const session = useEditorSession(threadId, registry, buffers, layout);
   const [problem, setProblem] = useState<SaveProblem | "offline">();
 
+  // Split right or down at the pane cap: why nothing happened, until the layout next changes.
+  const [capNotice, setCapNotice] = useState<string | undefined>(undefined);
   const change = (next: EditorLayout) => {
     if (next === latest.current) return;
     latest.current = next;
+    setCapNotice(undefined);
     // Drafts still on their way to the draft store ride along until it has them.
     actions.update(props.tab.key, {
       data: withDrafts(storedLayout(next, unsavedOf(host)), carried),
@@ -287,8 +291,9 @@ export function EditorPanel(props: TabViewProps) {
 
   // The status line's left side (spec 41, 45, 66).
   const changes = session.changes;
-  const notice: StatusNotice | undefined =
-    problem === "offline"
+  const notice: StatusNotice | undefined = capNotice
+    ? { text: capNotice }
+    : problem === "offline"
       ? { text: "Saving when the daemon reconnects" }
       : problem
         ? {
@@ -348,9 +353,11 @@ export function EditorPanel(props: TabViewProps) {
           moveActiveEditor(now, command === "moveEditorOn" ? "next" : "previous", groupIds(now)),
         );
       case "splitRight":
-        return change(splitFocused(now, "right", editorRoom(), paneCap));
       case "splitDown":
-        return change(splitFocused(now, "down", editorRoom(), paneCap));
+        if (groupsOf(now).length >= paneCap) return setCapNotice(paneCapReason(paneCap));
+        return change(
+          splitFocused(now, command === "splitRight" ? "right" : "down", editorRoom(), paneCap),
+        );
       case "explorer":
         return setExplorer({ open: !now.explorer.open });
       case "searchFiles":

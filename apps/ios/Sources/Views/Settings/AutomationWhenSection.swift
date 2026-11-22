@@ -3,7 +3,8 @@ import SwiftUI
 /// "When it runs" in the automation editor: the kind of trigger, then its own fields. A schedule
 /// gets a repeat, its day and time (native pickers read in the schedule's zone), a later start,
 /// the zone, the missed-run rule and its next three starts; GitHub a repository, event and label;
-/// files their globs; a webhook says where its secret is made. The kinds, cadences and every word come from the bridge.
+/// files their globs; a webhook says its secret and URL are on its page
+/// (`AutomationWebhookSection`). The kinds, cadences and every word come from the bridge.
 struct AutomationWhenSection: View {
     @Binding var form: AutomationFormValues
     let view: AutomationFormView
@@ -30,7 +31,7 @@ struct AutomationWhenSection: View {
             case "github": github
             case "file": files
             case "webhook":
-                Text("It runs when its signed webhook is called. Make its secret and URL in ace on your computer.")
+                Text("It runs when its signed webhook is called. Its secret and URLs are on its page once it's saved.")
                     .font(AceDesign.Typeface.meta)
                     .foregroundStyle(AceDesign.Ink.muted)
             default:
