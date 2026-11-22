@@ -551,9 +551,9 @@ import QuartzCore
             }
             switch patch {
             case .service(let reply):
-                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value, late: !services.isWaiting(reply.id)) }
                 services.receive(reply)
-            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value, late: true)
             case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.

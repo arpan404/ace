@@ -65,6 +65,31 @@ import Testing
         #expect(model.readGeneration(Self.list) == before + 1)
     }
 
+    @Test func aScreensOwnAnswerIsNotLateButOneAfterItStoppedWaitingIsAndEvictionIsNeither() async throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        func reply(_ id: String) throws -> Data {
+            try frame([["type": "service.reply", "id": id, "ok": true, "message": "",
+                        "value": ["result": ["kind": "list"]], "cache": ["key": key, "family": "prompts"]]])
+        }
+        let waiting = Task { try await model.services.wait(id: "native-1") { true } }
+        await Task.yield()
+        model.receive(try reply("native-1"))
+        _ = try await waiting.value
+        #expect(model.lateKept(Self.list) == 0)
+
+        // Replacing the entry after nothing waits for it moves the revision each time.
+        model.receive(try reply("native-2"))
+        let first = model.lateKept(Self.list)
+        #expect(first > 0)
+        model.receive(try reply("native-3"))
+        #expect(model.lateKept(Self.list) > first)
+
+        let settled = model.lateKept(Self.list)
+        model.receive(try frame([["type": "service.evict", "key": key]]))
+        #expect(model.lateKept(Self.list) == settled)
+    }
+
     @Test func pullToRefreshNamesTheSameReadAsAnOrdinaryVisit() {
         let page: [String: Any] = ["type": "forge.pulls", "project": "p", "screens": 1]
         var refreshing = page
