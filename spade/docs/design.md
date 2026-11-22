@@ -123,7 +123,7 @@ conversation always misses; every later call misses only on its new tail. The ru
 1. **ace search**: `POST {cloud}/v1/search` on ace cloud (`https://cloud.acehq.dev`;
    `SPADE_CLOUD_URL` in development, `off` turns it off), with the person's ace account grant
    Spade already holds in memory for the sign-in broker (`Authorization: Bearer`, `ace-client:
-   spade/<version>`). No secret is stored. The query is trimmed and cut to 400 characters; at
+spade/<version>`). No secret is stored. The query is trimmed and cut to 400 characters; at
    most 10 results. Only `https`, or `http` on this machine; redirects are never followed. The
    answer `{results: [{url, title, snippet, site}], provider, usage}` is read leniently (items
    without a string `url` are skipped, missing text becomes empty, unknown fields are ignored)
