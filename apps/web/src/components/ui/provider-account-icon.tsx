@@ -19,8 +19,8 @@ export const accountColors: Record<AccountBadgeColor, string> = {
 };
 
 /**
- * Provider glyph and, when accounts need distinguishing, the account's mark as a bubble on the
- * glyph's corner, cut out of the surface beneath.
+ * The provider's glyph. The account is named in words (the title and accessible name, and the
+ * model picker's chip), never as a letter on the glyph.
  */
 export function ProviderAccountIcon(
   props: ProviderIconProps & {
@@ -28,67 +28,36 @@ export function ProviderAccountIcon(
     account?: AccountView | undefined;
     /** The accounts `instance` is one of, when not this window's: another machine's. */
     accounts?: readonly AccountView[] | undefined;
-    /** False hides the account mark where room is short; the accessible name keeps it. */
-    accountLabel?: boolean;
     tooltip?: boolean;
   },
 ) {
   const accounts = useAccountViews();
-  const mark = providerAccount(props.accounts ?? accounts.data, {
+  const { account } = providerAccount(props.accounts ?? accounts.data, {
     provider: props.provider,
     instance: props.instance,
     account: props.account,
   });
-  const { account } = mark;
-  const size = props.size ?? 16;
-  // The CLI's own login, never renamed, stands for the provider and carries no bubble.
+  // The CLI's own login, never renamed, stands for the provider.
   const plain = account !== undefined && isPlainCliLogin(account);
-  const bubble = mark.bubble && account && props.accountLabel !== false;
   const name = [providerNames[props.provider], plain ? undefined : account?.label]
     .filter(Boolean)
     .join(" · ");
   return (
     <span
-      className={cn(
-        "relative inline-flex shrink-0 items-center justify-center",
-        // The bubble hangs past the glyph's corner; keep it clear of whatever follows.
-        bubble && "me-1",
-        props.className,
-      )}
-
+      className={cn("relative inline-flex shrink-0 items-center justify-center", props.className)}
       title={hoverTitle(props.tooltip, name, account?.shortLabel)}
       {...(props.decorative ? { "aria-hidden": true } : { role: "img", "aria-label": name })}
     >
-      <span className="inline-flex" style={bubble ? bubbleCut : undefined}>
-        <ProviderIcon
-          {...props}
-          size={size}
-          acpAgentId={props.acpAgentId ?? account?.acpAgentId}
-          className={undefined}
-          decorative
-        />
-      </span>
-      {bubble && account && (
-        <AccountBadge
-          account={account}
-          tooltip={props.tooltip}
-          className="absolute -right-1 -bottom-[3px] size-[11px] bg-foreground text-[7px] leading-none font-semibold tracking-tight text-background"
-          decorative
-        />
-      )}
+      <ProviderIcon
+        {...props}
+        size={props.size ?? 16}
+        acpAgentId={props.acpAgentId ?? account?.acpAgentId}
+        className={undefined}
+        decorative
+      />
     </span>
   );
 }
-
-/**
- * The bubble's outline, cut out of the glyph rather than drawn in a surface colour, so it reads
- * the same on any background: plain, hovered or selected rows, glass. Centred on the 11px
- * bubble that sits 4px right of and 3px below the glyph, with 1.5px to spare.
- */
-const bubbleCut = {
-  maskImage:
-    "radial-gradient(circle at calc(100% + 1.5px) calc(100% + 2.5px), transparent 7px, #000 7.5px)",
-};
 
 function hoverTitle(
   enabled: boolean | undefined,

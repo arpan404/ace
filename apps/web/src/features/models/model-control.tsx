@@ -1,6 +1,7 @@
 import "@/styles/model-control.css";
 import { ProviderAccountIcon } from "@/components/ui/provider-account-icon.tsx";
-import { effortLabel, effortShortLabel, speedLabel } from "@ace/ui-core";
+import { effortLabel, effortShortLabel, providerAccount, speedLabel } from "@ace/ui-core";
+import { useAccountViews } from "@/lib/account-views.ts";
 import { CaretDownIcon, ClockIcon } from "@ace/icons";
 import { Suspense, useEffect, useEffectEvent, useState, type ReactElement } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
@@ -51,8 +52,20 @@ export function ModelControl(props: {
     }
   };
   const switching = view.switching;
+  const accounts = useAccountViews();
+  // Named in words, and only where the account is not the default one.
+  const accountName = view.provider
+    ? (() => {
+        const { account, bubble } = providerAccount(accounts.data, {
+          provider: view.provider,
+          instance: view.instance ?? view.account,
+        });
+        return bubble ? account?.label : undefined;
+      })()
+    : undefined;
   const tip = [
     view.tip,
+    accountName && `${accountName} account`,
     view.offline,
     switching?.from && `Previously ${switching.from}`,
     switching?.description,
@@ -94,14 +107,17 @@ export function ModelControl(props: {
               provider={view.provider}
               instance={view.instance ?? view.account}
               size={14}
-              // A compact composer keeps the room for the model's name.
-              accountLabel={!props.compact}
             />
           )}
           {!view.label && view.catalog === "loading" && <Spinner />}
           <span data-slot="model-name" className="min-w-0 flex-1 truncate text-foreground">
             {view.label ?? view.placeholder}
           </span>
+          {accountName && !props.compact && (
+            <span className="min-w-0 shrink truncate text-muted-foreground">
+              {accountName}
+            </span>
+          )}
           {view.unavailable && (
             <span className="shrink-0 text-xs text-status-failed">Unavailable</span>
           )}

@@ -70,7 +70,6 @@ function UtilityModelRow() {
                   provider={resolved.provider}
                   instance={resolved.instance}
                   size={14}
-                  accountLabel={false}
                 />
               )}
               <span className="truncate">{label}</span>

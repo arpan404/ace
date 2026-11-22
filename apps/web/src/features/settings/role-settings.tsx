@@ -103,7 +103,7 @@ function RoleRow(props: { role: RunRole }) {
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 {provider && (
-                  <ProviderAccountIcon provider={provider} size={14} accountLabel={false} />
+                  <ProviderAccountIcon provider={provider} size={14} />
                 )}
                 <span className="truncate">{label}</span>
               </span>
