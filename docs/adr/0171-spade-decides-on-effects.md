@@ -668,11 +668,13 @@ step whose place changed is still looked at again by the bot.
 
 [ADR 0202](0202-spade-bridges-to-shared-agent-standards.md) amendment 5 changes decision 1's
 "a tool that declares nothing asks the person once". A connected app's tool with no trusted
-declaration is read from its own name: a clear read runs, and a payment, a send, an access change
-or a delete goes to the person. Any tool still undeclared goes to the reviewer in both modes, and
-to the person while untrusted content is in view. A new grant scope, an app's Always allow, covers
-one app's writes for one bot with the person's stamp; decision 5's never-granted effects stay
-the person's.
+declaration is read from its own folded name and what its arguments reach: a clear read with
+plain arguments and a pinned definition runs (reviewed under untrusted content), and a payment,
+a send, an access change or a delete goes to the person. Any tool still undeclared goes to the
+reviewer in both modes, and to the person while untrusted content is in view. A new grant scope,
+an app's Always allow, covers only named ordinary writes of one app, pinned to the definitions
+the person saw, for one bot, with their stamp; decision 5's never-granted effects stay the
+person's.
 
 ## Options considered
 

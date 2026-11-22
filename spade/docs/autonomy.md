@@ -40,9 +40,9 @@ as `effect::Call::mode`: after the hard stops (a secret refused; `pay`, `send_as
 `change_access` and `unknown` to the person, a granted push under untrusted content too),
 `effect::full_access` asks for a command outside the sandbox the shell classifier reads as a payment, a send or an
 access change, a request to leave the sandbox, and a tool that declares nothing outside the
-sandbox or able to reach the network while untrusted content is in view; without that content a
-connected app's such tool is decided like its declared writes, and any other goes to the
-reviewer (ADR 0202 amendment 5); a tool the person declined stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
+sandbox or able to reach the network while untrusted content is in view; without that content it
+goes to the reviewer, never run on the classifier's say alone, unless the person allowed it (ADR
+0202 amendment 5); a tool the person declined stays declined. An app's tool that writes and can reach the network, sandboxed or not, goes to the
 reviewer under untrusted content or while Spade's classifier is off (`Call::remote`,
 `Call::classifier`); only a plugin server sealed offline with no environment of its own is exempt
 (`Tool::sealed`). A stamp's nonce is claimed in Spade's store, so it stays used across restarts. Everything else runs with no reviewer and no request.
@@ -76,11 +76,13 @@ Every tool declares its effect once (ADR 0171 and its amendment 1):
   catalogue entry's `effects` (by the server's tool name) and `every_tool` (every tool of the
   app, read-only or not), and a plugin server's execution entry's `effects`. MCP hints can only
   raise it: a tool not marked `readOnlyHint` is at least `network`. With no trusted declaration,
-  a connected app's tool is read from its own name and description (`effect::named`, ADR 0202
-  amendment 5): a read verb with no word for a change is `read`; a name that pays, sends,
-  shares or changes access is `pay`, `send_as_person` or `change_access`; one that deletes asks
-  every call; anything else declares nothing. An annotation may narrow that reading, never
-  widen it. A plugin's tool with no trusted declaration declares nothing, whatever its hints say. The shipped catalogue marks every
+  a connected app's tool is read from its own folded name and description (`effect::named`)
+  and what its arguments reach (`effect::shape`, ADR 0202 amendment 5): an ASCII name with a
+  read verb, no word for a change anywhere in it and plain arguments, whose definition is the one
+  pinned for its connection, is `read` (reviewed under untrusted content); arguments naming a
+  destination or taking text to run leave it unresolved; a name that pays, sends, shares or
+  changes access is `pay`, `send_as_person` or `change_access`; one that deletes asks every
+  call; anything else declares nothing. An annotation may narrow that reading, never widen it. A plugin's tool with no trusted declaration declares nothing, whatever its hints say. The shipped catalogue marks every
   PayPal, Square and Stripe tool as `pay`, and GitHub's `add_issue_comment` as `send_as_person`
   and `merge_pull_request` as `publish`.
 - A declared word Spade doesn't know is `unknown`, never dropped. Names and descriptions are
@@ -114,10 +116,11 @@ In order, first match wins:
 | `publish`                                                                          | the reviewer, unless allowed always                                                   |
 
 A `tool` grant covers only a tool that declares `read`, `write_local`, `network` or `publish`.
-An `app` grant (the person's "Always allow for Notion") covers one connected app's writes for one
-bot: its undeclared tools and declared `write_local` or `network` ones, run without review, and
-reviewed under untrusted content; never a payment, a send, an access change, a publish or a
-delete. An undeclared tool's answer, from a Spade before ADR 0202 amendment 5, is still kept under the bot and the tool's identity: its server (a
+An `app` grant (the person's "Always allow for Notion") covers only the ordinary writes it names
+(`create`, `update`, `edit`, `append`, `add`, `set`, `insert` with plain arguments), each pinned
+to the definition the person saw, for one bot; run without review, and reviewed under untrusted
+content. Never a read, a payment, a send, an access change, a publish, a delete, a tool Spade
+can't place, or a tool added or changed since. An undeclared tool's answer, from a Spade before ADR 0202 amendment 5, is still kept under the bot and the tool's identity: its server (a
 connection and its address, or a plugin, its accepted version and server), its own name and a
 hash of its schema, never the name it is offered under; a helper reads its bot's. A name two
 sourced tools would be offered under (two servers, or names cut to a provider's 64 characters) is
