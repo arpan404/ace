@@ -74,6 +74,21 @@ registry.register(
             { type: "text-delta", text: "before" },
             { runId: "run-1", eventSeq: 1 },
           );
+          // A follow-up the person queued behind the running turn.
+          if (window === "admitted-followup")
+            engine.handler.handle(
+              Command.parse({
+                id: "follow-up",
+                deviceId: "device",
+                payload: {
+                  type: "thread.send",
+                  threadId: "crashed-thread",
+                  delivery: "queue",
+                  input: [{ type: "text", text: "follow-up" }],
+                },
+              }),
+              store,
+            );
           return reached();
         },
         async interrupt() {},
