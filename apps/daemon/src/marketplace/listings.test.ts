@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { ParsedCatalog } from "@ace/marketplace";
 import { keySetOf, testKey } from "@ace/marketplace/testing";
 import { afterEach, expect, test } from "vitest";
 import { refreshSource } from "./listings.ts";
@@ -21,20 +22,23 @@ const catalog: StoredSource = {
   enabled: true,
 };
 
+type Read = { commit: string; catalog: ParsedCatalog };
+const empty: ParsedCatalog = { name: "Catalog", entries: [], problems: [] };
+
 /** A git catalog whose read waits until the test lets it finish. */
 function slowGit() {
-  let finish: (catalog: { commit: string; catalog: { entries: [] } }) => void = () => {};
+  let finish: (read: Read) => void = () => {};
   let fail: (error: Error) => void = () => {};
   const git = {
     read: () =>
-      new Promise<{ commit: string; catalog: { entries: [] } }>((resolve, reject) => {
+      new Promise<Read>((resolve, reject) => {
         finish = resolve;
         fail = reject;
       }),
   };
   return {
     git,
-    finish: () => finish({ commit: "c1", catalog: { entries: [] } }),
+    finish: () => finish({ commit: "c1", catalog: empty }),
     fail: (error: Error) => fail(error),
   };
 }
