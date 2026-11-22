@@ -68,8 +68,8 @@ export interface SpadeFollowSnapshot<V = SpadeView> {
 
 /** Events per page when a conversation first opens. */
 const pageSize = 200;
-/** At most this many pages are asked for at once, ahead of the one being folded. */
-const pagesAhead = 8;
+/** At most this many history pages are out at once, the one being folded included. */
+const pagesInFlight = 8;
 
 /** Ends after which a new stream picks up where the last left off, after a pause. */
 const resumable = new Set<SpadeFollowEnd>(["restarted", "closed", "unavailable", "limit"]);
@@ -126,6 +126,8 @@ export class SpadeLiveConversation<S, V> {
   private expected = 0;
   /** The state began from events kept on this device (`seed`). */
   private seeded = false;
+  /** The last kept event as read, to check against Spade's own copy before going on from it. */
+  private keptLast: string | undefined;
   /** ...and Spade hasn't answered since, so the view may be out of date. */
   private kept = false;
   private resetListeners = new Set<() => void>();
@@ -180,14 +182,17 @@ export class SpadeLiveConversation<S, V> {
 
   /**
    * Events this device kept from an earlier open, in `seq` order, folded before `start`: the
-   * conversation shows them at once (`kept` until Spade answers) and the first read asks only
-   * for what came after the last of them.
+   * conversation shows them at once (`kept` until the live stream catches up) and the first read
+   * asks only for the last of them and what came after. Spade's copy of that last one must be
+   * the kept one, or the kept events aren't its history and it is read again from the start.
    */
   seed(stored: readonly SpadeStored[]): void {
     if (!this.stopped || this.seeded || this.lastSeq > 0) return;
     for (const event of stored) this.folder.fold(this.state, { kind: "stored", stored: event });
-    if (this.lastSeq === 0) return;
+    const last = stored.at(-1);
+    if (this.lastSeq === 0 || last?.seq !== this.lastSeq) return;
     this.seeded = true;
+    this.keptLast = JSON.stringify(last);
     this.kept = true;
     this.publish();
   }
@@ -201,8 +206,8 @@ export class SpadeLiveConversation<S, V> {
   }
 
   /**
-   * `listener` runs when the kept events turn out not to be Spade's (its history ends before
-   * them) and the conversation is read again from its start.
+   * `listener` runs when the kept events turn out not to be Spade's (its history doesn't hold
+   * the last of them as kept) and the conversation is read again from its start.
    */
   onReset(listener: () => void): () => void {
     this.resetListeners.add(listener);
@@ -321,16 +326,19 @@ export class SpadeLiveConversation<S, V> {
     // Spade numbers a conversation's events from 1 with no gaps, so the pages up to how many it
     // holds (`expect`) are asked for at once rather than one after another. Each is folded only
     // if the page before ended right where it begins; otherwise the rest are read in turn.
-    let first: Promise<SpadeStored[] | undefined> | undefined = this.readPage(this.lastSeq);
+    // From kept events, the first read starts at the last kept one, to check it is Spade's.
+    const checking = this.keptLast;
+    const start = checking === undefined ? this.lastSeq : this.lastSeq - 1;
+    let first: Promise<SpadeStored[] | undefined> | undefined = this.readPage(start);
     const ahead: { after: number; page: Promise<SpadeStored[] | undefined> }[] = [];
     for (
       let after = this.lastSeq + pageSize;
-      after < this.expected && ahead.length < pagesAhead;
+      after < this.expected && ahead.length < pagesInFlight - 1;
       after += pageSize
     )
       ahead.push({ after, page: this.readPage(after).catch(() => undefined) });
     for (;;) {
-      const after = this.lastSeq;
+      const after = first ? start : this.lastSeq;
       let page: SpadeStored[] | undefined;
       try {
         page = await (first ?? this.readPage(after));
@@ -342,10 +350,15 @@ export class SpadeLiveConversation<S, V> {
         return;
       }
       if (this.stopped || !page) return;
-      // Spade went on from where the kept events end: they are its, and the view is current.
-      // An empty page proves nothing (its history may end before them): the live stream's
-      // caught-up decides then.
-      if (page[0]?.seq === after + 1) this.kept = false;
+      if (checking !== undefined && this.keptLast !== undefined) {
+        this.keptLast = undefined;
+        // Spade holds a different event where the kept ones end, or none: they aren't its.
+        if (JSON.stringify(page[0]) !== checking) {
+          ahead.length = 0;
+          this.forget();
+          continue;
+        }
+      }
       if (!this.foldPage(page, after)) return;
       for (let next = ahead.shift(); next; next = ahead.shift()) {
         if (next.after !== this.lastSeq) break;
@@ -382,7 +395,7 @@ export class SpadeLiveConversation<S, V> {
   private frame(event: string, data: string) {
     for (const listener of this.sideListeners.get(event) ?? []) listener(data);
     const input = parseSpadeLiveFrame(event, data);
-    if (input?.kind === "caught_up" && this.seeded && input.seq < this.lastSeq) return this.reset();
+    // Only the live stream catching up confirms what was kept: Stop and approvals wait for it.
     if (input?.kind === "caught_up" && this.kept) {
       this.kept = false;
       this.schedule();
@@ -395,16 +408,13 @@ export class SpadeLiveConversation<S, V> {
     this.settleSends(input?.kind === "caught_up");
   }
 
-  /** Spade's history ends before the kept events: they aren't its, so read it all again. */
-  private reset() {
-    this.close();
+  /** The kept events aren't Spade's history: they go, and the reads start over from 1. */
+  private forget() {
     this.state = this.folder.empty();
     this.seeded = false;
     this.kept = false;
-    this.paged = false;
-    this.publish();
+    this.keptLast = undefined;
     for (const listener of this.resetListeners) listener();
-    this.open();
   }
 
   private ended(reason: SpadeFollowEnd, status: number | undefined) {

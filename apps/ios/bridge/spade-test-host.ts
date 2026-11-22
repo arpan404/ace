@@ -66,12 +66,14 @@ export async function setUp(
     /** Where the runtime keeps what the next launch draws first. */
     checkpoint?: (json: string) => void;
   } = {},
+  /** The fake Spade's clock, for histories two launches must hold alike. */
+  spadeNow: () => number = () => Date.now(),
 ) {
   const daemon = new FakeDaemon({ clock: Date.now, hostId: "ios-test-host", token: "t" });
   daemon.services.settings.write("beta.spade", true);
   daemon.services.settings.write("spade.enabled", true);
   daemon.spade.status = { state: "ready", version: "0.6.0" };
-  const api = new FakeSpadeApi(daemon.spade, () => Date.now());
+  const api = new FakeSpadeApi(daemon.spade, spadeNow);
   seed(api, daemon);
   const owner = new ClientCore({
     deviceId: DeviceId.parse("ios-spade-test"),

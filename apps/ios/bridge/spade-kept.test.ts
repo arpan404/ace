@@ -38,6 +38,8 @@ async function launch(keep: SpadeKeep, history: (api: FakeSpadeApi, bot: FakeSpa
     },
     quick,
     { keep },
+    // Both launches' Spade holds the same history, stamped alike.
+    () => 1_000,
   );
   if (!bot) throw new Error("no bot");
   const reads = () => host.api.sentPaths("GET", /\/events\?/);
@@ -76,7 +78,7 @@ test("an 800-event conversation kept from the last launch shows at once and read
     next.patches.bubbles.length === 402 ? next.patches.bubbles : undefined,
   );
   expect(next.reads()).toEqual([
-    `/v1/conversations/${next.bot.conversation}/events?after=800&limit=200`,
+    `/v1/conversations/${next.bot.conversation}/events?after=799&limit=200`,
   ]);
   // The tail lands after the kept rows, each once.
   expect(texts(fresh).slice(-4)).toEqual([
@@ -109,7 +111,7 @@ test("a conversation opened again in the same run shows in the same frame", asyn
   expect(texts(host.patches.bubbles)).toHaveLength(6);
   await until(() => (host.patches.bubbles.length === 8 ? true : undefined));
   expect(host.reads().at(-1)).toBe(
-    `/v1/conversations/${host.bot.conversation}/events?after=12&limit=200`,
+    `/v1/conversations/${host.bot.conversation}/events?after=11&limit=200`,
   );
 });
 
