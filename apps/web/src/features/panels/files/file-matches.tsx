@@ -6,7 +6,7 @@ import { fileIcon } from "@/components/file-icon.ts";
 import { cn } from "@/lib/cn.ts";
 import { FileRowMenu } from "./file-menu.tsx";
 import { FileRowItems } from "./file-row-items.tsx";
-import { FolderLabel, MiddleName } from "./middle-name.tsx";
+import { FolderLabel, MiddleName } from "@/components/path/middle-name.tsx";
 import type { OpenHow, TreeCommands } from "./tree-commands.ts";
 import { writeTreeDrag } from "./use-tree-drag.ts";
 
