@@ -11,7 +11,6 @@ import { Fragment, useState, type ReactNode } from "react";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { cn } from "@/lib/cn.ts";
 import { part } from "@/lib/suit-part.ts";
-import { CardSecondary } from "./spade-card.tsx";
 import { SpadeFace } from "./spade-face.tsx";
 
 /*
@@ -19,7 +18,8 @@ import { SpadeFace } from "./spade-face.tsx";
  * started, on the bot's bubble with no edge or lift, as the bot's own output. Its first line is
  * the bot's face and one sentence; under it, on the same left edge, one row per agent: its mark
  * and name, its state in words and what it does now, how long it has run, and Open. One that
- * waits on the person is raised in place with its action. Past five rows the rest fold into
+ * waits on the person says so in amber words, with Review beside Open; rows are flat, a hairline
+ * between them, as ace lists are. Past five rows the rest fold into
  * "and 3 more". A Suit reaches it as `card` `spade-subagents`.
  */
 
@@ -93,7 +93,7 @@ export function SpadeSubagentCard(props: {
         {props.face && <SpadeFace avatar={props.face} size={24} className="mt-px" />}
         <h3 className="min-w-0 flex-1 font-medium text-foreground">{header}</h3>
       </header>
-      <ul aria-label="Agents" className="flex min-w-0 flex-col gap-1">
+      <ul aria-label="Agents" className="flex min-w-0 flex-col divide-y divide-border-strong">
         {shown.map((at) => (
           <Fragment key={props.agents[at]?.id ?? at}>{props.renderRow(at)}</Fragment>
         ))}
@@ -119,11 +119,8 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
     <li
       data-worker={row.id}
       data-subagent-state={row.state}
-      className={cn(
-        "flex min-w-0 items-center gap-2.5 py-1.5",
-        // Waiting on the person: raised in place, as Spade raises what needs them.
-        needs && "-mx-3 my-1 rounded-xl bg-chat-raised px-3 py-2.5 shadow-chat-raised",
-      )}
+      // Flat, as ace's lists are: one waiting on the person says so in its words and Review.
+      className="flex min-w-0 items-center gap-2.5 py-2.5"
     >
       <Mark row={row} />
       <div className="min-w-0 flex-1">
@@ -141,14 +138,15 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
           <span className="px-1 text-xs text-subtle-foreground tabular-nums">{row.elapsed}</span>
         )}
         {needs && row.onReview && (
-          <CardSecondary
+          <button
+            type="button"
             aria-label={`Review what ${row.title} needs`}
             data-worker-review=""
-            className="h-7 px-3"
+            className={cn(openWord, "text-foreground")}
             onClick={row.onReview}
           >
             Review
-          </CardSecondary>
+          </button>
         )}
         {row.open}
       </div>
@@ -156,17 +154,17 @@ export function SpadeSubagentRow(props: { row: SpadeSubagentRowView }) {
   );
 }
 
-/** A bot's face, or an ace agent's provider mark, quiet; the name beside it says who it is. */
+/** A bot's face, or an ace agent's provider mark in its own colours, as ace draws it everywhere. */
 function Mark(props: { row: SpadeSubagentRowView }) {
   const { row } = props;
   return (
-    <span aria-hidden className="grid size-6 shrink-0 place-items-center text-muted-foreground">
+    <span aria-hidden className="grid size-6 shrink-0 place-items-center">
       {row.kind === "bot" && row.face ? (
         <SpadeFace avatar={row.face} size={22} />
       ) : row.provider ? (
-        <ProviderIcon provider={row.provider} size={14} variant="mono" decorative />
+        <ProviderIcon provider={row.provider} size={14} decorative />
       ) : (
-        <span className="size-1.5 rounded-full bg-current" />
+        <span className="size-1.5 rounded-full bg-muted-foreground" />
       )}
     </span>
   );

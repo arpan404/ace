@@ -114,14 +114,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   card in the turn that started them, Spade's own and not ace's thread rows: on the bot's bubble
   fill with no edge or lift, the bot's face and one sentence on top ("Quill is working with 4
   agents", once every one has ended "Quill worked with 4 agents · 12m"), then a row per agent on
-  the card's one left edge. A row is a quiet mark (a provider's for an ace agent, a bot's face),
+  the card's one left edge. A row is a small mark in its own colours (a provider's, as ace draws it, or a bot's face),
   its name, "on <machine>" when it runs elsewhere, its state in words (Working, Waiting for you,
   Done, Failed) with its step (the short Working phrase) or what it found, how long it has run,
   and Open as a text button: the agent's thread on its machine, or the bot's chat. States come
   live from ace's thread list on the bot's machine, else the bot's tree; the card never says
   worked while any agent works or waits on the person, or while what it reads isn't current. One
-  that waits on the person is raised in its own row (`--chat-raised`, its lift) and says what for
-  ("Waiting for you to approve its plan") with Review beside Open; there is no line for it outside
+  that waits on the person stays a flat row (rows are flat, a `border-strong` hairline between them (the softer ones vanish on the dark bubble), as ace lists are) and says in the needs-you text colour what for
+  ("Waiting for you to approve its plan"), with Review as a text button beside Open; there is no line for it outside
   the card. Its request waits at the end of the chat as ace's own card (Approve plan, an answer),
   answered there for the agent through its machine, and Review goes to it; with nothing to
   answer there (a bot, a request not loaded) Review opens the agent. Past five rows the rest fold
