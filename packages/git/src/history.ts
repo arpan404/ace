@@ -60,6 +60,8 @@ export interface CommitDiffOptions {
 }
 
 function validatePath(path: string): string {
+  if (path.includes("\\"))
+    throw new GitError("invalid_argument", `Invalid repository path: ${path}`);
   const parsed = pathSchema.safeParse(path);
   if (!parsed.success) throw new GitError("invalid_argument", `Invalid repository path: ${path}`);
   return parsed.data;

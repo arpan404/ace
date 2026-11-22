@@ -173,3 +173,48 @@ test("diffCommit diffs a root commit, a regular commit, and a rename commit", as
   expect(renameDiff.patch).toContain("rename from a.ts");
   expect(renameDiff.patch).toContain("rename to b.ts");
 });
+
+test("fileLog, fileBlame, and diffCommit reject unsafe paths, invalid refs, and bad line ranges", async () => {
+  const repo = await repository({ "safe.ts": "one\ntwo\n" });
+  const head = await service.resolveCommit({ worktree: repo, ref: "HEAD" });
+
+  for (const badPath of ["../escape.ts", "/etc/passwd", ".git/config", "a\\b.ts", "a\0b.ts"]) {
+    await expect(service.fileLog({ worktree: repo, path: badPath })).rejects.toMatchObject({
+      code: "invalid_argument",
+    });
+    await expect(
+      service.fileBlame({ worktree: repo, path: badPath, startLine: 1, endLine: 1 }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(
+      service.diffCommit({ worktree: repo, commit: head, paths: [badPath] }),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+  }
+
+  await expect(
+    service.fileBlame({ worktree: repo, path: "safe.ts", startLine: 5, endLine: 2 }),
+  ).rejects.toMatchObject({ code: "invalid_argument" });
+
+  await expect(
+    service.fileBlame({ worktree: repo, path: "safe.ts", startLine: 1, endLine: 600 }),
+  ).rejects.toMatchObject({ code: "invalid_argument" });
+
+  await expect(
+    service.diffCommit({ worktree: repo, commit: "--exec=bad", paths: ["safe.ts"] }),
+  ).rejects.toMatchObject({ code: "invalid_ref" });
+
+  // Blame range past EOF returns empty cleanly instead of throwing
+  const pastEof = await service.fileBlame({
+    worktree: repo,
+    path: "safe.ts",
+    startLine: 50,
+    endLine: 60,
+  });
+  expect(pastEof).toEqual({ head, commits: [], lines: [], capped: false });
+
+  // Non-repository folder fails with typed not_a_repo error
+  const plain = await scratch();
+  await put(plain, "notes.txt", "hello\n");
+  await expect(service.fileLog({ worktree: plain, path: "notes.txt" })).rejects.toMatchObject({
+    code: "not_a_repo",
+  });
+});

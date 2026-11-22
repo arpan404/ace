@@ -815,7 +815,8 @@ export class WorkspaceRuntime {
     if (op.op === "git.diff") {
       const root = this.root(op.threadId);
       if (op.path === undefined) {
-        if (op.commit !== undefined) throw new Error("invalid");
+        if (op.commit !== undefined)
+          throw new GitError("invalid_argument", "Commit diff requires a path");
         const diff = await this.git.diff({
           worktree: root,
           from: { kind: "commit", ref: "HEAD" },
