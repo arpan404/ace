@@ -114,12 +114,13 @@ struct EditorGroupLayout: Codable, Equatable, Sendable {
 
     /// Follows the files the computer remembers open. Files closed since `previous` lose their
     /// tabs; on the first look (`previous` nil) every tab not open goes, except `keep`, the file
-    /// being opened now. Files open but not in a group join the focused group without showing.
-    mutating func sync(open: [String], previous: [String]?, keep: String?) {
+    /// being opened now. A file in `held` (unsaved changes) keeps its tab even when closed. Files
+    /// open but not in a group join the focused group without showing.
+    mutating func sync(open: [String], previous: [String]?, keep: String?, held: Set<String> = []) {
         let now = Set(open)
         let closed = previous.map { Set($0).subtracting(now) }
             ?? Set(groups.flatMap(\.tabs)).subtracting(now).subtracting(keep.map { [$0] } ?? [])
-        for path in closed { close(path) }
+        for path in closed.subtracting(held) { close(path) }
         for path in open where index(of: path) == nil {
             if let at = focusedIndex { groups[at].tabs.append(path) } else { self.open(path) }
         }
