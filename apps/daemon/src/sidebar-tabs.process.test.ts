@@ -144,6 +144,22 @@ test("a thread settled by hand comes back when it fails later or its message isn
     activityAt: now - 3 * day,
     queue: unsent,
   });
+  // Settled over this very hold: the person's answer to it, so it stays settled.
+  f.add("settled-over-unsent", {
+    ...settled,
+    settledOverQueue: 1,
+    status: { state: "failed" },
+    activityAt: now - 6 * day,
+    queue: unsent,
+  });
+  // A send that failed after the settle moved the queue on, so that one comes back.
+  f.add("unsent-again", {
+    ...settled,
+    settledOverQueue: 1,
+    status: { state: "failed" },
+    activityAt: now - 6 * day,
+    queue: { ...unsent, revision: 2 },
+  });
   const restart = { ...unsent, reason: "restart" };
   f.add("restarted", {
     ...settled,
@@ -156,9 +172,11 @@ test("a thread settled by hand comes back when it fails later or its message isn
     "fails-before",
     "failure-read",
     "unsent",
+    "settled-over-unsent",
+    "unsent-again",
     "restarted",
   ]);
-  expect(tabs.inbox.toSorted()).toEqual(["fails-later", "unsent"]);
+  expect(tabs.inbox.toSorted()).toEqual(["fails-later", "unsent", "unsent-again"]);
   // The rest are still settled, so they sit past the first window behind the newer fillers.
   expect(tabs.settled).toEqual([]);
 });
