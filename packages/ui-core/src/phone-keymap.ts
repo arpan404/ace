@@ -98,6 +98,13 @@ export const phoneKeymap: readonly PhoneKeymapEntry[] = [
     scope: "global",
     group: "Thread",
   },
+  {
+    id: "editor.goToLine",
+    label: "Go to line",
+    keys: "mod+l",
+    scope: "global",
+    group: "File",
+  },
   { id: "close", label: "Close", keys: "escape", scope: "sheet", group: "Window", fixed: true },
   { id: "send", label: "Send message", keys: "mod+enter", scope: "composer", group: "Composer" },
 ];
