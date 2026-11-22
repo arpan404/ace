@@ -2,7 +2,7 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import type { SdkModule } from "./host-runtime.ts";
 import type { OpenOptions } from "./contracts.ts";
 import { z } from "zod";
-import { sameUpdate, storedIdentity } from "./event-identity.ts";
+import { framedAs, storedIdentity } from "./event-identity.ts";
 
 const AgentIdentity = z.object({ agentId: z.string().min(1).max(512), cwd: z.string().max(4096) });
 const AgentRuns = z.object({
@@ -158,7 +158,9 @@ async function tail(
       // Paired forward by identity: pending updates passed over had their write lost by the SDK,
       // and ace has them, so they are never replayed, and they shift nothing after them.
       if (identity !== undefined) {
-        const ahead = pending.slice(waiting).findIndex((update) => sameUpdate(identity, update));
+        const ahead = pending
+          .slice(waiting)
+          .findIndex((update) => framedAs(message, identity, update));
         const match = ahead < 0 ? -1 : waiting + ahead;
         if (match >= 0) {
           waiting = match + 1;

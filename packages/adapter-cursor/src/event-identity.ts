@@ -35,6 +35,27 @@ export function sameUpdate(stored: string, framed: string): boolean {
   return stored === framed;
 }
 
+/**
+ * Whether stored `message` (identity `stored`) is the update a committed frame stamped
+ * `framed`. An earlier build of this amendment stamped tool updates `exact:fingerprint`: such
+ * a stamp pairs by its exact half, that build's digest of the whole update, so after an upgrade
+ * a committed update is neither replayed nor taken for another.
+ */
+export function framedAs(message: unknown, stored: string, framed: string): boolean {
+  const split = framed.indexOf(":");
+  if (split < 0) return sameUpdate(stored, framed);
+  return framed.slice(0, split) === earlierExact(message);
+}
+/** The exact half of an earlier build's tool stamp, for a stored tool call. */
+function earlierExact(message: unknown): string | undefined {
+  const body = object(message);
+  if (body.type !== "tool_call") return undefined;
+  const phase = body.status === "running" ? "running" : "ended";
+  return digest(
+    `tool_call\0${string(body.call_id) ?? ""}\0${phase}\0${JSON.stringify(body.args ?? null)}\0${JSON.stringify(body.result ?? null)}`,
+  );
+}
+
 /** The identity of the event the SDK stores for this onDelta update; none when it stores none. */
 export function updateIdentity(update: unknown): string | undefined {
   const body = object(update);

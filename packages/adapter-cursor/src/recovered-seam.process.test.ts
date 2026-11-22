@@ -15,6 +15,8 @@ import {
   type RuntimeSdkBoundary,
 } from "./index.ts";
 import { UnsettledRuns } from "./unsettled.ts";
+import { updateIdentity } from "./event-identity.ts";
+import { createHash } from "node:crypto";
 
 // A real process edge: the SDK's own SQLite store, written by a fake SDK in the order SDK 1.0.35
 // writes it, read back by the real recovery after a cut at every committed frame.
@@ -405,6 +407,72 @@ it("a turn an earlier ace build was running shows nothing twice once the new bui
     expect(
       after.notices.filter((text) => text.includes("began before ace was updated")),
     ).toHaveLength(1);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+/** The stamp an earlier build of this branch gave a tool update: `exact:fingerprint`. */
+function earlierStamp(update: Record<string, unknown>): string {
+  const digest = (key: string) => createHash("sha256").update(key).digest("hex");
+  const call = update.toolCall as { args?: unknown; result?: unknown };
+  const phase = update.type === "tool-call-completed" ? "ended" : "running";
+  const field = (value: unknown, cut?: number) => JSON.stringify(value ?? null).slice(0, cut);
+  const key = (cut?: number) =>
+    `tool_call\0${String(update.callId)}\0${phase}\0${field(call.args, cut)}\0${field(call.result, cut)}`;
+  return `${digest(key())}:${digest(key(256))}`;
+}
+
+it("a tool update an earlier build committed but whose stored write it never saw is not shown twice", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-seam-upgrade-")));
+  try {
+    // Callback first: ace commits each update before the SDK stores its event.
+    const boundary = fakeSdk("callback-first");
+    const frames = await host(boundary, home, "live", async (runtime, published) => {
+      await runtime.open({
+        threadId: "seam",
+        cwd: home,
+        generation: "live",
+        policy: "full-access",
+        limits,
+      });
+      await runtime.send({
+        operationId: "op",
+        commandId: "op",
+        segment: 0,
+        input: [{ type: "text", text: "go" }],
+      });
+      await expect.poll(() => published().some((frame) => frame.kind === "result")).toBe(true);
+    });
+    // The same frames as an earlier build stamped them: its tool updates' identities differ.
+    const earlier = new Map(
+      updates
+        .filter((update) => String(update.type).includes("tool-call"))
+        .map((update) => [updateIdentity(update) ?? "", earlierStamp(update)]),
+    );
+    const old = frames
+      .filter((frame) => frame.kind !== "result")
+      .map((frame) =>
+        frame.pendingEvents
+          ? { ...frame, pendingEvents: frame.pendingEvents.map((id) => earlier.get(id) ?? id) }
+          : frame,
+      );
+    // The daemon died right after committing the first partial, before its stored event's offset.
+    const cut =
+      old.findIndex((frame) => JSON.stringify(frame.body).includes("partial-tool-call")) + 1;
+    expect(cut).toBeGreaterThan(0);
+    const committed = old.slice(0, cut);
+    const recovered = await reopen(boundary, home, committed, 1);
+    // The partial ace committed is not read back again; what came after it is.
+    const replayed = recovered.filter(
+      (frame) => frame.kind === "recovered" && JSON.stringify(frame.body).includes('{"path":"a"}'),
+    );
+    expect(replayed).toEqual([]);
+    const after = transcript([...committed, ...recovered]);
+    // As the turn shows had nothing crashed.
+    const whole = transcript(frames);
+    expect(after.shown).toEqual(whole.shown);
+    expect(after.status).toBe(whole.status);
   } finally {
     await rm(home, { recursive: true, force: true });
   }
