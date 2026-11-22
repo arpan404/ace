@@ -74,6 +74,8 @@ async function crashAt(
     failAfterBusy?: () => string | undefined;
     /** The engine closes while the reconcile waits on a busy store. */
     closeWhileBusy?: boolean;
+    /** The engine closes while the host opens, and the open then fails. */
+    closeDuringOpen?: boolean;
     /** The new host can't open at all, so Cursor's store can't be read. */
     openFails?: boolean;
     /** Whether the person presses Resume; without it only ace acts. */
@@ -183,6 +185,7 @@ async function crashAt(
   };
   const errors: unknown[] = [];
   let closing: Promise<void> | undefined;
+  let closeScheduled = false;
   const registry = new AdapterRegistry();
   const opened: SessionContext["resume"][] = [];
   const sent: string[] = [];
@@ -196,16 +199,25 @@ async function crashAt(
         opened.push(context.resume);
         holdMore();
         if (openFails) throw new Error("Cursor SDK host could not start");
+        if (host.closeDuringOpen && !closing) {
+          diskFull();
+          closing = engine.close().catch(() => {});
+          throw new Error("Cursor SDK host exited while it opened");
+        }
         if (host.unusable)
           throw Object.assign(new Error("Cursor's saved session can't be opened again"), {
             code: sessionStoreUnusable,
           });
         if (busy-- > 0) {
           if (host.failAfterBusy && whileBusy.length === (host.retryMs?.length ?? 0)) diskFull();
-          if (host.closeWhileBusy && !closing) {
-            diskFull();
-            // A close that meets the full disk itself is not what this checks.
-            closing = engine.close().catch(() => {});
+          // The close comes while the reconcile already waits to open again.
+          if (host.closeWhileBusy && !closeScheduled) {
+            closeScheduled = true;
+            setTimeout(() => {
+              diskFull();
+              // A close that meets the full disk itself is not what this checks.
+              closing = engine.close().catch(() => {});
+            }, 50);
           }
           whileBusy.push(store.getThread(threadId)?.status.state);
           if (host.resumeWhileBusy) pressResume();
@@ -325,9 +337,9 @@ async function crashAt(
     );
     if (!accepted.ok) throw new Error(`Resume refused: ${accepted.error}`);
   };
-  if (host.closeWhileBusy) {
-    // Until the closed engine's reconcile has given up on its write.
-    await expect.poll(() => errors.length, { timeout: 4_000 }).toBeGreaterThan(0);
+  if (host.closeWhileBusy || host.closeDuringOpen) {
+    // The close began during the reconcile; it is what ends this boot.
+    await expect.poll(() => closing !== undefined, { timeout: 4_000 }).toBe(true);
     await closing;
   } else await engine.flush();
   const held = read(() => engine.queue(threadId));
@@ -388,7 +400,9 @@ async function crashAt(
     userTexts,
     items: read(() => store.readItems(threadId, store.headSeq() + 1, 200).items),
     async [Symbol.asyncDispose]() {
-      await (host.closeWhileBusy ? engine.close().catch(() => {}) : engine.close());
+      await (host.closeWhileBusy || host.closeDuringOpen
+        ? engine.close().catch(() => {})
+        : engine.close());
       store.close();
       await rm(root, { recursive: true, force: true });
     },
@@ -770,14 +784,27 @@ it("a retry that meets a full disk after a busy one reports the full disk, as th
 it("a reconcile that fails its write after the engine closed schedules nothing", async () => {
   await using crash = await crashAt("admitted", {
     resume: false,
-    busyOpens: 100,
-    retryMs: [10, 10],
     failAfterBusy: () => "SQLITE_FULL",
-    closeWhileBusy: true,
+    closeDuringOpen: true,
   });
-  expect(crash.errors.length).toBeGreaterThan(0);
+  await expect.poll(() => crash.errors.length, { timeout: 4_000 }).toBeGreaterThan(0);
   expect(crash.failureTimers).toEqual([]);
 });
+
+it("an engine that closes while its reconcile waits on a busy store neither waits it out nor opens again", async () => {
+  const began = performance.now();
+  await using crash = await crashAt("admitted", {
+    resume: false,
+    busyOpens: 100,
+    // A wait the close would otherwise sit through.
+    retryMs: [60_000],
+    closeWhileBusy: true,
+  });
+  expect(performance.now() - began).toBeLessThan(3_000);
+  expect(crash.opened).toHaveLength(1);
+  // Left for the next start to reconcile: not failed on the way out.
+  expect(crash.runsAfter()).toEqual([]);
+}, 10_000);
 
 it("a store still busy when the retries run out fails the turn and keeps what waits in the queue", async () => {
   await using crash = await crashAt("admitted", {

@@ -41,6 +41,10 @@ export interface ReconcileDependencies {
   retryMs?: readonly number[];
   /** Schedules the tries of a failed turn's write; the clock's timer by default. */
   failureTimer?: (run: () => void, ms: number) => () => void;
+  /** True once the engine is closing: nothing more is scheduled or opened. */
+  closed?(): boolean;
+  /** Waits `ms`, or less if the engine closes first. */
+  sleep?(ms: number): Promise<void>;
 }
 /** What of the engine's options a reconcile takes. */
 export function reconcileOptions(options: {
@@ -207,7 +211,10 @@ async function reconcileOnce(deps: ReconcileDependencies, id: ThreadId): Promise
         deps.wake(id);
         return;
       }
-      await new Promise<void>((resolve) => clock.setTimer(resolve, wait));
+      // A closing engine neither waits nor opens again: the next start reconciles the turn.
+      if (deps.closed?.()) return;
+      await (deps.sleep?.(wait) ?? new Promise<void>((resolve) => clock.setTimer(resolve, wait)));
+      if (deps.closed?.()) return;
     }
   }
   const state = repo.requireState(id);
@@ -229,6 +236,7 @@ export class CursorReconciles {
   /** Threads marked or reconciling: no other work of theirs starts until it ends. */
   private held = new Set<ThreadId>();
   private pending = new Set<() => void>();
+  private sleepers = new Set<() => void>();
   private closed = false;
   private report: (error: unknown) => void;
   private dependencies: () => ReconcileDependencies;
@@ -255,7 +263,7 @@ export class CursorReconciles {
       let unwritten = false;
       // Never inside the caller's own frame: startup may still be building the engine.
       const running = Promise.resolve()
-        .then(() => reconcileCursorRestart(this.dependencies(), id))
+        .then(() => reconcileCursorRestart(this.scoped(), id))
         .catch((error: unknown) => {
           this.report(error);
           unwritten = error instanceof FailureUnwritten;
@@ -305,11 +313,32 @@ export class CursorReconciles {
       this.report(error);
     }
   }
-  /** Stops the retries: the engine is closing. */
+  /** Stops the retries and ends any wait: the engine is closing. */
   close(): void {
     this.closed = true;
     for (const cancel of this.pending) cancel();
     this.pending.clear();
+    for (const wake of this.sleepers) wake();
+    this.sleepers.clear();
+  }
+  /** The engine's dependencies, with this engine's closing and its closable waits. */
+  private scoped(): ReconcileDependencies {
+    const deps = this.dependencies();
+    return {
+      ...deps,
+      closed: () => this.closed,
+      sleep: (ms) =>
+        new Promise<void>((resolve) => {
+          if (this.closed) return resolve();
+          const wake = () => {
+            this.sleepers.delete(wake);
+            cancel();
+            resolve();
+          };
+          const cancel = deps.clock.setTimer(wake, ms);
+          this.sleepers.add(wake);
+        }),
+    };
   }
   /** Resolves once every reconcile started so far has finished. */
   async settled(): Promise<void> {
