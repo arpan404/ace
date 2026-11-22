@@ -274,7 +274,7 @@
     },
     {
       "name": "a backtick with no partner on its line is a backtick",
-      "text": "<msg>It's 5` long</msg><msg>Next `one</msg>",
+      "text": "<msg>It's 5` long</msg>\n<msg>Next `one</msg>",
       "segments": [
         {
           "kind": "msg",
