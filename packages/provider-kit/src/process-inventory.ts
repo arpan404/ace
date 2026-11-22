@@ -162,10 +162,11 @@ export class ProcessInventory implements ProcessJournal {
     );
   }
   private closed = false;
-  recover(): { removed: number; killed: number } {
-    if (process.platform === "win32") return this.windowsRecover();
+  recover(): { removed: number; killed: number; unresolved: number } {
+    if (process.platform === "win32") return { ...this.windowsRecover(), unresolved: 0 };
     let removed = 0;
     let killed = 0;
+    let unresolved = 0;
     for (const entry of this.list()) {
       const owner = this.runtime.identity(entry.ownerPid);
       if (
@@ -175,7 +176,14 @@ export class ProcessInventory implements ProcessJournal {
       )
         continue;
       const current = this.runtime.identity(entry.pid);
-      if (!this.runtime.alive(entry.group)) {
+      const alive = this.groupAlive(entry.group);
+      if (alive === undefined) {
+        // The kernel refused the probe (macOS does this while a group exits). Only ESRCH proves
+        // a group gone, so keep its evidence for a later recovery instead of failing startup.
+        unresolved++;
+        continue;
+      }
+      if (!alive) {
         this.remove(entry.pid);
         removed++;
         continue;
@@ -192,7 +200,16 @@ export class ProcessInventory implements ProcessJournal {
       // Keep evidence until a later recovery proves the group has disappeared.
       killed++;
     }
-    return { removed, killed };
+    return { removed, killed, unresolved };
+  }
+  /** Liveness of a recorded group, or undefined when the kernel refuses to say (EPERM). */
+  private groupAlive(group: number): boolean | undefined {
+    try {
+      return this.runtime.alive(group);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EPERM") return undefined;
+      throw error;
+    }
   }
   close(): void {
     this.closed = true;
