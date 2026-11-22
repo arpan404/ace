@@ -22,14 +22,7 @@ const names: Record<PrTab, string> = {
 };
 
 /**
- * Summary · Timeline · Code · Checks as words on the bar's hairline, the current one in full ink
- * and underlined in ink. Focus is the app's own ring, from the keyboard only. Focus shows only from the keyboard.
- */
-export const wordTab =
-  "h-10 rounded-sm bg-transparent px-2 text-ui font-normal hover:not-data-active:bg-transparent data-active:bg-transparent data-active:font-medium before:pointer-events-none before:absolute before:inset-x-1 before:-bottom-px before:h-0.5 before:rounded-full before:bg-transparent data-active:before:bg-foreground hover:not-data-active:before:bg-border-strong";
-
-/**
- * The tab bar: Summary · Timeline · Code · Checks as words with a count pill each, and the
+ * The tab bar: Summary · Timeline · Code · Checks as the app's page tabs, a count each, and the
  * active tab's context at its right end. In a panel each tab body is its own scroller. On a page
  * the whole page scrolls as one inside the page's column: the header scrolls away, the bar pins
  * to the top, Summary and Timeline grow with their content, and Code fills the space under the
@@ -97,7 +90,7 @@ export function PrTabs(props: {
         >
           <TabsList aria-label="Pull request detail" className="-ml-2 gap-1">
             {visible.map((tab) => (
-              <TabsTab key={tab} value={tab} className={wordTab}>
+              <TabsTab key={tab} value={tab} page>
                 {names[tab]}
                 {!!props.counts[tab] && (
                   <span
