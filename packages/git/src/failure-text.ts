@@ -46,6 +46,8 @@ const messages: Partial<Record<GitErrorCode, string>> = {
   stash_empty: "There are no stashes to pop",
   nothing_to_stash: "There are no local changes to stash",
   path_outside_repo: "Path is outside the repository",
+  changed_since_review: "A file changed after you reviewed it; look again before discarding",
+  path_occupied: "Another file already uses that name",
 };
 
 /** One plain sentence for a failed command's cause. What Git wrote stays in `details.stderr`. */

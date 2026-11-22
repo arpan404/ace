@@ -62,6 +62,7 @@ export type FakeWorkspaceControls = Pick<
   | "git"
   | "sourceControl"
   | "setSourceControl"
+  | "touchSourceControl"
   | "conflicts"
   | "prWork"
   | "linkPullRequest"
@@ -77,6 +78,10 @@ export class FakeWorkspaceWire {
   readonly git = new FakeGitStates();
   /** Per-thread source control state (staged, unstaged, untracked, conflicted, branches, stashes). */
   readonly sourceControl: FakeSourceControlWire;
+  /** Someone changed `path` on disk after the view read its status (its fingerprint moves). */
+  touchSourceControl(threadId: string, path: string): void {
+    this.sourceControl.touch(threadId, path);
+  }
   setSourceControl(threadId: string, seed: FakeSourceControlSeed): void {
     this.sourceControl.seed(threadId, seed);
   }

@@ -20,6 +20,11 @@ const samplePatch = [
   "",
 ].join("\n");
 
+/** Disabled outright, or disabled with a reason (still focusable, `aria-disabled`). */
+function isDisabled(element: HTMLElement): boolean {
+  return element.hasAttribute("disabled") || element.getAttribute("aria-disabled") === "true";
+}
+
 async function openSourceControl(seed?: FakeSourceControlSeed) {
   const app = harness({ storage: memoryKeyValue() });
   app.play(coldStartReplay()).runThrough("root-replied");
@@ -154,7 +159,7 @@ test("commits staged changes, generates a commit message, and supports Commit an
   });
 });
 
-test("confirms before discarding tracked/untracked files and asks an extra confirm for running-turn agent edits", async () => {
+test("confirms discards, waits while the agent works, and asks again for its last turn's edits", async () => {
   const { app, explorer } = await openSourceControl({
     branch: "main",
     branches: ["main"],
@@ -174,7 +179,7 @@ test("confirms before discarding tracked/untracked files and asks an extra confi
     expect(within(explorer).queryByText("new.ts")).toBeNull();
   });
 
-  // Now simulate the agent actively working in a running turn that edited src/app.ts.
+  // While the agent works in the checkout, discarding waits.
   app.daemon.apply(thread, [
     facts.turn("root"),
     facts.tool("root", "live-edit-1", {
@@ -187,18 +192,46 @@ test("confirms before discarding tracked/untracked files and asks an extra confi
     }),
     facts.toolDone("root", "live-edit-1"),
   ]);
+  await waitFor(() => {
+    expect(isDisabled(within(explorer).getByRole("button", { name: "Discard app.ts" }))).toBe(true);
+  });
 
-  await userEvent.click(within(explorer).getByRole("button", { name: "Discard app.ts" }));
+  // Once its turn ends, discarding the file that turn edited asks a second time.
+  app.daemon.apply(thread, [facts.endTurn("root")]);
+  const discard = within(explorer).getByRole("button", { name: "Discard app.ts" });
+  await waitFor(() => {
+    expect(isDisabled(discard)).toBe(false);
+  });
+  await userEvent.click(discard);
   const firstStep = await screen.findByRole("dialog");
-  expect(firstStep.textContent).toContain("The agent changed app.ts in the running turn");
-  // Step 1 shows Continue instead of immediately discarding.
+  expect(firstStep.textContent).toContain("The agent changed app.ts in its last turn");
   await userEvent.click(within(firstStep).getByRole("button", { name: "Continue" }));
-  // Step 2 requires explicit "Discard anyway".
-  expect(firstStep.textContent).toContain("Discard edits from the running turn?");
+  expect(firstStep.textContent).toContain("Discard the agent's latest edits?");
   await userEvent.click(within(firstStep).getByRole("button", { name: "Discard anyway" }));
   await waitFor(() => {
     expect(within(explorer).getByText("No changes in this checkout.")).toBeTruthy();
   });
+});
+
+test("a file that changed after the discard dialog opened is kept, and the view says why", async () => {
+  const { app, explorer } = await openSourceControl({
+    branch: "main",
+    branches: ["main"],
+    refs: [{ name: "main" }],
+    unstaged: [{ path: "src/app.ts", status: "modified" }],
+  });
+  const changes = await within(explorer).findByRole("region", { name: "Changes" });
+  await userEvent.click(within(changes).getByRole("button", { name: "Discard all" }));
+  const dialog = await screen.findByRole("dialog");
+  // Something writes to the file while the person reads the dialog.
+  app.daemon.workspace.touchSourceControl(thread, "src/app.ts");
+  await userEvent.click(within(dialog).getByRole("button", { name: /Discard/ }));
+  await waitFor(() => {
+    expect(within(explorer).getByRole("alert").textContent).toContain(
+      "changed after you reviewed it",
+    );
+  });
+  expect(within(changes).getByRole("option", { name: /app/ })).toBeTruthy();
 });
 
 test("switches and creates branches, stashes and pops, and waits to switch or pull while the agent works", async () => {

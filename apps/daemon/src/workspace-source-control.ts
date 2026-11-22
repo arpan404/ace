@@ -58,8 +58,9 @@ export function isThreadAgentBusy(
   return state === "working" || state === "needs_you" || state === "waiting";
 }
 
-/** Commands that rewrite the checkout's files wholesale, refused while the agent works. */
-const treeRewriting = new Set<string>([
+/** Commands that rewrite files in the checkout: each holds the whole checkout while it runs. */
+const rewritesFiles = new Set<string>([
+  "git.discard",
   "git.branch.switch",
   "git.branch.create",
   "git.pull",
@@ -67,78 +68,88 @@ const treeRewriting = new Set<string>([
   "git.stash.pop",
 ]);
 
+/** Hold refusals the person can act on, returned as words rather than thrown. */
+const refusals = new Set(["agent_working", "workspace_change_in_progress"]);
+
 export interface SourceControlCommandContext {
   git: WorkspaceGit;
   store: Store;
   threadId: ThreadId;
+  commandId: string;
   cwd: string;
   runsProviderWork: (id: ThreadId) => boolean;
-  trashFile?: ((threadId: ThreadId, path: string) => Promise<void>) | undefined;
+  trashFile?: ((threadId: ThreadId, root: string, path: string) => Promise<void>) | undefined;
+  /**
+   * The engine's checkout hold: every thread bound to the checkout must be quiet and none may
+   * start until the change finishes. Without an engine only this thread's busy check applies.
+   */
+  holdCheckout?:
+    | (<T>(id: ThreadId, commandId: string, root: string, effect: () => Promise<T>) => Promise<T>)
+    | undefined;
   refreshDetails: () => Promise<void>;
 }
 
-/** Execute one thread-scoped source control command, refreshing details on success. */
+/** Execute one thread-scoped source control command, refreshing details afterwards. */
 export async function runSourceControlCommand(
   context: SourceControlCommandContext,
   payload: SourceControlCommandPayload,
 ): Promise<Omit<CommandResult, "commandId">> {
-  const { git, store, threadId, cwd, runsProviderWork, trashFile, refreshDetails } = context;
+  const { store, threadId, cwd, runsProviderWork, holdCheckout } = context;
+  const refresh = () => context.refreshDetails().catch(() => {});
+  try {
+    if (!rewritesFiles.has(payload.type)) await apply(context, payload);
+    else if (holdCheckout)
+      await holdCheckout(threadId, context.commandId, cwd, () => apply(context, payload));
+    else if (isThreadAgentBusy(store, threadId, runsProviderWork))
+      return { ok: false, error: "agent_working" };
+    else await apply(context, payload);
+  } catch (error) {
+    if (error instanceof Error && refusals.has(error.message))
+      return { ok: false, error: error.message };
+    // A failed change may still have moved files or refs: show what is there now.
+    await refresh();
+    throw error;
+  }
+  await refresh();
+  return { ok: true };
+}
 
-  const refresh = () => refreshDetails().catch(() => {});
-
-  if (treeRewriting.has(payload.type) && isThreadAgentBusy(store, threadId, runsProviderWork))
-    return { ok: false, error: "agent_working" };
-
+async function apply(
+  context: SourceControlCommandContext,
+  payload: SourceControlCommandPayload,
+): Promise<void> {
+  const { git, threadId, cwd, trashFile } = context;
   switch (payload.type) {
     case "git.stage":
-      await git.stage({ worktree: cwd, paths: payload.paths });
-      await refresh();
-      return { ok: true };
+      return git.stage({ worktree: cwd, paths: payload.paths });
     case "git.unstage":
-      await git.unstage({ worktree: cwd, paths: payload.paths });
-      await refresh();
-      return { ok: true };
+      return git.unstage({ worktree: cwd, paths: payload.paths });
     case "git.discard":
-      await git.discard({
+      return git.discard({
         worktree: cwd,
-        paths: payload.paths,
-        includeUntracked: payload.includeUntracked,
-        ...(trashFile ? { trash: (_root, path) => trashFile(threadId, path) } : {}),
+        files: payload.files,
+        ...(trashFile ? { trash: (root, path) => trashFile(threadId, root, path) } : {}),
       });
-      await refresh();
-      return { ok: true };
     case "git.branch.switch":
-      await git.switchBranch({
+      return git.switchBranch({
         worktree: cwd,
         branch: payload.branch,
         remote: payload.remote,
         allowUncommitted: true,
       });
-      await refresh();
-      return { ok: true };
     case "git.branch.create":
-      await git.createBranch({ worktree: cwd, branch: payload.branch });
-      await refresh();
-      return { ok: true };
+      return git.createBranch({ worktree: cwd, branch: payload.branch });
     case "git.pull":
-      await git.pull({ worktree: cwd, remote: payload.remote });
-      await refresh();
-      return { ok: true };
+      return git.pull({ worktree: cwd, remote: payload.remote });
     case "git.fetch":
-      await git.fetch({ worktree: cwd, remote: payload.remote });
-      await refresh();
-      return { ok: true };
+      return git.fetch({ worktree: cwd, remote: payload.remote });
     case "git.stash.push":
-      await git.stashPush({
+      return git.stashPush({
         worktree: cwd,
         message: payload.message,
         includeUntracked: payload.includeUntracked,
       });
-      await refresh();
-      return { ok: true };
     case "git.stash.pop":
-      await git.stashPop({ worktree: cwd, stash: payload.stash });
-      await refresh();
-      return { ok: true };
+      return git.stashPop({ worktree: cwd, stash: payload.stash });
   }
 }

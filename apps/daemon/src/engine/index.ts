@@ -1,3 +1,4 @@
+import { holdCheckout } from "./checkout-hold.ts";
 import { switchReady } from "./switch-recovery.ts";
 import { adoptMachineHandoff, captureMachineHandoff } from "./machine-handoff.ts";
 import * as liveMove from "./live-move.ts";
@@ -977,6 +978,16 @@ export class Engine {
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);
     return change;
+  }
+  /** Hold every thread bound to `root` quiet while a source control change rewrites its files. */
+  holdCheckout<T>(
+    id: ThreadId,
+    commandId: string,
+    root: string,
+    effect: () => Promise<T>,
+  ): Promise<T> {
+    if (this.closing) return Promise.reject(new Error("engine_closing"));
+    return holdCheckout(this.repo, id, commandId, root, (owner) => this.wake(owner), effect);
   }
   /** Settles what dead providers left in the tree; genuinely live work is untouched. */
   async reconcileThread(id: ThreadId): Promise<void> {

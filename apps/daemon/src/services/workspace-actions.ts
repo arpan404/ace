@@ -73,10 +73,11 @@ export async function startWorkspaceActions({
     ...(services.threadFiles
       ? {
           forgeMediaGrants: services.threadFiles.forgeMedia.grants,
-          trashFile: async (threadId, path) => {
+          trashFile: async (threadId, root, path) => {
             const threadFiles = services.threadFiles;
             if (!threadFiles) throw new Error("git_trash_unavailable");
-            const acquired = await threadFiles.acquire(threadId);
+            // The checkout Git holds, never one re-resolved from the thread meanwhile.
+            const acquired = await threadFiles.acquireAt(threadId, root);
             try {
               const stat = await acquired.service.request("local", { op: "stat", path });
               const version =
@@ -115,6 +116,10 @@ export async function startWorkspaceActions({
       await services.engine?.reconcileThread(id);
     },
     runsProviderWork: (id) => services.engine?.runsProviderWork(id) ?? false,
+    holdCheckout: (id, commandId, root, effect) => {
+      if (!services.engine) return Promise.reject(new Error("engine_unavailable"));
+      return services.engine.holdCheckout(id, commandId, root, effect);
+    },
     changeWorkspace: (id, commandId, effect, reservation, commit) => {
       if (!services.engine) throw new Error("engine_unavailable");
       return services.engine.changeWorkspace(id, commandId, effect, reservation, commit);

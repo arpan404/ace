@@ -8,7 +8,7 @@ import { watchFolders } from "../../files/folder-watch.ts";
 import {
   branchOptionsFrom,
   buildSections,
-  runningTurnEditedPaths,
+  lastTurnEditedPaths,
   type GitStatusReply,
   type SourceControlSections,
 } from "./source-control-model.ts";
@@ -166,8 +166,8 @@ export function useSourceControl(threadId: string) {
 
   const checkoutRoot = thread ? threadCheckoutRoot(thread) : undefined;
   const agentTurnPaths = useMemo(
-    () => runningTurnEditedPaths(turns, thread?.status, thread?.live?.rootRunId, checkoutRoot),
-    [turns, thread?.status, thread?.live?.rootRunId, checkoutRoot],
+    () => lastTurnEditedPaths(turns, checkoutRoot),
+    [turns, checkoutRoot],
   );
 
   const [pendingAction, setPendingAction] = useState<string | undefined>(undefined);

@@ -9,12 +9,23 @@ import type {
 import { fakeBranchRefs } from "./worktree-base.ts";
 import type { FakeServiceContext } from "./service-context.ts";
 
+/** A seeded status entry; its fingerprint defaults to a first version. */
+export type FakeSectionSeed = Omit<GitStatusSectionEntry, "fingerprint"> & {
+  fingerprint?: string | undefined;
+};
+
+const firstPrint = "fake:1";
+
+function printed(entry: FakeSectionSeed): GitStatusSectionEntry {
+  return { ...entry, fingerprint: entry.fingerprint ?? firstPrint };
+}
+
 export interface FakeSourceControlSeed {
   branch?: string | undefined;
-  staged?: readonly GitStatusSectionEntry[] | undefined;
-  unstaged?: readonly GitStatusSectionEntry[] | undefined;
-  untracked?: readonly GitStatusSectionEntry[] | undefined;
-  conflicted?: readonly GitStatusSectionEntry[] | undefined;
+  staged?: readonly FakeSectionSeed[] | undefined;
+  unstaged?: readonly FakeSectionSeed[] | undefined;
+  untracked?: readonly FakeSectionSeed[] | undefined;
+  conflicted?: readonly FakeSectionSeed[] | undefined;
   stashes?: readonly GitStashEntry[] | undefined;
   branches?: readonly string[] | undefined;
   refs?: readonly BranchRef[] | undefined;
@@ -61,6 +72,7 @@ function statusFromFiles(files: readonly GitStatusFile[]): {
       path: file.path,
       ...(file.from ? { from: file.from } : {}),
       status: file.status,
+      fingerprint: firstPrint,
     };
     if (file.status === "untracked") untracked.push(entry);
     else unstaged.push(entry);
@@ -136,10 +148,10 @@ export class FakeSourceControlWire {
         changes: { details: { ...existing, branch: seed.branch } },
       });
     }
-    if (seed.staged !== undefined) state.staged = byPath(seed.staged);
-    if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged);
-    if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked);
-    if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted);
+    if (seed.staged !== undefined) state.staged = byPath(seed.staged.map(printed));
+    if (seed.unstaged !== undefined) state.unstaged = byPath(seed.unstaged.map(printed));
+    if (seed.untracked !== undefined) state.untracked = byPath(seed.untracked.map(printed));
+    if (seed.conflicted !== undefined) state.conflicted = byPath(seed.conflicted.map(printed));
     if (seed.stashes !== undefined) {
       state.stashes = seed.stashes.map((entry) => ({
         entry,
@@ -155,6 +167,17 @@ export class FakeSourceControlWire {
     if (seed.behind !== undefined) state.behind = seed.behind;
     if (seed.detached !== undefined) state.detached = seed.detached;
     if (seed.pullError !== undefined) state.pullError = seed.pullError;
+    this.syncDetails(threadId, state);
+  }
+
+  /** Someone (an agent, another tab) changed `path` on disk after a status was read. */
+  touch(threadId: string, path: string): void {
+    const state = this.states.get(threadId);
+    if (!state) return;
+    const bump = (entry: GitStatusSectionEntry) =>
+      entry.path === path ? { ...entry, fingerprint: `${entry.fingerprint}+` } : entry;
+    state.unstaged = state.unstaged.map(bump);
+    state.untracked = state.untracked.map(bump);
     this.syncDetails(threadId, state);
   }
 
@@ -332,9 +355,9 @@ export class FakeSourceControlWire {
           const nextStaged = new Map(state.staged.map((e) => [e.path, e]));
           for (const entry of state.unstaged.filter(move)) nextStaged.set(entry.path, entry);
           for (const entry of state.untracked.filter(move))
-            nextStaged.set(entry.path, { path: entry.path, status: "added" });
+            nextStaged.set(entry.path, { ...entry, status: "added" });
           for (const entry of state.conflicted.filter(move))
-            nextStaged.set(entry.path, { path: entry.path, status: "modified" });
+            nextStaged.set(entry.path, { ...entry, status: "modified" });
           state.staged = byPath([...nextStaged.values()]);
           state.unstaged = state.unstaged.filter((e) => !move(e));
           state.untracked = state.untracked.filter((e) => !move(e));
@@ -349,7 +372,7 @@ export class FakeSourceControlWire {
           const nextUntracked = new Map(state.untracked.map((e) => [e.path, e]));
           for (const entry of state.staged.filter(move)) {
             if (entry.status === "added") {
-              nextUntracked.set(entry.path, { path: entry.path, status: "untracked" });
+              nextUntracked.set(entry.path, { ...entry, status: "untracked" });
             } else {
               nextUnstaged.set(entry.path, entry);
             }
@@ -361,14 +384,15 @@ export class FakeSourceControlWire {
           return { ok: true };
         }
         case "git.discard": {
-          if (payload.paths) {
-            const target = new Set(payload.paths);
-            state.unstaged = state.unstaged.filter((e) => !target.has(e.path));
-            state.untracked = state.untracked.filter((e) => !target.has(e.path));
-          } else {
-            state.unstaged = [];
-            if (payload.includeUntracked) state.untracked = [];
-          }
+          // Like the daemon: only what the person reviewed, and nothing if any of it changed.
+          const shown = new Map(
+            [...state.unstaged, ...state.untracked].map((entry) => [entry.path, entry.fingerprint]),
+          );
+          if (payload.files.some((file) => shown.get(file.path) !== file.fingerprint))
+            return { ok: false, error: "git_changed_since_review" };
+          const target = new Set(payload.files.map((file) => file.path));
+          state.unstaged = state.unstaged.filter((e) => !target.has(e.path));
+          state.untracked = state.untracked.filter((e) => !target.has(e.path));
           this.syncDetails(threadId, state);
           return { ok: true };
         }

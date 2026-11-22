@@ -1024,16 +1024,17 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"git.discard"` |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
-| paths | no | array | {"minItems":1,"maxItems":1000,"items":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."}} |
-| includeUntracked | no | boolean | {"default":false} |
+| files | yes | array | {"minItems":1,"maxItems":2000,"items":{"type":"object","properties":{"path":{"type":"string","minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."},"fingerprint":{"type":"string","minLength":1,"maxLength":200}},"required":["path","fingerprint"]}} |
 
 Example:
 
 ```json
 {
-  "includeUntracked": false,
-  "paths": [
-    "example"
+  "files": [
+    {
+      "fingerprint": "example",
+      "path": "example"
+    }
   ],
   "threadId": "example",
   "type": "git.discard"

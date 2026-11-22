@@ -59,6 +59,10 @@ export class WorkspaceReservations {
   removedRoot(root: string): boolean {
     return Boolean(this.statement("SELECT 1 FROM storage_removed_roots WHERE root=?").get(root));
   }
+  /** Whether a workspace change still holds `path` (canonicalised like every stored root). */
+  holds(path: string): boolean {
+    return this.reserved(canonicalRoot(path));
+  }
   reserved(root: string): boolean {
     return Boolean(
       this.statement("SELECT 1 FROM workspace_root_reservations WHERE root=?").get(root),

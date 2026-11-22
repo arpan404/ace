@@ -224,13 +224,8 @@ export function SourceControlView(props: {
     const request = discardRequest;
     if (!request) return;
     setDiscardRequest(undefined);
-    const hasUntracked = request.items.some((item) => item.untracked);
-    await sc.runAction("discard", () =>
-      discardFiles(client, threadId, {
-        paths: request.all ? undefined : request.items.map((item) => item.path),
-        includeUntracked: hasUntracked,
-      }),
-    );
+    // Exactly the files the dialog named, as they were then: a file changed since is refused.
+    await sc.runAction("discard", () => discardFiles(client, threadId, request.items));
   };
 
   const handleClearLock = async () => {
@@ -496,6 +491,7 @@ export function SourceControlView(props: {
                     onStageAll={() =>
                       void sc.runAction("stage", () => stageFiles(client, threadId))
                     }
+                    discardWait={sc.agentWorking ? "Wait for the agent to finish" : undefined}
                     onDiscard={(items) => setDiscardRequest({ items, all: false })}
                     onDiscardAll={() =>
                       setDiscardRequest({ items: sc.sections.changes, all: true })

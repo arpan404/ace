@@ -117,6 +117,10 @@ const copy: Record<string, string> = {
   git_stash_empty: "There are no stashes to pop.",
   git_nothing_to_stash: "There are no local changes to stash.",
   git_path_outside_repo: "That path is outside the repository and can't be changed.",
+  git_changed_since_review:
+    "A file changed after you reviewed it, so nothing was discarded. Look at it again first.",
+  git_path_occupied:
+    "Another file now has the renamed file's old name, so nothing was discarded. Move it first.",
   // The forge (GitHub through `gh`). Reads and writes share the transport codes; a write the
   // host refuses gets its own code so the fix names what changed.
   forge_cli:

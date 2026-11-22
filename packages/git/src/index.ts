@@ -81,7 +81,14 @@ import {
   type BranchRefs,
   type FetchBranchOptions,
 } from "./remote-branches.ts";
-import type { ChangedFile, Checkpoint, DiffSide, GitOptions, PushOptions } from "./types.ts";
+import type {
+  ChangedFile,
+  Checkpoint,
+  DiffSide,
+  GitOptions,
+  PushOptions,
+  ReviewedFile,
+} from "./types.ts";
 
 export { publicationOriginMatches } from "./publication.ts";
 export { executionKeyQuery, nonExecutingEnv } from "./non-executing.ts";
@@ -319,11 +326,13 @@ export class GitService {
   unstage(options: { worktree: string; paths?: readonly string[] | undefined }): Promise<void> {
     return unstagePaths(this.repository, options);
   }
-  /** Discard tracked changes and move untracked paths to `trash` (refuses if `trash` is absent). */
+  /**
+   * Discard exactly the files the person reviewed, refusing any that changed since. Tracked
+   * changes are restored; untracked files go to `trash` (refused when `trash` is absent).
+   */
   discard(options: {
     worktree: string;
-    paths?: readonly string[] | undefined;
-    includeUntracked?: boolean | undefined;
+    files: readonly ReviewedFile[];
     trash?: ((root: string, path: string) => Promise<void>) | undefined;
   }): Promise<void> {
     return discardPaths(this.repository, options);

@@ -64,6 +64,22 @@ async function expectGitError(promise: Promise<unknown>, code: string): Promise<
   }
 }
 
+/** What the person saw for `path` in the status they reviewed. */
+function reviewed(
+  status: { staged: Entry[]; unstaged: Entry[]; untracked: Entry[]; conflicted: Entry[] },
+  path: string,
+): { path: string; fingerprint: string } {
+  const entry = [
+    ...status.unstaged,
+    ...status.untracked,
+    ...status.staged,
+    ...status.conflicted,
+  ].find((candidate) => candidate.path === path);
+  if (!entry) throw new Error(`${path} is not in the status`);
+  return { path, fingerprint: entry.fingerprint };
+}
+type Entry = { path: string; fingerprint: string };
+
 afterEach(async () => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop();
@@ -144,14 +160,16 @@ describe("source control git operations", () => {
       await git.stage({ worktree: repo, paths: ["a.txt"] });
       await writeFile(join(repo, "a.txt"), "working tree noise\n");
       await writeFile(join(repo, "draft.txt"), "untracked note\n");
+      let status = await git.sourceControlStatus(repo);
 
       // Discarding unstaged change restores working tree to staged index version.
-      await git.discard({ worktree: repo, paths: ["a.txt"] });
+      await git.discard({ worktree: repo, files: [reviewed(status, "a.txt")] });
       expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("staged version\n");
 
       // Discarding untracked without a trash handler refuses and leaves the file intact.
+      status = await git.sourceControlStatus(repo);
       await expectGitError(
-        git.discard({ worktree: repo, paths: ["draft.txt"] }),
+        git.discard({ worktree: repo, files: [reviewed(status, "draft.txt")] }),
         "trash_unavailable",
       );
       expect(await readFile(join(repo, "draft.txt"), "utf8")).toBe("untracked note\n");
@@ -160,7 +178,7 @@ describe("source control git operations", () => {
       const trashed: string[] = [];
       await git.discard({
         worktree: repo,
-        paths: ["draft.txt"],
+        files: [reviewed(status, "draft.txt")],
         trash: async (root, rel) => {
           trashed.push(rel);
           await rename(join(root, rel), join(trashDir, rel));
@@ -168,8 +186,84 @@ describe("source control git operations", () => {
       });
       expect(trashed).toEqual(["draft.txt"]);
       expect(await readFile(join(trashDir, "draft.txt"), "utf8")).toBe("untracked note\n");
-      const status = await git.sourceControlStatus(repo);
+      status = await git.sourceControlStatus(repo);
       expect(status.untracked).toEqual([]);
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("refuses to discard a file changed since the person reviewed it, and discards nothing", async () => {
+    const repo = await createRepo();
+    const git = new GitService();
+    try {
+      await writeFile(join(repo, "a.txt"), "reviewed edit\n");
+      await writeFile(join(repo, "b.txt"), "tracked b\n");
+      runGit(repo, ["add", "b.txt"]);
+      runGit(repo, ["commit", "-m", "b"]);
+      await writeFile(join(repo, "b.txt"), "b edit\n");
+      const status = await git.sourceControlStatus(repo);
+      // The agent (or another tab) writes after the dialog showed the file.
+      await writeFile(join(repo, "a.txt"), "reviewed edit plus a newer line\n");
+      await expectGitError(
+        git.discard({
+          worktree: repo,
+          files: [reviewed(status, "b.txt"), reviewed(status, "a.txt")],
+        }),
+        "changed_since_review",
+      );
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("reviewed edit plus a newer line\n");
+      expect(await readFile(join(repo, "b.txt"), "utf8")).toBe("b edit\n");
+      // A file that disappeared since the review is a change too.
+      await rm(join(repo, "b.txt"));
+      await expectGitError(
+        git.discard({ worktree: repo, files: [reviewed(status, "b.txt")] }),
+        "changed_since_review",
+      );
+    } finally {
+      await git.close();
+    }
+  });
+
+  it("discards a staged rename only when its old name is free, trashing the new file first", async () => {
+    const repo = await createRepo();
+    const trashDir = await mkdtemp(join(tmpdir(), "ace-sc-trash-"));
+    tempDirs.push(trashDir);
+    const git = new GitService();
+    const trash = async (root: string, rel: string) => {
+      await rename(join(root, rel), join(trashDir, rel));
+    };
+    try {
+      runGit(repo, ["mv", "a.txt", "b.txt"]);
+      // Something new now sits at the old name: restoring `a.txt` would overwrite it.
+      await writeFile(join(repo, "a.txt"), "a new file\n");
+      let status = await git.sourceControlStatus(repo);
+      await expectGitError(
+        git.discard({ worktree: repo, files: [reviewed(status, "b.txt")], trash }),
+        "path_occupied",
+      );
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("a new file\n");
+      expect(await readFile(join(repo, "b.txt"), "utf8")).toBe("hello\n");
+
+      // A failing trash leaves the rename exactly as it was.
+      await rm(join(repo, "a.txt"));
+      status = await git.sourceControlStatus(repo);
+      await expectGitError(
+        git.discard({
+          worktree: repo,
+          files: [reviewed(status, "b.txt")],
+          trash: async () => {
+            throw new GitError("trash_unavailable", "Recently deleted is full");
+          },
+        }),
+        "trash_unavailable",
+      );
+      expect(runGit(repo, ["status", "--porcelain"])).toBe("R  a.txt -> b.txt");
+
+      await git.discard({ worktree: repo, files: [reviewed(status, "b.txt")], trash });
+      expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("hello\n");
+      expect(await readFile(join(trashDir, "b.txt"), "utf8")).toBe("hello\n");
+      expect(runGit(repo, ["status", "--porcelain"])).toBe("");
     } finally {
       await git.close();
     }
@@ -188,7 +282,7 @@ describe("source control git operations", () => {
         "path_outside_repo",
       );
       await expectGitError(
-        git.discard({ worktree: repo, paths: [".git/config"] }),
+        git.discard({ worktree: repo, files: [{ path: ".git/config", fingerprint: "missing" }] }),
         "path_outside_repo",
       );
     } finally {
@@ -219,7 +313,10 @@ describe("source control git operations", () => {
       expect(await readFile(join(repo, "a.txt"), "utf8")).toBe("uncommitted local edit\n");
 
       // After discarding, switch succeeds.
-      await git.discard({ worktree: repo, paths: ["a.txt"] });
+      await git.discard({
+        worktree: repo,
+        files: [reviewed(await git.sourceControlStatus(repo), "a.txt")],
+      });
       await git.switchBranch({ worktree: repo, branch: "main", allowUncommitted: true });
       const status = await git.sourceControlStatus(repo);
       expect(status.branch).toBe("main");

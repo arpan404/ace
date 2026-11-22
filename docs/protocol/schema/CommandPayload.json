@@ -999,18 +999,28 @@
     },
     {
       "properties": {
-        "includeUntracked": {
-          "default": false,
-          "type": "boolean"
-        },
-        "paths": {
+        "files": {
           "items": {
-            "maxLength": 4096,
-            "minLength": 1,
-            "type": "string",
-            "x-ace-constraint": "Repository-relative path without NUL bytes."
+            "properties": {
+              "fingerprint": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "path": {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string",
+                "x-ace-constraint": "Repository-relative path without NUL bytes."
+              }
+            },
+            "required": [
+              "path",
+              "fingerprint"
+            ],
+            "type": "object"
           },
-          "maxItems": 1000,
+          "maxItems": 2000,
           "minItems": 1,
           "type": "array"
         },
@@ -1024,7 +1034,8 @@
       },
       "required": [
         "type",
-        "threadId"
+        "threadId",
+        "files"
       ],
       "type": "object"
     },

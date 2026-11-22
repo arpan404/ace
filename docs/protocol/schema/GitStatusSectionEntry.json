@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/GitStatusSectionEntry.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "fingerprint": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
     "from": {
       "maxLength": 4096,
       "minLength": 1,
@@ -28,7 +33,8 @@
   },
   "required": [
     "path",
-    "status"
+    "status",
+    "fingerprint"
   ],
   "type": "object"
 }

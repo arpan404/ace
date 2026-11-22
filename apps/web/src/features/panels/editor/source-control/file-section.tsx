@@ -44,6 +44,8 @@ export function FileSection(props: {
   onUnstageAll?(): void;
   onDiscard?(items: readonly SourceControlItem[]): void;
   onDiscardAll?(): void;
+  /** Why discarding waits (the agent is working), shown on the disabled discard icons. */
+  discardWait?: string | undefined;
 }) {
   const [open, setOpen] = useState(true);
   const { items, selected, section } = props;
@@ -75,7 +77,8 @@ export function FileSection(props: {
               icon={ArrowUUpLeftIcon}
               label="Discard all"
               size="sm"
-              disabled={props.disabled || items.length === 0}
+              disabled={props.disabled || items.length === 0 || props.discardWait !== undefined}
+              reason={props.discardWait}
               onClick={props.onDiscardAll}
               className="size-5 rounded-sm hover:bg-hover"
             />
@@ -188,7 +191,8 @@ export function FileSection(props: {
                       label={`Discard ${targetCount > 1 ? `${targetCount} files` : name}`}
                       tip={`Discard${plural}`}
                       size="sm"
-                      disabled={props.disabled}
+                      disabled={props.disabled || props.discardWait !== undefined}
+                      reason={props.discardWait}
                       onClick={() => props.onDiscard?.(targetItems)}
                       className="size-5 rounded-sm hover:bg-hover"
                     />

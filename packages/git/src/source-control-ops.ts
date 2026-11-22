@@ -5,7 +5,8 @@ import { GitDiagnostics } from "./diagnostics.ts";
 import { failureMessage } from "./failure-text.ts";
 import { remoteNames } from "./remote-branches.ts";
 import type { Repository } from "./repository.ts";
-import { GitError, type GitStash } from "./types.ts";
+import { fileFingerprint } from "./file-fingerprint.ts";
+import { GitError, type GitStash, type ReviewedFile } from "./types.ts";
 
 const maxPathBytes = 256 * 1024;
 const maxPaths = 1000;
@@ -155,97 +156,85 @@ export async function unstagePaths(
 }
 
 /**
- * Discard working-tree changes. Tracked files are restored from the index (or HEAD if only staged
- * and already tracked in HEAD). Untracked files are sent through `trash` (Recently deleted); if
- * `trash` is unavailable, refuses with `trash_unavailable` and never deletes directly.
+ * Discard exactly the files the person reviewed. Every file must still match the fingerprint the
+ * person saw, or nothing happens. A staged rename is undone only when its old name is free.
+ * Untracked and added files go to `trash` (Recently deleted) first, before Git touches the index
+ * or the tree: a failed move stops the discard with the checkout's Git state unchanged (files
+ * already moved stay recoverable in Recently deleted). Without `trash`, refuses with
+ * `trash_unavailable`; nothing is ever deleted directly.
  */
 export async function discardPaths(
   repository: Repository,
   options: {
     worktree: string;
-    paths?: readonly string[] | undefined;
-    includeUntracked?: boolean | undefined;
+    files: readonly ReviewedFile[];
     trash?: ((root: string, path: string) => Promise<void>) | undefined;
   },
 ): Promise<void> {
   const root = await repository.root(options.worktree);
-  const requested = options.paths ? validateRepoPaths(root, options.paths) : undefined;
+  const requested = validateRepoPaths(
+    root,
+    options.files.map((file) => file.path),
+  );
+  const expected = new Map(options.files.map((file) => [file.path, file.fingerprint]));
   await repository.serial(root, async () => {
     const { status, branch } = await repository.state(root);
+    for (const path of requested)
+      if ((await fileFingerprint(root, path)) !== expected.get(path))
+        throw new GitError("changed_since_review", failureMessage("changed_since_review"));
     const untrackedSet = new Set(status.untracked);
     const unstagedSet = new Set(status.unstaged.map((entry) => entry.path));
     const stagedByPath = new Map(status.staged.map((entry) => [entry.path, entry]));
     const restoreFromIndex: string[] = [];
     const restoreFromHead: string[] = [];
-    const unstageAdded: string[] = [];
+    const unstage: string[] = [];
     const toTrash: string[] = [];
 
-    if (requested) {
-      for (const path of requested) {
-        if (untrackedSet.has(path)) {
+    for (const path of requested) {
+      if (untrackedSet.has(path)) {
+        toTrash.push(path);
+      } else if (unstagedSet.has(path)) {
+        restoreFromIndex.push(path);
+      } else {
+        const staged = stagedByPath.get(path);
+        if (!staged) continue;
+        if (staged.indexStatus === "A" || branch.head === null) {
+          unstage.push(path);
           toTrash.push(path);
-        } else if (unstagedSet.has(path)) {
-          restoreFromIndex.push(path);
+        } else if (staged.indexStatus === "R" && staged.oldPath) {
+          // Restoring the old name must not overwrite whatever now sits there.
+          if ((await fileFingerprint(root, staged.oldPath)) !== "missing")
+            throw new GitError("path_occupied", `${staged.oldPath} already exists; move it first`);
+          unstage.push(path, staged.oldPath);
+          restoreFromHead.push(staged.oldPath);
+          toTrash.push(path);
         } else {
-          const staged = stagedByPath.get(path);
-          if (!staged) continue;
-          if (staged.indexStatus === "A" || branch.head === null) {
-            unstageAdded.push(path);
-            toTrash.push(path);
-          } else if (staged.indexStatus === "R" && staged.oldPath) {
-            unstageAdded.push(path, staged.oldPath);
-            restoreFromHead.push(staged.oldPath);
-            toTrash.push(path);
-          } else {
-            restoreFromHead.push(path);
-          }
+          restoreFromHead.push(path);
         }
       }
-    } else {
-      for (const entry of status.unstaged) restoreFromIndex.push(entry.path);
-      if (options.includeUntracked) toTrash.push(...status.untracked);
     }
 
-    if (toTrash.length > 0 && !options.trash) {
+    if (toTrash.length > 0 && !options.trash)
       throw new GitError("trash_unavailable", failureMessage("trash_unavailable"));
-    }
-    if (restoreFromIndex.length > 0) {
-      await repository.cli.call(root, ["checkout", "--", ...restoreFromIndex], {
-        write: true,
-        timeoutMs: longWriteTimeoutMs,
-        captureBytes: 65_536,
-        env: literalEnv,
-      });
-    }
-    if (restoreFromHead.length > 0) {
-      await repository.cli.call(root, ["checkout", "HEAD", "--", ...restoreFromHead], {
-        write: true,
-        timeoutMs: longWriteTimeoutMs,
-        captureBytes: 65_536,
-        env: literalEnv,
-      });
-    }
-    if (unstageAdded.length > 0) {
-      if (branch.head === null) {
-        await repository.cli.call(
-          root,
-          ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...unstageAdded],
-          { write: true, timeoutMs: longWriteTimeoutMs, captureBytes: 65_536, env: literalEnv },
-        );
-      } else {
-        await repository.cli.call(root, ["reset", "HEAD", "--", ...unstageAdded], {
-          write: true,
-          timeoutMs: longWriteTimeoutMs,
-          captureBytes: 65_536,
-          env: literalEnv,
-        });
-      }
-    }
-    if (toTrash.length > 0 && options.trash) {
-      for (const path of toTrash) {
-        await options.trash(root, path);
-      }
-    }
+    if (options.trash) for (const path of toTrash) await options.trash(root, path);
+    const write = {
+      write: true,
+      timeoutMs: longWriteTimeoutMs,
+      captureBytes: 65_536,
+      env: literalEnv,
+    };
+    if (unstage.length > 0)
+      await repository.cli.call(
+        root,
+        branch.head === null
+          ? ["rm", "--cached", "-r", "--ignore-unmatch", "--", ...unstage]
+          : ["reset", "-q", "HEAD", "--", ...unstage],
+        write,
+      );
+    if (restoreFromIndex.length > 0)
+      await repository.cli.call(root, ["checkout", "--", ...restoreFromIndex], write);
+    if (restoreFromHead.length > 0)
+      await repository.cli.call(root, ["checkout", "HEAD", "--", ...restoreFromHead], write);
   });
 }
 

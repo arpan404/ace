@@ -18,6 +18,8 @@ export const GitStatusSectionEntry = z.object({
   /** A rename's old path. */
   from: repoPath.optional(),
   status: z.enum(["added", "modified", "deleted", "renamed", "untracked", "conflicted"]),
+  /** The file as this status read it; `git.discard` must quote it back. */
+  fingerprint: z.string().min(1).max(200),
 });
 export type GitStatusSectionEntry = z.infer<typeof GitStatusSectionEntry>;
 
@@ -67,14 +69,15 @@ export const GitSourceControlCommands = [
   z.object({
     type: z.literal("git.discard"),
     threadId: ThreadId,
-    /** Discard only these repository-relative paths; discard all working-tree changes when absent. */
-    paths: z
-      .array(repoPath)
+    /**
+     * Exactly the files the person confirmed, each with the `fingerprint` the reviewed status
+     * showed. A file that changed since is refused (`git_changed_since_review`) and nothing is
+     * discarded. Untracked files go to Recently deleted, never removed directly.
+     */
+    files: z
+      .array(z.object({ path: repoPath, fingerprint: z.string().min(1).max(200) }))
       .min(1)
-      .max(2 * sourceControlStatusLimit)
-      .optional(),
-    /** Move untracked files to Recently deleted when discarding all changes (never rm -rf). */
-    includeUntracked: z.boolean().default(false),
+      .max(4 * sourceControlStatusLimit),
   }),
   z.object({
     type: z.literal("git.branch.switch"),

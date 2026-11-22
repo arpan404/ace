@@ -1,9 +1,4 @@
-import type {
-  BranchRef,
-  GitStatusSectionEntry,
-  ThreadStatus,
-  WorkspaceActionResult,
-} from "@ace/protocol";
+import type { BranchRef, GitStatusSectionEntry, WorkspaceActionResult } from "@ace/protocol";
 import { fileChanges, type Turn } from "@ace/ui-core";
 
 export type GitStatusReply = Extract<WorkspaceActionResult["result"], { kind: "gitStatus" }>;
@@ -22,6 +17,8 @@ export interface SourceControlItem {
   readonly colorClass: string;
   readonly untracked: boolean;
   readonly section: SourceControlSection;
+  /** The file as the status read it; a discard quotes it back so nothing newer is lost. */
+  readonly fingerprint: string;
 }
 
 export interface SourceControlSections {
@@ -77,6 +74,7 @@ function toItem(entry: GitStatusSectionEntry, section: SourceControlSection): So
     colorClass: meta.colorClass,
     untracked: section === "changes" && entry.status === "untracked",
     section,
+    fingerprint: entry.fingerprint,
   };
 }
 
@@ -263,22 +261,17 @@ function relativeToCheckout(path: string, checkoutRoot: string | undefined): str
 }
 
 /**
- * Repo-relative paths edited by the agent in the currently running turn. Used to require an extra
- * confirmation before discarding changes the active agent just made.
+ * Repo-relative paths the agent edited in its latest turn. A discard runs only while no agent
+ * works in the checkout, so these are the agent's most recent changes: discarding one asks again.
  */
-export function runningTurnEditedPaths(
+export function lastTurnEditedPaths(
   turns: readonly Turn[],
-  status: ThreadStatus | undefined,
-  rootRunId: string | null | undefined,
   checkoutRoot: string | undefined,
 ): ReadonlySet<string> {
-  const working = status?.state === "working" || (rootRunId !== null && rootRunId !== undefined);
-  if (!working || turns.length === 0) return new Set();
-  const activeTurn =
-    (rootRunId ? turns.find((turn) => turn.id === rootRunId) : undefined) ?? turns.at(-1);
-  if (!activeTurn) return new Set();
+  const lastTurn = turns.at(-1);
+  if (!lastTurn) return new Set();
   const paths = new Set<string>();
-  for (const edit of activeTurn.edits) {
+  for (const edit of lastTurn.edits) {
     for (const change of fileChanges(edit)) {
       paths.add(relativeToCheckout(change.path, checkoutRoot));
       if (change.movePath) paths.add(relativeToCheckout(change.movePath, checkoutRoot));

@@ -9,8 +9,8 @@
       "sha256": "cfe94945a5ab6c0ff2c6efd1409361657c88c74f332b71542b5e34d32507e4e0"
     },
     "commands.md": {
-      "bytes": 65239,
-      "sha256": "c2bd59fdb68ed29058abdfae1b5e5121cfa29372e7e771c6e337642f6ca1f904"
+      "bytes": 65345,
+      "sha256": "f21a5ae72a7c8dd71a1e233e73fab166b098d4db36b2e572bcfcd4289f2d72aa"
     },
     "events.md": {
       "bytes": 21143,
@@ -1405,8 +1405,8 @@
       "sha256": "9d81a29a1e885281a89e8c1e208cd8d84e18683844c6a6182d25e21455f7a3d0"
     },
     "schema/CommandPayload.json": {
-      "bytes": 61712,
-      "sha256": "0a8381a973513f40705c2e1d3cd514b9ecf18cafffa1e0b2adc97ca23fa54acb"
+      "bytes": 61998,
+      "sha256": "b0419115187b780804003908d268137169d8738cb3423b536bc8c6cf88c77c4a"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -2365,8 +2365,8 @@
       "sha256": "c45156da362c58367623ac34c6f8d41453be080c13303a0f8b9b0a6b5d026637"
     },
     "schema/GitStatusSectionEntry.json": {
-      "bytes": 737,
-      "sha256": "7d15c5ab4f50e32e466eddab6ab8ff24b2ed070d765bdac95ea768a42c925ae9"
+      "bytes": 853,
+      "sha256": "20f525a95333338f213c9f7728dfcea7f62b30a8f9d45e21598978b7a0aa6f58"
     },
     "schema/GoalChange.json": {
       "bytes": 618,
@@ -7021,10 +7021,10 @@
       "sha256": "fb21568b74b6eff7387ae27e32be2e38afd75e851339cd06e5259d976e1264fa"
     },
     "types.md": {
-      "bytes": 1425860,
-      "sha256": "1165476576dd02bad405365a518e1d076bb7691ca7d24eeca73705849b5a5727"
+      "bytes": 1425953,
+      "sha256": "bbd3b1132bc3dbaf9e47c79e9a26bed38e5e06f636ef5a78ef5d701568808d6e"
     }
   },
-  "input": "33d8356616a58a6738da2101dceca33b0949e8394443810f6ebbc779e87dd31e",
+  "input": "49e42c7cedd05f9850d30b9660e18a0be7f9186ad77bd9c9dc1643f4590f6bf2",
   "version": 1
 }

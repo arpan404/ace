@@ -81,6 +81,25 @@ export class FilesWorkspaces {
       release: service.retain(),
     }));
   }
+  /**
+   * The thread's service pinned to `root`, a checkout the caller already holds (a Git discard).
+   * Refuses when the thread's files no longer live at exactly that root, so a path relative to
+   * `root` can never land in another checkout.
+   */
+  async acquireAt(
+    threadId: ThreadId,
+    root: string,
+  ): Promise<{ service: FilesService; release(): void }> {
+    const [own, wanted] = await Promise.all([realpath(this.root(threadId)), realpath(root)]);
+    if (own !== wanted) throw new Error("git_trash_unavailable");
+    return this.resolve(
+      {
+        root: () => wanted,
+        workspaceId: () => this.context.store.getThread(threadId)?.workspaceId,
+      },
+      (service) => ({ service, release: service.retain() }),
+    );
+  }
   /** The project folder's service: the same one its threads share when they run there. */
   acquireProject(workspaceId: WorkspaceId): Promise<{ service: FilesService; release(): void }> {
     return this.resolve(

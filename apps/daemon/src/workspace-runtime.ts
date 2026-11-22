@@ -76,8 +76,15 @@ export interface WorkspaceRuntimeOptions {
   reconcileThread?(id: ThreadId): Promise<void>;
   /** Provider background work still runs, or is lost track of (the workspace fence's check). */
   runsProviderWork?(id: ThreadId): boolean;
-  /** Move an untracked repository-relative file into Recently deleted (trash). */
-  trashFile?(id: ThreadId, path: string): Promise<void>;
+  /** Move an untracked file, relative to the checkout `root` Git holds, into Recently deleted. */
+  trashFile?(id: ThreadId, root: string, path: string): Promise<void>;
+  /** Hold every thread bound to `root` quiet while a source control change runs (engine). */
+  holdCheckout?<T>(
+    id: ThreadId,
+    commandId: string,
+    root: string,
+    effect: () => Promise<T>,
+  ): Promise<T>;
   changeWorkspace?(
     id: ThreadId,
     commandId: string,
@@ -1047,8 +1054,10 @@ export class WorkspaceRuntime {
             store: this.store,
             threadId,
             cwd,
+            commandId: command.id,
             runsProviderWork: (owner) => this.options.runsProviderWork?.(owner) ?? false,
             trashFile: this.options.trashFile,
+            holdCheckout: this.options.holdCheckout,
             refreshDetails: async () => {
               await this.details(threadId);
             },

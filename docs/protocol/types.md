@@ -18179,11 +18179,13 @@ Example:
 | path | yes | string | {"minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."} |
 | from | no | string | {"minLength":1,"maxLength":4096,"x-ace-constraint":"Repository-relative path without NUL bytes."} |
 | status | yes | ["added","modified","deleted","renamed","untracked","conflicted"] |  |
+| fingerprint | yes | string | {"minLength":1,"maxLength":200} |
 
 Example:
 
 ```json
 {
+  "fingerprint": "example",
   "path": "example",
   "status": "deleted"
 }

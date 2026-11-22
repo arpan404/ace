@@ -148,13 +148,12 @@ export function unstageFiles(
 export function discardFiles(
   client: ClientApi,
   threadId: string,
-  options: { paths?: readonly string[] | undefined; includeUntracked: boolean },
+  files: readonly { path: string; fingerprint: string }[],
 ): Promise<CommandResult> {
   return runWorkspace(client, {
     type: "git.discard",
     threadId: tid(threadId),
-    ...(options.paths ? { paths: [...options.paths] } : {}),
-    includeUntracked: options.includeUntracked,
+    files: files.map((file) => ({ path: file.path, fingerprint: file.fingerprint })),
   });
 }
 

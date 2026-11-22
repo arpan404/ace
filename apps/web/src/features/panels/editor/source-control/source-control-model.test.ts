@@ -7,7 +7,7 @@ import {
   emptySelection,
   filterBranches,
   pruneSelection,
-  runningTurnEditedPaths,
+  lastTurnEditedPaths,
   selectRow,
   splitPath,
   targetPaths,
@@ -19,16 +19,16 @@ describe("source-control-model", () => {
       kind: "gitStatus",
       files: [],
       truncated: false,
-      conflicted: [{ path: "src/merge.ts", status: "conflicted" }],
+      conflicted: [{ path: "src/merge.ts", status: "conflicted", fingerprint: "f" }],
       staged: [
-        { path: "src/app.ts", status: "modified" },
-        { path: "src/renamed.ts", from: "src/old.ts", status: "renamed" },
+        { path: "src/app.ts", status: "modified", fingerprint: "f" },
+        { path: "src/renamed.ts", from: "src/old.ts", status: "renamed", fingerprint: "f" },
       ],
       unstaged: [
-        { path: "src/app.ts", status: "modified" },
-        { path: "src/removed.ts", status: "deleted" },
+        { path: "src/app.ts", status: "modified", fingerprint: "f" },
+        { path: "src/removed.ts", status: "deleted", fingerprint: "f" },
       ],
-      untracked: [{ path: "src/brand-new.ts", status: "untracked" }],
+      untracked: [{ path: "src/brand-new.ts", status: "untracked", fingerprint: "f" }],
     });
 
     expect(sections.conflicts.map((item) => [item.path, item.letter])).toEqual([
@@ -108,7 +108,7 @@ describe("source-control-model", () => {
     expect(filterBranches(options, "bad name with spaces").createName).toBeUndefined();
   });
 
-  test("runningTurnEditedPaths returns edited repo-relative paths only while the agent is working", () => {
+  test("lastTurnEditedPaths returns the repo-relative paths the latest turn edited", () => {
     const turns = [
       {
         id: "run-1",
@@ -135,11 +135,9 @@ describe("source-control-model", () => {
       },
     ] as unknown as readonly Turn[];
 
-    const active = runningTurnEditedPaths(turns, { state: "working", agents: 1 }, "run-1", "/repo");
-    expect([...active].toSorted()).toEqual(["src/edited.ts", "src/other.ts"]);
-
-    const idle = runningTurnEditedPaths(turns, { state: "done" }, undefined, "/repo");
-    expect(idle.size).toBe(0);
+    const edited = lastTurnEditedPaths(turns, "/repo");
+    expect([...edited].toSorted()).toEqual(["src/edited.ts", "src/other.ts"]);
+    expect(lastTurnEditedPaths([], "/repo").size).toBe(0);
   });
 
   test("canCommitChanges blocks commits with empty message or unresolved conflicts", () => {

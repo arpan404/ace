@@ -21,7 +21,7 @@ export interface DiscardRequest {
 /**
  * Destructive confirmation for discarding file changes. Names the file (or lists the count when
  * discarding several), clarifies that untracked files move to Recently deleted, and requires an
- * explicit second confirmation step when any target file was changed by the agent in the running
+ * explicit second confirmation step when any target file was changed by the agent in its last
  * turn.
  */
 export function DiscardDialog(props: {
@@ -42,7 +42,7 @@ export function DiscardDialog(props: {
 
   const title =
     hasAgentEdits && agentStepConfirmed
-      ? "Discard edits from the running turn?"
+      ? "Discard the agent's latest edits?"
       : single
         ? `Discard changes to ${splitPath(single.path).name}?`
         : request.all
@@ -56,7 +56,7 @@ export function DiscardDialog(props: {
         names.length <= 3
           ? names.join(", ")
           : `${names.slice(0, 3).join(", ")} and ${names.length - 3} more`;
-      return `The agent is still working and edited ${list} in this turn. Discarding now will overwrite its in-progress changes.`;
+      return `The agent edited ${list} in its last turn. Discarding reverts that work too.`;
     }
     if (single) {
       return single.untracked
@@ -102,7 +102,7 @@ export function DiscardDialog(props: {
               {agentEditedPaths.length === 1
                 ? splitPath(agentEditedPaths[0] ?? "").name
                 : `${agentEditedPaths.length} of these files`}{" "}
-              in the running turn. You will be asked to confirm one more time.
+              in its last turn. You will be asked to confirm one more time.
             </span>
           </div>
         )}

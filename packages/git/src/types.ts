@@ -129,6 +129,8 @@ export type GitErrorCode =
   | "stash_empty"
   | "nothing_to_stash"
   | "path_outside_repo"
+  | "changed_since_review"
+  | "path_occupied"
   | GitFailureCode;
 
 /**
@@ -265,6 +267,14 @@ export interface SourceControlSectionEntry {
   path: string;
   from?: string;
   status: "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
+  /** The file as the status read it (`fileFingerprint`); a discard must quote it back. */
+  fingerprint: string;
+}
+
+/** A file the person confirmed discarding, with the fingerprint the dialog showed. */
+export interface ReviewedFile {
+  path: string;
+  fingerprint: string;
 }
 
 export interface SourceControlStatus {
