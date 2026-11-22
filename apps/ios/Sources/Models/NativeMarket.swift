@@ -147,6 +147,8 @@ struct MarketSearchPage: Decodable, Equatable {
     let totalText: String
     /// "Listings from 3:04 PM": when the machine last read them.
     let listings: String?
+    /// Where the next page starts; nil when these are the last results.
+    let next: Int?
 }
 
 struct MarketSources: Decodable, Equatable {
