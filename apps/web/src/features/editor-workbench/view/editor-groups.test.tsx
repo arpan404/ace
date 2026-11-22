@@ -99,8 +99,10 @@ test("at the pane cap, edges take no drop and Split right is off", async () => {
   fireEvent.drop(area, { dataTransfer: data, clientX: 290, clientY: 150 });
   expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
   expect(editor.seen.every((layout) => groupsOf(layout).length <= 2)).toBe(true);
-  // Off: a press makes no third pane.
-  fireEvent.click(within(region(1)).getByRole("button", { name: "Split right" }));
+  // Visibly off (focusable, so its tooltip can say why), and a press makes no third pane.
+  const split = within(region(1)).getByRole("button", { name: "Split right" });
+  expect(split.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.click(split);
   expect(screen.queryByRole("region", { name: "Pane 3" })).toBeNull();
 });
 
