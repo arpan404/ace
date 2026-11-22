@@ -84,20 +84,40 @@ Spade is one of ace's places. It adds no navigation of its own.
   The transcript runs to the top under it.
 - **Bubbles.** The bot's on `--chat-bubble`, left, at most 64ch; the person's on `--chat-mine`
   (the accent) with `--chat-mine-foreground`, right, at most 56ch. Both 18 corners
-  (`--chat-bubble-radius`), 18px sides, 10px ends, prose 15/24. Headings, lists and links render
-  inside a bot's bubble; nothing is wider than it.
+  (`--chat-bubble-radius`), 18px sides, 10px ends, prose 15/24. Lists and links render inside a
+  bot's bubble; nothing is wider than it.
+- **Short messages (ADR 0212).** A bot texts like a person: one turn is several short bubbles,
+  each arriving as its words do (`<msg>` in its words, split by `@ace/ui-core/spade-chat`). The
+  bot is working until its last message is out; the working line stays under the bubble still
+  filling.
+- **Document card.** Long words (a `<doc>` the bot wrote, or a message past about 12 lines or
+  holding a heading or a table) are a card on the bot's side, never a wall: `--chat-bubble` fill
+  at the 18 corner, the document mark in the muted ink, the title in 14/20 at 500, two lines of
+  preview in the muted ink, and Open as a ghost text button, which shows every word in a dialog.
+  A long message keeps its first paragraph as a bubble above the card. Nothing is cut without the
+  card.
+- **Reply.** Every stored message, the bot's or the person's, offers Reply in its hover actions
+  (and a long press on touch). The composer then shows one line above the field on a 2px rule:
+  "Replying to Flights · …" with × to stop. A sent reply, and a bot's reply to an earlier message,
+  carries one quiet line above its bubble on the same rule: the sender's name in 12/16 at 500,
+  then their first line, muted. Clicking it scrolls to the original and lights it a moment with
+  the focus ring. A quote to a message that isn't there shows nothing. In a club the person can
+  reply to any member's message.
 - **Code.** Inline code and code blocks in a bot's bubble sit on `--chat-code`. A block hangs 6px
   in from the bubble's edge at a 12 corner (concentric), with a 32px header holding the language
   and Copy, code in 13/20 mono, scrolling sideways. Inline code in the person's bubble sits on
   `--chat-mine-code`.
-- **Runs.** 4px between bubbles of a run, 16px between turns. In a one-to-one chat no face sits
-  beside a bubble: the pill and the working line carry it. In a club, each member's run starts
-  with its face and name.
-- **Time lines.** Only after a 30-minute gap or on a new day, 12/16 subtle, 24px above and 12px
-  below. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
+- **Runs.** A sender's consecutive bubbles, the person's too, are one run: 4px between them,
+  16px between turns. A bubble's actions (its time, Reply, Copy, Read aloud, More) float over its
+  top edge on hover, so they take no room in the run. In a one-to-one chat no face sits beside a
+  bubble: the pill and the working line carry it. In a club, each member's run starts with its
+  face and name, once.
+- **Time lines.** Only after a five-minute gap or on a new day, 12/16 subtle, 24px above and 12px
+  below; every bubble's exact time shows on hover. A routine's run names itself in its line. Times follow the person's locale, never 24-hour
   by default.
-- **Working line.** Under the last bubble while the bot works: its 32px face, moving, one line of
-  what it is doing and a running time. It goes when the reply ends. Only a working face moves
+- **Working line.** Under the last bubble while the bot works: its 32px face, moving, and what it
+  is doing in a small bubble of its own (`--chat-bubble`, 18 corner), where its next message will
+  be, as the other side typing, then a running time. It goes when the reply ends. Only a working face moves
   (ADR 0127); every other pose moves once and holds.
 - **Steps.** As steps finish, they fold into one quiet line under the reply
   ("Ran 3 commands, changed 2 files"). The line starts closed and counts failures
