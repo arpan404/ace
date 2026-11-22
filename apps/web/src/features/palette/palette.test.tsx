@@ -91,12 +91,11 @@ test("choosing a project opens its latest thread", async () => {
 const hints = (sheet: HTMLElement) =>
   sheet.querySelector('[data-slot="key-hints"]')?.textContent ?? "";
 
-test("the palette's key hints name its keys, with Back only inside a step", async () => {
+test("the palette itself narrates no keys; its steps name theirs, with Back", async () => {
   await openApp();
   await palette();
   const sheet = screen.getByRole("dialog", { name: "Command palette" });
-  for (const label of ["Navigate", "Select", "Close"]) expect(hints(sheet)).toContain(label);
-  expect(hints(sheet)).not.toContain("Back");
+  expect(hints(sheet)).toBe("");
 
   await userEvent.keyboard("new thread in");
   await userEvent.click(await screen.findByRole("option", { name: /^New thread in…/ }));
@@ -285,13 +284,15 @@ test("threads and projects read by the project's name, never its id", async () =
   expect(options().some((option) => option.includes(id))).toBe(false);
 });
 
-test("the palette's Close is a word, says Esc is its key, and closes", async () => {
+test("the palette has its field first, the scope tabs under it, no Close word, and Esc closes", async () => {
   await openApp();
-  await palette();
-  const close = screen.getByRole("button", { name: "Close command palette" });
-  expect(close.textContent).toBe("Close");
-  expect(close.getAttribute("aria-keyshortcuts")).toBe("Escape");
-  await userEvent.click(close);
+  const field = await palette();
+  const sheet = screen.getByRole("dialog", { name: "Command palette" });
+  expect(within(sheet).queryByRole("button", { name: /^Close/ })).toBeNull();
+  const tabs = within(sheet).getByRole("tablist", { name: "Search in" });
+  expect(field.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(tabs).queryByText("Tab")).toBeNull();
+  await userEvent.keyboard("{Escape}");
   await waitFor(() =>
     expect(screen.queryByRole("combobox", { name: "Search commands" })).toBeNull(),
   );

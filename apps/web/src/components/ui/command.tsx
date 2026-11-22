@@ -100,7 +100,8 @@ function Command<Item>(props: {
 const commandField =
   "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground";
 function CommandSearchRow(props: {
-  closeLabel: string;
+  /** The quiet Close word; none leaves closing to Esc. */
+  closeLabel?: string;
   children: React.ReactNode;
   /** In place of the magnifier: a palette step's Back button. */
   leading?: React.ReactNode;
@@ -114,13 +115,15 @@ function CommandSearchRow(props: {
         <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
       )}
       {props.children}
-      <Dialog.Close
-        aria-label={props.closeLabel}
-        aria-keyshortcuts="Escape"
-        className="focus-ring relative shrink-0 rounded-sm px-1 text-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground touch-hit touch-hit-lg"
-      >
-        Close
-      </Dialog.Close>
+      {props.closeLabel && (
+        <Dialog.Close
+          aria-label={props.closeLabel}
+          aria-keyshortcuts="Escape"
+          className="focus-ring relative shrink-0 rounded-sm px-1 text-sm text-muted-foreground transition-colors duration-(--motion-fast) hover:text-foreground touch-hit touch-hit-lg"
+        >
+          Close
+        </Dialog.Close>
+      )}
     </div>
   );
 }
@@ -128,9 +131,9 @@ function CommandSearchRow(props: {
 /** The palette's search field, in the sheet's top row. */
 function CommandInput({
   className,
-  closeLabel = "Close command palette",
+  closeLabel,
   ...props
-}: Autocomplete.Input.Props & { closeLabel?: string }) {
+}: Autocomplete.Input.Props & { closeLabel?: string | undefined }) {
   return (
     <CommandSearchRow closeLabel={closeLabel}>
       <Autocomplete.Input
