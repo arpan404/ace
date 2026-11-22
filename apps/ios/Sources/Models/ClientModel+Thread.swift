@@ -60,6 +60,11 @@ extension ClientModel {
         let id = admissions.nextId()
         return await admissions.wait(id: id) { threadAction(["type": "retrySend", "id": pending.id, "requestId": id]) }
     }
+    /// Retry for a thread still opening (`ThreadOpening`): the connection while there is none,
+    /// else the thread is asked for again, keeping what is on screen until it answers.
+    func retryOpening(_ threadId: String) {
+        if connection != "ready" { retry() } else { open(threadId, isSnapshotRetry: thread?.id == threadId) }
+    }
     func requestModels() { threadAction(["type": "models"]) }
     /// Which screen of `shown` is drawn now: its navigation generation under the current
     /// runtime. A route change keeps the thread's model and counts generations from zero again,

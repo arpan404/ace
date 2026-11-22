@@ -502,6 +502,27 @@ import Testing
         return ["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": id, "row": row]
     }
     private func frame(_ values: [[String: Any]]) throws -> Data { try JSONSerialization.data(withJSONObject: values) }
+    @Test func retryingAThreadStillOpeningAsksForTheConnectionThenForTheThreadOnTheSamePage() async throws {
+        let sessions = Sessions()
+        let model = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        await model.connect(target: try target("mac", port: SpikeFixture.port), directory: directory)
+        let runtime = try #require(sessions.values.first)
+        model.open("thread")
+        let page = try #require(model.thread)
+
+        // Opened before the machine answered: Retry asks for the connection, not the thread.
+        model.retryOpening("thread")
+        #expect(runtime.actions.last?["type"] as? String == "retry")
+
+        runtime.emit("ready")
+        await settle { model.connection == "ready" }
+        model.retryOpening("thread")
+        let open = try #require(runtime.actions.last)
+        #expect(open["type"] as? String == "open")
+        #expect(open["threadId"] as? String == "thread")
+        #expect(model.thread === page, "the page keeps what it shows while the thread is asked for again")
+        model.disconnect()
+    }
     /// Keeps the main thread busy, as a long layout does, until `done` or `seconds`.
     private func busy(until done: () -> Bool, for seconds: TimeInterval = 5) {
         let deadline = Date().addingTimeInterval(seconds)
