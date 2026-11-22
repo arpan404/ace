@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spadeBotRow } from "./list-rows.ts";
-import { spadeNeedsYouWords } from "./needs-you.ts";
+import { spadeNeedsYouRunning, spadeNeedsYouWords } from "./needs-you.ts";
 
 describe("what a waiting bot says it needs", () => {
   it("says what is asked in its own few words", () => {
@@ -20,5 +20,13 @@ describe("what a waiting bot says it needs", () => {
     expect(spadeBotRow({ ...base, waitingFor: "approval", status: "Wants to send an email" }).line).toBe(
       "Wants to send an email",
     );
+  });
+});
+
+describe("the Running page's line for a bot that waits", () => {
+  it("says what it asks in the same words as the list", () => {
+    expect(spadeNeedsYouRunning("Waiting on you: a question")).toBe("Asks you a question");
+    expect(spadeNeedsYouRunning("Waiting on you: an approval")).toBe("Asks for your approval");
+    expect(spadeNeedsYouRunning("Waiting on you")).toBe("Needs you");
   });
 });
