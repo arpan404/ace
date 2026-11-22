@@ -317,7 +317,7 @@ test("the working line names the command running now, and drops it once it has f
   expect(await chat.findByText("bun run build")).toBeTruthy();
 });
 
-test("another bot's run shows its name and face once, above its first message", async () => {
+test("another bot's run says it is from that bot, with its face, once above its first message", async () => {
   await spadeApp("/spade/garden", (spade) => {
     withEndpoint(spade);
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
@@ -332,7 +332,7 @@ test("another bot's run shows its name and face once, above its first message", 
   const runs = chat.getAllByRole("article", { name: "Weather" });
   expect(runs).toHaveLength(1);
   const run = within(runs[0] ?? document.body);
-  expect(run.getAllByText("Weather")).toHaveLength(1);
+  expect(run.getAllByText("From Weather")).toHaveLength(1);
   expect(runs[0]?.querySelectorAll("svg.bot-face")).toHaveLength(1);
   expect(run.getByText("Frost tonight.")).toBeTruthy();
 });

@@ -409,10 +409,10 @@ export function spadeContractCard(
   const header = `${pending ? "Asking" : "Asked"} ${bot} for the ${title}`;
   const key = `${entry.job}:result`;
   const when = entry.answeredAt === undefined ? {} : { at: entry.answeredAt };
-  const row = (text: string, tone: SpadeTalkTone): SpadeTalkRow => ({
+  const row = (words: string, tone: SpadeTalkTone): SpadeTalkRow => ({
     key,
     from: "other",
-    text,
+    text: words,
     tone,
     live: false,
     ...when,
@@ -444,6 +444,15 @@ export function spadeContractCard(
   }
 }
 
+/** A row of the receiver's own answer to a contract call. */
+const askedRow = (words: string, tone: SpadeTalkTone, live = false): SpadeTalkRow => ({
+  key: "returned",
+  from: "self",
+  text: words,
+  tone,
+  live,
+});
+
 /**
  * The receiver's card for a contract call it was given: "Quill asked for cheapest fare", its
  * input in one line, and what this bot returned (or that it is working on it).
@@ -457,13 +466,7 @@ export function spadeContractAskedCard(
   if (asked.input)
     rows.push({ key: "input", from: "other", text: asked.input, tone: "quiet", live: false });
   const ended = asked.ended;
-  const row = (words: string, tone: SpadeTalkTone, live = false): SpadeTalkRow => ({
-    key: "returned",
-    from: "self",
-    text: words,
-    tone,
-    live,
-  });
+  const row = askedRow;
   if (ended?.outcome === "returned") rows.push(row(ended.text || "Returned", "settled"));
   else if (ended?.outcome === "failed")
     rows.push(row(ended.text ? `Couldn't answer · ${ended.text}` : "Couldn't answer", "failed"));
