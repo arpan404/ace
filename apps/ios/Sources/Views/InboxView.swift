@@ -48,6 +48,8 @@ struct InboxView: View {
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
     @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
+    /// Bumped by `ace://spade/talk`: the Spade tab opens the main Spade, recording.
+    @State private var spadeTalks = 0
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
@@ -265,7 +267,7 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade)
+        SpadeTab(inbox: inbox, chosen: tab == .spade, talks: spadeTalks)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
@@ -538,6 +540,7 @@ struct InboxView: View {
     private func openLink(_ url: URL) async {
         // The phone's own link, which the shared reader doesn't know: it needs no machine.
         if OpenedLink.withoutMachine(url)?.kind == "inbox" { showInbox(); return }
+        if OpenedLink.withoutMachine(url)?.kind == "spade-talk" { place = nil; tab = .spade; spadeTalks += 1; return }
         guard let link = inbox.sessions.isEmpty ? OpenedLink.withoutMachine(url) : await inbox.readLink(url) else {
             if url.scheme?.lowercased() == AceLink.scheme, !inbox.sessions.isEmpty { organize.problem = "That ace link couldn't be read." }
             return

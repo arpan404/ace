@@ -1,3 +1,4 @@
+import AppIntents
 import UIKit
 import UserNotifications
 import BackgroundTasks
@@ -18,6 +19,9 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        // Siri's Ask Spade reaches the machines through the coordinator (`SpadeAskRun`).
+        let coordinator = coordinator
+        AppDependencyManager.shared.add(dependency: coordinator)
         // Nothing registered for a fresh-install fixture: categories, background refresh and push
         // would write the app's real defaults and register with iOS.
         if SpikeConfiguration.unpaired { return true }
