@@ -5,11 +5,15 @@ import SwiftUI
 /// latest threads. With one: actions, threads, projects, pull requests and messages of every
 /// paired machine (`InboxSearchList`). On iOS 26 its field is the tab bar's own detached search;
 /// where Search is a plain tab (iOS 27) the field stays under the title, never behind a pull.
+/// The bar above the title holds the account button, as Projects' and Chats' do, so the title
+/// sits under it at the same height instead of under an empty bar.
 struct SearchHome: View {
     @Bindable var inbox: MachineInbox
     /// A thread is open on Threads or Chats: its own commands are offered, named by its title.
     let openTitle: String?
     let actions: SearchActions
+    /// The account button Projects and Chats carry at the bar's leading edge.
+    let account: AccountToolbarItem
     @Binding var query: String
     /// Bumped by a second tap on the Search tab: the field takes focus.
     var focusAsks = 0
@@ -31,6 +35,7 @@ struct SearchHome: View {
             .background(AceTheme.Colours.background)
             .navigationTitle("Search")
             .navigationBarTitleDisplayMode(.large)
+            .toolbar { account }
             .searchable(text: $query, placement: Self.fieldPlacement, prompt: Text("Threads, pull requests, settings"))
             .searchFocused($fieldFocused)
         }

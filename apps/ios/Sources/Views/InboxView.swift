@@ -224,7 +224,10 @@ struct InboxView: View {
     /// Search: the tab bar's own on a phone; beside it in a regular window, the sidebar's places
     /// at its foot so the person can go back to the lists.
     private var search: some View {
-        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions, query: $searchQuery, focusAsks: searchFocusAsks,
+        SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions,
+                   account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
+                                               settings: { open(.settings) }),
+                   query: $searchQuery, focusAsks: searchFocusAsks,
                    hasLock: lock != nil)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }

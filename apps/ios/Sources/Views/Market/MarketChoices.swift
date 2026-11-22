@@ -51,6 +51,8 @@ struct MarketReviewState: Equatable {
     /// Confirm it's you was refused too: nothing more is sent from this review. Reading a review
     /// again starts over.
     private(set) var exhausted = false
+    /// A page is being read: the only time the sheet shows loading rows under the review.
+    private(set) var loadingMore = false
     /// The switches from a review that was dropped, kept for the one read in its place.
     private var dropped: MarketChoices?
 
@@ -65,11 +67,36 @@ struct MarketReviewState: Equatable {
         dropped = nil
         refusal = nil
         exhausted = false
+        loadingMore = false
     }
+
+    /// Starts reading the next page when one is due, giving the offset to read from: the first
+    /// page at once, each later one when the end of what's shown is in view. Nil while a page is
+    /// being read, once every page is, and while a refusal stands: a failed page waits for the
+    /// person's Retry (`retryRead`), however often the end comes back into view.
+    mutating func beginRead(endInView: Bool) -> Int? {
+        guard review != nil, refusal == nil, let offset = nextOffset, !loadingMore, endInView || rows.isEmpty else { return nil }
+        loadingMore = true
+        return offset
+    }
+
+    /// The person pressed Retry on a page that failed: the refusal goes and the same page is read.
+    mutating func retryRead() -> Int? {
+        guard refusal?.way == .retry, !complete else { return nil }
+        refusal = nil
+        return beginRead(endInView: true)
+    }
+
+    /// The read came back without a page that landed (the page was stale): it stops, and the
+    /// next time the end comes into view the page is read again.
+    mutating func readEnded() { loadingMore = false }
 
     /// One page read, in order; a page of another review, or out of order, is ignored.
     mutating func read(_ page: MarketReviewPage, from offset: Int) {
         guard page.review.id == review?.id, offset == nextOffset else { return }
+        loadingMore = false
+        // A page read again after a refusal: the problem is gone.
+        refusal = nil
         rows += page.rows
         nextOffset = page.complete ? nil : page.nextOffset
         complete = page.complete
@@ -104,6 +131,7 @@ struct MarketReviewState: Equatable {
         // The one retry was refused for standing again (the bridge offers no way after it).
         if confirming, refusal.way == nil || refusal.asksForPerson { exhausted = true }
         confirming = false
+        loadingMore = false
         self.refusal = refusal
         guard refusal.way == .reread, review != nil else { return }
         dropped = choices
