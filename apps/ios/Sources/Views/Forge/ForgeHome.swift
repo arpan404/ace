@@ -96,6 +96,7 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
+            .task(id: "\(session?.hostId ?? "")|\(ReadMirror.key(shownRead ?? [:]) ?? "")") { await watchShownRead() }
             .task(id: loadKey) { await load(fresh: false) }
             // Keyed on the project, the connection and the forge's changes, never the filter: a
             // new filter re-reading these would hide New pull request and read the list again
@@ -141,15 +142,32 @@ struct ForgeHome: View {
     /// stopped waiting for it (its stored revision, not whether one is kept), reads it again. Issues and Inbox wait on the features read too.
     private var loadKey: String {
         guard let client = session?.client, let chosen else { return listKey }
-        let read = kind == .pulls
-            ? ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query)
-            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query)
+        guard let read = shownRead else { return listKey }
         let ready = switch kind {
         case .pulls: true
         case .issues: features?.issues == true
         case .inbox: features?.inbox == true
         }
         return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.lateKept(read))|\(ready)"
+    }
+
+    /// The read the list on screen is showing, at the page count it has reached: a "Show more"
+    /// reply is kept under its own key, and a late answer there is the one to draw.
+    private var shownRead: [String: Any]? {
+        guard let chosen else { return nil }
+        switch kind {
+        case .pulls: return ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query, screens: pulls.screens)
+        case .issues: return ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query, screens: issues.screens)
+        case .inbox: return nil
+        }
+    }
+
+    /// Keeps the shown read watched (late answers and a steady generation) while it is on screen.
+    private func watchShownRead() async {
+        guard let client = session?.client, let read = shownRead else { return }
+        let stop = client.watchRead(read)
+        defer { stop() }
+        while !Task.isCancelled { try? await Task.sleep(for: .seconds(3600)) }
     }
 
     @ViewBuilder private var content: some View {

@@ -72,8 +72,9 @@ import Testing
             try frame([["type": "service.reply", "id": id, "ok": true, "message": "",
                         "value": ["result": ["kind": "list"]], "cache": ["key": key, "family": "prompts"]]])
         }
+        let stop = model.watchRead(Self.list)
         let waiting = Task { try await model.services.wait(id: "native-1") { true } }
-        await Task.yield()
+        while !model.services.isWaiting("native-1") { await Task.yield() }
         model.receive(try reply("native-1"))
         _ = try await waiting.value
         #expect(model.lateKept(Self.list) == 0)
@@ -88,6 +89,35 @@ import Testing
         let settled = model.lateKept(Self.list)
         model.receive(try frame([["type": "service.evict", "key": key]]))
         #expect(model.lateKept(Self.list) == settled)
+
+        stop()
+    }
+
+    @Test func anAnswerNobodyIsWatchingLeavesNoLateRevisionBehind() throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.reads.lateRevisions.isEmpty)
+        let stop = model.watchRead(Self.list)
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.lateKept(Self.list) > 0)
+        stop()
+        #expect(model.reads.lateRevisions.isEmpty)
+    }
+
+    @Test func aWatchedReadsGenerationHoldsAcrossItsFirstAnswerAndAnEviction() throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        model.receive(try frame([["type": "service.generations", "generations": ["prompts": 3, "reconnects": 1]]]))
+        let stop = model.watchRead(Self.list)
+        let before = model.readGeneration(Self.list)
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.readGeneration(Self.list) == before)
+        model.receive(try frame([["type": "service.evict", "key": key]]))
+        #expect(model.readGeneration(Self.list) == before)
+        model.receive(try frame([["type": "service.generations", "generations": ["prompts": 4, "reconnects": 1]]]))
+        #expect(model.readGeneration(Self.list) == before + 1)
+        stop()
     }
 
     @Test func pullToRefreshNamesTheSameReadAsAnOrdinaryVisit() {

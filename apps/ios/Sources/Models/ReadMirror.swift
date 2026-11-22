@@ -10,9 +10,15 @@ import Observation
     struct Kept { let family: String; let value: ServiceValue; let revision: Int; let bytes: Int }
     private(set) var values: [String: Kept] = [:]
     private(set) var generations: [String: Int] = [:]
-    /// Per key, the revision of the last answer stored that no screen was waiting for. Eviction
-    /// leaves it, so a screen keyed on it doesn't read again when an answer is let go.
+    /// Per watched key, the revision of the last answer stored that no screen was waiting for.
+    /// Eviction leaves it, so a screen keyed on it doesn't read again when an answer is let go;
+    /// the screen leaving drops it, so abandoned reads hold nothing outside the byte budget.
     private(set) var lateRevisions: [String: Int] = [:]
+    /// Per watched key, the family its answers belong to and what to add to that family's
+    /// generation so the key's generation doesn't jump when the first answer arrives or an
+    /// eviction lets it go.
+    @ObservationIgnored private var pins: [String: (family: String, offset: Int)] = [:]
+    @ObservationIgnored private var watching: [String: Int] = [:]
     @ObservationIgnored private var decoded: [String: (revision: Int, value: Any)] = [:]
     @ObservationIgnored private var revision = 0
     @ObservationIgnored private var bytes = 0
@@ -24,7 +30,10 @@ import Observation
     /// `late`: nothing was waiting for this answer, so a screen showing the read should draw it.
     func store(key: String, family: String, value: ServiceValue, late: Bool = false) {
         revision += 1
-        if late { lateRevisions[key] = revision }
+        if watching[key] != nil {
+            if late { lateRevisions[key] = revision }
+            if pins[key] == nil { pins[key] = (family, generation(key) - (generations[family] ?? 0)) }
+        }
         let size = value.approximateBytes + key.utf8.count
         if let old = values[key] { bytes -= old.bytes }
         values[key] = Kept(family: family, value: value, revision: revision, bytes: size)
@@ -38,7 +47,18 @@ import Observation
         decoded[key] = nil
     }
     func update(generations: [String: Int]) { if self.generations != generations { self.generations = generations } }
-    func reset() { values = [:]; generations = [:]; lateRevisions = [:]; decoded = [:]; bytes = 0 }
+    func reset() { values = [:]; generations = [:]; lateRevisions = [:]; pins = [:]; decoded = [:]; bytes = 0 }
+    /// A screen is showing the read `key`: late answers and its generation are tracked until
+    /// every watcher has called `unwatch`.
+    func watch(_ key: String) {
+        watching[key, default: 0] += 1
+        if pins[key] == nil, let kept = values[key] { pins[key] = (kept.family, 0) }
+    }
+    func unwatch(_ key: String) {
+        guard let count = watching[key] else { return }
+        if count > 1 { watching[key] = count - 1; return }
+        watching[key] = nil; lateRevisions[key] = nil; pins[key] = nil
+    }
     func lateRevision(_ key: String) -> Int { lateRevisions[key] ?? 0 }
 
     /// Oldest answers go until the rest fit; the one just stored stays, however large.
@@ -68,7 +88,10 @@ import Observation
     /// Moves when the kept answer for `key` goes out of date. With nothing kept yet (a first read
     /// that failed while the machine was away) it moves when the machine comes back, so that
     /// screen reads again too.
-    func generation(_ key: String) -> Int { values[key].map { generations[$0.family] ?? 0 } ?? reconnects }
+    func generation(_ key: String) -> Int {
+        if let pin = pins[key] { return (generations[pin.family] ?? 0) + pin.offset }
+        return values[key].map { generations[$0.family] ?? 0 } ?? reconnects
+    }
 
     /// A request's name in the bridge's cache: its JSON with sorted keys. Pull to refresh
     /// (`fresh`) asks for the same answer, so it names the same read.
