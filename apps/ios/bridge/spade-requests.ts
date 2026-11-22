@@ -43,7 +43,8 @@ import {
   type NativeSpadeSettingsRequest,
   type SpadeSettingsAnswer,
 } from "./spade-settings.ts";
-import { segment, spadeText, type NativeSpade } from "./spade.ts";
+import type { NativeSpade } from "./spade.ts";
+import { segment, spadeText } from "./spade-text.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on: send a message, stop a reply,

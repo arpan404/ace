@@ -240,6 +240,8 @@ import QuartzCore
     @ObservationIgnored let services = NativeServiceCalls()
     @ObservationIgnored var approvalRequests: [String: String] = [:]
     @ObservationIgnored let now: () -> Double
+    /// Whose kept Spade state the current connection sees (`ConnectionTarget.keptScope`).
+    @ObservationIgnored private var keptScope: String?
     /// Reads the kept inbox a connection shows first (`InboxCheckpoint.background`).
     @ObservationIgnored private let checkpoints: InboxCheckpoint.Reader
     @ObservationIgnored var metrics: SpikeMetrics?
@@ -267,7 +269,12 @@ import QuartzCore
         hostId = target.scope.hostId
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
-        browser.forgetSaves(); computerAccess.reset(); outside.reset(); spade.reset()
+        browser.forgetSaves(); computerAccess.reset(); outside.reset()
+        // Another route to the same machine, signed in as the same principal, keeps the Spade tab:
+        // it goes only when the machine says Spade is gone, never for a reconnect. Another
+        // account's never carries over.
+        if sameMachine && keptScope == target.keptScope { spade.resetKeepingTab() } else { spade.reset() }
+        keptScope = target.keptScope
         // Another machine's pages never carry over. Another route to the same machine keeps the
         // device tabs and their pages: the new runtime takes them (`restoreDeviceTabs`).
         if !sameMachine { deviceTabs.reset() }
@@ -286,10 +293,12 @@ import QuartzCore
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
         let restored = await checkpoints(database)
+        // The Spade tab as this principal last kept it, and no one else's (`KeptScope`).
+        let spadeKept = await InboxCheckpoint.spadeBackground(database, target.keptScope)
         restoring.end()
         // A newer connection began meanwhile: it restores its own copy.
         guard runtimeEpoch == epoch else { return }
-        apply(restored)
+        apply(restored + spadeKept)
         await closing?.value
         guard runtimeEpoch == epoch, !Task.isCancelled else { return }
         shutdown = nil
