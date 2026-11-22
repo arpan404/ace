@@ -345,7 +345,7 @@ preset is `POST /v1/endpoints {preset, name}` as before; its id is a slug of the
 
 **Signing in to ChatGPT.** `POST /v1/accounts/chatgpt {method, terms_read, account?}` starts a
 sign-in. `method` is `"browser"` (a PKCE sign-in whose callback is
-`http://localhost:1455/auth/callback` on Spade's machine: the person opens `url` in a browser
+`http://127.0.0.1:1455/auth/callback` on Spade's machine: the person opens `url` in a browser
 there) or `"device"` (a code the person enters at `url` on any device: for a Spade with no browser
 near it). `terms_read` must be `true`: the client has shown that using a ChatGPT sign-in outside
 OpenAI's own Codex clients may conflict with OpenAI's terms (`400` otherwise). `account` names a
