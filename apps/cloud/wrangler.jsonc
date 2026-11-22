@@ -68,7 +68,21 @@
       "namespace_id": "1008",
       "simple": { "limit": 1200, "period": 60 },
     },
+    // ace search's bursts (ADR 0210 §4): per account, then per caller address. The daily and
+    // monthly limits are counted in D1, since these count per Cloudflare location.
+    {
+      "name": "SEARCH_ACCOUNT_BURST",
+      "namespace_id": "1009",
+      "simple": { "limit": 10, "period": 60 },
+    },
+    {
+      "name": "SEARCH_ADDRESS_BURST",
+      "namespace_id": "1010",
+      "simple": { "limit": 30, "period": 60 },
+    },
   ],
+  // Workers AI (ace search, ADR 0210) is bound in production only: locally it would reach
+  // Cloudflare, so local runs and tests answer search_unavailable or use a fake.
   // Expired sign-ins and sessions are also dropped whenever a sign-in starts.
   "triggers": { "crons": ["17 * * * *", "* * * * *"] },
   // Request logs would record join tickets in URLs. Account secrets, grants and tokens are
@@ -88,6 +102,17 @@
         "ACE_ACCOUNT_PUBLIC_URL": "https://cloud.acehq.dev",
         "ACE_ACCOUNT_PUBLIC_ORIGINS": "https://cloud.acehq.dev,https://relay.acehq.dev",
         "ACE_ACCOUNT_ALLOWED_ORIGINS": "https://app.acehq.dev,https://beta.app.acehq.dev,app://ace",
+        // ace search (ADR 0210 §4). The gateway must exist, with log collection off, before
+        // this deploys; the limits below are the defaults, written out to be changed here.
+        "ACE_SEARCH_GATEWAY": "ace-search",
+        "ACE_SEARCH_MONTHLY": "1000",
+        "ACE_SEARCH_NEW_ACCOUNT_MONTHLY": "100",
+        "ACE_SEARCH_NEW_ACCOUNT_DAYS": "7",
+        "ACE_SEARCH_DAILY": "100",
+        "ACE_SEARCH_MACHINE_MONTHLY": "500",
+        "ACE_SEARCH_MACHINE_DAILY": "60",
+        "ACE_SEARCH_ADDRESS_DAILY": "300",
+        "ACE_SEARCH_DAILY_DOLLARS": "5",
       },
       "durable_objects": {
         "bindings": [
@@ -142,7 +167,20 @@
           "namespace_id": "1008",
           "simple": { "limit": 1200, "period": 60 },
         },
+        // ace search's bursts (ADR 0210 §4): per account, then per caller address.
+        {
+          "name": "SEARCH_ACCOUNT_BURST",
+          "namespace_id": "1009",
+          "simple": { "limit": 10, "period": 60 },
+        },
+        {
+          "name": "SEARCH_ADDRESS_BURST",
+          "namespace_id": "1010",
+          "simple": { "limit": 30, "period": 60 },
+        },
       ],
+      // ace search: Ceramic through the AI Gateway named in ACE_SEARCH_GATEWAY (ADR 0210 §2).
+      "ai": { "binding": "AI" },
       "triggers": { "crons": ["17 * * * *", "* * * * *"] },
       "observability": { "enabled": false },
     },

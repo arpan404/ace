@@ -33,6 +33,11 @@ import { orgRegistryRoutes } from "./org-registry-routes.ts";
 import { orgRoutes } from "./org-routes.ts";
 import { orgStandingRoute } from "./org-standing-route.ts";
 import { orgStore } from "./org-store.ts";
+import { searchCounters } from "../search/counters.ts";
+import { DEFAULT_LIMITS } from "../search/limits.ts";
+import { repeatGuard } from "../search/repeats.ts";
+import { searchRoutes } from "../search/route.ts";
+import type { SearchDeps } from "../search/route.ts";
 
 /** Paths the account API owns; everything else on the Worker is the relay. */
 export function isAccountPath(pathname: string): boolean {
@@ -71,6 +76,8 @@ export function accountApi(
     standingWorkosLimited?: () => Promise<boolean>;
     /** The per-address limit, for the standing route's callers that don't authenticate. */
     addressLimited?: (request: Request) => Promise<boolean>;
+    /** ace search (ADR 0210): the AI binding and gateway, its limits and bursts. */
+    search?: Pick<SearchDeps, "ai" | "limits" | "addressOf" | "burst" | "log">;
   },
 ) {
   if (setup.status !== "ready")
@@ -169,6 +176,20 @@ export function accountApi(
     limited: deps.standingLimited ?? (async () => false),
     workosLimited: deps.standingWorkosLimited ?? (async () => false),
   });
+  const searchCounts = searchCounters(deps.db);
+  const search = searchRoutes({
+    ai: undefined,
+    limits: DEFAULT_LIMITS,
+    addressOf: () => "unknown",
+    burst: { address: async () => false, account: async () => false },
+    log: () => {},
+    ...deps.search,
+    keys,
+    principals,
+    counters: searchCounts,
+    repeats: repeatGuard({ now, salt: random(32) }),
+    now,
+  });
   const webhook = workosWebhookRoute({ secret: config.webhookSecret, events, now });
   const loginFor = (publicUrl: string) => {
     const selected = { ...config, publicUrl };
@@ -220,6 +241,8 @@ export function accountApi(
     if (pathname === "/v1/keys" && method === "GET") return directory.keys();
     if (pathname === "/v1/grants" && method === "POST") return directory.grant(request);
     if (pathname === "/v1/grants/standing" && method === "POST") return standing(request);
+    if (pathname === "/v1/search" && method === "POST") return search.search(request);
+    if (pathname === "/v1/search/usage" && method === "GET") return search.usage(request);
     if (pathname === "/v1/machine-credentials" && method === "POST")
       return machineSignIn.exchange(request);
     if (pathname === "/v1/machine-enrollments" && method === "POST")
@@ -299,6 +322,7 @@ export function accountApi(
       await credentials.sweep(now());
       await enrollments.sweep(now());
       await orgs.sweep(now());
+      await searchCounts.sweep(now());
     },
     /**
      * Brings the organization members mirror up to WorkOS's Events API (ADR 0206 §1.1), then

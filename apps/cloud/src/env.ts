@@ -1,7 +1,9 @@
 import type { SignInObject } from "./broker/sign-in-object.ts";
 import type { RelayObject } from "./relay-object.ts";
+import type { LimitVars } from "./search/limits.ts";
 
-export interface Env {
+/** The limit vars (`ACE_SEARCH_*`) are in LimitVars, with their defaults in search/limits.ts. */
+export interface Env extends LimitVars {
   RELAY: DurableObjectNamespace<RelayObject>;
   /** Spade's connector sign-ins in progress, one object per account (ADR 0141). */
   SIGN_INS: DurableObjectNamespace<SignInObject>;
@@ -22,6 +24,13 @@ export interface Env {
   STANDING_REQUESTS?: RateLimit;
   /** WorkOS lookups the standing route makes, all callers together. */
   STANDING_WORKOS?: RateLimit;
+  /** ace search's bursts (ADR 0210 §4): per caller address, then per account. */
+  SEARCH_ADDRESS_BURST?: RateLimit;
+  SEARCH_ACCOUNT_BURST?: RateLimit;
+  /** Workers AI, for ace search through the owner's AI Gateway. Absent in local tests. */
+  AI?: Ai;
+  /** The AI Gateway ace search bills (ADR 0210 §2). Unset: the route answers 503. */
+  ACE_SEARCH_GATEWAY?: string;
   /**
    * The broker's apps as JSON in place of the shipped list (tests). Each app's client
    * ID and secret are Worker secrets named in its entry, such as `SPADE_CLOUD_ASANA_CLIENT_ID`.
