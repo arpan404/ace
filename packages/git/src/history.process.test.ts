@@ -1,4 +1,5 @@
-import { rename } from "node:fs/promises";
+import { mkdtemp, readFile, rename } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitCli } from "./cli.ts";
@@ -185,16 +186,85 @@ test("fileBlame refuses a file too large to blame", async () => {
   ).rejects.toMatchObject({ code: "file_too_large" });
 });
 
-test("a read whose capture is full stops Git instead of waiting for it to finish", async () => {
+/** The PID a git alias wrote, once it has. */
+async function writtenPid(file: string): Promise<number> {
+  for (let tries = 0; tries < 200; tries++) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (/^\d+\s*$/.test(text)) return Number(text);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("the alias never wrote its PID");
+}
+
+/** Whether `pid` is gone within a few seconds of the call returning. */
+async function exits(pid: number): Promise<boolean> {
+  for (let tries = 0; tries < 300; tries++) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ESRCH") return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return false;
+}
+
+/** An alias whose process writes its PID to a fresh file, then runs `body` (`&` backgrounds it). */
+async function aliasWritingPid(body: string, background: boolean) {
+  const file = join(await mkdtemp(join(tmpdir(), "ace-pid-")), "pid");
+  const inner = `sh -c 'echo $$ > ${file}; exec ${body}'`;
+  // Backgrounded, the alias's own shell (Git's child) exits at once while the helper keeps
+  // Git's stdout open: the case where only the process group still names it.
+  const alias = background ? `!f() { ${inner} & }; f` : `!f() { ${inner}; }; f`;
+  return { file, args: ["-c", `alias.held=${alias}`, "held"] };
+}
+
+test.skipIf(process.platform === "win32")(
+  "a read stopped at its byte cap leaves no descendant running, even after Git itself exited",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("yes", background);
+      const started = Date.now();
+      const out = await new GitCli({}).call(repo, args, {
+        captureBytes: 4096,
+        stopAtCapture: true,
+      });
+      expect(out.truncated).toBe(true);
+      expect(out.stdout.length).toBe(4096);
+      expect(Date.now() - started).toBeLessThan(10_000);
+      expect(await exits(await writtenPid(file))).toBe(true);
+    }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "a silent read stopped by its work budget leaves no descendant running",
+  async () => {
+    const repo = await repository({ "a.ts": "1\n" });
+    for (const background of [false, true]) {
+      const { file, args } = await aliasWritingPid("sleep 60", background);
+      const out = await new GitCli({}).call(repo, args, {
+        captureBytes: 4096,
+        stopAtCapture: true,
+        stopAfterMs: 300,
+      });
+      expect(out.truncated).toBe(true);
+      expect(await exits(await writtenPid(file))).toBe(true);
+    }
+  },
+);
+
+test("output of exactly the byte cap stops Git there", async () => {
   const repo = await repository({ "a.ts": "1\n" });
+  // Exactly two bytes, then silence: only stopping at the cap itself ends the call.
   const started = Date.now();
-  // An alias that writes forever: only stopping the process tree ends it.
-  const out = await new GitCli({}).call(repo, ["-c", "alias.flood=!yes", "flood"], {
-    captureBytes: 4096,
+  const out = await new GitCli({}).call(repo, ["-c", "alias.two=!printf yy; sleep 60", "two"], {
+    captureBytes: 2,
     stopAtCapture: true,
   });
-  expect(out.truncated).toBe(true);
-  expect(out.stdout.length).toBe(4096);
+  expect(out).toMatchObject({ truncated: true });
+  expect(out.stdout.toString()).toBe("yy");
   expect(Date.now() - started).toBeLessThan(10_000);
 });
 

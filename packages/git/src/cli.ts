@@ -30,7 +30,7 @@ import { userTransportConfig } from "./transport-config.ts";
 import { hooksInsideCheckout } from "./reviewer-hooks.ts";
 import { hooksInsideWindowsCheckout } from "./reviewer-hooks-identity.ts";
 import { Readable, type Writable } from "node:stream";
-import { drainProcessExit, killTree, processRuntime } from "./process-runtime.ts";
+import { drainProcessExit, groupGone, killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { realpath, stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
@@ -68,7 +68,11 @@ interface CallOptions {
   timeoutMs?: number;
   /**
    * A read-only call whose output past `captureBytes` is not wanted: once the capture is full
-   * Git's process tree is stopped and the call resolves with what was captured (`truncated`).
+   * Git's process tree is stopped and the call resolves with what was captured (`truncated`),
+   * after its process group is gone (bounded), so a limit on concurrent reads holds until then.
+   * POSIX: the whole group is killed, even after Git itself exited; a descendant that left the
+   * group (setsid) is not reached. Windows: the call's job ends the tree when Git was adopted
+   * into one, else `taskkill /T` does, which cannot reach a descendant that already escaped.
    */
   stopAtCapture?: boolean;
   /**
@@ -795,8 +799,11 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        if (enough && !failure) resolve(enoughOutput());
-        else reject(failure);
+        if (enough && !failure) {
+          // Held until the group is gone, so whoever limits these reads counts it until then.
+          const output = enoughOutput();
+          void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else reject(failure);
       };
       const kill = () => {
         if (stopped) return;
@@ -852,8 +859,11 @@ export class GitCli {
         child.stderr.destroy();
         child.unref();
         settled = true;
-        if (enough && !failure) resolve(enoughOutput());
-        else reject(failure);
+        if (enough && !failure) {
+          // Held until the group is gone, so whoever limits these reads counts it until then.
+          const output = enoughOutput();
+          void groupGone(this.runtime, pid).then(() => resolve(output));
+        } else reject(failure);
       };
       const cancel = () => {
         failure ??= new GitError("git_closed", "Git service closed");
@@ -906,12 +916,14 @@ export class GitCli {
         captured += Math.min(remaining, chunk.length);
         if (chunk.length > remaining) {
           truncated = true;
-          if (options.captureBytes === undefined) {
+          if (options.captureBytes === undefined)
             fail(new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args }));
-          } else if (options.stopAtCapture && !failure && !enough) {
-            enough = true;
-            kill();
-          }
+        }
+        // At the cap itself: nothing past it is wanted, and Git may go quiet rather than end.
+        if (options.stopAtCapture && captured >= limit && !failure && !enough) {
+          truncated = true;
+          enough = true;
+          kill();
         }
       };
       const stderrData = (chunk: Buffer) => {
