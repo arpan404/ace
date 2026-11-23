@@ -197,6 +197,39 @@ test("a live batch whose range refill rolls back with its outer transaction is p
   const [later] = state.store.appendEvents(id, [{ type: "thread.updated", title: "After reopen" }]);
   if (!later) throw new Error("Missing event");
   expect(later.seq).toBeGreaterThan(Math.max(...published));
+
+  // Two small batches in one outer transaction share the provisional range: the first
+  // admission writes the reservation, so neither append may refill (and seal) for the second.
+  const second = setup();
+  const [other] = second.ids;
+  if (!other) throw new Error("Missing thread");
+  const fresh = new DatabaseSync(second.path, { readOnly: true });
+  cleanup.push(() => fresh.close());
+  const batched: { append: string; stored: boolean }[] = [];
+  cleanup.push(
+    second.store.subscribe((events) => {
+      for (const event of events) {
+        if (event.payload.type !== "item.delta" || event.payload.itemId !== "answer-0") continue;
+        batched.push({
+          append: event.payload.append,
+          stored: fresh.prepare("SELECT 1 FROM events WHERE seq=?").get(event.seq) !== undefined,
+        });
+      }
+    }),
+  );
+  expect(() =>
+    second.store.atomic(() => {
+      stream(second.store, other, 0, ["one"]);
+      stream(second.store, other, 0, ["two"]);
+    }),
+  ).not.toThrow();
+  expect(batched).toEqual([]);
+  second.store.flushLiveWrites();
+  expect(batched).toEqual([
+    { append: "one", stored: true },
+    { append: "two", stored: true },
+  ]);
+  expect(storedText(second.store, other)).toBe("onetwo");
 });
 
 test("a burst of 64 KiB or more streamed inside a transaction commits once, publishes once and leaves the store writable", async () => {
