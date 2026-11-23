@@ -295,6 +295,12 @@ export type IngestSource = {
   /** The producer's ingest connection ended (it said so): open the source again. */
   reconnect(): void;
   /**
+   * The producer's socket to ace-media path `path` was lost (it said so): the source opens
+   * again only while that path is still its open one, so a late report about a path already
+   * replaced spends nothing.
+   */
+  lost(path: string): void;
+  /**
    * The codecs the producer encodes, best first (WebCodecs strings): ace-media plans its views
    * only in these. Never called: whatever the views decode.
    */
@@ -369,6 +375,9 @@ export class IngestSources {
     return {
       streaming: () => entry.state === "ingest",
       reconnect: () => this.#reconnect(entry),
+      lost: (path) => {
+        if (entry.state === "ingest" && entry.live?.id === path) this.#reconnect(entry);
+      },
       codecs: (codecs) => {
         entry.codecs = [...codecs];
         const live = entry.live;
@@ -749,7 +758,8 @@ export class IngestSources {
       path: path.id,
       ...(ingest.pid ? { pid: ingest.pid } : {}),
     };
-    if (this.#options.port.speaks("source.ingest"))
+    // A source ace-media reads itself (a Simulator) has no producer hello to admit.
+    if (this.#options.port.speaks("source.ingest") && !readByMedia.has(entry.producer.kind))
       path.admission = this.#options.schedule(() => {
         path.admission = undefined;
         if (entry.closed || entry.live !== path || entry.generation !== generation) return;

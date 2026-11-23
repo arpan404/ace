@@ -29,7 +29,7 @@ export const mediaMissing = "ace-media isn't available on this computer";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "codecs" | "page" | "encodes" | "key" | "epoch" | "reconnect" | "close"
+  "streaming" | "codecs" | "page" | "encodes" | "key" | "epoch" | "reconnect" | "lost" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -177,6 +177,7 @@ async function streamed(
   /** The ace-media path the capture streams to; undefined while it streams nowhere. */
   let current: string | undefined;
   let renew: (() => void) | undefined;
+  let lose: ((path: string) => void) | undefined;
   const handle = await open({
     // The encoder's chunks go to ace-media's ingest; nothing comes this way.
     chunk: () => {},
@@ -189,9 +190,9 @@ async function streamed(
       teardown();
       events.ended(reason);
     },
-    // Only the socket of the path the capture streams to now: an older one's close is old news.
+    // The source manager reopens only while that path is still its open one.
     ingestLost: (path) => {
-      if (!ended && path === current) renew?.();
+      if (!ended) lose?.(path);
     },
   });
   if (ended) {
@@ -261,6 +262,7 @@ async function streamed(
     throw new Error(mediaMissing);
   }
   renew = () => source.reconnect();
+  lose = (path) => source.lost(path);
   const routed: VideoCaptureHandle = {
     encodes: (specs) => {
       last = specs;

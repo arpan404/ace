@@ -33,6 +33,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
     keys: number[];
     epochs: [number, boolean][];
     reconnects: number;
+    lost: string[];
     closed: boolean;
   }[] = [];
   const media: BrowserMedia = {
@@ -44,6 +45,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         keys: [],
         epochs: [],
         reconnects: 0,
+        lost: [],
         closed: false,
       } as (typeof added)[number];
       added.push(record);
@@ -54,6 +56,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         key: (encode) => void record.keys.push(encode),
         epoch: (epoch, followsPrivate) => void record.epochs.push([epoch, followsPrivate]),
         reconnect: () => void record.reconnects++,
+        lost: (path) => void record.lost.push(path),
         close: () => {
           record.closed = true;
         },
@@ -549,24 +552,19 @@ it("out of daemon ids, the source reopens, and waiting encodes run once the old 
   ]);
 });
 
-it("an encoder whose ingest socket closes on the path it streams to has its source opened again; a stale path's close changes nothing", async () => {
+it("an encoder's lost ingest socket reaches ace-media's source manager with the path it named", async () => {
   const { media, added } = fakeMedia({ routed: true });
   const { host, captures } = fakeHost("tab", true);
   await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
-  const producer = added[0]?.producer;
-  await producer?.point(address("m1"));
+  await added[0]?.producer.point(address("m1"));
   // The target names its path, so the encoder's report can say which socket died.
   expect(captures[0]?.targets.at(-1)).toMatchObject({ path: "m1" });
-  captures[0]?.events.ingestLost?.("m0");
-  expect(added[0]?.reconnects).toBe(0);
   captures[0]?.events.ingestLost?.("m1");
-  expect(added[0]?.reconnects).toBe(1);
-  await producer?.point(address("m2"));
+  expect(added[0]?.lost).toEqual(["m1"]);
+  // An ended capture reports nothing more.
+  captures[0]?.events.ended("gone");
   captures[0]?.events.ingestLost?.("m1");
-  expect(added[0]?.reconnects).toBe(1);
-  await producer?.point(undefined);
-  captures[0]?.events.ingestLost?.("m2");
-  expect(added[0]?.reconnects).toBe(1);
+  expect(added[0]?.lost).toEqual(["m1"]);
 });
 
 it("a capture its encoder ended leaves ace-media and its reports at once, and closing it after changes nothing", async () => {
@@ -608,7 +606,8 @@ it("a capture that ends before it opens never registers a source, and its open f
   await expect(
     mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink),
   ).rejects.toThrow("The tab capture sent no picture");
-  expect(added.filter((record) => !record.closed)).toEqual([]);
+  // No source was ever registered for it, not even briefly.
+  expect(added).toEqual([]);
   expect(captures[0]?.closed).toBe(true);
   // The open's failure says it: the live video hears it once, not as an end too.
   expect(e.ended).toEqual([]);

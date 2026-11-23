@@ -87,8 +87,16 @@ export class ChromeVideo implements VideoHost {
   ): Promise<VideoCaptureHandle> {
     const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
     const id = `capture-${++this.ids}`;
-    const document = await this.start(id, windowId, width, height);
+    // Listening before the start: an end the extension reports while it answers reaches the
+    // viewer, rather than finding no capture to tell.
     this.captures.set(id, events);
+    let document: BrowserCdp;
+    try {
+      document = await this.start(id, windowId, width, height);
+    } catch (error) {
+      this.captures.delete(id);
+      throw error;
+    }
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
     return {
@@ -138,17 +146,23 @@ export class ChromeVideo implements VideoHost {
     } catch (error) {
       if (!heldTab(error)) throw error;
     }
-    ({ worker, document } = await this.restart());
+    ({ worker, document } = await this.restart(id));
     await attempt(true).catch(() => attempt(false));
     return document;
   }
-  /** Installs the extension again and attaches to it; its captures end, so viewers reopen them. */
-  private async restart(): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
+  /**
+   * Installs the extension again and attaches to it; its captures end, so viewers reopen them,
+   * all but `starting`, the one this restart is for.
+   */
+  private async restart(starting: string): Promise<{ worker: BrowserCdp; document: BrowserCdp }> {
     const old = { worker: this.workerTarget, document: this.documentTarget };
     // The old targets' sessions end with them; their detach must not end the new captures.
     this.sessions.clear();
-    for (const events of this.captures.values()) events.ended();
-    this.captures.clear();
+    for (const [id, events] of [...this.captures]) {
+      if (id === starting) continue;
+      this.captures.delete(id);
+      events.ended();
+    }
     await this.connection.send("Extensions.uninstall", { id: videoExtensionId });
     const opened = this.install(old);
     this.ready = opened.catch((error: unknown) => {

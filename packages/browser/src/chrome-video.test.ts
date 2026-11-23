@@ -155,7 +155,15 @@ test("the encoder fails in bounded time when the extension's scripts never defin
  * once; window 1's capture with sound fails `failWithSound` times, and the first `leaks` of those leave
  * their tab held until the extension is uninstalled; a stop takes `stopMs` to release its tab.
  */
-function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs?: number } = {}) {
+function chromeCapture(
+  options: {
+    failWithSound?: number;
+    leaks?: number;
+    stopMs?: number;
+    /** The extension reports the capture ended while its start is still answering. */
+    endsWhileStarting?: (capture: string) => void;
+  } = {},
+) {
   let ids = 0;
   let loads = 1;
   const minted = new Map<string, number>();
@@ -194,6 +202,7 @@ function chromeCapture(options: { failWithSound?: number; leaks?: number; stopMs
           throw new Error("AbortError: Failed due to shutdown");
         }
         live.set(id, windowId);
+        options.endsWhileStarting?.(id);
       },
       stop: async (id: string) => {
         await new Promise((resolve) => setTimeout(resolve, options.stopMs ?? 0));
@@ -229,11 +238,16 @@ function viewer() {
     events: { chunk: () => {}, audio: () => {}, failed: () => {}, ended: () => void seen.ended++ },
   };
 }
-async function encoder(chrome: ReturnType<typeof chromeCapture>) {
+async function encoder(
+  chrome: ReturnType<typeof chromeCapture>,
+  connected?: (connection: CdpConnection) => void,
+) {
   const dir = await directory();
   onTestFinished(dir.cleanup);
+  const connection = driver(chrome);
+  connected?.(connection);
   return new ChromeVideo({
-    connection: driver(chrome),
+    connection,
     targets: { keep: () => {} },
     directory: dir.path,
     delay: async () => {},
@@ -265,4 +279,36 @@ test("a capture asked for while the tab's last one is still stopping waits for i
   await expect(v.open(page(1), 1024, 768, viewer().events)).resolves.toBeDefined();
   // Nothing else was torn down to get there.
   expect(other.seen.ended).toBe(0);
+});
+
+test("a capture the extension ends while its start is still answering tells its viewer it ended", async () => {
+  let connection: CdpConnection | undefined;
+  const chrome = chromeCapture({
+    endsWhileStarting: (capture) =>
+      connection?.receive(
+        JSON.stringify({
+          method: "Runtime.bindingCalled",
+          sessionId: "offscreen-1-document",
+          params: {
+            name: "aceVideoEvent",
+            payload: JSON.stringify({
+              t: "ended",
+              capture,
+              reason: "The tab capture sent no picture",
+            }),
+          },
+        }),
+      ),
+  });
+  const v = await encoder(chrome, (made) => (connection = made));
+  const seen = viewer();
+  await v.open(page(1), 800, 600, seen.events);
+  expect(seen.seen.ended).toBe(1);
+});
+
+test("installing the encoder again to free a held tab never ends the capture it is starting", async () => {
+  const v = await encoder(chromeCapture({ failWithSound: 2, leaks: 1 }));
+  const starting = viewer();
+  await v.open(page(1), 800, 600, starting.events);
+  expect(starting.seen.ended).toBe(0);
 });
