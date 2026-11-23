@@ -71,6 +71,13 @@ often wrong. Models do better work when they can write a short script and read i
    doesn't fetch uv (one command installs it; a fetched binary is one more pinned, hash-checked
    artifact per platform to keep). Python starts with `-I -S`: no `site`, so no `.pth` file or
    `sitecustomize` runs before `boot.py`, which adds the environment's packages to `sys.path`.
+   Every program Spade runs on the host to build it is vetted first: resolved, owned by root or
+   Spade's user with no folder above it writable by others (or by a group that isn't
+   root-equivalent), and outside every bot's workspace and every folder any bot may write; uv is
+   handed the pinned CPython or a vetted Python, never left to find one, the no-uv `venv` runs
+   with `-I -S`, the environment is named from that one look, and the result names what was
+   used. In the bot's terminal a run's lease goes to the terminal's supervisor, so a stopped call
+   holds its environment until its processes are gone.
 8. **On-demand packages are deferred.** Letting a call ask for more packages needs resolution,
    installs and environment changes driven by a bot's call, which two security reviews found hard
    to hold safe (an installer in reach of the bot's files, URL dependencies, start-up hooks,
@@ -82,7 +89,8 @@ often wrong. Models do better work when they can write a short script and read i
    writes. A workspace script's whole text goes to the reviewer on a reviewed route, and one too
    long for the reviewer goes to the person. Staging is required: a call without its staged copy,
    or whose copy no longer holds its bytes, is refused, and the workspace is never read again.
-   The scope the person is asked with names the staged bytes' hashes, so a call they allowed runs
+   The preview a reviewer or the person sees is read back from the staged copy, and the scope
+   they are asked with names that same copy's hashes, so a call they allowed runs
    only on those bytes; restaged from a changed file (after a restart) it is refused and has to be
    asked again. The run uses the copy by an absolute path, so a name starting with `-` changes
    nothing. With it Spade stages the workspace modules the script may import: the `.py` files

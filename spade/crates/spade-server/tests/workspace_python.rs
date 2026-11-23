@@ -1032,3 +1032,218 @@ async fn without_the_sandbox_python_is_refused_before_anything_runs() -> Result 
     );
     Ok(())
 }
+
+/// A program that marks it ran and fails.
+fn planted(path: &Path, marker: &Path) -> Result {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(path.parent().ok_or("no folder")?)?;
+    std::fs::write(
+        path,
+        format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display()),
+    )?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
+    Ok(())
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_program_a_bot_could_have_put_or_changed_is_never_run_on_the_host() -> Result {
+    let Some(world) = world(Vec::new(), Options::default()).await? else {
+        return Ok(());
+    };
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    let markers = tempfile::tempdir()?;
+    // One in the bot's own workspace, one in a folder it was granted to write.
+    let in_workspace = root.join("tools");
+    planted(&in_workspace.join("uv"), &markers.path().join("uv-ran"))?;
+    let granted = tempfile::tempdir()?;
+    planted(
+        &granted.path().join("python3"),
+        &markers.path().join("python-ran"),
+    )?;
+    world.security.add_grant(
+        &world.bot,
+        spade_core::grant::Scope::Folder {
+            path: granted.path().to_string_lossy().into_owned(),
+            write: true,
+        },
+        "test",
+    )?;
+    let folders = [
+        in_workspace.to_string_lossy().into_owned(),
+        granted.path().to_string_lossy().into_owned(),
+    ];
+    let folders: Vec<&str> = folders.iter().map(String::as_str).collect();
+    let python = Direct::new(&world, locked_in(&folders, &[CHECK])?)?;
+    let ran = python
+        .call(&world.conversation, "p1", json!({ "code": "print(1)" }))
+        .await;
+    assert!(ran.is_error, "{}", ran.content);
+    assert!(ran.content.contains("Spade didn't use"), "{}", ran.content);
+    assert!(
+        ran.content.contains("a folder a bot may write"),
+        "{}",
+        ran.content
+    );
+    assert!(
+        !markers.path().join("uv-ran").exists(),
+        "the bot's uv ran on the host"
+    );
+    assert!(
+        !markers.path().join("python-ran").exists(),
+        "the bot's python3 ran on the host"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn what_the_reviewer_is_shown_and_what_an_answer_binds_are_one_snapshot() -> Result {
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world(Vec::new(), Options::default()).await? else {
+        return Ok(());
+    };
+    let python = Direct::new(&world, setup())?;
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    std::fs::write(root.join("job.py"), "print('as shown')\n")?;
+    let key = format!("{}.c1", world.conversation);
+    let arguments = json!({ "path": "job.py" });
+    let classed = python.tool.classed(&key, &arguments);
+    assert_eq!(
+        classed.shown.first().map(|s| s.content.as_str()),
+        Some("print('as shown')\n")
+    );
+    // The file changes, and the staged copies are let go of before the person is asked.
+    std::fs::write(root.join("job.py"), "print('swapped in')\n")?;
+    for n in 0..1_000 {
+        let other = format!("{}.x{n}", world.conversation);
+        let _ = python
+            .tool
+            .classed(&other, &json!({ "code": format!("print({n})") }));
+    }
+    let scope = python
+        .tool
+        .always_scope_in(&key, &arguments)
+        .unwrap_or_default();
+    let swapped = spade_server::workspace::trust::hash(b"print('swapped in')\n");
+    assert!(
+        !scope.contains(&swapped),
+        "the answer would bind bytes nobody was shown: {scope}"
+    );
+    assert!(scope.ends_with("[staged ]"), "{scope}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stopped_run_in_the_terminal_keeps_its_environment_until_its_processes_are_gone() -> Result
+{
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world_in(
+        true,
+        vec![
+            Script::reply("").call(
+                "p1",
+                "python",
+                json!({ "code": "import time\ntime.sleep(60)", "timeout_s": 120 }),
+            ),
+            Script::reply("Stopped."),
+        ],
+        Options {
+            shell_end_delay: Some(Duration::from_millis(2_500)),
+            ..Options::default()
+        },
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    world
+        .spade
+        .say(&world.conversation, "Wait a minute")
+        .await?;
+    // Until the script is running on its environment.
+    let held = |world: &World| -> Option<bool> {
+        let environment = current(world)?;
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(
+                shared(world)
+                    .join("leases")
+                    .join(format!("{environment}.lock")),
+            )
+            .ok()?;
+        let held = file.try_lock().is_err();
+        Some(held)
+    };
+    let started = std::time::Instant::now();
+    while held(&world) != Some(true) && started.elapsed() < Duration::from_secs(60) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert_eq!(
+        held(&world),
+        Some(true),
+        "the run never held its environment"
+    );
+    // While it is stopped, look every 50 ms at whether the environment is held and whether the
+    // script's processes are still there.
+    let mark = shared(&world)
+        .join("control/boot.py")
+        .to_string_lossy()
+        .into_owned();
+    let lease = {
+        let environment = current(&world).ok_or("no environment")?;
+        shared(&world)
+            .join("leases")
+            .join(format!("{environment}.lock"))
+    };
+    let looking = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let sampler = {
+        let (looking, mark, lease) = (looking.clone(), mark.clone(), lease.clone());
+        std::thread::spawn(move || {
+            let mut samples = Vec::new();
+            while looking.load(std::sync::atomic::Ordering::SeqCst) {
+                let alive = std::process::Command::new("pgrep")
+                    .args(["-f", &mark])
+                    .output()
+                    .is_ok_and(|o| !o.stdout.is_empty());
+                let held = std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&lease)
+                    .is_ok_and(|file| file.try_lock().is_err());
+                samples.push((held, alive));
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            samples
+        })
+    };
+    let (status, _) = world
+        .spade
+        .post(
+            &format!("/v1/conversations/{}/stop", world.conversation),
+            json!({}),
+        )
+        .await?;
+    assert!(status < 300);
+    let started = std::time::Instant::now();
+    while held(&world) == Some(true) && started.elapsed() < Duration::from_secs(30) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    looking.store(false, std::sync::atomic::Ordering::SeqCst);
+    let samples = sampler.join().map_err(|_| "the sampler panicked")?;
+    assert!(
+        !samples.iter().any(|(held, alive)| !held && *alive),
+        "the environment was let go while the script's processes were still there: {samples:?}"
+    );
+    assert!(
+        samples.iter().any(|(held, alive)| *held && *alive),
+        "the processes' end was never seen: {samples:?}"
+    );
+    assert_eq!(held(&world), Some(false), "never let go");
+    Ok(())
+}

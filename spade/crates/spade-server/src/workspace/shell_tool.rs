@@ -197,6 +197,7 @@ impl Tool for ShellTool {
                 command: &args.command,
                 timeout,
                 output_name: &name,
+                hold: None,
             };
             run_command(&place, &shell, &key, &workspace, run).await
         })
@@ -209,6 +210,8 @@ pub(super) struct Run<'a> {
     pub timeout: Duration,
     /// The file name a long output is kept under (`.spade/outputs`).
     pub output_name: &'a str,
+    /// Kept until everything the command started has ended, even if the call is dropped first.
+    pub hold: crate::workspace::shell::Hold,
 }
 
 /// Runs a command for the call with `key` in the bot's workspace, launched as the gate cleared
@@ -283,6 +286,7 @@ pub(super) async fn run_cleared(
         command,
         timeout,
         output_name,
+        hold,
     } = run;
     let (outside, sandboxed) = (plan.outside, plan.sandboxed);
     // A call Spade's classifier settled runs only in the form it was settled for, with
@@ -304,6 +308,9 @@ pub(super) async fn run_cleared(
     let overrides: &[(String, String)] = form.as_ref().map_or(&[], |f| f.env.as_slice());
     let ran = match shell {
         Commands::OneShot(shell) => {
+            // A one-shot run's processes are killed when its future is dropped, so the hold goes
+            // with it, after the run.
+            let _hold = hold;
             shell
                 .run_job(crate::workspace::shell::Job {
                     dir: &dir,
@@ -333,6 +340,7 @@ pub(super) async fn run_cleared(
                 plan,
                 overrides,
                 by,
+                hold,
             };
             in_terminal(place, key, terminals, run).await
         }
@@ -385,6 +393,8 @@ struct TerminalRun<'a> {
     /// A bot's, with the warrant its start outside the sandbox must pass, read again under the
     /// terminal's lock right before it starts.
     by: crate::workspace::shell::By,
+    /// Handed to the terminal's supervisor, which lets go of it once the command has ended.
+    hold: crate::workspace::shell::Hold,
 }
 
 /// Runs the bot's command in its terminal; refused while the person has its computer, and when
@@ -431,6 +441,7 @@ async fn in_terminal(
             run.overrides,
             !run.overrides.is_empty(),
             run.by,
+            run.hold,
         )
         .await
 }

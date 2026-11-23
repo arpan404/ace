@@ -307,7 +307,10 @@ async fn world_built(
         options.workspaces.get_or_insert_with(|| workspaces.clone());
     }
     let bots = EngineHandle::default();
-    let shell = Shell::system().confined(wrap(late.clone()));
+    let mut shell = Shell::system().confined(wrap(late.clone()));
+    if let Some(delay) = options.shell_end_delay {
+        shell = shell.with_end_delay(delay);
+    }
     let kept = (shell.clone(), workspaces.clone(), bots.clone());
     let commands = if terminal {
         let terminals = spade_server::computer::Terminals::new(

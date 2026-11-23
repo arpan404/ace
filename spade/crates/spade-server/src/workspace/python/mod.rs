@@ -13,6 +13,7 @@ mod environment;
 mod machine;
 mod scripts;
 mod staging;
+mod vetting;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -151,22 +152,16 @@ impl Setup {
         }
     }
 
-    /// Whether uv is where Spade looks for it: packages are installed only with uv.
-    fn uv(&self) -> bool {
-        self.folders
-            .iter()
-            .any(|folder| folder.join("uv").is_file())
-    }
-
-    /// The environment this set-up builds.
-    fn environment(&self) -> String {
+    /// The environment this set-up builds, with uv (`uv`, as sampled once for this build) or
+    /// without.
+    fn environment(&self, uv: bool) -> String {
         let index = match &self.index {
             Index::Url(url) => url.clone(),
             Index::Folder(folder) => folder.to_string_lossy().into_owned(),
         };
         let pinned = self.pinned.clone().unwrap_or_default();
         let digest = trust_hash(format!("{}\n{index}\n{pinned}", self.lock).as_bytes());
-        environment::name(&digest, self.uv())
+        environment::name(&digest, uv)
     }
 }
 
@@ -258,19 +253,66 @@ impl PythonTool {
         }
     }
 
+    /// Where no program Spade runs on the host to build Python may come from: every bot's
+    /// workspace (all of them, under the workspaces' root, but Spade's shared Python) and every
+    /// folder any bot may write. An error when those can't be read.
+    fn places(&self) -> Result<vetting::Places, String> {
+        let root = self.commands.place.all.root().to_path_buf();
+        let mut forbidden = vec![root.clone()];
+        if let Some(security) = self
+            .commands
+            .place
+            .bots
+            .get()
+            .and_then(|e| e.security().cloned())
+        {
+            forbidden.extend(security.writable_folders()?);
+        }
+        #[cfg(unix)]
+        let owner = {
+            use std::os::unix::fs::MetadataExt;
+            std::fs::metadata(&root).map_err(|e| e.to_string())?.uid()
+        };
+        #[cfg(not(unix))]
+        let owner = 0;
+        Ok(vetting::Places {
+            forbidden,
+            allowed: vec![shared_of(&root)],
+            owner,
+        })
+    }
+
     /// The call's staged script: the one already staged for it, or staged now. Every later
     /// look at the call (the person's answer, the run) uses this first one.
-    fn staged_for(&self, key: &str, arguments: &Value) -> Option<(Staged, Option<String>)> {
-        let workspace = self.commands.place.workspace(key).ok()?;
-        let script = parse::<PythonArgs>(arguments.clone()).ok()?.script().ok()?;
+    ///
+    /// Answers it with its preview: the staged script's own bytes, read back from the copy, so
+    /// what a reviewer or the person is shown and what the scope binds are one snapshot.
+    fn staged_for(&self, key: &str, arguments: &Value) -> Option<(Staged, String)> {
         let staging = self.staging(key)?;
-        let (staged, shown) = stage(&workspace, &staging, &script).ok()?;
-        let mut all = self.staged.lock().unwrap_or_else(|p| p.into_inner());
-        if all.len() >= MOST_STAGED && !all.contains_key(key) {
-            all.clear();
-        }
-        let first = all.entry(key.to_owned()).or_insert(staged).clone();
-        Some((first, shown.map(|s| s.content)))
+        let staged = match self.existing(key) {
+            Some(staged) => staged,
+            None => {
+                let workspace = self.commands.place.workspace(key).ok()?;
+                let script = parse::<PythonArgs>(arguments.clone()).ok()?.script().ok()?;
+                let (staged, _) = stage(&workspace, &staging, &script).ok()?;
+                let mut all = self.staged.lock().unwrap_or_else(|p| p.into_inner());
+                if all.len() >= MOST_STAGED && !all.contains_key(key) {
+                    all.clear();
+                }
+                all.entry(key.to_owned()).or_insert(staged).clone()
+            }
+        };
+        let preview = staging.bytes(&staged.script)?;
+        Some((staged, String::from_utf8_lossy(&preview).into_owned()))
+    }
+
+    /// The call's staged script, if one was staged and is still held.
+    fn existing(&self, key: &str) -> Option<Staged> {
+        self.staged
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(key)
+            .cloned()
     }
 }
 
@@ -443,12 +485,12 @@ impl Tool for PythonTool {
         };
         let path = arguments.get("path").and_then(Value::as_str);
         Classed {
-            shown: match (path, shown) {
-                (Some(path), Some(content)) => vec![spade_core::autonomy::shell::Shown {
+            shown: match path {
+                Some(path) => vec![spade_core::autonomy::shell::Shown {
                     path: path.to_owned(),
-                    content,
+                    content: shown,
                 }],
-                _ => Vec::new(),
+                None => Vec::new(),
             },
             ..Classed::sandboxed()
         }
@@ -472,10 +514,12 @@ impl Tool for PythonTool {
             .ok()
             .and_then(|workspace| workspace.path().ok())
             .is_some_and(|path| self.held(&path));
+        // Only the snapshot the call was classed (and previewed) with: never staged again here.
+        // With none held, the scope names nothing and the run refuses.
         let binding = held
-            .then(|| self.staged_for(key, arguments))
+            .then(|| self.existing(key))
             .flatten()
-            .map(|(staged, _)| staged.binding())
+            .map(|staged| staged.binding())
             .unwrap_or_default();
         Some(format!("{scope}{STAGED}{binding}]"))
     }
@@ -526,6 +570,16 @@ impl Tool for PythonTool {
             return Box::pin(async { ToolOutput::error(NOT_ALLOWED) });
         }
         let machine = self.machine();
+        let places = match self.places() {
+            Ok(places) => places,
+            Err(why) => {
+                return Box::pin(async move {
+                    ToolOutput::error(format!(
+                        "Spade couldn't check where its Python comes from: {why}"
+                    ))
+                });
+            }
+        };
         let (place, shell) = (self.commands.place.clone(), self.commands.shell.clone());
         let setup = self.setup.clone();
         let name = output_name(key);
@@ -550,7 +604,7 @@ impl Tool for PythonTool {
             if !plan.sandboxed {
                 return ToolOutput::error(NOT_HELD);
             }
-            let (environment, lease, notes) = match ensure(&machine, &setup).await {
+            let (environment, lease, notes) = match ensure(&machine, &setup, &places).await {
                 Ok(ready) => ready,
                 Err(failed) => return ToolOutput::error(failed),
             };
@@ -576,10 +630,11 @@ impl Tool for PythonTool {
                 command: &command,
                 timeout,
                 output_name: &name,
+                // The environment is held until the script and everything it started have ended,
+                // in the bot's terminal past this call too if the call is stopped first.
+                hold: Some(Box::new(lease)),
             };
             let output = run_cleared(&place, &shell, &key, &workspace, run, plan, by).await;
-            // The environment is held until the script has ended, however long it ran.
-            drop(lease);
             let found = match before {
                 Some((before, _)) => {
                     tokio::task::spawn_blocking(move || look_again(&workspace, &before))
@@ -611,9 +666,8 @@ fn bound_to(allowed: Option<&str>, staged: &Staged) -> bool {
 async fn ensure(
     machine: &Machine,
     setup: &Setup,
+    places: &vetting::Places,
 ) -> Result<(String, machine::Lease, String), String> {
-    let wanted = setup.environment();
-    let uv = setup.uv();
     let guard = {
         let machine = machine.clone();
         tokio::task::spawn_blocking(move || {
@@ -624,11 +678,19 @@ async fn ensure(
         .map_err(|_| "the file work stopped".to_owned())?
         .map_err(|e| format!("Spade couldn't prepare its Python: {e}"))?
     };
+    // The programs this build may run, sampled once: the environment is named from this sample.
+    let tools = {
+        let (machine, setup, places) = (machine.clone(), setup.clone(), places.clone());
+        tokio::task::spawn_blocking(move || machine.tools(&setup, &places))
+            .await
+            .map_err(|_| "the file work stopped".to_owned())?
+    };
+    let wanted = setup.environment(tools.uv.is_some());
     let current = machine.current().map(|c| c.environment);
     let mut said = String::new();
     if current.as_deref() != Some(wanted.as_str()) || !machine.usable(&wanted) {
         if !machine.usable(&wanted) {
-            said = machine.build(setup, &wanted, uv).await.map_err(|why| {
+            said = machine.build(setup, &wanted, &tools).await.map_err(|why| {
                 format!("Python could not be set up: {why}\n[The script was not run.]")
             })?;
         }
@@ -708,6 +770,21 @@ mod tests {
             modified: Some(at),
             inode: 1,
         }
+    }
+
+    #[test]
+    fn an_environment_is_named_from_the_one_sample_of_uv_its_build_uses() {
+        let setup = Setup {
+            folders: vec![PathBuf::from("/opt/homebrew/bin")],
+            pinned: None,
+            lock: "a==1\n".to_owned(),
+            wanted: vec!["a".to_owned()],
+            index: Index::Url(PYPI.to_owned()),
+            env: Vec::new(),
+        };
+        // Whatever is on disk now: a build that found no usable uv is the standard library.
+        assert_eq!(setup.environment(false), "standard-library");
+        assert!(setup.environment(true).starts_with("locked-"));
     }
 
     #[test]

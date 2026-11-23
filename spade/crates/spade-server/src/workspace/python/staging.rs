@@ -85,6 +85,20 @@ impl Staging {
         Ok(self.root.join("scripts").join(name))
     }
 
+    /// A staged file's bytes, when it still holds the bytes it was staged with.
+    pub fn bytes(&self, path: &Path) -> Option<Vec<u8>> {
+        let name = path.file_name()?.to_string_lossy().into_owned();
+        if path.parent() != Some(self.root.join("scripts").as_path()) {
+            return None;
+        }
+        let hash = name.split('.').next()?.to_owned();
+        let bytes = self
+            .scripts()
+            .and_then(|scripts| read(&scripts, &name))
+            .ok()?;
+        (super::super::trust::hash(&bytes) == hash).then_some(bytes)
+    }
+
     /// Whether `path` is a staged file still holding the bytes it was staged with.
     pub fn intact(&self, path: &Path) -> bool {
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().into_owned()) else {

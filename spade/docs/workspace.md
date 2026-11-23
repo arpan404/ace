@@ -137,6 +137,19 @@ host, never in a bot's sandbox, the first time any bot runs `python` (never at s
 Every bot's runs read `control/`, `environments/` and `pythons/` (the sandbox reopens them
 read-only, `Facts.runtime`, inside Spade's data only); nothing in any sandbox writes there.
 
+**What Spade runs to build it.** Before a build, Spade looks once for uv and the Pythons in those
+folders and vets each one it finds (`python::vetting`): resolved fully, the program and every
+folder above it (and above the name it was found by) must be owned by root or the user Spade runs
+as, never writable by others (a root-owned sticky folder such as `/tmp` passes), and writable by
+their group only when that group is root's or, on macOS, `admin` (whose members can become root
+anyway, as Homebrew's folders are); and neither the program nor the folder it was found in may
+lie inside any bot's workspace or any folder any bot may write (every write grant of every bot).
+A program that fails is never run, and the result says which and why (`Spade didn't use
+/usr/local/bin/uv: …`). uv never picks a Python by itself: it gets its pinned uv-managed CPython
+or the vetted Python by path. The environment is named from this one look (with uv, or the
+standard library), and the result names the programs that made it (`Made with uv …, uv's own
+CPython 3.12.`).
+
 **Building.** Under a machine-wide lock (`leases/build.lock`), with an environment that has only
 the system folders on `PATH`, a home of its own, uv's configuration discovery off
 (`UV_NO_CONFIG`, `--no-config`), files copied (`UV_LINK_MODE=copy`) and the machine's proxy and
@@ -149,7 +162,8 @@ install --no-deps --require-hashes --only-binary :all: --index-url https://pypi.
 <the lock>`. Spade then checks what got installed: every package locked at its installed
    version, every one of the seven there, and no `.pth` start-up file among them (a lock entry
    that installs one is refused).
-2. **Without uv:** `python3 -I -m venv --without-pip` from the first Python 3.10 or newer in
+2. **Without uv:** `python3 -I -S -m venv --without-pip` (no `site`, so nothing of that Python's
+   own packages runs as Spade) from the first vetted Python 3.10 or newer in
    those folders: the standard library only, said plainly (`with its standard library only: uv
 isn't on this machine, and Spade installs packages only with uv…`). Spade doesn't fetch uv:
    one command installs it, and a fetched binary would be one more pinned, hash-checked download
@@ -167,7 +181,9 @@ new name), or uv comes or goes. The first call waits for the build and its resul
 python-docx, pypdf, requests.]`.
 
 **Leases.** A run takes a shared lock on `leases/<environment>.lock` before it starts and holds
-it until its script has ended, however long that takes (a background job included). An
+it until its script has ended, however long that takes (a background job included). In the bot's
+terminal the lease goes to the terminal's supervisor with the command, so a call that is stopped
+or dropped first still holds the environment until everything the script started has ended. An
 environment other than the current one is deleted only when Spade can take that lock
 exclusively, so never under a running script; one still held is kept until a later sweep.
 
@@ -178,8 +194,10 @@ bot's runs read it and nothing in any sandbox writes it. A workspace script's wh
 the reviewer (`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to
 the person. Staging is required: a call whose staged copy couldn't be written, is missing at
 launch or no longer holds its bytes is refused (`Not run: Spade runs only the copy of the script
-it took when the call was checked…`), and the workspace is never read again. The scope the person
-is asked with names the staged bytes' hashes; a call they allowed runs only if those are the bytes
+it took when the call was checked…`), and the workspace is never read again. What a reviewer or the person
+is shown is read back from the staged copy itself, and the scope they are asked with names that
+same copy's hashes, never a copy staged again (with none still held the scope names nothing and
+the run refuses); a call they allowed runs only if those are the bytes
 staged when it runs, so a copy staged again (after a restart) from a changed file isn't run on
 their answer (`Not run: the script (or a module it imports) isn't the one the person allowed…`).
 

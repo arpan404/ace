@@ -20,6 +20,7 @@ use cap_fs_ext::DirExt;
 
 use super::environment::{self, Current};
 use super::staging::{folder, open, put, read};
+use super::vetting::{Places, vet};
 use super::{BOOT, Index, LAUNCHER, NAMES, Setup};
 
 /// The record of the current environment.
@@ -39,6 +40,37 @@ pub struct Machine {
 #[derive(Debug)]
 pub struct Lease {
     _file: std::fs::File,
+}
+
+/// The programs a build may run, vetted, and what Spade said about any it wouldn't use.
+#[derive(Debug, Clone, Default)]
+pub struct Tools {
+    pub uv: Option<PathBuf>,
+    /// Vetted Pythons, newest name first; the first that is 3.10 or newer is used.
+    pub pythons: Vec<PathBuf>,
+    pub notes: Vec<String>,
+}
+
+impl Tools {
+    /// The first vetted Python that is 3.10 or newer, checked by running it with `-I -S` and
+    /// nothing of Spade's environment. Blocking.
+    fn python(&self) -> Option<PathBuf> {
+        self.pythons
+            .iter()
+            .find(|path| {
+                std::process::Command::new(path)
+                    .args([
+                        "-I",
+                        "-S",
+                        "-c",
+                        "import sys; sys.exit(sys.version_info < (3, 10))",
+                    ])
+                    .env_clear()
+                    .status()
+                    .is_ok_and(|status| status.success())
+            })
+            .cloned()
+    }
 }
 
 /// What a build said, for the call that waited on it.
@@ -138,12 +170,39 @@ impl Machine {
         }
     }
 
-    /// Builds environment `name` for `setup` (with uv when `uv`, else the standard library alone)
-    /// and moves it into place. Answers what it said, or why it failed (nothing is left behind).
-    /// Under [`Machine::exclusive`].
-    pub async fn build(&self, setup: &Setup, name: &str, uv: bool) -> Result<Said, String> {
+    /// The programs a build may run, found once in `setup`'s folders and vetted
+    /// ([`super::vetting::vet`]): uv, and the Pythons by name, newest first (nothing is run here).
+    /// Blocking.
+    pub fn tools(&self, setup: &Setup, places: &Places) -> Tools {
+        let mut notes = Vec::new();
+        let mut vetted = |path: PathBuf| match vet(&path, places) {
+            Ok(resolved) => Some(resolved),
+            Err(why) => {
+                notes.push(format!("Spade didn't use {}: {why}.", path.display()));
+                None
+            }
+        };
+        let uv = setup
+            .folders
+            .iter()
+            .map(|folder| folder.join("uv"))
+            .filter(|path| path.exists())
+            .find_map(&mut vetted);
+        let pythons = NAMES
+            .iter()
+            .flat_map(|name| setup.folders.iter().map(move |folder| folder.join(name)))
+            .filter(|path| path.exists())
+            .filter_map(&mut vetted)
+            .collect();
+        Tools { uv, pythons, notes }
+    }
+
+    /// Builds environment `name` with `tools` (with uv when there is one, else the standard
+    /// library alone) and moves it into place. Answers what it said, or why it failed (nothing is
+    /// left behind). Under [`Machine::exclusive`].
+    pub async fn build(&self, setup: &Setup, name: &str, tools: &Tools) -> Result<Said, String> {
         let building = self.environment(&format!("{BUILDING}{}", uuid::Uuid::new_v4().simple()));
-        let built = self.build_in(setup, &building, uv).await;
+        let built = self.build_in(setup, &building, tools).await;
         let placed = built.and_then(|said| {
             read_only(&building).map_err(|e| format!("couldn't make it read-only: {e}"))?;
             let target = self.environment(name);
@@ -160,21 +219,38 @@ impl Machine {
         placed
     }
 
-    async fn build_in(&self, setup: &Setup, building: &Path, uv: bool) -> Result<Said, String> {
+    async fn build_in(
+        &self,
+        setup: &Setup,
+        building: &Path,
+        tools: &Tools,
+    ) -> Result<Said, String> {
         for place in ["cache", "pythons", "home", "locks"] {
             std::fs::create_dir_all(self.root.join(place)).map_err(|e| e.to_string())?;
         }
         let env = self.environment_variables(setup);
         let target = building.to_string_lossy().into_owned();
-        let found = |name: &str| {
-            setup
-                .folders
-                .iter()
-                .map(|f| f.join(name))
-                .find(|p| p.is_file())
+        let looked: Vec<String> = setup
+            .folders
+            .iter()
+            .map(|f| f.to_string_lossy().into_owned())
+            .collect();
+        let none = || {
+            let mut why = format!(
+                "No Python 3.10 or newer was found on this machine (looked for uv and python3 in \
+                 {}). The person can install one, for example with Homebrew: brew install python.",
+                looked.join(", ")
+            );
+            for note in &tools.notes {
+                why.push(' ');
+                why.push_str(note);
+            }
+            why
         };
-        if uv {
-            let uv = found("uv").ok_or("uv isn't where Spade looks for it")?;
+        // Which programs made it, for the result.
+        let mut used = Vec::new();
+        if let Some(uv) = &tools.uv {
+            used.push(format!("uv {}", uv.display()));
             let mut made = false;
             if let Some(version) = &setup.pinned {
                 let args = [
@@ -185,58 +261,39 @@ impl Machine {
                     "--python",
                     version,
                 ];
-                made = self.run(&uv, &args, &[&target], &env).await.is_ok();
+                made = self.run(uv, &args, &[&target], &env).await.is_ok();
+                if made {
+                    used.push(format!("uv's own CPython {version}"));
+                }
             }
             if !made {
+                // Never one uv finds by itself: only the Python Spade vetted.
+                let python = tools.python().ok_or_else(none)?;
+                let shown = python.to_string_lossy().into_owned();
                 let args = [
                     "venv",
                     "--no-config",
                     "--quiet",
                     "--no-python-downloads",
                     "--python",
-                    ">=3.10",
+                    &shown,
                 ];
-                self.run(&uv, &args, &[&target], &env)
+                self.run(uv, &args, &[&target], &env)
                     .await
                     .map_err(|why| format!("no Python 3.10 or newer could be had: {why}"))?;
+                used.push(format!("Python {shown}"));
             }
         } else {
-            let python = NAMES
-                .iter()
-                .flat_map(|name| setup.folders.iter().map(move |f| f.join(name)))
-                .find(|path| {
-                    path.is_file()
-                        && std::process::Command::new(path)
-                            .args([
-                                "-I",
-                                "-S",
-                                "-c",
-                                "import sys; sys.exit(sys.version_info < (3, 10))",
-                            ])
-                            .env_clear()
-                            .status()
-                            .is_ok_and(|status| status.success())
-                });
-            let looked: Vec<String> = setup
-                .folders
-                .iter()
-                .map(|f| f.to_string_lossy().into_owned())
-                .collect();
-            let python = python.ok_or_else(|| {
-                format!(
-                    "No Python 3.10 or newer was found on this machine (looked for uv and \
-                     python3 in {}). The person can install one, for example with Homebrew: brew \
-                     install python.",
-                    looked.join(", ")
-                )
-            })?;
+            let python = tools.python().ok_or_else(none)?;
+            // Without `site`: nothing of that Python's own packages runs as Spade.
             self.run(
                 &python,
-                &["-I", "-m", "venv", "--without-pip"],
+                &["-I", "-S", "-m", "venv", "--without-pip"],
                 &[&target],
                 &env,
             )
             .await?;
+            used.push(format!("Python {}", python.display()));
         }
         // uv's own start-up hook: nothing runs at start but boot.py.
         for packages in site_packages(building) {
@@ -257,19 +314,23 @@ impl Machine {
                 &env,
             )
             .await?;
-        if !uv {
+        let mut notes = tools.notes.join(" ");
+        if !notes.is_empty() {
+            notes.insert(0, ' ');
+        }
+        let used = used.join(", ");
+        let Some(uv) = &tools.uv else {
             return Ok(format!(
                 "[Set up Python for Spade's bots: {version}, with its standard library only: uv \
                  isn't on this machine, and Spade installs packages only with uv. The person can \
-                 install it, for example with Homebrew: brew install uv.]"
+                 install it, for example with Homebrew: brew install uv. Made with {used}.{notes}]"
             ));
-        }
+        };
         let digest = super::trust_hash(setup.lock.as_bytes());
         let locks = open(&self.root.join("locks")).map_err(|e| e.to_string())?;
         let lock_name = format!("{digest}.txt");
         put(&locks, &lock_name, setup.lock.as_bytes()).map_err(|e| e.to_string())?;
         let lock_path = self.root.join("locks").join(&lock_name);
-        let uv = found("uv").ok_or("uv isn't where Spade looks for it")?;
         let mut args: Vec<String> = ["pip", "install", "--no-config", "--quiet", "--python"]
             .iter()
             .map(|s| (*s).to_owned())
@@ -287,7 +348,7 @@ impl Machine {
         args.extend(["--no-deps", "--require-hashes", "-r"].map(str::to_owned));
         args.push(lock_path.to_string_lossy().into_owned());
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-        self.run(&uv, &refs, &[], &env)
+        self.run(uv, &refs, &[], &env)
             .await
             .map_err(|why| format!("the locked packages couldn't be installed: {why}"))?;
         let (installed, files) = installed(building).map_err(|e| e.to_string())?;
@@ -295,7 +356,7 @@ impl Machine {
         environment::check(&environment::pins(&setup.lock), &installed, &wanted, &files)
             .map_err(|why| format!("Spade checked what was installed and didn't use it: {why}"))?;
         Ok(format!(
-            "[Set up Python for Spade's bots: {version}, with {}.]",
+            "[Set up Python for Spade's bots: {version}, with {}. Made with {used}.{notes}]",
             setup.wanted.join(", ")
         ))
     }
