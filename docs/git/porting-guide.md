@@ -1,222 +1,283 @@
-# Moving Git snapshots and reads into the addon
+# Porting `@ace/git` to Rust
 
 For the builders of [ADR 0224](../adr/0224-git-and-forge-move-to-rust-behind-the-same-interfaces.md),
 one work item each. Read the ADR and [behaviour.md](behaviour.md) first: the contract there is
 what you keep, and behaviour.md §12 lists every test file by class. Where this guide is silent,
-follow [the engine's porting guide](../engine/porting-guide.md); its rules 6, 7, 9, 11, 12 and 13
-apply here word for word.
+follow [the engine's porting guide](../engine/porting-guide.md); its rules 6 (idiomatic, safe
+Rust), 7 (bindings only translate), 9 (inject what you can't control), 11 (no provider CLIs), 12
+(build and check) and 13 (commit and push) apply word for word.
 
 Branch from `ace/rust-git-forge` once G0 has landed on it, one branch per work item
-(`ace/rust-git-<item>`).
+(`ace/rust-git-<item>`). G2 and later need ADR 0223's E2 (`ace-supervisor`) on the branch.
 
 ## Rules for every work item
 
-1. **Same TypeScript interface.** `GitService`, `GitTransfer` and every export of `@ace/git` keep
-   their signatures, results, error codes and timing. You replace one internal step (ADR 0224 §1),
-   never a `GitService` method, and never the orchestration around it: `serial`, `ReadGate`,
-   leases, quarantine, deadlines, cancellation and error mapping stay TypeScript.
-2. **One switch, one line.** G0 puts an `if` at the top of each replaced step that calls your
-   shell function when `ACE_GIT` names your part; until you build it, the shell returns
-   `undefined` and the CLI step runs. You edit only your shell file and your Rust files. With the
-   switch on and the addon missing, fail at startup; never fall back for that.
-3. **Fall back, never guess** (ADR 0224 §3). Your native step reads the facts it depends on first
-   and returns `{ fallback: "<reason>" }` for anything it doesn't reproduce exactly; the shell then
-   returns `undefined` and the CLI step runs in the same `serial` turn and lease. A fallback is
-   counted (`resourceUsage().nativeFallbacks[reason]`), never an error, never a partial result.
-   When in doubt about a configuration, add it to the fallback list rather than modelling it.
-4. **No new tests through TypeScript.** The class (a) files of your item are the proof; you don't
-   edit them. Run each alone, switch on and off. Check the path exists first: an empty path runs
-   the whole suite.
+1. **Same TypeScript interface.** `GitService`, `GitTransfer`, every export of `.` and
+   `./remote-url`, `GitError` (with `code`, `details`, `cleanup.settled`) and
+   `WorktreeRemovalRefused` keep their signatures, results, codes and timing. What is synchronous
+   stays synchronous (`protectWorktree`, `forgetWorktree`, `mutationState`). The binding throws the
+   TypeScript error classes, so `instanceof` holds.
+2. **One switch, one line.** G0 makes the exported `GitService` choose its backend per instance
+   from `ACE_GIT` (`packages/provider-kit/src/native-switches.ts`) and puts one `if` at each
+   method that dispatches to the native core when the method's part is on. You edit only your
+   files (table below). With the switch on and the addon missing, fail at startup; never fall back
+   for that.
+3. **The Git CLI stays the executor.** You port what TypeScript does around Git (ordering, leases,
+   environment, parsing, errors), not what Git does: every command, argument, order and
+   environment of today's TypeScript is kept, run through `ace-supervisor`. `gix` only in G1, G6
+   and G7, and only for what the ADR lists.
+4. **Ports stay ports.** Every `GitProcessRuntime` member (`types.ts:28`) is a port of the core.
+   An injected one is called back on the JS thread through G0's bridge; an injected `spawn`'s
+   `ChildProcess` is read through the bridge as a supervised child is. Never skip an injected port
+   and never use the default when one is injected: 25 test files depend on it (ADR 0224 fact 7).
+5. **Held directories.** A call with `directoryFd` spawns Git in that descriptor (G2a). Until the
+   supervisor supports it, the shell sends such calls to the TypeScript backend. `gix` never opens
+   a held directory.
+6. **Fall back, never guess.** A `gix` step (G1, G6, G7) reads its preconditions first and returns
+   a fallback reason for anything outside what it reproduces exactly; the core then runs the CLI
+   step in the same `serial` turn and lease. A fallback is counted in
+   `resourceUsage().nativeFallbacks[reason]` and logged (rule 11), never an error, never a partial
+   result. When in doubt, fall back.
+7. **Output through `ace-json`.** Results are Rust structs in the TypeScript's field order,
+   serialized with `ace_json::ser::to_string`; the shell parses once. Git's bytes become strings
+   as `Buffer.prototype.toString("utf8")` makes them (`String::from_utf8_lossy` has the same
+   replacement rule), then go through the Rust ports of today's schemas (`decode.ts`:
+   `pathSchema`, `refSchema`, `hashSchema`, `modeSchema`), which reject exactly what they reject.
+   Strings a caller passed in are `JsString`. No `serde_json`.
+8. **Same numbers.** 30 s default deadline, 64 MiB metadata capture, 1 MiB default patch, 8 MiB
+   branch listings, `ReadGate(2)`, 60 s lease wait, 128 checkpoint counters (1 to 4,096),
+   500-entry sections, 106 lines and 8,192 characters of revision lines, 64 KiB `applyPatch`.
+9. **Tests.** The class (a) files of your item are the proof; you don't edit them. Run each
+   alone, switch on and off; `test -f` first, since an empty path runs the whole suite.
 
    ```sh
-   f=packages/git/src/checkpoints.process.test.ts
-   test -f "$f" && ACE_GIT=snapshot bun --bun x vitest run "$f" --maxWorkers=4
+   f=packages/git/src/stale-leases.process.test.ts
+   test -f "$f" && ACE_SUPERVISOR=native ACE_GIT=core bun --bun x vitest run "$f" --maxWorkers=4
    test -f "$f" && bun --bun x vitest run "$f" --maxWorkers=4
    ```
 
    Never run the full suite, `bun run test`, `bun run check`, or `test:process`, `test:slow`,
-   `test:changed`; the machine is shared. One file at a time.
+   `test:changed`. One file at a time.
 
-5. **Rust tests only for what nothing covers.** All (b) files of `@ace/git` cover modules that
-   stay TypeScript; no case moves. Your fallback detection (rule 3) gets `#[cfg(test)]` cases in
-   temp repositories, one per reason, because today's tests don't set those configurations up;
-   the commit says so. No parity harness, no vectors generated from the CLI, no "run both and
-   compare".
-6. **Paths and refs cross as bytes.** Return path and ref names as `Buffer` and let the shell run
-   the existing `decode` with `pathSchema` or `refSchema` (`decode.ts:7`, `:24`); return ids as
-   lowercase hex. No JSON crosses; results are `#[napi(object)]` values. Never build a JavaScript
-   shape in Rust that TypeScript then re-parses.
-7. **Off the JS thread, bounded.** Each call is one task on the addon runtime's blocking pool;
-   at most two native Git tasks run at once (a semaphore in `ace-git`), each with at most four
-   threads inside (`gix` `thread_limit`, the hashing fan-out).
-8. **Stop late, never early.** The shell passes a cancel handle; abort and the call's deadline set
-   its `AtomicBool`. Pass it to `gix` where it takes one (`should_interrupt`) and check it between
-   files in your own loops. The promise settles only after the task returned; the shell then fails
-   `git_cancelled` or `git_timeout` exactly as the CLI path does (`cli.ts:745`, `:920`–`:922`).
-9. **Nothing executes.** No hooks, no filter drivers (fallback), no fsmonitor, no process of any
-   kind from `ace-git`. In protected roots apply the overrides of `non-executing.ts:35`–`:52` as
-   configuration overrides when opening the repository (`core.attributesFile=/dev/null` above
-   all). Match Git's `safe.directory` refusal and map it to the CLI path's code.
-10. **Same numbers.** Limits and budgets are contract: `sourceControlState`'s 500-entry sections,
-    `branches`' truncation, the 64 MiB metadata guard where a list could exceed it.
-11. **`gix` features**: `default-features = false`, `status`, `parallel`, `revision`, `sha1`,
-    `sha256`, `attributes`, `excludes`, `dirwalk`. Never `pack-cache-lru-static` (it pulls an
-    MPL-2.0 crate); run `cargo deny check` in `native/daemon` after any feature change.
-12. **Never touch the person's repositories.** Tests use the temp repositories of `test-repo.ts`;
-    benches clone with `git clone --local` into a temp directory (`benchmark-ops.ts`). Never run a
-    native step on a checkout you didn't create.
-13. **Measure before you finish**, switch off and on, and report both:
-
-    ```sh
-    node packages/git/benchmark-ops.ts . --calls=10 --only=createCheckpoint,status
-    ACE_GIT=snapshot node packages/git/benchmark-ops.ts . --calls=10 --only=createCheckpoint,status
-    ```
-
-14. **Cross-mode gate** (ADR 0224 §6): run your item's list with `ACE_NATIVE_CROSS=ACE_GIT`,
-    which alternates the backend per call, through `scripts/native-cross.ts`; it fails unless both
-    backends served calls in the file. Same rules as rule 4.
-
-    ```sh
-    f=packages/git/src/checkpoints.process.test.ts
-    test -f "$f" && bun scripts/native-cross.ts ACE_GIT "$f"
-    ```
+10. **(b) cases move with their module.** Each (b) file named in your item becomes a
+    `#[cfg(test)] mod tests` beside the Rust that replaces its module: same inputs, same
+    expectations, none added or dropped. The TypeScript test goes when its module goes (after
+    default-on), not in your item. New Rust tests only for behaviour nothing covers (the fallback
+    triggers), and the commit says which.
+11. **Gates** (ADR 0224 §7). Every item runs its cross list both ways
+    (`bun scripts/native-cross.ts ACE_GIT <file>`); write items (G4, G5) also run
+    `bun scripts/native-git-digest.ts <file>` on every file of their proof list and pass only
+    with identical digests; G6 and G7 run their files with `ACE_GIT_VERIFY=strict`. Each log
+    records the selected and the completing backend per operation; a fallback not listed for
+    that file in your item fails the gate.
+12. **Never touch the person's repositories.** Tests use `test-repo.ts`'s temp repositories;
+    benches clone with `git clone --local` into a temp directory (`benchmark-ops.ts`). Shadow
+    measurement (G6) runs on read-only local clones of this repository and the main checkout.
+13. **Measure before you finish**, both ways, and report both:
+    `node packages/git/benchmark-ops.ts . --calls=10 --only=<your calls>`, then with the switch.
+14. **Supply chain.** `gix` with `default-features = false` and only the ADR's features; never
+    `pack-cache-lru-static`. `deny.toml` bans `uluru`; run `cargo deny check` in `native/daemon`
+    after any dependency or feature change (Cargo unifies features across the workspace).
 
 ## Files per work item
 
-G0 creates every file below as a stub and declares every module, so no two builders edit the same
-file. Rust paths in `native/daemon/crates/`.
+G0 creates every file below as a stub and declares every module. Rust in
+`native/daemon/crates/ace-git/src/`, bindings in `native/daemon/crates/ace-daemon-node/src/git/`,
+shells in `packages/git/src/`. `index.ts` stays the TypeScript surface; `GitService`'s methods
+dispatch to the shells.
 
-| Item | Rust (yours)                                                   | Binding (yours)                       | TypeScript shell (yours)                     | Switch             |
-| ---- | -------------------------------------------------------------- | ------------------------------------- | -------------------------------------------- | ------------------ |
-| G0   | `ace-git/src/{lib,error,open,cancel,limits}.rs`, `Cargo.toml`  | `ace-daemon-node/src/git/mod.rs`      | `packages/git/src/native.ts`, the `if` lines | `ACE_GIT` parsing  |
-| G1a  | `ace-git/src/snapshot/{facts,nested}.rs`                       | `ace-daemon-node/src/git/scan.rs`     | `packages/git/src/native-scan.ts`            | `ACE_GIT=snapshot` |
-| G1b  | `ace-git/src/snapshot/{mod,files,hash,tree}.rs`                | `ace-daemon-node/src/git/snapshot.rs` | `packages/git/src/native-snapshot.ts`        | `ACE_GIT=snapshot` |
-| G2   | `ace-git/src/{refs,worktrees}.rs`                              | `ace-daemon-node/src/git/refs.rs`     | `packages/git/src/native-refs.ts`            | `ACE_GIT=refs`     |
-| G3   | `ace-git/src/status/{mod,tree_index,index_worktree,branch}.rs` | `ace-daemon-node/src/git/status.rs`   | `packages/git/src/native-status.ts`          | `ACE_GIT=status`   |
+| Item | TypeScript replaced (`packages/git/src/`)                                                                                                                                                                                                                                           | Rust (yours)                                                                     | Binding                | Shell                   | Part            |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------- | ----------------------- | --------------- |
+| G1   | the ref reads of `repository` (`commit` :156, `worktrees` :90), `remote-branches` (`branchRefs` :34, `branchHead` :150, the listing :76–:115), `actions` `listBranches` :274                                                                                                        | `refs.rs`, `worktrees_gix.rs`                                                    | `refs.rs`              | `native-refs.ts`        | `refs`          |
+| G2a  | `cli`, `process-runtime`, `git-binary`, `deadlines`, `failure-text`, `diagnostics`, `pinned-process`, `git-job`                                                                                                                                                                     | `core/{cli,spawn,deadline,failure,diagnostics,job}.rs`                           | `core.rs`, `bridge.rs` | `native-core.ts`        | `core`          |
+| G2b  | `lock`, `read-gate`, `repository` (root, `serial`), `repository-paths`, `directory-lease`, `lease-admission`, `lease-journal`, `lease-owner`, `lease-roots`, `mutation-leases`, `mutation-state`, `git-locks`, `git-processes`, `git-process-facts`                                 | `core/{serial,read_gate,paths}.rs`, `core/lease/*.rs`                            | `core.rs`              | `native-core.ts`        | `core`          |
+| G2c  | `non-executing`, `disabled-hooks`, `hook-command-words`, `config-facts`, `config-learning`, `config-sources`, `credential-helpers`, `transport-config`, `temporary-index`, `reviewer-hooks`, `reviewer-hooks-identity`, `types`, `decode`                                           | `core/{policy,config,credentials,transport,temp_index,reviewer,error,decode}.rs` | `core.rs`              | `native-core.ts`        | `core`          |
+| G3a  | `parse`, `parse-status`, `parse-repository`, `parse-numstat`, `changed-files`, `checkout-facts`, `linked-worktrees`, `worktree-footprint`, `missing-worktrees`, info and remotes of `repository`                                                                                    | `reads/{status,info,changes,worktree_facts}.rs`, `parse/*.rs`                    | `reads.rs`             | `native-reads.ts`       | `reads`         |
+| G3b  | `diff` (commit and index sides), `parse-diff`, `parse-index`, `diff-binary`, `blob-classifier`, `line-window`                                                                                                                                                                       | `reads/{diff,blob_classifier}.rs`, `parse/{diff,index}.rs`                       | `reads.rs`             | `native-reads.ts`       | `reads`         |
+| G3c  | `history`, `parse-history`, `revision-lines`, `conflict-markers`, the reads of `merge-conflicts`                                                                                                                                                                                    | `reads/{history,revision_lines,conflicts}.rs`                                    | `reads.rs`             | `native-reads.ts`       | `reads`         |
+| G3d  | `publication-scan`, `publication-sensitive`, `publication-yaml`, `publication-remote`, `remote-default-branch`, `remote-url`, `transfer-source`, `transfer-refs`, `transfer-ignored`, `transfer-branch-name`                                                                        | `reads/{publication,remote,transfer_reads}.rs`                                   | `reads.rs`             | `native-reads.ts`       | `reads`         |
+| G4a  | `actions` (commit, stage, unstage, push, branch writes), `source-control-ops`, `writing-context`, `leased-push`, `ref-conflict`, `branch-cleanup`, `ace-private`, `integration`                                                                                                     | `writes/{commit,stage,push,branches,integration}.rs`                             | `writes.rs`            | `native-writes.ts`      | `writes`        |
+| G4b  | `worktrees`, `worktree-cleanup`, `worktree-backup`                                                                                                                                                                                                                                  | `writes/worktrees.rs`                                                            | `writes.rs`            | `native-writes.ts`      | `writes`        |
+| G4c  | `projects` (clone, init), `publication`, `publication-assignment-keys`, `publication-credentials`, `held-clone`, `object-transfer`, `transfer-bundle`, `transfer-bundle-file`, `transfer-clone`, `transfer-apply`, `transfer-checkout`, `transfer-origin-fetch`, `transfer-service` | `writes/{projects,publication}.rs`, `writes/transfers/*.rs`                      | `writes.rs`            | `native-writes.ts`      | `writes`        |
+| G4d  | the writes of `merge-conflicts`, `stack-sync`, and the fetches of `remote-branches`                                                                                                                                                                                                 | `writes/{merge,stack,fetch}.rs`                                                  | `writes.rs`            | `native-writes.ts`      | `writes`        |
+| G5   | `snapshot-index`, `checkpoints`, `checkpoint-bytes`, `checkpoint-metadata`, `checkpoint-numbers`, `nested`, `restore`, `restore-nested`, `transfer-capture`, the live sides of `diff`                                                                                               | `checkpoints/{snapshot,nested,numbers,metadata,bytes,restore}.rs`                | `checkpoints.rs`       | `native-checkpoints.ts` | `checkpoints`   |
+| G6   | S9–S10 of the snapshot only (ADR 0224 §5, N9–N15)                                                                                                                                                                                                                                   | `checkpoints/hash.rs`                                                            | none                   | none                    | `snapshot-hash` |
+| G7   | the source of `parseStatus`'s input, for display reads only                                                                                                                                                                                                                         | `reads/status_gix.rs`                                                            | none                   | none                    | `status-gix`    |
 
 ## G0: foundations (one builder, first)
 
-- `ace-git` with `gix` as rule 11 says, `thiserror`, the workspace `tokio`; `open.rs` opens a
-  repository with the trust and override rules of rule 9 and takes a `protected: bool`;
-  `cancel.rs` the cancel handle (an `Arc<AtomicBool>` behind a napi class); `limits.rs` the
-  two-task semaphore and the thread limit; `error.rs` the enum and its codes (ADR 0224 §2).
-- `ace-daemon-node/src/git/mod.rs`: `mod` lines for every binding file above, panics caught and
+- `ace-git` (`thiserror`, `ace-json`, `ace-supervisor`, the workspace `tokio`; `gix` only in the
+  G1 and G7 modules), every module above as a stub, the binding modules with panics caught and
   thrown as `git_failed`.
-- `ACE_GIT` in `packages/provider-kit/src/native-switches.ts` beside ADR 0223's switches: a comma
-  list of `snapshot`, `refs`, `status`; unknown words refuse to start. `ACE_NATIVE_CROSS=ACE_GIT`
-  alternates per call and appends one line per call (`backend`, `part`) to `ACE_NATIVE_CROSS_LOG`;
-  `scripts/native-cross.ts` learns the per-call mode and asserts both backends appear.
-- `packages/git/src/native.ts`: loads the addon through provider-kit's loader, exposes the switch
-  decision per part, the cancel handle bound to a signal and a deadline, and `nativeFallbacks`
-  counting (added to `resourceUsage()`, `index.ts:249`).
-- The `if` lines, one per replaced step, each calling a shell stub that returns `undefined`:
-  `withSnapshotIndex`'s caller in `snapshot` (`checkpoints.ts:28`), `captureChanges`'s tree in
-  `transfer-capture.ts:58`, `Repository.state` (`repository.ts:113`), `Repository.commit`
-  (`:156`), `Repository.worktrees` (`:90`), `branchRefs` (`remote-branches.ts:34`), `branchHead`
-  (`:150`), `listBranches` (`actions.ts:274`). Restore discovery (`restore-nested.ts:23`) keeps the
-  CLI path.
-- Proof: `check:daemon-native` passes; `cargo deny check` passes; with `ACE_GIT=snapshot,refs,status`
-  every (a) file of behaviour.md §12 still passes (every stub falls back).
+- `ACE_GIT` in `native-switches.ts`: a comma list of `refs`, `core`, `reads`, `writes`,
+  `checkpoints`, `snapshot-hash`, `status-gix`; unknown words, or a part without its
+  prerequisites (`reads` without `core`; anything but `refs` without `ACE_SUPERVISOR=native`),
+  refuse to start.
+- **The port bridge** (`bridge.rs`, `native-core.ts`): each `GitProcessRuntime` member the caller
+  injected is passed to the core as a callback; an injected `spawn` is wrapped so its
+  `ChildProcess` streams stdin, stdout and stderr chunks and the exit (with the pid) to the core
+  through one ordered queue, as ADR 0223 §7's rule 3 orders a session's events.
+- **Logs**: `ACE_NATIVE_CROSS=ACE_GIT` (per-call alternation, both start orders in
+  `scripts/native-cross.ts`), `ACE_GIT_DIGEST_LOG` with `scripts/native-git-digest.ts`,
+  `ACE_GIT_VERIFY=strict|shadow`, and the per-operation record (selected, completed, fallback
+  reason).
+- `deny.toml` bans `uluru`; `check:daemon-native` runs `cargo deny check`.
+- Proof: `check:daemon-native`; every (a) file still passes with every part named (all stubs
+  defer to TypeScript).
 
-## G1a: the facts and the nested-checkout scan
+## G1: ref, branch and worktree-list reads on `gix`
 
-Replaces the CLI-and-`stat` discovery of `nested.ts:48`–`:110` (`nestedCheckouts`,
-`candidatePaths`, `repositoryPaths`) and computes the fallback facts for G1b in the same pass.
+Inside today's TypeScript service (no core needed): the shell replaces the processes of
+`Repository.commit` (`rev-parse --verify --end-of-options <ref>^{commit}`, then
+`symbolic-ref --quiet HEAD` for `unborn_head`), `branchHead`'s ref lookup (its
+`check-ref-format` stays Git), `listBranches`, `branchRefs` and `Repository.worktrees`.
 
-- **Facts** (`facts.rs`): sparse checkout (then the shell throws today's `unsupported_repository`,
-  `snapshot-index.ts:19`–`:26`), filter drivers selected by attributes for any path in an
-  unprotected root, `core.safecrlf=true` with an eol conversion in effect (outside Windows), split
-  index, `core.sharedRepository`, `extensions.refStorage`, index versions or extensions `gix`
-  doesn't read. Each is a fallback reason, named as the ADR names it.
-- **Nested scan** (`nested.rs`): the same candidates as `candidatePaths` (tracked gitlinks, and
-  untracked directories that hold a `.git` entry) and the same linked-worktree exclusion, read
-  with one directory walk instead of a `stat` per ancestor. Any nested checkout or gitlink found is
-  a fallback for G1b (their flattening and object transfer stay on the CLI path); the list itself
-  is returned so the CLI path doesn't scan again.
-- Proof: `nested.process`, `nested-linked.process`, `untracked-links.process`,
-  `snapshot-index.process`, `non-executing-submodule.process`, `restore` audits
-  (`audit-restore.process`, `audit-ownership.process`), and the lease row of behaviour.md §12.
-- Measure: the daemon CPU column of `createCheckpoint` (today 436 ms on this repository).
-
-## G1b: snapshot tree building
-
-Replaces the temporary-index work of `withSnapshotIndex` and `snapshot` (`snapshot-index.ts:13`–`:50`,
-`checkpoints.ts:22`–`:100`) for repositories G1a didn't hand back: `rev-parse HEAD^{tree}`, both
-`ls-files --stage`, `read-tree`, `update-index --index-info`, `add`, `write-tree`. The checkpoint
-commit and its refs (`commit-tree`, `update-ref`) stay CLI.
-
-- **File set** (`files.rs`): HEAD's tree ∪ the person's index entries (stage 0 and unresolved
-  stages as the temporary index records them today) ∪ untracked nonignored files, with
-  `assume-unchanged` and `skip-worktree` flags ignored, force-added ignored files kept, untracked
-  ignored files excluded, `core.ignorecase` honoured. Paths compared and sorted as Git does.
-- **Blob ids** (`hash.rs`): read every regular file and symlink; apply Git's built-in
-  conversions through `gix-filter` with drivers disabled; compute ids on at most four threads;
-  write each blob the object store doesn't already have, atomically. Modes from `lstat` with
-  `core.fileMode` and `core.symlinks` as Git applies them. Ignore stat data entirely (ADR 0224,
-  question 1 decides any cache later).
-- **Tree** (`tree.rs`): canonical tree objects, written bottom-up; returns the root tree id.
-- **Lease**: the shell calls you inside the same `serial` turn and the same write lease as the CLI
-  `git add` (`cli.call(..., { write: true })` today); it releases the lease when your promise
-  settles (rule 8).
-- Proof: `snapshot-index.process` (18), `checkpoints.process` (11), `checkpoint-bytes.process`,
-  `checkpoint-deadline.process`, `numbering.process`, `workspace-revision.process`,
-  `diff.process`, `diff-resources.process`, `review-regressions.process`,
-  `transfer-capture.process`, `untracked-links.process`, the non-executing row
-  (`non-executing*.process`, `person-hooks.process`, `config-facts.process`), the lease row
-  (`stale-leases.process`, `self-healing.process`, `held-directory.process`,
-  `timeout-cleanup.process`, `read-cancellation.process`, `reliability.process`), then the
-  daemon's `apps/daemon/src/run-checkpoints.process.test.ts` and transfer tests one at a time; the
-  cross-mode list (ADR 0224 §6).
-- Ships when (ADR 0224 §8): `createCheckpoint` on this repository at most a third of the CLI's
-  wall, no more total CPU, zero (a) diffs.
-
-## G2: ref, branch and worktree-list reads
-
-Replaces the processes behind `Repository.commit` (`rev-parse --verify <ref>^{commit}`),
-`branchHead` (`check-ref-format`, `rev-parse`), `listBranches` (`for-each-ref refs/heads` with its
-truncation), `branchRefs` (`remote`, `symbolic-ref`, `for-each-ref`), and `Repository.worktrees`
-(`worktree list --porcelain -z`).
-
-- Results as the parsers produce them today (`parseWorktrees`, `parse-repository.ts:6`, and the
-  `remote-branches.ts` records), names as `Buffer` (rule 6). Ref name validity is still checked by
-  the shell's `refSchema` and by `gix-validate` the way `check-ref-format` checks it; a name either
-  rejects is refused with today's code.
-- Worktree entries: path, HEAD, branch or detached, bare, locked reason, prunable reason. When
-  `gix` can't produce a locked or prunable reason exactly as Git words it, fall back for that
-  repository (reason `worktree_reason`).
-- Reftable repositories fall back.
+- **Each caller keeps its decoder** (ADR 0224 §6). Worktrees: emit the records of
+  `worktree list --porcelain -z` and decode them with `parseWorktrees`
+  (`parse-repository.ts:6`), which requires absolute paths (`:36`). Branch listings: emit
+  `for-each-ref`'s lines for the format of `remote-branches.ts:79`–`:85`, in its sort order
+  (`-committerdate`, then `refname`), with `--count`; the shell applies the 8 MiB cap to those
+  bytes (`:87`–`:89`) and `parseRef` (`:97`) skips what `BranchRef.safeParse` skips (`:103`,
+  `:115`). `upstream:short` and `upstream:track,nobracket` exactly as Git prints them
+  (`ahead N`, `behind N`, `ahead N, behind M`, `gone`, empty).
+- **Fallbacks**: reftable (`reftable`); a prunable worktree, or a locked reason that isn't the
+  `locked` file's text (`worktree_reason`); `directoryFd` calls (rule 5); a non-default
+  `gitBinary` or an injected `spawn` (`injected`).
 - Proof: `repository.process`, `remote-branches.process`, `remote-default-branch.process`,
   `worktrees.process`, `worktree-cleanup.process`, `worktree-recovery.process`,
   `worktree-progress.process`, `branch-cleanup.process`, `client-actions.process`,
-  `source-control-ops.process`, `malformed.process`, `failure-categories.process`,
-  `cache-lifetime.process`, `cache-races.process`, `push-rejections.process`,
-  `leased-push.process`, then the daemon's `workspace-runtime` and `pr-head` tests one at a time.
-- Measure: `branchRefs`, `branches`, `resolveCommit`, `branchHead`, `listWorktrees` in
-  `benchmark-ops.ts`.
+  `source-control-ops.process`, `malformed.process` (stays CLI: injected binary),
+  `failure-categories.process`, `cache-lifetime.process`, `cache-races.process`,
+  `push-rejections.process`, `leased-push.process`; then the daemon's `workspace-runtime` and
+  `pr-head` tests, one at a time.
+- Measure: `branchRefs`, `branches`, `resolveCommit HEAD`, `branchHead`, `listWorktrees`.
 
-## G3: status (only after G1 and G2 ship, and the owner's answer to question 4)
+## G2: the core (three items, after ADR 0223 E2)
 
-Replaces `git status --porcelain=v2 -z --branch --ahead-behind --no-show-stash
---untracked-files=all --renames --ignore-submodules=none` (`repository.ts:113`–`:131`) and its
-parse, returning the shape `parseStatus` returns (`parse-status.ts:53`).
+- **G2a, processes.** `GitCli.executeRaw` (`cli.ts:706`) on the supervisor: the environment
+  (`:714`–`:734`), `--no-pager`, detached groups or jobs, the capture limit and its two bounded
+  modes, deadlines (`git_timeout` with `args`), cancellation before and after dispatch,
+  `git_closed`, `runningChildren`, the Windows strategy chosen by the `platform` port (so the
+  taskkill tests keep running on macOS), and spawning in a `directoryFd` (rule 5 until the
+  supervisor can). (b): `diagnostics`. Proof: `process-runtime.process`, `timeout-cleanup.process`,
+  `escaped-descendants.process`, `read-cancellation.process`, `reliability.process`,
+  `cleanup-receipts.process`, `lifecycle.process`, `system-transport.process`.
+- **G2b, ordering and leases.** `serial` per canonical root across instances, `ReadGate(2)`,
+  root discovery and its cache, the lease journal (same files and records, so a lease one backend
+  wrote is read by the other), admission, quarantine, healing, stale locks, the Git process scan
+  through the `gitProcesses` port. (b): `read-gate`, `lock-sweep`, `lock-timestamps.process`,
+  `restart-locks.process`. Proof: `stale-leases.process`, `self-healing.process`,
+  `held-directory.process`, `cache-races.process`, `cache-lifetime.process`, `numbering.process`.
+- **G2c, policy and configuration.** The execution policy and its overrides
+  (`non-executing.ts:35`–`:52`, `:113`–`:130`, including `GIT_ATTR_NOSYSTEM`,
+  `GIT_NO_LAZY_FETCH`, `GIT_ALLOW_PROTOCOL`), hook switches, config facts and their stamps,
+  credential helper sources (system and global only), transport protocols, temporary-index
+  settings, reviewer hooks, the error type and `decode`'s schemas. (b): `config-sources`,
+  `checkout-facts`. Proof: `non-executing.process`, `non-executing-hooks.process`,
+  `non-executing-partial-clone.process`, `non-executing-race.process`,
+  `non-executing-submodule.process`, `person-hooks.process`, `reviewer-hooks.process`,
+  `disabled-hooks.process`, `action-permission.process`, `config-facts.process`,
+  `credential-helpers.process`, `transport-config.process`.
+- G2 ships when all its proof passes both ways and the lease and timeout files pass in the Windows
+  VM.
 
-- `tree_index.rs`: staged entries with Git's default rename pairing for status (similarity,
-  rename limit from `status.renameLimit`/`diff.renameLimit`), letters as porcelain v2 reports
-  them; `index_worktree.rs`: unstaged entries, with the same racy-entry handling Git applies under
-  `GIT_OPTIONAL_LOCKS=0` (no index write); untracked, all files; conflicted entries with their
-  two-letter codes; `branch.rs`: branch, detached HEAD, unborn (`head: null`), upstream,
-  ahead/behind.
-- Fallbacks: `core.fsmonitor` in an unprotected root, any submodule (their state letters), and
-  G1a's facts.
-- Proof: everything of G2, plus `changed-files-regressions.process`, `checkout-paths.process`,
-  `merge-conflicts.process`, `integration.process`, the non-executing row, and the 39 daemon test
-  files that use a real `GitService`, one at a time.
-- Ships when: lower wall and no more total CPU than the CLI on this repository and on a
-  100,000-file synthetic one (`benchmark.ts 100000` builds it).
+## G3: reads on the core
 
-## G4: Git processes on the Rust supervisor
+Each read keeps its exact Git command and its strict parse, ported.
 
-No Git work item: once ADR 0223's E2 is default-on, `processRuntime.spawn` (`types.ts:28`,
-`process-runtime.ts:10`) is backed by the supervisor's spawn with the same group and job rules,
-and `GitService` doesn't change. Proof: the process-boundary and lease rows of behaviour.md §12
-with `ACE_SUPERVISOR=native`.
+- **G3a**: status, info, remotes, `changedFiles`, `sourceControlState` and `sourceControlStatus`,
+  `changeSummary`, `checkoutSummary`, worktree facts. (b): `malformed-output`'s `parseStatus`,
+  `parseWorktrees` and `parseRemotes` cases. Proof: `repository.process`,
+  `changed-files-regressions.process`, `checkout-paths.process`, `malformed.process`,
+  `failure-categories.process`.
+- **G3b**: commit and index diffs, patches with their byte bound and UTF-8 cut, the metadata
+  guard, the binary classifier over `cat-file --batch`. (b): `malformed-output`'s `parseDiff`,
+  `parseIndex`, `parseTree` and `BlobClassifier` cases. Proof: `diff-resources.process`,
+  `review-regressions.process`, `diff.process`'s commit-side cases (its live cases wait for G5).
+- **G3c**: `fileLog`, `diffCommit`, `readRevisionLines`, `conflicts`. (b): `conflict-markers`;
+  `history.process`'s two `GitCli`/`ReadGate` cases move to G2's Rust tests. Proof:
+  `history.process`, `merge-conflicts.process` (read cases).
+- **G3d**: publication scans, the remote default branch, remote URL normalisation, transfer
+  reads. (b): `publication-sensitive`. Proof: `transfer-names`, `remote-url`,
+  `remote-default-branch.process`, `transfer-bundle.process` (read cases).
+- Then the 39 daemon test files that use a real `GitService`, one at a time.
+
+## G4: writes that make no checkpoint
+
+Commits, staging, merges, stack replays, branches, worktrees, fetch, push, clone, init, transfers
+and publications run today's Git commands from the core. Each runs the person's hooks and signing
+in their roots exactly where TypeScript does (`commitMerge`, `index.ts:395`), and none in
+protected roots.
+
+- **Digests**: every file of your proof list passes `scripts/native-git-digest.ts` (HEAD's tree
+  after each commit and merge, each worktree's HEAD and index tree after creation, refusal codes)
+  before your part may be named in a default.
+- **G4a** proof: `client-actions.process`, `source-control-ops.process`, `integration.process`,
+  `leased-push.process`, `push-rejections.process`, `branch-cleanup.process`,
+  `person-hooks.process`, `reviewer-hooks.process`, `action-permission.process`.
+- **G4b** proof: `worktrees.process`, `worktree-cleanup.process`, `worktree-recovery.process`,
+  `worktree-progress.process`, `worktree-hooks.process`.
+- **G4c** proof: `transfer-bundle.process`, `transfer-landing.process`,
+  `transfer-origin-restore.process`, `project-transfer-clone.process`,
+  `non-executing-transfers.process`, `non-executing-partial-clone.process`, then the daemon's
+  `transfers/` and `projects` tests one at a time.
+- **G4d** proof: `merge-conflicts.process`, `remote-branches.process`, the daemon's
+  `forge-stack-sync` tests.
+
+## G5: checkpoints, live diffs and restore, step for step
+
+Port S1–S13 of ADR 0224 §5 exactly: the same commands in the same order with the same
+environment and temporary-index settings (`temporary-index.ts`), the same nested discovery
+(`nested.ts:48`–`:110`; one directory walk instead of a `stat` per ancestor is allowed only if it
+yields the same candidates, which the nested files prove), flattening, the gitlink refusal,
+sequence allocation with compare-and-swap, the bounded counter cache, and restore's safety
+capture, collision checks and child locks (`restore.ts:17`–`:70`).
+
+- (b): `malformed-output`'s `parseCommits` cases. Proof: `snapshot-index.process`,
+  `checkpoints.process`, `checkpoint-bytes.process`, `checkpoint-deadline.process`,
+  `numbering.process`, `workspace-revision.process`, `nested.process`, `nested-linked.process`,
+  `untracked-links.process`, `diff.process`, `diff-resources.process`,
+  `review-regressions.process`, `audit-restore.process`, `audit-deletion.process`,
+  `audit-ownership.process`, `audit-cli.process`, `credential-restoration.process`, the
+  non-executing files, `transfer-capture.process`, the daemon's `run-checkpoints.process`.
+- Gate: digests identical for every file above (checkpoint trees, and the tree a CLI snapshot
+  gives after each restore), and ADR 0224 §7's cross list both ways. Expected fallbacks: none (G5
+  has no `gix`).
+
+## G6: `snapshot-hash` (blocked until G5 ships)
+
+Only S9–S10 change, and only as ADR 0224 §5 N9–N15 says: Git lists `C`, Git reports
+attributes, Rust hashes `C \ L` read-only through `cap-std` from the identity-checked root, Git
+checks ids and writes missing objects (and the ids it prints must equal Rust's), Git takes the
+changed rows and adds `L`, the inputs are revalidated, and S11–S13 run as before.
+
+- Preconditions and `L` exactly as N10–N11; reasons `config`, `attributes` (per path, counted),
+  `hash_mismatch`, `inputs_changed`, `injected`.
+- A case for each reason in `checkpoints/hash.rs`'s tests (new behaviour: nothing triggers them
+  today); the commit says so.
+- Gate: every file of G5's proof under `ACE_GIT_VERIFY=strict` with zero differences in both
+  cross orders, then `ACE_GIT_VERIFY=shadow` on read-only clones of this repository and the main
+  checkout with zero differences. Expected fallbacks: `attributes` in `snapshot-index.process`'s
+  filter and line-ending cases (`:164`, `:197`) and in `non-executing.process`; `config` where a
+  file sets `core.fileMode` or `core.symlinks` false.
+- Restore's safety capture (`restore.ts:17`) uses `snapshot-hash` last, in its own release, after
+  the shadow data.
+- Measure with equivalent work: `createCheckpoint`, `diff HEAD → working tree` and
+  `workspaceRevision` in `benchmark-ops.ts`, switch off and on, reporting every Git step's time.
+
+## G7: `status-gix` (after G1 ships, and the owner's answer)
+
+Only for the display reads: `changedFiles`, `sourceControlState`, `sourceControlStatus`,
+`changeSummary`, `checkoutSummary` and `repositoryInfo` (`changed-files.ts:181`, `:241`, `:256`,
+`:288`, `:302`; `repository.ts:136`). Every status read that precedes or guards a write stays on
+Git: `actions.ts:63`, `:259`; `merge-conflicts.ts:52`, `:86`, `:114`, `:193`;
+`source-control-ops.ts:102`; `stack-sync.ts:108`; `temporary-index.ts:82`;
+`transfer-checkout.ts:21`; `index.ts:441`; and the public `GitService.status` (`index.ts:462`).
+
+- The same entries as porcelain v2 with `--renames` (Git's rename pairing and limits),
+  `--untracked-files=all`, conflict codes, branch, upstream and ahead/behind, under
+  `GIT_OPTIONAL_LOCKS=0` semantics (no index write).
+- Fallbacks: `core.fsmonitor` in a person's root, any submodule, `injected`.
+- Gate: G3a's proof and the 39 daemon files under `ACE_GIT_VERIFY=strict` (the decoded status
+  compared with the CLI's), and the bench on this repository and a 100,000-file synthetic one
+  (`benchmark.ts 100000`): lower wall, no more CPU.
