@@ -26,8 +26,7 @@ Branch from `ace/rust-engine` once E0 has landed on it, one branch per work item
    translator class, the exported name itself is the native class when the switch names its
    provider (so `new CursorTranslator(...)` in `adapter-cursor/src/diagnostics.test.ts:8` gets the
    native one with no test change). Keep the edit to that line. With the switch on and the addon
-   missing, fail; never fall back. Ask the switch module for a fresh decision at each new instance
-   (it implements the cross-mode flip, rule 15).
+   missing, fail; never fall back. Ask the switch module at each new instance; it answers with the backend of the current boot of its root, which is how the cross-mode gate flips it (rule 15).
 3. **No new tests.** The class (a) files for your item are the proof; you don't edit them. Run each
    alone, switch on and off. Check the path exists first: an empty path runs the whole suite.
 
@@ -78,19 +77,22 @@ Branch from `ace/rust-engine` once E0 has landed on it, one branch per work item
 14. **Measure before you finish**, switch off and on, with the bench your item names, and report
     both figures.
 15. **Cross-mode gate.** On/off runs never test rollback. Run your item's cross-mode list (ADR 0223
-    §8) with `ACE_NATIVE_CROSS=<your switch>`, twice: once with your switch on (the first instance
-    or process is native, the restarted one TypeScript) and once with it off (the reverse). Same
-    rules as rule 3: one existing file at a time, no edits.
+    §8) through `scripts/native-cross.ts`, which sets `ACE_NATIVE_CROSS=<your switch>` and a fresh
+    `ACE_NATIVE_CROSS_LOG`, runs the file once starting on and once starting off, and then asserts
+    from the log that every root (event database or process journal) that booted more than once
+    alternated backends from its first boot, and that some root booted twice. A file that never
+    reboots a root fails as "no restart" and leaves the list. Same rules as rule 3: one existing
+    file at a time, no edits.
 
-    ```sh
-    f=apps/daemon/src/engine/restart-resume.process.test.ts
-    test -f "$f" && ACE_STORE=native ACE_ENGINE=native ACE_NATIVE_CROSS=ACE_ENGINE bun --bun x vitest run "$f" --maxWorkers=4
-    test -f "$f" && ACE_STORE=native ACE_NATIVE_CROSS=ACE_ENGINE bun --bun x vitest run "$f" --maxWorkers=4
+    ```sh f=apps/daemon/src/engine/restart-resume.process.test.ts
+    test -f "$f" && ACE_STORE=native bun scripts/native-cross.ts ACE_ENGINE "$f"
     ```
 
-16. **Redaction before capture.** Any frame you build is redacted before it becomes a payload or
-    leaves your task, sent and received alike, with the adapter's secrets (behaviour.md §14, "Raw
-    is post-redaction"); the raw data you keep is the redacted encoding.
+16. **Redact the capture, never the wire.** The provider gets the original bytes; the frame you
+    build (sent or received) is a redacted copy made before it becomes a payload or leaves your
+    task, with the adapter's secrets, and a `send` frame is emitted after its write is handed to
+    the transport, in outbound order (behaviour.md §14, "Raw is post-redaction; the wire is not";
+    `adapter-pi/src/rpc.ts:70`–`:78`). The raw data you keep is the redacted copy.
 
 ## Files per work item
 
@@ -124,11 +126,19 @@ does for reads; `ACE_TRANSLATORS` and `ACE_CORE` touch no SQLite and need nothin
   committed output in `ace-protocol/src/generated.rs`; `check:daemon-native` regenerates and fails
   on a diff.
 - `native-switches.ts` with the five switches (`ACE_CORE` takes `native` or `wasm`) and
-  `ACE_NATIVE_CROSS=<switch>`: for the per-instance switches (`ACE_TRANSLATORS`, `ACE_SESSIONS`,
-  `ACE_ENGINE`) each new instance takes the opposite backend from the one before, starting from
-  the switch's value; for every switch, child processes inherit the opposite value; `ACE_STORE`
-  and `ACE_SUPERVISOR` flip only across processes (ADR 0223 §8). A per-instance decision function
-  for each switch, so the shells never read the environment themselves.
+  `ACE_NATIVE_CROSS=<switch>`, which selects the backend **per boot of a root** (ADR 0223 §8): a
+  boot is the opening of the event database (at the store's connection factory, for `ACE_STORE`,
+  `ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_ENGINE`) or of the process journal (at
+  `ProcessInventory`'s open, for `ACE_SUPERVISOR`); boot _n_ of a root takes the switch's value
+  for even _n_ and the opposite for odd _n_; _n_ comes from the append-only log at
+  `ACE_NATIVE_CROSS_LOG` (one JSON line per boot: root, _n_, switch, backend, pid), counted under
+  an advisory lock so sibling processes count the same boots; `ACE_STORE` and `ACE_SUPERVISOR`
+  take a value only at a new process's boot. Translators and sessions created after a boot take
+  its backend. A per-instance decision function for each switch, so the shells never read the
+  environment themselves. The two boot hooks are one line each, in the connection factory and in
+  `ProcessInventory`'s constructor.
+- `scripts/native-cross.ts <switch> <file>`: runs the file twice (starting on, starting off) with a
+  fresh log each time, then asserts per root from the log (rule 15).
 - `ace-core-wasm` as a stub crate (`wasm-bindgen`), built by a script beside the addon's.
 - `ace-adapter-api`: the Rust form of `@ace/engine-api` (`Frame`, `Translator`, `Adapter`,
   `Session`, `SessionContext`, `InputRejected`, `SteerTargetLost`, `SteerFence`), with `Session`
@@ -198,29 +208,37 @@ kill-on-drop), `rustix`, `windows-sys`, `sysinfo`, `procfs`, `libproc`, `tokio-u
 `native-session.ts` implements `ProviderSession` over a native session handle (ADR 0223 §7). Keep
 the bridge's five rules; each is guarded by tests you already run:
 
-1. **Check and admit in one step.** `send` runs `assertSteerTarget(delivery, fence)` and then, in
-   the same synchronous JS call, the binding's `admit`, which compares `fence.turn` with the turn
-   the session last saw under the session's state lock, encodes, redacts, and pushes the bytes onto
-   the ordered outbound queue. No await or thread hop between the check and the push; the tokio
-   writer only drains in order. A full queue refuses at admission with today's error. Guarded by
-   `adapter-codex/src/steer-race.process.test.ts` and each adapter's `input-rejected.process`.
+1. **Prepare, then check and admit on the owner thread.** The session's preparation (admission
+   lock, barrier, listing settle, encoding, redaction) runs in its task. Then it posts an admission
+   request on its ordered event queue and waits; on the JS thread one synchronous step runs
+   `assertSteerTarget(delivery, fence)`, then, under the session's state lock, `fence.turn`
+   against the turn the session last saw, then the push of the original bytes (or the HTTP
+   request) onto the ordered outbound queue; the answer goes back to the task, whose writer drains
+   in order and decides nothing. Never check in the facade's entry and admit later (OpenCode
+   awaits two things before its check, `adapter-opencode/src/prompts.ts:52`–`:57`). A full queue
+   refuses with today's error. Guarded by `adapter-codex/src/steer-race.process.test.ts` and each
+   adapter's `input-rejected.process`.
 2. **Error identity.** Throw the engine-api classes (`new SteerTargetLost(msg)`,
    `new InputRejected(msg)`) from the facade; map them back by `instanceof` in `JsSession`
    (`SteerTargetLost` first).
-3. **One ordered event queue** per session carrying frames, callbacks and the exit, delivered to
-   the context in production order: no frame produced before the exit reaches `onFrame` after
-   `onExit`. Never deliver the exit on another path (a promise, a second threadsafe function).
-4. **Backpressure counts frames only.** A frame waits for budget and for its acknowledgement in a
-   `select!` with the session's cancellation token; the exit and callbacks never wait for budget
-   but stay behind earlier frames; a rejected acknowledgement stops intake. The stop plan runs on
-   its own task.
-5. **Shutdown never joins on the JS thread.** Cancel the token, let the stop plan end the process,
-   read to EOF, close the queue with the exit; keep the threadsafe function referenced until the
-   queue is drained; resolve `close()` after the drain. Guarded by
+3. **One ordered event queue** per session carrying frames, callbacks, admission requests and the
+   exit, delivered to the context in production order: no frame produced before the exit reaches
+   `onFrame` after `onExit`. Never deliver the exit on another path (a promise, a second threadsafe
+   function).
+4. **Flow control is today's.** Don't await each acknowledgement before reading on (that would
+   leave one frame per batch): read while the mirrored `outputFlow` flag is clear, track
+   acknowledgements, stop intake when one rejects. The flag gates reading only; the queue to JS
+   always drains, so nothing read is dropped. Once the token is cancelled, ignore the flag and read
+   to EOF within `maxOutputBytes`, queueing everything. The stop plan runs on its own task.
+5. **Close and shutdown.** `close()` resolves only on confirmed exit; if it rejects, the session
+   stays whole (reader, queues, process ownership), so the engine can give it back to the actor as
+   `engine/sessions.ts:1064`–`:1069` does. Shutdown never joins on the JS thread: cancel, stop
+   plan, read to EOF, close the queue with the exit, keep the threadsafe function referenced until
+   drained, resolve `close()` after the drain. Guarded by
    `adapter-codex/src/shutdown-drain.process.test.ts`, `engine/reliability.process.test.ts:348`
    and each session file's close cases.
 
-Redaction (rule 16) happens in the task before a frame is queued. The TypeScript session code
+Redaction (rule 16) applies to the capture only, in the task, before a frame is queued; the wire gets the original. The TypeScript session code
 stays until default-on.
 
 | Item        | TypeScript replaced (`packages/adapter-<p>/src/`)                                                                                                                                                                                                                                                                                                                                                                                                                                          | Stays TypeScript                                                                                                                                                                                                                                                                                               | Proof: (a) files                                                    | (b) cases to move                                                                                                                                                                  |
@@ -283,7 +301,7 @@ TypeScript modules listed are in `apps/daemon/src/engine/`; the test-only module
 | E5.5 delivery and steering               | `intent-delivery`, `delivery`, `steer-lane`, `steer-selection`, `steer-yield`, `steer-notes`, `turn-origin`, `root-run-start`, `resolution`                                                                                                                                                                                                                                                                          | `delivery`, `steering`                                                                                                    | steering row; `submission`, `input-fate`, `input-leases`, `held-send-release`, `resolution`, `interaction-replay`                                 | `steer-yield`, `root-run-start`                                                                                                                                                            |
 | E5.6 sessions                            | `sessions`, `provider-sessions`, `session-metadata`, `session-open-route`, `session-fenced`, `resume-open-error`, `provider-errors`, `failure-copy`, `provider-release`, `slot-reclaim`, `background-ports`, `agent-env`, `account-route`, `models`, `selection-notices`, `provider-command-metadata`, `context-meter`, `context-sample`, `silence`, `startup-skip`                                                  | `sessions`, `release`, `models`, `meters`                                                                                 | `open-failure`, `provider-release`, `resource-limits`, `model-selection`, `context-meter`, `provider-context-meter`, `socket-liveness`, `silence` | `agent-env`                                                                                                                                                                                |
 | E5.7 access and approvals                | `permissions`, `permission-ceiling`, `permission-storage`, `access-defaults`, `ace-approvals`, `interaction-ledger`, `host-threads`, `guest-threads`                                                                                                                                                                                                                                                                 | `access`, `approvals`, `hosts`                                                                                            | access row; `execution-approval`, `guest-admission`                                                                                               | `ace-approvals`, `permission-ceiling`                                                                                                                                                      |
-| E5.8 recovery and restart                | `recovery`, `restart`, `restart-resume`, `restart-eligibility`, `restart-captures`, `provider-recovery`, `provider-return`, `cursor-reconcile`, `cursor-attempt`, `cursor-empty-migration`, `recover-limited-children`, `lost-work`, `session-bound-tasks`, `imported-thread`                                                                                                                                        | `recovery`, `restart`, `cursor_reconcile`                                                                                 | restart row, limits row, Cursor row                                                                                                               | `restart-origin.process`, `cursor-attempt-record`, `restart-ledgers.process`, `session-bound-tasks.process`, `cursor-migration.process`                                                    |
+| E5.8 recovery and restart                | `recovery`, `restart`, `restart-resume`, `restart-eligibility`, `restart-captures`, `provider-recovery`, `provider-return`, `cursor-reconcile`, `cursor-attempt`, `cursor-empty-migration`, `recover-limited-children`, `lost-work`, `session-bound-tasks`, `imported-thread`                                                                                                                                        | `recovery`, `restart`, `cursor_reconcile`                                                                                 | restart row, limits row, Cursor row                                                                                                               | `cursor-attempt-record`, `restart-ledgers.process`, `session-bound-tasks.process`, `cursor-migration.process`                                                                              |
 | E5.9 transitions                         | `transitions`, `transition-handler`, `transition-state`, `transition-readiness`, `transition-history`, `switch-admission`, `switch-recovery`, `fork-history`, `fork-replay`, `machine-handoff`, `live-move`, `workspace-change`, `store-handoff`                                                                                                                                                                     | `transitions`, `moves`                                                                                                    | transitions row (17 files)                                                                                                                        | none                                                                                                                                                                                       |
 | E5.10 liveness, stop, settle, delegation | `thread-liveness`, `settled-trees`, `stop-intents`, `stop-scope`, `snooze-wake`, `delegation-facts`, `child-attachment`, `remote-child-status`, `long-thread-child`                                                                                                                                                                                                                                                  | `liveness`, `settle`, `delegation`                                                                                        | stop row; `thread-liveness`; the 56 files outside `engine/` that build an `Engine` (agent-control, machines)                                      | `settled-hold`                                                                                                                                                                             |
 
@@ -305,10 +323,7 @@ For every E5 item:
   which can't await or call a port.
 - Two kinds of entry, never mixed (ADR 0223 §4, E5.1 owns the machinery): synchronous entries are
   plain functions that never run a task and whose wakes and spawns go on the outermost
-  transaction's after-commit queue (dropped on rollback); the pump is the only place tasks run, from
-  a Bun macrotask only, never inside a binding call or an open transaction or another pump, at most
-  64 tasks or 4 ms a turn. The wake flag is cleared before the drain, never after. A frame batch's
-  acknowledgement resolves only on the outermost commit. Guarded by `engine/reliability.process`,
+  transaction's after-commit queue (dropped on rollback); the pump is the only place tasks run, from a Bun macrotask only, never inside a binding call or an open transaction or another pump; it stops starting tasks after 64 or 4 ms and empties the control queue first. Scheduling is the one-claim state machine of ADR 0223 §4 (`Idle`, `Scheduled`, `Running`, `RunningDirty`): only the move into `Scheduled` posts a notification, so at most one is pending; a `napi_closing` result is logged and leaves the state `Scheduled`. A frame batch's acknowledgement resolves where it does today: on its transaction's commit, or for established deltas on their acceptance into the live buffer, never on the buffer's flush or a savepoint's release. Guarded by `engine/reliability.process`,
   `signal-batching.process`, `storage-behaviour.process` and `live-write-buffer.process`; a
   re-entrant call from a port must not panic in any (a) file.
 - Graceful close (E5.8): per thread, flush, then capture restart evidence (continuation and the
@@ -317,7 +332,15 @@ For every E5 item:
 - Lost contact (E5.10): a remote child's hold is never ended by lost contact; the child reads
   `needs_you` with the person's question on its agent (behaviour.md §12). Guarded by
   `machines/remote-child-lost-contact.process.test.ts`.
-- Run the E5 cross-mode list (ADR 0223 §8) both ways before you report.
+- Startup recovery (E5.8): the same set of threads, recovered the same way, but found in bounded
+  slices (256 rows of `threads`, `intents`, `engine_queue` by primary key, same predicate as
+  `repository.ts:255`–`:282`), each slice and each thread's recovery a separate pump step;
+  `ready()` still resolves only after the last one. Guarded by the restart row and
+  `startup-quarantine.process`; time it on a clone of a large home with a cold cache, never with a
+  daemon on the clone.
+- Run the E5 cross-mode list (ADR 0223 §8) through `scripts/native-cross.ts` before you report,
+  and `bun apps/daemon/bench/head-of-line.ts` with `ACE_ENGINE` off and on: `stopAck` and
+  `sendReceipt` p50, p99 and max under the `live` bulk must be no worse than TypeScript.
 - Transactions are `ace_store`'s (`store.atomic`), the same stack TypeScript's `Store.atomic` uses;
   tables, columns, JSON shapes and `engineSchemaVersion` 9 don't change. A home written with the
   switch on must open with it off, which the cross-mode list proves.
