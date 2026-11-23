@@ -136,3 +136,14 @@ nothing, since text without markup reads as it always did.
   its quote; the bot's `reply` shows its quote; clicking a quote scrolls to the original.
 - Grouping and time lines follow decision 7.
 - Every bot's prompt carries the guidance.
+
+## Amendment 1: a live colleague, not a job that goes quiet
+
+Accepted 2026-11-22, on the owner's word: bots should behave like a live colleague who is always
+reachable, not a lost agent. Spade's standing instructions (`context::SYSTEM`) gain a "Staying
+with the person" section, guidance in the prompt rather than any fixed line the app adds: keep
+each reply short and hand long work to the background; answer the person first when they write
+mid-task; say up front when something will take a while; end every reply with where things
+stand; and keep each message small, writing a long result as a document in parts so no answer
+runs into an output limit, and carrying on after one that was cut short. It sits beside the
+narration rule ("X is done, now Y") added the same day.
