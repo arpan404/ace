@@ -267,6 +267,10 @@ async fn drive(
                         Err(error) => return Ended::Failed(String::new(), error),
                     }
                 }
+                // A steer the last step left unanswered: one note first (ADR 0215 §4).
+                if !cli && super::asks::remind(engine, id, &reply) {
+                    continue;
+                }
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
                 // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();

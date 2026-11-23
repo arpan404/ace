@@ -350,3 +350,190 @@ async fn untrusted_tool_output_never_reaches_the_block() -> Result {
     }
     Ok(())
 }
+
+/// A conversation where the person writes `steers` while the first step's tool runs; the model
+/// answers with `scripts`. Message ids: the first message is m1, the steers m6, m7, ….
+async fn steered(scripts: Vec<Script>, steers: &[&str]) -> Result<(Spade, String, Vec<Value>)> {
+    let slow = FakeTool::new("lookup", Risk::Read, "rows").slow(Duration::from_millis(400));
+    let mut all = vec![Script::reply("<msg>On it.</msg>").call("c1", "lookup", json!({}))];
+    all.extend(scripts);
+    all.push(title());
+    let spade = Spade::start_with(all, tools(vec![slow]), on()).await?;
+    let id = spade.ask("Email the whole team about Friday").await?;
+    spade.wait_for(&id, "tool_started").await?;
+    for text in steers {
+        let (status, _) = spade
+            .post(
+                &format!("/v1/conversations/{id}/messages"),
+                json!({ "text": text }),
+            )
+            .await?;
+        assert_eq!(status, 202);
+    }
+    let events = spade.wait_for(&id, "renamed").await?;
+    Ok((spade, id, events))
+}
+
+fn steer_ids(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e["type"] == "user_message")
+        .skip(1)
+        .map(|(at, _)| format!("m{}", at + 1))
+        .collect()
+}
+
+#[tokio::test]
+async fn a_steer_reads_as_new_direction_and_the_next_step_answers_and_records_it() -> Result {
+    let (spade, _, events) = steered(
+        vec![
+            Script::reply("<msg>Got it: Slack instead of email.</msg>").call(
+                "a1",
+                "asks",
+                json!({ "changes": [
+                    { "op": "changed", "ask": "m1", "text": "Post to the team on Slack about Friday",
+                      "reason": "the person wants Slack instead" },
+                    { "op": "chat", "ask": "m6", "reason": "folded into m1" } ] }),
+            ),
+            Script::reply("<msg>Posted on Slack.</msg>").call(
+                "a2",
+                "asks",
+                json!({ "changes": [{ "op": "done", "ask": "m1", "reason": "posted" }] }),
+            ),
+            Script::reply("Done."),
+        ],
+        &["Use Slack instead of email"],
+    )
+    .await?;
+    assert_eq!(steer_ids(&events), ["m6"]);
+    let steer = messages(&spade, 1)
+        .iter()
+        .map(content)
+        .find(|c| c.starts_with("<steer>"))
+        .unwrap_or_default();
+    assert_eq!(steer, "<steer>\n[m6] Use Slack instead of email\n</steer>");
+    // Answered in words and recorded in the ledger in the same step: no reminder, and the next
+    // call reads the changed ask.
+    assert_eq!(count(&events, "asks_reminded"), 0);
+    let after = last(&spade, 2);
+    assert!(
+        after.contains("m1: \"Post to the team on Slack about Friday\"") && !after.contains("m6"),
+        "{after}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_step_that_works_past_a_steer_in_silence_gets_exactly_one_reminder() -> Result {
+    let (spade, _, events) = steered(
+        vec![
+            Script::reply("").call("c2", "lookup", json!({})),
+            Script::reply("").call("c3", "lookup", json!({})),
+            Script::reply("<msg>Sorry, adding Slack too.</msg>").call(
+                "a1",
+                "asks",
+                json!({ "changes": [
+                    { "op": "done", "ask": "m1", "reason": "emailed" },
+                    { "op": "done", "ask": "m6", "reason": "posted" } ] }),
+            ),
+            Script::reply("Both done."),
+        ],
+        &["Also post it on Slack"],
+    )
+    .await?;
+    assert_eq!(count(&events, "asks_reminded"), 1, "{:?}", types(&events));
+    let notes: Vec<usize> = (0..spade.fake.seen().len())
+        .filter(|n| {
+            messages(&spade, *n)
+                .iter()
+                .any(|m| content(m).contains("<steer_unanswered"))
+        })
+        .collect();
+    // The call after the silent step reads it (and later calls keep it, as the conversation).
+    assert_eq!(notes.first(), Some(&2), "{notes:?}");
+    let note = messages(&spade, 2)
+        .iter()
+        .map(content)
+        .find(|c| c.contains("<steer_unanswered"))
+        .unwrap_or_default();
+    assert!(note.contains("m6: \"Also post it on Slack\""), "{note}");
+    assert_eq!(
+        messages(&spade, 3)
+            .iter()
+            .filter(|m| content(m).contains("<steer_unanswered"))
+            .count(),
+        1,
+        "the second silent step gets no second reminder"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn two_steers_in_a_row_both_read_as_steers_and_both_are_open_asks() -> Result {
+    let (spade, _, events) = steered(
+        vec![
+            Script::reply("<msg>Got both: Slack too, and Thursday instead.</msg>").call(
+                "a1",
+                "asks",
+                json!({ "changes": [
+                    { "op": "done", "ask": "m1", "reason": "sent" },
+                    { "op": "done", "ask": "m6", "reason": "posted" },
+                    { "op": "done", "ask": "m7", "reason": "moved to Thursday" } ] }),
+            ),
+            Script::reply("All set."),
+        ],
+        &["Also post it on Slack", "Make it Thursday, not Friday"],
+    )
+    .await?;
+    assert_eq!(steer_ids(&events), ["m6", "m7"]);
+    let second = messages(&spade, 1);
+    // Held until the tool's result, they reach the model together, each as its own steer.
+    let steers: usize = second
+        .iter()
+        .map(|m| content(m).matches("<steer>\n[m").count())
+        .sum();
+    assert_eq!(steers, 2, "{second:?}");
+    let block = last(&spade, 1);
+    assert!(
+        block.contains("m7, sent while you worked: \"Make it Thursday, not Friday\"")
+            && block.contains("m6, sent while you worked: \"Also post it on Slack\""),
+        "{block}"
+    );
+    assert_eq!(count(&events, "asks_reminded"), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_steer_that_stops_the_work_drops_the_earlier_ask() -> Result {
+    let (spade, _, events) = steered(
+        vec![
+            Script::reply("<msg>Stopped: I won't email anyone.</msg>").call(
+                "a1",
+                "asks",
+                json!({ "changes": [
+                    { "op": "dropped", "ask": "m1", "reason": "the person said stop" },
+                    { "op": "chat", "ask": "m6" } ] }),
+            ),
+            Script::reply("Nothing was sent."),
+        ],
+        &["stop that, never mind"],
+    )
+    .await?;
+    let dropped = events.iter().any(|e| {
+        e["type"] == "asks_updated"
+            && e["changes"]
+                .as_array()
+                .is_some_and(|c| c.iter().any(|c| c["op"] == "dropped" && c["ask"] == "m1"))
+    });
+    assert!(dropped, "{:?}", types(&events));
+    // Nothing is left open: the next call has no block, and the reply ends without a check.
+    assert!(
+        !last(&spade, 2).contains("Email the whole team"),
+        "{}",
+        last(&spade, 2)
+    );
+    assert_eq!(count(&events, "asks_checked"), 0);
+    assert_eq!(count(&events, "asks_reminded"), 0);
+    Ok(())
+}

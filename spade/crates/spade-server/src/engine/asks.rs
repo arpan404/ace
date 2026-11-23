@@ -103,3 +103,30 @@ pub(super) fn check(engine: &Engine, id: &str, reply: &str) -> bool {
         }
     }
 }
+
+/// Before a model call of `reply`: when the step that first read a steer made calls but left it
+/// unanswered, stores `asks_reminded` and answers true, so the call reads the note (ADR 0215 §4).
+/// Once per steer; never for a helper, a paused bot or a stopped reply.
+pub(super) fn remind(engine: &Engine, id: &str, reply: &str) -> bool {
+    if !engine.limits.asks || engine.helper_of(id).is_some() || engine.paused(id) {
+        return false;
+    }
+    let _order = engine.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+    let Ok(events) = engine.load(id) else {
+        return false;
+    };
+    if stop_requested(&events, reply) {
+        return false;
+    }
+    let ledger = engine.asks_of(id, &events);
+    let Some(reminded) = asks::steer::due(&ledger, reply) else {
+        return false;
+    };
+    match engine.append_events(id, &[Event::Known(Known::AsksReminded(reminded))]) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::warn!(%error, "could not store the steer reminder; the turn goes on");
+            false
+        }
+    }
+}

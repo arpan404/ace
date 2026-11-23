@@ -200,10 +200,10 @@ async fn a_message_sent_while_a_tool_runs_is_seen_by_the_next_step() -> Result {
         })
         .unwrap_or_default();
     assert_eq!(roles, vec!["system", "user", "assistant", "tool", "user"]);
-    // The person's words, after their message id (ADR 0212).
+    // The person's words, after their message id (ADR 0212), read as a steer (ADR 0215 §4).
     let words = second[4]["content"].as_str().unwrap_or_default();
     assert!(
-        words.starts_with("[m") && words.ends_with("] Only mornings"),
+        words.starts_with("<steer>\n[m") && words.ends_with("] Only mornings\n</steer>"),
         "{words}"
     );
     Ok(())
@@ -505,7 +505,9 @@ async fn a_message_sent_while_the_model_streams_its_answer_is_answered_in_that_t
         )
     });
     assert!(
-        role == "user" && words.starts_with("[m") && words.ends_with("] Only mornings"),
+        role == "user"
+            && words.starts_with("<steer>\n[m")
+            && words.ends_with("] Only mornings\n</steer>"),
         "the late message comes after the answer it interrupted: {second}"
     );
     Ok(())
