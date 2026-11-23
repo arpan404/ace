@@ -77,6 +77,7 @@ mod security;
 pub use code::CodeCall;
 mod self_edit;
 mod services;
+pub use services::StartAgain;
 mod speech;
 mod style;
 mod suggest;

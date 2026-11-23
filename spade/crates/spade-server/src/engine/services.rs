@@ -308,21 +308,57 @@ impl Engine {
     /// Starts `found` again, under its own id and held to the verdict that started it: recorded
     /// first, then launched. Whether it was recorded.
     pub(super) fn start_again(self: &Arc<Self>, id: &str, bot: &str, found: &Service) -> bool {
-        let again = Event::Known(Known::ServiceStarted {
-            service: found.service.clone(),
-            name: found.name.clone(),
-            command: found.command.clone(),
-            cwd: found.cwd.clone(),
-            keep: found.keep,
-            restarts: found.restarts.saturating_add(1),
-            contained_only: found.contained_only,
-            launch: found.launch,
-            bound: found.bound.clone(),
-        });
-        if let Err(error) = self.record(id, &again) {
+        if let Err(error) = self.record(id, &started_again(found)) {
             tracing::error!(%error, "could not store that a service starts again");
             return false;
         }
+        self.launch_again(id, bot, found);
+        true
+    }
+
+    /// The person starts agent `agent`'s ended service `name` (or id) again, with the command,
+    /// folder and verdict it started with: the person never gives a bot a new command this way.
+    /// `None` for no such agent.
+    pub fn start_agent_service(
+        self: &Arc<Self>,
+        agent: &str,
+        name: &str,
+    ) -> Result<Option<StartAgain>, StoreError> {
+        let Some(agent) = self.store.agent(agent)? else {
+            return Ok(None);
+        };
+        let id = agent.conversation;
+        if self.services().is_none() {
+            return Ok(Some(StartAgain::Unavailable));
+        }
+        if self.paused(&id) {
+            return Ok(Some(StartAgain::Paused));
+        }
+        let found = {
+            // Read and stored under the record lock, so two starts at once start it once.
+            let _order = super::wakes::lock(&self.record_lock);
+            let events = self.load(&id)?;
+            let all = service::services(events.iter());
+            let Some(found) = all
+                .iter()
+                .rev()
+                .find(|s| s.name == name || s.service == name)
+                .cloned()
+            else {
+                return Ok(Some(StartAgain::NoSuchService));
+            };
+            if all.iter().any(|s| s.running() && s.name == found.name) {
+                return Ok(Some(StartAgain::Running));
+            }
+            self.append(&id, &started_again(&found))?;
+            found
+        };
+        self.launch_again(&id, &agent.id, &found);
+        self.announce(&id);
+        Ok(Some(StartAgain::Started))
+    }
+
+    fn launch_again(self: &Arc<Self>, id: &str, bot: &str, found: &Service) {
         let _ = self.launch(
             id,
             bot,
@@ -346,6 +382,33 @@ impl Engine {
                 incomplete: false,
             }),
         );
-        true
     }
+}
+
+/// What came of the person starting a service again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartAgain {
+    Started,
+    /// One of its name runs already.
+    Running,
+    NoSuchService,
+    /// The bot is paused: Resume starts what Pause stopped.
+    Paused,
+    /// This Spade runs no services.
+    Unavailable,
+}
+
+/// `found` recorded as starting again, one restart on.
+fn started_again(found: &Service) -> Event {
+    Event::Known(Known::ServiceStarted {
+        service: found.service.clone(),
+        name: found.name.clone(),
+        command: found.command.clone(),
+        cwd: found.cwd.clone(),
+        keep: found.keep,
+        restarts: found.restarts.saturating_add(1),
+        contained_only: found.contained_only,
+        launch: found.launch,
+        bound: found.bound.clone(),
+    })
 }
