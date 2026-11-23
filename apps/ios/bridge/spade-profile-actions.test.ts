@@ -78,9 +78,22 @@ test("removing one app from Spade, which uses every app, keeps the rest", async 
   expect(narrowed.allowed.map((each) => each.id)).toEqual(["linear"]);
 });
 
+test("removing a connected app keeps saved IDs absent from the catalogue", async () => {
+  const { ask, api } = await listed((fake) => {
+    fake.addAgent({ id: "writer", name: "Writer" });
+    fake.connectors.connectors = [app("github", "GitHub")];
+    fake.connectors.access.set("writer", { all: false, connectors: ["github", "missing"] });
+  });
+  expect(
+    await ask({ type: "spade.app", agentId: "writer", connector: "github", on: false }),
+  ).toMatchObject({ ok: true });
+  expect(api.connectors.access.get("writer")).toEqual({ all: false, connectors: ["missing"] });
+});
+
 test("a plugin switched on for a bot reaches only it, and one off in ace says so", async () => {
   const { ask, api } = await listed((fake) => {
     fake.addAgent({ id: "writer", name: "Writer" });
+    fake.addAgent({ id: "reader", name: "Reader" });
     fake.plugins.plugins = [
       { name: "house-style", version: "1.0.0", rules: ["style.md"] },
       { name: "old-lint", version: "0.3.0", enabled_in_ace: false },
@@ -97,6 +110,9 @@ test("a plugin switched on for a bot reaches only it, and one off in ace says so
   );
   expect(on.plugins[0]?.on).toBe(true);
   expect(api.plugins.allowed.get("writer")).toEqual(["house-style"]);
+
+  const reader = partOf<SpadePluginsRow>(await ask({ type: "spade.plugins", agentId: "reader" }));
+  expect(reader.plugins[0]).toMatchObject({ name: "house-style", on: false });
 
   const off = partOf<SpadePluginsRow>(
     await ask({ type: "spade.plugin", agentId: "writer", name: "house-style", on: false }),

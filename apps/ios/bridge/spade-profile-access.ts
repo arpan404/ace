@@ -52,7 +52,7 @@ export function spadeNextAccess(
   app: string,
   on: boolean,
 ): SpadeConnectorAccess {
-  const ids = allowedOf(access, connectors).map((connector) => connector.id);
+  const ids = access.all ? connectors.map((connector) => connector.id) : access.connectors;
   const next = on ? [...new Set([...ids, app])] : ids.filter((id) => id !== app);
   return { all: false, connectors: next };
 }
