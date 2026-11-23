@@ -6,6 +6,7 @@ import { Agent, AgentItem, EventPayload, type Event, type ThreadId } from "@ace/
 import { afterEach, expect, test } from "vitest";
 import { createDevThread } from "./commands.ts";
 import { ManualClock } from "./engine/test-support.ts";
+import type { LineageFile } from "./sequence-lineage.ts";
 import { Store } from "./store.ts";
 import { isStoreBusy, isStoreRetry } from "./store-busy.ts";
 
@@ -16,15 +17,19 @@ afterEach(() => {
 const unpinned = { persist() {}, committed() {} };
 
 /** A store on manual time with `threads` threads, each with an empty streaming answer. */
-function setup(threads = 1) {
+function setup(
+  threads = 1,
+  options: { lineage?: LineageFile; onError?: (error: unknown) => void } = {},
+) {
   const home = mkdtempSync(join(tmpdir(), "ace-live-recovery-"));
   cleanup.push(() => rmSync(home, { recursive: true, force: true }));
   const path = join(home, "events.sqlite");
   const errors: unknown[] = [];
   const clock = new ManualClock();
   const open = () =>
-    new Store(path, (error) => errors.push(error), {
+    new Store(path, options.onError ?? ((error) => errors.push(error)), {
       bufferScheduler: { delay: clock.setTimer },
+      ...(options.lineage ? { lineage: options.lineage } : {}),
     });
   let store = open();
   cleanup.push(() => void store.close());
@@ -230,6 +235,46 @@ test("a live batch whose range refill rolls back with its outer transaction is p
     { append: "two", stored: true },
   ]);
   expect(storedText(second.store, other)).toBe("onetwo");
+
+  // A lineage write failing while published events are delivered must not skip the settlement
+  // of a range reserved in the same transaction: the range is confirmed, so later deltas
+  // publish at once instead of stalling behind covers() forever.
+  let failWrites = false;
+  const lineage: LineageFile = {
+    read: () => undefined,
+    write() {
+      if (failWrites) throw new Error("lineage unavailable");
+    },
+  };
+  const faulty = setup(1, {
+    lineage,
+    onError: (error) => {
+      throw error;
+    },
+  });
+  const [target] = faulty.ids;
+  if (!target) throw new Error("Missing thread");
+  const updates = Array.from({ length: 64 }, (_, index) =>
+    EventPayload.parse({ type: "thread.updated", title: `Update ${index}` }),
+  );
+  failWrites = true;
+  expect(() =>
+    faulty.store.atomic(() => {
+      faulty.store.appendEvents(target, updates);
+      stream(faulty.store, target, 0, ["pinned"]);
+    }),
+  ).toThrow("lineage unavailable");
+  const afterError: string[] = [];
+  cleanup.push(
+    faulty.store.subscribe((events) => {
+      for (const event of events)
+        if (event.payload.type === "item.delta") afterError.push(event.payload.append);
+    }),
+  );
+  stream(faulty.store, target, 0, ["later"]);
+  expect(afterError).toEqual(["pinned", "later"]);
+  faulty.store.flushLiveWrites();
+  expect(storedText(faulty.store, target)).toBe("pinnedlater");
 });
 
 test("a burst of 64 KiB or more streamed inside a transaction commits once, publishes once and leaves the store writable", async () => {
