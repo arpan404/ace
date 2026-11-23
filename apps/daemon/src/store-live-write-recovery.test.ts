@@ -97,6 +97,11 @@ function setup(
 }
 const words = (count: number, prefix = "word") =>
   Array.from({ length: count }, (_, index) => `${prefix}${index} `);
+/** Enough thread updates for published sequences to cross the lineage stride. */
+const updatesAt = (prefix: string) =>
+  Array.from({ length: 72 }, (_, index) =>
+    EventPayload.parse({ type: "thread.updated", title: `${prefix} ${index}` }),
+  );
 function stream(store: Store, id: ThreadId, index: number, appends: string[]): void {
   const payloads = appends.map((append) =>
     EventPayload.parse({
@@ -280,6 +285,69 @@ test("a live batch whose range refill rolls back with its outer transaction is p
   expect(afterError).toEqual(["pinned", "later"]);
   faulty.store.flushLiveWrites();
   expect(storedText(faulty.store, target)).toBe("pinnedlater");
+
+  // Dedupe belongs to one settlement pass: the same primitive failing in two transactions in
+  // a row must reach onError both times.
+  let repeatFailures = false;
+  let repeats = 0;
+  const repeated = setup(1, {
+    lineage: {
+      read: () => undefined,
+      write() {
+        if (repeatFailures) throw "lineage unavailable";
+      },
+    },
+    onError: () => {
+      repeats++;
+      throw "lineage unavailable";
+    },
+  });
+  const [repeatTarget] = repeated.ids;
+  if (!repeatTarget) throw new Error("Missing thread");
+  repeatFailures = true;
+  const attempts: unknown[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      repeated.store.atomic(() => repeated.store.appendEvents(repeatTarget, updatesAt("Repeat")));
+      attempts.push("no throw");
+    } catch (error) {
+      attempts.push(error);
+    }
+  }
+  expect(attempts).toEqual(["lineage unavailable", "lineage unavailable"]);
+  expect(repeats).toBe(2);
+
+  // A first `throw undefined` is still a failure: reported once, and rethrown as undefined.
+  let undefinedFailures = false;
+  let undefinedReports = 0;
+  const undefinedStore = setup(1, {
+    lineage: {
+      read: () => undefined,
+      write() {
+        if (undefinedFailures) throw undefined;
+      },
+    },
+    onError: () => {
+      undefinedReports++;
+      throw undefined;
+    },
+  });
+  const [undefinedTarget] = undefinedStore.ids;
+  if (!undefinedTarget) throw new Error("Missing thread");
+  undefinedFailures = true;
+  let threw = false;
+  let thrown: unknown = "not thrown";
+  try {
+    undefinedStore.store.atomic(() =>
+      undefinedStore.store.appendEvents(undefinedTarget, updatesAt("Blank")),
+    );
+  } catch (error) {
+    threw = true;
+    thrown = error;
+  }
+  expect(threw).toBe(true);
+  expect(thrown).toBeUndefined();
+  expect(undefinedReports).toBe(1);
 });
 
 test("a burst of 64 KiB or more streamed inside a transaction commits once, publishes once and leaves the store writable", async () => {
