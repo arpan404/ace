@@ -208,9 +208,9 @@ export class FakeSpadeLanes {
    * (or carries on without the step).
    */
   answered(callId: string, allowed: boolean): void {
-    const at = callId.lastIndexOf(".");
-    const lane = at > 0 ? this.lanes.get(callId.slice(0, at)) : undefined;
+    const lane = this.#owner(callId);
     if (!lane || lane.state !== "needs_you") return;
+    const at = lane.task.length;
     lane.state = "working";
     this.#host.store(lane.task, {
       type: "approval_answered",
@@ -218,6 +218,59 @@ export class FakeSpadeLanes {
       call_id: callId.slice(at + 1),
       allowed,
       always: false,
+    });
+  }
+
+  /**
+   * A lane's card of one question waits on the person: asked in the lane, and in main naming the
+   * lane (call id `<lane>.<call>`), where it is answered.
+   */
+  askQuestion(task: string, call: string, question: string): void {
+    const lane = this.lanes.get(task);
+    if (!lane) return;
+    lane.state = "needs_you";
+    const asked = { type: "question_asked", reply: `r-${task}`, question };
+    this.#host.store(task, { ...asked, call_id: call });
+    this.#host.store(lane.main, {
+      ...asked,
+      call_id: `${task}.${call}`,
+      lane: { task, conversation: task, call_id: call, title: lane.title },
+    });
+  }
+
+  /** A lane's card answered in main: the answer reaches the lane, which works on. */
+  questionAnswered(callId: string, answers: unknown[]): void {
+    const lane = this.#owner(callId);
+    if (!lane) return;
+    lane.state = "working";
+    this.#host.store(lane.task, {
+      type: "question_answered",
+      call_id: callId.slice(lane.task.length + 1),
+      answers,
+    });
+  }
+
+  /** The title role named a lane (ADR 0217 §2a): stored in main and in the lane. */
+  retitle(task: string, title: string): void {
+    const lane = this.lanes.get(task);
+    if (!lane) return;
+    lane.title = title;
+    for (const conversation of [lane.main, task])
+      this.#host.store(conversation, { type: "lane_titled", lane: task, title });
+  }
+
+  /** Two running lanes wrote one file (ADR 0217 §3): main's note. */
+  overlapped(task: string, other: string, path: string): void {
+    const lane = this.lanes.get(task);
+    const second = this.lanes.get(other);
+    if (!lane || !second) return;
+    this.#host.store(lane.main, {
+      type: "lanes_overlapped",
+      lane: task,
+      title: lane.title,
+      path,
+      other,
+      other_title: second.title,
     });
   }
 
@@ -264,6 +317,12 @@ export class FakeSpadeLanes {
         },
       },
     });
+  }
+
+  /** The lane a call id asked in main names (`<lane>.<call>`). */
+  #owner(callId: string): FakeLane | undefined {
+    for (const lane of this.lanes.values()) if (callId.startsWith(`${lane.task}.`)) return lane;
+    return undefined;
   }
 
   /** `GET /v1/conversations/{main}/tasks`. */

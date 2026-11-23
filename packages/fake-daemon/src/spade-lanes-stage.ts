@@ -103,7 +103,8 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
   lanes.start({
     task: quarterly,
     main,
-    title: "Draft the quarterly note",
+    // A moved lane is first titled with the person's first line; the title role names it after.
+    title: "Draft the quarterly note from the numbers in Q3.xlsx",
     words: quarterlyAsk,
     state: "working",
     plan: plan(
@@ -124,6 +125,7 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
     model,
   });
   host.store(main, { type: "reply_finished", reply: `r-${quarterly}`, text: "", cost_micros: 0 });
+  lanes.retitle(quarterly, "Draft the quarterly note");
 
   const driveAsk = "Clean up the shared drive: one folder per client.";
   person(driveAsk);
@@ -206,6 +208,9 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
     "The CRM comparison stopped early: HubSpot's pricing page wouldn't load after three tries. Pipedrive and Attio are side by side in crm.md.",
   );
 
+  // Two running tasks wrote one file: a note, never a lock (ADR 0217 §3).
+  lanes.overlapped(quarterly, invoice, "finance/Q3-totals.xlsx");
+
   person("Then renew the domain before it lapses.");
   answer("Queued behind the running tasks; it starts when one ends.");
   lanes.start({
@@ -221,6 +226,13 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
     moved: false,
     model,
   });
+
+  // The quarterly note asks the person; its card is asked in main too (ADR 0217 §4).
+  lanes.askQuestion(
+    quarterly,
+    "q1",
+    "Should the revenue section compare against Q2 or against Q3 last year?",
+  );
 
   // The flights wait on the person last, so the chat ends on that request.
   lanes.ask(flights, "k1", "browser_act", {

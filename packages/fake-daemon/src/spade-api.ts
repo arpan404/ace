@@ -1328,6 +1328,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
             answers: body.answers,
             late: deferred || undefined,
           });
+        // A task's card answered in main reaches the task (ADR 0217 §4).
+        if (Array.isArray(body.answers)) this.lanes.questionAnswered(subId, body.answers);
         if (agent) {
           const later =
             (agent.questions_for_later ?? 0) +

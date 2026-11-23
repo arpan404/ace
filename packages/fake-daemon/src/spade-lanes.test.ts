@@ -29,8 +29,8 @@ describe("a bot's task lanes in the fake API", () => {
     const tasks = (body as { tasks: { title: string; state: string }[] }).tasks;
     expect(tasks.map((task) => [task.title, task.state])).toEqual([
       ["Book flights to Lisbon", "needs_you"],
+      ["Draft the quarterly note", "needs_you"],
       ["Fix the March invoice", "working"],
-      ["Draft the quarterly note", "working"],
       ["Compare the three CRM quotes", "failed"],
       ["Clean up the shared drive", "done"],
       ["Renew the domain", "queued"],
@@ -112,6 +112,28 @@ describe("a bot's task lanes in the fake API", () => {
       kind: "lane",
       worker: flights,
       state: "stopped",
+    });
+  });
+
+  test("a lane's question answered in main reaches the lane, which works on", async () => {
+    const { api, bot, get } = staged();
+    const quarterly = `${bot.conversation}-lane-quarterly`;
+    const answer = await api.answer({
+      method: "POST",
+      path: `/v1/conversations/${bot.conversation}/questions/${quarterly}.q1`,
+      body: JSON.stringify({ answers: ["Against Q2"] }),
+    });
+    expect(answer.status).toBe(202);
+    expect(api.eventsOf(quarterly).at(-1)).toMatchObject({
+      type: "question_answered",
+      call_id: "q1",
+      answers: ["Against Q2"],
+    });
+    const { body } = await get(`/v1/conversations/${bot.conversation}/tasks`);
+    const tasks = (body as { tasks: { task: string; state: string; title: string }[] }).tasks;
+    expect(tasks.find((task) => task.task === quarterly)).toMatchObject({
+      state: "working",
+      title: "Draft the quarterly note",
     });
   });
 });

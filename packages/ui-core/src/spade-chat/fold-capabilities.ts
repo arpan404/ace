@@ -34,10 +34,15 @@ export interface SpadeCapabilityState {
   workers: Map<string, string>;
   /** Each owned service's name by its id, for the words of a wait on it. */
   services: Map<string, string>;
+  /**
+   * Each task lane's title since the title role named it (`lane_titled`, ADR 0217 §2a), by its
+   * id: every place that names the task reads it from here first. A new map on each change.
+   */
+  laneTitles: ReadonlyMap<string, string>;
 }
 
 export function emptySpadeCapabilities(): SpadeCapabilityState {
-  return { wakes: new Map(), workers: new Map(), services: new Map() };
+  return { wakes: new Map(), workers: new Map(), services: new Map(), laneTitles: new Map() };
 }
 
 /**
@@ -84,6 +89,22 @@ export function foldSpadeCapability(
       return true;
     case "ask_routed":
       place(laneQuiet(event.lane, event.title, "routed"));
+      return true;
+    case "lane_titled": {
+      const title = event.title.trim();
+      if (!title || state.laneTitles.get(event.lane) === title) return false;
+      state.laneTitles = new Map(state.laneTitles).set(event.lane, title);
+      return true;
+    }
+    case "lanes_overlapped":
+      place({
+        kind: "lanes-overlapped",
+        lane: event.lane,
+        title: event.title.trim(),
+        other: event.other,
+        otherTitle: event.other_title.trim(),
+        path: event.path,
+      });
       return true;
     case "worker_reported":
       if (event.kind === "lane") {

@@ -480,8 +480,12 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         answers: undefined,
         typed: false,
         askedForLater: false,
+        ...(event.lane ? { lane: { task: event.lane.task, title: event.lane.title } } : {}),
       };
-      if (state.open?.reply === event.reply) {
+      // A task's card stands on its own where it arrived, open until answered: no reply of main's
+      // asked it, so main's turn ending never closes it.
+      if (event.lane) steer(state, { ...card, ...stamp(stored) });
+      else if (state.open?.reply === event.reply) {
         state.question = { reply: event.reply, callId: event.call_id };
         updateOpen(state, event.reply, (entry) => ({ ...entry, parts: [...entry.parts, card] }));
       } else steer(state, { ...card, standing: "closed", ...stamp(stored) });

@@ -360,9 +360,11 @@ export function closeOpen(
     setCallAt(state, call.index, callId);
     state.calls.delete(callId);
   }
-  // A helper's approval waits on the helper, not on the reply that started it.
+  // A helper's or a task's approval waits on it, not on the reply that started it (a helper that
+  // moved with main's work into a task asks as the task's, ADR 0217 §2a).
   state.approvals = state.approvals.filter(
-    (approval) => approval.helper !== undefined || approval.reply !== open.reply,
+    (approval) =>
+      approval.helper !== undefined || approval.lane !== undefined || approval.reply !== open.reply,
   );
   // A card still waiting when its turn ended can no longer be answered.
   if (state.question?.reply === open.reply) {

@@ -247,6 +247,8 @@ export interface SpadeQuestionCard {
   typed: boolean;
   /** The bot asked it without waiting: for later from the start. */
   askedForLater: boolean;
+  /** A task lane's card (ADR 0217 §4), asked in main too: the task that asks it. */
+  lane?: SpadeLaneAsking;
 }
 
 export type SpadeAskKind = "undeclared" | "outside_sandbox" | "drive" | "app";

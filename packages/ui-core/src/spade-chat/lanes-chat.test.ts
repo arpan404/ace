@@ -29,7 +29,7 @@ function main() {
           ? `bot: ${bubble.text}`
           : bubble.kind,
     );
-  return { stored, bubbles, lines };
+  return { stored, bubbles, lines, view: () => spadeView(state) };
 }
 
 const report = (lane: string, name: string, state: string) => ({
@@ -151,5 +151,82 @@ describe("a task's request in main", () => {
       title: "Book flights to Lisbon",
     });
     expect(c.lines()).toEqual(["bot: Started on the flights.", "ask"]);
+  });
+});
+
+describe("a task's question, rename and overlap in main", () => {
+  test("a task's question waits in main for an answer, apart from main's replies, naming the task", () => {
+    const c = main();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "question_asked",
+      reply: "r-lane",
+      call_id: "l1.q1",
+      question: "Compare against Q2 or last year's Q3?",
+      lane: { task: "l1", conversation: "l1", call_id: "q1", title: "Draft the quarterly note" },
+    });
+    // Main's own turn ending never closes a task's card.
+    c.stored({ type: "reply_finished", reply: "r1", text: "On it." });
+    const card = c.bubbles().find((bubble) => bubble.kind === "question");
+    expect(card?.kind === "question" && [card.standing, card.lane]).toEqual([
+      "waiting",
+      { task: "l1", title: "Draft the quarterly note" },
+    ]);
+    expect(c.view().asking).toBe(false);
+    c.stored({ type: "question_answered", call_id: "l1.q1", answers: ["Q2"] });
+    const answered = c.bubbles().find((bubble) => bubble.kind === "question");
+    expect(answered?.kind === "question" && answered.standing).toBe("answered");
+  });
+
+  test("two tasks changing one file read as one line naming both and the file", () => {
+    const c = main();
+    c.stored({
+      type: "lanes_overlapped",
+      lane: "l1",
+      title: "Draft the quarterly note",
+      path: "finance/Q3-totals.xlsx",
+      other: "l2",
+      other_title: "Fix the March invoice",
+    });
+    expect(c.lines()).toEqual([
+      "Draft the quarterly note and Fix the March invoice both changed finance/Q3-totals.xlsx",
+    ]);
+    const [line] = c.bubbles();
+    expect(line?.kind === "quiet" && line.quiet).toMatchObject({ lane: "l1", other: "l2" });
+  });
+
+  test("a task the title role renames carries its new title, and the same title twice changes nothing", () => {
+    const c = main();
+    c.stored({ type: "lane_titled", lane: "l1", title: "Draft the quarterly note" });
+    expect(c.view().laneTitles.get("l1")).toBe("Draft the quarterly note");
+    const before = c.view().laneTitles;
+    c.stored({ type: "lane_titled", lane: "l1", title: "Draft the quarterly note" });
+    expect(c.view().laneTitles).toBe(before);
+  });
+
+  test("a helper that moved into a task asks as the task's, and main's reply closing leaves it open", () => {
+    const c = main();
+    c.stored({ type: "reply_started", reply: "r1" });
+    c.stored({
+      type: "approval_requested",
+      reply: "r1",
+      call_id: "l1.j1.k1",
+      name: "send_email",
+      arguments: { to: "dana@northwind.co", subject: "Q3" },
+      lane: { task: "l1", conversation: "l1", call_id: "j1.k1", title: "Draft the quarterly note" },
+    });
+    c.stored({
+      type: "reply_moved",
+      reply: "r1",
+      lane: "l1",
+      title: "Draft the quarterly note",
+      asks: [],
+    });
+    c.stored({ type: "reply_finished", reply: "r1", text: "" });
+    expect(c.view().approvals.map((approval) => approval.lane)).toEqual([
+      { task: "l1", title: "Draft the quarterly note" },
+    ]);
+    const ask = c.bubbles().find((bubble) => bubble.kind === "ask");
+    expect(ask?.kind === "ask" && ask.lane?.title).toBe("Draft the quarterly note");
   });
 });

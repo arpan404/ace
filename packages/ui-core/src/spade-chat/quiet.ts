@@ -26,6 +26,15 @@ export type SpadeQuiet =
       /** The lane's reply that failed, which Try again answers again. */
       reply?: string;
     }
+  /** Two running tasks wrote one file (ADR 0217 §3): a note, never a lock. */
+  | {
+      kind: "lanes-overlapped";
+      lane: string;
+      title: string;
+      other: string;
+      otherTitle: string;
+      path: string;
+    }
   | {
       kind: "worker-reported";
       worker: string;
@@ -132,6 +141,13 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
       ]);
     case "lane":
       return laneLine(quiet.title || "a task", quiet.event);
+    case "lanes-overlapped":
+      return line({ kind: "mark", mark: "open", label: "Both changed it" }, [
+        strong(quiet.title || "A task"),
+        plain(" and "),
+        strong(quiet.otherTitle || "another task"),
+        plain(` both changed ${quiet.path || "a file"}`),
+      ]);
     case "worker-reported": {
       const words = [
         strong(quiet.name),
