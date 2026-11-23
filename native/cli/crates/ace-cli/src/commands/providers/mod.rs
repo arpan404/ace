@@ -18,6 +18,7 @@ mod devices;
 mod machines;
 mod mcp;
 mod models;
+mod profiles;
 mod provider;
 mod remote;
 pub mod render;

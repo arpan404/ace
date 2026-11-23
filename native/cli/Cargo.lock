@@ -14,6 +14,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

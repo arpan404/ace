@@ -20,6 +20,7 @@ cli-parse = { path = "../cli-parse" }
 cli-table = { path = "../cli-table" }
 cli-wire = { path = "../cli-wire" }
 rusqlite = { version = "0.41", default-features = false, features = ["bundled"] }
+url = { version = "2", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["raw_value", "preserve_order"] }
 

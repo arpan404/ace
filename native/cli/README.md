@@ -120,6 +120,7 @@ metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size
 | `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
 | `ctrlc` 3.5 | Ctrl+C handling in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
 | `rusqlite` 0.41 (`bundled`, no default features) | The CLI profile store (`cli-profiles.sqlite`): remote profiles and the selected profile, read the way the TypeScript CLI reads them | ~1.4 MiB, almost all of it the SQLite C amalgamation (`libsqlite3_sys` counts 98.6 KiB of Rust glue and 9.3 KiB of `rusqlite` itself) |
+| `url` 2 (no defaults) | WHATWG URL parsing for stored profile origins and relays, matching `new URL()` in the TypeScript schema | ~0 KiB, already linked through `cli-wire` |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
 build time, never at run time. `serde_json`'s `raw_value` feature (no new crate) lets `--json`
