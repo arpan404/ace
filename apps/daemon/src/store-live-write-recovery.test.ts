@@ -246,9 +246,11 @@ test("a live batch whose range refill rolls back with its outer transaction is p
       if (failWrites) throw new Error("lineage unavailable");
     },
   };
+  const reports: unknown[] = [];
   const faulty = setup(1, {
     lineage,
     onError: (error) => {
+      reports.push(error);
       throw error;
     },
   });
@@ -264,6 +266,9 @@ test("a live batch whose range refill rolls back with its outer transaction is p
       stream(faulty.store, target, 0, ["pinned"]);
     }),
   ).toThrow("lineage unavailable");
+  // Two distinct failures: the publish-time mark and the reservation's mark. The settlement
+  // must not report the error onError threw a second time.
+  expect(reports).toHaveLength(2);
   const afterError: string[] = [];
   cleanup.push(
     faulty.store.subscribe((events) => {
