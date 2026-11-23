@@ -31,10 +31,10 @@ struct FleetMapCanvas: View {
             .frame(width: size.width, height: size.height, alignment: .topLeading)
             .clipShape(AceDesign.Shape.block)
             .contentShape(Rectangle())
+            .gesture(pan, including: zoom > 1 && pinch == nil ? .all : .subviews)
             .simultaneousGesture(SpatialTapGesture().onEnded { tap in
                 select(at: tap.location, scale: scale, offset: offset)
             })
-            .gesture(pan, including: zoom > 1 && pinch == nil ? .all : .none)
             .simultaneousGesture(
                 MagnifyGesture()
                     .updating($pinch) { value, state, _ in state = value }
