@@ -1,415 +1,84 @@
 import type { ClientCore } from "@ace/client";
-import {
-  SpadeRequestError,
-  parseSpadeAgent,
-  parseSpadeEvents,
-  spadeAgentTaskMax,
-} from "@ace/ui-core/spade-chat";
 import { z } from "zod";
-import {
-  SpadeDraftWire,
-  spadeCardReply,
-  spadeOpenCard,
-  spadeRefusedAt,
-} from "./spade-question-rows.ts";
-import { spadeProfile, type SpadeProfileRow } from "./spade-profile.ts";
-import type { ImageBudget } from "./image-budget.ts";
-import {
-  readSpadeFile,
-  readSpadeImage,
-  SpadeAudioRequest,
-  SpadeDocumentRequest,
-  SpadeImageRequest,
-} from "./spade-image.ts";
-import {
-  prepareSpadeSend,
-  SpadeAttachmentsWire,
-  spadeUploadMs,
-  spadeWords,
-  type SpadeOutgoing,
-} from "./spade-attachments.ts";
-import type { ChunkReader } from "./thread-attachments.ts";
-import type { NativeAttachment } from "./native-attachment.ts";
-import {
-  answerSpadeNewBot,
-  spadeNewBotRequests,
-  type NativeSpadeNewBotRequest,
-  type SpadeNewBotAnswer,
-} from "./spade-new-bot.ts";
-import {
-  answerSpadeSettings,
-  setRunning,
-  spadeSettingsRequests,
-  type NativeSpadeSettingsRequest,
-  type SpadeSettingsAnswer,
-} from "./spade-settings.ts";
-import {
-  answerSpadeOnboarding,
-  spadeOnboardingRequests,
-  type NativeSpadeOnboardingRequest,
-  type SpadeOnboardingAnswer,
-} from "./spade-onboarding.ts";
+import { answerSpadeNewBot, spadeNewBotRequests } from "./spade-new-bot.ts";
+import { answerSpadeOnboarding, spadeOnboardingRequests } from "./spade-onboarding.ts";
+import { answerSpadeSettings, spadeSettingsRequests } from "./spade-settings.ts";
 import type { NativeSpade } from "./spade.ts";
-import { segment, spadeText } from "./spade-text.ts";
+import { spadeText } from "./spade-text.ts";
+import {
+  answerFromAreas,
+  spadeRequestArea,
+  type SpadeRequestArea,
+  type SpadeRequestContext,
+  type SpadeRequestSchema,
+} from "./spade-requests-area.ts";
+import { spadeConversationRequests } from "./spade-requests-conversation.ts";
+import { spadeGroupRequests } from "./spade-requests-groups.ts";
+import { spadeProfileRequests } from "./spade-requests-profile.ts";
 
 /*
- * What the iPhone asks of Spade with an outcome it waits on: send a message, stop a reply,
- * answer an approval or a card of questions, turn Spade on, and Settings › Spade and New bot
- * (`spade-settings.ts`, `spade-new-bot.ts`), and first run (`spade-onboarding.ts`). Every answer is `{ok: true}` or
- * `{ok: false, title, message}` in the person's words; a card's also says which question
- * (`at`) needs more.
+ * What the iPhone asks of Spade with an outcome it waits on, one area per module
+ * (`spade-requests-area.ts`): a conversation, a group, a bot's profile, Settings › Spade and New
+ * bot, and first run (`spade-onboarding.ts`). Every answer is `{ok: true}` or `{ok: false, title, message}` in the person's words; a
+ * card's also says which question (`at`) needs more. A new area is one module and one line in
+ * `spadeRequestAreas`.
  */
 
-const conversationId = z.string().min(1).max(256);
-
-export const NativeSpadeRequest = z.discriminatedUnion("type", [
-  /** Words, files and a recording (`spade-attachments.ts`); words may be empty when it carries any. */
-  z.object({
-    type: z.literal("spade.send"),
-    conversationId,
-    text: z.string().trim().max(200_000),
-    ...SpadeAttachmentsWire,
-  }),
-  z.object({ type: z.literal("spade.stop"), conversationId }),
-  z.object({
-    type: z.literal("spade.answer"),
-    conversationId,
-    callId: z.string().min(1).max(256),
-    allowed: z.boolean(),
-    always: z.boolean(),
-  }),
-  /** A card of questions (ADR 0154): its drafts to answer it, Answer later, or Never mind. */
-  z.object({
-    type: z.literal("spade.question"),
-    conversationId,
-    callId: z.string().min(1).max(256),
-    reply: z.union([
-      z.object({ drafts: z.array(SpadeDraftWire).min(1).max(10) }),
-      z.object({ defer: z.literal(true) }),
-      z.object({ dismiss: z.literal(true) }),
-    ]),
-  }),
-  /**
-   * A sent card still not settled a while on: read the conversation's events since the last one
-   * shown, so an update the live stream missed still arrives.
-   */
-  z.object({
-    type: z.literal("spade.question.read"),
-    conversationId,
-    callId: z.string().min(1).max(256),
-  }),
-  z.object({ type: z.literal("spade.enable") }),
-  /** A message the person posts to a group (ADR 0132): it starts a run its lead answers. */
-  z.object({
-    type: z.literal("spade.group.send"),
-    groupId: z.string().min(1).max(256),
-    conversationId,
-    text: z.string().trim().min(1).max(200_000),
-  }),
-  /** Stop ends the group's run: every ask still open, on every machine. */
-  z.object({ type: z.literal("spade.group.stop"), groupId: z.string().min(1).max(256) }),
-  /** A bot's profile, read afresh each time its sheet opens or is pulled. */
-  z.object({ type: z.literal("spade.profile"), agentId: z.string().min(1).max(256) }),
-  /** The bot's task, as the person wrote it on its profile. */
-  z.object({
-    type: z.literal("spade.task"),
-    agentId: z.string().min(1).max(256),
-    // Spade's limit is in code points, and so is Zod's `max` on a string (not UTF-16 units).
-    task: z.string().max(spadeAgentTaskMax),
-  }),
-  /** A picture in a conversation, by its hash, for its thumbnail or the full-screen viewer. */
-  SpadeImageRequest,
-  SpadeDocumentRequest,
-  SpadeAudioRequest,
-  ...spadeSettingsRequests,
-  ...spadeNewBotRequests,
-  ...spadeOnboardingRequests,
-]);
-export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
-
-type Refusal = { ok: false; title: string; message: string; at?: number };
-type Outcome = { ok: true } | Refusal;
-type Answer =
-  | Outcome
-  | { ok: true; profile: SpadeProfileRow }
-  | { ok: true; task: string }
-  | ({ ok: true } & NativeAttachment)
-  | SpadeSettingsAnswer
-  | SpadeNewBotAnswer
-  | SpadeOnboardingAnswer;
-
-const settingsTypes = new Set<string>(spadeSettingsRequests.map((each) => each.shape.type.value));
-const newBotTypes = new Set<string>(spadeNewBotRequests.map((each) => each.shape.type.value));
-const isSettings = (request: NativeSpadeRequest): request is NativeSpadeSettingsRequest =>
-  settingsTypes.has(request.type);
-const onboardingTypes = new Set<string>(
-  spadeOnboardingRequests.map((each) => each.shape.type.value),
-);
-const isOnboarding = (request: NativeSpadeRequest): request is NativeSpadeOnboardingRequest =>
-  onboardingTypes.has(request.type);
-const isNewBot = (request: NativeSpadeRequest): request is NativeSpadeNewBotRequest =>
-  newBotTypes.has(request.type);
-
-const path = (id: string) => `/v1/conversations/${segment(id)}`;
-const refused = (title: string, error: unknown): Refusal => ({
-  ok: false,
-  title,
-  message: (error instanceof Error && error.message) || "Try again.",
-});
-
-export async function answerSpade(
-  owner: ClientCore,
-  spade: NativeSpade,
-  request: NativeSpadeRequest,
-  deps: { id(): string; now(): number; images: ImageBudget; chunks: ChunkReader },
-  signal: AbortSignal,
-): Promise<Answer> {
-  const ask = (
-    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
-    route: string,
-    body?: unknown,
-    timeoutMs?: number,
-  ) => spadeText(owner, deps.id, method, route, body, signal, timeoutMs);
-  if (isSettings(request)) return answerSpadeSettings(owner, spade, request, deps, ask, signal);
-  if (isNewBot(request)) return answerSpadeNewBot(spade, request, ask);
-  if (isOnboarding(request)) {
+export const spadeRequestAreas = [
+  spadeConversationRequests,
+  spadeGroupRequests,
+  spadeProfileRequests,
+  spadeRequestArea(spadeSettingsRequests, ({ owner, spade, deps, ask, signal }, request) =>
+    answerSpadeSettings(owner, spade, request, deps, ask, signal),
+  ),
+  spadeRequestArea(spadeNewBotRequests, ({ spade, ask }, request) =>
+    answerSpadeNewBot(spade, request, ask),
+  ),
+  spadeRequestArea(spadeOnboardingRequests, async ({ spade, ask }, request) => {
     const answer = await answerSpadeOnboarding(request, ask);
     // Spade's model or first run moved: the list shows it at once.
     if (answer.ok && request.type !== "spade.onboarding.read") spade.refresh();
     return answer;
-  }
-  switch (request.type) {
-    case "spade.send": {
-      // Words alone show at once; a message carrying files waits until all of it is read.
-      const prepared =
-        request.files?.length || request.voice
-          ? await prepareSpadeSend(request, deps.chunks, ask, signal)
-          : spadeWords(request.text);
-      if ("problem" in prepared)
-        return { ok: false, title: "Couldn't send", message: prepared.problem };
-      const length = JSON.stringify(prepared.body).length;
-      return send(spade, request.conversationId, prepared, deps, () =>
-        ask(
-          "POST",
-          `${path(request.conversationId)}/messages`,
-          prepared.body,
-          spadeUploadMs(length),
-        ),
-      );
-    }
-    case "spade.stop":
-      try {
-        await ask("POST", `${path(request.conversationId)}/stop`);
-      } catch (error) {
-        // 404: nothing was answering by the time Stop arrived, which is what Stop wanted.
-        if (!(error instanceof SpadeRequestError && error.status === 404))
-          return refused("Couldn't stop", error);
-      }
-      return { ok: true };
-    case "spade.answer":
-      try {
-        await ask("POST", `${path(request.conversationId)}/approvals/${segment(request.callId)}`, {
-          allowed: request.allowed,
-          always: request.always,
-        });
-        spade.refresh();
-        return { ok: true };
-      } catch (error) {
-        return refused("Couldn't answer", error);
-      }
-    case "spade.question":
-      return question(spade, request, (body) =>
-        ask("POST", `${path(request.conversationId)}/questions/${segment(request.callId)}`, body),
-      );
-    case "spade.question.read":
-      return readBack(spade, request.conversationId, (route) => ask("GET", route));
-    case "spade.image":
-      try {
-        const image = await readSpadeImage(owner, deps.images, deps.id, request, signal);
-        return { ok: true, ...image };
-      } catch (error) {
-        return refused("Couldn't show the image", error);
-      }
-    case "spade.document":
-    case "spade.audio":
-      try {
-        return { ok: true, ...(await readSpadeFile(owner, deps.id, request, signal)) };
-      } catch (error) {
-        const what = request.type === "spade.audio" ? "the voice message" : request.name;
-        return refused(`Couldn't open ${what}`, error);
-      }
-    case "spade.enable":
-      return setRunning(owner, spade, true, signal);
-    case "spade.group.send":
-      return sendToGroup(spade, request, deps, () =>
-        ask("POST", `/v1/groups/${segment(request.groupId)}/messages`, { text: request.text }),
-      );
-    case "spade.group.stop":
-      try {
-        await ask("POST", `/v1/groups/${segment(request.groupId)}/stop`);
-      } catch (error) {
-        // 404: nothing was running by the time Stop arrived, which is what Stop wanted.
-        if (!(error instanceof SpadeRequestError && error.status === 404))
-          return refused("Couldn't stop", error);
-      }
-      spade.refresh();
-      return { ok: true };
-    case "spade.profile": {
-      const bot = spade.bot(request.agentId);
-      if (!bot) return { ok: false, title: "", message: "Spade hasn't listed this bot yet." };
-      const profile = await spadeProfile(
-        bot,
-        spade.machineName,
-        (route) => ask("GET", route),
-        deps.now(),
-      );
-      return { ok: true, profile };
-    }
-    case "spade.task":
-      try {
-        const task = request.task.trim();
-        const body = await ask("PATCH", `/v1/agents/${segment(request.agentId)}`, { task });
-        // The write says what Spade now holds: the profile opened next shows it at once, not the
-        // list as last read while the refresh is still on its way.
-        const stored = parseSpadeAgent(body)?.task ?? task;
-        spade.saved(request.agentId, stored);
-        spade.refresh();
-        // The task as Spade stored it, for the profile to show whatever its next read brings.
-        return { ok: true, task: stored };
-      } catch (error) {
-        return refused("Couldn't save the task", error);
-      }
-  }
+  }),
+] as const;
+
+/** Every area's request schemas, in table order, as one tuple. */
+type SpadeAreaRequests<T> = T extends readonly [SpadeRequestArea<infer S, unknown>, ...infer Rest]
+  ? [...S, ...SpadeAreaRequests<Rest>]
+  : [];
+
+// `flatMap` keeps every schema in table order but not the tuple's type, which this restates.
+const schemas = spadeRequestAreas.flatMap(
+  (area): readonly SpadeRequestSchema[] => area.requests,
+) as SpadeAreaRequests<typeof spadeRequestAreas>;
+
+export const NativeSpadeRequest = z.discriminatedUnion("type", schemas);
+export type NativeSpadeRequest = z.infer<typeof NativeSpadeRequest>;
+
+type Answer = NonNullable<Awaited<ReturnType<(typeof spadeRequestAreas)[number]["answer"]>>>;
+
+/** What every area's answer may use, for requests from `owner`'s device. */
+export function spadeRequestContext(
+  owner: ClientCore,
+  spade: NativeSpade,
+  deps: SpadeRequestContext["deps"],
+  signal: AbortSignal,
+): SpadeRequestContext {
+  const ask: SpadeRequestContext["ask"] = (method, route, body, timeoutMs) =>
+    spadeText(owner, deps.id, method, route, body, signal, timeoutMs);
+  return { owner, spade, deps, ask, signal };
 }
 
-/**
- * A card's reply. Drafts are checked by the shared rules first, so a card that isn't ready yet
- * never reaches Spade and turns to the question that needs more; Spade checks again, and its
- * refusal names the question it means.
- */
-async function question(
+export function answerSpade(
+  owner: ClientCore,
   spade: NativeSpade,
-  request: Extract<NativeSpadeRequest, { type: "spade.question" }>,
-  post: (body: unknown) => Promise<string>,
-): Promise<Outcome> {
-  const card = spade.follow(request.conversationId)?.get().view;
-  const open = card && spadeOpenCard(card, request.callId);
-  let body: unknown = request.reply;
-  if ("drafts" in request.reply) {
-    if (!open) return { ok: false, title: "", message: "That question isn't open any more." };
-    const read = spadeCardReply(open, request.reply.drafts);
-    if ("missing" in read) return { ok: false, title: "", message: read.missing, at: read.at };
-    body = { answers: read.answers };
-  }
-  try {
-    await post(body);
-    spade.refresh();
-    return { ok: true };
-  } catch (error) {
-    const said = refused("", error);
-    const at = open ? spadeRefusedAt(open, said.message) : undefined;
-    return at === undefined ? said : { ...said, at };
-  }
-}
-
-/**
- * The open conversation's events after the last one shown, folded in. Not open, there is nothing
- * to correct: it is read afresh when it opens.
- */
-async function readBack(
-  spade: NativeSpade,
-  conversation: string,
-  read: (route: string) => Promise<string>,
-): Promise<Outcome> {
-  const follow = spade.follow(conversation);
-  if (!follow) return { ok: true };
-  try {
-    for (;;) {
-      const after = follow.lastSeq;
-      const page = parseSpadeEvents(
-        await read(`${path(conversation)}/events?after=${after}&limit=200`),
-      );
-      if (!page) return { ok: false, title: "", message: "Couldn't read the conversation." };
-      for (const stored of page) follow.apply({ kind: "stored", stored });
-      if (page.length < 200 || follow.lastSeq === after) return { ok: true };
-    }
-  } catch (error) {
-    return refused("Couldn't read the conversation", error);
-  }
-}
-
-/**
- * The message shows at once in the open conversation. When no answer came back Spade may have
- * it: it stays once Spade's copy arrives, and only a message Spade never stored is refused, so
- * its words go back to the composer.
- */
-async function send(
-  spade: NativeSpade,
-  conversation: string,
-  message: SpadeOutgoing,
-  deps: { id(): string },
-  post: () => Promise<string>,
-): Promise<Outcome> {
-  const follow = spade.follow(conversation);
-  const key = `local-${deps.id()}`;
-  const text = typeof message.body.text === "string" ? message.body.text : "";
-  follow?.apply({
-    kind: "sent",
-    key,
-    text,
-    images: message.images,
-    documents: message.documents,
-    ...(message.voice ? { voice: message.voice } : {}),
-  });
-  try {
-    await post();
-    spade.refresh();
-    return { ok: true };
-  } catch (error) {
-    if (
-      follow &&
-      error instanceof SpadeRequestError &&
-      error.unanswered &&
-      (await follow.reached(key))
-    ) {
-      spade.refresh();
-      return { ok: true };
-    }
-    follow?.apply({ kind: "refused", key });
-    const bot = spade.botName(conversation);
-    return refused(bot ? `Couldn't send to ${bot}` : "Couldn't send", error);
-  }
-}
-
-/**
- * A post to a group shows at once, as a bot's message does; one Spade never stored is refused,
- * so its words go back to the composer.
- */
-async function sendToGroup(
-  spade: NativeSpade,
-  request: Extract<NativeSpadeRequest, { type: "spade.group.send" }>,
-  deps: { id(): string },
-  post: () => Promise<string>,
-): Promise<Outcome> {
-  const follow = spade.groupFollow(request.conversationId);
-  const key = `local-${deps.id()}`;
-  follow?.apply({ kind: "sent", key, text: request.text, images: [], documents: [] });
-  try {
-    await post();
-    spade.refresh();
-    return { ok: true };
-  } catch (error) {
-    if (
-      follow &&
-      error instanceof SpadeRequestError &&
-      error.unanswered &&
-      (await follow.reached(key))
-    ) {
-      spade.refresh();
-      return { ok: true };
-    }
-    follow?.apply({ kind: "refused", key });
-    const name = spade.groupName(request.groupId);
-    return refused(name ? `Couldn't send to ${name}` : "Couldn't send", error);
-  }
+  request: NativeSpadeRequest,
+  deps: SpadeRequestContext["deps"],
+  signal: AbortSignal,
+): Promise<Answer> {
+  return answerFromAreas<Answer>(
+    spadeRequestAreas,
+    spadeRequestContext(owner, spade, deps, signal),
+    request,
+  );
 }

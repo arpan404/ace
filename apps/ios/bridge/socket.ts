@@ -6,15 +6,18 @@ import { hasCapability, type MediaSocketOpen } from "@ace/native-host";
 
 type Early = (text: string) => void;
 /**
- * Whether a paired machine took this phone's proof of the person's standing on this socket
- * (ADR 0190 §7): `missing` when the phone has no key for the machine (paired before it named
- * one) or the machine refused it (an ordinary link, or a new owner).
+ * Whether a machine took this phone's proof of the person's standing on this socket (ADR 0190
+ * §3, §7). On a paired machine `missing` is a phone with no key for it (paired before it named
+ * one) or a refusal (an ordinary link, or a new owner). On an account machine's relayed socket it
+ * is no person's grant for the phone's session, or a refusal (another account owns the machine).
  */
 export type PairedStanding = "proven" | "missing";
 /**
- * Swift proves on a paired machine's socket itself: it reads the welcome there, signs that
- * socket's challenge with the Secure Enclave key and sends `device.standing`, so the script
- * never chooses what is signed. It reports only the daemon's verdict, here.
+ * Swift proves on the socket itself: it reads the welcome there and signs that socket's
+ * challenge, with the pairing's Secure Enclave key (`device.standing`) or, through the relay,
+ * with a person's grant and the runtime's own key over the channel's handshake hash
+ * (`account.standing`), so the script never chooses what is signed. It reports only the
+ * daemon's verdict, here.
  */
 type Standing = (standing: PairedStanding) => void;
 const sockets = new Map<
