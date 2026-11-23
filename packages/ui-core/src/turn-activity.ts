@@ -66,6 +66,12 @@ export interface TurnActivity {
    * with a Stop.
    */
   waitingOn?: TurnWait | undefined;
+  /**
+   * While the tree waits on the person (a subagent or delegated child asks), the root agent's
+   * own live work when it is still working itself: the transcript's turn head shows "Working for"
+   * rather than repeating the request that lives in Summary and the composer strip.
+   */
+  rootWorking?: Pick<TurnActivity, "label" | "elapsedFrom"> | undefined;
 }
 
 /**
@@ -268,6 +274,11 @@ export function readTurnActivity(
     : !working && !needsYou && status?.state === "blocked" && status.on === "background_task"
       ? backgroundWait(reader, status.refs, watch)
       : undefined;
+  const idle = clock?.idle ?? stretch.idle;
+  const rootWorking =
+    !stopped && !working && needsYou
+      ? readRootWorking(reader, rootId, pending, options, from, idle)
+      : undefined;
   const shown = stopped
     ? undefined
     : working
@@ -281,17 +292,7 @@ export function readTurnActivity(
               : rootActivityLabel(status),
           tone: "working" as const,
           waitingOnSubagents: waitingOnSubagents && !options.stopping ? true : undefined,
-          // The daemon's stamp for the status shown, as the sidebar row reads it; the turn's own
-          // clock only stands in when the daemon hasn't stamped one. A compaction counts from
-          // when it began, never the Working stretch it interrupted: no stamp, no time.
-          elapsedFrom: compacting(status, waitingOnSubagents)
-            ? reader.thread?.live?.compactingSince
-            : (liveStatusSince(reader.thread?.live, waitingOnSubagents) ??
-              (from === undefined
-                ? undefined
-                : from +
-                  (clock?.idle ?? stretch.idle) +
-                  ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from))),
+          elapsedFrom: workingElapsedFrom(reader, status, waitingOnSubagents, from, idle),
           // A root held while its tree works names the hold as its step: "Rate limited · …".
           current:
             (root === "held" && activity ? heldText(activity) : undefined) ??
@@ -302,10 +303,70 @@ export function readTurnActivity(
           backgroundCommands,
           waitingOn,
         }
-      : activity && waitingOn
-        ? { ...activity, waitingOn }
+      : activity && (waitingOn || rootWorking)
+        ? {
+            ...activity,
+            ...(waitingOn ? { waitingOn } : {}),
+            ...(rootWorking ? { rootWorking } : {}),
+          }
         : activity;
   return { activity: shown, watch: [...new Set(watch)] };
+}
+
+/**
+ * The daemon's stamp for the status shown, as the sidebar row reads it; the turn's own clock
+ * only stands in when the daemon hasn't stamped one. A compaction counts from when it began,
+ * never the Working stretch it interrupted: no stamp, no time.
+ */
+function workingElapsedFrom(
+  reader: ActivityReader,
+  status: AgentStatus | undefined,
+  waitingOnSubagents: boolean,
+  from: number | undefined,
+  idle: number,
+): number | undefined {
+  if (compacting(status, waitingOnSubagents)) return reader.thread?.live?.compactingSince;
+  return (
+    liveStatusSince(reader.thread?.live, waitingOnSubagents) ??
+    (from === undefined
+      ? undefined
+      : from + idle + ledgerOf(reader).waitedWithin(from, Number.POSITIVE_INFINITY, from))
+  );
+}
+
+/**
+ * While the tree waits on the person, whether the root agent itself is still working (e.g. a
+ * delegated child or subagent asks while the parent runs its own turn).
+ */
+function readRootWorking(
+  reader: ActivityReader,
+  rootId: string,
+  pending: readonly Interaction[],
+  options: ActivityOptions,
+  from: number | undefined,
+  idle: number,
+): Pick<TurnActivity, "label" | "elapsedFrom"> | undefined {
+  const threadStatus = options.threadStatus ?? reader.thread?.status;
+  if (threadStatus?.state === "waiting" && threadStatus.on === "queue") return undefined;
+  const agent = reader.agent(rootId);
+  const status = agent?.status;
+  if (!agent || !status) return undefined;
+  if (
+    reader.thread?.imported &&
+    reader.thread.status.state === "new" &&
+    status.state === "starting"
+  )
+    return undefined;
+  const activelyWorking =
+    status.state === "working" || (status.state === "starting" && rootRunning(agent, threadStatus));
+  if (!activelyWorking) return undefined;
+  const open = pending.length ? pending : [...ledgerOf(reader).pending()];
+  if (open.some((interaction) => interaction.blocking && interaction.agentId === rootId))
+    return undefined;
+  return {
+    label: options.stopping ? "Stopping…" : rootActivityLabel(status),
+    elapsedFrom: workingElapsedFrom(reader, status, false, from, idle),
+  };
 }
 
 /** The background work a finished turn waits on: how many, and the command of a single shell. */
@@ -552,7 +613,9 @@ export function sameActivity(a: TurnActivity | undefined, b: TurnActivity | unde
       a.backgroundCommands === b.backgroundCommands &&
       a.asker === b.asker &&
       a.waitingOnSubagents === b.waitingOnSubagents &&
-      sameWait(a.waitingOn, b.waitingOn))
+      sameWait(a.waitingOn, b.waitingOn) &&
+      a.rootWorking?.label === b.rootWorking?.label &&
+      a.rootWorking?.elapsedFrom === b.rootWorking?.elapsedFrom)
   );
 }
 
