@@ -446,3 +446,48 @@ test("a subscribe naming a connection the daemon no longer has is refused as gon
   ]);
   client.close();
 });
+
+test("a bound view whose every codec failed is told the encoder is recovering, and nothing once it plays", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  let recovering = false;
+  // The tab's encoder, as the service reports it for this connection's view.
+  const service = Object.assign(Object.create(t.service) as typeof t.service, {
+    videoRecovering: () => recovering,
+  });
+  const client = connectBrowser(service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: { owner: () => owner, delivery: () => d.port },
+  });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [intent] = d.views.values();
+  recovering = true;
+  // ace-media withdrew the view's encode: its stop says the encoder's recovery instead.
+  intent?.onGrant?.(false, "stopped");
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "recovering" } });
+  // A refusal between the view and ace-media says more, and stays first.
+  intent?.onGrant?.(false, "limit");
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "refused" } });
+  recovering = false;
+  intent?.onGrant?.(true);
+  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  client.close();
+});

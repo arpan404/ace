@@ -1,3 +1,4 @@
+import { videoNotice } from "./video-notice.ts";
 import { BrowserOriginError } from "./policy.ts";
 import {
   ThreadId,
@@ -124,6 +125,10 @@ export function connectBrowser(
     views: Map<string, string>;
     /** The view the capture was last told about, to tell it again when delivery changes. */
     shown?: CaptureViewer | undefined;
+    /** ace-media's last word on this connection's view: granted, or why not. */
+    grant?: { granted: boolean; why: string | undefined } | undefined;
+    /** Whether this connection's view waits for the tab's encoder to recover (`videoNotice`). */
+    recovering?: boolean;
   };
   /**
    * This connection's view as the daemon's capture sees it: delivered by ace-media while any
@@ -166,7 +171,14 @@ export function connectBrowser(
       threadId,
       options.connectionId,
       options.local === true ? { local: true } : {},
-      (state) => options.send({ type: "browser.state", state: forPeer(entry, state) }),
+      (state) => {
+        options.send({ type: "browser.state", state: forPeer(entry, state) });
+        // The encoder's recovery changes only the state: its view's notice follows it.
+        const recovering = service.videoRecovering(threadId, options.connectionId);
+        if (recovering === (entry.recovering ?? false)) return;
+        entry.recovering = recovering;
+        if (entry.grant) delivered(threadId, notice(threadId, entry));
+      },
       (event) => options.send(event),
       capture,
     );
@@ -203,7 +215,12 @@ export function connectBrowser(
       audio: viewport?.audio === true,
       ...(link ? { link } : {}),
       shows: showsThread(threadId),
-      onGrant: (granted, why) => delivered(threadId, granted ? undefined : waiting(threadId, why)),
+      onGrant: (granted, why) => {
+        const current = subscriptions.get(threadId);
+        if (!current) return delivered(threadId, granted ? undefined : waiting(threadId, why));
+        current.grant = { granted, why };
+        delivered(threadId, notice(threadId, current));
+      },
     });
     if (bound === undefined) throw bindingRefused(delivery, connection);
     return { viewer: bound, created: true };
@@ -220,6 +237,12 @@ export function connectBrowser(
       threadId: ThreadId.parse(threadId),
       ...(undelivered ? { undelivered } : {}),
     });
+  };
+  /** What this connection's view of the thread says now: ace-media's word, then the encoder's. */
+  const notice = (threadId: string, entry: Subscription) => {
+    const grant = entry.grant;
+    const undelivered = grant?.granted ? undefined : waiting(threadId, grant?.why);
+    return videoNotice(undelivered, service.videoRecovering(threadId, options.connectionId));
   };
   /** Why the thread's granted view gets no pictures yet: ace-media's `why`, else its source's. */
   const waiting = (threadId: string, why: string | undefined) => {

@@ -156,6 +156,18 @@ describe("a view ace-media delivers", () => {
     expect(t.video.status()).toBeUndefined();
   });
 
+  it("tells only the view whose every codec failed that the encoder is recovering", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("hevc and h264", delivered());
+    t.video.add("h264 only", { ...delivered(), video: { codecs: ["avc1.42E033"] } });
+    await t.run();
+    t.encoder.opened[0]?.failed("avc1.42E033/640x400");
+    await t.run(50);
+    expect(t.video.recoveringFor("h264 only")).toBe(true);
+    expect(t.video.recoveringFor("hevc and h264")).toBe(false);
+    expect(t.video.recoveringFor("nobody")).toBe(false);
+  });
+
   it("starts at the top rate on this machine, and lower for a viewer elsewhere", async () => {
     const local = watched();
     local.video.add("viewer", delivered(), { local: true });

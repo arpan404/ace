@@ -54,6 +54,7 @@ export async function fakePreviewMedia(
       acks.push(message);
       return connection.ack(message);
     },
+    refresh: (refused) => connection.refresh(refused),
   };
   return {
     media,

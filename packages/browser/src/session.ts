@@ -337,6 +337,10 @@ export class BrowserSession {
    * The kind of ace-media source the shown tab's video is (a Chrome tab, a screencast tab, the
    * person's Chrome, the desktop's view); undefined while it has no encoder.
    */
+  /** Whether every codec viewer `connectionId` takes waits out an encoder failure now. */
+  videoRecovering(connectionId: string): boolean {
+    return this.live.video.recoveringFor(connectionId);
+  }
   videoKind(): import("./backend.ts").VideoMediaKind | undefined {
     // A page already gone (the session closing, its tab lost) has no video: ace-media's views
     // still hear its source end, and asking must not throw into that.

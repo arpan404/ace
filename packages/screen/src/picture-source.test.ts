@@ -70,6 +70,7 @@ function session() {
         return {
           streaming: () => true,
           reconnect: () => {},
+          lost: () => {},
           codecs: () => {},
           encodes: (next) => void encodes.push(next),
           key: () => {},

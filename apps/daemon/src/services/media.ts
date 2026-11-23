@@ -324,6 +324,8 @@ function createMedia(context: MediaContext): DaemonMedia | undefined {
     return {
       streaming: () => slot.source?.streaming() ?? false,
       reconnect: () => slot.source?.reconnect(),
+      // A path only the runtime's source can have: nothing to lose before it exists.
+      lost: (path) => slot.source?.lost(path),
       codecs: (codecs) => {
         slot.codecs = [...codecs];
         slot.source?.codecs(codecs);

@@ -5,6 +5,7 @@ import {
   MediaConnectionId,
   ThreadId,
   type MediaStreamClientMessage,
+  type ServerMessage,
   type MediaPoster,
 } from "@ace/protocol";
 import type { ClientApi, StreamMessage } from "@ace/client";
@@ -121,9 +122,19 @@ function withMediaReplies(
   refused: unknown[],
   replay: () => void,
   answered: Promise<void>,
+  heard: Set<(message: ServerMessage) => void>,
 ) {
   return new Proxy(api, {
     get(target, key) {
+      if (key === "onMessage")
+        return (listener: (message: ServerMessage) => void) => {
+          heard.add(listener);
+          const stop = target.onMessage(listener);
+          return () => {
+            heard.delete(listener);
+            stop();
+          };
+        };
       if (key === "request")
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
           const daemon = answers();
@@ -197,6 +208,8 @@ async function watching(
   const posters: MediaPoster[] = [];
   const refused: unknown[] = [];
   let answerNow: (() => void) | undefined;
+  /** The view's listeners of the daemon's messages, for one the fake daemon never sends. */
+  const heard = new Set<(message: ServerMessage) => void>();
   let replays = 0;
   const answered = new Promise<void>((resolve) => (answerNow = resolve));
   const preview = daemonPreview(
@@ -208,6 +221,7 @@ async function watching(
       // Each replay a later number, so a test can tell which subscribe's it was.
       () => wire.stream(video(++replays, true)),
       answered,
+      heard,
     ),
     {
       schedule: (run, ms) => {
@@ -270,6 +284,10 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** A message from the daemon the fake daemon doesn't produce (`browser.delivery`). */
+    announce(message: ServerMessage) {
+      for (const listener of Array.from(heard)) listener(message);
+    },
     /** The daemon answers subscribes this way from now on. */
     answerAs(next: Daemon) {
       mode = next;
@@ -537,4 +555,22 @@ test("a subscribe that succeeds resets the ladder for the next failure", async (
   view.link.move("mc_bbbbbbbbbb");
   await waitFor(() => expect(view.subscribes()).toHaveLength(4));
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+});
+
+/** What the daemon says while a view's every codec waits out an encoder failure. */
+const encoderRecovering = "This tab's video encoder failed. ace tries it again in a moment.";
+
+test("the daemon's word that the tab's encoder is recovering shows on the view until a picture comes", async () => {
+  const { preview, link, announce } = await watching("mc_aaaaaaaaaa");
+  link.deliver(video(1, true));
+  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
+  announce({
+    type: "browser.delivery",
+    threadId: ThreadId.parse(thread),
+    undelivered: { code: "recovering", reason: encoderRecovering },
+  });
+  await waitFor(() => expect(preview.undelivered?.(thread)).toBe(encoderRecovering));
+  // The encoder runs again: its next picture clears the notice.
+  link.deliver(video(2, true));
+  await waitFor(() => expect(preview.undelivered?.(thread)).toBeUndefined());
 });

@@ -158,7 +158,8 @@ export class ChromeVideo implements VideoHost {
     const old = { worker: this.workerTarget, document: this.documentTarget };
     // The old targets' sessions end with them; their detach must not end the new captures.
     this.sessions.clear();
-    for (const [id, events] of [...this.captures]) {
+    // Deleting from a Map while iterating it is safe: deleted entries aren't visited again.
+    for (const [id, events] of this.captures) {
       if (id === starting) continue;
       this.captures.delete(id);
       events.ended();

@@ -341,16 +341,26 @@ export class LiveVideo {
    * fix); 0 otherwise.
    */
   private recovering(): number {
-    const supported = this.codecs ?? [];
     const runnable = this.runnable();
     let attempts = 0;
-    for (const [, viewer] of this.showing()) {
-      const takes = viewer.capture.video?.codecs ?? [];
-      const usable = supported.filter((codec) => takes.includes(codec));
-      if (usable.length && !usable.some((codec) => runnable.includes(codec)))
-        attempts = Math.max(attempts, this.cooldowns.attempts(usable));
-    }
+    for (const [, viewer] of this.showing())
+      attempts = Math.max(attempts, this.exhausted(viewer, runnable));
     return attempts;
+  }
+  /**
+   * Whether every codec viewer `id` takes, of those this encoder has, waits out a failure's
+   * cooldown now: its view gets nothing until one runs again, though others may play.
+   */
+  recoveringFor(id: string): boolean {
+    const viewer = this.viewers.get(id);
+    return viewer !== undefined && !paused(viewer.capture) && this.exhausted(viewer) > 0;
+  }
+  /** The tries so far while all of `viewer`'s usable codecs are cooling down; 0 otherwise. */
+  private exhausted(viewer: Viewer, runnable = this.runnable()): number {
+    const takes = viewer.capture.video?.codecs ?? [];
+    const usable = (this.codecs ?? []).filter((codec) => takes.includes(codec));
+    if (!usable.length || usable.some((codec) => runnable.includes(codec))) return 0;
+    return this.cooldowns.attempts(usable);
   }
   private probe(source: LiveVideoSource, now: number): void {
     if (this.opening || now < this.retryAt) return;

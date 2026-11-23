@@ -129,6 +129,7 @@ export function fakeScreenMedia() {
       return {
         streaming: () => false,
         reconnect: () => {},
+        lost: () => {},
         codecs: () => {},
         encodes: () => {},
         key: () => {},
