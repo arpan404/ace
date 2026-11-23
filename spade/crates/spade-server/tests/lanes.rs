@@ -752,3 +752,246 @@ async fn a_lanes_steps_run_on_the_task_roles_model_and_on_mains_when_unset() -> 
     assert_eq!(model_of(&lane("Sort the inbox")).as_deref(), Some("tasker"));
     Ok(())
 }
+
+/// Main's reply that reads a sheet eight times, moved to a lane whose title call takes `named`.
+async fn moved_lane(named: Script) -> Result<(Spade, String, String)> {
+    let read = FakeTool::new("read_sheet", Risk::Read, "Q3 revenue: 1.2M");
+    let mut main = warm_up();
+    for n in 0..8 {
+        main.push(Script::reply("").call(&format!("s{n}"), "read_sheet", json!({ "n": n })));
+    }
+    main.push(Script::reply("The note is drafted."));
+    let routes = vec![
+        Route::when("for a task the person asked for", vec![named]),
+        route(
+            "Draft the quarterly note from Q3",
+            vec![Script::reply("Drafted.").held(Duration::from_secs(1))],
+        ),
+    ];
+    let options = with(Limits {
+        move_long_work: true,
+        ..Default::default()
+    });
+    let spade = Spade::start_routed(routes, main, tools(vec![read]), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Draft the quarterly note from Q3.xlsx")
+        .await?;
+    let events = wait_count(&spade, &conversation, "reply_moved", 1).await?;
+    let lane_id = events
+        .iter()
+        .find(|e| e["type"] == "reply_moved")
+        .and_then(|e| e["lane"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    Ok((spade, conversation, lane_id))
+}
+
+#[tokio::test]
+async fn a_moved_lane_is_named_by_the_title_role_without_waiting_for_it() -> Result {
+    let named = Script::reply("")
+        .plain(r#"{"title":"Quarterly note"}"#)
+        .held(Duration::from_millis(500));
+    let (spade, conversation, lane_id) = moved_lane(named).await?;
+    // It runs under the person's first line while the title call is out.
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(found[0]["title"], "Draft the quarterly note from Q3.xlsx");
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.first().is_some_and(|t| t["title"] == "Quarterly note")
+    })
+    .await?;
+    assert_eq!(found[0]["task"], lane_id.as_str());
+    let events = spade.events(&conversation).await?;
+    let titled = events
+        .iter()
+        .find(|e| e["type"] == "lane_titled")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(titled["lane"], lane_id.as_str());
+    assert_eq!(titled["title"], "Quarterly note");
+    let report = wait_count(&spade, &conversation, "worker_reported", 1).await?;
+    let report = report
+        .iter()
+        .find(|e| e["type"] == "worker_reported")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(report["name"], "Quarterly note");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_lane_keeps_the_persons_first_line_when_the_title_call_fails() -> Result {
+    let (spade, conversation, lane_id) = moved_lane(Script::failing(500)).await?;
+    wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(found[0]["title"], "Draft the quarterly note from Q3.xlsx");
+    assert_eq!(count(&spade.events(&conversation).await?, "lane_titled"), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lane_writing_a_file_another_working_lane_wrote_gets_a_note_and_main_a_line() -> Result {
+    // A stand-in for the folder's write tool that the gate lets run, so the test is about the
+    // note and not the approval.
+    let write = FakeTool::new("workspace_write", Risk::Read, "written");
+    let routes = vec![
+        route(
+            "Compare the CRM quotes",
+            vec![
+                Script::reply("").call(
+                    "w1",
+                    "workspace_write",
+                    json!({ "path": "crm.md", "content": "a" }),
+                ),
+                Script::reply("still comparing").held(Duration::from_secs(10)),
+            ],
+        ),
+        route(
+            "Summarise the CRM quotes",
+            vec![
+                Script::reply("")
+                    .call(
+                        "w1",
+                        "workspace_write",
+                        json!({ "path": "./crm.md", "content": "b" }),
+                    )
+                    .held(Duration::from_secs(1)),
+                Script::reply("Summarised."),
+            ],
+        ),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Compare the CRM quotes" }),
+            )
+            .call(
+                "t2",
+                "task_start",
+                json!({ "title": "Summarise the CRM quotes" }),
+            ),
+        Script::reply("Started both."),
+        Script::reply("The summary is done."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![write]), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Compare the CRM quotes and summarise them.")
+        .await?;
+    let events = wait_count(&spade, &conversation, "lanes_overlapped", 1).await?;
+    let noted = events
+        .iter()
+        .find(|e| e["type"] == "lanes_overlapped")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(noted["path"], "crm.md");
+    assert_eq!(noted["title"], "Summarise the CRM quotes");
+    assert_eq!(noted["other_title"], "Compare the CRM quotes");
+    // The writing lane's next step reads the warning; nothing stopped either lane.
+    let summary = noted["lane"].as_str().unwrap_or_default().to_owned();
+    wait_count(&spade, &summary, "reply_finished", 1).await?;
+    let warned = spade.fake.seen().iter().any(|s| {
+        let body = s.body.to_string();
+        body.contains(&lane("Summarise the CRM quotes")) && body.contains("<overlap task=")
+    });
+    assert!(warned, "the second lane never read the note");
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(
+        titled(&found, "Compare the CRM quotes").map(|t| &t["state"]),
+        Some(&json!("working"))
+    );
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "lanes_overlapped"),
+        1
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lanes_question_shows_in_main_as_the_lanes_and_its_answer_goes_back_to_the_lane() -> Result
+{
+    let routes = vec![route(
+        "Book flights to Lisbon",
+        vec![
+            Script::reply("").call("q1", "ask_user", json!({ "question": "Window or aisle?" })),
+            Script::reply("Booked a window seat."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Book flights to Lisbon"),
+        Script::reply("Started a task for the flights."),
+        Script::reply("The flights are booked."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Book flights to Lisbon.").await?;
+    let events = wait_count(&spade, &conversation, "question_asked", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "question_asked")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(asked["question"], "Window or aisle?");
+    assert_eq!(asked["lane"]["title"], "Book flights to Lisbon");
+    assert_eq!(asked["lane"]["call_id"], "q1");
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(asked["call_id"], format!("{lane_id}.q1").as_str());
+    // The bot needs the person; main's own reply has ended and doesn't wait on the card.
+    wait_count(&spade, &conversation, "reply_finished", 2).await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let row = roster_state(&spade, &agent).await?;
+        if row["state"] == "waiting" {
+            assert_eq!(row["waiting_for"], "task", "{row}");
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("never needed the person: {row}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (_, cards) = spade
+        .get(&format!("/v1/conversations/{conversation}/questions"))
+        .await?;
+    assert!(cards.to_string().contains("Window or aisle?"), "{cards}");
+
+    // Answered from main, the answer reaches the lane, which carries on.
+    let call = asked["call_id"].as_str().unwrap_or_default();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/questions/{call}"),
+            json!({ "answers": ["Window"] }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    let answered = lane_events
+        .iter()
+        .find(|e| e["type"] == "question_answered")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(answered["call_id"], "q1");
+    assert_eq!(answered["answers"], json!(["Window"]));
+    let main_events = spade.events(&conversation).await?;
+    assert!(
+        main_events
+            .iter()
+            .any(|e| e["type"] == "question_answered" && e["call_id"] == call),
+        "main's copy closed"
+    );
+    let lane_asked = spade
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.body.to_string().contains(&lane("Book flights to Lisbon")))
+        .count();
+    assert_eq!(lane_asked, 2, "the lane's next step read the answer");
+    Ok(())
+}

@@ -314,7 +314,65 @@ impl Engine {
             };
             Some((opened, first, then_main))
         };
-        matches!(self.open_lane(main, &call, lane_id.clone(), build), Ok(Some(row)) if row.conversation == lane_id)
+        let moved = matches!(
+            self.open_lane(main, &call, lane_id.clone(), build),
+            Ok(Some(row)) if row.conversation == lane_id
+        );
+        if moved {
+            self.name_lane(main, &lane_id);
+        }
+        moved
+    }
+
+    /// Names a moved lane with the `title` role, in the background (ADR 0217 §2a): the lane runs
+    /// under the person's first line meanwhile, and keeps it when the call fails.
+    fn name_lane(self: &Arc<Self>, main: &str, lane_id: &str) {
+        let (engine, main, lane_id) = (self.clone(), main.to_owned(), lane_id.to_owned());
+        tokio::spawn(async move {
+            let words = engine.load(&lane_id).ok().and_then(|events| {
+                events.iter().find_map(|e| match e {
+                    Event::Known(Known::UserMessage { text, .. }) => Some(text.clone()),
+                    _ => None,
+                })
+            });
+            let Some(words) = words else { return };
+            use spade_core::routing::Role;
+            let model = engine.role_model(&main, Role::Title);
+            let prompt = spade_core::title::task_prompt(&words)
+                .session(&lane_id)
+                .effort(engine.role_effort(&main, Role::Title));
+            let admitted = engine.admit(&lane_id, &model).for_role(Role::Title);
+            let named = match engine
+                .models
+                .generate::<spade_core::title::Suggestion>(&model, &prompt)
+                .await
+            {
+                Ok(generated) => {
+                    admitted.settle(&generated.usage);
+                    spade_core::title::clean(&generated.value.title)
+                }
+                Err(error) => {
+                    admitted.settle_if(error.usage());
+                    None
+                }
+            };
+            let Some(title) = named.map(|t| lane::title_of(&t)) else {
+                return;
+            };
+            if title == engine.lane_title(&lane_id) {
+                return;
+            }
+            let titled = Event::Known(Known::LaneTitled(lane::Titled {
+                lane: lane_id.clone(),
+                title,
+            }));
+            for at in [&lane_id, &main] {
+                if let Err(error) = engine.record(at, &titled) {
+                    tracing::error!(%error, "could not store a task lane's title");
+                }
+            }
+            engine.announce(&main);
+        });
     }
 }
 

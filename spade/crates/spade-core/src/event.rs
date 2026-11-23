@@ -174,6 +174,9 @@ pub enum Known {
         /// escalation level is `ask`, not `block` (ADR 0165). Its `question_deferred` follows.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         later: bool,
+        /// Set when a task lane (ADR 0217 §4) asked: asked in main too, answered there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<Box<crate::lane::Ask>>,
     },
     /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
     /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes
@@ -828,6 +831,12 @@ pub enum Known {
     /// The person's message just before this went to a lane by `reply_to` (ADR 0217 §2), with
     /// no model call: main keeps it as the person's bubble, the lane as the person's message.
     AskRouted(crate::lane::Routed),
+    /// A lane's title from the `title` role, stored in main and in the lane (ADR 0217 §2a); it
+    /// replaces the first line it started with.
+    LaneTitled(crate::lane::Titled),
+    /// A lane wrote a file another lane still working wrote too (ADR 0217 §3): a note to the
+    /// writing lane and a line in main, never a lock.
+    LanesOverlapped(crate::lane::Overlap),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),

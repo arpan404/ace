@@ -269,6 +269,11 @@ pub const INTERNAL: &[&str] = &[
     "skill_load",
     "skill_propose",
     "skill_feedback",
+    // A bot's task lanes (ADR 0217): main's own coordination, not a packaged bot's API yet.
+    crate::lane::TASK_START,
+    crate::lane::TASK_MESSAGE,
+    crate::lane::TASK_STOP,
+    crate::lane::TASKS,
 ];
 
 /// A name that left the API, kept working as another tool (§4.3).

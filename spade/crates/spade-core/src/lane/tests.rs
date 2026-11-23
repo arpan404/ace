@@ -374,3 +374,47 @@ fn a_task_main_moved_to_a_lane_is_never_carried_on_in_main() {
     events.extend([person("Now tidy my notes."), started("r2"), status]);
     assert!(!task_moved(&events));
 }
+
+#[test]
+fn a_lane_that_writes_a_file_another_working_lane_wrote_is_told_once() {
+    let wrote = |path: &str, ok: bool| {
+        vec![
+            e(json!({ "type": "step_finished", "reply": "r1", "text": "",
+                      "calls": [{ "id": "w1", "name": "workspace_write",
+                                  "arguments": { "path": path, "content": "x" } }] })),
+            e(
+                json!({ "type": "tool_finished", "reply": "r1", "call_id": "w1",
+                      "name": "workspace_write", "content": "ok", "is_error": !ok }),
+            ),
+        ]
+    };
+    let mine = written(&wrote("./crm.md", true));
+    assert_eq!(mine.iter().collect::<Vec<_>>(), ["crm.md"]);
+    assert!(
+        written(&wrote("crm.md", false)).is_empty(),
+        "a failed write wrote nothing"
+    );
+    let others = vec![
+        (
+            "l1".to_owned(),
+            "Compare the quotes".to_owned(),
+            written(&wrote("crm.md", true)),
+        ),
+        (
+            "l3".to_owned(),
+            "Other".to_owned(),
+            written(&wrote("notes.md", true)),
+        ),
+    ];
+    let found = overlaps(("l2", "Summarise the quotes", &mine), &others, &[]);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        (found[0].path.as_str(), found[0].other.as_str()),
+        ("crm.md", "l1")
+    );
+    let noted = vec![Event::Known(Known::LanesOverlapped(found[0].clone()))];
+    assert!(
+        overlaps(("l2", "Summarise the quotes", &mine), &others, &noted).is_empty(),
+        "noted once"
+    );
+}

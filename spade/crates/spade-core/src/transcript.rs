@@ -117,6 +117,16 @@ impl Transcript {
                     outcome: Outcome::Finished,
                 })
             }
+            // A lane's question, asked in main too (ADR 0217 §4): main reads waiting until it is
+            // answered or the lane moves on; main's own turn never waits on it.
+            Known::QuestionAsked {
+                call_id,
+                lane: Some(lane),
+                ..
+            } => {
+                self.helper_awaiting
+                    .push((call_id.clone(), lane.task.clone()));
+            }
             Known::QuestionAsked { call_id, .. } => {
                 self.paused = false;
                 // A call that stopped to ask the person (a sign-in to reconnect) runs no longer.
@@ -140,12 +150,15 @@ impl Transcript {
                 call_id,
                 late: false,
             } => {
+                self.helper_awaiting.retain(|(id, _)| id != call_id);
                 for question in self.questions.iter_mut().filter(|q| &q.call_id == call_id) {
                     question.answered = true;
                 }
             }
-            Known::QuestionAnswered { late: true, .. }
-            | Known::QuestionDismissed { late: true, .. } => {}
+            Known::QuestionAnswered { call_id, late: true, .. }
+            | Known::QuestionDismissed { call_id, late: true } => {
+                self.helper_awaiting.retain(|(id, _)| id != call_id);
+            }
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
@@ -349,6 +362,8 @@ impl Transcript {
             | Known::LaneStarted(_)
             | Known::ReplyMoved(_)
             | Known::AskRouted(_)
+            | Known::LaneTitled(_)
+            | Known::LanesOverlapped(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)
@@ -944,6 +959,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step,
             Event::Known(Known::QuestionAsked {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "q1".into(),
                 question: "Window or aisle?".into(),

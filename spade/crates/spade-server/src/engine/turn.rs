@@ -285,6 +285,11 @@ async fn drive(
                 if engine.move_if_due(id, &reply, engine.now_ms() - began) {
                     return Ended::Finished;
                 }
+                // A lane that wrote a file another working lane wrote hears so first (ADR 0217
+                // §3).
+                if engine.note_overlaps(id) {
+                    continue;
+                }
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
                 // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();

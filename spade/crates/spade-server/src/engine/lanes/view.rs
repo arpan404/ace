@@ -70,7 +70,7 @@ impl Engine {
         let mut view = json!({
             "task": row.conversation,
             "conversation": row.conversation,
-            "title": link.map_or("A task", |l| l.title.as_str()),
+            "title": lane::title(&events).unwrap_or_else(|| "A task".to_owned()),
             "state": state.name(),
             "needs_you": state == State::NeedsYou,
             "progress": progress,
