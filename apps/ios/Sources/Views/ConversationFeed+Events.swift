@@ -24,7 +24,7 @@ extension ConversationFeed {
         extent.update(change: TranscriptExtent.WindowChange(
             ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
         let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
-        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
         restack(rows: rows.count, moving: intent.active || intent.animating, replaced: true, proxy: proxy)
     }
     /// The rows' count changed, their window was replaced, or the feed came to rest: move the rows
@@ -44,8 +44,8 @@ extension ConversationFeed {
     func readingRevised(proxy: ScrollViewProxy) {
         guard reading.thread != nil else { return }
         if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
-        updateExtent()
         let rows = TranscriptFeedRow.rows(shown)
+        updateExtent(rows: rows)
         if reading.landing.holdsPlace {
             // A focus still landing owns the place until its row has been shown: no saved
             // session or held row takes it over, whatever row is on top as pages land.

@@ -28,6 +28,32 @@ import Testing
         #expect(shelf.take("c") === third)
     }
 
+    @Test func leavingTheWindowReleasesRenderersAndRejectsLateDismantles() {
+        let shelf = ViewShelf<View>(maxKept: 40)
+        let keep = View()
+        shelf.put(keep, for: "overlap", owner: "block-400")
+
+        let resident = (400..<800).map { "block-\($0)" }
+        for index in 0..<38 {
+            let owner = "block-\(index)"
+            shelf.put(View(), for: "answer-\(index)", owner: owner)
+        }
+        var departing: View? = View()
+        weak var retired = departing
+        if let departing { shelf.put(departing, for: "departing", owner: "block-100") }
+        departing = nil
+        #expect(retired != nil)
+
+        shelf.keepOwners(resident)
+        shelf.put(View(), for: "late", owner: "block-101")
+
+        print("Cached views after a 400-row window moved: \(shelf.keptCount)")
+        #expect(retired == nil)
+        #expect(shelf.keptCount == 1)
+        #expect(shelf.take("overlap") === keep)
+        #expect(shelf.take("late") == nil)
+    }
+
     @Test func heightsOutliveTheirViewsUpToTheirOwnLimit() {
         let shelf = ViewShelf<View>(maxHeights: 2, maxKept: 1)
         shelf.remember(height: 100, for: "a")

@@ -9,6 +9,7 @@ import SwiftUI
 struct ConversationFeed: View {
     @Environment(\.aceReduceMotion) var reduceMotion
     @Environment(\.dynamicTypeSize) var typeSize
+    @Environment(\.markdownShelf) var markdownShelf
     @Environment(\.aceDensityId) var densityId
     let model: ClientModel
     let thread: ThreadModel
@@ -33,9 +34,6 @@ struct ConversationFeed: View {
     @State var stackSwitches = 0
     @State var extent = TranscriptExtent()
     @State var viewport = TranscriptViewportController()
-    /// Previous resident block-to-items snapshot, for classifying missing
-    /// blocks on streaming changes without a fresh service reply.
-    @State var lastBlockItems: [String: [String]] = [:]
     /// The room the keyboard takes under the last row (`TranscriptKeyboardRoom`).
     @State var keyboardRoom = TranscriptKeyboardRoom()
     /// How far the keyboard reaches above the feed's bottom edge.
@@ -134,7 +132,7 @@ struct ConversationFeed: View {
                         .accessibilityElement(children: .combine)
                         .accessibilityHint("Shows saved history until the thread reconnects")
                     }
-                    Color.clear.frame(height: extent.before).accessibilityHidden(true)
+                    TranscriptSpacer(extent: extent, height: \.before)
                     ForEach(TranscriptFeedRow.rows(shown)) { row in
                         TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
                             .transcriptJumpMark(row.id)
@@ -150,7 +148,7 @@ struct ConversationFeed: View {
                             }
                             .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
                     }
-                    Color.clear.frame(height: extent.after).accessibilityHidden(true)
+                    TranscriptSpacer(extent: extent, height: \.after)
                 } else { ConversationSkeleton(opening: opening, retry: retryOpening) }
                 if reading.thread == nil || reading.joined {
                     ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
@@ -367,8 +365,10 @@ struct ConversationFeed: View {
         content
             .onChange(of: acceptedSend) { _, _ in returnToEnd(proxy: proxy) }
             .onChange(of: shown.disclosures.opens) { _, _ in disclosuresChanged() }
-            .onChange(of: shown.screen.blockOrder, initial: true) { _, _ in updateExtent() }
-            .modifier(SpacerCounts(before: extent.before, after: extent.after))
+            .onChange(of: shown.screen.blockOrder, initial: true) { _, ids in
+                markdownShelf?.keepOwners(ids)
+                updateExtent(rows: TranscriptFeedRow.rows(shown))
+            }
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
             // The rows of an opened thread measure within a few frames of being drawn, and the scroll
             // to the end settles; then new rows and the reader's drags grow under a held top, as

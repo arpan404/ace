@@ -24,7 +24,8 @@ nonisolated func contentKey(_ text: String) -> String {
 @MainActor final class ViewShelf<Kept: AnyObject> {
     private var heights: [String: CGFloat] = [:]
     private var heightOrder: [String] = []
-    private var kept: [(id: String, view: Kept)] = []
+    private var kept: [(id: String, owner: String?, view: Kept)] = []
+    private var owners: Set<String>?
     let maxHeights: Int
     let maxKept: Int
 
@@ -48,10 +49,21 @@ nonisolated func contentKey(_ text: String) -> String {
     }
 
     /// Puts a view that went off screen on the shelf; past the limit the longest kept goes.
-    func put(_ view: Kept, for id: String) {
+    func put(_ view: Kept, for id: String, owner: String? = nil) {
+        if let owner, let owners, !owners.contains(owner) { return }
         kept.removeAll { $0.id == id }
-        kept.append((id, view))
+        kept.append((id, owner, view))
         if kept.count > maxKept { kept.removeFirst(kept.count - maxKept) }
+    }
+
+    /// Views whose rows leave the transcript window cannot be used until another page
+    /// loads them. Drop them now and reject a late dismantle from an already-evicted row.
+    func keepOwners(_ ids: [String]) {
+        let resident = Set(ids)
+        owners = resident
+        kept.removeAll { entry in
+            entry.owner.map { !resident.contains($0) } ?? false
+        }
     }
 
     var keptCount: Int { kept.count }

@@ -249,13 +249,12 @@ extension ConversationFeed {
     /// changes with no fresh list classify through the bounded removal log: a
     /// missing block whose items all left as `evicted` retains space, and
     /// every other missing block (deleted, regrouped, ambiguous) drops.
-    func updateExtent() {
-        let rows = TranscriptFeedRow.rows(shown)
+    func updateExtent(rows: [TranscriptFeedRow]) {
         let ids = rows.map(\.id)
         if reading.thread == nil {
             // Live tail: no retained space; streaming regroups and deletes drop.
             extent.update(change: TranscriptExtent.WindowChange(ids: ids, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+            anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
             return
         }
         let movement: TranscriptExtent.Movement
@@ -263,7 +262,7 @@ extension ConversationFeed {
         else { movement = reading.operation == "older" ? .older : .newer }
         if movement == .replace {
             extent.update(change: TranscriptExtent.WindowChange(ids: ids, movement: .replace))
-            lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+            anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
             return
         }
         let fresh = reading.hasFreshWindowEvidence
@@ -275,7 +274,7 @@ extension ConversationFeed {
         }
         let removalByID = Dictionary(uniqueKeysWithValues: shown.recentRemovals.map { ($0.id, $0) })
         let resident = Set(ids)
-        for (blockID, items) in lastBlockItems where !resident.contains(blockID) {
+        for (blockID, items) in anchor.lastBlockItems where !resident.contains(blockID) {
             guard !items.isEmpty else { continue }
             var allEvicted = true
             for item in items {
@@ -290,7 +289,7 @@ extension ConversationFeed {
             beforeSeq: evidence.beforeSeq, afterSeq: evidence.afterSeq,
             beforeCount: evidence.beforeCount, afterCount: evidence.afterCount,
             spans: evidence.blockSeqs))
-        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
     }
 
     /// Tells the bridge the reader left the end or came back to it, when that changed
