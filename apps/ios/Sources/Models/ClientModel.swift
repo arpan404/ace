@@ -175,6 +175,8 @@ import QuartzCore
     var admission: MachineAdmissionInfo?
     /// The desktop app's update on this machine (`bridge/machine-app-update.ts`).
     var appUpdate: MachineAppUpdateInfo?
+    /// This machine's own update, checked and started from the phone (`bridge/machine-update.ts`).
+    var machineUpdate: MachineUpdateInfo?
     /// Each project's mark by workspace id, as rows draw it (`bridge/project-looks.ts`).
     var projectLooks: [String: ProjectMarkLook] = [:]
     /// Each project's logical ids by workspace id (ADR 0189); a project of its own has none.
@@ -324,7 +326,7 @@ import QuartzCore
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
         inboxLayout = .empty; chatLayout = .empty
-        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
+        machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; machineUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
         connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false; listFresh = false; listComplete = false; located = [:]; locateFailed = []
@@ -673,6 +675,7 @@ import QuartzCore
             case .machineProviders(let info): providers = info
             case .cacheUsage(let usage): cacheUsage = usage
             case .machineAdmission(let info): admission = info
+            case .machineUpdate(let info): machineUpdate = info
             case .machineAppUpdate(let info): appUpdate = info
             case .projectLook(let id, let look): projectLooks[id] = look.map(ProjectMarkLook.init)
             case .projectsLogical(let ids): if projectLogical != ids { projectLogical = ids; projectsVersion &+= 1 }

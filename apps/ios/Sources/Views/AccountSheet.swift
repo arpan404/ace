@@ -53,7 +53,8 @@ struct AccountSheet: View {
             }
             .insetRowBackground()
             AccountUpdatesSection(computerName: updateHost(listed).map { machines?.entry($0)?.displayName ?? inbox.name($0) },
-                                  computer: updateHost(listed).flatMap { inbox.client($0)?.appUpdate })
+                                  computer: updateHost(listed).flatMap { inbox.client($0)?.appUpdate },
+                                  client: updateHost(listed).flatMap { inbox.client($0) })
             if showsConnection { connection(listed) }
         }
         .insetGroupedList()
