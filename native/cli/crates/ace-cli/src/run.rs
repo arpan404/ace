@@ -27,6 +27,12 @@ const NATIVE_IDS: &[&str] = &[
     "project.list",
     "request.list",
     "request.show",
+    "project.add",
+    "project.rename",
+    "project.remove",
+    "request.allow",
+    "request.deny",
+    "request.answer",
 ];
 
 /// Runs one command line, returning the outcome whose exit code ends the process.

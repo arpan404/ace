@@ -117,9 +117,13 @@ pub struct ServerEnvelope<'a> {
     #[serde(default, borrow)]
     pub request_id: Option<Cow<'a, str>>,
     #[serde(default, borrow)]
+    pub command_id: Option<Cow<'a, str>>,
+    #[serde(default, borrow)]
     pub code: Option<Cow<'a, str>>,
     #[serde(default, borrow)]
     pub message: Option<Cow<'a, str>>,
+    #[serde(default)]
+    pub retryable: Option<bool>,
     #[serde(default)]
     pub locked_until: Option<u64>,
 }
