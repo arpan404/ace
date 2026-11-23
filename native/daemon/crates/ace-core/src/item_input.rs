@@ -101,12 +101,12 @@ pub fn merge_candidate(
     previous: Option<&Item>,
     base: &ItemIdentity,
     patch: &Map,
-    now: i64,
+    _now: i64,
     detail_patch: Option<&Map>,
 ) -> Map {
     let patch_type = patch.get("type").and_then(|kind| kind.as_str());
     if patch_type == Some("tool_call") {
-        return merge_tool_candidate(previous, base, patch, now, detail_patch);
+        return merge_tool_candidate(previous, base, patch, _now, detail_patch);
     }
     let mut candidate = Map::new();
     candidate.insert("complete".to_owned(), Json::Bool(false));
@@ -132,7 +132,7 @@ pub fn merge_candidate(
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));
     candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
-    candidate.insert("createdAt".to_owned(), Json::Number(now.into()));
+    candidate.insert("createdAt".to_owned(), Json::Number(base.created_at.into()));
     if let Some(run_id) = &base.run_id {
         candidate.insert("runId".to_owned(), Json::from(run_id.clone()));
     }
@@ -207,7 +207,7 @@ fn merge_tool_candidate(
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));
     candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
-    candidate.insert("createdAt".to_owned(), Json::Number(now.into()));
+    candidate.insert("createdAt".to_owned(), Json::Number(base.created_at.into()));
     if let Some(run_id) = &base.run_id {
         candidate.insert("runId".to_owned(), Json::from(run_id.clone()));
     }
