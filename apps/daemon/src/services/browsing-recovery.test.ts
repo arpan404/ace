@@ -8,6 +8,7 @@ import type { startServer } from "../server.ts";
 import { Resources } from "./resources.ts";
 import { startBrowsing } from "./browsing.ts";
 import { ServiceStartup, type ServiceDefinition } from "./startup.ts";
+import { followService } from "./service-watch.ts";
 import type { Services } from "./types.ts";
 
 const open: (() => Promise<void>)[] = [];
@@ -90,11 +91,17 @@ function startup() {
     },
   );
   const retry = async () => {
+    // A failed attempt's cleanup finishes first, or startup puts the retry off.
+    await settle();
     for (const fire of timers.splice(0)) fire();
     await settle();
   };
-  return { subject, services, retry };
+  return { subject, services, retry, resources };
 }
+
+const server = {} as Awaited<ReturnType<typeof startServer>>;
+const state = (subject: ServiceStartup, name: string) =>
+  subject.status().find((entry) => entry.name === name)?.state;
 
 const service = (
   name: string,
@@ -113,11 +120,121 @@ test("the browsing indicator hears agents in a browser that started on a retry",
     }),
     service("browsing", startBrowsing, ["browser"]),
   ]);
-  await subject.listening({} as Awaited<ReturnType<typeof startServer>>);
+  await subject.listening(server);
   expect(services.browser).toBeUndefined();
   await retry();
   expect(services.browser).toBe(stub.browser);
 
   stub.agentWorksIn("thread-1");
   expect(services.browsing?.threads()).toEqual([ThreadId.parse("thread-1")]);
+});
+
+test("a follower whose first look throws keeps running and still hears the browser arrive", async () => {
+  const { subject, retry } = startup();
+  const stub = stubBrowser();
+  let attempts = 0;
+  const heard: unknown[] = [];
+  let first = true;
+  await subject.start([
+    service("browser", (context) => {
+      if (++attempts === 1) throw new Error("desktop credential unwritable");
+      context.services.browser = stub.browser;
+    }),
+    service(
+      "browsing",
+      (context) => {
+        context.resources.own(
+          followService(context, "browser", (browser) => {
+            if (first) {
+              first = false;
+              throw new Error("not ready to look yet");
+            }
+            heard.push(browser);
+          }),
+        );
+      },
+      ["browser"],
+    ),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "browsing")).toBe("ready");
+  await retry();
+  expect(heard).toEqual([stub.browser]);
+});
+
+test("a follower never hears an older browser after a newer one", async () => {
+  const { subject, retry } = startup();
+  const older = stubBrowser();
+  const newer = stubBrowser();
+  let attempts = 0;
+  let browserServices: Partial<Services> | undefined;
+  const heard: unknown[] = [];
+  await subject.start([
+    service("browser", (context) => {
+      if (++attempts === 1) throw new Error("desktop credential unwritable");
+      browserServices = context.services;
+      context.services.browser = older.browser;
+    }),
+    // The first follower replaces the browser as soon as it sees the older one.
+    service(
+      "browsing",
+      (context) => {
+        context.resources.own(
+          followService(context, "browser", (browser) => {
+            if (browser === older.browser && browserServices)
+              browserServices.browser = newer.browser;
+          }),
+        );
+      },
+      ["browser"],
+    ),
+    service(
+      "mcp",
+      (context) => {
+        context.resources.own(followService(context, "browser", (browser) => heard.push(browser)));
+      },
+      ["browser"],
+    ),
+  ]);
+  await subject.listening(server);
+  await retry();
+  expect(heard.at(-1)).toBe(newer.browser);
+  expect(heard.slice(heard.indexOf(newer.browser))).not.toContain(older.browser);
+});
+
+test("a browser that fails after publishing is withdrawn; only its replacement moves the indicator", async () => {
+  const { subject, services, retry, resources } = startup();
+  const failing = stubBrowser();
+  const replacement = stubBrowser();
+  let attempts = 0;
+  await subject.start([
+    service("browser", (context) => {
+      if (++attempts === 1) {
+        // Published late, once the daemon listens; then the service fails.
+        context.onListen.push(() => void (context.services.browser = failing.browser));
+        context.onListen.push(() => {
+          failing.agentWorksIn("thread-1");
+          throw new Error("browser listener failed");
+        });
+        return;
+      }
+      context.services.browser = replacement.browser;
+    }),
+    service("browsing", startBrowsing, ["browser"]),
+  ]);
+  await subject.listening(server);
+  expect(state(subject, "browser")).toBe("degraded");
+  expect(services.browser).toBeUndefined();
+  expect(services.browsing?.threads()).toEqual([]);
+
+  await retry();
+  expect(services.browser).toBe(replacement.browser);
+  failing.agentWorksIn("thread-2");
+  expect(services.browsing?.threads()).toEqual([]);
+  replacement.agentWorksIn("thread-3");
+  expect(services.browsing?.threads()).toEqual([ThreadId.parse("thread-3")]);
+
+  // Shutdown withdraws it as well.
+  await resources.close();
+  expect(services.browser).toBeUndefined();
 });
