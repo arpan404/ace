@@ -1,4 +1,5 @@
 import type { MarketPublishAction } from "@ace/protocol/marketplace";
+import { sha256 } from "@ace/secure-channel";
 
 /*
  * The one market request a person-only publish action makes (ADR 0190), as both the daemon that
@@ -77,7 +78,8 @@ export const marketCallBody = (call: { json?: unknown }): string | undefined =>
 /**
  * What a person's market grant names (`action`, ADR 0190): the method, the path with its query
  * exactly as sent, and the SHA-256 of the exact body, so a grant for one recipient, handle,
- * reason or version does nothing for another.
+ * reason or version does nothing for another. The hash is the portable one, not `crypto.subtle`:
+ * the iPhone bridge runs in JavaScriptCore, which has no Web Crypto.
  */
 export async function marketIntent(input: {
   method: string;
@@ -88,7 +90,7 @@ export async function marketIntent(input: {
     typeof input.body === "string"
       ? new TextEncoder().encode(input.body)
       : (input.body ?? new Uint8Array());
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(bytes)));
+  const digest = sha256(bytes);
   let binary = "";
   for (const byte of digest) binary += String.fromCharCode(byte);
   const hash = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");

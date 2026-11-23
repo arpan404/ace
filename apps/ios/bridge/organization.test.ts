@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { setUp } from "./spade-test-host.ts";
 import {
@@ -201,6 +201,20 @@ test("the registry is read with the grant the phone minted for the very request 
   });
   expect(read.entries[1]?.versions[0]?.line).toBe("Held for ace's review · Scan warned");
   expect(daemon.marketplace.registries.asked.at(-1)?.personGrant).toBe("grant-for-the-read");
+});
+
+test("the bridge names a registry request without Web Crypto, as JavaScriptCore on the phone has none", async () => {
+  const { ask } = await host();
+  vi.stubGlobal("crypto", { randomUUID: () => "id" });
+  try {
+    const named = (await ask({ op: "registryIntent", org: acme })) as { intent: string };
+    // A read has no body: the intent ends with the SHA-256 of nothing, base64url.
+    expect(named.intent).toBe(
+      `GET /v1/orgs/${acme}/registry 47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU`,
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 test("a withdrawal goes with its own grant, and the version then waits for the registry's signer", async () => {
