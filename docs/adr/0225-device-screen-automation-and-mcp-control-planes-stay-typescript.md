@@ -65,19 +65,19 @@ simulator command takes tens to hundreds of milliseconds; a poll runs at most on
 
 ### 1. What gains from Rust, and what doesn't
 
-| Part                                                                    | Gain from Rust                                                                                                                                                                                                 | Decision                                                 |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| MCP transport (SDK, HTTP, SSE, sessions)                                | at most 0.1–0.2 ms of a call made seconds apart                                                                                                                                                                | stays TypeScript                                         |
-| MCP registry, Zod validation, listings, error text                      | none; the output is Zod- and JavaScript-shaped (schemas from `z.toJSONSchema`, argument-issue text, about 80 fixed public errors)                                                                              | stays TypeScript                                         |
-| Store work around each MCP call (55% of its CPU)                        | none from moving the server; it is store reads and writes, cheaper by doing fewer of them                                                                                                                      | a TypeScript change, outside this ADR (question 2)       |
-| Tools whose owners move to Rust (agent-control, ADR 0222's path step 2) | they stop crossing into JavaScript for their work                                                                                                                                                              | **M1**: native tool entries in the TypeScript registry   |
-| Computer use and screen sessions                                        | none: 0.12–0.25 ms per call beside a native helper that takes far longer                                                                                                                                       | stays TypeScript                                         |
-| Device control plane (leases, cowork, refs, tools, bridge)              | none: 28–636 µs per call beside SDK commands                                                                                                                                                                   | stays TypeScript                                         |
-| Android video through the JS thread                                     | the video path stops depending on the JS thread (a main-thread stall, up to 146 ms per commit in ADR 0222's measurement, stalls Android video today; iOS is already read by ace-media)                         | **D1**: ace-media reads scrcpy's video socket itself     |
-| SDK and `gh` spawns (1.25 ms of daemon CPU each)                        | the supervisor's share, through ADR 0223 E2 (`ACE_SUPERVISOR=native`), with no change here                                                                                                                     | inherited                                                |
-| Inventory polling                                                       | none from the language; `adb` can push changes instead                                                                                                                                                         | a TypeScript change, outside this ADR (question 3)       |
-| Automation scheduler (recurrence, admission, store, webhooks)           | none: microseconds per decision, one timer; and `compileSchedule` also runs in `ui-core` and `fake-daemon`                                                                                                     | stays TypeScript                                         |
-| Automation executor and run monitor                                     | they read engine and thread-tree state; once the engine is Rust, reading it from Rust avoids a JSON round trip per check, and the rules that decide a run is over (priority 1) live beside the state they read | **A1**: after the engine, as a Rust `AutomationExecutor` |
+| Part                                                                    | Gain from Rust                                                                                                                                                                                                 | Decision                                                                     |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| MCP transport (SDK, HTTP, SSE, sessions)                                | at most 0.1–0.2 ms of a call made seconds apart                                                                                                                                                                | stays TypeScript                                                             |
+| MCP registry, Zod validation, listings, error text                      | none; the output is Zod- and JavaScript-shaped (schemas from `z.toJSONSchema`, argument-issue text, about 80 fixed public errors)                                                                              | stays TypeScript                                                             |
+| Store work around each MCP call (55% of its CPU)                        | none from moving the server; it is store reads and writes, cheaper by doing fewer of them                                                                                                                      | a TypeScript change, outside this ADR (question 2)                           |
+| Tools whose owners move to Rust (agent-control, ADR 0222's path step 2) | they stop crossing into JavaScript for their work                                                                                                                                                              | **M1**: the family's port in Rust, behind the port its toolkit already takes |
+| Computer use and screen sessions                                        | none: 0.12–0.25 ms per call beside a native helper that takes far longer                                                                                                                                       | stays TypeScript                                                             |
+| Device control plane (leases, cowork, refs, tools, bridge)              | none: 28–636 µs per call beside SDK commands                                                                                                                                                                   | stays TypeScript                                                             |
+| Android video through the JS thread                                     | the video path stops depending on the JS thread (a main-thread stall, up to 146 ms per commit in ADR 0222's measurement, stalls Android video today; iOS is already read by ace-media)                         | **D1**: ace-media reads scrcpy's video socket itself                         |
+| SDK and `gh` spawns (1.25 ms of daemon CPU each)                        | the supervisor's share, through ADR 0223 E2 (`ACE_SUPERVISOR=native`), with no change here                                                                                                                     | inherited                                                                    |
+| Inventory polling                                                       | none from the language; `adb` can push changes instead                                                                                                                                                         | a TypeScript change, outside this ADR (question 3)                           |
+| Automation scheduler (recurrence, admission, store, webhooks)           | none: microseconds per decision, one timer; and `compileSchedule` also runs in `ui-core` and `fake-daemon`                                                                                                     | stays TypeScript                                                             |
+| Automation executor and run monitor                                     | they read engine and thread-tree state; once the engine is Rust, reading it from Rust avoids a JSON round trip per check, and the rules that decide a run is over (priority 1) live beside the state they read | **A1**: after the engine, as a Rust `AutomationExecutor`                     |
 
 Plainly: none of the four areas is slow because it is TypeScript. Pixels, codecs, capture,
 accessibility and input are native already; what is left is control logic whose cost is
@@ -115,7 +115,8 @@ port}` origin in its wire (`media-wire/src/control.rs:130`). No new process.
   deadline the store's index returns (`store.ts:314`): a query and a timer, not a crate. A1 moves
   no scheduling.
 - **D1**: ace-media's own crates (`media-wire`, `media-ingest`, the shell's reader threads); the
-  scrcpy video framing is twelve-byte packet headers over a TCP stream, written beside
+  scrcpy video framing (a preamble, a u32 codec id, then a twelve-byte header before each packet
+  over a TCP stream, `scrcpy-protocol.ts:217`) is written beside
   `serve_sim.rs` as its pure half, with the vectors in `native/media/vectors`.
 - **M1 and A1**: `napi` 3 (through `ace-daemon-node`), `ace-json` for every value that crosses
   (ADR 0223 porting guide rule 8), `ace-store`, `ace-engine`, `thiserror`. Nothing else.
@@ -125,15 +126,21 @@ port}` origin in its wire (`media-wire/src/control.rs:130`). No new process.
 The rule from ADR 0222: Rust fetches and decides; TypeScript shapes what a model, a person or a
 client reads.
 
-- **M1, native tools.** A native tool is registered in the same `ToolRegistry` with the same Zod
-  input and output schemas, title, risk class and timeout, so its descriptor, annotations and
-  `tools/list` entry are built by the same TypeScript code. A call is admitted, budgeted, parsed
-  and timed by `ToolRegistry.call` exactly as today; the parsed input crosses to Rust as
-  `ace-json`; Rust returns either a structured value or a `PublicToolCode` (with its detail
-  fields); TypeScript runs the output schema, `JSON.stringify` and `PublicToolError` as it does for
-  every tool. Text the model reads is never produced in Rust. Cancellation: the call's
-  `AbortSignal` becomes a cancellation token the Rust task checks; a Rust tool that ignores it
-  keeps its slot, as a JavaScript one does.
+- **M1, native tool families.** A toolkit already takes its owner as a port: agent-control's
+  tools are `agentControlToolkit(port: AgentControlPort)` (`mcp-server/src/agent-control.ts:27`),
+  whose one method is `execute(caller, operation, signal) → AgentControlResult`
+  (`control-tool.ts:15`), implemented today by `createAgentControlPort`
+  (`apps/daemon/src/agent-control/tools.ts:174`). When a family's owner moves to Rust, the port is
+  what moves: the switch picks a native port in the daemon's factory, and the toolkit, its Zod
+  input and output schemas, its descriptors and annotations, the registry, the listing and the
+  transport don't change and don't know. A call is admitted, budgeted, parsed and timed by
+  `ToolRegistry.call` exactly as today; the parsed operation crosses to Rust as `ace-json`; Rust
+  returns the port's result value; TypeScript runs the output schema, `JSON.stringify` and
+  `PublicToolError` as for every tool. Words in a result (`hint`, an `AgentControlError`'s
+  `publicDetail`) are the owner's contract, and the family's own ADR decides whether they are
+  built in Rust (byte for byte, proven by its (a) files) or passed back to TypeScript to word.
+  Cancellation: the call's `AbortSignal` becomes a token the Rust task checks; a port that
+  ignores it keeps its slot, as a JavaScript one does. No change to `@ace/mcp-server` is needed.
 - **A1, the automation executor.** The boundary is `AutomationExecutor` (`contracts.ts:32`): the
   TypeScript `AutomationService` calls `execute`, `recover` and `interrupt` as today, and with the
   switch on they reach a Rust implementation that sends the run's command through the native
@@ -162,18 +169,19 @@ native part, the daemon refuses to start and says so.
 | `ACE_AUTOMATION_EXECUTOR=native`       | A1    | `ACE_ENGINE=native` (and so `ACE_STORE=native`) |
 
 `ACE_NATIVE_CROSS` (ADR 0223 §8) learns `ACE_AUTOMATION_EXECUTOR` and `ACE_NATIVE_TOOLS`: both
-leave rows (run records, call records) that the other backend must read after a restart.
+leave rows (run records; the family's own rows) that the other backend must read after a restart.
 
 ### 6. Phases, each shippable alone
 
-| Phase | What moves                                                                                                                              | Switch                           | Proven by                                                                                                                                                                                                                                                                                                                                                             |
-| ----- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1    | ace-media reads an Android device's scrcpy video socket; the daemon stops forwarding units                                              | `ACE_SCRCPY_VIDEO=media`         | devices (a): `scrcpy-capture.process`, `scrcpy-media.process`, `live-view.process`, `capture.process`, `platform.process`, `android-physical.process`; (b) moved to `cargo test`: `scrcpy-protocol`, `scrcpy-video` cases; ace-media's vectors                                                                                                                        |
-| M1    | the registration kind for native tools, then each family whose owner has moved (first: agent-control's tools, when agent-control moves) | `ACE_NATIVE_TOOLS=<family>`      | mcp-server (a): all 36; daemon MCP (a): all 16 with the family on; that family's own (a) files                                                                                                                                                                                                                                                                        |
-| A1    | `AutomationExecutor` in Rust: run commands, the monitor, the run rules and records                                                      | `ACE_AUTOMATION_EXECUTOR=native` | automations (a): all 25 (they use executor fakes, so they prove the service is untouched); daemon (a): the 9 automation process files; (b) moved: `automation-run-rules` cases; cross-mode: those of the 9 that restart a daemon (`automation-durability.process` and `automation-run-record.process` first; `scripts/native-cross.ts` drops any that never restarts) |
+| Phase | What moves                                                                                              | Switch                           | Proven by                                                                                                                                                                                                                                                                                                                                                             |
+| ----- | ------------------------------------------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1    | ace-media reads an Android device's scrcpy video socket; the daemon stops forwarding units              | `ACE_SCRCPY_VIDEO=media`         | devices (a): `scrcpy-capture.process`, `scrcpy-media.process`, `live-view.process`, `capture.process`, `platform.process`, `android-physical.process`; (b) moved to `cargo test`: `scrcpy-protocol`, `scrcpy-video` cases; ace-media's vectors                                                                                                                        |
+| M1    | each tool family's port, once its owner has moved (first: `AgentControlPort`, when agent-control moves) | `ACE_NATIVE_TOOLS=<family>`      | mcp-server (a): all 36, unchanged with the family on; daemon MCP (a): all 16 with the family on; the family's own (a) files (for agent-control, `apps/daemon/src/agent-control/*` and the 56 files that build a real `Engine`)                                                                                                                                        |
+| A1    | `AutomationExecutor` in Rust: run commands, the monitor, the run rules and records                      | `ACE_AUTOMATION_EXECUTOR=native` | automations (a): all 25 (they use executor fakes, so they prove the service is untouched); daemon (a): the 9 automation process files; (b) moved: `automation-run-rules` cases; cross-mode: those of the 9 that restart a daemon (`automation-durability.process` and `automation-run-record.process` first; `scripts/native-cross.ts` drops any that never restarts) |
 
-Order: D1 needs nothing and can go now. M1 waits for the first tool family whose owner is Rust;
-its registration kind is built then, not before, so it is proven by a real family. A1 waits for
+Order: D1 needs nothing and can go now. M1 waits for the first tool family whose owner is Rust
+(agent-control's own ADR, after the engine), and is built with it, not before, so it is proven by
+a real family. A1 waits for
 ADR 0223 E5 to be default-on, since the executor's work is engine reads.
 
 Each phase is off by default until its (a) files pass alone with the switch on and off on macOS,
