@@ -21,12 +21,20 @@
 
 mod automation;
 mod bot;
+mod bot_parse;
+mod bot_render;
 pub(crate) mod common;
 pub(crate) mod feature;
 mod market;
+mod market_failure;
 mod market_ops;
+mod market_print;
+mod market_publish;
+mod market_refs;
 mod market_render;
 pub(crate) mod spade;
+mod spade_parse;
+mod spade_render;
 
 use std::io::Write;
 

@@ -175,6 +175,33 @@ pub fn current_millis() -> i64 {
     i64::try_from(millis).unwrap_or(0)
 }
 
+fn paint_code(text: &str, code: &str, colour: bool) -> String {
+    if colour {
+        format!("\u{1b}[{code}m{text}\u{1b}[39m")
+    } else {
+        text.to_owned()
+    }
+}
+
+/// Amber state words, only on a terminal; plain text otherwise.
+pub(crate) fn amber(text: &str, colour: bool) -> String {
+    paint_code(text, "33", colour)
+}
+
+/// Red failure words, only on a terminal; plain text otherwise.
+pub(crate) fn red(text: &str, colour: bool) -> String {
+    paint_code(text, "31", colour)
+}
+
+/// Dim facts, only on a terminal; plain text otherwise.
+pub(crate) fn dim(text: &str, colour: bool) -> String {
+    if colour {
+        format!("\u{1b}[2m{text}\u{1b}[22m")
+    } else {
+        text.to_owned()
+    }
+}
+
 /// A write that failed after a mutation was admitted: retry with the same key.
 #[must_use]
 pub fn uncertain_write(command: &'static str, key: &str) -> Failure<'static> {
