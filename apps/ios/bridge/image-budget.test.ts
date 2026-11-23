@@ -53,3 +53,59 @@ test("a read that fails gives its bytes back to the budget", async () => {
 
   await expect(budget.run(8, async () => "next")).resolves.toBe("next");
 });
+
+test("a cancelled read leaves the line at once, so a smaller live read behind it starts", async () => {
+  const budget = new ImageBudget(10);
+  const gate = Promise.withResolvers<void>();
+  const holder = budget.run(6, () => gate.promise);
+  const cancel = new AbortController();
+  const large = budget.run(8, async () => "large", cancel.signal);
+  const small = budget.run(4, async () => "small");
+  const refused = expect(large).rejects.toThrow("cancelled");
+  await settled();
+
+  cancel.abort(new Error("cancelled"));
+
+  await refused;
+  await expect(small).resolves.toBe("small");
+  gate.resolve();
+  await holder;
+});
+
+test("a read whose signal is already aborted never joins the line or counts its bytes", async () => {
+  const budget = new ImageBudget(10);
+  const cancel = new AbortController();
+  cancel.abort(new Error("cancelled"));
+  let started = false;
+
+  await expect(budget.run(8, async () => (started = true), cancel.signal)).rejects.toThrow(
+    "cancelled",
+  );
+
+  expect(started).toBe(false);
+  await expect(budget.run(10, async () => "whole")).resolves.toBe("whole");
+});
+
+test("a read cancelled between being let in and resuming never runs, and gives its slot back", async () => {
+  const budget = new ImageBudget(10);
+  const gate = Promise.withResolvers<void>();
+  const holder = budget.run(6, () => gate.promise);
+  const cancel = new AbortController();
+  // Cancels in the instant after the line lets the read in, before its `await` resumes.
+  const remove = cancel.signal.removeEventListener.bind(cancel.signal);
+  cancel.signal.removeEventListener = ((...args: Parameters<typeof remove>) => {
+    remove(...args);
+    cancel.abort(new Error("cancelled"));
+  }) as typeof remove;
+  let started = false;
+  const admitted = budget.run(6, async () => (started = true), cancel.signal);
+  const refused = expect(admitted).rejects.toThrow("cancelled");
+  await settled();
+
+  gate.resolve();
+  await holder;
+  await refused;
+
+  expect(started).toBe(false);
+  await expect(budget.run(10, async () => "whole")).resolves.toBe("whole");
+});

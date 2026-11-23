@@ -131,16 +131,20 @@ it("an error reply sharing a read with an approval closes it, and the next input
   });
 });
 
-it("an approval-first shell that was allowed still holds input once the prompt ends", async () => {
+it("an approval-first shell that was allowed is left running once the prompt ends, and input still goes in", async () => {
   const h = await open({ quirks: antigravityQuirks, server: { name: "antigravity-acp" } });
   await closing(h.session, async () => {
     const first = h.session.send(input("approval-first"), "queue");
     await h.wait((frame) => object(frame.data)["method"] === "session/request_permission");
     await h.session.resolve("request:number:201", { kind: "approval", optionId: "a" });
     await first;
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
-    await expect(h.session.send(input("next"), "queue")).rejects.toThrow("shell");
-    expect(sent(h.frames, "session/prompt")).toHaveLength(1);
+    // Antigravity reports the shell's end inside a later prompt, so it holds nothing (ADR 0109).
+    expect(h.state.status.state).toBe("done");
+    expect(Object.values(h.state.tasks).map((task) => [task.status, task.blocksPrompts])).toEqual([
+      ["running", undefined],
+    ]);
+    await taken(h.session.send(input("next"), "queue"));
+    expect(sent(h.frames, "session/prompt")).toHaveLength(2);
   });
 });
 

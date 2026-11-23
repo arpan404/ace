@@ -19,17 +19,39 @@ export class ImageBudget {
     this.cap = cap;
   }
 
-  async run<T>(bytes: number, read: () => Promise<T>): Promise<T> {
+  /**
+   * `read` once the budget has room. A read whose `signal` aborts while it waits leaves the line
+   * at once and rejects with the signal's reason, so it never holds smaller reads behind it.
+   */
+  async run<T>(bytes: number, read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    signal?.throwIfAborted();
     // A read's bytes are counted the moment it is let in, whether at once or from the line.
-    if (this.waiting.length || !this.fits(bytes))
-      await new Promise<void>((start) => this.waiting.push({ bytes, start }));
+    if (this.waiting.length || !this.fits(bytes)) await this.wait(bytes, signal);
     else this.held += bytes;
     try {
+      // Cancelled after being let in but before resuming: `finally` returns the slot.
+      signal?.throwIfAborted();
       return await read();
     } finally {
       this.held -= bytes;
       this.letIn();
     }
+  }
+
+  private wait(bytes: number, signal: AbortSignal | undefined): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const place = {
+        bytes,
+        start: () => (signal?.removeEventListener("abort", leave), resolve()),
+      };
+      const leave = () => {
+        this.waiting.splice(this.waiting.indexOf(place), 1);
+        reject(signal?.reason);
+        this.letIn();
+      };
+      this.waiting.push(place);
+      signal?.addEventListener("abort", leave, { once: true });
+    });
   }
 
   private fits(bytes: number) {

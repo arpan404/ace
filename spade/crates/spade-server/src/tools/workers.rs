@@ -42,7 +42,7 @@ fn spec(name: &str) -> (&'static str, Value, Risk, bool) {
              back, the boundaries and what is ruled out. It gets your tools, connectors \
              and plugins at most. It answers at once; the worker reports back here when it settles.",
             json!({ "type": "object", "properties": {
-                "name": { "type": "string", "description": "Its name, 1 to 40 characters." },
+                "name": { "type": "string", "description": "Its name, 1 to 40 characters: the job in plain words (Fundraising Deck, Inbox Triage), never a nickname." },
                 "task": { "type": "string", "description": "What it is for: its standing instructions." },
                 "brief": { "type": "string", "description": "Its first message; the task when unset." },
                 "model": { "type": "string", "description": "A role (main, helper, verify, review, compact, title) or an endpoint/model the person set up for you; yours when unset." },

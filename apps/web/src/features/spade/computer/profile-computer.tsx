@@ -176,10 +176,10 @@ export function ProfileComputer(props: { bot: RosterBot; place: ProfileComputerP
         ) : view === "files" ? (
           <div className="-mx-4">
             <FileManager
+              key={`${bot.machine.key}/${bot.id}`}
               bot={bot}
               folder={place.files.folder}
               file={place.files.file}
-              onOpen={(to) => place.onView("files", to)}
               side={place.side}
               writable={state.mayAct}
             />

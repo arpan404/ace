@@ -8,6 +8,7 @@ pub mod base_url;
 pub mod catalog;
 mod client;
 pub mod config;
+mod effort;
 mod error;
 mod failure;
 mod format;
@@ -27,6 +28,7 @@ pub use catalog::{
 };
 pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
+pub use effort::Effort;
 pub use error::{ModelError, Unserved};
 pub use format::Format;
 pub use known_good::KnownGood;

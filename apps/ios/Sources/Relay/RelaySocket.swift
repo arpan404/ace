@@ -69,6 +69,21 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     private var offer = RelayShortcut.inUpgrade
     /// This dial's upgrade succeeded: a failure after it says nothing of the upgrade's header.
     private var upgraded = false
+    /// This channel's binding, its Noise handshake hash, once secured (ADR 0190 §3).
+    private var binding: String?
+    /// The standing challenge this channel's welcome set, while this socket proves the person.
+    private var challenge: AccountStandingProof.Challenge?
+    /// The request id of the proof sent and not yet answered; its answer is native's, never the script's.
+    private var awaitingVerdict: String?
+    private var reprove: DispatchWorkItem?
+    /// Clears the verdict at the expiry the daemon reported, unless a newer proof replaced it.
+    private var lapse: DispatchWorkItem?
+    /// Counts the verdicts this socket has settled, so a lapse timed for an older one does nothing.
+    private var standingGeneration = 0
+    /// How often a proven socket proves again: well inside the five minutes a person's grant lives.
+    static let reproveInterval: TimeInterval = 4 * 60
+    /// After a proof that couldn't reach the backend, the next try.
+    static let retryInterval: TimeInterval = 30
 
     private enum Phase {
         case connecting
@@ -198,6 +213,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             if !self.ended { self.record(1000, cause: "closed by the app") }
             self.ended = true
             self.deadline?.cancel()
+            self.reprove?.cancel(); self.lapse?.cancel()
             self.dropWaiting()
             self.task?.cancel(with: .goingAway, reason: nil)
             self.session?.invalidateAndCancel()
@@ -301,6 +317,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                 guard try noise.readMessage(bytes).isEmpty else { finish(1002, cause: "bad handshake"); return false }
                 write(try noise.writeMessage())
                 guard let transport = noise.transport else { finish(1002, cause: "bad handshake"); return false }
+                binding = AccountStandingProof.binding(handshakeHash: transport.handshakeHash)
                 phase = .secured(RelaySession(transport: transport))
                 deadline?.cancel()
                 LaunchTrace.mark("relay.secured")
@@ -326,6 +343,11 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                             return false
                         }
                         if !welcomed, !admission(text) { return false }
+                        // The answer to this socket's own proof is native's: the script hears the verdict only.
+                        if let requestId = awaitingVerdict, let verdict = StandingVerdict.read(text, requestId: requestId) {
+                            settle(verdict, remaining: StandingVerdict.remaining(text, requestId: requestId, now: Date()))
+                            return true
+                        }
                         event("message", .text(streams?.text(text) ?? text))
                     case .binary(let data): return deliver(data)
                     }
@@ -349,12 +371,88 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// fetched grant refused the same way reaches the SDK as the refusal it is. False once the
     /// channel ended.
     private func admission(_ text: String) -> Bool {
-        if text.hasPrefix(#"{"type":"welcome""#) { welcomed = true; LaunchTrace.mark("relay.welcome"); return true }
+        if text.hasPrefix(#"{"type":"welcome""#) {
+            welcomed = true; LaunchTrace.mark("relay.welcome")
+            startStanding(welcome: text)
+            return true
+        }
         guard Self.refusesGrant(text), let grant else { return true }
         route.grants.discard(grant)
         guard presentedKept else { return true }
         finish(1006, cause: "the daemon refused the kept grant; the next connection fetches one")
         return false
+    }
+    /// The daemon's own channel proves the person's standing on this socket (ADR 0190 §3) when its
+    /// welcome asks: never a media stream, which the daemon hands to ace-media.
+    private func startStanding(welcome text: String) {
+        guard purpose == nil, route.standingKey != nil,
+              let challenge = AccountStandingProof.challenge(welcome: text, hostId: route.hostId) else { return }
+        self.challenge = challenge
+        proveStanding()
+    }
+    /// Fetches a person's grant for this daemon and this runtime's key, signs this socket's
+    /// challenge and binding, and sends `account.standing` on this socket. The backend giving no
+    /// person's grant, or the phone being signed out, is `missing`; a backend it couldn't reach
+    /// is tried again shortly, and says nothing yet.
+    private func proveStanding() {
+        guard !ended, let challenge, let binding, let key = route.standingKey else { return }
+        let grants = route.grants
+        Task { [weak self] in
+            let grant: String?
+            do { grant = try await grants.personGrant(host: challenge.host, key: key.publicKey) }
+            catch AccountGrantError.unavailable { self?.queue.addOperation { self?.scheduleProof(after: Self.retryInterval) }; return }
+            catch { grant = nil }
+            let requestId = "standing-\(UUID().uuidString)"
+            let message = grant.flatMap {
+                AccountStandingProof.message(challenge, binding: binding, grant: $0, key: key, requestId: requestId)
+            }
+            self?.queue.addOperation { [weak self] in
+                guard let self, !self.ended, self.challenge == challenge else { return }
+                guard let message else { self.settle(.missing); return }
+                self.awaitingVerdict = requestId
+                self.sendNative(message)
+            }
+        }
+    }
+    /// The daemon's verdict on this socket's proof, or the phone's own `missing`: the script hears
+    /// it, and a proven socket proves again before its grant runs out.
+    /// The standing also ends where the daemon says it does (`until`): if no fresh proof was taken
+    /// by then (renewal rate-limited, the backend unreachable), the verdict is cleared, so the
+    /// phone never reports a standing the daemon has already dropped.
+    private func settle(_ verdict: PairedStanding, remaining: TimeInterval? = nil) {
+        awaitingVerdict = nil
+        lapse?.cancel()
+        standingGeneration += 1
+        // Every standing event names its route, so the script tells a relayed verdict from a direct one.
+        event("standing", .text("\(verdict.rawValue) relay"))
+        guard verdict == .proven else { return }
+        let left = remaining ?? Self.reproveInterval
+        scheduleProof(after: StandingVerdict.renewal(remaining: left, interval: Self.reproveInterval))
+        guard remaining != nil else { return }
+        let generation = standingGeneration
+        let work = DispatchWorkItem { [weak self] in self?.queue.addOperation { self?.standingEnded(generation) } }
+        lapse = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + left, execute: work)
+    }
+    /// A lapse that was already queued when a newer proof settled is stale and says nothing.
+    private func standingEnded(_ generation: Int) {
+        guard !ended, generation == standingGeneration else { return }
+        event("standing", .text("cleared relay"))
+    }
+    private func scheduleProof(after delay: TimeInterval) {
+        reprove?.cancel()
+        guard !ended else { return }
+        let work = DispatchWorkItem { [weak self] in self?.queue.addOperation { self?.proveStanding() } }
+        reprove = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: work)
+    }
+    /// One message of native's own on the secured channel, behind the daemon's credit like the script's.
+    private func sendNative(_ text: String) {
+        guard !ended, case .secured(let channel) = phase else { return }
+        do {
+            waiting += try channel.fragments(text: text).map { Outgoing(plain: $0) }
+            pump()
+        } catch { finish(1009, cause: "message too large to send") }
     }
     /// The daemon's refusal of a hello's grant: an `error` naming `unauthorized`. Pure.
     static func refusesGrant(_ text: String) -> Bool {
@@ -380,6 +478,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
+        reprove?.cancel(); lapse?.cancel()
         dropWaiting()
         phase = .connecting
         event("close", .text(Self.closeEvent(code, reason: reason, named: named)))

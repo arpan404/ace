@@ -7,7 +7,7 @@ import XCTest
         let app = launch()
         let start = app.newThreadButton
         XCTAssertTrue(start.waitForExistence(timeout: 30))
-        // New thread is the header's round trailing button (the tab bar's prominent one on iOS 27).
+        // New thread is the header's trailing button, on a phone and in a regular window.
         XCTAssertGreaterThan(start.frame.midX, app.frame.midX)
         start.tap()
         XCTAssertTrue(app.navigationBars["New thread"].waitForExistence(timeout: 10))

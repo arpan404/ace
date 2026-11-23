@@ -49,6 +49,8 @@ export interface ToolState {
   raw: RawPayload[];
   child?: AgentState;
   task?: string;
+  /** A shell the agent keeps open across turns (`shellCarriedAcrossTurns`); only its own report ends it. */
+  carried?: boolean;
   /** The task reporting this tool as holding the next prompt (`prompt-hold.ts`). */
   holdTask?: string;
   declined: boolean;
@@ -86,6 +88,8 @@ export class TranslationState {
   readonly identity: TranslatorIdentity;
   diagnostics: RawPayload[] = [];
   promptOpen = false;
+  /** ace cancelled the root's open prompt: the agent's own word of it is not its answer. */
+  rootCancelled = false;
   stopped = false;
   initialized = false;
   processDead = false;
@@ -113,6 +117,7 @@ export class TranslationState {
   }
   resetProcess(): void {
     this.promptOpen = false;
+    this.rootCancelled = false;
     this.sent.clear();
     this.loads.clear();
     this.cancelling.clear();

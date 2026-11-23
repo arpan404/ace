@@ -9,18 +9,25 @@ final class AccountGrants: @unchecked Sendable {
     /// A grant this close to expiry is not offered again.
     static let margin: Double = 60_000
     private let fetch: @Sendable () async throws(AccountGrantError) -> AceGrant
+    /// The person's grant for a daemon's host id and a standing key's public half (ADR 0190 §3),
+    /// with the same session; nil when the backend gives none.
+    private let person: @Sendable (_ host: String, _ key: String) async throws(AccountGrantError) -> String?
     private let now: @Sendable () -> Double
     private let lock = NSLock()
     private var latest: AceGrant?
 
     init(now: @escaping @Sendable () -> Double = { Date().timeIntervalSince1970 * 1000 },
+         person: @escaping @Sendable (_ host: String, _ key: String) async throws(AccountGrantError) -> String? = { _, _ in nil },
          fetch: @escaping @Sendable () async throws(AccountGrantError) -> AceGrant) {
-        self.fetch = fetch; self.now = now
+        self.fetch = fetch; self.person = person; self.now = now
     }
     /// The phone's ace session, read from the Keychain for every request: signing out stops the
     /// next connection without telling each runtime.
     convenience init(api: AceAccountAPI, session: AceAccountSessionStore, deviceId: String) {
-        self.init { () async throws(AccountGrantError) -> AceGrant in
+        self.init(person: { (host, key) async throws(AccountGrantError) -> String? in
+            guard let token = session.token() else { throw .signedOut }
+            return try await api.personGrant(token: token, deviceId: deviceId, host: host, key: key)
+        }) { () async throws(AccountGrantError) -> AceGrant in
             guard let token = session.token() else { throw .signedOut }
             return try await api.grant(token: token, deviceId: deviceId)
         }
@@ -35,6 +42,12 @@ final class AccountGrants: @unchecked Sendable {
             guard let key = member.keys.publicKey(for: hostId) else { throw .refused }
             return try await api.memberGrant(token: token, org: member.org, host: hostId, deviceId: deviceId, key: key)
         }
+    }
+
+    /// A person's grant for `host` bound to `key`, fetched anew each time: it lives minutes and is
+    /// kept nowhere but the proof it goes into.
+    func personGrant(host: String, key: String) async throws(AccountGrantError) -> String? {
+        try await person(host, key)
     }
 
     func fresh() async throws(AccountGrantError) -> String {
@@ -112,6 +125,9 @@ struct RelayRoute: Sendable {
     /// Set for an organization's host: its grants are member grants, and each socket proves the
     /// member's standing with the phone's key for it.
     var member: MemberRoute? = nil
+    /// The key this runtime's daemon sockets prove the person's standing with (ADR 0190 §3); nil:
+    /// they prove nothing.
+    var standingKey: (any AccountStandingKey)? = nil
 
     var isValid: Bool { clientURL != nil && NoiseFingerprint.isHostId(hostId) }
     var clientURL: URL? { clientURL(purpose: nil) }

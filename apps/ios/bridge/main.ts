@@ -19,7 +19,8 @@ import { SubagentRetries } from "./subagent-retries.ts";
 import { routeThreadAction } from "./thread-route.ts";
 import { connectionProblem, pairedCredential, TrustMonitor } from "./access.ts";
 import { aceAccess, nativeHttp } from "./access-entry.ts";
-import { nativeTransport, socketEvent, type PairedStanding } from "./socket.ts";
+import { nativeTransport, socketEvent, type PairedStanding, type StandingRoute } from "./socket.ts";
+import { StandingBook } from "./standing-book.ts";
 import {
   accountCredential,
   accountGate,
@@ -173,6 +174,10 @@ let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 /** What this paired machine last said of the phone's proof of standing on its socket. */
 let pairedStanding: PairedStanding | undefined;
+/** Which route this runtime's socket proves standing on: a pairing's key, or the account's grant. */
+let standingRoute: "paired" | "account" = "paired";
+/** What each socket to this machine proved; the newest verdict is the one reported. */
+const standings = new StandingBook();
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -255,9 +260,23 @@ async function start(json: string): Promise<void> {
   });
   const paired = config.paired;
   pairedStanding = undefined;
-  const standing = (state: PairedStanding) => {
-    pairedStanding = state;
-    pump.put("standing", () => ({ type: "standing", state }));
+  standingRoute = paired || !config.account ? "paired" : "account";
+  standings.clear();
+  const standing = (
+    state: PairedStanding | undefined,
+    source: { socket: string; route: StandingRoute },
+  ) => {
+    standings.set(source.socket, state, source.route);
+    const active = standings.active();
+    pairedStanding = active?.state;
+    // The route the verdict went over, once one has: a paired machine on its relay fallback
+    // proves as the account's device, not with its paired key.
+    if (active) standingRoute = active.route === "relay" ? "account" : "paired";
+    pump.put("standing", () => ({
+      type: "standing",
+      state: active?.state,
+      route: active?.route,
+    }));
   };
   const account = config.account ? accountGate(() => call("credential")) : undefined;
   gate = account;
@@ -296,10 +315,10 @@ async function start(json: string): Promise<void> {
     // A thread paints from one screenful. The rest of its window is asked for once native has
     // drawn that screenful (`thread.shown`), so the window never replaces it before it shows.
     openTail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
-    // A paired machine's socket proves the person's standing natively (ADR 0190 §7); the
-    // script hears only whether the machine took it. An account machine's standing is the
-    // account route's (§3), not this one.
-    transport: () => nativeTransport(trust, early, paired ? standing : undefined),
+    // A paired machine's socket proves the person's standing natively (ADR 0190 §7), and so
+    // does an account machine's relayed socket, with a person's grant (§3); the script hears
+    // only whether the machine took it.
+    transport: () => nativeTransport(trust, early, paired || account ? standing : undefined),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
     // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
@@ -548,7 +567,7 @@ async function start(json: string): Promise<void> {
     new HostCare(client, admission),
     () => host.now(),
     automations,
-    () => pairedStanding,
+    () => ({ state: pairedStanding, route: standingRoute }),
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);

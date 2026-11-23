@@ -37,3 +37,28 @@ export function useElementSize(ref: RefObject<HTMLElement | null>): Size {
   }, [ref]);
   return size;
 }
+
+/**
+ * The width a scroller's content can use: its box less a vertical scrollbar, kept current as
+ * the scrollbar comes and goes. Where there is no layout (tests), the window's width stands in.
+ */
+export function useInnerWidth(ref: RefObject<HTMLElement | null>): number {
+  const [width, setWidth] = useState(() => windowSize().width);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    const measure = () => {
+      const next = element && element.clientWidth > 0 ? element.clientWidth : windowSize().width;
+      setWidth(next);
+    };
+    measure();
+    if (element && typeof ResizeObserver !== "undefined") {
+      // The content box narrows when a scrollbar appears, so the observer hears that too.
+      const observer = new ResizeObserver(measure);
+      observer.observe(element);
+      return () => observer.disconnect();
+    }
+    addEventListener("resize", measure);
+    return () => removeEventListener("resize", measure);
+  }, [ref]);
+  return width;
+}

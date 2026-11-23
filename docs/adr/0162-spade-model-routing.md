@@ -9,6 +9,7 @@ ones for decisions, within the person's endpoints"). Builds on
 (caps park, never end) and [ADR 0159](0159-spade-goals-plans-and-verification.md) (the verifier).
 Amends ADR 0159 decision 4: the verifier's default model is the `verify` role's.
 Amended by [ADR 0166](0166-spade-has-no-spending-limits.md): decision 5's `<budget>` note is removed; spend by role is still recorded and shown.
+Amended by [ADR 0213](0213-spade-roles-think-at-an-effort.md): each role also has a reasoning effort, resolved like its model and sent on every call for the role.
 
 ## Context
 

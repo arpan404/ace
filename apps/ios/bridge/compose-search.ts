@@ -3,6 +3,7 @@ import { ProjectCommand, WorkspaceId } from "@ace/protocol";
 import { cloneProgress, expectContext, projectProblem } from "@ace/ui-core";
 import { submitCommand } from "./commands.ts";
 import { scheduler } from "./host.ts";
+import { pauseOn } from "./market.ts";
 import type { PatchSink, Preview } from "./agents.ts";
 
 /*
@@ -28,14 +29,19 @@ export class ComposeSearch {
   #preview: Preview;
   #scope: { workspaceId: string; draftId: Promise<string> } | undefined;
   #query = 0;
-  /** Waits between asks while the folder's index builds; the host's timer on the phone. */
-  #wait: (ms: number) => Promise<void>;
+  #superseded: AbortController | undefined;
+  /**
+   * Waits between asks while the folder's index builds; the host's timer on the phone. Ends
+   * early when its signal aborts, which a newer query does.
+   */
+  #wait: (ms: number, signal: AbortSignal) => Promise<void>;
   constructor(
     owner: ComposeSearchOwner,
     sink: PatchSink,
     preview: Preview,
-    wait: (ms: number) => Promise<void> = (ms) =>
-      new Promise((resolve) => void scheduler.set(ms, resolve)),
+    wait: (ms: number, signal: AbortSignal) => Promise<void> = pauseOn((ms, callback) =>
+      scheduler.set(ms, callback),
+    ),
   ) {
     this.#wait = wait;
     this.#owner = owner;
@@ -56,6 +62,8 @@ export class ComposeSearch {
   /** Files in the project matching `query`, best first; only the latest query is answered. */
   async mentions(workspaceId: string, query: string): Promise<void> {
     const generation = ++this.#query;
+    this.#superseded?.abort();
+    const superseded = (this.#superseded = new AbortController());
     const put = (state: string, paths: string[]) =>
       this.#sink.put("compose:mentions", () => ({
         type: "compose.mentions",
@@ -70,7 +78,7 @@ export class ComposeSearch {
       // ace-files answers `ready: false` while it builds the folder's index; keep the loading
       // state and ask again, up to a few seconds, until the query changes.
       for (let attempt = 0; found.ready === false && attempt < 20; attempt++) {
-        await this.#wait(250);
+        await this.#wait(250, superseded.signal);
         if (generation !== this.#query) return;
         found = await this.complete(workspaceId, query, mentionLimit);
       }

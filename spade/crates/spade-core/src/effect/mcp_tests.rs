@@ -51,6 +51,8 @@ fn app_call(tool: Mcp) -> Call<'static> {
         permits: crate::permission::Held::default(),
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     }
 }
 

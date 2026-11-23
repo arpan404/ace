@@ -1,11 +1,12 @@
 import { spadeMoney, spadeRoleNames, type SpadeBotRoles } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { SettingDisclosure } from "@/components/setting-row.tsx";
+import { SettingDisclosure, SettingRow } from "@/components/setting-row.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { ProfileProblem } from "./spade-profile-parts.tsx";
 import { readBotRoles, rolesKey, setBotRoles, type SpadeRolesChange } from "./spade-roles-api.ts";
+import { EffortSelect, effortFollows } from "./spade-settings-effort.tsx";
 import { ModelSettingRow } from "./spade-settings-rows.tsx";
 import { RetrySwitchRow } from "./spade-settings-roles.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
@@ -14,7 +15,8 @@ import type { RosterBot } from "./use-spade-roster.ts";
  * Details › Runs with › Models for other work (ADR 0162): a fold under the bot's model that
  * opens to its five roles. Each says what it spent this month and, when nothing is set on this
  * bot, that it follows Settings; its picker shows the model it runs on either way, with Follow
- * Settings at the top. Then whether a failed helper runs again on the bot's own model.
+ * Settings at the top, and beside it how hard that model thinks (ADR 0213); first, how hard the
+ * bot's own turns think. Then whether a failed helper runs again on the bot's own model.
  */
 export function BotRoles(props: { bot: RosterBot }) {
   const [open, setOpen] = useState(false);
@@ -47,8 +49,17 @@ function RoleRows(props: { bot: RosterBot }) {
       />
     );
   const { data } = roles;
+  const ownTurns = data.ownEfforts.main;
   return (
     <>
+      <SettingRow title="Its own turns" density="compact" inline>
+        <EffortSelect
+          title="Its own turns"
+          value={ownTurns}
+          none={effortFollows(ownTurns ? undefined : data.mainEffort)}
+          save={(effort) => change({ efforts: { main: effort } })}
+        />
+      </SettingRow>
       {data.roles.map((row) => {
         const own = data.own[row.role];
         const spent = `${spadeMoney(row.monthMicros)} this month`;
@@ -66,6 +77,14 @@ function RoleRows(props: { bot: RosterBot }) {
             none="Follow Settings"
             follows={own ? undefined : row.model}
             inline
+            beside={
+              <EffortSelect
+                title={spadeRoleNames[row.role]}
+                value={data.ownEfforts[row.role]}
+                none={effortFollows(data.ownEfforts[row.role] ? undefined : row.effort)}
+                save={(effort) => change({ efforts: { [row.role]: effort } })}
+              />
+            }
             save={(model) => change({ roles: { [row.role]: model } })}
           />
         );

@@ -129,7 +129,10 @@ than the day.
 Off by default. `review` is set for every bot (`PUT /v1/oversight {review_default}`) or per bot
 (`PUT /v1/agents/{id}/oversight {review}`, `null` to follow the default). The review model is
 the bot's `review` role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)): its own
-override, else `review_model`, else the fast model, else the bot's own model.
+override, else `review_model`, else the strongest model the person already uses that lists at
+least the bot's price, else the bot's own model: never one weaker than the bot. It thinks at the
+`review` role's effort, `medium` unless the bot or the person set another
+([ADR 0213](../../docs/adr/0213-spade-roles-think-at-an-effort.md), agents.md "Models per role").
 
 When the gate (gate.rs) decides **Run** for a call of risk `write`, and the bot's review is on,
 the engine asks the review model, as typed output `{verdict: "allow" | "escalate", reason}`:

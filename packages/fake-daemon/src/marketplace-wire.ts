@@ -162,6 +162,8 @@ export class FakeMarketplaceWire {
   refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
   /** Refuses each turn on for bots with this error while set, as a socket without standing. */
   refuseTurnOnForBots: Extract<MarketResult, { op: "error" }> | undefined;
+  /** Refuses each publish action but `me` with this error while set, as a socket without standing. */
+  refusePublish: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -338,6 +340,27 @@ export class FakeMarketplaceWire {
           },
         };
       }
+      case "look": {
+        // What its review would show: the recipe's face, or the Suit's `suit.json` item.
+        const entry = this.#entries.get(
+          `${operation.source}:${key(operation.type, operation.name)}`,
+        );
+        if (!entry)
+          return {
+            op: "error",
+            code: "not_found",
+            message: `${operation.type}/${operation.name} isn't listed`,
+          };
+        const body = entry.review?.body;
+        const suit = entry.items?.find(
+          (item) => item.kind === "text" && item.path === "suit.json" && !item.before,
+        );
+        return {
+          op: "look",
+          ...(body?.type === "spade-bot" && body.face ? { face: body.face } : {}),
+          ...(operation.type === "suit" && suit?.kind === "text" ? { suit: suit.text } : {}),
+        };
+      }
       case "prepare":
       case "prepareRollback":
       case "prepareUpdate": {
@@ -503,6 +526,7 @@ export class FakeMarketplaceWire {
         return this.publishing.publisher(operation.handle);
       case "publish": {
         const request = operation.request;
+        if (this.refusePublish && request.action !== "me") return this.refusePublish;
         if (request.action === "draftCheck") return this.pick.check(request.source);
         return this.pick.refusal(request) ?? this.publishing.publish(request);
       }

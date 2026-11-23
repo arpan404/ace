@@ -32,6 +32,9 @@ struct Change {
     allowed: Option<Option<Vec<String>>>,
     #[serde(default, deserialize_with = "present")]
     escalate: Option<Option<bool>>,
+    /// Each role named maps to how hard its model thinks (ADR 0213), or `null` to clear it.
+    #[serde(default)]
+    efforts: BTreeMap<String, Option<String>>,
 }
 
 impl Change {
@@ -40,6 +43,7 @@ impl Change {
             roles: self.roles,
             allowed: self.allowed,
             escalate: self.escalate,
+            efforts: self.efforts,
         }
     }
 }

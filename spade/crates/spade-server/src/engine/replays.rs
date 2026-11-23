@@ -177,7 +177,9 @@ impl Engine {
         case: &Case,
         outcome: &str,
     ) -> Option<Comparison> {
-        let prompt = replay::comparison(case, outcome)?.session(conversation);
+        let prompt = replay::comparison(case, outcome)?
+            .session(conversation)
+            .effort(self.role_effort(conversation, Role::Verify));
         let model = self.role_model(conversation, Role::Verify);
         let admitted = self.admit(conversation, &model).for_role(Role::Verify);
         let asked = tokio::time::timeout(

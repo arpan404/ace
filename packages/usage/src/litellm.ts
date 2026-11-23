@@ -55,6 +55,8 @@ export function parseLiteLLM(input: unknown, date: string, wanted?: readonly str
 
 const routeAliases: Record<string, string> = {
   "opencode-go": "opencode_go",
+  // Spade's preset for OpenCode Go's Anthropic-format endpoint: the same plan's prices.
+  "opencode-go-anthropic": "opencode_go",
   "github-copilot": "github_copilot",
   "google-gemini-cli": "gemini",
   google: "gemini",

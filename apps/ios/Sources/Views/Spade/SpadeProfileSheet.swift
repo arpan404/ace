@@ -9,6 +9,8 @@ struct SpadeProfileSheet: View {
     let name: String
     @Environment(\.dismiss) private var dismiss
     @State private var part: Part = .details
+    /// Publish this bot to the Store (#2548).
+    @State private var publishing = false
     @State private var reads = SpadeProfileReads()
     private var profile: SpadeProfile? { reads.profile }
     private var problem: String? { reads.problem }
@@ -51,7 +53,20 @@ struct SpadeProfileSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.accessibilityIdentifier("spade.profile.done")
                 }
+                if profile != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Button("Publish to the Store", ace: .trayArrowUp) { publishing = true }
+                                .disabled(client.connection != "ready" || !client.canOperate)
+                                .accessibilityIdentifier("spade.profile.publish")
+                        } label: { Image(bar: .dotsThree) }
+                            .barGlyph()
+                            .accessibilityLabel("More")
+                            .accessibilityIdentifier("spade.profile.more")
+                    }
+                }
             }
+            .sheet(isPresented: $publishing) { MarketPublishView(model: client, bot: agent) }
         }
         .task { await load() }
         .presentationDragIndicator(.visible)
@@ -96,74 +111,16 @@ struct SpadeProfileSheet: View {
     }
 }
 
-/// The task on its own page: the bot's instructions in the person's words, saved with Save.
-/// While the write is out the field and Save wait and the page stays (`SpadeTaskSave`); once it
-/// went they stay locked until the page closes on the reloaded profile.
-struct SpadeTaskEditor: View {
-    let client: ClientModel
-    let agent: String
-    let task: String
-    /// The task as Spade stored it.
-    let saved: (String) async -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @State private var save = SpadeTaskSave()
-    @State private var problem: String?
-    @FocusState private var focused: Bool
-
-    private var changed: Bool {
-        text.trimmingCharacters(in: .whitespacesAndNewlines) != task.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+/// Details: what the bot is for (its task, which opens to edit), the model and machine it runs
+/// with, and its routines with when each runs.
+struct SpadeProfileDetails<Editor: View>: View {
+    let profile: SpadeProfile
+    let retry: () -> Void
+    @ViewBuilder let edit: (String) -> Editor
 
     var body: some View {
-        Form {
-            Section {
-                TextEditor(text: $text)
-                    .aceFont(AceDesign.TextRole.message)
-                    .frame(minHeight: AceDesign.Size.rowThread * 3)
-                    .focused($focused)
-                    .disabled(save.locked)
-                    .accessibilityIdentifier("spade.task.field")
-            } footer: {
-                if let problem {
-                    Text(problem).foregroundStyle(AceTheme.StatusText.failed)
-                } else {
-                    Text("What this bot is for, in your words.")
-                }
-            }
-        }
-        .navigationTitle("Task")
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(save.locked)
-        .interactiveDismissDisabled(save.locked)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if save.locked { ProgressView() } else {
-                    Button("Save") { submit() }
-                        .disabled(!changed)
-                        .accessibilityIdentifier("spade.task.save")
-                }
-            }
-        }
-        .onAppear {
-            text = task
-            focused = true
-        }
-    }
-
-    private func submit() {
-        guard let words = save.begin(text, task: task) else { return }
-        problem = nil
-        focused = false
-        Task {
-            let outcome = await client.spadeTask(agent, task: words)
-            guard outcome.ok else {
-                save.refused()
-                problem = outcome.problem
-                return
-            }
-            await saved(outcome.task ?? words)
-            dismiss()
-        }
+        SpadeProfileTask(task: profile.details.task, edit: edit)
+        SpadeProfileRunsWith(details: profile.details)
+        SpadeProfileRoutines(routines: profile.details.routines, name: profile.name, retry: retry)
     }
 }

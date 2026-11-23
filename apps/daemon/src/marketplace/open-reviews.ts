@@ -158,9 +158,19 @@ export class OpenReviews {
    * moved bot's pinned bytes are fetched by (ADR 0200 §3.8). Throws when the source refuses.
    */
   async fetchVersion(sourceId: string, name: string, version: string): Promise<PreparedEntry> {
+    return this.fetchEntry(sourceId, "spade-bot", name, version);
+  }
+
+  /** Any listed entry's version (its latest when `version` is absent), checked the same way. */
+  async fetchEntry(
+    sourceId: string,
+    type: string,
+    name: string,
+    version: string | undefined,
+  ): Promise<PreparedEntry> {
     const source = this.#ports.store.source(sourceId);
     if (!source || !source.enabled) throw new Refused("That source isn't on");
-    return prepareEntry(await this.#preparePorts(source.id), source, "spade-bot", name, version);
+    return prepareEntry(await this.#preparePorts(source.id), source, type, name, version);
   }
 
   /**

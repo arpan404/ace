@@ -92,6 +92,8 @@ import QuartzCore
     /// Whether this paired machine took this phone's proof of the person's standing; nil until a
     /// socket proved, for an account machine, and for a daemon that asks for none.
     var standing: PairedStanding?
+    /// The route that verdict came over; nil with it.
+    var standingRoute: StandingRoute?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
     var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
     /// The person chose Not now for this ask; Machines › the machine asks again.
@@ -238,6 +240,9 @@ import QuartzCore
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
     @ObservationIgnored private var sawConfirmedRow = false
+    /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
+    /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
+    var inboxConfirmed: Bool { inboxLoaded && sawConfirmedRow }
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -551,9 +556,9 @@ import QuartzCore
             }
             switch patch {
             case .service(let reply):
-                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value) }
+                if reply.ok, let cache = reply.cache, let value = reply.value { reads.store(key: cache.key, family: cache.family, value: value, late: !services.isWaiting(reply.id)) }
                 services.receive(reply)
-            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value)
+            case .serviceCache(let cache, let value): reads.store(key: cache.key, family: cache.family, value: value, late: true)
             case .serviceEvict(let key): reads.remove(key)
             case .serviceGenerations(let generations): reads.update(generations: generations)
             case .readingSettled: break // Only a held page waits for it.
@@ -611,7 +616,9 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
-            case .standing(let state): if standing != state { standing = state }
+            case .standing(let state, let route):
+                if standing != state { standing = state }
+                if standingRoute != route { standingRoute = route }
             case .machineCode(let reason, let until):
                 // Every refused retry says it again; only a change redraws.
                 let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))

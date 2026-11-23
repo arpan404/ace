@@ -444,6 +444,37 @@ const DESCRIBED_SENSITIVE: &[&str] = &[
     "forwards",
 ];
 
+/// Words past a description's first sentence that say what the tool itself does: any one keeps
+/// it from reading. Only the forms a description uses for its own tool, never an instruction's
+/// bare verb ("use it to update").
+const DESCRIBED_DOES: &[&str] = &[
+    "creates",
+    "updates",
+    "deletes",
+    "removes",
+    "sends",
+    "modifies",
+    "writes",
+    "overwrites",
+    "inserts",
+    "appends",
+    "archives",
+    "publishes",
+    "executes",
+    "trashes",
+    "moves",
+    "renames",
+    "uploads",
+    "shares",
+    "invites",
+    "pays",
+    "charges",
+    "transfers",
+    "edits",
+    "posts",
+    "replaces",
+];
+
 /// Whole words that only look like a change: an adjective of a read (`list_shared_pages`).
 const BENIGN: &[&str] = &[
     "shared",
@@ -454,6 +485,8 @@ const BENIGN: &[&str] = &[
     "published",
     "sender",
     "senders",
+    "enabled",
+    "async",
 ];
 
 /// Words in a description that say a tool changes something: any one keeps it from reading.
@@ -629,6 +662,64 @@ impl Reading {
     }
 }
 
+/// Whether a description says the tool changes something. Its first sentence says what the tool
+/// does, the way every app's descriptions lead: any word for a change there counts. What follows
+/// is mostly how to use it, naming other tools ("use it with update_data_source") or what it
+/// never does ("Reading never authorizes a write"); there only a word that says what the tool
+/// itself does (`updates`, `creates`, `sends`) counts, never an instruction's bare verb. Code
+/// spans and identifiers name something else and are left out everywhere.
+fn describes_change(description: &str) -> bool {
+    let text = prose(description);
+    let (lead, rest) = split_lead(text.trim_start());
+    Reading::new(lead).has(DESCRIBED_CHANGES) || Reading::new(rest).has(DESCRIBED_DOES)
+}
+
+/// The first sentence of `text`, up to its first paragraph break or sentence end, and the rest.
+fn split_lead(text: &str) -> (&str, &str) {
+    for (at, c) in text.char_indices() {
+        let after = at + c.len_utf8();
+        let next = text[after..].chars().next();
+        let ends = matches!(c, '.' | '!' | '?') && next.is_none_or(char::is_whitespace);
+        if ends || (c == '\n' && next == Some('\n')) {
+            return (&text[..at], &text[after..]);
+        }
+    }
+    (text, "")
+}
+
+/// `text` with code spans and identifiers (`update_data_source`, `notion://docs`, `a.b`) taken
+/// out, sentences and paragraphs kept. Punctuation around a word (`updates:`, `(creates)`) is
+/// not an identifier.
+fn prose(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for (index, span) in text.split('`').enumerate() {
+        // Odd spans sit between backticks: code, never prose.
+        if index % 2 == 1 {
+            out.push(' ');
+            continue;
+        }
+        let mut word = String::new();
+        for c in span.chars().chain(std::iter::once(' ')) {
+            if !c.is_whitespace() {
+                word.push(c);
+                continue;
+            }
+            let bare = word.trim_matches(|c: char| {
+                matches!(
+                    c,
+                    '.' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '"' | '\'' | '[' | ']'
+                )
+            });
+            if !bare.contains(['_', ':', '/', '=', '(', '.']) {
+                out.push_str(&word);
+            }
+            out.push(c);
+            word.clear();
+        }
+    }
+    out
+}
+
 /// What `name` (the server's own tool name) and `description` say the tool does. The
 /// description can only keep a name from reading; it never makes one read, pay or send. A name
 /// with anything but ASCII letters, digits and separators (a look-alike letter from another
@@ -653,7 +744,7 @@ pub fn named(name: &str, description: &str) -> Named {
     if !name.is_ascii() {
         return Named::Unclear;
     }
-    if read.reads() && !Reading::new(description).has(DESCRIBED_CHANGES) {
+    if read.reads() && !describes_change(description) {
         return Named::Read;
     }
     if read.writes() && !Reading::new(description).has(DESCRIBED_SENSITIVE) {

@@ -120,6 +120,8 @@ impl Tool for ResearchTool {
                 engine: engine.clone(),
                 conversation: conversation.clone(),
                 model: engine.bot_model(&conversation),
+                // The bot's own work, so it thinks as the bot's turns do.
+                effort: engine.role_effort(&conversation, spade_core::routing::Role::Main),
                 web,
                 budget: fixed.unwrap_or_else(|| args.depth.budget()),
                 started: Instant::now(),
@@ -137,6 +139,7 @@ struct Run {
     engine: Arc<Engine>,
     conversation: String,
     model: String,
+    effort: spade_models::Effort,
     web: Arc<dyn Web>,
     budget: Budget,
     started: Instant,
@@ -181,7 +184,7 @@ impl Run {
     where
         T: schemars::JsonSchema + serde::de::DeserializeOwned,
     {
-        let prompt = prompt.session(&self.conversation);
+        let prompt = prompt.session(&self.conversation).effort(self.effort);
         let limit = self.time_left()?;
         let admitted = self.admit();
         let answer = tokio::time::timeout(
@@ -383,8 +386,9 @@ impl Run {
                 self.stopped.clone().unwrap_or_default()
             ));
         }
-        let prompt =
-            research::write_prompt(question, questions, sources).session(&self.conversation);
+        let prompt = research::write_prompt(question, questions, sources)
+            .session(&self.conversation)
+            .effort(self.effort);
         let limit = self.time_left().ok_or("it reached the time budget")?;
         let admitted = self.admit();
         match tokio::time::timeout(limit, self.engine.models().chat(&self.model, &prompt)).await {

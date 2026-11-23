@@ -46,8 +46,10 @@ struct AceAccountDirectory: AccountDirectory {
         let member = org.map { MemberRoute(org: $0) }
         let grants = member.map { AccountGrants(api: api, session: session, deviceId: deviceId, member: $0, hostId: hostId) }
             ?? AccountGrants(api: api, session: session, deviceId: deviceId)
+        // An organization's host takes a member's standing, never the person's (ADR 0206 §2.2).
         return RelayRoute(relayURL: relay, hostId: hostId, grants: grants,
-                          principal: session.token().map(KeptScope.account), member: member)
+                          principal: session.token().map(KeptScope.account),
+                          member: member, standingKey: member == nil ? DeviceStandingKey.make() : nil)
     }
 }
 
