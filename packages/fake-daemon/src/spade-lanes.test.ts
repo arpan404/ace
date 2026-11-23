@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { FakeSpade } from "./spade.ts";
 import { FakeSpadeApi } from "./spade-api.ts";
-import { stageFakeLanes } from "./spade-lanes.ts";
+import { stageFakeLanes } from "./spade-lanes-stage.ts";
 
 function staged() {
   const spade = new FakeSpade();
@@ -42,13 +42,19 @@ describe("a bot's task lanes in the fake API", () => {
     const main = api.eventsOf(bot.conversation);
     const types = main.map((event) => event.type);
     expect(types.filter((type) => type === "lane_started")).toHaveLength(6);
-    expect(types).toContain("reply_moved");
+    // Main's long reply moved to a task closes with no words of its own.
+    const moved = main.findIndex((event) => event.type === "reply_moved");
+    expect(main.slice(moved + 1).find((event) => event.type === "reply_finished")).toMatchObject({
+      reply: main[moved]?.reply,
+      text: "",
+    });
     const asked = main.find((event) => event.type === "approval_requested");
     expect(asked?.lane).toMatchObject({ title: "Book flights to Lisbon", call_id: "k1" });
     const reports = main.filter((event) => event.type === "worker_reported");
     expect(reports.map((report) => [report.kind, report.state])).toEqual([
-      ["lane", "failed"],
       ["lane", "done"],
+      ["lane", "failed"],
+      ["lane", "needs_you"],
     ]);
   });
 
@@ -62,5 +68,50 @@ describe("a bot's task lanes in the fake API", () => {
       title: "Fix the March invoice",
     });
     expect(events[1]?.event).toMatchObject({ type: "user_message" });
+  });
+
+  test("a lane's goal and plan read like a bot's, and only a lane has one", async () => {
+    const { bot, get } = staged();
+    const lane = await get(`/v1/conversations/${bot.conversation}-lane-invoice/task`);
+    expect(lane.status).toBe(200);
+    const task = (lane.body as { task: { goal: { title: string }; items: { status: string }[] } })
+      .task;
+    expect(task.goal.title).toBe("Fix the March invoice and send it to Dana");
+    expect(task.items.map((item) => item.status)).toEqual([
+      "done",
+      "done",
+      "working",
+      "open",
+      "open",
+    ]);
+    expect((await get(`/v1/conversations/${bot.conversation}/task`)).status).toBe(404);
+  });
+
+  test("a lane's approval answered in main lets the lane work on, and Stop ends it alone", async () => {
+    const { api, bot, get } = staged();
+    const flights = `${bot.conversation}-lane-flights`;
+    await api.answer({
+      method: "POST",
+      path: `/v1/conversations/${bot.conversation}/approvals/${flights}.k1`,
+      body: JSON.stringify({ allowed: true, always: false }),
+    });
+    expect(api.eventsOf(flights).at(-1)).toMatchObject({
+      type: "approval_answered",
+      call_id: "k1",
+      allowed: true,
+    });
+    await api.answer({ method: "POST", path: `/v1/conversations/${flights}/stop`, body: "" });
+    const { body } = await get(`/v1/conversations/${bot.conversation}/tasks`);
+    const tasks = (body as { tasks: { task: string; state: string }[] }).tasks;
+    expect(tasks.find((task) => task.task === flights)?.state).toBe("stopped");
+    expect(tasks.find((task) => task.task === `${bot.conversation}-lane-invoice`)?.state).toBe(
+      "working",
+    );
+    expect(api.eventsOf(bot.conversation).at(-1)).toMatchObject({
+      type: "worker_reported",
+      kind: "lane",
+      worker: flights,
+      state: "stopped",
+    });
   });
 });
