@@ -101,23 +101,26 @@ fn python_without_uv() -> Option<&'static str> {
 
 /// A wheel of the package `spadecheck` 1.0, whose `VALUE` is 42.
 fn wheel() -> Result<Vec<u8>> {
+    wheel_of("spadecheck", "1.0", "VALUE = 42\n")
+}
+
+/// A pure-Python wheel of `name` `version` whose module holds `source`.
+fn wheel_of(name: &str, version: &str, source: &str) -> Result<Vec<u8>> {
+    let info = format!("{name}-{version}.dist-info");
+    let module = format!("{name}/__init__.py");
+    let metadata = format!("Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n");
+    let record = format!("{module},,\n{info}/METADATA,,\n{info}/WHEEL,,\n{info}/RECORD,,\n");
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default();
-    let files: [(&str, &str); 4] = [
-        ("spadecheck/__init__.py", "VALUE = 42\n"),
+    let files = [
+        (module.clone(), source.to_owned()),
+        (format!("{info}/METADATA"), metadata),
         (
-            "spadecheck-1.0.dist-info/METADATA",
-            "Metadata-Version: 2.1\nName: spadecheck\nVersion: 1.0\n",
+            format!("{info}/WHEEL"),
+            "Wheel-Version: 1.0\nGenerator: spade-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+                .to_owned(),
         ),
-        (
-            "spadecheck-1.0.dist-info/WHEEL",
-            "Wheel-Version: 1.0\nGenerator: spade-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
-        ),
-        (
-            "spadecheck-1.0.dist-info/RECORD",
-            "spadecheck/__init__.py,,\nspadecheck-1.0.dist-info/METADATA,,\n\
-             spadecheck-1.0.dist-info/WHEEL,,\nspadecheck-1.0.dist-info/RECORD,,\n",
-        ),
+        (format!("{info}/RECORD"), record),
     ];
     for (name, text) in files {
         writer.start_file(name, options)?;
@@ -442,6 +445,153 @@ async fn the_bots_own_commands_can_read_its_python_but_never_change_it() -> Resu
     assert!(
         tried.contains("listed") && tried.contains("done"),
         "{tried}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_script_imports_modules_beside_it_but_never_in_place_of_the_standard_library() -> Result {
+    if !python_here() {
+        return Ok(());
+    }
+    let main = "import json, helper\n\
+                print('twice', helper.twice(21), json.dumps({'a': 1}))\n\
+                print('file', __file__)\n\
+                print('data', open('data.txt').read())\n";
+    let code = "import json, rooted\nprint('rooted', rooted.NAME, json.dumps([1]))\n";
+    let Some(world) = world(
+        vec![
+            Script::reply("")
+                .call("p1", "python", json!({ "path": "tools/main.py" }))
+                .call("p2", "python", json!({ "code": code })),
+            Script::reply("Done."),
+        ],
+        Options::default(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    std::fs::create_dir_all(root.join("tools"))?;
+    std::fs::write(root.join("tools/main.py"), main)?;
+    std::fs::write(
+        root.join("tools/helper.py"),
+        "def twice(n):\n    return n * 2\n",
+    )?;
+    std::fs::write(root.join("rooted.py"), "NAME = 'at the top'\n")?;
+    // Would shadow the standard library if the workspace came first on the path.
+    for shadow in ["tools/json.py", "json.py"] {
+        std::fs::write(root.join(shadow), "raise SystemExit('SHADOWED')\n")?;
+    }
+    std::fs::write(root.join("data.txt"), "beside the workspace")?;
+    world.spade.say(&world.conversation, "Run them").await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    let first = content(&events, "p1")?;
+    assert!(first.contains("twice 42 {\"a\": 1}"), "{first}");
+    assert!(
+        first.contains(&format!("file {}", root.join("tools/main.py").display())),
+        "{first}"
+    );
+    assert!(first.contains("data beside the workspace"), "{first}");
+    assert!(!first.contains("SHADOWED"), "{first}");
+    let second = content(&events, "p2")?;
+    assert!(second.contains("rooted at the top [1]"), "{second}");
+    assert!(!second.contains("SHADOWED"), "{second}");
+    // Nothing was cached beside the scripts.
+    assert!(!root.join("tools/__pycache__").exists());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_call_asks_for_packages_and_spades_set_up_installs_them_once_from_wheels_only() -> Result
+{
+    if !python_here() {
+        return Ok(());
+    }
+    let read = "import spadeextra; print('extra', spadeextra.VALUE)";
+    let Some(world) = world(
+        vec![
+            Script::reply("").call(
+                "p1",
+                "python",
+                json!({ "code": read, "packages": ["spadeextra==2.0"] }),
+            ),
+            Script::reply("").call("p2", "python", json!({ "code": read })),
+            Script::reply("").call(
+                "p3",
+                "python",
+                json!({ "code": read, "packages": ["spadeextra==2.0"] }),
+            ),
+            Script::reply("").call(
+                "p4",
+                "python",
+                json!({ "code": "open('ran.txt', 'w').write('x')", "packages": ["spadesrc==1.0"] }),
+            ),
+            Script::reply("").call(
+                "p5",
+                "python",
+                json!({ "code": "open('ran.txt', 'w').write('x')",
+                        "packages": ["--index-url=http://127.0.0.1:9/"] }),
+            ),
+            Script::reply("Done."),
+        ],
+        Options::default(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let runtime = world.workspaces.python_runtime(&world.bot)?;
+    std::fs::create_dir_all(runtime.join("wheels"))?;
+    std::fs::write(
+        runtime.join("wheels/spadeextra-2.0-py3-none-any.whl"),
+        wheel_of("spadeextra", "2.0", "VALUE = 'two'\n")?,
+    )?;
+    // Only a source distribution of this one: never built.
+    std::fs::write(runtime.join("wheels/spadesrc-1.0.tar.gz"), b"not built")?;
+    world
+        .spade
+        .say(&world.conversation, "Use the packages")
+        .await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    let first = content(&events, "p1")?;
+    assert!(
+        first.contains("[Installing the packages asked for: spadeextra==2.0.]"),
+        "{first}"
+    );
+    assert!(first.contains("extra two"), "{first}");
+    for later in ["p2", "p3"] {
+        let text = content(&events, later)?;
+        assert!(text.contains("extra two"), "{later}: {text}");
+        assert!(
+            !text.contains("Installing"),
+            "{later} installed again: {text}"
+        );
+    }
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    for refused in ["p4", "p5"] {
+        assert_eq!(finished(&events, refused)?["is_error"], true, "{refused}");
+    }
+    assert!(
+        content(&events, "p4")?.contains("never built from source"),
+        "{}",
+        content(&events, "p4")?
+    );
+    assert!(
+        content(&events, "p5")?.contains("is not a package Spade installs"),
+        "{}",
+        content(&events, "p5")?
+    );
+    assert!(
+        !root.join("ran.txt").exists(),
+        "a refused call ran its script"
     );
     Ok(())
 }

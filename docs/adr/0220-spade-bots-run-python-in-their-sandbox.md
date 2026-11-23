@@ -70,8 +70,11 @@ often wrong. Models do better work when they can write a short script and read i
    runtime. A workspace script's whole text goes to the reviewer on a reviewed route, and one too
    long for the reviewer goes to the person. The run uses the staged copy, by an absolute path, so
    a later change to the workspace file, a swap while the call waits, or a name starting with `-`
-   changes nothing. The script runs on its own: modules beside it in the workspace aren't on its
-   path.
+   changes nothing. Modules beside the script still import: Spade's `boot.py` runs the staged
+   bytes with `__file__` set to the script's workspace path, the workspace as its working folder,
+   and the script's folder appended to the END of `sys.path`, after the standard library and the
+   installed packages, so no workspace file stands in for one of those. Imported modules are read
+   as they are then; only the script is what was classed.
 9. **A run says what it made.** The result names each regular file the run made, changed or
    removed, told apart by size, nanosecond modification time and inode (links never followed,
    `.spade` left out, and it says when the workspace is too large to see whole); the images among
@@ -89,9 +92,12 @@ often wrong. Models do better work when they can write a short script and read i
   seconds on a fast link) and uses a few hundred MB in its runtime folder; later calls start at
   once. A refused network leaves the bot with a bare Python until the person allows the package
   hosts.
-- The bot can't add packages to the environment the tool runs; a package outside the locked set
-  needs a change to the set (or a venv of its own made with `shell`). Pins are by version, not by
-  hash, and the lock has to be refreshed by hand.
+- A call adds packages with `packages` (a name or `name==version`, 20 at most, checked before
+  anything runs and seen by the gate and any reviewer). Spade's set-up installs them under the same
+  rules as the locked set: binary wheels from the one index, configuration off, the locked
+  versions held as constraints, the person's Network permission, recorded so later runs reuse
+  them. A package with no wheel can't be had this way. Pins are by version, not by hash, and the
+  lock has to be refreshed by hand.
 - A bot whose commands run outside the sandbox, and Windows, have no `python` yet; they use
   `shell`.
 
@@ -110,7 +116,11 @@ often wrong. Models do better work when they can write a short script and read i
   and attaches the PNG (one-shot and in the terminal); the environment is set up once from a local
   wheel and its package imports later with no reinstall; the `venv` path sets up despite a
   shadowing `venv.py` and broken pip and uv configuration in the workspace; the bot's own command
-  can read the runtime and not change it; a script named `-c` runs as a script; the script classed
+  can read the runtime and not change it; a script imports a module beside it and the code a
+  module at the workspace's top while a workspace `json.py` doesn't shadow the standard one; a
+  call's packages install once from a local wheel and later runs reuse them, a package with only
+  a source distribution and a spec that isn't a name are refused and the script doesn't run; a
+  script named `-c` runs as a script; the script classed
   (and shown in full) is the script that runs after the workspace file is swapped; a long script
   becomes a background job. With no Python the run says so; without the sandbox it is refused
   before anything is written.

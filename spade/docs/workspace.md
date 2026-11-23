@@ -35,7 +35,7 @@ never waits on one. Searches skip anything but regular files without opening it.
 | `workspace_write`  | `path, content`                                                             | write | Writes the whole file (2 MiB max), creating folders                                                              |
 | `workspace_edit`   | `path, old, new, replace_all?` or `path, edits: [{old, new, replace_all?}]` | write | Replaces `old` at its one place (every place with `replace_all`); several edits apply in order, all or none      |
 | `shell`            | `command, timeout_s?, outside_sandbox?`                                     | write | Runs the command in the folder (see below)                                                                       |
-| `python`           | `code` or `path, args?`, `timeout_s?`                                       | write | Runs Python in the folder, in the bot's sandbox only (see below)                                                 |
+| `python`           | `code` or `path, args?`, `packages?`, `timeout_s?`                          | write | Runs Python in the folder, in the bot's sandbox only (see below)                                                 |
 
 Text files are read up to 4 MiB; anything not UTF-8 is reported as binary.
 
@@ -132,18 +132,24 @@ workspace file opened through real folders only, no link followed, 2 MiB at most
 to `scripts/<sha256>.py` in the runtime. A workspace script's whole text goes to the reviewer
 (`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to the person.
 The run uses that staged file, so what was classed and shown is what runs; a later change to the
-workspace file doesn't reach it. The script runs on its own: modules beside it in the workspace
-aren't on its path, and `__file__` names the staged copy.
+workspace file doesn't reach it. Modules beside it still import: Spade's `boot.py` (in the
+runtime) runs the staged bytes as `__main__` with `__file__` and `argv[0]` set to the script's
+path in the workspace (`<code>` for code) and appends the script's folder (the workspace for
+code) to the END of `sys.path`, after the standard library and the installed packages, so a
+module beside it imports and a workspace `json.py` can never stand in for the standard one. No
+bytecode is written beside it. Those modules are read when imported, not staged: only the script
+itself is what was classed.
 
 **One runner.** The call is classed as sandboxed like a contained command and goes through
 `shell`'s runner (`shell_tool::cleared` and `run_cleared`): the gate's launch is taken once, and
 the script runs in the bot's terminal on macOS and Linux (the person sees `/bin/sh
-<runtime>/run.sh <workspace> <runtime>/scripts/<hash>.py <args>…`, every word absolute or quoted,
+<runtime>/run.sh <workspace> <runtime>/scripts/<hash>.py <folder> <name> <args>…`, every word absolute or quoted,
 so no name reads as an option) or the one-shot shell, with the same timeout (60 s unless
 `timeout_s`), the 30-second foreground window and background job, output caps, large-output
-file, `command_ran` and blocked hint. `run.sh` moves to the workspace and starts
-`venv/bin/python -I -u`: no `PYTHON*` variable, no user site and no script or working folder on
-`sys.path`; `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window) and matplotlib's
+file, `command_ran` and blocked hint. `run.sh` moves to the workspace (the script's working
+folder, so relative paths resolve there) and starts `venv/bin/python -I -u boot.py`: no `PYTHON*`
+variable, no user site and no script or working folder on `sys.path` but the one `boot.py`
+appends; `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window) and matplotlib's
 settings in the run's `TMPDIR`.
 
 **Setting up.** Nothing happens at start. Before a run, Spade writes `run.sh` and `setup.sh`
@@ -168,8 +174,18 @@ numpy, matplotlib, openpyxl, python-docx, pypdf, requests and everything they ne
 (`python::DEFAULT_PACKAGES`), binary wheels only, from `https://pypi.org/simple` and nothing else.
 It writes `ready` once they are in. When installing fails (the network goes through the sandbox's
 proxy under the person's Network permission) the script runs with what is there and the next run
-tries again. The bot can't add packages to its environment (only the set-up writes it); it can
-make its own with `shell` in its workspace.
+tries again.
+
+**More packages.** A call may name more with `packages` (20 at most): each a name or
+`name==version` and nothing else (`python::package_spec` refuses URLs, paths, options, extras,
+markers and other specifiers before anything runs). They are part of the call's arguments, so the
+gate classes them and a reviewer sees them, and "always" covers only the same list. Those not yet
+installed go to the same set-up run, under the same lock and rules: binary wheels only (a package
+with no wheel is never built from source), the one index, configuration discovery off, the
+locked versions held as constraints (`locked.txt`), through the sandbox's proxy under the
+person's Network permission. Once in, they are recorded in the runtime's `extras` and later runs
+reuse them without installing again. A package that can't be installed fails the call with
+what the installer said, and the script doesn't run.
 
 **What it answers.** What the set-up said, if it ran, then the command's result as `shell` gives
 it (exit code, stdout, `[stderr]`), then `Files it made or changed:` with each new or changed

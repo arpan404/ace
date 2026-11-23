@@ -142,21 +142,46 @@ fn quote(text: &str) -> String {
 }
 
 /// The launcher each run goes through, `<runtime>/run.sh`, run as `/bin/sh run.sh <workspace>
-/// <script> <args>…`: it moves to the workspace and runs the staged script with the bot's
-/// environment's Python, isolated (`-I`: no `PYTHON*` variables, no user site, no script or
-/// working folder on `sys.path`) and unbuffered.
+/// <staged script> <its folder> <its name> <args>…`: it moves to the workspace and starts
+/// [`BOOT`] with the bot's environment's Python, isolated (`-I`: no `PYTHON*` variables, no user
+/// site, no script or working folder on `sys.path`) and unbuffered.
 pub const LAUNCHER: &str = r#"# Spade's launcher for the python tool (ADR 0220). Spade writes it; the bot's runs can't change it.
 runtime=$(cd "$(dirname "$0")" && pwd -P) || exit 1
 cd -- "$1" || exit 1
 shift
 tmp=${TMPDIR:-$PWD/.spade/tmp}
 export MPLBACKEND=Agg MPLCONFIGDIR="$tmp/matplotlib"
-exec "$runtime/venv/bin/python" -I -u "$@"
+exec "$runtime/venv/bin/python" -I -u "$runtime/boot.py" "$@"
+"#;
+
+/// What runs a staged script, `<runtime>/boot.py`, as `boot.py <staged> <folder> <name> <args>…`:
+/// the staged bytes run as `__main__` under the script's own name (`__file__` and `argv[0]` are
+/// its path in the workspace, `<code>` for code), with its workspace folder added at the END of
+/// `sys.path`, after the standard library and the installed packages, so a module beside it can
+/// be imported and a workspace file can never shadow one of those. Nothing is cached beside it.
+pub const BOOT: &str = r#"# Spade's start of a python tool run (ADR 0220). Spade writes it; the bot's runs can't change it.
+import sys, types
+sys.dont_write_bytecode = True
+staged, folder, name = sys.argv[1], sys.argv[2], sys.argv[3]
+sys.argv = [name] + sys.argv[4:]
+if folder not in sys.path:
+    sys.path.append(folder)
+with open(staged, "rb") as source:
+    code = compile(source.read(), name, "exec")
+main = types.ModuleType("__main__")
+main.__file__ = name
+main.__builtins__ = __builtins__
+sys.modules["__main__"] = main
+del staged, folder, source, types
+exec(code, main.__dict__)
 "#;
 
 /// Spade's set-up of the bot's environment, `<runtime>/setup.sh`, run as `/bin/sh setup.sh
-/// <digest>` in a run that may write only the runtime folder. It makes `venv` when there is none,
-/// installs the packages, and writes `ready` holding `digest` once they are in.
+/// <digest> <asked>…` in a run that may write only the runtime folder. It makes `venv` when there
+/// is none, installs the locked packages and writes `ready` holding `digest` once they are in,
+/// then installs the packages a call asked for (`asked`, already checked by [`package_spec`]),
+/// held to the locked versions (`locked.txt`), and records them in `extras`; asked packages that
+/// can't be installed fail the set-up.
 pub fn setup_script(setup: &Setup) -> String {
     let words = |paths: Vec<String>| paths.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");
     let in_folders = |name: &str| {
@@ -192,7 +217,7 @@ pub fn setup_script(setup: &Setup) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     let install = if setup.packages.is_empty() {
-        "printf '%s' \"$1\" > ready\n".to_owned()
+        "  printf '%s' \"$1\" > ready\n".to_owned()
     } else {
         let names: Vec<&str> = setup
             .packages
@@ -200,17 +225,17 @@ pub fn setup_script(setup: &Setup) -> String {
             .map(|p| p.split("==").next().unwrap_or(p))
             .collect();
         format!(
-            r#"echo "[Installing Python's packages for this bot: {list}.]" >&2
-if [ -n "$uv" ]; then
-  "$uv" pip install --no-config --quiet --python venv/bin/python --only-binary :all: {index} {packages}
-else
-  venv/bin/python -I -m pip install --isolated --quiet --only-binary :all: {index} {packages}
-fi
-if [ $? -eq 0 ]; then
-  printf '%s' "$1" > ready
-else
-  echo "[The packages could not all be installed (see above), so the script runs with what is there. Installing reaches the network, which the person's Network permission decides; the next run tries again.]" >&2
-fi
+            r#"  echo "[Installing Python's packages for this bot: {list}.]" >&2
+  if [ -n "$uv" ]; then
+    "$uv" pip install --no-config --quiet --python venv/bin/python --only-binary :all: {index} {packages}
+  else
+    venv/bin/python -I -m pip install --isolated --quiet --only-binary :all: {index} {packages}
+  fi
+  if [ $? -eq 0 ]; then
+    printf '%s' "$1" > ready
+  else
+    echo "[The packages could not all be installed (see above), so the script runs with what is there. Installing reaches the network, which the person's Network permission decides; the next run tries again.]" >&2
+  fi
 "#,
             list = names.join(", "),
         )
@@ -245,7 +270,25 @@ if [ ! -x venv/bin/python ]; then
   fi
   echo "[Set up Python for this bot: $(venv/bin/python -I -c 'import platform; print(platform.python_version())').]" >&2
 fi
-{install}"#
+if [ "$(cat ready 2>/dev/null)" != "$1" ]; then
+{install}fi
+shift
+if [ $# -gt 0 ]; then
+  echo "[Installing the packages asked for: $*.]" >&2
+  : > asked.txt
+  for spec in "$@"; do printf '%s\n' "$spec" >> asked.txt; done
+  if [ -n "$uv" ]; then
+    "$uv" pip install --no-config --quiet --python venv/bin/python --only-binary :all: {index} -c locked.txt -r asked.txt
+  else
+    venv/bin/python -I -m pip install --isolated --quiet --only-binary :all: {index} -c locked.txt -r asked.txt
+  fi
+  if [ $? -ne 0 ]; then
+    echo "[The packages asked for could not be installed (see above): only binary wheels from the one index are installed, never built from source, within the versions the environment is locked to. Installing reaches the network, which the person's Network permission decides.]" >&2
+    exit 3
+  fi
+  cat asked.txt >> extras
+fi
+"#
     )
 }
 
@@ -254,17 +297,101 @@ fn digest(text: &[u8]) -> String {
     super::trust::hash(text)
 }
 
-/// The command that runs the staged `script` with `args` through the launcher in `runtime`, in
-/// the workspace at `workspace`. Every word is absolute or quoted, so no name reads as an option.
-pub fn command(runtime: &Path, workspace: &Path, script: &Path, args: &[String]) -> String {
+/// Where a script runs from: the folder added to the end of its `sys.path` and its name
+/// (`__file__`), absolute in the workspace, or the workspace and `<code>` for code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Origin {
+    pub folder: PathBuf,
+    pub name: String,
+}
+
+impl Origin {
+    /// For the script at `relative` (normalised) in the workspace at `workspace`, or code.
+    pub fn of(workspace: &Path, relative: Option<&str>) -> Self {
+        match relative {
+            Some(relative) => {
+                let file = workspace.join(relative);
+                Self {
+                    folder: file.parent().unwrap_or(workspace).to_path_buf(),
+                    name: file.to_string_lossy().into_owned(),
+                }
+            }
+            None => Self {
+                folder: workspace.to_path_buf(),
+                name: "<code>".to_owned(),
+            },
+        }
+    }
+}
+
+/// The command that runs the staged `script` (from `origin`) with `args` through the launcher in
+/// `runtime`, in the workspace at `workspace`. Every word is absolute or quoted, so no name reads
+/// as an option.
+pub fn command(
+    runtime: &Path,
+    workspace: &Path,
+    script: &Path,
+    origin: &Origin,
+    args: &[String],
+) -> String {
     let mut words = vec![
         "/bin/sh".to_owned(),
         quote(&runtime.join("run.sh").to_string_lossy()),
         quote(&workspace.to_string_lossy()),
         quote(&script.to_string_lossy()),
+        quote(&origin.folder.to_string_lossy()),
+        quote(&origin.name),
     ];
     words.extend(args.iter().map(|arg| quote(arg)));
     words.join(" ")
+}
+
+/// The most packages one call asks for.
+pub const MOST_ASKED: usize = 20;
+
+/// A package a call asks for, as the set-up installs it: a name, optionally `==` a version, and
+/// nothing else (no URL, path, option, extra or other specifier). Answers it trimmed.
+pub fn package_spec(spec: &str) -> Result<String, String> {
+    let spec = spec.trim();
+    let (name, version) = match spec.split_once("==") {
+        Some((name, version)) => (name, Some(version)),
+        None => (spec, None),
+    };
+    let name_ok = !name.is_empty()
+        && name.len() <= 100
+        && name.starts_with(|c: char| c.is_ascii_alphanumeric())
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    let version_ok = version.is_none_or(|v| {
+        !v.is_empty()
+            && v.len() <= 50
+            && v.starts_with(|c: char| c.is_ascii_alphanumeric())
+            && v.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '!' | '_' | '-'))
+    });
+    if name_ok && version_ok {
+        Ok(spec.to_owned())
+    } else {
+        Err(format!(
+            "{spec:?} is not a package Spade installs: give a name, or name==version, from PyPI"
+        ))
+    }
+}
+
+/// The packages a call asks for, each checked, at most [`MOST_ASKED`], without repeats.
+pub fn asked_packages(asked: &[String]) -> Result<Vec<String>, String> {
+    if asked.len() > MOST_ASKED {
+        return Err(format!("ask for {MOST_ASKED} packages at most in one call"));
+    }
+    let mut specs = Vec::new();
+    for spec in asked {
+        let spec = package_spec(spec)?;
+        if !specs.contains(&spec) {
+            specs.push(spec);
+        }
+    }
+    Ok(specs)
 }
 
 /// What a run made or changed in the workspace, in words, from its files' stamps before and
@@ -332,6 +459,16 @@ impl Runtime {
         Ok(self.dir.join(name))
     }
 
+    /// The asked packages not yet installed for the bot.
+    fn missing(&self, asked: &[String]) -> Vec<String> {
+        let installed = std::fs::read_to_string(self.dir.join("extras")).unwrap_or_default();
+        asked
+            .iter()
+            .filter(|spec| !installed.lines().any(|line| line == spec.as_str()))
+            .cloned()
+            .collect()
+    }
+
     /// Whether the environment is set up as `digest` says.
     fn ready(&self, digest: &str) -> bool {
         std::fs::read_to_string(self.dir.join("ready")).is_ok_and(|ready| ready == digest)
@@ -393,6 +530,8 @@ struct PythonArgs {
     #[serde(default)]
     args: Vec<String>,
     #[serde(default)]
+    packages: Vec<String>,
+    #[serde(default)]
     timeout_s: Option<u64>,
 }
 
@@ -439,15 +578,18 @@ impl Tool for PythonTool {
         shown_def(
             PYTHON,
             "Runs Python 3 in your workspace folder: code, or the script at path with args (it \
-             runs as read when you call, on its own: modules beside it in the workspace aren't \
-             imported). Your own environment has pandas, numpy, matplotlib (saves to files; no \
-             windows), openpyxl, python-docx, pypdf and requests. Answers the exit code, the \
-             output and the files it made or changed; images it saved are shown. Same sandbox, \
-             timeout_s and 30-second background rule as shell.",
+             runs as read when you call; modules beside it import). Your own environment has \
+             pandas, numpy, matplotlib (saves to files; no windows), openpyxl, python-docx, pypdf \
+             and requests; packages adds more from PyPI first (name or name==version, binary \
+             wheels only, kept for later runs). Answers the exit code, the output and the files \
+             it made or changed; images it saved are shown. Same sandbox, timeout_s and \
+             30-second background rule as shell.",
             json!({ "type": "object",
                     "properties": { "code": { "type": "string" },
                                     "path": { "type": "string" },
                                     "args": { "type": "array", "items": { "type": "string" } },
+                                    "packages": { "type": "array", "items": { "type": "string" },
+                                                  "maxItems": MOST_ASKED },
                                     "timeout_s": { "type": "integer", "minimum": 1 } } }),
             Risk::Write,
             // Like a command, anything it reads or makes is untrusted.
@@ -498,7 +640,15 @@ impl Tool for PythonTool {
     /// "Always" covers this exact run: the same code, or the same script with the same args.
     fn always_scope(&self, arguments: &Value) -> Option<String> {
         let field = |name: &str| arguments.get(name).cloned().unwrap_or(Value::Null);
-        Some(json!([field("code"), field("path"), field("args")]).to_string())
+        Some(
+            json!([
+                field("code"),
+                field("path"),
+                field("args"),
+                field("packages")
+            ])
+            .to_string(),
+        )
     }
 
     fn run(&self, key: &str, arguments: Value) -> ToolFuture {
@@ -508,6 +658,11 @@ impl Tool for PythonTool {
         };
         let script = match args.script() {
             Ok(script) => script,
+            Err(why) => return Box::pin(async move { ToolOutput::error(why) }),
+        };
+        // Checked before anything is written or run.
+        let asked = match asked_packages(&args.packages) {
+            Ok(asked) => asked,
             Err(why) => return Box::pin(async move { ToolOutput::error(why) }),
         };
         let workspace = match self.commands.place.workspace(key) {
@@ -544,6 +699,16 @@ impl Tool for PythonTool {
         let setup = self.setup.clone();
         let name = output_name(key);
         let key = key.to_owned();
+        let origin = match &script {
+            Script::Code(_) => Ok(Origin::of(&dir, None)),
+            Script::Path(path) => workspace
+                .normal(path)
+                .map(|path| Origin::of(&dir, Some(&path))),
+        };
+        let origin = match origin {
+            Ok(origin) => origin,
+            Err(error) => return Box::pin(async move { ToolOutput::error(error.to_string()) }),
+        };
         Box::pin(async move {
             // The script as the gate classed it; staged now only when no gate classed it.
             let script = match staged {
@@ -574,7 +739,7 @@ impl Tool for PythonTool {
             }
             let notes = {
                 let _one = lock.lock().await;
-                match set_up(&shell, &dir, &runtime, &setup).await {
+                match set_up(&shell, &dir, &runtime, &setup, &asked).await {
                     Ok(notes) => notes,
                     Err(failed) => return failed,
                 }
@@ -590,7 +755,7 @@ impl Tool for PythonTool {
                 .timeout_s
                 .map_or(super::tools::SHELL_TIMEOUT, Duration::from_secs)
                 .max(Duration::from_secs(1));
-            let command = command(&runtime.dir, &dir, &script, &args.args);
+            let command = command(&runtime.dir, &dir, &script, &origin, &args.args);
             let run = Run {
                 command: &command,
                 timeout,
@@ -610,41 +775,50 @@ impl Tool for PythonTool {
     }
 }
 
-/// Sets up the bot's environment when it isn't set up as `setup` says: Spade's script, in a
-/// contained run of its own that may also write the runtime folder. Answers what the set-up said,
-/// for the result, or the result when it failed.
+/// Sets up the bot's environment when it isn't set up as `setup` says or lacks a package the call
+/// `asked` for: Spade's script, in a contained run of its own that may also write the runtime
+/// folder. Answers what the set-up said, for the result, or the result when it failed.
 async fn set_up(
     shell: &Commands,
     dir: &Path,
     runtime: &Runtime,
     setup: &Setup,
+    asked: &[String],
 ) -> Result<String, ToolOutput> {
     let script = setup_script(setup);
     let wanted = digest(script.as_bytes());
+    let locked: String = setup.packages.iter().map(|p| format!("{p}\n")).collect();
     let files = {
         let (runtime, script, wanted) = (runtime.clone(), script.clone(), wanted.clone());
+        let asked = asked.to_vec();
         tokio::task::spawn_blocking(move || {
             runtime.put("run.sh", LAUNCHER.as_bytes())?;
+            runtime.put("boot.py", BOOT.as_bytes())?;
             runtime.put("setup.sh", script.as_bytes())?;
-            Ok::<_, std::io::Error>(runtime.ready(&wanted))
+            runtime.put("locked.txt", locked.as_bytes())?;
+            Ok::<_, std::io::Error>((runtime.ready(&wanted), runtime.missing(&asked)))
         })
         .await
     };
-    match files {
-        Ok(Ok(true)) => return Ok(String::new()),
-        Ok(Ok(false)) => {}
+    let missing = match files {
+        Ok(Ok((true, missing))) if missing.is_empty() => return Ok(String::new()),
+        Ok(Ok((_, missing))) => missing,
         Ok(Err(error)) => {
             return Err(ToolOutput::error(format!(
                 "Spade couldn't write the bot's Python launcher: {error}"
             )));
         }
         Err(_) => return Err(ToolOutput::error("the file work stopped")),
-    }
-    let command = format!(
+    };
+    let mut command = format!(
         "/bin/sh {} {}",
         quote(&runtime.dir.join("setup.sh").to_string_lossy()),
         quote(&wanted)
     );
+    for spec in &missing {
+        command.push(' ');
+        command.push_str(&quote(spec));
+    }
     let ran = shell
         .one_shot()
         .run_job(Job {
@@ -743,16 +917,58 @@ mod tests {
 
     #[test]
     fn a_command_is_absolute_and_quoted_so_no_name_runs_or_reads_as_an_option() {
+        let workspace = Path::new("/data/workspace/b1");
         let command = command(
             Path::new("/data/workspace/.python/b1"),
-            Path::new("/data/workspace/b1"),
+            workspace,
             Path::new("/data/workspace/.python/b1/scripts/ab.py"),
+            &Origin::of(workspace, Some("tools/-x.py")),
             &["-c".to_owned(), "$(rm -rf ~)".to_owned(), "it's".to_owned()],
         );
         assert_eq!(
             command,
             "/bin/sh '/data/workspace/.python/b1/run.sh' '/data/workspace/b1' \
-             '/data/workspace/.python/b1/scripts/ab.py' '-c' '$(rm -rf ~)' 'it'\\''s'"
+             '/data/workspace/.python/b1/scripts/ab.py' '/data/workspace/b1/tools' \
+             '/data/workspace/b1/tools/-x.py' '-c' '$(rm -rf ~)' 'it'\\''s'"
+        );
+        assert_eq!(
+            Origin::of(workspace, None),
+            Origin {
+                folder: workspace.to_path_buf(),
+                name: "<code>".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn only_a_name_or_name_and_version_is_a_package_spade_installs() {
+        for fine in [
+            "pandas",
+            "scikit-learn==1.7.2",
+            "zope.interface==7.0",
+            "torch==2.5.1+cpu",
+        ] {
+            assert_eq!(package_spec(fine).as_deref(), Ok(fine));
+        }
+        for refused in [
+            "",
+            "https://example.com/x.whl",
+            "./local.whl",
+            "--index-url=http://evil/",
+            "-e git+https://x",
+            "pandas>=2",
+            "pandas[all]",
+            "pandas ; sys_platform",
+            "pandas==",
+            "name with space",
+        ] {
+            assert!(package_spec(refused).is_err(), "{refused}");
+        }
+        let many: Vec<String> = (0..=MOST_ASKED).map(|n| format!("p{n}")).collect();
+        assert!(asked_packages(&many).is_err());
+        assert_eq!(
+            asked_packages(&["a".to_owned(), " a ".to_owned()]),
+            Ok(vec!["a".to_owned()])
         );
     }
 
