@@ -47,7 +47,7 @@ daemon is away.
   start) and then `<SPADE_DATA_DIR>/server.json` atomically:
   `{"address":"127.0.0.1:PORT","pid":1234,"version":"0.4.0","api":1}`. `GET /health` answers
   `{"ok":true,"version":"0.4.0","api":1}` without a token. With `?nonce=<16-64 hex
-  characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token file's contents
+characters>` it also answers `proof`: lowercase hex HMAC-SHA256 with the token file's contents
   as the key and the nonce as the message. Before sending Spade's token or a grant to the address
   in `server.json`, the daemon and the desktop app check the proof against a fresh nonce; a wrong
   or missing proof means it isn't Spade, and nothing secret is sent. `version` is ace's release version, stamped into the build through `ACE_SPADE_VERSION` (the crate's own version when unset); `spade --version` prints it. `api` is Spade's HTTP API version;
@@ -60,7 +60,7 @@ daemon is away.
   (messages are stored and answered once it opens), at most 15 s: after that admission opens
   anyway and setup finishes by itself whenever the keychain answers. Until it has,
   `GET /health` and `GET /v1/models` answer `"starting": true` with `"starting_reason"` (`setting
-  up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
+up endpoints`, `waiting for the keychain`, or `setting up endpoints failed; trying again`);
   then `"starting": false` and `null`. The daemon passes the reason on in `spade.status` as
   `setup: {reason, platform}` while Spade is ready but still setting up, and Spade's panel in
   the app says what to look for (for the keychain on macOS: a prompt to answer with Always Allow).
@@ -165,13 +165,13 @@ five seconds; a `failed` request is never resent. Spade's status in the app is r
 New request family in `@ace/protocol`, served by the daemon:
 
 - `spade.status` → `spade.status.result` `{status: {state: "off" | "starting" | "ready" |
-  "failed", version?, reason?}}`; afterwards that socket gets `spade.status.changed` on every
+"failed", version?, reason?}}`; afterwards that socket gets `spade.status.changed` on every
   change. The daemon no longer runs Spade: it reads the state from the service's registration,
   `server.json` and `GET /health` (`off` when the service is absent, `starting` until `/health`
   answers, `failed` with the reason when the service is registered but Spade isn't answering).
 - `spade.http` `{requestId, method, path, body?, encoding?, contentType?, parts?}` →
   `spade.http.result` with `result` `{kind: "response", status, body, encoding, contentType?,
-  parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unavailable`,
+parts?}` or `{kind: "error", code, message}` (`forbidden`, `invalid_path`, `unavailable`,
   `too_large`, `invalid_body`, `limit`, `failed`). The daemon forwards it to Spade's HTTP API
   with Spade's token. `path` must start with `/v1/`; `GET` needs the device read scope, every
   other method needs operate. Bodies pass through as bytes:
