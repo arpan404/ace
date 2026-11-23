@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   registerGroup,
   reportedGroup,
+  signalSoon,
   spawnSupervised,
   stopRetainedGroup,
   type LeaderGroup,
@@ -74,7 +75,7 @@ export async function askClaudeMetadata(
           pid,
           (graceMs) => stopRetainedGroup(group, graceMs),
           { name: "claude" },
-          () => group.signal("SIGKILL"),
+          () => signalSoon(group, "SIGKILL"),
         );
       }
       if (treeStop && host.pid !== undefined) hostTree = treeStop.recordTree(host.pid);

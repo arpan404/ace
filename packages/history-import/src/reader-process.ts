@@ -7,7 +7,12 @@ import {
   stopRetainedWindowsTree,
   unregisterGroup,
 } from "@ace/provider-kit/process-owner";
-import { childGroup, stopRetainedGroup, type LeaderGroup } from "@ace/provider-kit/leader-group";
+import {
+  childGroup,
+  signalSoon,
+  stopRetainedGroup,
+  type LeaderGroup,
+} from "@ace/provider-kit/leader-group";
 import { newGroupToken, withGroupToken } from "@ace/provider-kit/group-token";
 import {
   residentSampler,
@@ -219,7 +224,7 @@ export class ReaderProcess extends EventEmitter {
   }
   /** Ends the reader's group at once; on Windows the reader alone, through its handle. */
   private destroyGroup(): void {
-    if (this.group) this.group.signal("SIGKILL");
+    if (this.group) signalSoon(this.group, "SIGKILL");
     else this.child.kill("SIGKILL");
   }
   private finish(code: number): void {

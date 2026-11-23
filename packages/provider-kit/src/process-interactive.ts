@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { registerGroup, unregisterGroup } from "./process-owner.ts";
-import { childGroup, type LeaderGroup } from "./leader-group.ts";
+import { childGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
 import { newGroupToken, withGroupToken } from "./group-token.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
@@ -34,11 +34,11 @@ export function spawnInteractive(options: {
   let group: LeaderGroup | undefined;
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
-    else group?.signal("SIGTERM");
+    else if (group) signalSoon(group, "SIGTERM");
   };
   const destroy = (pid: number) => {
     if (windows) killTree(pid, true);
-    else group?.signal("SIGKILL");
+    else if (group) signalSoon(group, "SIGKILL");
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)

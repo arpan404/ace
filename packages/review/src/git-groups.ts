@@ -1,6 +1,7 @@
 import {
   registerGroup,
   reportedGroup,
+  signalSoon,
   stopRetainedGroup,
   unregisterGroup,
   type LeaderGroup,
@@ -27,7 +28,7 @@ export class ReviewGitGroups {
         pid,
         (graceMs) => stopRetainedGroup(group, graceMs),
         { name: "ace-process" },
-        () => group.signal("SIGKILL"),
+        () => signalSoon(group, "SIGKILL"),
       );
     } catch {
       // The report crosses threads, so a quick Git child may already have exited: macOS then

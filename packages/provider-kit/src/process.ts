@@ -43,6 +43,7 @@ export {
   childGroup,
   guardGroupSignals,
   reportedGroup,
+  signalSoon,
   stopRetainedGroup,
   type LeaderGroup,
 } from "./leader-group.ts";

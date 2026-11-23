@@ -68,6 +68,17 @@ export function signalOwnedMembers(
 }
 
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
+  killGroupWhile(pid, signal, () => true);
+}
+/**
+ * `killGroup`, with the evidence that the number is still the group's checked last, after the
+ * guard's scan and immediately before kill(-pid). "unpinned": nothing was sent by number.
+ */
+export function killGroupWhile(
+  pid: number,
+  signal: NodeJS.Signals,
+  pinned: () => boolean,
+): "sent" | "members" | "unpinned" {
   if (process.platform === "win32") {
     // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
     // still reach every other owner, so a failure here is reported, not thrown.
@@ -76,7 +87,7 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     } catch (error) {
       process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
     }
-    return;
+    return "sent";
   }
   if (groupGuard) {
     let allowed: ReturnType<GroupGuard>;
@@ -87,11 +98,14 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
       process.emitWarning(`Process group ${pid} could not be checked: ${String(error)}`);
       allowed = [];
     }
+    // The scan read the group by number: it counts only if the number was still the group's.
+    if (!pinned()) return "unpinned";
     if (allowed !== "whole") {
       for (const member of allowed) signalTreeMember(member, signal);
-      return;
+      return "members";
     }
   }
+  if (!pinned()) return "unpinned";
   try {
     process.kill(-pid, signal);
   } catch (error) {
@@ -99,6 +113,7 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     // Darwin can report EPERM for groups containing only zombies before reaping.
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
+  return "sent";
 }
 /**
  * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
@@ -107,22 +122,25 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
  * signalled through its own handle, which never reaches a reused pid once it has exited.
  */
 export function signalTree(
-  group: { readonly leader: number; signal(signal: NodeJS.Signals): void },
+  group: { readonly leader: number; signal(signal: NodeJS.Signals): Promise<void> },
   force: boolean,
   windows: boolean,
   killTree: WindowsKillTree,
   leader: { kill(signal: NodeJS.Signals): boolean },
 ): void {
-  try {
-    if (windows) killTree(group.leader, force);
-    else group.signal(force ? "SIGKILL" : "SIGTERM");
-  } catch (error) {
+  const refused = (error: unknown) => {
     process.emitWarning(`Could not signal process tree ${group.leader}: ${String(error)}`);
     try {
       leader.kill(force ? "SIGKILL" : "SIGTERM");
     } catch {
       /* Already gone. */
     }
+  };
+  try {
+    if (windows) killTree(group.leader, force);
+    else void group.signal(force ? "SIGKILL" : "SIGTERM").catch(refused);
+  } catch (error) {
+    refused(error);
   }
 }
 function cleanup(): void {

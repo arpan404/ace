@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
 import { provenAdoptions, reap, zombieChildren } from "@ace/provider-kit/process-reaper";
 import { captureTree, type CapturedMember } from "@ace/provider-kit/process-tree";
+import { childGroup, signalSoon, type LeaderGroup } from "@ace/provider-kit/leader-group";
+import { newGroupToken, withGroupToken } from "@ace/provider-kit/group-token";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
@@ -15,10 +17,8 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
       return () => clearTimeout(timer);
     },
     platform: process.platform,
-    signalGroup: (pid, signal) => {
-      process.kill(-pid, signal);
-    },
-    groupAlive: processGroupAlive,
+    signalGroup: signalSpawnedGroup,
+    groupAlive: (pid) => groups.get(pid)?.running() ?? processGroupAlive(pid),
     gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
     locateGit: (env) => developerToolsGit(overrides.platform ?? process.platform, env),
     fileClock: () => Date.now(),
@@ -28,13 +28,48 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
 function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
   return child.stdin !== null && child.stdout !== null && child.stderr !== null;
 }
+/**
+ * The groups of detached Git children this isolate spawned, by leader pid. Each is signalled by
+ * number only while its leader is unreaped, then member by member (`leader-group.ts`). An entry
+ * outlives its child's close briefly, for the cleanup that runs after it.
+ */
+const groups = new Map<number, LeaderGroup>();
+const groupKeptMs = 10_000;
+
+/** Signal a group this isolate spawned; any other pid is refused, never signalled by number. */
+function signalSpawnedGroup(pid: number, signal: NodeJS.Signals): void {
+  const group = groups.get(pid);
+  if (!group) throw new Error(`Process group ${pid} is not one this process spawned`);
+  signalSoon(group, signal);
+}
+
 /** Node's three-pipe overload does not describe additional inherited descriptors. Check the edge. */
 export function spawnGitProcess(
   command: string,
   args: string[],
   options: Parameters<GitProcessRuntime["spawn"]>[2],
 ): ChildProcessWithoutNullStreams {
-  const child = spawn(command, args, options);
+  const token = options.detached && process.platform !== "win32" ? newGroupToken() : undefined;
+  const child = spawn(
+    command,
+    args,
+    token === undefined
+      ? options
+      : { ...options, env: withGroupToken(options.env ?? process.env, token) },
+  );
+  const pid = child.pid;
+  if (pid !== undefined && token !== undefined) {
+    const group = childGroup(pid, token);
+    groups.set(pid, group);
+    // First of all exit listeners: once reaped its group number is never signalled.
+    child.once("exit", () => group.reaped());
+    child.once("close", () => {
+      const forget = setTimeout(() => {
+        if (groups.get(pid) === group) groups.delete(pid);
+      }, groupKeptMs);
+      forget.unref();
+    });
+  }
   if (!piped(child)) {
     child.kill("SIGKILL");
     throw new Error("Git requires three owned pipes");
@@ -71,9 +106,9 @@ export function killTree(
 ): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     // The leader exited, but a member it started (a helper holding Git's pipes) can live on in
-    // its group. A PID is not reused while it still names a live group, so the group is
-    // signalled while it is alive. An exited leader on Windows has no group to name; a member
-    // that left the group (setsid) is outside what any of this can reach.
+    // its group. Its leader group signals those members by identity, never the freed number.
+    // An exited leader on Windows has no group to name; a member that left the group (setsid)
+    // is outside what any of this can reach.
     if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid)) {
       try {
         runtime.signalGroup(child.pid, "SIGKILL");

@@ -6,7 +6,7 @@ import { OutputLimitError } from "./output-budget.ts";
 import { ProbeReply, type ProbeRequest } from "./probe-messages.ts";
 import { z } from "zod";
 import { admitProcess, registerGroup, unregisterGroup } from "./process-owner.ts";
-import { reportedGroup, type LeaderGroup } from "./leader-group.ts";
+import { reportedGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
 import { requestOwner, unscoped, type RequestOwner } from "./unscoped.ts";
 import { markedEnv } from "./process-marker.ts";
 
@@ -35,7 +35,7 @@ const runtime: IdleWorkerRuntime = {
  */
 function stopGroup(group: LeaderGroup | undefined): void {
   try {
-    group?.signal("SIGKILL");
+    if (group) signalSoon(group, "SIGKILL");
   } catch {
     // A group this daemon can no longer signal is not one it can stop.
   }

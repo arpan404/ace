@@ -1,6 +1,8 @@
 import { expect, test } from "vitest";
 import { pidfdFailure } from "./process-signal.ts";
-import { captureTree, parseProcessParents, stopMembers } from "./process-tree.ts";
+import { captureFrom, captureTree, parseProcessParents, stopMembers } from "./process-tree.ts";
+import { deliverGroupSignal } from "./group-delivery.ts";
+import { installGroupGuards } from "./process-owner.ts";
 import { fakeMachine } from "./process-tree-test-support.ts";
 import { childGroup } from "./leader-group.ts";
 
@@ -245,4 +247,43 @@ test("after its leader is reaped, a group's recorded member whose pid now shows 
   table.set(200, { parent: 1, start: "stranger", group: 100 });
   group.signal("SIGKILL");
   expect(signals).toEqual(["SIGKILL 300:kid2"]);
+});
+
+test("a leader whose pid shows another start by the end of the rules' scan is not signalled by number; its members are", () => {
+  // A pid no kernel hands out, so a numeric signal could reach no one even if one were sent.
+  const leader = 999_999_999;
+  const { tree, listing, table, signals } = fakeMachine({
+    [leader]: { parent: 1, start: "leader", group: leader },
+    200: { parent: leader, start: "kid", group: leader },
+  });
+  const unguard = installGroupGuards(() => {
+    // Reaped and reused while the rules read the group.
+    table.set(leader, { parent: 1, start: "stranger", group: leader });
+    return "whole";
+  });
+  try {
+    deliverGroupSignal(
+      {
+        leader: { pid: leader, start: "leader" },
+        unreaped: true,
+        members: [{ pid: 200, start: "kid" }],
+        signal: "SIGKILL",
+      },
+      { tree, listing },
+    );
+  } finally {
+    unguard();
+  }
+  expect(signals).toEqual(["SIGKILL 200:kid"]);
+});
+
+test("a tree walk from a recorded root whose pid now shows another start takes nothing below it", () => {
+  const { tree } = fakeMachine({
+    100: { parent: 1, start: "reused" },
+    200: { parent: 100, start: "strangers-child" },
+  });
+  expect(captureFrom([{ pid: 100, start: "recorded" }], tree)).toEqual({
+    members: [],
+    truncated: false,
+  });
 });
