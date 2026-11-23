@@ -6,6 +6,8 @@ import { confirmRecentThreadRows, openThreadRowTrust, threadRowShape } from "./t
 import { ThreadReads } from "./thread-reads.ts";
 import { LongThreadQueries } from "./long-thread/queries.ts";
 import { SidebarReads } from "./sidebar-reads.ts";
+import { nativeReads } from "./native-reads/switch.ts";
+import { listThreadsNative, readThreadsNative } from "./native-reads/sidebar.ts";
 import { CommandReceipts } from "./command-receipts.ts";
 import { EventWriter } from "./event-writer.ts";
 import { decodeThreadRow, threadRowColumns, threadRowSource } from "./thread-row.ts";
@@ -1069,6 +1071,12 @@ export class Store {
   }
   /** `readThread` for many threads in one statement. Missing threads have no entry. */
   readThreads(ids: readonly ThreadId[]): Map<ThreadId, FrozenThread> {
+    if (nativeReads("sidebar"))
+      return readThreadsNative(
+        (sql) => this.statement(sql),
+        ids,
+        (id) => this.readThread(id as ThreadId),
+      );
     const threads = new Map<ThreadId, FrozenThread>();
     if (!ids.length) return threads;
     const rows = this.statement(
@@ -1168,6 +1176,7 @@ export class Store {
     }
   }
   listThreads(): Thread[] {
+    if (nativeReads("sidebar")) return listThreadsNative((sql) => this.statement(sql));
     return this.statement(
       `SELECT ${threadRowColumns} FROM ${threadRowSource} ORDER BY updated_at DESC, threads.id`,
     )

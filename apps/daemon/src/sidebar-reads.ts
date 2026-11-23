@@ -1,6 +1,8 @@
 import type { SQLOutputValue, StatementSync } from "node:sqlite";
 import { BoundedCache } from "@ace/provider-kit/bounded-cache";
 import { sidebarCursor, sidebarPageStorage } from "./sidebar-page-storage.ts";
+import { nativeReads } from "./native-reads/switch.ts";
+import { loadSidebarPageNative } from "./native-reads/sidebar.ts";
 import { SidebarLive } from "./sidebar-live.ts";
 import { SidebarPageWeight } from "./sidebar-page-weight.ts";
 import type { Thread, ThreadListEntry, ThreadListWindow } from "@ace/protocol";
@@ -144,31 +146,45 @@ export class SidebarReads {
     ]);
     const cached = this.sidebarPages.get(key);
     if (cached) return cached;
-    const page = sidebarPageStorage(
-      (sql) => this.source.statement(sql),
-      (row) => {
-        // Frozen at runtime; the wire types are mutable only because they are plain schemas.
-        const entry = this.source.decode(row, row.sidebar_revision) as Thread;
-        this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
-        return entry;
-      },
-      options,
-      before,
-      reuse
-        ? {
-            ...reuse,
-            current: (entry, rowRevision) => this.sidebarRowRevisions.get(entry) === rowRevision,
-          }
-        : undefined,
-      (load) => {
-        const summaryKey = JSON.stringify([options.project ?? null, options.archived === true]);
-        const summaryHit = this.sidebarSummaries.get(summaryKey);
-        if (summaryHit) return summaryHit;
-        const summary = load();
-        this.sidebarSummaries.set(summaryKey, summary, Buffer.byteLength(JSON.stringify(summary)));
-        return summary;
-      },
-    );
+    const withCurrent = reuse
+      ? {
+          ...reuse,
+          current: (entry: ThreadListEntry, rowRevision: number) =>
+            this.sidebarRowRevisions.get(entry) === rowRevision,
+        }
+      : undefined;
+    const summarize = (load: () => Pick<ThreadListWindow, "total" | "counts">) => {
+      const summaryKey = JSON.stringify([options.project ?? null, options.archived === true]);
+      const summaryHit = this.sidebarSummaries.get(summaryKey);
+      if (summaryHit) return summaryHit;
+      const summary = load();
+      this.sidebarSummaries.set(summaryKey, summary, Buffer.byteLength(JSON.stringify(summary)));
+      return summary;
+    };
+    // Native decodes the rows in Rust; the caches, the snapshot above and the
+    // row revisions recorded below stay TypeScript around it.
+    const page = nativeReads("sidebar")
+      ? loadSidebarPageNative(
+          this.source,
+          options,
+          before,
+          withCurrent,
+          (entry, rowRevision) => this.sidebarRowRevisions.set(entry, rowRevision),
+          summarize,
+        )
+      : sidebarPageStorage(
+          (sql) => this.source.statement(sql),
+          (row) => {
+            // Frozen at runtime; the wire types are mutable only because they are plain schemas.
+            const entry = this.source.decode(row, row.sidebar_revision) as Thread;
+            this.sidebarRowRevisions.set(entry, Number(row.sidebar_revision));
+            return entry;
+          },
+          options,
+          before,
+          withCurrent,
+          summarize,
+        );
     this.sidebarPages.set(key, page, this.sidebarPageWeight.bytes(page));
     return page;
   }
