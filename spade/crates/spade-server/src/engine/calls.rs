@@ -517,6 +517,8 @@ pub(super) async fn handle_calls(
                         permits,
                         connected: snapshot.as_ref().is_some_and(|tool| tool.connected_app()),
                         guessed: app_call.as_ref().is_some_and(|app| app.reading.guessed),
+                        overwrites: app_call.as_ref().is_some_and(|app| app.reading.overwrites),
+                        app_plain: app_call.as_ref().is_some_and(|app| app.reading.plain),
                     };
                     // The ceiling first, before any route of Spade's own: nothing a packaged bot
                     // does, a bot it makes for the person included, gets past what its package

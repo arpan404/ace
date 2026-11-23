@@ -59,6 +59,16 @@ struct AceAccountAPI: Sendable {
         guard !grant.token.isEmpty, grant.token.utf8.count <= 2048 else { throw .refused }
         return grant
     }
+    /// The person's grant for one daemon and this phone's standing key (ADR 0190 §3): the
+    /// `standing` of a device grant naming `host` and `key`. Nil when the backend gives none, as
+    /// for a session from before standing was kept. Never offered to the relay or the script.
+    func personGrant(token: String, deviceId: String, host: String, key: String) async throws(AccountGrantError) -> String? {
+        struct Minted: Decodable { let standing: String? }
+        let body = try? JSONEncoder().encode(["kind": "device", "subject": deviceId, "host": host, "key": key])
+        let minted: Minted = try await call("grants", method: "POST", token: token, body: body)
+        guard let standing = minted.standing, !standing.isEmpty, standing.utf8.count <= 2048 else { return nil }
+        return standing
+    }
     /// Machines signed in to the account, most recently seen first.
     func machines(token: String) async throws(AccountGrantError) -> [AceMachine] {
         struct List: Decodable { let machines: [AceMachine] }

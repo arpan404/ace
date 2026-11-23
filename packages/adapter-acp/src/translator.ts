@@ -108,6 +108,7 @@ class AcpTranslator implements Translator {
         const child = s.agents.get(string(params["sessionId"]));
         if (child && child !== s.root && !child.terminal)
           s.armCancel(child, cancellationDeadline(now));
+        if (s.promptOpen && string(params["sessionId"]) === s.root.nativeId) s.rootCancelled = true;
       }
       if (["session/new", "session/load", "session/resume"].includes(method)) {
         s.cwd = string(params["cwd"]);
@@ -117,6 +118,7 @@ class AcpTranslator implements Translator {
         const agent = s.agent(string(params["sessionId"]), facts);
         agent.terminal = false;
         s.promptOpen = true;
+        s.rootCancelled = false;
         delete agent.implicitTurn;
         // Text the agent sent after its last prompt answered belongs to that answer, not this one.
         s.finishStream(agent, facts);
@@ -427,6 +429,17 @@ class AcpTranslator implements Translator {
         });
         return true;
       }
+      const content = object(update["content"]);
+      if (
+        kind === "agent_message_chunk" &&
+        agent === s.root &&
+        s.rootCancelled &&
+        content["type"] === "text" &&
+        s.quirks.cancelNotice(string(content["text"]))
+      ) {
+        s.notice(facts, frame, "session/update", undefined, agent);
+        return true;
+      }
       // Text after the root's prompt answered attaches to the finished answer; it opens no turn.
       if (
         !agent.suspended &&
@@ -434,7 +447,6 @@ class AcpTranslator implements Translator {
         (agent !== s.root || s.promptOpen || agent.active)
       )
         s.start(agent, facts, agent === s.root ? "unknown" : "spawn");
-      const content = object(update["content"]);
       if (content["type"] !== "text") s.finishStream(agent, facts);
       if (agent.stream?.kind !== kind) {
         s.finishStream(agent, facts);

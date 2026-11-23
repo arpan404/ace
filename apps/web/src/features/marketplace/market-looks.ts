@@ -4,13 +4,21 @@ import { parseStoredBotFace, type BotFace } from "@ace/ui-core/bot-face";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useSuitLibrary } from "@/theme/suits/suit-library.tsx";
-import { reviewKey, useMarketReview, type EntryKey, type PreparedReview } from "./market-api.ts";
+import {
+  reviewKey,
+  useMarketLook,
+  useMarketReview,
+  type EntryKey,
+  type PreparedReview,
+  type VersionedKey,
+} from "./market-api.ts";
 
 /*
  * What an entry looks like, from what this machine already knows: a Suit's palette from the Suit
- * library when it is installed (or built in), else from its review once one was prepared; a
- * bot's face from its review. Nothing is fetched for a card: a listing without a picture of its
- * own shows its type's mark until the market's listings carry previews (ADR 0174).
+ * library when it is installed (or built in), else from a review already prepared, else from the
+ * daemon's `look` of its listed version; a bot's face the same way. A card never prepares a
+ * review: that waits behind installs, so a shelf of faces would arrive one by one. Only a daemon
+ * without `look` falls back to preparing one.
  */
 
 /** The Suit's `suit.json` from its review, as the library would read it; undefined if it isn't one. */
@@ -22,9 +30,14 @@ export function suitFromReview(
     (item) => item.kind === "text" && item.path === "suit.json" && !item.before,
   );
   if (text?.kind !== "text" || review.type !== "suit") return undefined;
+  return suitFromJson(text.text, review.hash);
+}
+
+/** A Suit's `suit.json` text as the library would read it; undefined if it isn't one. */
+export function suitFromJson(text: string, contentHash: string): SuitDetail | undefined {
   let raw: unknown;
   try {
-    raw = JSON.parse(text.text);
+    raw = JSON.parse(text);
   } catch {
     return undefined;
   }
@@ -39,7 +52,7 @@ export function suitFromReview(
         (scheme): scheme is "light" | "dark" => !!scheme,
       ),
       scene: false,
-      contentHash: review.hash,
+      contentHash,
       problems: [],
     },
     manifest: manifest.data,
@@ -76,24 +89,31 @@ export function useLibrarySuit(id: string | undefined): SuitDetail | undefined {
   return summary ? library.detail(summary) : undefined;
 }
 
-/** What a Suit entry looks like: installed, it is the library's; else its review's, if held. */
-export function useSuitLook(key: EntryKey, installedAs?: string): SuitDetail | undefined {
-  const installed = useLibrarySuit(key.type === "suit" ? (installedAs ?? key.name) : undefined);
-  // Its window is drawn from its review: prepared once and kept, as a bot's face is.
-  const held = useMarketReview(key, {
-    update: false,
-    enabled: key.type === "suit" && installed === undefined,
-  }).data;
-  return installed ?? (held ? suitFromReview(held.review, held.items) : undefined);
+/**
+ * An entry's look for a card: the review already held (its page prepared one), else the daemon's
+ * `look`. A daemon too old to answer `look` prepares the review, as before it had one.
+ */
+function useLook(key: VersionedKey, enabled: boolean) {
+  const held = useHeldReview(key);
+  const look = useMarketLook(key, enabled && held === undefined);
+  const prepared = useMarketReview(key, { update: false, enabled: enabled && look.isError }).data;
+  return { review: held ?? prepared, look: look.data };
 }
 
-/**
- * A bot entry's face, from its recipe's review: the held one, else prepared once and kept (the
- * entry's page reads the same one). Undefined while it loads and for a recipe without a face.
- */
-export function useBotLook(key: EntryKey): BotFace | undefined {
-  const read = useMarketReview(key, { update: false, enabled: key.type === "spade-bot" });
-  return faceFromReview(read.data?.review);
+/** What a Suit entry looks like: installed, it is the library's; else its review's or look's. */
+export function useSuitLook(key: VersionedKey, installedAs?: string): SuitDetail | undefined {
+  const installed = useLibrarySuit(key.type === "suit" ? (installedAs ?? key.name) : undefined);
+  const { review, look } = useLook(key, key.type === "suit" && installed === undefined);
+  if (installed) return installed;
+  if (review) return suitFromReview(review.review, review.items);
+  return look?.suit ? suitFromJson(look.suit, `${key.name}@${key.version ?? ""}`) : undefined;
+}
+
+/** A bot entry's face: its held review's, else its look's. Undefined while it loads or has none. */
+export function useBotLook(key: VersionedKey): BotFace | undefined {
+  const { review, look } = useLook(key, key.type === "spade-bot");
+  if (review) return faceFromReview(review.review);
+  return look?.face ? parseStoredBotFace(look.face)?.face : undefined;
 }
 
 /**

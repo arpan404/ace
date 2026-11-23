@@ -83,6 +83,7 @@ export function BufferEditor(props: BufferEditorProps) {
       text={base}
       path={props.path}
       label={`Source of ${props.path}`}
+      readOnly={props.readOnly ?? false}
       statusLine={false}
       // Without live marks from the host, the gutter marks unsaved lines against the saved text.
       marks={props.marks}

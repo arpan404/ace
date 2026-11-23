@@ -119,7 +119,7 @@ export function HomeSidebar() {
       </div>
       <nav
         aria-label="Projects"
-        className="relative flex min-h-0 flex-1 flex-col"
+        className="relative flex min-h-0 flex-1 flex-col [&_[data-virtual-viewport]]:pb-[52px]"
         onKeyDown={(event) => {
           const next = tabKey(event);
           if (!next) return;
@@ -127,7 +127,12 @@ export function HomeSidebar() {
           organizer.setTab(next);
         }}
       >
-        <ThreadsTabs tab={tab} panel={list.panel} onTab={(next) => organizer.setTab(next)} />
+        <ThreadsTabs
+          tab={tab}
+          panel={list.panel}
+          needsYou={list.needsYou}
+          onTab={(next) => organizer.setTab(next)}
+        />
         {loaded && (
           <Suspense fallback={null}>
             <StartedTitlePublisher.Component />

@@ -31,6 +31,8 @@ fn call(tool: &str, effect: Option<Effect>) -> Call<'_> {
         permits: crate::permission::Held::default(),
         connected: false,
         guessed: false,
+        overwrites: false,
+        app_plain: false,
     }
 }
 

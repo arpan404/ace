@@ -119,3 +119,55 @@ export function filledAssetSvg(icon: Icon, turn = 0, size = 20): string {
   );
   return `${turnedSvg(markup, turn)}\n`;
 }
+
+/** Each x, y pair in an absolute `M`/`C`/`Z` path turned by `degrees` about (cx, cy). */
+function turnedPath(d: string, degrees: number, cx: number, cy: number): string {
+  const angle = (degrees * Math.PI) / 180;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  return d.replace(/(-?\d*\.?\d+) (-?\d*\.?\d+)/g, (_, xs: string, ys: string) => {
+    const x = Number(xs) - cx;
+    const y = Number(ys) - cy;
+    return `${round(cx + x * cos - y * sin)} ${round(cy + x * sin + y * cos)}`;
+  });
+}
+
+/** An ellipse as four cubic curves, so it turns as the face does. */
+function ellipsePath(cx: number, cy: number, rx: number, ry: number): string {
+  const k = 0.5523;
+  const p = (x: number, y: number) => `${round(cx + x)} ${round(cy + y)}`;
+  return (
+    `M${p(0, -ry)}C${p(rx * k, -ry)} ${p(rx, -ry * k)} ${p(rx, 0)}` +
+    `C${p(rx, ry * k)} ${p(rx * k, ry)} ${p(0, ry)}` +
+    `C${p(-rx * k, ry)} ${p(-rx, ry * k)} ${p(-rx, 0)}` +
+    `C${p(-rx, -ry * k)} ${p(-rx * k, -ry)} ${p(0, -ry)}Z`
+  );
+}
+
+/** Spade's face on the web's 24 box, the geometry `SpadeMark` draws from (ui-core `spade-look.ts`). */
+export interface SpadeTabFace {
+  eyes: readonly { x: number; y: number }[];
+  eye: { rx: number; ry: number };
+  /** The pupil at the tab's size, and where it rests in each eye. */
+  pupil: { rx: number; ry: number };
+  pupilAt: (eye: { x: number; y: number }) => { x: number; y: number };
+  tilt: number;
+  egg: (x: number, y: number, rx: number, ry: number) => string;
+}
+
+/**
+ * Spade's tab glyph for the system tab bar, which draws one colour: the head filled, its eyes cut
+ * out at rest and the pupils filled inside them, the eyes turned with the face. One even-odd path
+ * and no mask, so it stays vector at any size.
+ */
+export function spadeTabSvg(face: SpadeTabFace, size: number): string {
+  const head = circlePath(12, 12, 10.6);
+  const turn = (d: string) => turnedPath(d, face.tilt, 12, 12);
+  const eyes = face.eyes.map((eye) => turn(face.egg(eye.x, eye.y, face.eye.rx, face.eye.ry)));
+  const pupils = face.eyes.map((eye) => {
+    const at = face.pupilAt(eye);
+    return turn(ellipsePath(at.x, at.y, face.pupil.rx, face.pupil.ry));
+  });
+  const d = [head, ...eyes, ...pupils].join("");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none"><path fill-rule="evenodd" d="${d}" fill="#000000"></path></svg>\n`;
+}

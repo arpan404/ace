@@ -28,7 +28,7 @@ struct SpadeWorkersCard: View {
                         ForEach(asking(worker), id: \.self) { thread in
                             ForEach(client.needsYou(thread)) { request in
                                 NeedsRequestCard(request: request, model: client, threadId: thread,
-                                                 open: { open(worker) }, draft: draft(request.id))
+                                                 open: { openThread(thread) }, draft: draft(request.id))
                             }
                         }
                     }
@@ -92,8 +92,11 @@ struct SpadeWorkersCard: View {
         worker.thread != nil || worker.conversation != nil
     }
 
+    /// A request's own thread: a delegated descendant's, not the worker's.
+    private func openThread(_ thread: String) { openURL(AceLink.thread(thread, machine: client.hostId)) }
+
     private func open(_ worker: SpadeModel.Workers.Worker) {
-        if let thread = worker.thread { openURL(AceLink.thread(thread, machine: client.hostId)) }
+        if let thread = worker.thread { openThread(thread) }
         else if let conversation = worker.conversation { openChat(conversation) }
     }
 

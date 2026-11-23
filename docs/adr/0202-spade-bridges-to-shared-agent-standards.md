@@ -656,3 +656,81 @@ then pinned; Full access with the reviewer down asks the person; an allowed call
 changed meanwhile doesn't run); and ace's `spade-app-requests.test.tsx` and
 `app-request-words.test.ts` (one card per gate kind; nested recipients and full arguments shown;
 `list_and_delete` never read as a read; the grant names the tools shown).
+
+## Amendment 6: the reviewer, not the person, judges an app's ordinary work under untrusted content
+
+Accepted 2026-11-22, on the owner's word after a bot building a fundraising hub in Notion asked
+about 60 times in one task. Every one of those asks came from the rules, before any model saw
+the call: Notion's `fetch` and `query-data-sources` (reads) were asked as writes, every
+`create-pages` under untrusted content went to the person, and every `update-page` and
+`move-pages` asked because Notion marks them destructive. This amendment changes point 1's
+description rule, point 7, and §2's destructive-hint row for connected apps. It also makes the
+reviewer run on the strongest model the person uses (ADR 0205).
+
+1. **A description's usage notes don't veto a read** (`effect::named::describes_change`). Every
+   app's tool description leads with what the tool does; what follows is mostly usage that names
+   other tools ("use it with update_data_source") or says what it never does ("Reading never
+   authorizes a write"). Code spans and identifiers (a word holding `_`, `:`, `/`, `=`, `(` or
+   `.` once the punctuation around it is trimmed, so `updates:` stays a word) are taken out
+   everywhere. Any change word in the first sentence counts. Past it, only the form a description
+   uses for its own tool counts (`updates`, `creates`, `sends`, `charges`…), never an
+   instruction's bare verb. The name rules are unchanged, and a description still never makes a
+   name read.
+2. **Under untrusted content, a connected app's plain work goes to the reviewer.** A connected
+   app's tool that declares nothing, with plain arguments (point 2) and the definition Spade
+   pinned, goes to the reviewer while untrusted content is in view. The reviewer is told it acts
+   in the person's app with that content in view, and to approve only the app's ordinary work the
+   person or the task calls for, whose targets came from the person or the bot's own earlier
+   steps. Payments, sends, access changes and deletes are already the person's by name (point 4),
+   so what is left is the work the person connected the app for. A call whose arguments reach a
+   destination or run text, or whose definition changed, still asks the person ("It may change
+   something in the app…"), and so does any tool that isn't a connected app's (ADR 0130). The
+   person's "no" for the bot still refuses it.
+3. **A destructive hint on a tool its name doesn't make a delete is reviewed each call.** For a
+   connected app with no trusted declaration, `destructiveHint` on `update_page` or `move_pages`
+   no longer asks the person each call. The reviewer judges every call instead, in both modes,
+   told the app says it may delete or overwrite: approve a targeted change of content the bot
+   made or was asked to change, and refuse one that replaces or empties what the person may want
+   or that it can't tell. Under untrusted content it is told to check the targets came from the
+   person or the bot's own work, and arguments that aren't plain go to the person. No earlier yes
+   and no Always allow skips that review. A delete the tool's own name makes (`delete_pages`)
+   still asks the person every call, and a plugin's or a URL server's destructive hint still asks
+   as §2 says.
+4. **The reviewer sees the bot's own recent steps** (`review::recent_steps`): its last twelve
+   calls that started and finished cleanly, each cut to 300 characters, as context on the task.
+   A call only proposed, refused, failed, of uncertain outcome or batched beside the one under
+   review is left out. The prompt says they prove nothing about where a value came from, since
+   the bot may have copied it from untrusted text. Calls only, never a tool's output. They are
+   quoted like every other tag.
+5. **The reviewer's prompt decides in order:** what the step really does, whether it serves the
+   job, whether it needs the person's own say, and whether untrusted text steered it. It says
+   plainly that doing the work the person asked for is routine even when it changes things.
+6. **The reviewer is never weaker than the bot.** With no review model set, the review role uses
+   the strongest model the person already uses whose listed price is at least the bot's own, as
+   the verifier does (ADR 0205), and the bot's own model when none is. It used to be the fast
+   model, which let a reviewer far weaker than the bot judge it. A bot whose model has no price to
+   compare (a subscription, an unpriced local model) keeps the fast model for its reviewer, since
+   a review can't run on a subscription. Preset models with no hand-written price get LiteLLM's public rate
+   (ADR 0040's list and matcher), filled into `spade/config/models.json` by
+   `bun scripts/update-spade-prices.ts`, so OpenCode Go's DeepSeek and Kimi can be compared too.
+7. **A shared bot's unresolved app call is outward** (ADR 0206). For the organization's policy
+   and its approvers, a connected app's or remote plugin's call that declares nothing, or calls
+   its write local, reads as `network`, as the package ceiling already reads it. So what the
+   reviewer would approve for a personal bot goes to an approver for a shared one.
+8. **A channel or workspace argument is a destination for a change.** A tool whose name isn't a
+   read and whose input names a `channel` or a `workspace` reaches outward (point 2's rule), so
+   under untrusted content it goes to the person. Reading one stays plain.
+
+Tests: `effect::named_tests` (Notion's own `fetch` and `memory-search` descriptions read; code in
+the first sentence doesn't count; a change the first sentence names still does);
+`effect::app_tests` (tainted `create-pages` and `duplicate_page` are reviewed in both modes, a
+remembered yes too; a grant's call is reviewed; a declined tool is refused; a comment still asks;
+`update-page`, `move-pages` and a marked `get_page` are reviewed with the overwrite concern, never
+skipped by a yes or a grant; `delete-pages` still asks; `fetch_url` to an attacker's host under
+untrusted content still asks); `review::tests` (the latest twelve own steps, oldest first, cut
+short, the call under review left out); `autonomy::tests` (an earlier step can't close its tag);
+`routing::tests` (the reviewer and verifier pick the strongest model in use, never a weaker one;
+a subscription bot's reviewer is the fast model); `org::tests` (a shared bot's unresolved app
+call, marked, tainted or plain, goes to an approver); `shape_tests` (a change aimed at a channel
+or workspace is outward, reading one is plain); `named_tests` (a side effect stated past the
+first sentence or punctuated still counts, an instruction's bare verb doesn't).

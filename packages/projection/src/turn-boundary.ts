@@ -45,15 +45,19 @@ const askingTriggers = new Set<RunTrigger>([
  * The turn a new root run joins when it starts (a run keeps the turn it was given). The first run
  * opens turn 1 (or the one after a pre-turn thread's last run); after that a run opens the next
  * turn only when an ask is waiting for it (`asked`) or its trigger says it was asked for, else it
- * joins the current turn.
+ * joins the current turn. A run that follows one ace ended to take the person's steer
+ * (`afterSteer`, `Run.endedBy`) carries that turn on: where a provider can't take a steer into a
+ * running turn, ace cancels it and sends the steer next, and the steer still belongs to that turn.
  */
 export function startedRunTurn(facts: {
   current: number | undefined;
   legacyBase: number;
   asked: boolean;
+  afterSteer: boolean;
   trigger: RunTrigger;
 }): number {
   if (facts.current === undefined || facts.current < 1) return facts.legacyBase + 1;
+  if (facts.afterSteer) return facts.current;
   return facts.asked || askingTriggers.has(facts.trigger) ? facts.current + 1 : facts.current;
 }
 

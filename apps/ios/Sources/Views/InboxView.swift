@@ -2,9 +2,9 @@ import SwiftUI
 
 /// The single inbox (issue #560) across every paired machine, in tabs: Threads (Inbox, Snoozed and
 /// Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside the lists
-/// and search everything). A phone switches them with ace's own bar (`HomeBar`), New thread at its
-/// end; a regular window with the sidebar's foot (`SidebarPlaces`), New thread in the list's
-/// header. The system's tab bar never shows. Code review opens from the
+/// and search everything). A phone switches them with the system's tab bar (Liquid Glass on iOS 26,
+/// Search its own trailing circle there), New thread in each list's top bar; a regular window with
+/// the sidebar's foot (`SidebarPlaces`), the system's bar hidden. Code review opens from the
 /// Projects list's top bar: as a place of its own in a regular window, over Projects on a phone. Spade's tab is there while
 /// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
 /// thread belong to their machine.
@@ -132,18 +132,21 @@ struct InboxView: View {
 
     @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
         Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
-            stack(.threads, path: $threadsPath, drawer: $threadsDrawer)
+            stack(.threads, path: $threadsPath, drawer: $threadsDrawer).environment(\.homePlace, .threads)
         }
+        .placeTab(.threads, waiting: waiting(.threads))
         Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
-            stack(.chats, path: $chatsPath, drawer: $chatsDrawer)
+            stack(.chats, path: $chatsPath, drawer: $chatsDrawer).environment(\.homePlace, .chats)
         }
+        .placeTab(.chats, waiting: waiting(.chats))
     }
 
-    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta).
+    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta). The system's
+    /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            // The system's bar never shows; the home bar draws Spade's face (`HomePlaceGlyph`).
-            Tab(value: InboxTab.spade) { spade } label: { Text(HomeTabs.title(.spade)) }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
+                .placeTab(.spade, waiting: waiting(.spade))
         }
     }
 
@@ -151,12 +154,29 @@ struct InboxView: View {
     /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
+                .accessibilityIdentifier("tab.\(HomeTabs.identifier(.review))")
         }
     }
 
+    /// Search, a place of the bar. Its page carries its own field under the title; the compose
+    /// tab holds the only search role and no tab-level search is set, so the system never gives
+    /// Compose Search's field.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search }
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
+            .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
+    }
+
+    /// New thread, New chat on Chats, in the slot iOS 26 gives the search role: its own round glass
+    /// button at the bar's end, beside the tabs. It isn't a place: choosing it runs compose and
+    /// leaves the tab showing (`tabChoice`). A regular window composes from the list's top bar.
+    @TabContentBuilder<InboxTab> private var composeTab: some TabContent<InboxTab> {
+        if sizeClass != .regular && inbox.canStartThreads {
+            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose, role: .search) {
+                Color.clear
+            }
+            .accessibilityIdentifier("inbox.compose")
+        }
     }
 
     private var tabs: some View {
@@ -167,11 +187,13 @@ struct InboxView: View {
             spadeTab
             reviewTab
             searchTabs
+            composeTab
         }
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
+        .environment(\.homeTab, tab)
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -210,12 +232,15 @@ struct InboxView: View {
         .animation(.default, value: organize.undo?.serial)
     }
 
-    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. Tapping
-    /// Search while it shows asks for its field, as a second tap on a tab acts on the page it
-    /// already shows. The thread lists keep `$tab`: Search never shows beside them, and a binding
-    /// made afresh each render would redraw them on every change here.
+    /// The tab bar's choice, and the sidebar's at the foot of Search and Code review. The system's
+    /// bar sets it on every tap, the showing tab's too: tapped again, a list goes back to its top
+    /// (`HomeRetap`) and Search asks for its field. The thread lists keep `$tab`: Search never
+    /// shows beside them, and a binding made afresh each render would redraw them on every change.
     private var tabChoice: Binding<InboxTab> {
         Binding(get: { tab }, set: { chosen in
+            // The compose slot starts a thread and leaves the showing tab as it was.
+            if chosen == .compose { compose(chat: tab == .chats); return }
+            if chosen == tab { retap.ask(chosen) }
             if chosen == .search && tab == .search { searchFocusAsks += 1 }
             tab = chosen
         })
@@ -232,13 +257,7 @@ struct InboxView: View {
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
-            .homeBar { if sizeClass != .regular { phoneBar } }
-            .modifier(HomeTabBar())
-    }
-
-    /// The phone's tab bar (`HomeBar`), at the foot of Search and Spade's first pages.
-    private var phoneBar: HomeBar {
-        HomeBar(tab: tabChoice, compose: inbox.canStartThreads ? { compose(chat: false) } : nil, needsYou: needsYou)
+            .modifier(HomeTabBar(hidden: sizeClass == .regular))
     }
 
     /// A paired machine shows Spade (Settings › Beta), so its tab is there.
@@ -246,7 +265,7 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade) { if sizeClass != .regular { phoneBar } }
+        SpadeTab(inbox: inbox, chosen: tab == .spade)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }
@@ -325,27 +344,34 @@ struct InboxView: View {
     private func open(_ searchPlace: SearchPlace) {
         present(PlaceSheet.of(searchPlace, machine: toolsMachine, id: nextSerial()))
     }
-    /// Whether something on Threads or Chats needs the person, for the iPad sidebar's dots: the
-    /// daemon's own count, as the web rail's.
-    private func needsYou(_ place: InboxTab) -> Bool {
-        let tabs = inbox.merged.tabs
+    /// How many on Threads, Chats or Spade need the person: the daemon's own count, as the web
+    /// rail's. The iPad sidebar's dots and the tab bar's badges.
+    private func needsYouCount(_ place: InboxTab) -> Int {
         switch place {
-        case .threads: return (tabs.first { $0.id == "inbox" }?.needsYou ?? 0) > 0
-        case .chats: return tabs.contains { $0.chats && $0.needsYou > 0 }
-        case .spade: return inbox.spadeSessions.contains { $0.client.spade.bots?.contains { $0.state == "needs-you" } == true }
-        default: return false
+        case .threads: return inbox.merged.tabs.first { $0.id == "inbox" }?.needsYou ?? 0
+        case .chats: return inbox.merged.tabs.filter(\.chats).reduce(0) { $0 + $1.needsYou }
+        case .spade: return inbox.spadeSessions.reduce(0) { $0 + ($1.client.spade.bots?.filter { $0.state == "needs-you" }.count ?? 0) }
+        default: return 0
         }
     }
+    private func needsYou(_ place: InboxTab) -> Bool { needsYouCount(place) > 0 }
+    /// A place's badge on the tab bar: what needs the person there while it isn't showing, as
+    /// the sidebar's dot.
+    private func waiting(_ place: InboxTab) -> Int { tab == place ? 0 : needsYouCount(place) }
 
     /// Open from a transfer's line or a moved row goes to that machine's thread. One its list
-    /// doesn't hold yet waits, and opens when the list catches up.
+    /// hasn't delivered yet waits, and opens when the list catches up; one a loaded list lacks is
+    /// reported missing.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
-            guard let client = inbox.client(key.machineId) else { return .unpaired }
-            guard client.inbox[key.id] != nil else { awaitedOpen = AwaitedOpen(key: key, opened: opened); return .waiting }
-            openThread(key)
-            opened()
-            return .opened
+            let client = inbox.client(key.machineId)
+            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true)
+            switch result {
+            case .opened: openThread(key); opened()
+            case .waiting: awaitedOpen = AwaitedOpen(key: key, opened: opened)
+            case .unpaired, .missing: break
+            }
+            return result
         })
     }
     /// Another machine's thread Open asked for before that machine listed it, and what runs once

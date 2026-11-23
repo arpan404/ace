@@ -5,6 +5,8 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::effort::Effort;
+
 /// A tool the model may call: its name, what it does, and a JSON Schema for its input.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ToolSpec {
@@ -81,6 +83,8 @@ pub struct Prompt {
     /// The conversation this call belongs to, sent in the endpoint's session header so calls of
     /// one conversation route together. `None` for calls not tied to a conversation.
     pub session: Option<String>,
+    /// How hard the model thinks first (ADR 0213). [`Effort::Provider`] sends nothing.
+    pub effort: Effort,
 }
 
 impl Prompt {
@@ -157,6 +161,13 @@ impl Prompt {
 
     pub fn max_tokens(mut self, value: u32) -> Self {
         self.max_tokens = Some(value);
+        self
+    }
+
+    /// How hard the model thinks before answering. A set `max_tokens` is the answer's: the
+    /// thinking gets [`Effort::room`] on top of it.
+    pub fn effort(mut self, effort: Effort) -> Self {
+        self.effort = effort;
         self
     }
 

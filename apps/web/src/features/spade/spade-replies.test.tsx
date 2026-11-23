@@ -4,8 +4,8 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { spadeApp, withEndpoint } from "@/test/spade.ts";
 
-/* ADR 0212 in the running chat: several short messages from one turn, long words as a document
- * card, and replies both ways, against the fake Spade. */
+/* ADR 0212 in the running chat: several short messages from one turn, a long one folded in place,
+ * a document the bot wrote as a card, and replies both ways, against the fake Spade. */
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -39,28 +39,79 @@ test("a turn of several messages shows each as its own bubble, with no tag drawn
   expect(chat.queryByText(/<\/?msg/)).toBeNull();
 });
 
-test("a long reply shows its first paragraph and a document card whose Open shows every word", async () => {
-  const report = [
-    "Three suppliers can deliver by Friday.",
-    "",
-    "## Prices",
-    "",
-    "| Supplier | Price |",
-    "| --- | --- |",
-    "| North | €40 |",
-    "| South | €38 |",
-    "",
-    "South also throws in free delivery.",
-  ].join("\n");
+/** Layout jsdom doesn't do: a folded message's words draw `height` pixels tall. */
+function drawnTall(height: number) {
+  const real = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.parentElement?.dataset.part === "spade-fold"
+      ? height
+      : (real?.get?.call(this) ?? 0);
+  });
+}
+
+const report = [
+  "Three suppliers can deliver by Friday.",
+  "",
+  "## Prices",
+  "",
+  "| Supplier | Price |",
+  "| --- | --- |",
+  "| North | €40 |",
+  "| South | €38 |",
+  "",
+  ...Array.from({ length: 20 }, (_, at) => `- Note ${at + 1}`),
+  "",
+  "South also throws in free delivery.",
+].join("\n");
+
+test("a long reply stays one message with every word, and no document card", async () => {
+  drawnTall(900);
   await spadeApp("/spade/garden", (spade) => spade.reply(garden(spade), report));
   const chat = within(await feed("Garden"));
-  expect(await chat.findByText("Three suppliers can deliver by Friday.")).toBeTruthy();
-  // The rest is not in the chat, but in the card.
-  expect(chat.queryByText("South also throws in free delivery.")).toBeNull();
-  const card = chat.getByRole("group", { name: "Prices" });
+  expect(await chat.findByText("South also throws in free delivery.")).toBeTruthy();
+  expect(chat.getByRole("table")).toBeTruthy();
+  expect(chat.queryByRole("group", { name: "Prices" })).toBeNull();
+  expect(chat.getAllByRole("article", { name: "Garden" })).toHaveLength(1);
+});
+
+test("Show more reveals the rest of a long reply and Show less folds it", async () => {
+  drawnTall(900);
+  await spadeApp("/spade/garden", (spade) => spade.reply(garden(spade), report));
+  const chat = within(await feed("Garden"));
+  const more = await chat.findByRole("button", { name: "Show more" });
+  const fold = document.getElementById(more.getAttribute("aria-controls") ?? "");
+  expect(more.getAttribute("aria-expanded")).toBe("false");
+  expect(fold?.hasAttribute("data-folded")).toBe(true);
+  await userEvent.click(more);
+  const less = chat.getByRole("button", { name: "Show less" });
+  expect(less.getAttribute("aria-expanded")).toBe("true");
+  expect(fold?.hasAttribute("data-folded")).toBe(false);
+  await userEvent.click(less);
+  expect(chat.getByRole("button", { name: "Show more" })).toBeTruthy();
+  expect(fold?.hasAttribute("data-folded")).toBe(true);
+});
+
+test("a reply that draws within ten lines offers no Show more", async () => {
+  drawnTall(200);
+  await spadeApp("/spade/garden", (spade) => spade.reply(garden(spade), report));
+  const chat = within(await feed("Garden"));
+  await chat.findByText("South also throws in free delivery.");
+  expect(chat.queryByRole("button", { name: "Show more" })).toBeNull();
+});
+
+test("a <doc> the bot wrote is still a document card whose Open shows every word", async () => {
+  await spadeApp("/spade/garden", (spade) =>
+    spade.reply(
+      garden(spade),
+      '<msg>Here it is.</msg><doc title="Supplier prices">| Supplier | Price |\n| --- | --- |\n| South | €38 |</doc>',
+    ),
+  );
+  const chat = within(await feed("Garden"));
+  const card = await chat.findByRole("group", { name: "Supplier prices" });
   await userEvent.click(within(card).getByRole("button", { name: "Open" }));
-  const sheet = await screen.findByRole("dialog", { name: "Prices" });
-  expect(within(sheet).getByText("South also throws in free delivery.")).toBeTruthy();
+  const sheet = await screen.findByRole("dialog", { name: "Supplier prices" });
   expect(within(sheet).getByRole("table")).toBeTruthy();
 });
 

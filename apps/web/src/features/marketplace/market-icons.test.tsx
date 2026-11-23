@@ -88,6 +88,21 @@ test("a bot on Your profile's Published list draws its own face", async () => {
   await waitFor(() => expect(row.querySelector('.mk-stage[data-type="bot"] svg')).not.toBeNull());
 });
 
+test("a card draws a bot's face without preparing an install review", async () => {
+  // Every review is refused: a face that still draws came from the daemon's `look`.
+  await openApp("/chats?market=me", {
+    entries: [bot({ kind: "character", v: 1, body: "bird", pair: "sky", marking: "cap" })],
+    publishing: ownBot(),
+    refuse: { "spade-bot/inbox": "No reviews in this test" },
+  });
+  const market = await findMarket();
+  const row = (
+    await within(market).findByText("Inbox", { selector: ".mk-mine-row .mk-name" })
+  ).closest(".mk-mine-row") as HTMLElement;
+
+  await waitFor(() => expect(row.querySelector('.mk-stage[data-type="bot"] svg')).not.toBeNull());
+});
+
 test("a bot whose recipe has no face keeps the generic bot mark", async () => {
   await openApp("/chats?market=me", { entries: [bot(undefined)], publishing: ownBot() });
   const market = await findMarket();

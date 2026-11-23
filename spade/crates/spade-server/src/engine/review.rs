@@ -66,7 +66,9 @@ pub(super) async fn call(
         description: &def.spec.description,
         arguments,
     };
-    let prompt = review::prompt(&case).session(id);
+    let prompt = review::prompt(&case)
+        .session(id)
+        .effort(engine.role_effort(id, spade_core::routing::Role::Review));
     let (verdict, reason, cost) =
         match super::judge::judge::<Judgment>(engine, id, &model, &prompt, REVIEW_TIMEOUT, stop)
             .await

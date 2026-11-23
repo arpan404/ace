@@ -394,6 +394,12 @@ export function seedFakeSpade(
     reply: "r-garden",
     text: "Set for 6pm. I'll skip it if more than 5mm of rain falls first.",
   });
+  // A long answer, which folds after ten lines (ADR 0212 amendment 2).
+  here.store(garden.conversation, {
+    type: "user_message",
+    text: "What should I do in the garden in December?",
+  });
+  here.reply(garden, decemberPlan);
   here.proposals.set("garden", [
     {
       id: "sp_garden",
@@ -694,6 +700,28 @@ function seedComputers(spade: FakeSpadeApi, now: number) {
     "hotels.csv": "name,price\nCasa do Largo,178\nHotel Lusa,164\nBrasileira Suites,171\n",
     "receipts/tap-qx7k2p.txt": "TAP booking QX7K2P\n",
     "fares-checked.md": "# Fares\n\nLast checked just now: TAP €212 return.\n",
+    // A long document: wide table rows, long lines and a code block, as research notes have.
+    "research/hotel-shortlist.md": [
+      "# Hotel shortlist",
+      "",
+      "Prepared 22 November 2026. The working list lives in the trip notes; this file is the snapshot Spade compared prices against, with every source it read linked below so you can check them yourself.",
+      "",
+      "| Hotel | Area | Price per night | Rating | Cancellation | Source |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| Casa do Largo | Chiado | €178 | 9.1 | Free until 12 Nov | https://example.com/hotels/lisbon/casa-do-largo?checkin=2026-11-14&checkout=2026-11-18 |",
+      "| Hotel Lusa | Baixa | €164 | 8.7 | Non-refundable | https://example.com/hotels/lisbon/hotel-lusa?checkin=2026-11-14&checkout=2026-11-18 |",
+      "| Brasileira Suites | Chiado | €171 | 8.9 | Free until 10 Nov | https://example.com/hotels/lisbon/brasileira-suites?checkin=2026-11-14&checkout=2026-11-18 |",
+      "",
+      "## Why Casa do Largo",
+      "",
+      "- Five minutes on foot to the Rossio station for the Sintra trains on day 2.",
+      "- The only one of the three with free cancellation after the flights are booked.",
+      "",
+      "```json",
+      '{ "hotel": "Casa do Largo", "nights": 4, "total": 712, "currency": "EUR", "breakfast": true, "notes": "late check-in after 22:00 confirmed by email" }',
+      "```",
+      "",
+    ].join("\n"),
   });
   spade.files.set("flights", {
     "flights.md": "# Fares to Lisbon\n\nCheapest so far: €212 return on TAP.\n",
@@ -815,3 +843,28 @@ export const template = (
   model_kind: "capable",
   routines: [],
 });
+
+/** A long answer of the Garden bot's, past ten lines: it folds in its bubble. */
+const decemberPlan = [
+  "Here's the December plan for the south bed and the pots, in the order I'd do it.",
+  "",
+  "## Plant now",
+  "- **Garlic**: split the bulbs, cloves 15cm apart, pointy end up, 5cm deep",
+  "- **Broad beans**: two rows, 20cm apart, a cane at each end for string later",
+  "- **Shallots**: just the tips showing, so the birds can't pull them up",
+  "",
+  "## Protect",
+  "- Fleece over the lettuce on any night under 2°C",
+  "- Move the basil pots inside the porch; it won't survive a frost",
+  "- Mulch the strawberries with straw, about 5cm",
+  "",
+  "## Watering",
+  "Much less now. Once a week at most, in the morning so the leaves dry before dark, and never on a frosty day. I'll skip it whenever more than 5mm of rain is forecast.",
+  "",
+  "| Bed | Water | Next |",
+  "| --- | --- | --- |",
+  "| South | weekly | garlic in |",
+  "| Pots | when dry | move inside |",
+  "",
+  "I'll remind you on the 1st about the garlic, and again when the first frost is forecast.",
+].join("\n");

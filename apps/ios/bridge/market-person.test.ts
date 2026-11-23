@@ -50,7 +50,10 @@ const standingRefusal = {
   message: "Confirm your identity to continue.",
 };
 
-async function market(standing: PairedStanding | undefined) {
+async function market(
+  standing: PairedStanding | undefined,
+  route: "paired" | "account" = "paired",
+) {
   const { daemon, client } = sheetFixture();
   daemon.seedServices({
     marketplace: {
@@ -73,14 +76,14 @@ async function market(standing: PairedStanding | undefined) {
       return reply;
     }) as typeof client.request,
   };
-  const facts = { standing };
+  const facts = { standing, route };
   const hooks: { afterTurnOn?: () => void } = {};
   const service = new NativeMarket(
     owner,
     () => 6_000,
     async () => {},
     () => undefined,
-    () => facts.standing,
+    () => ({ state: facts.standing, route: facts.route }),
   );
   const ask = async (operation: Record<string, unknown>, confirmed = false) =>
     (await service.answer(
@@ -142,6 +145,25 @@ test("an install refused for standing on a phone without it says to pair again t
     message: "Pair this iPhone again to install here.",
     way: "pairAgain",
   });
+});
+
+test("a phone whose relayed socket the machine took no proof from is told to sign in again, never to pair", async () => {
+  const { ask, daemon } = await market("missing", "account");
+  daemon.marketplace.refuseTurnOnForBots = standingRefusal;
+  expect(await ask(turnOn)).toMatchObject({
+    ok: false,
+    code: "reauth",
+    message: "Sign in to ace again on this iPhone, or turn this on from ace on your computer.",
+    way: "computer",
+  });
+});
+
+test("a phone whose relayed socket proved the person offers Confirm it's you, and its retry turns it on", async () => {
+  const { ask, daemon } = await market("proven", "account");
+  daemon.marketplace.refuseTurnOnForBots = standingRefusal;
+  expect(await ask(turnOn)).toMatchObject({ ok: false, code: "reauth", way: "confirm" });
+  daemon.marketplace.refuseTurnOnForBots = undefined;
+  expect(await ask(turnOn, true)).toMatchObject({ ok: true, installed: { waitsForBots: false } });
 });
 
 test("a proven phone refused for standing offers Confirm it's you, and its retry turns it on", async () => {

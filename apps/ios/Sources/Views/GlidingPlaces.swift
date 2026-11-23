@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The places inside a bar's glass capsule, the phone's tab bar (`HomeBar`) and the iPad sidebar's
-/// foot (`SidebarPlaces`), moving the chosen fill as the system's tab bar does. A finger pressed on
+/// The places inside the iPad sidebar foot's glass capsule (`SidebarPlaces`), moving the chosen
+/// fill as the system's tab bar does (a phone has the system's own bar). A finger pressed on
 /// the bar draws the fill under it, swollen a little, and the fill follows the finger along the
 /// bar; each place it passes lights up with a selection tap. Lifted, the fill springs onto the
 /// place under it and that place opens. A tap is the same press and release, so it springs too, and
