@@ -38,24 +38,33 @@ handled one of three asks ends as if it handled all three.
   …), `done`, `dropped`, `changed` (with the new wording), `waiting` (on the person, a job or a
   time), `chat` (nothing to do: thanks, ok), each with a short reason; `standing` records an
   instruction that stays in force ("always…", "never…", "from now on…") with the message it came
-  from, and `lift` ends one. The tool suggests saving a standing instruction with `task_update`
+  from, and `lift` ends one. Both name the person's message by its exact ask id, and a `lift`
+  must name a message sent after the instruction was set: it lasts until the person lifts it, and
+  nothing else (a page, a tool, the bot's own reading of either) does. The tool suggests saving a standing instruction with `task_update`
   or `memory_save` too; it never does so itself. The engine answers it from the events, like
   `decision_log`, and stores what it accepted as `asks_updated`; the fold reads only that.
 - **Closed asks leave the ledger** (done, dropped, chat). It holds at most 40 open or waiting
   asks; past that the oldest fold into a count. It holds at most 20 standing instructions; a 21st
   is refused until one is lifted, so none is ever dropped silently.
 - **Untrusted text never reaches it.** The person's own words come from the stored message. The
-  bot's own text (a split part, new wording, a standing instruction) is accepted only in a reply
-  that has not read untrusted output (`context::untrusted_turn`, the gate's own rule); in one that
-  has, `asks` may still change states but refuses new text, and says it can be added next reply.
-  Reasons are stored for the step rows and never shown in the block.
+  bot's own text (a split part, new wording, a standing instruction) and a `lift` are accepted
+  only while no untrusted content is in the prompt's view: the rule `memory_save` follows (this
+  reply read untrusted output, or an untrusted event since the last compaction is still shown,
+  ADR 0130). Otherwise `asks` may still change states, and says why it refused the rest; a page
+  read one reply earlier can't plant or lift an instruction by waiting a reply. Reasons are stored
+  for the step rows and never shown in the block.
 
 **Incremental and bounded (ADR 0170).** The ledger records how many events it has read
-(`through`). Each compaction stores the ledger as it stood on `context_compacted.asks`, like
-`carried`, so a fold starts from the latest compaction and reads only the events after it. The
+(`through`). A copy of it is stored on `context_compacted.asks`, like `carried`, and as
+`asks_noted` each time it has read 500 events since the last copy. A fresh fold (the first after
+Spade starts) looks back at most 2,000 events for the latest copy and reads only the events after
+it; finding none, it reads just those last 2,000. So no read is ever history-sized: in a
+conversation from before the ledger, asks older than that window are taken as settled by the
+conversation itself, and a copy is stored at once, so the next fresh fold starts there. The
 engine also keeps each conversation's latest ledger in memory and advances it over the events
-stored since, so a step reads only what is new. A compaction stored before this decision makes the
-fold read from the start once per Spade run for that conversation.
+stored since, so a step reads only what is new. The ledger keeps the open question cards too,
+so the stop check never walks the history to find one, and the `asks` call's stored-once lookup
+reads only its own reply.
 
 ### 2. Every model call ends with a short block from the ledger
 
@@ -81,7 +90,10 @@ a count of the rest. With nothing standing, open or new, there is no block. The 
 stored as an event and comes after everything stored, so every earlier byte of the prompt is what
 the previous call sent: the provider's prefix cache (automatic on the OpenAI-format endpoints
 Spade uses; Spade sets no explicit breakpoints) still matches the system prompt, tools and whole
-conversation, and only the block itself, a few hundred tokens, is read fresh. A subscription
+conversation, and only the block itself, a few hundred tokens, is read fresh. When Spade adds
+explicit cache breakpoints (Anthropic-format endpoints have none today), the last one must sit on
+the message before the block, never on the block, or each call writes a cache entry no later
+call can read. A subscription
 brain (`cli:`, ADR 0133) gets the same block at the end of each turn's message, since its CLI
 keeps its own context. A helper's calls (ADR 0152) get no block: a helper has no person, only
 its one task.
@@ -120,7 +132,7 @@ extra step.
 
 ### 4. A steer is treated as a steer
 
-A message the person types while a reply is running is new direction, not one more line of the
+A message the person types while a reply is running (for a worker, also one its maker sends: the same rule that opens its asks) is new direction, not one more line of the
 conversation. A typed answer to a question card the bot is waiting on is not a steer; it answers
 the card.
 
@@ -154,7 +166,9 @@ public surface is small and is all in `spade_core::asks`:
   `ask(id)`: what it holds. Everything else on it is the fold's own bookkeeping.
 - `change::decide` (the `asks` tool), `block::text` and `block::appended` (the prompt's block),
   `check::due` and `check::settled` (the stop check), `steer::due` and `steer::mid_turn` (steers).
-- The events `asks_updated`, `asks_checked` and `asks_reminded`, and `context_compacted.asks`.
+- `Ledger::note_due`: the copy the engine stores as `asks_noted`.
+- The events `asks_updated`, `asks_checked`, `asks_reminded` and `asks_noted`, and
+  `context_compacted.asks`.
 
 ## Consequences
 
