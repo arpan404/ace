@@ -1,13 +1,30 @@
 import type { SpadeStartedWorker } from "./delegations.ts";
-import type { SpadeQuiet } from "./quiet.ts";
+import type { SpadeLaneEvent, SpadeQuiet } from "./quiet.ts";
 import { spadeWakeOf, type SpadeWake } from "./wakes.ts";
 import type { SpadeKnownEvent } from "./wire.ts";
+import type { SpadeWorkerState } from "./wire-capabilities.ts";
 
 /*
  * The capability events in a conversation's fold (`foldSpade`): goals and checks of done
  * (ADR 0159), workers (ADR 0161) on cards where they started, and wakes (ADR 0160) as the
  * open set the resting line reads. Each event does work in proportion to itself.
  */
+
+/** A lane's report as its line says it; stopping, parked and others say nothing yet. */
+const laneReport: Partial<Record<SpadeWorkerState, SpadeLaneEvent>> = {
+  done: "done",
+  finished: "done",
+  failed: "failed",
+  stopped: "stopped",
+  needs_you: "needs_you",
+};
+
+const laneQuiet = (lane: string, title: string, event: SpadeLaneEvent): SpadeQuiet => ({
+  kind: "lane",
+  lane,
+  title: title.trim(),
+  event,
+});
 
 /** What the fold keeps of them, beside its entries. */
 export interface SpadeCapabilityState {
@@ -57,7 +74,24 @@ export function foldSpadeCapability(
         name: event.name || (event.kind === "ace" ? "An ace agent" : "A worker"),
       });
       return true;
+    case "lane_started":
+      // Moved work reads as Spade's own line, from `reply_moved` (ADR 0217 §2a).
+      if (event.moved_from) return false;
+      place(laneQuiet(event.lane, event.title, event.queued ? "queued" : "started"));
+      return true;
+    case "reply_moved":
+      place(laneQuiet(event.lane, event.title, "moved"));
+      return true;
+    case "ask_routed":
+      place(laneQuiet(event.lane, event.title, "routed"));
+      return true;
     case "worker_reported":
+      if (event.kind === "lane") {
+        const said = laneReport[event.state];
+        if (!said) return false;
+        place(laneQuiet(event.worker, event.name, said));
+        return true;
+      }
       // Stopping still counts as running: its stopped report follows. A worker started here
       // has its card, which says how it stands now; a report line would only go stale.
       if (event.kind === "helper" || event.state === "stopping") return false;

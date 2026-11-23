@@ -308,6 +308,7 @@ export interface SpadeRequest {
   /** For a connected app's tool, the definition the person is shown. */
   definition?: string;
   helper?: { job: string; task: string };
+  lane?: SpadeLaneAsking;
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
   always: boolean;
@@ -330,6 +331,14 @@ export interface SpadeApproval {
   definition?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
+  /** A task lane's call (ADR 0217 §4), asked in main: answered here, it reaches the lane. */
+  lane?: SpadeLaneAsking;
+}
+
+/** The task lane a request came from: its id and title. */
+export interface SpadeLaneAsking {
+  task: string;
+  title: string;
 }
 
 /**
@@ -695,6 +704,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(event.effect ? { effect: event.effect } : {}),
           ...(event.tool_key && event.ask !== "undeclared" ? { definition: event.tool_key } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
+          ...(event.lane ? { lane: { task: event.lane.task, title: event.lane.title } } : {}),
         },
       ];
       // Asked again: the request stands where it was first asked. Asked after the person
@@ -725,12 +735,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(asked.effect ? { effect: asked.effect } : {}),
           ...(asked.definition ? { definition: asked.definition } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
+          ...(asked.lane ? { lane: asked.lane } : {}),
           answer: undefined,
           always: false,
         };
-        // In the reply that asked, after its words so far; a helper's where it arrived.
+        // In the reply that asked, after its words so far; a helper's or a lane's where it
+        // arrived.
         if (
           event.helper ||
+          event.lane ||
           !updateOpen(state, event.reply, (entry) => ({
             ...entry,
             parts: [...entry.parts, request],
@@ -738,8 +751,9 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         )
           steer(state, { ...request, ...stamp(stored) });
       }
-      // A helper's call is the helper's, not one of the reply's.
-      if (!event.helper) setCall(state, event.reply, event.call_id, event.name, "waiting");
+      // A helper's or a lane's call is its own, not one of the reply's.
+      if (!event.helper && !event.lane)
+        setCall(state, event.reply, event.call_id, event.name, "waiting");
       return true;
     }
     case "plugin_outside_asked":

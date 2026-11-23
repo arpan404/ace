@@ -7,6 +7,7 @@ import type {
   SpadeAskKind,
   SpadeOutsideAsk,
   SpadeRequest,
+  SpadeLaneAsking,
 } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
@@ -236,6 +237,8 @@ type SpadeBubbleOf =
       definition?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
+      /** A task lane's call (ADR 0217 §4): the task that asked, which the card leads with. */
+      lane?: SpadeLaneAsking;
       state: "open";
     }
   /**
@@ -630,6 +633,7 @@ function askBubble(
       ? { definition: waiting.definition ?? request.definition }
       : {}),
     helper: waiting.helper ?? request.helper,
+    ...((waiting.lane ?? request.lane) ? { lane: waiting.lane ?? request.lane } : {}),
     state: "open",
   };
 }
