@@ -102,6 +102,8 @@ export function appUpdates(options: AppUpdatesOptions): AppUpdates {
     check: async () => (await load()).check(),
     download: async (progress) => (await load()).download(progress),
     install: () => loaded?.install(),
+    recheck: () => loaded?.recheck?.(),
+    discard: () => loaded?.discard?.(),
   };
   // Only release packaging writes the feed; local and development builds never check.
   const enabled = options.packaged && existsSync(join(options.resourcesPath, "app-update.yml"));

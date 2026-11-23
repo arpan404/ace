@@ -9956,6 +9956,8 @@ pub enum Schema150CallDetail {
         command: ::std::string::String,
         #[serde(skip_serializing_if = "::std::option::Option::is_none")]
         cwd: ::std::option::Option<::std::string::String>,
+        #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+        description: ::std::option::Option<::std::string::String>,
         #[serde(
             rename = "exitCode",
             skip_serializing_if = "::std::option::Option::is_none"

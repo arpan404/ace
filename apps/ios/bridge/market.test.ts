@@ -53,6 +53,7 @@ type Answer = Record<string, unknown> & { ok: boolean; offline?: boolean; messag
  */
 type Loss = "committed" | "dropped" | "gone";
 interface MarketOptions {
+  rejectLook?: string;
   lose?: { op: string; how: Loss };
 }
 
@@ -62,8 +63,41 @@ async function market(options: MarketOptions = {}) {
     marketplace: {
       entries: [
         listing("spade-skill", "triage-mail"),
-        listing("suit", "harbour-dusk", { title: "Harbour dusk" }),
-        listing("spade-bot", "future", { supported: false }),
+        {
+          ...listing("suit", "harbour-dusk", { title: "Harbour dusk", previews: ["a".repeat(64)] }),
+          items: [
+            {
+              kind: "text",
+              section: "Suit",
+              path: "suit.json",
+              before: false,
+              truncated: false,
+              text: JSON.stringify({
+                format: 1,
+                id: "harbour-dusk",
+                name: "Harbour dusk",
+                dark: { canvas: "#15171B", accent: "#E6DCCD" },
+              }),
+            },
+          ],
+        },
+        {
+          ...listing("spade-bot", "future", { supported: false }),
+          review: {
+            body: {
+              type: "spade-bot",
+              botName: "Future",
+              task: "",
+              model: "fast",
+              routines: [],
+              notes: [],
+              brings: [],
+              needs: [],
+              spadeReady: true,
+              face: { kind: "character", v: 1, body: "fox", pair: "mint", eyes: "sleepy" },
+            },
+          },
+        },
         listing("spade-skill", "refused-one"),
         {
           ...listing("spade-skill", "scanned"),
@@ -101,11 +135,16 @@ async function market(options: MarketOptions = {}) {
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
   let lost = false;
+  const lookRequests: string[] = [];
   const owner = {
     get state() {
       return client.state;
     },
-    request: (async (message: { operation: { op: string } }, wait: unknown) => {
+    request: (async (message: { operation: { op: string; name?: string } }, wait: unknown) => {
+      if (message.operation.op === "look") {
+        lookRequests.push(message.operation.name ?? "");
+        if (options.rejectLook) throw new ClientError("daemon", options.rejectLook);
+      }
       const loss = options.lose;
       if (loss && (lost || message.operation.op === loss.op)) {
         const first = !lost;
@@ -127,7 +166,7 @@ async function market(options: MarketOptions = {}) {
       NativeMarketRequest.parse({ type: "market.native", operation }),
       new AbortController().signal,
     )) as Answer;
-  return { ask, client, daemon };
+  return { ask, client, daemon, lookRequests };
 }
 
 test("the home lists featured rows with their words and says how many updates wait", async () => {
@@ -140,6 +179,48 @@ test("the home lists featured rows with their words and says how many updates wa
     updatesText: "1 update",
   });
 });
+
+test("the phone receives a listing preview hash and the package artwork used on web", async () => {
+  const { ask } = await market();
+  expect(await ask({ op: "home" })).toMatchObject({
+    featured: [{ name: "harbour-dusk", picture: "a".repeat(64) }],
+  });
+  expect(
+    await ask({
+      op: "look",
+      source: "market",
+      type: "suit",
+      name: "harbour-dusk",
+      version: "1.0.0",
+    }),
+  ).toMatchObject({ ok: true, dark: ["#15171B", "#E6DCCD"], light: [] });
+  expect(
+    await ask({
+      op: "look",
+      source: "market",
+      type: "spade-bot",
+      name: "future",
+      version: "1.0.0",
+    }),
+  ).toMatchObject({ ok: true, face: { body: "fox", pair: "mint", eyes: "sleepy" } });
+});
+
+test.each(["invalid_message", "unsupported", "forbidden"])(
+  "a daemon's %s response returns no artwork and stops further look requests",
+  async (rejectLook) => {
+    const { ask, lookRequests } = await market({ rejectLook });
+    const suit = { op: "look", source: "market", type: "suit", name: "harbour-dusk" };
+    const bot = { op: "look", source: "market", type: "spade-bot", name: "future" };
+    const empty = { ok: true, offline: false };
+    expect(await Promise.all([ask(suit), ask(bot)])).toEqual([empty, empty]);
+    expect(await ask({ ...bot, version: "2.0.0" })).toEqual(empty);
+    expect(lookRequests).toEqual(["harbour-dusk"]);
+    expect(await ask({ op: "home" })).toMatchObject({
+      ok: true,
+      featured: [{ name: "harbour-dusk" }],
+    });
+  },
+);
 
 test("search answers rows and when the listings were last read", async () => {
   const { ask } = await market();

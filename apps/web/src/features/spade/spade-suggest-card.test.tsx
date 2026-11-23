@@ -58,7 +58,7 @@ test("a suggested package shows its signed face, publisher and asks, and Review 
   // The Store's own review, with its switches; nothing was installed or answered.
   const market = await findMarket();
   expect(await within(market).findByRole("switch", { name: "Gmail" })).toBeTruthy();
-  expect(within(market).getByRole("button", { name: "Install" })).toBeTruthy();
+  expect(within(market).getByRole("button", { name: "Get" })).toBeTruthy();
   expect(spade.sent("POST", "/v1/conversations/c-travel/questions/s1")).toEqual([]);
 });
 

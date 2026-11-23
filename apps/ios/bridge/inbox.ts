@@ -23,9 +23,10 @@ import {
 } from "@ace/ui-core/mobile";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
-import { host } from "./host.ts";
+import { host, scheduler } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { refusalWords } from "@ace/ui-core/transfers";
+import { followUsageBars } from "./usage-bars.ts";
 import { followAccounts } from "./inbox-accounts.ts";
 import { chatsLayout, inboxLayout, inboxRow, type InboxClock } from "./inbox-rows.ts";
 import { followCheckpoint, inboxCheckpoint } from "./inbox-checkpoint.ts";
@@ -47,6 +48,8 @@ export type InboxFollow = (() => void) &
     dismissed?: DismissedSends;
     /** Narrows the Chats tab by title; empty lists every chat. */
     chatQuery?: (query: string) => void;
+    /** The accounts the Usage glyph draws, by id and in order; none restores the default. */
+    usagePins?: (ids: string[]) => void;
   };
 import type { PatchSink } from "./agents.ts";
 
@@ -292,6 +295,8 @@ export function followInbox(
     if (!shown && !store.loaded) return;
     // The first list the phone sees replaces what it kept, whatever changed to bring it.
     const keys = shown ? changed : "all";
+    // A row joining is queued now, so freshness is queued again behind it.
+    let joined = false;
     shown = true;
     const nowUnconfirmed = store.unconfirmed === true;
     const nowFresh = isConfirmed(store, online());
@@ -317,16 +322,51 @@ export function followInbox(
       if (keys.has("ids")) {
         const now = new Set(store.ids);
         for (const id of listed) if (!now.has(id)) gone(id);
-        if (!flipped) for (const id of now) if (!listed.has(id)) row(id);
+        if (!flipped)
+          for (const id of now)
+            if (!listed.has(id)) {
+              row(id);
+              joined = true;
+            }
         listed = now;
       }
       if (flipped) for (const id of store.ids) row(id);
       else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
     }
+    putFresh(keys === "all" || joined);
     sections();
   };
+  /**
+   * Whether the list is the daemon's own current one, and whole: the phone settles an Open that
+   * waits on it, and a thread a loaded, whole list lacks is gone. Sent when either changes.
+   */
+  let sentFresh = "";
+  const freshness = () => {
+    // The home list's own window, whatever filter the archive or a project puts on the other.
+    const window = store.homeWindow ?? store.window;
+    return {
+      confirmed: isConfirmed(store, online()),
+      // Whole only when the home list says so: no window (a project filter drops it, an older
+      // daemon never had one) can't say, and a thread is then read by its id.
+      complete: window?.before === null,
+    };
+  };
+  const putFresh = (force: boolean) => {
+    const now = freshness();
+    const key = `${now.confirmed}:${now.complete}`;
+    if (!force && key === sentFresh) return;
+    sentFresh = key;
+    // Freshness describes the rows before it, so it goes after them: a task keeps its place in
+    // the queue when put again, so it is taken out and put last, behind every row queued so far
+    // and (as an inbox patch) behind the reset that replaces them. Read as it is sent, so a
+    // patch coalesced behind a later change is never older than it.
+    pump.clear("inbox:fresh");
+    pump.put("inbox:fresh", () => ({ type: "inbox.fresh", ...freshness() }));
+  };
+  const usageBars = followUsageBars(owner, pump, { now: clock.now, set: scheduler.set });
   const stops = [
     accounts.stop,
+    usageBars,
     agentUse.stop,
     // A pin or move shows on its row, and moves it, before the daemon confirms it.
     organizer.observe((id) => {
@@ -362,6 +402,7 @@ export function followInbox(
         for (const id of store.ids) row(id);
         sections();
       }
+      if (shown) putFresh(false);
       for (const send of sends.getSnapshot()) pending(send.commandId);
     }),
     // A move to another socket with no state change (another path, ADR 0114) is still news.
@@ -383,6 +424,7 @@ export function followInbox(
     sortBy: () => sort.current(),
     dismissed,
     chatQuery: narrowChats,
+    usagePins: usageBars.choose,
   });
 }
 
@@ -412,6 +454,70 @@ function pendingRow(send: PendingSend, connection: string) {
   };
 }
 
+/** How long a read by id waits before trying again, and so how many tries are made. */
+export const locateBackoffMs = [1000, 2000, 4000];
+/** How long one read waits for the daemon. */
+export const locateReadMs = 8000;
+type Later = (delayMs: number, run: () => void) => unknown;
+
+/** One read of a thread by its id: true or false when the daemon says, undefined when it can't. */
+async function readOnce(
+  owner: ClientCore,
+  id: ThreadId,
+  later: Later,
+): Promise<boolean | undefined> {
+  let lease: ReturnType<ClientCore["thread"]>;
+  try {
+    lease = owner.thread(id, { optional: true });
+  } catch {
+    return undefined;
+  }
+  const { store } = lease;
+  let stop: (() => void) | undefined;
+  const found = await new Promise<boolean | undefined>((resolve) => {
+    const read = () => {
+      // Only the daemon saying the thread is unknown says it is gone. Any other refusal (a full
+      // subscription table, no room, a dropped connection, a timeout) says nothing about it.
+      if (store.error) {
+        // The daemon answers an unknown thread `subscribe_failed`; the fake daemon `not_found`.
+        const unknown =
+          store.error.code === "daemon" &&
+          (store.error.message === "subscribe_failed" || store.error.message === "not_found");
+        return resolve(unknown ? false : undefined);
+      }
+      if (!store.syncing && !store.unconfirmed && store.thread) return resolve(true);
+    };
+    stop = store.observe(read);
+    read();
+    // A read the daemon never answers is given up, not waited on.
+    later(locateReadMs, () => resolve(undefined));
+  });
+  stop?.();
+  lease.release();
+  return found;
+}
+
+/**
+ * Reads a thread by its id, for one the paginated list doesn't hold, and says what was found. A
+ * read that couldn't be answered is tried again a few times; after that the phone is told it
+ * couldn't tell (`found: null`) so it stops waiting without calling the thread gone.
+ */
+export async function locate(
+  owner: ClientCore,
+  id: ThreadId,
+  pump: PatchSink,
+  later: Later = (delay, run) => scheduler.set(delay, run),
+): Promise<void> {
+  const answer = (found: boolean | null) =>
+    pump.put(`located:${id}`, () => ({ type: "inbox.located", id, found }));
+  for (const delay of [0, ...locateBackoffMs]) {
+    if (delay > 0) await new Promise<void>((resolve) => later(delay, resolve));
+    const found = await readOnce(owner, id, later);
+    if (found !== undefined) return answer(found);
+  }
+  answer(null);
+}
+
 const InboxAction = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("archive"), threadId: ThreadId }),
   z.object({ kind: z.literal("unarchive"), threadId: ThreadId }),
@@ -429,8 +535,12 @@ const InboxAction = z.discriminatedUnion("kind", [
   /** Named again from its opening request, as a new thread is. */
   z.object({ kind: z.literal("retitle"), threadId: ThreadId }),
   z.object({ kind: z.literal("more") }),
+  /** Whether a thread outside the loaded window exists on this machine: read by its id. */
+  z.object({ kind: z.literal("locate"), threadId: ThreadId }),
   /** The Chats tab's search: chats whose title matches, or every chat when empty. */
   z.object({ kind: z.literal("chatsQuery"), query: z.string().max(1024) }),
+  /** The accounts the Usage glyph draws (the web's rail pins), in order. */
+  z.object({ kind: z.literal("usagePins"), ids: z.array(z.string()).max(64) }),
   /** A failed send the person took back into the composer or discarded; `restore` is Undo. */
   z.object({ kind: z.literal("dismissSend"), commandId: z.string().min(1).max(256) }),
   z.object({ kind: z.literal("restoreSend"), commandId: z.string().min(1).max(256) }),
@@ -496,6 +606,7 @@ export function inboxAction(
   inbox?: PlaceContext & {
     dismissed?: DismissedSends;
     chatQuery?: (query: string) => void;
+    usagePins?: (ids: string[]) => void;
   },
 ): void {
   const place = PlaceAction.safeParse(raw);
@@ -530,6 +641,14 @@ export function inboxAction(
   }
   if (action.kind === "chatsQuery") {
     inbox?.chatQuery?.(action.query);
+    return;
+  }
+  if (action.kind === "usagePins") {
+    inbox?.usagePins?.(action.ids);
+    return;
+  }
+  if (action.kind === "locate") {
+    void locate(owner, action.threadId, pump);
     return;
   }
   if (action.kind === "more") {

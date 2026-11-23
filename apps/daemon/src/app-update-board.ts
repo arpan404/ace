@@ -45,6 +45,8 @@ export class AppUpdateBoard {
   set(report: AppUpdateReport): AppUpdateReply {
     const changed = JSON.stringify(report) !== JSON.stringify(this.#report);
     this.#report = report;
+    if (this.#instruction?.action === "check" && this.#instruction.id === report.checkedInstruction)
+      this.#instruction = null;
     this.#reportedAt = this.#clock.now();
     this.#arm();
     if (changed) this.#tell();
@@ -68,6 +70,7 @@ export class AppUpdateBoard {
     this.#cancel = undefined;
     const had = this.#report !== null;
     this.#report = null;
+    if (this.#instruction?.action === "check") this.#instruction = null;
     this.#reportedAt = null;
     if (had) this.#tell();
     return this.current();

@@ -88,6 +88,27 @@ import Testing
         #expect(entries.map(\.id) == ["laptop/notes", "studio/notes"])
     }
 
+    @Test func workersStayTogetherUnderTheVisibleRootOnTheirMachine() {
+        var scout = bot("scout", at: 8, rank: 1)
+        scout.familyRoot = "main-laptop"
+        scout.depth = 1
+        var followup = bot("followup", at: 5)
+        followup.familyRoot = "main-laptop"
+        followup.depth = 1
+        var orphan = bot("orphan", at: 9, rank: 1)
+        orphan.familyRoot = "main-laptop"
+        orphan.depth = 1
+        let entries = SpadeRoster.merge([
+            machine("laptop", bots: [main("laptop", created: 1), scout, followup]),
+            machine("studio", bots: [orphan, bot("asker", at: 1, rank: 0)]),
+        ])
+
+        let rows = SpadeRoster.listRows(entries)
+        #expect(rows.map(\.id) == ["laptop/main-laptop", "laptop/scout", "laptop/followup", "studio/asker", "studio/orphan"])
+        #expect(rows.map(\.indented) == [false, true, true, false, false])
+        #expect(rows.map(\.joinsNext) == [true, true, false, false, false])
+    }
+
     private func machine(_ key: String, answering: Bool = true, record: SpadeModel.HostRecord? = nil,
                          bots: [SpadeModel.Bot]) -> SpadeRoster.Machine {
         SpadeRoster.Machine(key: key, name: key.capitalized, host: "\(key)-host", answering: answering, record: record, bots: bots)

@@ -1,5 +1,5 @@
 export { keyPair, type KeyPair } from "./key-pair.ts";
-export { fingerprint, hostId } from "./crypto.ts";
+export { fingerprint, hostId, sha256 } from "./crypto.ts";
 export { CipherState, MAX_MESSAGE } from "./cipher.ts";
 export { NoiseXX } from "./noise.ts";
 export type { HandshakeOptions, Transport } from "./noise.ts";

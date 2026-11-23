@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { computerLockedUseGate } from "./computer-locked-use.ts";
 import { LockedUseRuntime } from "./locked-use-runtime.ts";
 
-const fakeService = fileURLToPath(import.meta.resolve("@ace/screen/testing/locked-use-service"));
+const fakeServicePath = import.meta.resolve("@ace/screen/testing/locked-use-service");
+const fakeService = fileURLToPath(fakeServicePath);
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
@@ -83,6 +85,7 @@ it("a protected run returns the work's result after the service relocks", async 
     async (signal) => (signal.aborted ? "aborted" : "done"),
     undefined,
     true,
+    owner.revocation,
   );
   expect(result).toBe("done");
   // The relock is confirmed; the service's own `ready` report may follow a moment later.
@@ -106,6 +109,7 @@ it("the service dying mid-work stops the attempt, and the next use starts a new 
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "locked_use_connection_lost" });
@@ -128,6 +132,7 @@ it("an interval counts as active from the protected run's start until it relocks
     },
     undefined,
     true,
+    owner.revocation,
   );
   expect(owner.intervalActive()).toBe(true);
   await expect(run).resolves.toBe("done");
@@ -151,12 +156,12 @@ it("cancelling active runs stops the work, and the interval ends only once the M
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(await failed).toMatchObject({ code: "cancelled" });
   expect(aborted).toEqual([true]);
-  // Cancelled, but not yet relocked: other calls still may not use the Mac.
-  expect(owner.intervalActive()).toBe(true);
+  // The cancelled call reports only once the service confirmed the relock.
   await untilReady(owner);
   expect(owner.status).toMatchObject({ phase: "ready", session: "locked" });
   expect(owner.intervalActive()).toBe(false);
@@ -175,6 +180,7 @@ function dieMidWork(owner: LockedUseRuntime, started: { child: ChildProcess }[])
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
 }
@@ -200,6 +206,7 @@ it("a protected run never begins while an unprotected computer request is still 
     },
     undefined,
     true,
+    owner.revocation,
   );
   await wait(150);
   // Nothing was asked of the service yet, so the Mac was never unlocked under the request.
@@ -228,6 +235,7 @@ it("a protected run is refused, and the service never asked, when an unprotected
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "locked_use_busy" });
@@ -256,4 +264,120 @@ it("after the service dies mid-work, a fresh status from an unlocked Mac keeps t
   expect(await dieMidWork(owner, started)).toMatchObject({ code: "locked_use_connection_lost" });
   await expect(owner.refresh()).resolves.toMatchObject({ phase: "disabled", session: "unlocked" });
   expect(owner.intervalActive()).toBe(true);
+});
+
+/**
+ * A runtime whose service is an in-process fake the test scripts. The runtime still starts a
+ * child for stdin (a process that only waits) and connects over the real socket.
+ */
+async function scriptedRuntime() {
+  const { fakeLockedUseService } = (await import(
+    fakeServicePath
+  )) as typeof import("@ace/screen/testing/locked-use-service");
+  const dir = await mkdtemp(join(tmpdir(), "ace-lur-"));
+  cleanups.push(() => rm(dir, { recursive: true, force: true }));
+  const socketPath = join(dir, "s.sock");
+  // The runtime's first token is 32 bytes of 1.
+  const service = await fakeLockedUseService(socketPath, { token: "01".repeat(32) });
+  cleanups.push(() => service.close());
+  const children: ChildProcess[] = [];
+  let next = 0;
+  let attempts = 0;
+  const owner = new LockedUseRuntime({
+    helper: async () => "ace-screen-helper",
+    socketPath,
+    nextId: () => `r${++next}`,
+    attemptId: () => `attempt-${++attempts}`,
+    scheduler: { after: (ms, run) => clearTimeout.bind(undefined, setTimeout(run, ms)) },
+    randomBytes: (size) => new Uint8Array(size).fill(1),
+    spawnService: () => {
+      const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+        stdio: ["pipe", "ignore", "ignore"],
+      });
+      children.push(child);
+      return child;
+    },
+  });
+  cleanups.push(async () => {
+    owner.close();
+    await Promise.all(children.map(exited));
+  });
+  return { owner, service };
+}
+
+it("turning locked use off keeps a call out of the Mac while deciding, and holds the interval until relock while working", async () => {
+  const { owner, service } = await scriptedRuntime();
+  let pid = Promise.withResolvers<number>();
+  let asked = false;
+  const gate = computerLockedUseGate({
+    lockedUseRuntime: owner,
+    settings: { get: async () => ({ value: true }) } as never,
+    engine: { activeRun: () => "run-1" } as never,
+    computer: {
+      helperProcessId: () => {
+        asked = true;
+        return pid.promise;
+      },
+    } as never,
+  });
+  if (!gate) throw new Error("No gate");
+  const call = { threadId: "thread-1", agentId: "agent-1", app: "com.apple.Notes" };
+  const sent: string[] = [];
+  const deciding = gate({ ...call, signal: new AbortController().signal }, async () => {
+    sent.push("work");
+    return "done";
+  }).catch((error: unknown) => error);
+  // The call read the setting and a verified, locked status, and now waits on the helper.
+  await until(() => asked);
+  owner.cancelActive();
+  pid.resolve(process.pid);
+  expect(await deciding).toMatchObject({ code: "cancelled" });
+  expect(sent).toEqual([]);
+  // The service was never asked to begin.
+  expect(service.requests.map((request) => request.type)).not.toContain("begin");
+  expect(owner.intervalActive()).toBe(false);
+
+  // Turned off again while a later call works: the service relocks only when the test says.
+  const relock = Promise.withResolvers<void>();
+  const order: string[] = [];
+  service.handle("cancel", (fake, request) => {
+    const attemptID = fake.status.attemptID;
+    fake.reply(request);
+    fake.publish({ phase: "relocking" });
+    void relock.promise.then(() => {
+      fake.status = { ...fake.status, session: "locked" };
+      order.push("relocked");
+      fake.send({
+        type: "completion",
+        attemptID,
+        threadID: "thread-1",
+        turnID: "run-1",
+        reason: "cancelled",
+        workError: null,
+      });
+      fake.publish({ phase: "ready", attemptID: null });
+    });
+  });
+  pid = Promise.withResolvers<number>();
+  pid.resolve(process.pid);
+  const working = gate({ ...call, signal: new AbortController().signal }, async (signal) => {
+    owner.cancelActive();
+    if (!signal.aborted)
+      await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }));
+    return "must not be returned";
+  }).then(
+    () => order.push("settled"),
+    (error: unknown) => {
+      order.push("settled");
+      return error;
+    },
+  );
+  await service.received("cancel");
+  await wait(100);
+  // Cancelled, but the Mac is not relocked yet: the call has not ended and no other may act.
+  expect(order).toEqual([]);
+  expect(owner.intervalActive()).toBe(true);
+  relock.resolve();
+  expect(await working).toMatchObject({ code: "cancelled" });
+  expect(order).toEqual(["relocked", "settled"]);
 });

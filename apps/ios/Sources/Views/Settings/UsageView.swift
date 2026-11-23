@@ -21,11 +21,15 @@ struct UsageView: View {
     @State private var limitsLoading = false
     @State private var refreshing = false
     @State private var refreshed = 0
+    /// The machine whose Usage glyph the top-bar choice is for.
+    private let machine: String
+    @State private var choosing = false
 
     /// Opens on every machine when there are several, else on `machine`, drawing the last
     /// answers this run saw while it reads again behind them.
     init(inbox: MachineInbox, machine: String) {
         self.inbox = inbox
+        self.machine = machine
         let scope = inbox.sessions.count > 1 ? "" : machine
         _scope = State(initialValue: scope)
         _limits = State(initialValue: UsageMemo.limits[scope])
@@ -193,7 +197,34 @@ struct UsageView: View {
         }
     }
 
+    /// What the Usage glyph in the top bar draws: its bars as they are, and the way to change them.
+    @ViewBuilder private var topBarRow: some View {
+        if let client = inbox.client(machine), !client.usageChoices.isEmpty {
+            Button { choosing = true } label: {
+                HStack(spacing: AceDesign.Space.related) {
+                    UsageBars(bars: client.usageBars)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("In the top bar")
+                        Text(client.usagePins.isEmpty ? "The accounts you use most" : "\(client.usageBars.count) chosen")
+                            .font(AceDesign.Typeface.meta)
+                            .foregroundStyle(AceDesign.Ink.subtle)
+                    }
+                    Spacer(minLength: AceDesign.Space.related)
+                    Text("Choose").foregroundStyle(AceDesign.Ink.subtle)
+                }
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .combine)
+            .accessibilityHint("Choose which accounts the Usage bars show")
+            .accessibilityIdentifier("usage.bars.open")
+            .sheet(isPresented: $choosing) { UsageBarsChooser(client: client) }
+        }
+    }
+
     @ViewBuilder private var limitsPage: some View {
+        topBarRow
         if let limitsProblem {
             ProblemRow("Couldn't read limits.", detail: limitsProblem, id: "usage.limits.problem") { Task { await read(fresh: true) } }
                 .padding(.horizontal, -AceDesign.Space.margin)

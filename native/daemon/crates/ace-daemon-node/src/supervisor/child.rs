@@ -84,6 +84,14 @@ impl EventSink for TsfnSink {
     fn stdin_error(&self, message: String) {
         self.send("stdin-error", message.into_bytes());
     }
+
+    fn hold_limit(&self) {
+        self.send("hold-limit", Vec::new());
+    }
+
+    fn held(&self, message: String) {
+        self.send("held", message.into_bytes());
+    }
 }
 
 /// A spawn request from the shell. `env` is the child's whole environment.
@@ -102,6 +110,8 @@ struct SpecJson {
     hide: bool,
     #[serde(default)]
     contain: bool,
+    #[serde(default)]
+    max_output_bytes: Option<u64>,
     stdin: String,
     stdout: String,
     stderr: String,
@@ -144,6 +154,7 @@ pub fn supervisor_spawn(spec_json: String, events: Events) -> napi::Result<Nativ
             windows_verbatim: spec.verbatim,
             hide_window: spec.hide,
             contain: spec.contain,
+            max_output_bytes: spec.max_output_bytes,
             stdin: stdio_mode(&spec.stdin)?,
             stdout: stdio_mode(&spec.stdout)?,
             stderr: stdio_mode(&spec.stderr)?,
@@ -256,6 +267,39 @@ impl NativeChild {
         guarded("supervisor group probe", || Ok(self.child.group_gone()))
     }
 
+    /// The leader's kernel start, read at spawn: the identity its group is
+    /// owned by.
+    #[napi(catch_unwind)]
+    pub fn leader_start(&self) -> napi::Result<Option<String>> {
+        guarded("supervisor leader start", || Ok(self.child.leader_start()))
+    }
+
+    /// The shell gave the group up: the hold limit starts; release still
+    /// waits for the group to be confirmed empty.
+    #[napi(catch_unwind)]
+    pub fn disown(&self) -> napi::Result<()> {
+        guarded("supervisor group disown", || {
+            self.child.disown();
+            Ok(())
+        })
+    }
+
+    /// Starts a stop: true while the group id is still this tree's, and the
+    /// leader stays held until `unhold`. False once released.
+    #[napi(catch_unwind)]
+    pub fn hold(&self) -> napi::Result<bool> {
+        guarded("supervisor group hold", || Ok(self.child.hold()))
+    }
+
+    /// Ends a stop started with `hold`.
+    #[napi(catch_unwind)]
+    pub fn unhold(&self) -> napi::Result<()> {
+        guarded("supervisor group unhold", || {
+            self.child.unhold();
+            Ok(())
+        })
+    }
+
     /// Releases the pipes; the leader stays held while its group may still
     /// be signalled.
     #[napi(catch_unwind)]
@@ -296,7 +340,7 @@ impl NativeChild {
                 };
                 Ok(match job.running() {
                     JobRunning::Running(alive) => Some(alive),
-                    JobRunning::Unjoined => None,
+                    JobRunning::Unjoined | JobRunning::Closed | JobRunning::Unreadable => None,
                 })
             }
             #[cfg(not(windows))]

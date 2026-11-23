@@ -85,10 +85,10 @@ extension View {
     /// Opens `sheet` in Settings' sheet; a thread or New thread asked from it opens on the home
     /// screen once it closes.
     func placeSheet(_ sheet: Binding<PlaceSheet?>, inbox: MachineInbox, machines: MachinesModel?, lock: AppLock?,
-                    places: MorePlaces) -> some View {
+                    machineFilter: String, places: MorePlaces) -> some View {
         self.sheet(item: sheet) { place in
             SettingsSheet(inbox: inbox, places: places, machines: machines, lock: lock, root: place.root, start: place.start,
-                          forgeStart: place.forge)
+                          forgeStart: place.forge, machineFilter: machineFilter)
                 .environment(\.otherMachines, OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }))
         }
     }

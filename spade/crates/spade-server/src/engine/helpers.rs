@@ -77,7 +77,9 @@ impl Engine {
         let mut profiles = vec![Profile::explore(), Profile::general()];
         if let (Some(source), Some(agent)) = (self.helpers.source.get(), self.agent_of(bot)) {
             for profile in source.profiles(&agent) {
-                if !profiles.iter().any(|p| p.name == profile.name) {
+                if profile.name != spade_core::lane::PROFILE
+                    && !profiles.iter().any(|p| p.name == profile.name)
+                {
                     profiles.push(profile);
                 }
             }
@@ -91,8 +93,16 @@ impl Engine {
         self.helper_of(id).is_some()
     }
 
-    /// The helper whose conversation is `id`, if it is one.
+    /// The helper whose conversation is `id`, if it is one. A task lane (ADR 0217) is stored
+    /// beside helpers but is no helper: it is the bot's own work, [`Engine::lane_row`] finds it.
     pub(super) fn helper_of(&self, id: &str) -> Option<StoredHelper> {
+        self.hidden_of(id)
+            .filter(|row| row.profile != spade_core::lane::PROFILE)
+    }
+
+    /// The row of `id` when it is one of a bot's hidden conversations: a helper's or a lane's.
+    /// Anything that asks whose work a conversation is (spend, tools, the gate) reads this.
+    pub(super) fn hidden_of(&self, id: &str) -> Option<StoredHelper> {
         if let Some(known) = self
             .helpers
             .known
@@ -112,11 +122,24 @@ impl Engine {
         found
     }
 
+    /// Forgets what is known of `id`'s row, after its parent changed (ADR 0217 §2a).
+    pub(super) fn forget_hidden(&self, id: &str) {
+        self.helpers
+            .known
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(id);
+    }
+
     /// The tools `id` may use: a helper's are its bot's, narrowed by its profile.
     pub(super) fn registry_for(&self, id: &str) -> Registry {
         // A worker's tools are never more than its parent's (ADR 0161).
         let registry = self.narrow_registry(id, self.tools.registry_for(id));
-        match self.helper_of(id) {
+        match self.hidden_of(id) {
+            // A lane has its bot's tools, less the ones that run lanes (ADR 0217 §3).
+            Some(row) if row.profile == spade_core::lane::PROFILE => {
+                registry.retain(|def| !spade_core::lane::TOOLS.contains(&def.spec.name.as_str()))
+            }
             Some(helper) => profile_of(&helper).registry(registry),
             None => registry,
         }
@@ -125,6 +148,8 @@ impl Engine {
     /// The tools the model is offered in `id`: the same list for every bot, and a helper's
     /// narrower one.
     pub(super) fn offered_for(&self, id: &str) -> Vec<spade_models::ToolSpec> {
+        // A lane is offered its bot's list byte for byte, so the two share the provider's cache
+        // (ADR 0217 §8); a lane's call to a lane tool is refused like any tool outside a grant.
         match self.helper_of(id) {
             Some(helper) => profile_of(&helper)
                 .registry(self.tools.registry())
@@ -402,7 +427,7 @@ impl Engine {
     /// helper that has none (after a restart or a pause). Nothing starts while Spade is closing.
     pub(super) fn fill_slots(self: &Arc<Self>, bot: &str) {
         let helpers = match self.store.helpers_of(bot) {
-            Ok(helpers) => helpers,
+            Ok(helpers) => only_helpers(helpers),
             Err(error) => {
                 tracing::error!(%error, "could not list a bot's helpers");
                 return;
@@ -462,7 +487,7 @@ impl Engine {
         let Ok(helpers) = self.store.helpers_of(bot) else {
             return;
         };
-        for helper in helpers {
+        for helper in only_helpers(helpers) {
             let job = routing::base_job(&helper.job).to_owned();
             if Some(helper.reply.as_str()) != reply && !named.contains(&job) {
                 continue;
@@ -526,9 +551,33 @@ impl Engine {
         else {
             return Ok(false);
         };
+        // A lane's call is asked in main as the lane's (ADR 0217 §4), named by its title.
+        let is_lane = helper.profile == spade_core::lane::PROFILE;
+        let lane = is_lane.then(|| {
+            Box::new(spade_core::lane::Ask {
+                task: helper.conversation.clone(),
+                conversation: helper.conversation.clone(),
+                call_id: call_id.clone(),
+                title: self.lane_title(&helper.conversation),
+                epoch: Some(reply.to_owned()),
+            })
+        });
+        let helper_ask = (!is_lane).then(|| {
+            Box::new(HelperAsk {
+                // The bot's job, whose end clears the wait, even for a rerun.
+                job: routing::base_job(&helper.job).to_owned(),
+                conversation: helper.conversation.clone(),
+                call_id: call_id.clone(),
+            })
+        });
         let mirror = Event::Known(Known::ApprovalRequested {
+            lane,
             reply: helper.reply.clone(),
-            call_id: mirrored_id(&helper.job, call_id),
+            // Unique across the lane's runs (ADR 0217 §4).
+            call_id: match is_lane {
+                true => spade_core::lane::copy_id(&helper.conversation, reply, call_id),
+                false => mirrored_id(&helper.job, call_id),
+            },
             name: name.clone(),
             arguments: arguments.clone(),
             scope: scope.clone(),
@@ -538,25 +587,74 @@ impl Engine {
             app: app.clone(),
             acts_in: acts_in.clone(),
             launch: *launch,
-            helper: Some(Box::new(HelperAsk {
-                // The bot's job, whose end clears the wait, even for a rerun.
-                job: routing::base_job(&helper.job).to_owned(),
-                conversation: helper.conversation.clone(),
-                call_id: call_id.clone(),
-            })),
+            helper: helper_ask,
             stopped: *stopped,
             effect: *effect,
         });
+        // A lane's main, told after the lock when the call was asked there too.
+        let mut also: Option<String> = None;
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             let events = self.load(&helper.conversation)?;
             if spade_core::turn::stop_requested(&events, reply) {
                 return Ok(false);
             }
-            self.append(&helper.conversation, asked)?;
-            self.append(&helper.parent, &mirror)?;
+            let mut writes: Vec<(String, Vec<Event>)> = vec![
+                (helper.conversation.clone(), vec![asked.clone()]),
+                (helper.parent.clone(), vec![mirror]),
+            ];
+            // A helper that moved with main's work to a lane (ADR 0217 §2a) asks in main too,
+            // where the person answers, as the lane's.
+            if !is_lane && let Some(lane) = self.lane_row(&helper.parent) {
+                let mut in_main = writes[1].1[0].clone();
+                if let Event::Known(Known::ApprovalRequested {
+                    call_id: c,
+                    helper: h,
+                    lane: l,
+                    ..
+                }) = &mut in_main
+                {
+                    // Named by the lane's run now, as the lane's own requests are.
+                    let epoch = self.load(&helper.parent).ok().and_then(|lane_events| {
+                        Transcript::fold(lane_events.iter())
+                            .open_reply()
+                            .and_then(|m| m.reply.clone())
+                    });
+                    let run = epoch.clone().unwrap_or_default();
+                    *c = spade_core::lane::copy_id(&helper.parent, &run, c);
+                    *h = None;
+                    *l = Some(Box::new(spade_core::lane::Ask {
+                        task: helper.parent.clone(),
+                        conversation: helper.conversation.clone(),
+                        call_id: call_id.clone(),
+                        title: self.lane_title(&helper.parent),
+                        epoch,
+                    }));
+                }
+                writes.push((lane.parent.clone(), vec![in_main]));
+                also = Some(lane.parent);
+            }
+            // All in one write: a crash never leaves the call waiting with nothing to answer.
+            let borrowed: Vec<(&str, &[Event])> = writes
+                .iter()
+                .map(|(id, events)| (id.as_str(), events.as_slice()))
+                .collect();
+            // A lane's request copied into its bot's conversation lists the lane among those
+            // with copies, in the same write (ADR 0217 §4).
+            let lane_of_copy = match (is_lane, &also) {
+                (true, _) => Some((helper.conversation.as_str(), helper.parent.as_str())),
+                (false, Some(main)) => Some((helper.parent.as_str(), main.as_str())),
+                _ => None,
+            };
+            match lane_of_copy {
+                Some(copied) => self.append_across_copied(&borrowed, copied)?,
+                None => self.append_across(&borrowed, &[])?,
+            }
         }
         self.announce(&helper.parent);
+        if let Some(main) = also {
+            self.announce(&main);
+        }
         Ok(true)
     }
 
@@ -578,7 +676,21 @@ impl Engine {
                 reply,
                 helper: Some(helper),
                 ..
-            }) if c == call_id => Some((reply.clone(), helper.clone())),
+            }) if c == call_id => Some((reply.clone(), (**helper).clone())),
+            // A lane's (ADR 0217 §4) is answered the same way.
+            Event::Known(Known::ApprovalRequested {
+                call_id: c,
+                reply,
+                lane: Some(lane),
+                ..
+            }) if c == call_id => Some((
+                reply.clone(),
+                HelperAsk {
+                    job: lane.task.clone(),
+                    conversation: lane.conversation.clone(),
+                    call_id: lane.call_id.clone(),
+                },
+            )),
             _ => None,
         });
         let Some((bot_reply, ask)) = asked else {
@@ -594,28 +706,53 @@ impl Engine {
             .and_then(|m| m.reply.clone())
             .unwrap_or_default();
         // "Always" is stored in the bot's conversation, so it holds for the bot and every helper
-        // of it from now on.
-        self.append_audited(
-            bot,
-            &[Event::Known(Known::ApprovalAnswered {
-                reply: bot_reply,
-                call_id: call_id.to_owned(),
-                allowed,
-                always,
-                by: by.cloned().map(Box::new),
-            })],
-            &entry.into_iter().collect::<Vec<_>>(),
-        )?;
-        self.append(
-            &ask.conversation,
-            &Event::Known(Known::ApprovalAnswered {
-                reply: helper_reply,
-                call_id: ask.call_id.clone(),
-                allowed,
-                always,
-                by: None,
-            }),
-        )?;
+        // of it from now on. The answer lands in every conversation that asked in one write
+        // (with its audit entry), so a crash never clears the bot's request while the call still
+        // waits, nor the other way round.
+        let mut writes: Vec<(String, Vec<Event>)> = vec![
+            (
+                bot.to_owned(),
+                vec![Event::Known(Known::ApprovalAnswered {
+                    reply: bot_reply,
+                    call_id: call_id.to_owned(),
+                    allowed,
+                    always,
+                    by: by.cloned().map(Box::new),
+                })],
+            ),
+            (
+                ask.conversation.clone(),
+                vec![Event::Known(Known::ApprovalAnswered {
+                    reply: helper_reply,
+                    call_id: ask.call_id.clone(),
+                    allowed,
+                    always,
+                    by: None,
+                })],
+            ),
+        ];
+        // A helper that moved with main's work to a lane (ADR 0217 §2a) asked in the lane too:
+        // that copy is answered as well.
+        if let Some(moved) = self.helper_of(&ask.conversation)
+            && self.is_lane(&moved.parent)
+            && moved.parent != bot
+        {
+            writes.push((
+                moved.parent.clone(),
+                vec![Event::Known(Known::ApprovalAnswered {
+                    reply: moved.reply.clone(),
+                    call_id: mirrored_id(&moved.job, &ask.call_id),
+                    allowed,
+                    always,
+                    by: None,
+                })],
+            ));
+        }
+        let borrowed: Vec<(&str, &[Event])> = writes
+            .iter()
+            .map(|(id, events)| (id.as_str(), events.as_slice()))
+            .collect();
+        self.append_across(&borrowed, &entry.into_iter().collect::<Vec<_>>())?;
         self.live(&ask.conversation).wake.notify_one();
         Ok(())
     }
@@ -623,12 +760,15 @@ impl Engine {
     /// After a restart: helpers Stop was pressed on close as stopped; the rest carry on from
     /// their events once Spade opens for work (`fill_slots`), rather than ending "unknown".
     pub(super) fn settle_helpers_after_restart(&self) -> Result<(), StoreError> {
-        for helper in self.store.helpers()? {
+        // A task lane that ended is settled already: only the live ones are read (ADR 0170).
+        for helper in self.store.helpers_and_live_lanes()? {
             // A stop the bot stored that names this helper's job or reply holds, even when the
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.
             let parent = self.load(&helper.parent)?;
-            if spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job)) {
+            if helper.profile != spade_core::lane::PROFILE
+                && spade_core::turn::job_stopped(&parent, routing::base_job(&helper.job))
+            {
                 self.stop_helper_after_restart(&helper)?;
             }
             let events = self.load(&helper.conversation)?;
@@ -686,7 +826,7 @@ impl Engine {
             return Ok(None);
         }
         let mut shown = Vec::new();
-        for helper in self.store.helpers_of(id)? {
+        for helper in only_helpers(self.store.helpers_of(id)?) {
             let events = self.load(&helper.conversation)?;
             let transcript = Transcript::fold(events.iter());
             let state = match helper::stage(&events) {
@@ -712,6 +852,13 @@ impl Engine {
         }
         Ok(Some(shown))
     }
+}
+
+/// The rows of `rows` that are helpers, not lanes.
+pub(super) fn only_helpers(rows: Vec<StoredHelper>) -> Vec<StoredHelper> {
+    rows.into_iter()
+        .filter(|row| row.profile != spade_core::lane::PROFILE)
+        .collect()
 }
 
 /// The id a helper's call is asked under in the bot's conversation: unique there, since each

@@ -17,6 +17,9 @@ pub struct Config {
     pub parallel_tools: Option<usize>,
     /// `SPADE_HELPERS_AT_ONCE`: helpers of one bot run at once; unset is the engine's default.
     pub helpers_at_once: Option<usize>,
+    /// `SPADE_TASKS_AT_ONCE`: task lanes of one bot that run at once (ADR 0217); unset is the
+    /// engine's default.
+    pub tasks_at_once: Option<usize>,
     /// `SPADE_WORKERS_AT_ONCE`: one orchestrator's worker bots that work at once (ADR 0161);
     /// unset is the engine's default.
     pub workers_at_once: Option<usize>,
@@ -77,6 +80,7 @@ impl Config {
         };
         let parallel_tools = count("SPADE_PARALLEL_TOOLS")?.map(|n| n as usize);
         let helpers_at_once = count("SPADE_HELPERS_AT_ONCE")?.map(|n| n as usize);
+        let tasks_at_once = count("SPADE_TASKS_AT_ONCE")?.map(|n| n as usize);
         let workers_at_once = count("SPADE_WORKERS_AT_ONCE")?.map(|n| n as usize);
         let context_tokens =
             count("SPADE_CONTEXT_TOKENS")?.map(|n| u32::try_from(n).unwrap_or(u32::MAX));
@@ -86,6 +90,7 @@ impl Config {
             data_dir,
             parallel_tools,
             helpers_at_once,
+            tasks_at_once,
             workers_at_once,
             context_tokens,
             knowledge_bytes,

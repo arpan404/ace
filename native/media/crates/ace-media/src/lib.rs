@@ -13,6 +13,7 @@ pub mod os;
 pub mod probe;
 pub mod rank;
 pub mod record;
+pub mod scrcpy;
 pub mod secret;
 pub mod serve_sim;
 pub mod shell;

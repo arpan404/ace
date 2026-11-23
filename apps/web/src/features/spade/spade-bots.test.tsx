@@ -18,9 +18,9 @@ async function choose(scope: ReturnType<typeof within>, select: string, option: 
 }
 
 test("the model picker lists what each endpoint serves with its facts, and takes a typed id", async () => {
-  await spadeApp("/spade", withSpade);
+  const { spade } = await spadeApp("/spade", withSpade);
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
@@ -36,8 +36,18 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   ).toHaveLength(3);
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "qwen/qwen3-coder");
   await userEvent.click(await screen.findByRole("option", { name: "Use “qwen/qwen3-coder”" }));
+  // The typed id is chosen, shown in words as every model is.
   expect(screen.getByRole("button", { name: "Model" }).textContent).toBe(
-    "qwen/qwen3-coder · OpenRouter",
+    "Qwen3 coder · OpenRouter",
+  );
+  await userEvent.type(
+    await screen.findByRole("combobox", { name: "Message New bot" }),
+    "Review this project{Enter}",
+  );
+  await waitFor(() =>
+    expect(spade.sent("POST", "/v1/agents")).toEqual([
+      expect.objectContaining({ model: "openrouter/qwen/qwen3-coder" }),
+    ]),
   );
 });
 
@@ -91,10 +101,10 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
     });
     api.addAgent({ id: "inbox", name: "Inbox", model: "openrouter/meta/llama" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await choose(dialog, "From", "OpenCode Go");
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {
@@ -106,10 +116,16 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
       },
     ]),
   );
-  await userEvent.click(await screen.findByRole("button", { name: "Remove OpenRouter" }));
+  // An account is removed from its provider's page, from the account's menu.
+  await userEvent.click(await screen.findByRole("link", { name: /^OpenRouter/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage OpenRouter" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
   // It asks once, saying the key goes too, then Spade's refusal shows where it was asked.
-  expect(screen.getByText("Remove OpenRouter and its key?")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Remove" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Spade, Inbox use this endpoint.");
+  const asked = within(
+    await screen.findByRole("dialog", { name: "Remove OpenRouter from OpenRouter?" }),
+  );
+  expect(asked.getByText(/Its key leaves the keychain too\./)).toBeTruthy();
+  await userEvent.click(asked.getByRole("button", { name: "Remove account" }));
+  expect((await asked.findByRole("alert")).textContent).toBe("Spade, Inbox use this endpoint.");
   expect(spade.endpoints.map((endpoint) => endpoint.id)).toContain("openrouter");
 });

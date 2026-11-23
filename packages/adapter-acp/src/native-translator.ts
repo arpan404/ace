@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Fact } from "@ace/core";
-import type { ThreadId } from "@ace/protocol";
+import type { RawPayload, ThreadId } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import { translatorBackend } from "@ace/provider-kit/native-switches";
 import type { TranslatorIdentity } from "./identity.ts";
@@ -45,10 +45,7 @@ function addonPath(): string {
   const explicit = process.env.ACE_STORE_ADDON;
   if (explicit) return explicit;
   return fileURLToPath(
-    new URL(
-      `../../../native/daemon/target/release/${library}`,
-      import.meta.url,
-    ),
+    new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
   );
 }
 
@@ -62,10 +59,7 @@ function addon(): Addon {
     );
   }
   const module = { exports: {} as Record<string, unknown> };
-  (process as unknown as { dlopen: (mod: unknown, path: string) => void }).dlopen(
-    module,
-    path,
-  );
+  (process as unknown as { dlopen: (mod: unknown, path: string) => void }).dlopen(module, path);
   loaded = module.exports as unknown as Addon;
   return loaded;
 }
@@ -85,8 +79,8 @@ export class NativeAcpTranslator implements Translator {
     init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
     quirks: AcpQuirks = genericQuirks,
   ) {
-    const { NativeAcpTranslator } = addon();
-    this.handle = new NativeAcpTranslator(
+    const { NativeAcpTranslator: NativeHandle } = addon();
+    this.handle = new NativeHandle(
       String(init.threadId),
       init.rootKey,
       init.identity.generation,
@@ -94,12 +88,8 @@ export class NativeAcpTranslator implements Translator {
       quirksName(quirks),
     );
   }
-  takeDiagnostics() {
-    return JSON.parse(this.handle.takeDiagnostics()) as ReturnType<
-      Translator["takeDiagnostics"]
-    > extends (infer T)[] | undefined
-      ? T[]
-      : never;
+  takeDiagnostics(): RawPayload[] {
+    return JSON.parse(this.handle.takeDiagnostics()) as RawPayload[];
   }
   nextDeadline() {
     const deadline = this.handle.nextDeadline();

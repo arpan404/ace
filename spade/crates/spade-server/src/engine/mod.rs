@@ -38,6 +38,7 @@ mod jobs;
 mod judge;
 mod knowledge;
 mod knowledge_api;
+mod lanes;
 mod learned;
 mod ledger;
 mod local;
@@ -78,6 +79,8 @@ pub use code::CodeCall;
 pub(crate) mod retired_models;
 mod self_edit;
 mod services;
+mod sign_in;
+pub use services::StartAgain;
 mod speech;
 mod style;
 mod suggest;
@@ -102,7 +105,7 @@ pub use contracts_outside::{
     Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
 };
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel, Standing};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -112,6 +115,7 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use lanes::ENDED_SHOWN as ENDED_TASKS_SHOWN;
 pub use learned::{Forgotten, Learned};
 pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
@@ -277,6 +281,8 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// Sign-ins to ChatGPT accounts (ADR 0214, `sign_in`), once the server has set them.
+    sign_ins: std::sync::OnceLock<Arc<spade_chatgpt::Flows>>,
     /// The person's outside A2A agents (ADR 0202 §5), once the server has set them.
     outside_agents: std::sync::OnceLock<Arc<crate::a2a::OutsideAgents>>,
     /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
@@ -308,6 +314,7 @@ pub struct Engine {
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
     helpers: helpers::Shared,
+    lanes: lanes::Shared,
     /// Bots' wakes, armed (ADR 0160, `wakes`).
     wakes: wakes::Shared,
     /// Bots' owned services (ADR 0160), once the server has set them.
@@ -414,6 +421,8 @@ impl Engine {
         let tools = crate::teams::with_tools(tools, &handle);
         // A bot's tools for its workers (ADR 0161).
         let tools = crate::tools::with_worker_tools(tools, &handle);
+        // Main's tools for its task lanes (ADR 0217).
+        let tools = crate::tools::with_task_tools(tools, &handle);
         let data = setup.images.dir().parent().unwrap_or(setup.images.dir());
         let media = Arc::new(crate::media::Media::open(data));
         let decisions = classify::Decisions::new(data.join("classifier"));
@@ -460,6 +469,7 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            sign_ins: std::sync::OnceLock::new(),
             outside_agents: std::sync::OnceLock::new(),
             market: std::sync::OnceLock::new(),
             suggest_lock: Mutex::default(),
@@ -470,6 +480,7 @@ impl Engine {
             drive_places: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),
+            lanes: lanes::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
@@ -520,6 +531,12 @@ impl Engine {
             if spade_core::knowledge::episode::owed(&events) {
                 engine.owe_episodes(&conversation.id);
             }
+        }
+        // Copies in main of lanes' requests a crash left open close (ADR 0217 §4), and a task
+        // lane's jobs lost with the old process are reported like any (ADR 0217 §6).
+        engine.reconcile_lane_copies();
+        for lane in engine.live_lane_rows() {
+            jobs::report_lost(&engine, &lane.conversation)?;
         }
         // Helpers carry on from their events (ADR 0152); only those Stop was pressed on close.
         engine.settle_helpers_after_restart()?;
@@ -657,6 +674,7 @@ impl Engine {
             ace_waiting: ace.iter().any(|c| c.state.waiting()),
             ace_working: ace.iter().any(|c| c.state.working()),
             workers: 0,
+            tasks: 0,
             calls: spade_core::contract::calling(events.iter(), &transcript.jobs)
                 .into_iter()
                 .filter(|called| called.machine.is_none())
@@ -745,6 +763,10 @@ impl Engine {
             State::Waiting if activity.waiting_for == Some("worker") => {
                 Some(roster::WORKER_WAITING.to_owned())
             }
+            // One of its task lanes waits on the person (ADR 0217 §7).
+            State::Waiting if activity.waiting_for == Some("task") => {
+                Some(roster::TASK_WAITING.to_owned())
+            }
             // A bot it called waits on the person for that call (ADR 0200 §6.2).
             State::Waiting if activity.waiting_for == Some("callee") => {
                 Some(roster::CALLEE_WAITING.to_owned())
@@ -766,6 +788,8 @@ impl Engine {
                     .unwrap_or_else(|| {
                         if activity.answering {
                             roster::THINKING.to_owned()
+                        } else if activity.jobs == 0 && activity.tasks > 0 {
+                            roster::tasks_working(activity.tasks)
                         } else if activity.jobs == 0 && activity.workers > 0 {
                             roster::workers_working(activity.workers)
                         } else {
@@ -878,6 +902,12 @@ impl Engine {
         event: &Event,
         ask: Option<spade_store::Delivery<'_>>,
     ) -> Result<spade_store::Delivered, StoreError> {
+        // A job that moved with main's work to a lane reports there (ADR 0217 §2a).
+        if let Event::Known(Known::JobFinished { job, .. } | Known::JobProgress { job, .. }) = event
+            && let Some(lane) = self.moved_job(id, job)
+        {
+            return self.deliver_as(&lane, event, ask);
+        }
         let (start, delivered) = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(id) {
@@ -956,6 +986,16 @@ impl Engine {
                     ) {
                         return Ok(spade_store::Delivered::Duplicate);
                     }
+                    // A task lane's end read before the person took it up again is stale: it
+                    // is never stored, nor does it close the new run's requests (ADR 0217 §4).
+                    if report.kind == spade_core::tree::Kind::Lane
+                        && lane_ending(report.state)
+                        && !self.load(&report.worker).is_ok_and(|lane| {
+                            spade_core::lane::ended_run_current(&lane, &report.epoch)
+                        })
+                    {
+                        return Ok(spade_store::Delivered::Duplicate);
+                    }
                     !report.state.opens_reply()
                         && spade_core::wake::settled_by(&events, event).is_empty()
                 }
@@ -971,8 +1011,10 @@ impl Engine {
                 _ => false,
             };
             // The waits this event settles (a job's end, a message) are stored with it, so
-            // they are settled once, with what settles them (ADR 0160).
-            let settled = spade_core::wake::settled_by(&events, event);
+            // they are settled once, with what settles them (ADR 0160). A lane's report that
+            // it ended closes main's copies of its open requests in the same write (ADR 0217 §4).
+            let mut settled = spade_core::wake::settled_by(&events, event);
+            settled.extend(lane_requests_closed(&events, event));
             // While the person has the bot's computer, messages wait for the hand-back; while
             // they paused it, for Resume (ADR 0200 §6.1).
             let admitted = self.admission.load(Ordering::SeqCst) && !self.closed(id);
@@ -986,11 +1028,12 @@ impl Engine {
                     (false, self.append_as(id, &batch, ask)?)
                 } else {
                     // Stored together, so a crash can never keep the input without its reply.
+                    // The reply records the lane whose report alone opened it (ADR 0217 §2).
                     let model = self.reply_model(id);
-                    let started = Event::reply_started(self.ids.next("r"), model);
                     let mut batch = vec![event.clone()];
                     batch.extend(settled.iter().cloned());
-                    batch.push(started);
+                    let opener = spade_core::lane::opener_with(&events, &batch);
+                    batch.push(Event::reply_opened(self.ids.next("r"), model, opener));
                     (true, self.append_as(id, &batch, ask)?)
                 };
             if !matches!(stored, spade_store::Delivered::Stored(_)) {
@@ -1170,6 +1213,7 @@ impl Engine {
         ask: Option<spade_store::Delivery<'_>>,
     ) -> Result<spade_store::Delivered, StoreError> {
         let now = self.now_ms();
+        self.live_before_reply(id, events)?;
         let stored = match ask {
             Some(ask) => self.store.append_delivered(id, events, ask, now),
             None => self
@@ -1209,12 +1253,17 @@ impl Engine {
         cost: u64,
     ) {
         use spade_core::routing::Role;
-        // A helper's spend is its bot's (ADR 0152), so the bot's spend shows it.
-        let owner = self.helper_of(id).map(|h| h.parent);
-        let role = role.unwrap_or(if owner.is_some() {
-            Role::Helper
-        } else {
-            Role::Main
+        // A helper's spend is its bot's (ADR 0152), and so is a lane's (ADR 0217 §8), so the
+        // bot's spend shows it; a lane's steps are the `task` role's.
+        let hidden = self.hidden_of(id);
+        let lane = hidden
+            .as_ref()
+            .is_some_and(|h| h.profile == spade_core::lane::PROFILE);
+        let owner = hidden.map(|h| h.parent);
+        let role = role.unwrap_or(match (&owner, lane) {
+            (Some(_), true) => Role::Task,
+            (Some(_), false) => Role::Helper,
+            (None, _) => Role::Main,
         });
         let id = owner.as_deref().unwrap_or(id);
         if cost > 0
@@ -1237,7 +1286,8 @@ impl Engine {
             let events = self.load(id)?;
             if needs_reply(&events) {
                 let model = self.reply_model(id);
-                self.append(id, &Event::reply_started(self.ids.next("r"), model))?;
+                let opener = spade_core::lane::opener(&events);
+                self.append(id, &Event::reply_opened(self.ids.next("r"), model, opener))?;
                 true
             } else {
                 Transcript::fold(events.iter()).open_reply().is_some()
@@ -1358,6 +1408,40 @@ impl Engine {
         });
         *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
+}
+
+/// For a task lane's report that it ended, main's copies of its requests still open there,
+/// closed (ADR 0217 §4).
+fn lane_requests_closed(events: &[Event], event: &Event) -> Option<Event> {
+    let Event::Known(Known::WorkerReported(report)) = event else {
+        return None;
+    };
+    if report.kind != spade_core::tree::Kind::Lane || !lane_ending(report.state) {
+        return None;
+    }
+    let calls = spade_core::lane::requests_closing(
+        events,
+        &report.worker,
+        Some(&report.epoch),
+        report.state,
+    );
+    (!calls.is_empty()).then(|| {
+        Event::Known(Known::LaneRequestsClosed(
+            spade_core::lane::RequestsClosed {
+                lane: report.worker.clone(),
+                epoch: report.epoch.clone(),
+                calls,
+            },
+        ))
+    })
+}
+
+/// Whether a lane's report of `state` says its run ended (not that it waits on the person).
+fn lane_ending(state: spade_core::tree::ReportState) -> bool {
+    !matches!(
+        state,
+        spade_core::tree::ReportState::NeedsYou | spade_core::tree::ReportState::Stopping
+    )
 }
 
 /// Whether `job`'s result is stored already.

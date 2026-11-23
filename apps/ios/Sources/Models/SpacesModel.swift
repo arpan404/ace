@@ -195,6 +195,7 @@ extension SpacesModel {
                 machines?.entry(hostId).flatMap { $0.isAccountMachine ? $0.hostId : $0.accountHostId }
             }
             hostsChanged = { [weak machines] hosts in await machines?.followOrgHosts(hosts) }
+            machines.orgOf = { [weak self] relay in self?.hostsOf.first { $0.value.contains(relay) }?.key }
         } else {
             relayId = { $0 }
         }

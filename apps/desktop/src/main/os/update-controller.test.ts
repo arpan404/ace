@@ -537,3 +537,39 @@ it("an update waiting for agents is not yet closing; it says so only once it res
   await applying;
   expect(app.effects).toEqual(["drain", "stop daemon (closing said)", "install"]);
 });
+
+it("a remote check makes an in-flight check visible and offers the selected line", async () => {
+  const app = setup();
+  app.pickLine("beta");
+  app.lineFeed("beta", { version: "1.1.0-beta.2", notes: [], olderReleases: 0 });
+  const release = app.holdCheck();
+  const background = app.controller.check("background");
+  const remote = app.controller.remote({ action: "check", mode: "idle", version: "1.0.0" });
+  expect(app.now()).toMatchObject({ state: "checking", line: "beta" });
+  release();
+  await background;
+  expect(await remote).toMatchObject({ state: "available", line: "beta", version: "1.1.0-beta.2" });
+  expect(app.effects).toEqual([]);
+});
+
+it("a person sees a failed background check they joined", async () => {
+  const app = setup();
+  const release = app.holdCheck();
+  const background = app.controller.check("background");
+  const manual = app.controller.check("person");
+  app.offline(new Error("Offline"));
+  release();
+  await background;
+  expect(await manual).toMatchObject({ state: "error", error: { during: "check" } });
+});
+
+it("a failed check after switching lines drops an undownloaded offer from the old line", async () => {
+  const app = setup({ found: "1.1.0-beta.2" });
+  app.pickLine("beta");
+  await app.controller.check("person");
+  app.pickLine("stable");
+  app.offline(new Error("Offline"));
+  await app.controller.lineChanged();
+  expect(app.now()).toMatchObject({ line: "stable", state: "error", version: null });
+  expect((await app.controller.download()).state).toBe("error");
+});

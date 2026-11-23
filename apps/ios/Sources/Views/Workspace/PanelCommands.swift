@@ -53,9 +53,13 @@ extension FocusedValues {
 extension View {
     /// Publishes the panel's keys to the menu bar (iPadOS 26), and before iPadOS 26 on invisible
     /// buttons in the thread, which the ⌘-hold overlay lists too.
-    func panelCommands(_ commands: PanelCommands?) -> some View {
-        focusedSceneValue(\.panelCommands, commands)
-            .background { if #unavailable(iOS 26), let commands { PanelCommandKeys(commands: commands) } }
+    @ViewBuilder func panelCommands(_ commands: PanelCommands?) -> some View {
+        if UIDevice.current.userInterfaceIdiom == .pad {
+            focusedSceneValue(\.panelCommands, commands)
+                .background { if #unavailable(iOS 26), let commands { PanelCommandKeys(commands: commands) } }
+        } else {
+            background { if let commands { PanelCommandKeys(commands: commands) } }
+        }
     }
 }
 

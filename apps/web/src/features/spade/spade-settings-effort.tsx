@@ -41,6 +41,7 @@ export function EffortSelect(props: {
     <span className="inline-flex flex-col items-end gap-1">
       <Select
         label={`${props.title} thinking`}
+        className="w-48"
         value={pending ?? props.value ?? follow}
         options={options}
         disabled={pending !== undefined}

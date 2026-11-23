@@ -40,6 +40,13 @@ export function packageRoute(
   const effects = Array.isArray(link["effects"]) ? link["effects"].filter(isJson) : [];
   if (typeof key !== "string" || typeof on !== "boolean" || !effects.some((e) => e["key"] === key))
     return problem(400, "only an effect its package declares can be turned on");
+  // As Spade: a switch read on another version is refused under the bot's package hold.
+  const hash = isJson(body) ? body["hash"] : undefined;
+  if (typeof hash === "string" && hash !== link["hash"])
+    return problem(
+      409,
+      "Its package changed since you read it. Read it again before changing this.",
+    );
   agent.package = {
     ...link,
     // oxlint-disable-next-line oxc/no-map-spread -- A new effect list, as Spade answers; the stored one stays untouched.

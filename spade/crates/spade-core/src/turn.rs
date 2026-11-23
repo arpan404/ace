@@ -360,6 +360,7 @@ mod tests {
         );
 
         events.push(Event::Known(Known::ApprovalRequested {
+            lane: None,
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "send_email".into(),
@@ -376,6 +377,7 @@ mod tests {
             effect: None,
         }));
         events.push(Event::Known(Known::ApprovalRequested {
+            lane: None,
             reply: "r1".into(),
             call_id: "c2".into(),
             name: "send_email".into(),

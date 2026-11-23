@@ -21,6 +21,10 @@ impl Engine {
     /// Checks worker `id`: starts it if it is queued and a slot is free, and reports it to its
     /// parent if it has settled.
     pub(super) fn check_worker(self: &Arc<Self>, id: &str) {
+        if self.is_lane(id) {
+            self.check_lane(id);
+            return;
+        }
         let Some(link) = self.worker_link(id) else {
             return;
         };
@@ -47,6 +51,10 @@ impl Engine {
             epoch: settled.epoch,
             summary: settled.summary,
             words: settled.words,
+            error: settled.error,
+            // What it read that came from outside Spade may be in what it reports.
+            untrusted: !spade_core::context::untrusted_in_view(&events, &self.registry_for(id))
+                .is_empty(),
         }));
         match self.deliver_as(&link.parent_conversation, &report, None) {
             Ok(_) => {}
@@ -59,7 +67,7 @@ impl Engine {
     }
 
     /// What the worker's events don't say about whether it settled.
-    fn around(&self, id: &str, events: &[Event]) -> Around {
+    pub(in crate::engine) fn around(&self, id: &str, events: &[Event]) -> Around {
         let mut around = Around::default();
         for child in self.worker_children(id) {
             match self.node_state(&child, 1) {

@@ -160,6 +160,12 @@ export const ToMedia = z.discriminatedUnion("type", [
     /** Whether `epoch` is private (M8): sent, only when true, for a JPEG source on a build that
      * agreed to `privacy-open`. */
     private: z.boolean().optional(),
+    /** D1: longest ace-media spends bringing this source's own picture (a scrcpy device it
+     * reads itself); absent for a producer that streams into ingest. */
+    deadlineMs: u32.optional(),
+    /** D1: the reader generation the open's scrcpy reader runs under (the latest dial, carried
+     * by a reopen); absent is 0. */
+    dial: u32.optional(),
     origin: Origin,
   }),
   z.strictObject({
@@ -187,6 +193,20 @@ export const ToMedia = z.discriminatedUnion("type", [
     discard: z.array(z.tuple([u32, u32]).refine(([a, b]) => a <= b)),
   }),
   z.strictObject({ type: z.literal("source.close"), source: id }),
+  /** D1: (re)dial a scrcpy source's video handshake at `host:port` (an adb forward). The
+   * first handshake's endpoint comes in the open's origin; a restart passes a new one here,
+   * under the same source, with the reader generation `dial` everything from the new reader
+   * carries. */
+  z.strictObject({
+    type: z.literal("source.dial"),
+    source: id,
+    host: text,
+    port: u32,
+    dial: u32,
+  }),
+  /** D1: the daemon connected scrcpy's control socket for the reader of generation `dial` that
+   * greeted; that reader may now read the device name and codec id. Any other is dropped. */
+  z.strictObject({ type: z.literal("source.controlConnected"), source: id, dial: u32 }),
   /** An ingest barrier (X1): answered by `source.synced` once ace-media took `frames` frames
    * from the source's producer since its hello and its recording decided epoch `decided`. */
   z.strictObject({
@@ -344,6 +364,11 @@ export const FromMedia = z.discriminatedUnion("type", [
   }),
   /** A producer's ingest connection presented the source's token and was bound to it. */
   z.strictObject({ type: z.literal("source.ingest"), source: id }),
+  /** D1: ace-media saw scrcpy's dummy byte on the video socket; the daemon connects control now. */
+  z.strictObject({ type: z.literal("source.greeted"), source: id, dial: u32 }),
+  /** D1: the scrcpy handshake finished and video follows on egress. The device name up to its
+   * first NUL, decoded as UTF-8 like `toString("utf8")`. */
+  z.strictObject({ type: z.literal("source.ready"), source: id, deviceName: text, dial: u32 }),
   /** The barrier `source.sync` asked for holds. */
   z.strictObject({ type: z.literal("source.synced"), source: id, seq: sequence }),
   z.strictObject({
@@ -353,6 +378,8 @@ export const FromMedia = z.discriminatedUnion("type", [
     reason: text.optional(),
     attempts: u32.optional(),
     acceleration: Acceleration.optional(),
+    /** D1: the scrcpy reader generation a reader's end belongs to. */
+    dial: u32.optional(),
   }),
   z.strictObject({ type: z.literal("source.want"), source: id, encodes: z.array(EncodeSpec) }),
   z.strictObject({
@@ -543,8 +570,19 @@ export const mediaFeatures = [
   "still-fresh",
   // `source.sync` on a picture source drains its encoder before it holds.
   "sync-drain",
+  // A scrcpy source's video socket read by ace-media itself (D1): `source.open.deadlineMs`,
+  // `source.dial`, `source.controlConnected`, `source.greeted` and `source.ready`.
+  "scrcpy-video",
 ] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
+
+/**
+ * What the daemon offers a child at spawn. `scrcpy-video` is offered only when D1's switch
+ * makes ace-media the reader: with it off, the handshake is exactly as it was before D1.
+ */
+export function offeredMediaFeatures(scrcpyVideo: boolean): MediaFeature[] {
+  return mediaFeatures.filter((feature) => feature !== "scrcpy-video" || scrcpyVideo);
+}
 
 export function decodeToMedia(
   bytes: Uint8Array,

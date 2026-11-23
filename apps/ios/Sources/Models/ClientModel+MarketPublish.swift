@@ -60,10 +60,10 @@ extension ClientModel {
     }
     /// Withdraws one version, or the whole listing when `version` is nil.
     func marketWithdraw(type: String, name: String, version: String?, reason: String,
-                        confirmed: Bool = false) async throws -> MarketManagedAnswer {
+                        confirmed: Bool = false) async throws -> MarketWithdrawAnswer {
         var step: [String: Any] = ["step": "withdraw", "type": type, "name": name, "reason": reason]
         if let version { step["version"] = version }
-        return try await marketPublish(step, as: MarketManagedAnswer.self, confirmed: confirmed)
+        return try await marketPublish(step, as: MarketWithdrawAnswer.self, confirmed: confirmed)
     }
     func marketCreateProfile(handle: String, name: String, bio: String) async throws -> MarketPublisherProfile {
         try await marketPublish(["step": "createProfile", "handle": handle, "name": name, "bio": bio], as: MarketProfileAnswer.self).profile

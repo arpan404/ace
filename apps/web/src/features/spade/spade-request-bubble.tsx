@@ -10,6 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { cn } from "@/lib/cn.ts";
+import { useTaskTitle } from "./lanes/lanes-context.ts";
 import { AppMark } from "@/components/ui/app-mark.tsx";
 import { useSpadeConnectors } from "./spade-connector-api.ts";
 import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
@@ -65,7 +66,9 @@ export function SpadeRequestBubble(props: {
   onAnswer(callId: string, answer: RequestAnswer): Promise<boolean>;
 }) {
   const { item } = props;
-  const who = item.helper ? `A helper of ${props.botName}` : props.botName;
+  // A task's request leads with the task (ADR 0217 §7), a helper's with whose helper it is.
+  const task = useTaskTitle(item.lane);
+  const who = task ? task : item.helper ? `A helper of ${props.botName}` : props.botName;
   const title = useToolTitle();
   const appName = useAppName();
   // A call to a connected app's tool leads with that app's mark.

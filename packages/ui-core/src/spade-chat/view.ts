@@ -58,6 +58,8 @@ export interface SpadeView {
   resting: SpadeWake | undefined;
   /** Workers' and services' names by id, for the resting line's words. */
   workers: ReadonlyMap<string, string>;
+  /** Task lanes' titles as the title role renamed them, by lane id (ADR 0217 §2a). */
+  laneTitles: ReadonlyMap<string, string>;
   services: ReadonlyMap<string, string>;
   /** Choices the bot made on the person's behalf (ADR 0165), oldest first. */
   decisions: readonly SpadeDecision[];
@@ -115,6 +117,7 @@ export function spadeView(state: SpadeConversationState): SpadeView {
     questionsForLater: questionsIn(state.entries, state.forLater),
     resting: resting(state, reply !== undefined, approvals.length > 0),
     workers: state.capabilities.workers,
+    laneTitles: state.capabilities.laneTitles,
     services: state.capabilities.services,
     decisions: state.decisions,
     panels: new Map(state.panels),

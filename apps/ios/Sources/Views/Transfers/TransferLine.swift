@@ -25,11 +25,13 @@ enum OpenElsewhere: Equatable {
 
     /// What Open does for a thread of a machine: `paired` is whether this phone is paired
     /// with it, `listed` is whether its list holds the thread, `loaded` whether the machine's live list has
-    /// arrived (not a cached one).
-    static func of(paired: Bool, listed: Bool, loaded: Bool) -> OpenElsewhere {
+    /// arrived (not a cached one). A list with older pages left (`complete` false) doesn't say the
+    /// thread is gone: `located` is what reading it by id found, nil until that answers.
+    static func of(paired: Bool, listed: Bool, loaded: Bool, complete: Bool = true, located: Bool? = nil) -> OpenElsewhere {
         guard paired else { return .unpaired }
-        if listed { return .opened }
-        return loaded ? .missing : .waiting
+        if listed || located == true { return .opened }
+        guard loaded else { return .waiting }
+        return complete || located == false ? .missing : .waiting
     }
 }
 

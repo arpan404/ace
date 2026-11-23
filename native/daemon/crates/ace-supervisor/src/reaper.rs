@@ -127,31 +127,6 @@ pub fn process_alive(pid: u32) -> Result<bool, SupervisorError> {
     }
 }
 
-/// Whether group `group` answers a signal probe. ESRCH proves it gone;
-/// EPERM proves nothing (macOS reports it while a group exits) and stays
-/// an error for the caller to keep as evidence.
-#[cfg(unix)]
-pub fn process_group_alive(group: u32) -> Result<bool, SupervisorError> {
-    // rustix negates the group itself; the id stays positive here.
-    let raw = i32::try_from(group)
-        .ok()
-        .filter(|raw| *raw > 0)
-        .ok_or_else(|| SupervisorError::InvalidInput(format!("bad group {group}")))?;
-    let Some(target) = rustix::process::Pid::from_raw(raw) else {
-        return Err(SupervisorError::InvalidInput(format!("bad group {group}")));
-    };
-    match rustix::process::test_kill_process_group(target) {
-        Ok(()) => Ok(true),
-        Err(error) if error == rustix::io::Errno::SRCH => Ok(false),
-        Err(error) if error == rustix::io::Errno::PERM => Err(SupervisorError::Unavailable(
-            format!("signal probe of group {group} refused"),
-        )),
-        Err(error) => Err(SupervisorError::Operation(format!(
-            "signal probe of group {group} failed: {error}"
-        ))),
-    }
-}
-
 /// Whether `pid` names a live process, as `process.kill(pid, 0)` answers on
 /// Windows: an invalid pid is gone, an exited one is gone, a refused open
 /// fails closed.
@@ -191,14 +166,6 @@ pub fn process_alive(pid: u32) -> Result<bool, SupervisorError> {
         )));
     }
     Ok(code == STILL_ACTIVE as u32)
-}
-
-/// No process groups exist on Windows: no probe can answer.
-#[cfg(not(unix))]
-pub fn process_group_alive(group: u32) -> Result<bool, SupervisorError> {
-    Err(SupervisorError::Unavailable(format!(
-        "process group {group} has no meaning on Windows"
-    )))
 }
 
 #[cfg(test)]

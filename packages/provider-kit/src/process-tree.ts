@@ -220,11 +220,7 @@ export async function stopMembers(
           // napi calls threadsafe functions error-first.
           (_error: unknown, leftJson: string) => {
             try {
-              resolve(
-                (JSON.parse(leftJson) as { pid: number; start: string }[]).map((member) => ({
-                  ...member,
-                })),
-              );
+              resolve(JSON.parse(leftJson) as { pid: number; start: string }[]);
             } catch (error) {
               reject(error);
             }

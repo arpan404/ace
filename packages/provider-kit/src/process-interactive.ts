@@ -87,7 +87,7 @@ export function spawnInteractive(options: {
     if (timer) clearTimeout(timer);
     if (pid !== undefined) {
       destroy(pid);
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
     }
     job?.dispose();
   };

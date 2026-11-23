@@ -53,17 +53,48 @@ export function spadeLooseningRoute(
 const botAutonomy = /^\/v1\/agents\/([^/?#]+)\/security\/autonomy$/;
 const botPermissions = /^\/v1\/agents\/([^/?#]+)\/security\/permissions$/;
 const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
+const account = /^\/v1\/endpoints\/([^/?#]+)$/;
+const accountSignOut = /^\/v1\/endpoints\/([^/?#]+)\/sign-out$/;
+const signInFlow = /^\/v1\/accounts\/chatgpt\/[^/?#]+$/;
+
+/**
+ * What only the person may do or see with Spade's provider accounts (ADR 0214): start a ChatGPT
+ * sign-in (`sign-in`), read or cancel one (`sign-in-flow`), see the accounts' details
+ * (`account-details`: `GET /v1/models`, which Spade answers without them unstamped), sign an
+ * account out (`sign-out:<id>`), change one (`change-account:<id>`) or remove one
+ * (`remove-account:<id>`; for the last two Spade needs the stamp only for a signed-in account).
+ */
+function accountRoute(method: string, bare: string): string | undefined {
+  if (method === "POST" && bare === "/v1/accounts/chatgpt") return "sign-in";
+  if ((method === "GET" || method === "DELETE") && signInFlow.test(bare)) return "sign-in-flow";
+  if (method === "GET" && bare === "/v1/models") return "account-details";
+  const out = method === "POST" ? accountSignOut.exec(bare)?.[1] : undefined;
+  if (out !== undefined) {
+    const id = decoded(out);
+    return id === undefined ? undefined : `sign-out:${id}`;
+  }
+  const changed = method === "DELETE" || method === "PATCH" ? account.exec(bare)?.[1] : undefined;
+  if (changed !== undefined) {
+    const id = decoded(changed);
+    if (id === undefined) return undefined;
+    return method === "DELETE" ? `remove-account:${id}` : `change-account:${id}`;
+  }
+  return undefined;
+}
 
 /**
  * The route a change only the person may make goes to, whatever its body: `loosen:<target>`,
  * `machine` (how bots decide), `main-host`, `permissions:<bot or machine>`, `never-apps`,
- * `move:<id>` or a bot's id (how it decides). Undefined for every other request.
+ * `move:<id>`, a bot's id (how it decides), or one of [accountRoute]'s. Undefined for every
+ * other request.
  */
 export function spadePersonOnlyRoute(method: string, path: string): string | undefined {
   const loosening = spadeLooseningRoute(method, path);
   if (loosening) return `loosen:${loosening.target}`;
-  if (method !== "PUT") return undefined;
   const bare = path.split("?")[0] ?? "";
+  const accounts = accountRoute(method, bare);
+  if (accounts) return accounts;
+  if (method !== "PUT") return undefined;
   if (bare === "/v1/security/autonomy") return "machine";
   if (bare === "/v1/main/host") return "main-host";
   if (bare === "/v1/security/permissions") return "permissions:machine";

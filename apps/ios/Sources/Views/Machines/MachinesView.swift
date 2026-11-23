@@ -164,10 +164,10 @@ struct ConnectionDot: View {
         name = entry?.displayName ?? inbox.name(hostId)
         needsPairing = machines?.unsupported.contains(hostId) ?? false
         off = machines?.isOff(hostId) ?? false
-        connection = needsPairing ? StatusDisplay(label: "Pair again", token: "failed")
-            : off ? StatusDisplay(label: "Off on this iPhone", token: "neutral")
-            : client?.machineStatus?.status ?? StatusDisplay(label: "Connecting…", token: "neutral")
-        trying = !needsPairing && !off && ["connecting", "reconnecting"].contains(client?.connection ?? "")
+        let words = MachineConnectionWords.of(state: client?.connection, status: client?.machineStatus?.status,
+                                              needsPairing: needsPairing, off: off)
+        connection = words.display
+        trying = words.trying
         lastSeen = inbox.lastSeen(hostId).map { Date(timeIntervalSince1970: $0 / 1000) }
         readOnly = machines.map { $0.isReadOnly(hostId) }
         let onRelay = entry?.accountHostId != nil && machines?.plans[hostId]?.current == .relay

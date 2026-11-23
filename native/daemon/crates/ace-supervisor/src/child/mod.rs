@@ -11,10 +11,11 @@ use crate::errors::SupervisorError;
 #[cfg(unix)]
 use crate::leader::GroupSignal;
 use crate::leader::Leader;
-use crate::pump::{Flow, StdinMessage, pump_output, pump_stdin};
+use crate::pump::{Flow, StdinMessage};
 use crate::signal::SignalName;
 use crate::spawn::{EventSink, OutputStream, RawExit, SpawnSpec};
 use std::sync::Arc;
+#[cfg(unix)]
 use tokio_util::sync::CancellationToken;
 
 /// The kernel job a contained Windows child joined before it ran.
@@ -24,45 +25,83 @@ pub type ChildJob = std::sync::Mutex<crate::contain::KillOnCloseJob<crate::conta
 /// One supervised child, held by the shell's handle.
 pub struct SupervisedChild {
     leader: Arc<Leader>,
-    stdin: Option<(
-        tokio::sync::mpsc::UnboundedSender<StdinMessage>,
-        CancellationToken,
-    )>,
+    stdin: Option<(tokio::sync::mpsc::UnboundedSender<StdinMessage>, StdinAbort)>,
     stdout: Option<Arc<Flow>>,
     stderr: Option<Arc<Flow>>,
     #[cfg(windows)]
     job: Option<Arc<ChildJob>>,
 }
 
-/// A spawned child nothing owns yet: if setup fails before the leader and
-/// its waiter exist, the drop ends the whole tree and reaps the leader.
-struct Unowned(Option<std::process::Child>);
+/// How a destroyed stdin is closed now: the POSIX pump's token, or the
+/// Windows writer's pipe (its pending write is cancelled).
+enum StdinAbort {
+    #[cfg(unix)]
+    Token(CancellationToken),
+    #[cfg(windows)]
+    Pipe(Arc<crate::winstdin::StdinPipe>),
+}
+
+/// A spawned child nothing owns yet: if setup fails before the shell owns
+/// it, the drop hands it to the same release path as any leader: the group
+/// is killed while held, and the leader is reaped only once its group is
+/// confirmed empty. It never reached the shell, so no guard applies to it.
+struct Unowned {
+    child: Option<std::process::Child>,
+    runtime: tokio::runtime::Handle,
+    /// Reports a group that stays held long after it was killed (POSIX:
+    /// Windows has no group to hold).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    warn: Arc<dyn Fn(String) + Send + Sync>,
+}
 
 impl Unowned {
     fn child(&mut self) -> Result<&mut std::process::Child, SupervisorError> {
-        self.0.as_mut().ok_or(SupervisorError::Closed)
+        self.child.as_mut().ok_or(SupervisorError::Closed)
     }
 
     fn own(mut self) -> Result<std::process::Child, SupervisorError> {
-        self.0.take().ok_or(SupervisorError::Closed)
+        self.child.take().ok_or(SupervisorError::Closed)
     }
 }
 
 impl Drop for Unowned {
     fn drop(&mut self) {
-        let Some(mut child) = self.0.take() else {
+        let Some(child) = self.child.take() else {
             return;
         };
-        // The leader is unreaped, so its group id is still this tree's.
+        let leader = Leader::new(child);
+        leader.disown();
         #[cfg(unix)]
-        if let Some(group) = i32::try_from(child.id())
-            .ok()
-            .and_then(rustix::process::Pid::from_raw)
         {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            let _ = leader.signal_group(SignalName::Kill);
+            let held = Arc::clone(&leader);
+            let escalation = release::Escalation {
+                limit: Box::new(move || {
+                    let _ = held.signal_group(SignalName::Kill);
+                }),
+                stuck: {
+                    let (warn, pid) = (Arc::clone(&self.warn), leader.pid());
+                    Box::new(move || {
+                        warn(format!(
+                            "Process group {pid} (a spawn that failed to set up) is still held \
+                             after it was killed: a member does not exit or cannot be read"
+                        ));
+                    })
+                },
+            };
+            self.runtime.spawn(async move {
+                let watched = Arc::clone(&leader);
+                let _ = tokio::task::spawn_blocking(move || watched.wait_exit()).await;
+                release_when_group_empty(leader, escalation).await;
+            });
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        #[cfg(not(unix))]
+        {
+            let _ = leader.kill(SignalName::Kill);
+            self.runtime.spawn(async move {
+                let _ = tokio::task::spawn_blocking(move || leader.wait_exit()).await;
+            });
+        }
     }
 }
 
@@ -83,51 +122,10 @@ struct Pipes {
     stderr: Option<tokio::process::ChildStderr>,
 }
 
-/// Ace's end of one pipe: ready once it can carry bytes. A Windows server
-/// end waits for its client (already connected when the child spawned).
-trait PipeEnd: Send + Unpin + 'static {
-    fn connected(&self) -> impl std::future::Future<Output = bool> + Send;
-}
-
-#[cfg(unix)]
-impl PipeEnd for tokio::process::ChildStdin {
-    async fn connected(&self) -> bool {
-        true
-    }
-}
-
-#[cfg(unix)]
-impl PipeEnd for tokio::process::ChildStdout {
-    async fn connected(&self) -> bool {
-        true
-    }
-}
-
-#[cfg(unix)]
-impl PipeEnd for tokio::process::ChildStderr {
-    async fn connected(&self) -> bool {
-        true
-    }
-}
-
-/// Starts one output pump; its flow is the shell stream's.
-fn start_output<E: EventSink + Clone, R: PipeEnd + tokio::io::AsyncRead>(
-    runtime: &tokio::runtime::Handle,
-    sink: &E,
-    stream: OutputStream,
-    pipe: R,
-) -> (tokio::task::JoinHandle<()>, Arc<Flow>) {
-    let flow = Flow::new();
-    let (task_sink, task_flow) = (sink.clone(), Arc::clone(&flow));
-    let pump = runtime.spawn(async move {
-        if !pipe.connected().await {
-            task_sink.end(stream);
-            return;
-        }
-        pump_output(&task_sink, pipe, stream, task_flow).await;
-    });
-    (pump, flow)
-}
+mod pumps;
+#[cfg(windows)]
+pub(crate) use pumps::PipeEnd;
+use pumps::{start_output, start_stdin};
 
 /// Spawns `spec` on `runtime`; events reach `sink` in order.
 pub fn spawn_child<E: EventSink + Clone>(
@@ -152,7 +150,12 @@ pub fn spawn_child<E: EventSink + Clone>(
         .map_err(|error| SupervisorError::Operation(format!("spawn {}: {error}", spec.command)));
     // The command holds the child's ends; this process must not keep them.
     drop(command);
-    let mut unowned = Unowned(Some(spawned?));
+    let warn_sink = sink.clone();
+    let mut unowned = Unowned {
+        child: Some(spawned?),
+        runtime: runtime.clone(),
+        warn: Arc::new(move |message| warn_sink.held(message)),
+    };
     #[cfg(windows)]
     let job = contain_windows(spec, unowned.child()?)?;
     #[cfg(unix)]
@@ -184,29 +187,27 @@ pub fn spawn_child<E: EventSink + Clone>(
     let mut stdin = None;
     if let Some(pipe) = pipes.stdin.take() {
         let (queue, received) = tokio::sync::mpsc::unbounded_channel();
-        let abort = CancellationToken::new();
-        let (task_sink, task_abort) = (sink.clone(), abort.clone());
-        runtime.spawn(async move {
-            if pipe.connected().await {
-                pump_stdin(&task_sink, pipe, received, task_abort).await;
-            }
-        });
-        stdin = Some((queue, abort));
+        stdin = Some((queue, start_stdin(runtime, &sink, pipe, received)));
     }
     let mut pumps = Vec::new();
     let mut outputs = [None, None];
+    let budget = crate::pump::OutputBudget::new(spec.max_output_bytes);
     if let Some(pipe) = pipes.stdout.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stdout, pipe);
+        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stdout, pipe, &budget);
         pumps.push(pump);
         outputs[0] = Some(flow);
     }
     if let Some(pipe) = pipes.stderr.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stderr, pipe);
+        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stderr, pipe, &budget);
         pumps.push(pump);
         outputs[1] = Some(flow);
     }
     let [stdout, stderr] = outputs;
-    runtime.spawn(wait_and_close(Arc::clone(&leader), sink, pumps));
+    #[cfg(windows)]
+    let writers = job.clone().map(|job| (job, Arc::clone(&budget)));
+    #[cfg(not(windows))]
+    let writers = ();
+    runtime.spawn(wait_and_close(Arc::clone(&leader), sink, pumps, writers));
     Ok(SupervisedChild {
         leader,
         stdin,
@@ -219,10 +220,18 @@ pub fn spawn_child<E: EventSink + Clone>(
 
 /// Reports the leader's exit, starts its release, then `close` once every
 /// pump is done.
-async fn wait_and_close<E: EventSink>(
+/// Windows: the child's job and its outputs' shared state, so the outputs
+/// learn when every writer is gone (the job emptied after the exit).
+#[cfg(windows)]
+type Writers = Option<(Arc<ChildJob>, Arc<crate::pump::OutputBudget>)>;
+#[cfg(not(windows))]
+type Writers = ();
+
+async fn wait_and_close<E: EventSink + Clone>(
     leader: Arc<Leader>,
     sink: E,
     pumps: Vec<tokio::task::JoinHandle<()>>,
+    writers: Writers,
 ) {
     let watched = Arc::clone(&leader);
     let exit = tokio::task::spawn_blocking(move || watched.wait_exit())
@@ -235,8 +244,26 @@ async fn wait_and_close<E: EventSink>(
     // descendant holding stdout must not hold this back: the shell's exit
     // listener ends the tree once it hears it.
     sink.exit(exit.clone());
+    #[cfg(windows)]
+    if let Some((job, budget)) = writers {
+        tokio::spawn(watch_writers(job, budget));
+    }
+    #[cfg(not(windows))]
+    let () = writers;
     #[cfg(unix)]
-    tokio::spawn(release_when_group_empty(leader));
+    {
+        let (limit_sink, stuck_sink, pid) = (sink.clone(), sink.clone(), leader.pid());
+        let escalation = release::Escalation {
+            limit: Box::new(move || limit_sink.hold_limit()),
+            stuck: Box::new(move || {
+                stuck_sink.held(format!(
+                    "Process group {pid} is still held after it was given up and killed: a member \
+                     does not exit or cannot be read; it stays held until it empties"
+                ));
+            }),
+        };
+        tokio::spawn(release_when_group_empty(leader, escalation));
+    }
     #[cfg(not(unix))]
     drop(leader);
     // Like node's `close`: no byte arrives after this.
@@ -246,26 +273,11 @@ async fn wait_and_close<E: EventSink>(
     sink.close(exit);
 }
 
-/// The longest wait between checks for an exited leader's group to empty.
+mod release;
 #[cfg(unix)]
-const RELEASE_POLL_MAX: std::time::Duration = std::time::Duration::from_secs(5);
-
-/// Reaps the exited leader once nothing of its group lives, checking at
-/// growing intervals: at once, then within milliseconds of a group stop,
-/// at most every five seconds for a group that outlives its leader.
-#[cfg(unix)]
-async fn release_when_group_empty(leader: Arc<Leader>) {
-    let mut delay = std::time::Duration::from_millis(1);
-    loop {
-        let probe = Arc::clone(&leader);
-        match tokio::task::spawn_blocking(move || probe.release_if_group_empty()).await {
-            Ok(false) => {}
-            Ok(true) | Err(_) => return,
-        }
-        tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(RELEASE_POLL_MAX);
-    }
-}
+use release::release_when_group_empty;
+#[cfg(windows)]
+use release::watch_writers;
 
 impl SupervisedChild {
     /// The leader's pid.
@@ -292,9 +304,20 @@ impl SupervisedChild {
 
     /// Closes stdin now, dropping queued writes: the shell destroyed it.
     pub fn abort_stdin(&self) {
-        if let Some((_, abort)) = &self.stdin {
-            abort.cancel();
+        let Some((queue, abort)) = &self.stdin else {
+            return;
+        };
+        match abort {
+            #[cfg(unix)]
+            StdinAbort::Token(token) => token.cancel(),
+            #[cfg(windows)]
+            StdinAbort::Pipe(pipe) => {
+                pipe.abort();
+                // Wakes a writer waiting for the next message.
+                let _ = queue.send(StdinMessage::End);
+            }
         }
+        let _ = queue;
     }
 
     fn flow(&self, stream: OutputStream) -> Option<&Arc<Flow>> {
@@ -335,9 +358,30 @@ impl SupervisedChild {
         self.leader.group_gone()
     }
 
+    /// The shell gave the group up: the hold limit starts.
+    pub fn disown(&self) {
+        self.leader.disown();
+    }
+
+    /// The leader's kernel start, read at spawn.
+    pub fn leader_start(&self) -> Option<String> {
+        self.leader.start().map(str::to_owned)
+    }
+
+    /// Starts a stop: true while the group id is still this tree's, and
+    /// the leader stays held until `unhold`.
+    pub fn hold(&self) -> bool {
+        self.leader.hold()
+    }
+
+    /// Ends a stop started with `hold`.
+    pub fn unhold(&self) {
+        self.leader.unhold();
+    }
+
     /// Releases the pipes: stdin closes and the pumps stop. On Windows the
     /// leader's handle closes once it has exited; on POSIX it stays until
-    /// its group is empty.
+    /// its group is empty or given up (`disown`).
     pub fn dispose(&self) {
         self.abort_stdin();
         for flow in [&self.stdout, &self.stderr].into_iter().flatten() {

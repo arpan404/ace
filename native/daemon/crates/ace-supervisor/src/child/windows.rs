@@ -14,7 +14,7 @@ impl PipeEnd for tokio::net::windows::named_pipe::NamedPipeServer {
 }
 
 pub(super) struct Pipes {
-    pub(super) stdin: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
+    pub(super) stdin: Option<crate::winstdin::StdinPipe>,
     pub(super) stdout: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
     pub(super) stderr: Option<tokio::net::windows::named_pipe::NamedPipeServer>,
 }
@@ -32,7 +32,13 @@ pub(super) fn windows_pipes(
             .map(|(server, child_end)| (Some(server), std::process::Stdio::from(child_end)))
             .map_err(io_error)
     };
-    let (stdin, stdin_stdio) = stdio(spec.stdin, false)?;
+    let (stdin, stdin_stdio) = if spec.stdin == StdioMode::Piped {
+        crate::winstdin::stdin_pipe()
+            .map(|(pipe, child_end)| (Some(pipe), std::process::Stdio::from(child_end)))
+            .map_err(io_error)?
+    } else {
+        (None, crate::spawn::stdio(spec.stdin))
+    };
     let (stdout, stdout_stdio) = stdio(spec.stdout, true)?;
     let (stderr, stderr_stdio) = stdio(spec.stderr, true)?;
     Ok((

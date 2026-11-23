@@ -1,5 +1,7 @@
 import { knownPaths, type ClientCore } from "@ace/client";
-import { machineGlyph } from "@ace/ui-core";
+import { machineIconGlyphs } from "@ace/ui-core";
+import { markOf } from "@ace/ui-core/fleet-map";
+import type { MachineIcon } from "@ace/protocol";
 import type { PatchSink } from "./agents.ts";
 import { host } from "./host.ts";
 import { preview } from "./presentation.ts";
@@ -15,6 +17,24 @@ import { preview } from "./presentation.ts";
  * time it connects.
  */
 
+const kindGlyphs: Record<string, string> = {
+  laptop: "laptop",
+  desktop: "desktop-tower",
+  server: "hard-drives",
+  phone: "device-mobile",
+};
+
+/**
+ * The glyph a machine draws by: the shared mark rule (`markOf`, as the fleet map uses), so a
+ * "MacBook" is a laptop and a phone mark on a named computer is a computer. The finer marks
+ * (monitor, cloud, cpu, terminal) keep their own glyph.
+ */
+export function identityGlyph(name: string, icon: MachineIcon | undefined): string {
+  if (icon && ["monitor", "cloud", "cpu", "terminal"].includes(icon.kind))
+    return machineIconGlyphs[icon.kind];
+  return kindGlyphs[markOf({ kind: "machine", name, icon: icon?.kind })] ?? "laptop";
+}
+
 export type MachineIdentityOwner = Pick<ClientCore, "request" | "connectionState">;
 
 export function followMachineIdentity(owner: MachineIdentityOwner, pump: PatchSink): () => void {
@@ -28,7 +48,7 @@ export function followMachineIdentity(owner: MachineIdentityOwner, pump: PatchSi
       .then((reply) => {
         const patch = {
           type: "machine.identity",
-          glyph: machineGlyph(reply.identity.icon),
+          glyph: identityGlyph(reply.identity.displayName, reply.identity.icon),
           hostId: reply.identity.hostId,
           ...(reply.identity.displayName.trim()
             ? { name: preview(reply.identity.displayName.trim(), 256) }

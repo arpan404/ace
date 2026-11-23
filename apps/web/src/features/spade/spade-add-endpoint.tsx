@@ -53,7 +53,7 @@ const formatOptions = spadeFormats.map((value): SelectOption<SpadeFormat> => ({
 }));
 
 /**
- * Add endpoint: from one of Spade's presets (its address, format and session header filled in)
+ * Add a provider: an endpoint from one of Spade's presets (its address, format and session header filled in)
  * or custom: name, format, base URL, extra headers, a session header, and whether it needs a key
  * (a local server doesn't). The key is set on the
  * endpoint's row once it is added, never here.
@@ -128,7 +128,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
     <Dialog open onOpenChange={(open) => !open && props.onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add endpoint</DialogTitle>
+          <DialogTitle>Add a provider</DialogTitle>
         </DialogHeader>
         <DialogBody>
           <LocalServers servers={locals} onUse={fillLocal} />
@@ -207,7 +207,7 @@ export function AddEndpointDialog(props: { presets: readonly SpadePreset[]; onCl
             Cancel
           </Button>
           <Button variant="primary" disabled={!ready || saving} onClick={() => void add()}>
-            {saving ? "Adding…" : "Add endpoint"}
+            {saving ? "Adding…" : "Add provider"}
           </Button>
         </DialogFooter>
       </DialogContent>

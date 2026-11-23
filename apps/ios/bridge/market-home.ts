@@ -35,9 +35,10 @@ function movementText(movement: MarketTrendMovement): string | null {
 export function discoverAnswer(result: Result<"discover">, words: BrowseWords) {
   const { discover } = result;
   const entryRow = listingRow(words);
+  const hero = discover.hero ? entryRow(discover.hero) : null;
   const answer = {
-    hero: discover.hero ? entryRow(discover.hero) : null,
-    featured: discover.featured.map(entryRow),
+    hero,
+    featured: discover.featured.map(entryRow).filter((row) => row.id !== hero?.id),
     trending: discover.trending.map((row) => ({
       ...entryRow(row.entry),
       rank: row.rank,

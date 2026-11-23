@@ -1,6 +1,6 @@
 import "./test-host.ts";
 import { marketPickFixture, marketPublishFixture } from "@ace/fake-daemon";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { NativePublish, NativePublishRequest } from "./market-publishing.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 import type { SocketStanding } from "./market-person.ts";
@@ -164,6 +164,7 @@ test("a bot's review lists what it shares, the apps it asks for and what it leav
     pick: bot?.id,
   });
   expect(check.bot).toMatchObject({
+    name: "Inbox sorter",
     task: "You look after Arlo Quint's inbox.",
     routines: [
       { index: 0, name: "Morning sort", schedule: "weekdays at 8:00" },
@@ -198,8 +199,7 @@ test("a bot published with one routine left out sends only the routines kept", a
   });
   const sent = daemon.marketplace.publishing.sources.at(-1)?.checked;
   expect(sent?.recipe?.routines.map((routine) => routine.name)).toEqual(["Morning sort"]);
-  // The names it flagged are confirmed as seen; nothing the person wasn't shown.
-  expect(sent?.accepted).toContain("Arlo Quint");
+  expect(sent?.accepted).toEqual(["Arlo Quint"]);
 });
 
 test("a draft from a check the bridge no longer holds asks to look at it again", async () => {
@@ -220,6 +220,31 @@ test("a draft from a check the bridge no longer holds asks to look at it again",
     way: "reread",
   });
 });
+
+test.each(["pick", "type", "name"] as const)(
+  "a draft with a different %s asks for a new check even when the hash is held",
+  async (field) => {
+    const { ask } = await market();
+    const type = "spade-skill";
+    const name = "release-notes";
+    const items = (await ask({ step: "pick", type })).items as Item[];
+    const pick = items[0]?.id;
+    const check = (await ask({ step: "check", type, name, pick })) as Answer & Check;
+    expect(check.ok).toBe(true);
+
+    const changed = { pick: items[1]?.id, type: "spade-plugin", name: "triage-mail" };
+    const answer = await ask({
+      step: "draft",
+      type,
+      name,
+      pick,
+      version: "1.0.0",
+      hash: check.hash,
+      [field]: changed[field],
+    });
+    expect(answer).toMatchObject({ ok: false, code: "expired", way: "reread" });
+  },
+);
 
 test("a picked id that names a folder on the machine is refused before anything is sent", async () => {
   const { ask } = await market();
@@ -338,6 +363,29 @@ test("a listing shows its versions and signals, and a withdrawn version reads as
         },
       ],
     },
+  });
+});
+
+test("a successful withdrawal stays successful when the listing read is refused", async () => {
+  const { ask, daemon } = await market();
+  const { publishing } = daemon.marketplace;
+  const publish = publishing.publish.bind(publishing);
+  vi.spyOn(publishing, "publish").mockImplementationOnce((action) => {
+    const result = publish(action);
+    daemon.marketplace.refusePublish = { op: "error", code: "not_found", message: "No listing" };
+    return result;
+  });
+
+  const withdrawn = await ask({
+    step: "withdraw",
+    type: "suit",
+    name: "harbour-dusk",
+    reason: "It has a contrast bug.",
+  });
+  expect(withdrawn).toEqual({
+    ok: true,
+    offline: false,
+    message: "The listing is withdrawn. Anyone who installed it sees that it was withdrawn.",
   });
 });
 

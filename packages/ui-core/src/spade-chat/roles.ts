@@ -9,10 +9,12 @@ import { spadeJson, spadeRecord } from "./json.ts";
  */
 
 /** The roles the person picks a model for, in the order they show. */
-export const spadeRoles = ["helper", "verify", "review", "compact", "title"] as const;
+export const spadeRoles = ["task", "helper", "verify", "review", "compact", "title"] as const;
 export type SpadeRole = (typeof spadeRoles)[number];
 
 export const spadeRoleNames: Record<SpadeRole, string> = {
+  /** A bot's task lanes (ADR 0217 §8a): "Same as main" until set. */
+  task: "Tasks",
   helper: "Helpers",
   verify: "Checking done",
   review: "Reviewing steps",

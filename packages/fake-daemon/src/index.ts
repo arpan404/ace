@@ -163,6 +163,8 @@ export { FakeSpadeApi } from "./spade-api.ts";
 export { fakeAskApp, type FakeAppAsk } from "./spade-app-asks.ts";
 export type { FakeSpadeAccess, FakeSpadeOrgBinding } from "./spade-org.ts";
 export { FakeSpadeWork, type FakeSpadeTask } from "./spade-work.ts";
+export { stageFakeLanes } from "./spade-lanes-stage.ts";
+export { FakeSpadeLanes, type FakeLane, type FakeLaneState } from "./spade-lanes.ts";
 /** A file's revision as the fake Spade reads and checks it (cowork saves send it as `base`). */
 export { fakeFileRevision } from "./spade-computer.ts";
 export type { FakeSpadeAgent } from "./spade-api.ts";

@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import { appendFile, lstat, mkdir, readFile, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import type { Repository } from "./repository.ts";
@@ -21,14 +22,20 @@ export function isAcePrivate(path: string): boolean {
  * so status, `git add -A` from any terminal, stashes and checkpoints all skip them. Idempotent.
  */
 export async function excludeAcePrivate(repository: Repository, root: string): Promise<void> {
-  const located = await repository.cli.call(root, [
-    "rev-parse",
-    "--path-format=absolute",
-    "--git-common-dir",
-    "--git-path",
-    "info/exclude",
+  // One path per invocation: each output is stripped of only its final newline, so embedded
+  // newlines in the repository path stay intact (`rev-parse` offers no NUL mode for paths).
+  const [commonOut, excludeOut] = await Promise.all([
+    repository.cli.call(root, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+    repository.cli.call(root, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "info/exclude",
+    ]),
   ]);
-  const [commonDir, excludePath] = located.stdout.toString("utf8").trim().split("\n");
+  const isWindows = repository.cli.platform === "win32";
+  const commonDir = singlePath(commonOut, isWindows);
+  const excludePath = singlePath(excludeOut, isWindows);
   if (!commonDir || !excludePath) return;
   const path = isAbsolute(excludePath) ? excludePath : join(root, excludePath);
   // Only a plain file in a plain folder inside the repository's own git dir: never through a
@@ -46,6 +53,19 @@ export async function excludeAcePrivate(repository: Repository, root: string): P
 
 const isMissing = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "ENOENT";
+
+/** One `rev-parse` path value, read as bytes: refuse invalid UTF-8, strip one terminator. */
+function singlePath(
+  output: { stdout: Buffer; exitCode: number; truncated: boolean },
+  isWindows: boolean,
+): string | undefined {
+  if (output.exitCode !== 0 || output.truncated || !isUtf8(output.stdout)) return undefined;
+  const text = output.stdout.toString("utf8");
+  // Git appends LF; tolerate CRLF only on Windows. A trailing CR on Unix belongs to the path.
+  if (isWindows && text.endsWith("\r\n")) return text.slice(0, -2);
+  if (text.endsWith("\n")) return text.slice(0, -1);
+  return text;
+}
 
 /** `folder` and `file` are no symlinks (or absent), and `folder` resolves inside `gitDir`. */
 async function plainInside(gitDir: string, folder: string, file: string): Promise<boolean> {

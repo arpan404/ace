@@ -5,7 +5,7 @@
 use std::collections::HashSet;
 
 use spade_models::base_url::{self, same_origin};
-use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError};
+use spade_models::{Capability, Endpoint, Format, Listed, Model, ModelError, SignIn};
 use spade_store::{StoreError, StoredEndpoint, StoredModel};
 
 use super::Engine;
@@ -37,8 +37,19 @@ pub enum EndpointError {
     /// The endpoint's own model list could not be read.
     #[error("{0}")]
     Listing(String),
+    /// A change only the person may make, without their say.
+    #[error("Confirm your identity to continue.")]
+    Forbidden,
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Whether a change comes with the person's say (their stamp, ADR 0171 amendment 7), or from a
+/// caller that only holds Spade's token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standing {
+    Person,
+    Unconfirmed,
 }
 
 /// What adding or changing an endpoint takes. On change, `None` keeps the value.
@@ -207,6 +218,14 @@ impl Engine {
 
     fn endpoint_of(&self, stored: &StoredEndpoint) -> Option<Endpoint> {
         let format = Format::parse(&stored.format)?;
+        // A sign-in this build doesn't know (from a newer Spade) can't be called at all.
+        let sign_in = match &stored.sign_in {
+            None => None,
+            Some(s) if s.kind == super::sign_in::CHATGPT => Some(SignIn::ChatGpt {
+                account_id: s.account_id.clone(),
+            }),
+            Some(_) => return None,
+        };
         Some(Endpoint {
             id: stored.id.clone(),
             name: stored.name.clone(),
@@ -216,6 +235,7 @@ impl Engine {
             key_env: stored.key_env.clone(),
             headers: stored.headers.clone(),
             session_header: stored.session_header.clone(),
+            sign_in,
             models: self
                 .models_of(stored)
                 .into_iter()
@@ -261,7 +281,10 @@ impl Engine {
     /// The model a new agent gets when none is chosen: the person's first usable model, a local
     /// one first, then an endpoint with its key (ADR 0205 §1); "" when they have none yet.
     pub fn default_model(&self) -> String {
-        first_model(&self.models.endpoints(), |e| self.models.has_key(e))
+        let signed_out = self.signed_out();
+        first_model(&self.models.endpoints(), |e| {
+            self.models.has_key(e) && !signed_out.contains(&e.id)
+        })
     }
 
     pub fn endpoint_views(&self) -> Result<Vec<EndpointView>, StoreError> {
@@ -331,6 +354,7 @@ impl Engine {
                 if taken.contains(&candidate)
                     || skip.contains(&candidate)
                     || self.retiring(&candidate)
+                    || self.store.endpoint_retired(&candidate)?
                 {
                     continue;
                 }
@@ -349,6 +373,7 @@ impl Engine {
                     base_url: String::new(),
                     headers: Vec::new(),
                     session_header: None,
+                    sign_in: None,
                     needs_key: true,
                     key_env: None,
                     preset: None,
@@ -386,11 +411,25 @@ impl Engine {
         &self,
         id: &str,
         input: EndpointInput,
+        standing: Standing,
     ) -> Result<EndpointView, EndpointError> {
         // Decided on a read without the lock (the host check reads the keychain, which can
         // block), then written under it only if the endpoint is still as read; else decided again.
         for _ in 0..5 {
             let before = self.endpoint_view(id)?.stored;
+            // A signed-in account changes only on the person's say; the row checked is the one
+            // written, or this is decided again.
+            if before.sign_in.is_some() && standing != Standing::Person {
+                return Err(EndpointError::Forbidden);
+            }
+            // A sign-in account's address and settings are the sign-in's: only its name changes,
+            // so its token never goes anywhere but where it was issued for.
+            if before.sign_in.is_some() && !renames_only(&input) {
+                return Err(invalid(
+                    "only a signed-in account's name can change; its address and settings are \
+                     the sign-in's",
+                ));
+            }
             let mut stored = before.clone();
             apply(&mut stored, input.clone())?;
             self.check_host_change(id, &before, &stored)?;
@@ -467,7 +506,7 @@ impl Engine {
 
     /// Deletes an endpoint no agent uses, its keychain key first. The fast model is cleared if it
     /// was on it.
-    pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
+    pub fn delete_endpoint(&self, id: &str, standing: Standing) -> Result<(), EndpointError> {
         let row = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.retiring(id) {
@@ -478,6 +517,11 @@ impl Engine {
             let Some(row) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
                 return Err(EndpointError::NotFound);
             };
+            // Decided on the very row this delete removes, under the lock that marks it: a
+            // signed-in account goes only on the person's say, whatever was there before.
+            if row.sign_in.is_some() && standing != Standing::Person {
+                return Err(EndpointError::Forbidden);
+            }
             let users = self.endpoint_users(id)?;
             if !users.is_empty() {
                 return Err(EndpointError::InUse(users));
@@ -508,6 +552,10 @@ impl Engine {
                 .delete(id)
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
+        // Sign-in tokens only for a signed-in account: a key account's id erases nothing else.
+        if row.sign_in.is_some() {
+            self.forget_sign_in(id)?;
+        }
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         // Only the very row this delete started with, never a replacement under the same id.
         match self.store.endpoints()?.into_iter().find(|e| e.id == id) {
@@ -525,7 +573,7 @@ impl Engine {
         {
             self.store.set_setting(FAST_MODEL, None)?;
         }
-        self.store.delete_endpoint(id)?;
+        self.store.delete_endpoint(id, self.now_ms())?;
         self.listed
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -567,7 +615,7 @@ impl Engine {
             let pinned = events.iter().any(|event| {
                 matches!(
                     event,
-                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model })
+                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model, .. })
                         if Some(reply) == open.as_ref() && model.starts_with(&prefix)
                 )
             });
@@ -762,6 +810,16 @@ fn first_model(endpoints: &[Endpoint], usable: impl Fn(&Endpoint) -> bool) -> St
         .unwrap_or_default()
 }
 
+/// Whether `input` changes nothing but the name.
+fn renames_only(input: &EndpointInput) -> bool {
+    input.format.is_none()
+        && input.base_url.is_none()
+        && input.headers.is_none()
+        && input.session_header.is_none()
+        && input.needs_key.is_none()
+        && input.preset.is_none()
+}
+
 /// Applies `input` to `stored`, checking every field.
 fn apply(stored: &mut StoredEndpoint, input: EndpointInput) -> Result<(), EndpointError> {
     if let Some(name) = input.name {
@@ -865,6 +923,7 @@ mod tests {
             key_env: None,
             headers: Vec::new(),
             session_header: None,
+            sign_in: None,
             models: model.into_iter().map(Model::unknown).collect(),
         }
     }

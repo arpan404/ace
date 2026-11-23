@@ -15,6 +15,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "rootThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

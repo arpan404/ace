@@ -359,7 +359,12 @@ enum BridgePatch: Decodable, Sendable {
     case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
+    case usageBars([UsageHeadroomBar], choices: [UsageChoice])
     case inboxReset([String]?)
+    /// Whether the list is the daemon's current one and holds every thread (no older page left).
+    case inboxFresh(confirmed: Bool, complete: Bool)
+    /// Whether a thread outside the loaded list exists on the machine, read by its id.
+    case inboxLocated(String, Bool?)
     case inbox(String, ThreadRow?)
     /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
     case needs(String, InboxNeeds)
@@ -388,8 +393,10 @@ enum BridgePatch: Decodable, Sendable {
     case connectionEvent(String)
     case pending(String, PendingRow?)
     case error(String)
-    case receipt(String, Bool, String)
-    case admission(String, Bool, String)
+    /// Id, ok, the refusal's words, and the code notes a started thread or fork carried.
+    case receipt(String, Bool, String, [String])
+    /// Id, ok, the refusal's words, and the code notes a saved message carried.
+    case admission(String, Bool, String, [String])
     /// A message's full words for the edit sheet, or an edit's answer (`bridge/queued-words.ts`,
     /// `bridge/send-recovery.ts`): ok, the words when read, and why not when not.
     case words(String, Bool, String?, String, Int?)
@@ -413,6 +420,7 @@ enum BridgePatch: Decodable, Sendable {
     case cacheUsage(CacheUsage)
     case machineAdmission(MachineAdmissionInfo)
     case machineAppUpdate(MachineAppUpdateInfo)
+    case machineUpdate(MachineUpdateInfo)
     /// A project's mark, sent once per project (`bridge/project-looks.ts`); nil clears it.
     case projectLook(String, ProjectLookPatch?)
     /// Each project's logical ids (`bridge/project-looks.ts`), so one project across machines is one filter row.
@@ -469,7 +477,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail, route }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail, route, notes, confirmed, complete, found, choices }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -484,6 +492,9 @@ enum BridgePatch: Decodable, Sendable {
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
+        case "usage.bars": self = .usageBars(try box.decode([UsageHeadroomBar].self, forKey: .value), choices: try box.decodeIfPresent([UsageChoice].self, forKey: .choices) ?? [])
+        case "inbox.fresh": self = .inboxFresh(confirmed: try box.decode(Bool.self, forKey: .confirmed), complete: try box.decode(Bool.self, forKey: .complete))
+        case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Bool.self, forKey: .found))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
         case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))
@@ -524,12 +535,14 @@ enum BridgePatch: Decodable, Sendable {
                                socket: try box.decodeIfPresent(Int.self, forKey: .socket))
         case "pending": self = .pending(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(PendingRow.self, forKey: .row))
         case "error": self = .error(try box.decode(String.self, forKey: .message))
-        case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "receipt": self = .receipt(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message),
+                                        try box.decodeIfPresent([String].self, forKey: .notes) ?? [])
         case "words":
             let ok = try box.decode(Bool.self, forKey: .ok)
             self = .words(try box.decode(String.self, forKey: .id), ok, ok ? try box.decodeIfPresent(String.self, forKey: .text) : nil,
                           try box.decode(String.self, forKey: .message), try box.decodeIfPresent(Int.self, forKey: .revision))
-        case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message))
+        case "admission": self = .admission(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .ok), try box.decode(String.self, forKey: .message),
+                                            try box.decodeIfPresent([String].self, forKey: .notes) ?? [])
         case "inbox.bulk.final": self = .bulkFinal(try box.decode(String.self, forKey: .id), try box.decode(BulkOutcome.self, forKey: .outcome))
         case "thread.block":
             let (id, epoch) = try scope()
@@ -556,6 +569,7 @@ enum BridgePatch: Decodable, Sendable {
         case "cache.usage": self = .cacheUsage(try CacheUsage(from: decoder))
         case "machine.admission": self = .machineAdmission(try MachineAdmissionInfo(from: decoder))
         case "machine.appUpdate": self = .machineAppUpdate(try MachineAppUpdateInfo(from: decoder))
+        case "machine.update": self = .machineUpdate(try MachineUpdateInfo(from: decoder))
         case "project.look":
             // A look that doesn't read draws the initials rather than failing the frame.
             self = .projectLook(try box.decode(String.self, forKey: .id), try? box.decodeIfPresent(ProjectLookPatch.self, forKey: .look))

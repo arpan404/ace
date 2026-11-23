@@ -46,6 +46,21 @@ impl Engine {
                 "children": [],
             }));
         }
+        // Its task lanes (ADR 0217 §10), oldest first.
+        for lane in self.live_lanes_of(id) {
+            let view = self.lane_view(&lane, false)?;
+            children.push(json!({
+                "kind": "lane",
+                "id": view["task"],
+                "name": view["title"],
+                "conversation": view["conversation"],
+                "state": view["state"],
+                "needs_you": view["needs_you"],
+                "progress": view["progress"],
+                "cost_micros": view["cost_micros"],
+                "children": [],
+            }));
+        }
         for ace in tree::ace_children(events.iter()) {
             children.push(json!({
                 "kind": "ace",
@@ -119,6 +134,8 @@ impl Engine {
         });
         shown.insert("parent".into(), parent);
         shown.insert("workers".into(), activity.workers.into());
+        // Its task lanes that haven't ended (ADR 0217 §7).
+        shown.insert("tasks".into(), activity.tasks.into());
     }
 
     /// The node of one worker of `caller`: a bot's subtree, a helper's or an ace child's line.

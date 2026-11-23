@@ -30,6 +30,17 @@ describe("which market actions are the person's", () => {
     ["deleting an entry", publish({ action: "deleteEntry", ...entry })],
     ["applying for verification", publish({ action: "applyVerification" })],
     ["checking verification", publish({ action: "checkVerification" })],
+    ["reading an organization's registry", publish({ action: "registry", org: "org_acme" })],
+    [
+      "withdrawing a version from an organization's registry",
+      publish({
+        action: "registryWithdraw",
+        org: "org_acme",
+        ...entry,
+        version: "1.0.0",
+        reason: "Leaks a token",
+      }),
+    ],
   ])("%s does", (_what, operation) => {
     expect(needsPerson(operation)).toBe(true);
   });
@@ -83,5 +94,43 @@ describe("a person-only market action without a thread", () => {
     };
     for (const operation of [withdraw, turnOn])
       expect(standing(operation, true, true)).toMatchObject({ refusal: { code: "reauth" } });
+  });
+});
+
+const asMember = (operation: MarketOperation, member?: { org: string }) =>
+  hostMarketStanding({
+    operation,
+    unproven: true,
+    contentOnly: () => false,
+    member: () => member,
+  });
+
+describe("an organization's registry on its host, where no socket holds the person's standing", () => {
+  const withdraw = publish({
+    action: "registryWithdraw",
+    org: "org_acme",
+    ...entry,
+    version: "1.0.0",
+    reason: "Leaks a token",
+  });
+
+  it("a withdrawal runs from a socket with the organization's member standing", () => {
+    expect(asMember(withdraw, { org: "org_acme" })).toEqual({ run: "person" });
+    expect(asMember(publish({ action: "registry", org: "org_acme" }), { org: "org_acme" })).toEqual(
+      { run: "person" },
+    );
+  });
+
+  it("is refused from an admin socket with no member standing, so it can't forward a grant", () => {
+    expect(asMember(withdraw)).toMatchObject({ refusal: { code: "reauth" } });
+  });
+
+  it("is refused when the member's standing is another organization's", () => {
+    expect(asMember(withdraw, { org: "org_other" })).toMatchObject({ refusal: { code: "reauth" } });
+  });
+
+  it("member standing proves nothing for the person's own actions", () => {
+    const own = publish({ action: "withdraw", ...entry, reason: "Broken" });
+    expect(asMember(own, { org: "org_acme" })).toMatchObject({ refusal: { code: "reauth" } });
   });
 });

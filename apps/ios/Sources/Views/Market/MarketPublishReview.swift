@@ -74,6 +74,11 @@ struct MarketPublishReview: View {
 
     @ViewBuilder private func botSections(_ bot: MarketPublishCheck.Bot) -> some View {
         Section {
+            Text(bot.name).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        } header: { InsetHeader("Bot name") }
+        .insetRowBackground()
+        Section {
             Text(bot.task).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                 .fixedSize(horizontal: false, vertical: true)
         } header: { InsetHeader("Task") }
@@ -82,7 +87,15 @@ struct MarketPublishReview: View {
             Section {
                 ForEach(bot.routines) { routine in
                     Toggle(isOn: routineBinding(routine.index)) {
-                        InsetRow(routine.name, icon: .clock, subtitle: "\(routine.schedule) · \(routine.instruction)")
+                        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                            Text(routine.name).aceFont(AceDesign.TextRole.rowTitle)
+                                .foregroundStyle(AceDesign.Ink.primary)
+                            Text(routine.schedule).aceFont(AceDesign.TextRole.meta)
+                                .foregroundStyle(AceDesign.Ink.muted)
+                            Text(routine.instruction).aceFont(AceDesign.TextRole.meta)
+                                .foregroundStyle(AceDesign.Ink.primary)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                     .accessibilityIdentifier("market.publish.routine.\(routine.index)")
                 }

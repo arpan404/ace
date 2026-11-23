@@ -104,6 +104,8 @@ export type Route =
   | { kind: "org-keys"; org: string }
   | { kind: "org-key-add"; org: string }
   | { kind: "org-entries"; org: string }
+  | { kind: "org-registry-admin"; org: string }
+  | ({ kind: "org-version-withdraw"; org: string } & VersionKey)
   | ({ kind: "org-entry"; org: string } & EntryKey)
   | ({ kind: "org-version"; org: string } & VersionKey)
   | { kind: "org-object"; org: string; hash: string }

@@ -1,4 +1,11 @@
-import { spadeBotRow, spadeGroupRow, spadeByState, type SpadeRow } from "@ace/ui-core/spade-chat";
+import {
+  spadeBotRow,
+  spadeGroupRow,
+  spadeByState,
+  spadeBotFamilies,
+  spadeExpandedBotRow,
+  type SpadeRow,
+} from "@ace/ui-core/spade-chat";
 import type { RosterBot } from "./use-spade-roster.ts";
 import type { RosterGroup } from "./use-spade-groups.ts";
 
@@ -46,11 +53,6 @@ const byState = (entries: readonly SpadeListEntry[]) =>
 
 /** A bot's key across machines: ids repeat between machines' Spades. */
 const botKey = (bot: RosterBot) => `${bot.machine.key}/${bot.id}`;
-
-/** The bots in the list that made this one, if its maker is among them. */
-function makerOf(bot: RosterBot, byKey: ReadonlyMap<string, RosterBot>): RosterBot | undefined {
-  return bot.parent ? byKey.get(`${bot.machine.key}/${bot.parent.id}`) : undefined;
-}
 
 /** One row per bot on a machine: the first of a repeated id stands, so no bot opens from two rows. */
 function uniqueBots(bots: readonly RosterBot[]): RosterBot[] {
@@ -108,55 +110,26 @@ export function spadeListEntries(
   open?: string,
   missing?: SpadeGoalMissing,
 ): SpadeListEntry[] {
-  const bots = uniqueBots(allBots);
-  const byKey = new Map(bots.map((bot) => [botKey(bot), bot]));
-  const workersOf = new Map<string, RosterBot[]>();
-  const roots: RosterBot[] = [];
-  for (const bot of bots) {
-    const maker = bot.kind === "main" ? undefined : makerOf(bot, byKey);
-    if (!maker) {
-      roots.push(bot);
-      continue;
-    }
-    workersOf.set(botKey(maker), [...(workersOf.get(botKey(maker)) ?? []), bot]);
-  }
-  const descendants = (bot: RosterBot, seen: Set<string>): RosterBot[] => {
-    const found: RosterBot[] = [];
-    for (const worker of workersOf.get(botKey(bot)) ?? []) {
-      if (seen.has(botKey(worker))) continue;
-      seen.add(botKey(worker));
-      found.push(worker, ...descendants(worker, seen));
-    }
-    return found;
-  };
-  const familyOf = (root: RosterBot) => descendants(root, new Set([botKey(root)]));
-  // Makers that made each other have no root: the first of them stands in as one.
-  const reached = new Set<string>();
-  for (const root of roots) {
-    reached.add(botKey(root));
-    for (const member of familyOf(root)) reached.add(botKey(member));
-  }
-  for (const bot of bots) {
-    if (reached.has(botKey(bot))) continue;
-    roots.push(bot);
-    reached.add(botKey(bot));
-    for (const member of familyOf(bot)) reached.add(botKey(member));
-  }
-  const rootKeys = new Set(roots.map(botKey));
+  const families = spadeBotFamilies(allBots, (bot, id) => `${bot.machine.key}/${id}`);
+  const roots = families.map(({ root }) => root);
+  const workersOf = new Map(families.map(({ root, workers }) => [botKey(root), workers]));
   const rows: SpadeListEntry[] = [];
   for (const entry of topLevel(roots, groups, missing)) {
-    if (entry.kind !== "bot" || !rootKeys.has(botKey(entry.bot))) {
+    if (entry.kind !== "bot") {
       rows.push(entry);
       continue;
     }
-    const family = familyOf(entry.bot);
+    const family = workersOf.get(botKey(entry.bot)) ?? [];
     const unfolded = open !== undefined && [entry.bot, ...family].some((bot) => bot.id === open);
     const shown = family
       .map((bot) => botEntry(bot, missing, 1))
       .filter(
         (worker) => unfolded || worker.row.state === "needs-you" || worker.row.state === "failed",
       );
-    rows.push(entry, ...byState(shown));
+    rows.push(
+      shown.length ? { ...entry, row: spadeExpandedBotRow(entry.row) } : entry,
+      ...byState(shown),
+    );
   }
   return rows;
 }

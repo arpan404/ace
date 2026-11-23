@@ -17,6 +17,24 @@ export type SpadeQuiet =
   /** The bot's panel sent an action, or the person confirmed one there (ADR 0200 §5.2). */
   | { kind: "panel-action"; label: string; by: "page" | "person" }
   | { kind: "checked"; verdict: "done" | "not_yet" | "unchecked"; missing: readonly string[] }
+  /** One of the bot's task lanes (ADR 0217 §7): started, moved to, sent a message, reporting. */
+  | {
+      kind: "lane";
+      lane: string;
+      title: string;
+      event: SpadeLaneEvent;
+      /** The lane's reply that failed, which Try again answers again. */
+      reply?: string;
+    }
+  /** Two running tasks wrote one file (ADR 0217 §3): a note, never a lock. */
+  | {
+      kind: "lanes-overlapped";
+      lane: string;
+      title: string;
+      other: string;
+      otherTitle: string;
+      path: string;
+    }
   | {
       kind: "worker-reported";
       worker: string;
@@ -24,6 +42,21 @@ export type SpadeQuiet =
       name: string;
       state: Exclude<SpadeWorkerState, "stopping">;
     };
+
+/**
+ * What a lane's line in main says: it started (or waits for a slot), Spade moved main's long work
+ * to it, a person's message was sent to it, or it reported: done, stopped early (failed), stopped,
+ * or needs the person.
+ */
+export type SpadeLaneEvent =
+  | "started"
+  | "queued"
+  | "moved"
+  | "routed"
+  | "done"
+  | "failed"
+  | "stopped"
+  | "needs_you";
 
 /** A plan mark: met, still being worked on, open, or what waits on the person. */
 export type SpadeQuietMark = "done" | "working" | "open";
@@ -106,6 +139,15 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
         plain("Says done, "),
         strong("not checked"),
       ]);
+    case "lane":
+      return laneLine(quiet.title || "a task", quiet.event);
+    case "lanes-overlapped":
+      return line({ kind: "mark", mark: "open", label: "Both changed it" }, [
+        strong(quiet.title || "A task"),
+        plain(" and "),
+        strong(quiet.otherTitle || "another task"),
+        plain(` both changed ${quiet.path || "a file"}`),
+      ]);
     case "worker-reported": {
       const words = [
         strong(quiet.name),
@@ -119,5 +161,45 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
         ? line({ kind: "none" }, words)
         : line({ kind: "face", bot: quiet.worker, pose: reportPose(quiet.state) }, words);
     }
+  }
+}
+
+/** A lane's line in main's chat, in Spade's words (ADR 0217 §7). */
+function laneLine(title: string, event: SpadeLaneEvent): SpadeQuietLine {
+  switch (event) {
+    case "started":
+    case "queued":
+      return line({ kind: "mark", mark: "working", label: "Task" }, [
+        plain("Started a task: "),
+        strong(title),
+      ]);
+    case "moved":
+      return line({ kind: "mark", mark: "working", label: "Task" }, [
+        plain("This is taking a while, so I moved it to its own task: "),
+        strong(title),
+        plain(". I'm free to talk."),
+      ]);
+    case "routed":
+      return line({ kind: "none" }, [plain("Sent to "), strong(title)]);
+    case "done":
+      return line({ kind: "mark", mark: "done", label: "Done" }, [
+        plain("Task done: "),
+        strong(title),
+      ]);
+    case "failed":
+      return line({ kind: "mark", mark: "open", label: "Stopped early" }, [
+        plain("Task stopped early: "),
+        strong(title),
+      ]);
+    case "stopped":
+      return line({ kind: "mark", mark: "open", label: "Stopped" }, [
+        plain("Task stopped: "),
+        strong(title),
+      ]);
+    case "needs_you":
+      return line({ kind: "mark", mark: "open", label: "Needs you" }, [
+        strong(title),
+        plain(" needs you"),
+      ]);
   }
 }

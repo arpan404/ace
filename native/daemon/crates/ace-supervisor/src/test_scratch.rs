@@ -7,7 +7,7 @@ use crate::errors::SupervisorError;
 use crate::identity::{ProcessIdentity, ProcessOwner};
 use crate::inventory::{InventoryRuntime, ProbeRefused};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -49,10 +49,12 @@ pub struct Fake {
     pub processes: HashMap<u32, ProcessIdentity>,
     /// Groups the runtime was told to kill, in order.
     pub killed: Rc<RefCell<Vec<u32>>>,
-    /// Scripted liveness per group; unlisted groups answer alive.
+    /// Scripted liveness per pid; unlisted pids answer alive.
     pub alive: HashMap<u32, Result<bool, ProbeRefused>>,
     /// Pids whose identity read throws.
     pub unreadable: Vec<u32>,
+    /// Groups a process-table read still finds members in.
+    pub occupied: Vec<u32>,
     /// The daemon's own pid: the owner recorded rows name.
     pub owner: u32,
 }
@@ -67,6 +69,7 @@ impl Fake {
                 killed: Rc::clone(&killed),
                 alive: HashMap::new(),
                 unreadable: Vec::new(),
+                occupied: Vec::new(),
                 owner,
             },
             killed,
@@ -101,11 +104,26 @@ impl InventoryRuntime for Fake {
         false
     }
 
-    fn alive(&self, group: u32) -> Result<bool, ProbeRefused> {
-        self.alive.get(&group).cloned().unwrap_or(Ok(true))
+    fn alive(&self, pid: u32) -> Result<bool, ProbeRefused> {
+        self.alive.get(&pid).cloned().unwrap_or(Ok(true))
     }
 
-    fn kill(&self, group: u32) {
+    fn leader_alive(&self, pid: u32, _start: &str) -> Result<bool, ProbeRefused> {
+        self.alive.get(&pid).cloned().unwrap_or(Ok(true))
+    }
+
+    fn group_snapshot(&self) -> crate::system::GroupSnapshot {
+        let mut groups = HashMap::new();
+        for group in &self.occupied {
+            groups.insert(*group, BTreeSet::from([(9999, "live".to_owned())]));
+        }
+        crate::system::GroupSnapshot {
+            groups,
+            complete: true,
+        }
+    }
+
+    fn kill(&self, group: u32, _start: &str) {
         self.killed.borrow_mut().push(group);
     }
 

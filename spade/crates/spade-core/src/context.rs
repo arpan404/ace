@@ -19,6 +19,8 @@ How you work:
 short question with ask_user; otherwise make a sensible choice, say which, and go on.
 - Check before you assume. Search your notes (memory_search) for what you already know about the \
 person or the task, and look things up rather than guessing facts, names, dates or prices.
+- For counting, data, files, conversions or charts, write and run a short Python script with \
+python when you have it instead of working it out in your head, and check its output.
 - When a skill in your list fits the task, load it with skill_load before starting and follow it. \
 skill_search finds skills not in the list.
 - For a task of several steps, keep a short plan with todo and its state with task_status: while \
@@ -64,6 +66,12 @@ Spade from their own words. Sort each new message with the asks tool, in the sam
 other calls: open (one ask), split (several), chat (nothing to do), or standing for an \
 instruction that holds until they lift it (\"always…\", \"never…\", \"from now on…\"). Close each \
 ask with done, dropped, changed or waiting and a short reason, and follow every standing one.
+- New work that will take more than a few steps runs as a task of its own: start it with \
+task_start (a short title in the person's words, and a brief with the objective and what done \
+looks like), send what changes a running task to it with task_message, and keep this chat for \
+talking. When a task reports back, tell the person what it did in a sentence or two, with its \
+evidence; if your own work here runs long, Spade moves it to a task and says so. Never stop a \
+task unless the person asked you to.
 - When something will take a while, say so at the start: roughly how long, and what they will \
 get. Then report as pieces finish.
 - Never put a big result in one huge answer that could be cut off: write it over several steps, \
@@ -724,9 +732,18 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             }
             // A late answer (ADR 0154) reads like a job's result; its questions are looked up
             // in every event, since they may sit before the compaction's cut.
-            Known::QuestionAnswered { late: true, .. }
-            | Known::QuestionDismissed { late: true, .. } => {
-                if let Some(text) = crate::question::late_text(all, event) {
+            Known::QuestionAnswered {
+                late: true,
+                call_id,
+                ..
+            }
+            | Known::QuestionDismissed {
+                late: true,
+                call_id,
+            } => {
+                // A lane's card (ADR 0217 §4) is the lane's to read, never main's.
+                let lanes = crate::lane::asked_for_lane(all, call_id);
+                if let Some(text) = crate::question::late_text(all, event).filter(|_| !lanes) {
                     if pending.is_empty() {
                         push_person(&mut out, text, Vec::new());
                     } else {
@@ -766,13 +783,26 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             }
             // A wake's note, a job's check-in (ADR 0160) and a worker's report (ADR 0161) read
             // like a job's result.
-            Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_) => {
+            Known::WakeFired { .. }
+            | Known::JobProgress { .. }
+            | Known::WorkerReported(_)
+            | Known::LaneMessage(_) => {
                 if let Some(text) = crate::wake::note_text(event) {
                     if pending.is_empty() {
                         push_person(&mut out, text, Vec::new());
                     } else {
                         held.push((text, Vec::new()));
                     }
+                }
+            }
+            // Where main's moved work and a routed message went (ADR 0217), so main never takes
+            // them up again itself.
+            Known::ReplyMoved(_) | Known::AskRouted(_) | Known::LanesOverlapped(_) => {
+                let text = crate::lane::note(event);
+                if pending.is_empty() {
+                    push_person(&mut out, text, Vec::new());
+                } else {
+                    held.push((text, Vec::new()));
                 }
             }
             Known::TaskContinued { nudge, .. }
@@ -1173,9 +1203,14 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         Event::Known(Known::PluginsStarted { added, .. }) => !added.is_empty(),
         // A wake's data (a service's line, a thread's title) or a job's output (ADR 0160).
         Event::Known(
-            known
-            @ (Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_)),
+            known @ (Known::WakeFired { .. }
+            | Known::JobProgress { .. }
+            | Known::WorkerReported(_)
+            | Known::LaneMessage(_)),
         ) => crate::wake::untrusted(known),
+        // A lane started while main had untrusted content in view carries that taint
+        // (ADR 0217 §3): its gate is never weaker than main's was.
+        Event::Known(Known::LaneOf(link)) => link.untrusted,
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -1207,6 +1242,12 @@ fn describe_event(before: &[Event], event: &Event) -> String {
         }) => format!("a message from {}", agent.name),
         Event::Known(Known::PanelAction { surface, .. }) => {
             format!("an action from the page of the panel {surface}")
+        }
+        Event::Known(Known::LaneOf(_)) => {
+            "untrusted content the main conversation had in view when this task began".to_owned()
+        }
+        Event::Known(Known::LaneMessage(_)) => {
+            "a message from the main conversation written with untrusted content in view".to_owned()
         }
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => {
             let names: Vec<String> = documents
@@ -1290,7 +1331,7 @@ fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
             || "a web search".to_owned(),
             |query| format!("a web search for \"{query}\""),
         ),
-        "workspace_read" | "workspace_search" | "workspace_list" => {
+        "workspace_read" | "workspace_search" | "workspace_find" | "workspace_list" => {
             field("path").filter(|path| !path.is_empty()).map_or_else(
                 || "a file in its workspace".to_owned(),
                 |path| format!("the file {path}"),
@@ -1299,6 +1340,10 @@ fn describe_source(events: &[Event], name: &str, call_id: &str) -> String {
         "shell" => field("command").map_or_else(
             || "a command's output".to_owned(),
             |command| format!("the output of `{command}`"),
+        ),
+        "python" => field("path").map_or_else(
+            || "a Python script's output".to_owned(),
+            |path| format!("the output of the Python script {path}"),
         ),
         DOCUMENT_READ => field("id").map_or_else(
             || "an attached file".to_owned(),

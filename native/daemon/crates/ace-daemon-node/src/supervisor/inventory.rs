@@ -5,7 +5,7 @@
 
 use super::{bind_error, guarded};
 use ace_supervisor::entries::EntryPlatform;
-use ace_supervisor::inventory::Inventory;
+use ace_supervisor::inventory::{Inventory, InventoryRuntime};
 use ace_supervisor::system::SystemInventoryRuntime;
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
@@ -20,9 +20,11 @@ struct InventoryHandle {
     reports: Arc<Mutex<Vec<String>>>,
 }
 
-fn retry_plan_json(inventory: &Inventory<SystemInventoryRuntime>) -> String {
-    match inventory.retry_at_ms() {
-        Some(at) => format!("{{\"retryInMs\":{at}}}"),
+/// The retry plan as a delay in ms: `setTimeout` takes a delay, so an
+/// absolute deadline here would wait decades.
+fn retry_plan_json(inventory: &Inventory<SystemInventoryRuntime>, now_ms: u64) -> String {
+    match inventory.retry_delay_ms(now_ms) {
+        Some(delay) => format!("{{\"retryInMs\":{delay}}}"),
         None => "{\"retryInMs\":null}".to_owned(),
     }
 }
@@ -79,8 +81,9 @@ impl NativeInventory {
     #[napi(catch_unwind)]
     pub fn remove(&self, pid: u32) -> napi::Result<String> {
         self.with(|handle| {
+            let now_ms = handle.inventory.runtime().now_ms();
             handle.inventory.remove(pid);
-            Ok(retry_plan_json(&handle.inventory))
+            Ok(retry_plan_json(&handle.inventory, now_ms))
         })
     }
 
@@ -88,8 +91,9 @@ impl NativeInventory {
     #[napi(catch_unwind)]
     pub fn retry_removals(&self, now_ms: f64) -> napi::Result<String> {
         self.with(|handle| {
-            handle.inventory.retry_removals(now_ms.max(0.0) as u64);
-            Ok(retry_plan_json(&handle.inventory))
+            let now_ms = now_ms.max(0.0) as u64;
+            handle.inventory.retry_removals(now_ms);
+            Ok(retry_plan_json(&handle.inventory, now_ms))
         })
     }
 
@@ -124,16 +128,16 @@ impl NativeInventory {
     pub fn recover(&self) -> napi::Result<String> {
         self.with(|handle| {
             let recovered = handle.inventory.recover().map_err(bind_error)?;
-            let groups = handle
-                .inventory
-                .runtime()
-                .take_kills()
-                .iter()
-                .map(u32::to_string)
-                .collect::<Vec<_>>()
-                .join(",");
+            let groups = super::members_json(
+                handle
+                    .inventory
+                    .runtime()
+                    .take_kills()
+                    .iter()
+                    .map(|(group, start)| (*group, start.as_str())),
+            );
             Ok(format!(
-                "{{\"removed\":{},\"killed\":{},\"unresolved\":{},\"groups\":[{groups}]}}",
+                "{{\"removed\":{},\"killed\":{},\"unresolved\":{},\"groups\":{groups}}}",
                 recovered.removed, recovered.killed, recovered.unresolved
             ))
         })

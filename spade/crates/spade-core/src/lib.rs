@@ -26,6 +26,7 @@ pub mod group;
 pub mod helper;
 pub mod hooks;
 pub mod knowledge;
+pub mod lane;
 pub mod made;
 pub mod maintenance;
 pub mod memory;

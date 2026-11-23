@@ -325,6 +325,7 @@ fn seed_keyed_endpoint(store: &spade_store::Store) -> spade_store::Result<()> {
         base_url: "http://127.0.0.1:9/".into(),
         headers: Vec::new(),
         session_header: None,
+        sign_in: None,
         needs_key: true,
         key_env: None,
         preset: None,

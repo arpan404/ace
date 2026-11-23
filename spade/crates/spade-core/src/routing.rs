@@ -14,6 +14,8 @@ pub mod fallback;
 pub enum Role {
     /// The bot's own turns: always the bot's model.
     Main,
+    /// A lane's turns (ADR 0217 §8a): the person's choice, else whatever `main` resolves to.
+    Task,
     Helper,
     Verify,
     Review,
@@ -22,8 +24,9 @@ pub enum Role {
 }
 
 impl Role {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Main,
+        Self::Task,
         Self::Helper,
         Self::Verify,
         Self::Review,
@@ -34,6 +37,7 @@ impl Role {
     pub fn name(self) -> &'static str {
         match self {
             Self::Main => "main",
+            Self::Task => "task",
             Self::Helper => "helper",
             Self::Verify => "verify",
             Self::Review => "review",
@@ -62,7 +66,7 @@ impl Role {
     /// turns, reviews and checks think at medium; helpers, summaries and titles at low.
     pub fn default_effort(self) -> Effort {
         match self {
-            Self::Main | Self::Review | Self::Verify => Effort::Medium,
+            Self::Main | Self::Task | Self::Review | Self::Verify => Effort::Medium,
             Self::Helper | Self::Compact | Self::Title => Effort::Low,
         }
     }
@@ -264,6 +268,8 @@ impl<M: Models> Routing<'_, M> {
                 .filter(|fast| fast != self.own && self.usable_for(role, fast))
         };
         let default = match role {
+            // A lane runs on the chat's model until the person says otherwise (ADR 0217 §8a).
+            Role::Task => None,
             // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
             // asks the person about everything, or lets through what it shouldn't.
             Role::Verify => self.strongest_other(role),
@@ -305,6 +311,10 @@ impl<M: Models> Routing<'_, M> {
             .map(usable_of)
             .find(|list| !list.is_empty())
             .unwrap_or_default();
+        // Unset, a lane's route is the chat's, fallbacks and all (ADR 0217 §8a).
+        if role == Role::Task && chosen.is_empty() {
+            return self.route(Role::Main);
+        }
         let mut route: Vec<String> = Vec::new();
         let head = match role {
             Role::Main => Some(self.own.to_owned()),
@@ -343,12 +353,17 @@ impl<M: Models> Routing<'_, M> {
     }
 
     /// How hard `role`'s model thinks (ADR 0213): the bot's choice, else the global one, else the
-    /// role's default. Never `Own`: an effort is not a model.
+    /// role's default; `task`'s default is whatever `main`'s resolves to (ADR 0217 §8a). Never
+    /// `Own`: an effort is not a model.
     pub fn effort(&self, role: Role) -> (Effort, Source) {
-        [(self.bot, Source::Bot), (self.global, Source::Global)]
+        let chosen = [(self.bot, Source::Bot), (self.global, Source::Global)]
             .into_iter()
-            .find_map(|(overrides, source)| overrides.efforts.get(&role).map(|e| (*e, source)))
-            .unwrap_or((role.default_effort(), Source::Default))
+            .find_map(|(overrides, source)| overrides.efforts.get(&role).map(|e| (*e, source)));
+        match chosen {
+            Some(chosen) => chosen,
+            None if role == Role::Task => (self.effort(Role::Main).0, Source::Default),
+            None => (role.default_effort(), Source::Default),
+        }
     }
 
     /// Every role with its model, in order.

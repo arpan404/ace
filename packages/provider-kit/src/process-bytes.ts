@@ -9,7 +9,7 @@ import {
   type WindowsJob,
   type WindowsJobFactory,
 } from "./process-containment.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
@@ -152,7 +152,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
         .finally(() => {
           disposeNative();
           if (pid !== undefined) {
-            unregisterGroup(pid);
+            unregisterGroup(pid, groupOf(child));
             job?.dispose();
           }
         });

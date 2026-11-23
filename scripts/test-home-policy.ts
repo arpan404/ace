@@ -122,11 +122,37 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
+    // The devices switches (ADR 0225): a run with one on proves the native phase.
+    ...(ambient.ACE_SCRCPY_VIDEO !== undefined
+      ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
+      : {}),
+    // The git implementation switch (ADR 0224, G0) and the gate's logs and
+    // verify mode: the git shells read them in workers, where every other
+    // ACE_* value stays scrubbed.
+    ...(ambient.ACE_GIT !== undefined ? { ACE_GIT: ambient.ACE_GIT } : {}),
+    ...(ambient.ACE_GIT_ADDON !== undefined ? { ACE_GIT_ADDON: ambient.ACE_GIT_ADDON } : {}),
+    ...(ambient.ACE_GIT_OP_LOG !== undefined ? { ACE_GIT_OP_LOG: ambient.ACE_GIT_OP_LOG } : {}),
+    ...(ambient.ACE_GIT_DIGEST_LOG !== undefined
+      ? { ACE_GIT_DIGEST_LOG: ambient.ACE_GIT_DIGEST_LOG }
+      : {}),
+    ...(ambient.ACE_GIT_VERIFY !== undefined ? { ACE_GIT_VERIFY: ambient.ACE_GIT_VERIFY } : {}),
+    ...(ambient.ACE_GIT_CROSS_START !== undefined
+      ? { ACE_GIT_CROSS_START: ambient.ACE_GIT_CROSS_START }
+      : {}),
     ...(ambient.ACE_NATIVE_CROSS !== undefined
       ? { ACE_NATIVE_CROSS: ambient.ACE_NATIVE_CROSS }
       : {}),
     ...(ambient.ACE_NATIVE_CROSS_LOG !== undefined
       ? { ACE_NATIVE_CROSS_LOG: ambient.ACE_NATIVE_CROSS_LOG }
+      : {}),
+    // The transport switch (ADR 0226, T0.1) with its addon and evidence paths: the listener reads
+    // them in workers and launch helpers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_TRANSPORT !== undefined ? { ACE_TRANSPORT: ambient.ACE_TRANSPORT } : {}),
+    ...(ambient.ACE_TRANSPORT_ADDON !== undefined
+      ? { ACE_TRANSPORT_ADDON: ambient.ACE_TRANSPORT_ADDON }
+      : {}),
+    ...(ambient.ACE_TRANSPORT_EVIDENCE !== undefined
+      ? { ACE_TRANSPORT_EVIDENCE: ambient.ACE_TRANSPORT_EVIDENCE }
       : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain

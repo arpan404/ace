@@ -10,7 +10,10 @@
  * `ACE_NATIVE_CROSS=<switch>` selects the backend per boot of a root: a boot
  * is the opening of the event database (the store's connection factory, for
  * `ACE_STORE`, `ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_ENGINE`) or of the
- * process journal (`ProcessInventory`'s open, for `ACE_SUPERVISOR`). Boot _n_
+ * process journal (`ProcessInventory`'s open, for `ACE_SUPERVISOR`).
+ * `ACE_NATIVE_CROSS=ACE_GIT` instead alternates the backend per git call
+ * inside one process (see `gitCrossSelected`), starting on `native` or on
+ * `typescript` per `ACE_GIT_CROSS_START`, for `scripts/native-cross.ts`. Boot _n_
  * of a root takes the switch's value for even _n_ and the opposite for odd
  * _n_; _n_ comes from the append-only log at `ACE_NATIVE_CROSS_LOG` (one JSON
  * line per boot: root, _n_, switch, backend, pid), counted under an advisory
@@ -24,14 +27,24 @@ import { dirname, join, resolve } from "node:path";
 export type NativeBackend = "native" | "typescript";
 export type CoreBackend = "native" | "wasm" | "typescript";
 
-/** The six switches the cross-mode gate can name. */
+/** A native transport part, as `ACE_TRANSPORT` names it (ADR 0226, T0.1). */
+export type TransportPart = "loopback" | "remote";
+
+/** A phase's needs: it can be on only while every phase it names is on. */
+export interface SwitchNeed {
+  phase: string;
+  needs: readonly string[];
+}
+
+/** The seven switches the cross-mode gate can name. */
 export type CrossSwitch =
   | "ACE_STORE"
   | "ACE_TRANSLATORS"
   | "ACE_SESSIONS"
   | "ACE_SUPERVISOR"
   | "ACE_CORE"
-  | "ACE_ENGINE";
+  | "ACE_ENGINE"
+  | "ACE_GIT";
 
 const switches: readonly CrossSwitch[] = [
   "ACE_STORE",
@@ -40,6 +53,7 @@ const switches: readonly CrossSwitch[] = [
   "ACE_SUPERVISOR",
   "ACE_CORE",
   "ACE_ENGINE",
+  "ACE_GIT",
 ];
 
 /** The providers `ACE_TRANSLATORS` and `ACE_SESSIONS` name, in canonical log order. */
@@ -99,6 +113,80 @@ const offender =
           ? "ACE_ENGINE"
           : undefined;
 if (offender !== undefined && !store) throw new Error(`${offender} needs ACE_STORE=native`);
+
+/**
+ * `ACE_GIT=<parts>` (ADR 0224 §1, G0): a comma list of the git parts served
+ * natively: `refs`, `core`, `reads`, `writes`, `checkpoints`, `snapshot-hash`,
+ * `status-gix`. Unknown words refuse to start, as does a part without its
+ * prerequisites: `reads` without `core`, or anything but `refs` without
+ * `ACE_SUPERVISOR=native` (such a part spawns through the supervisor).
+ */
+export type GitPart =
+  | "refs"
+  | "core"
+  | "reads"
+  | "writes"
+  | "checkpoints"
+  | "snapshot-hash"
+  | "status-gix";
+
+/** The git parts in canonical log order. */
+const gitPartsOrder: readonly GitPart[] = [
+  "refs",
+  "core",
+  "reads",
+  "writes",
+  "checkpoints",
+  "snapshot-hash",
+  "status-gix",
+];
+
+function parseGitParts(value: string | undefined): ReadonlySet<GitPart> {
+  const asked = new Set<GitPart>();
+  for (const part of (value ?? "").split(",")) {
+    const name = part.trim();
+    if (!name) continue;
+    if (!(gitPartsOrder as readonly string[]).includes(name))
+      throw new Error(`ACE_GIT names an unknown part: ${name}`);
+    asked.add(name as GitPart);
+  }
+  return asked;
+}
+
+const gitPartsValue = parseGitParts(process.env.ACE_GIT);
+if (gitPartsValue.has("reads") && !gitPartsValue.has("core"))
+  throw new Error("ACE_GIT=reads needs core");
+const gitNeedsSupervisor = [...gitPartsValue].some((part) => part !== "refs");
+if (gitNeedsSupervisor && !supervisor)
+  throw new Error("ACE_GIT names a part past refs without ACE_SUPERVISOR=native");
+
+/** The git parts served natively by instances constructed in this process. */
+export function gitParts(): ReadonlySet<GitPart> {
+  return gitPartsValue;
+}
+
+/** Whether new `GitService` instances serve `part` natively. */
+export function gitPartOn(part: GitPart): boolean {
+  return gitPartsValue.has(part);
+}
+
+const gitCrossStart = process.env.ACE_GIT_CROSS_START;
+if (gitCrossStart !== undefined && gitCrossStart !== "native" && gitCrossStart !== "typescript")
+  throw new Error(`ACE_GIT_CROSS_START takes native or typescript, not ${gitCrossStart}`);
+
+/** Per-call selections so far under `ACE_NATIVE_CROSS=ACE_GIT`. */
+let gitCrossCalls = 0;
+
+/**
+ * The backend of the next git call under `ACE_NATIVE_CROSS=ACE_GIT`:
+ * alternates per call from `ACE_GIT_CROSS_START` (default `native`), so one
+ * run proves both orders. `undefined` when the cross gate is off.
+ */
+export function gitCrossSelected(): NativeBackend | undefined {
+  if (crossSwitch !== "ACE_GIT" || gitPartsValue.size === 0) return undefined;
+  const selected = (gitCrossCalls++ % 2 === 0) === (gitCrossStart !== "typescript");
+  return selected ? "native" : "typescript";
+}
 
 /** A boot's backend per switch, from the latest boot hook in this process. */
 const bootBackend: Partial<Record<CrossSwitch, string>> = {};
@@ -178,6 +266,9 @@ function envBackend(name: CrossSwitch): string {
       return core ?? "typescript";
     case "ACE_STORE":
       return store ? "native" : "typescript";
+    case "ACE_GIT":
+      // Unused: git alternates per call, never per boot. The canonical part list.
+      return gitPartsOrder.filter((part) => gitPartsValue.has(part)).join(",");
   }
 }
 
@@ -191,6 +282,9 @@ function opposite(name: CrossSwitch, backend: string): string {
     }
     case "ACE_CORE":
       return backend === "native" || backend === "wasm" ? "typescript" : "native";
+    case "ACE_GIT":
+      // Unused: git alternates per call, never per boot. The complement list.
+      return gitPartsOrder.filter((part) => !backend.split(",").includes(part)).join(",");
     default:
       return backend === "native" ? "typescript" : "native";
   }
@@ -296,9 +390,99 @@ export function storeBackend(): NativeBackend {
   return currentScalar("ACE_STORE", store ? "native" : "typescript");
 }
 
+/**
+ * Whether Android video's scrcpy socket is read by ace-media itself (D1, `ACE_SCRCPY_VIDEO=media`)
+ * or by the daemon's JavaScript (unset, today's path). Read once per capture; with the switch on
+ * and no ace-media build with the scrcpy reader, the capture fails rather than falling back.
+ */
+export function scrcpyVideoBackend(): NativeBackend {
+  const value = process.env.ACE_SCRCPY_VIDEO;
+  if (value === undefined) return "typescript";
+  if (value === "media") return "native";
+  throw new Error("ACE_SCRCPY_VIDEO takes media");
+}
+
 export function crossLogPath(): string | undefined {
   return crossLog;
 }
 export function crossSwitchName(): CrossSwitch | undefined {
   return crossSwitch;
+}
+
+/**
+ * A phase named explicitly needs one that is not on: the boot is refused, before anything binds
+ * or opens, naming both (ADR 0226 §6).
+ */
+export class NativeSwitchConflict extends Error {
+  constructor(phase: string, need: string) {
+    super(`${phase} needs ${need}, which is not on`);
+    this.name = "NativeSwitchConflict";
+  }
+}
+
+/**
+ * Resolves dependent switches together, before anything binds or opens (ADR 0226 §6). The set
+ * starts as `explicit ∪ defaultOn`. A phase that is on only by default, whose need is off, leaves
+ * together with every phase that needs it, repeated until nothing changes, so the table's order
+ * never decides the outcome; each fall-back names the need it lost. A phase named explicitly is
+ * never dropped: if a need is still off, the boot is refused instead of silently starting.
+ */
+export function resolveSwitches(
+  explicit: ReadonlySet<string>,
+  defaultOn: ReadonlySet<string>,
+  needs: readonly SwitchNeed[],
+): { on: ReadonlySet<string>; fellBack: readonly { phase: string; because: string }[] } {
+  const on = new Set([...explicit, ...defaultOn]);
+  const fellBack: { phase: string; because: string }[] = [];
+  const defaultOnly = (phase: string) => defaultOn.has(phase) && !explicit.has(phase);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of needs) {
+      if (!on.has(row.phase) || !defaultOnly(row.phase)) continue;
+      const missing = row.needs.find((need) => !on.has(need));
+      if (missing === undefined) continue;
+      on.delete(row.phase);
+      fellBack.push({ phase: row.phase, because: missing });
+      changed = true;
+    }
+  }
+  for (const row of needs) {
+    if (!explicit.has(row.phase)) continue;
+    const missing = row.needs.find((need) => !on.has(need));
+    if (missing !== undefined) throw new NativeSwitchConflict(row.phase, missing);
+  }
+  return { on, fellBack };
+}
+
+/**
+ * `ACE_TRANSPORT` names the transport parts served natively: `native` is the loopback listener,
+ * `native,remote` adds the remote listeners. Unset is today's TypeScript; a set value that is
+ * neither refuses to start, quoting what it read (so an empty value shows as `""`).
+ */
+export function explicitTransportPhases(value: string | undefined): ReadonlySet<string> {
+  if (value === undefined) return new Set<string>();
+  if (value === "native") return new Set(["transport.loopback"]);
+  if (value === "native,remote") return new Set(["transport.loopback", "transport.remote"]);
+  throw new Error(`ACE_TRANSPORT=${JSON.stringify(value)} is not native or native,remote`);
+}
+
+/** Each phase's needs. The remote listeners route through the loopback listener's table. */
+const transportNeeds: readonly SwitchNeed[] = [
+  { phase: "transport.remote", needs: ["transport.loopback"] },
+];
+
+/** Nothing is default-on: every native part ships behind its switch. */
+const transportResolved = resolveSwitches(
+  explicitTransportPhases(process.env.ACE_TRANSPORT),
+  new Set<string>(),
+  transportNeeds,
+);
+
+/** The transport parts served natively, resolved once at load; nothing reads it yet. */
+export function transportParts(): ReadonlySet<TransportPart> {
+  const parts = new Set<TransportPart>();
+  if (transportResolved.on.has("transport.loopback")) parts.add("loopback");
+  if (transportResolved.on.has("transport.remote")) parts.add("remote");
+  return parts;
 }

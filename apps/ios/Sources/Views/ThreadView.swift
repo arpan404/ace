@@ -59,7 +59,9 @@ struct ThreadView: View {
     /// The question card's picks and page, kept here so a reply typed below keeps them.
     @State private var questionDraft = QuestionDraftState()
     @State private var height: CGFloat = 0
-    @State private var barHeight: CGFloat = 0
+    @State private var composerHeight: CGFloat = 0
+    @State private var livePillsHeight = AceDesign.Size.tap
+
     /// How far the keyboard lifts the foot, frame by frame: the composer and the transcript's end
     /// are both drawn by it (`KeyboardRide`).
     @State private var keyboardRide = KeyboardRide()
@@ -153,7 +155,7 @@ struct ThreadView: View {
     private var content: some View {
         let heading = heading
         return headed
-            .modifier(FloatingBar(height: $barHeight, ride: keyboardRide) { bottomBar })
+            .modifier(FloatingBar(ride: keyboardRide) { bottomBar })
             // The height under the bar, steady while the keyboard or a card changes the insets.
             .background {
                 Color.clear.ignoresSafeArea()
@@ -353,6 +355,13 @@ struct ThreadView: View {
     }
     private var hasStrip: Bool { foot.stripShown }
 
+    private var barHeight: CGFloat {
+        let foot = foot
+        // Reserve the row's minimum height as soon as it appears, then use its measured height.
+        let aboveComposer = foot.stripShown ? stripHeight : (foot.drawsPill ? livePillsHeight : 0)
+        return composerHeight + aboveComposer
+    }
+
     /// What sits at the thread's foot, from the top: one thing above the capsule, a strip (a
     /// request, what holds the queue, a message that didn't go, ...), or else the glass live
     /// pills; then the composer capsule with the chips on the next message
@@ -376,9 +385,10 @@ struct ThreadView: View {
                     if shown { screen.visiblePills.insert(part) } else { screen.visiblePills.remove(part) }
                 }
                     .id(ObjectIdentifier(screen))
-                    .transition(.opacity)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { livePillsHeight = $0 }
             }
             composer
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { composerHeight = $0 }
         }
         .keyboardDriftMark(.composer)
         .keyboardDriftMark(.composerFoot)
@@ -388,13 +398,10 @@ struct ThreadView: View {
             ComposerFloaters(behind: behind && shownPage == .chat && suggester.trigger == nil) { jumps += 1 }
                 .alignmentGuide(.top) { $0[.bottom] + AceDesign.Space.related }
         }
-        // Only a strip, the pills or the fork strip arriving or leaving animates, with the
-        // system's spring; the pills' words and a strip's counts change in place, so a
-        // streaming turn never moves the foot.
+        // Changes to the pill row and its reserved space land together when a send starts work.
+        // The request and fork strips keep their own transitions.
         .animation(.default, value: request?.id)
         .animation(.default, value: hasStrip)
-        .animation(.default, value: screen.pill == nil)
-        .animation(.default, value: suggester.trigger == nil)
         .animation(.default, value: screen.fork?.key)
         .onChange(of: request?.id) { _, _ in questionDraft = QuestionDraftState() }
     }
@@ -487,7 +494,11 @@ struct ThreadView: View {
                          draftKey: forkKey ?? model.hostId.map { ThreadDrafts.key(hostId: $0, threadId: thread.id) },
                          suggester: suggester, suggestionHeight: max(AceDesign.Size.tap * 2, height * (request == nil ? 0.4 : 0.22)),
                          listAbove: hasStrip ? stripHeight : 0,
-                         run: runComposerAction, focusRequest: composerFocus) {
+                         run: runComposerAction, focusRequest: composerFocus,
+                         attachments: screen.attachments.isEmpty ? nil : ComposerMediaStrip(
+                             files: screen.attachments, inset: ComposerCapsuleMetrics.aboveInset,
+                             remove: { model.detach($0) }, retry: { model.retryAttachment($0) }, asText: { pasteAsText($0) }
+                         )) {
                 if let fork = screen.fork {
                     ForkStrip(fork: fork) { model.closeFork() }
                         .transition(reduceMotion ? .opacity : .opacity.combined(with: .move(edge: .bottom)))
@@ -495,7 +506,7 @@ struct ThreadView: View {
                     // As the web's composer strip: the thread's automations, when nothing more urgent is there.
                     ThreadAutomationStrip(model: model, threadId: thread.id)
                 }
-                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, asText: { pasteAsText($0) }, threadId: thread.id)
+                ComposerAccessories(model: model, screen: screen, problem: attachProblem, adding: pastesAdding, threadId: thread.id)
             } leading: { pick in
                 AttachMenu(stage: { model.attach($0) }, problem: $attachProblem, more: suggester.adding, pickMore: pick, recall: true, ask: $askAttach)
                     .foregroundStyle(AceTheme.Colours.foreground)
@@ -641,7 +652,6 @@ private struct GoalPresentation: Identifiable {
 /// so the two never drift apart (#2170). The offset moves the bar's taps with it; nothing around
 /// it is resized and no inset changes.
 private struct FloatingBar<Bar: View>: ViewModifier {
-    @Binding var height: CGFloat
     let ride: KeyboardRide
     @ViewBuilder let bar: () -> Bar
     @Environment(\.aceReduceMotion) private var reduceMotion
@@ -661,7 +671,6 @@ private struct FloatingBar<Bar: View>: ViewModifier {
                 .frame(maxWidth: ReadingColumn.maxWidth)
                 .frame(maxWidth: .infinity)
                 .background(alignment: .bottom) { BarFloor() }
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height = $0 }
                 .modifier(KeyboardRideOffset(ride: ride))
                 // At the foot of the whole keyboard-free area, so the system's avoidance never
                 // moves it: only a view that can grow takes the room the keyboard would cover.

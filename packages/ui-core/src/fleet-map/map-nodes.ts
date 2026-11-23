@@ -1,6 +1,6 @@
 import { listNames } from "../list-names.ts";
 import { formatAgo } from "../time.ts";
-import { deviceKind, machineKind } from "./kinds.ts";
+import { markOf } from "./kinds.ts";
 import { directWayOf, hostOf, pairedWays, serving } from "./networks.ts";
 import {
   relayEnd,
@@ -87,7 +87,7 @@ export function machineNode(machine: MapMachineInput, viewer = "this window"): M
     id: machine.id,
     name: machine.name,
     role: "machine" as const,
-    art: machineKind({ icon: machine.icon, name: machine.name }),
+    art: markOf({ kind: "machine", icon: machine.icon, name: machine.name }),
     working: undefined,
     zones: [] as ZoneId[],
     offer: undefined,
@@ -186,7 +186,7 @@ export function accountNode(machine: MapAccountInput, now: number): MapNode {
     id: machine.hostId,
     name: machine.name,
     role: "account" as const,
-    art: machineKind({ name: machine.name, platform: machine.platform }),
+    art: markOf({ kind: "machine", name: machine.name, platform: machine.platform }),
     working: undefined,
     zones: [],
     offer: undefined,
@@ -298,7 +298,7 @@ export function deviceNode(
     id: `device:${device.key}`,
     name: device.name,
     role: "device" as const,
-    art: deviceKind(device.name),
+    art: markOf({ kind: "device", name: device.name }),
     working: undefined,
     zones: [],
     offer: undefined,
@@ -417,7 +417,7 @@ export function ownNode(input: FleetMapInput): MapNode {
     id: own.id,
     name: own.name,
     role: "own",
-    art: machineKind({ icon: own.icon, name: own.name }),
+    art: markOf({ kind: "machine", icon: own.icon, name: own.name }),
     tone: !own.online ? "unknown" : off ? "warn" : "on",
     status: workingWords(working) ?? "this computer",
     working,

@@ -182,6 +182,7 @@ const BARRED: &[&str] = &[
     crate::made::CLUB_ADD,
     crate::tree::BOT_CREATE,
     "shell",
+    "python",
     "service_start",
 ];
 

@@ -22,6 +22,8 @@ mod relay_sockets;
 mod relay_tests;
 mod relay_tls;
 mod relay_ws;
+mod scrcpy;
+mod scrcpy_reader;
 mod sealed;
 mod shutdown;
 #[cfg(test)]
@@ -237,6 +239,8 @@ async fn serve(
     }
     let (encoded_tx, mut encoded_rx) = mpsc::channel(256);
     let mut readers = readers::Readers::new(encoded_tx.clone());
+    let (scrcpy_tx, mut scrcpy_rx) = mpsc::channel(64);
+    let mut scrcpy = scrcpy::ScrcpyReaders::new(encoded_tx.clone(), scrcpy_tx);
     let mut pictures = pictures::Pictures::new(shared.clone(), chrome, encoded_tx);
 
     let mut stdout = Writer::spawn(tokio::io::stdout(), NORMAL_LIMIT);
@@ -378,6 +382,7 @@ async fn serve(
                         lag: &lag,
                         pictures: &mut pictures,
                         readers: &mut readers,
+                        scrcpy: &mut scrcpy,
                         relays: &mut relays,
             gate: &mut gate,
                         media: &mut outboxes,
@@ -408,6 +413,12 @@ async fn serve(
                 Output::Report(acceleration) => engine.encoder_steps(&source, token, acceleration),
                 Output::Failed(reason) => engine.encoder_failed(&source, token, &reason),
                 Output::Drained => engine.encoder_drained(&source, token),
+            },
+            Some((source, token, event)) = scrcpy_rx.recv() => match event {
+                scrcpy::ScrcpyEvent::Greeted => engine.scrcpy_greeted(&source, token),
+                scrcpy::ScrcpyEvent::Ready { name } => {
+                    engine.scrcpy_ready(&source, token, name)
+                }
             },
             Some((trial, found)) = late_rx.recv() => {
                 capabilities.update(trial, found);
@@ -473,7 +484,10 @@ async fn serve(
                 for (source, token) in readers.stalled(now.mono_ms) {
                     engine.encoder_failed(&source, token, "reader-stalled: a call never returned");
                 }
-                engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
+                for (source, token) in scrcpy.stalled(now.mono_ms) {
+                    engine.encoder_failed(&source, token, "reader-stalled: a call never returned");
+                }
+                engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms) + scrcpy.stuck(now.mono_ms));
                 engine.tick(now);
             }
         }
@@ -489,6 +503,7 @@ async fn serve(
             lag: &lag,
             pictures: &mut pictures,
             readers: &mut readers,
+            scrcpy: &mut scrcpy,
             relays: &mut relays,
             gate: &mut gate,
             media: &mut outboxes,

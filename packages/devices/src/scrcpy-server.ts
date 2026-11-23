@@ -25,11 +25,198 @@ export type ScrcpyConnection = {
   close(): Promise<void>;
 };
 
+/**
+ * The device side of a capture: the server pushed, forwarded and spawned, without any
+ * socket connected. Both sides close what they opened: the daemon its control socket, the
+ * tunnel and the source, ace-media its video socket.
+ */
+export type ScrcpyTunnel = {
+  port: number;
+  /** The server's exit, which does not reject. */
+  exited: Promise<unknown>;
+  /** Whether the server has exited. */
+  isExited(): boolean;
+  /** A bounded tail of the server's own words, for a startup failure message. */
+  said(): string;
+  close(): Promise<void>;
+};
+
+/** Today's startup failure: the server never greeted in time, with its last words. */
+export function scrcpyDidNotStart(said: string): DeviceError {
+  const last = said.trim().split("\n").at(-1) ?? "";
+  return new DeviceError(
+    "command_failed",
+    `scrcpy-server did not start${last ? `: ${last}` : ""}`,
+    "Use an Android 5 or later device or emulator image, or stop other screen mirroring tools.",
+  );
+}
+
+/** The server went away mid-handshake: today's text for a close during startup. */
+export function scrcpyClosedDuringStartup(): DeviceError {
+  return new DeviceError(
+    "command_failed",
+    "scrcpy-server closed during startup",
+    "Start the device view again.",
+  );
+}
+
+/**
+ * Pushes, forwards and spawns the pinned scrcpy server on one emulator, without connecting
+ * either tunnel socket. The daemon connects control once ace-media greets (D1), or both
+ * sockets itself as today.
+ */
+export async function startScrcpyTunnel(options: {
+  adb: string;
+  serial: string;
+  jar: string;
+  profile: ServerProfile;
+  command: AdbCommand;
+  runtime: DeviceRuntime;
+  env: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
+}): Promise<ScrcpyTunnel> {
+  const { command, runtime } = options;
+  const check = () => options.signal?.throwIfAborted();
+  // The server deletes its own jar (`cleanup=true`), and a stopping server may do so late, so
+  // every run pushes a copy of its own.
+  const remoteJar = `/data/local/tmp/ace-${scrcpySocketName(options.profile.scid)}.jar`;
+  const pushed = await command(["push", options.jar, remoteJar], 64 * 1024, 60_000);
+  if (pushed.code !== 0)
+    throw new DeviceError(
+      "command_failed",
+      "Could not copy scrcpy-server to the device",
+      "Check that the device has free space in /data/local/tmp.",
+    );
+  check();
+  const name = scrcpySocketName(options.profile.scid);
+  const forwarded = await command(["forward", "tcp:0", `localabstract:${name}`], 4096, 10_000);
+  const port = Number(forwarded.stdout.trim());
+  if (forwarded.code !== 0 || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new DeviceError(
+      "command_failed",
+      "adb could not forward the scrcpy socket",
+      "Restart adb with `adb kill-server`, then start the device view again.",
+    );
+  const removeForward = () => command(["forward", "--remove", `tcp:${port}`], 4096, 5000);
+  let server: RawSupervisedProcess;
+  try {
+    server = runtime.spawn({
+      command: options.adb,
+      args: [
+        "-s",
+        options.serial,
+        "shell",
+        [
+          `CLASSPATH=${remoteJar}`,
+          "app_process",
+          "/",
+          "com.genymobile.scrcpy.Server",
+          ...scrcpyServerArgs(scrcpyRelease.version, options.profile),
+        ].join(" "),
+      ],
+      env: options.env,
+      name: "device-scrcpy",
+    });
+  } catch (error) {
+    // The forward is already in place: a spawn that throws never leaves it behind.
+    await removeForward().catch(() => {});
+    throw error;
+  }
+  // Keep a bounded tail of the server's own words for a startup failure message.
+  let said = "";
+  const listen = (chunk: Buffer) => {
+    said = (said + chunk.toString("utf8")).slice(-2048);
+  };
+  server.stdout.on("data", listen);
+  server.stderr.on("data", listen);
+  let exited = false;
+  // `exited` reports the server's exit and does not reject: either settlement marks it.
+  void server.exited.then(
+    () => {
+      exited = true;
+    },
+    () => {
+      exited = true;
+    },
+  );
+  let closing: Promise<void> | undefined;
+  const close = () =>
+    (closing ??= (async () => {
+      await Promise.allSettled([server.stop({ graceMs: 1000 }), removeForward()]);
+    })());
+  return {
+    port,
+    exited: server.exited,
+    isExited: () => exited,
+    said: () => said,
+    close,
+  };
+}
+
+/**
+ * Connects one tunnel socket, bounded by the startup deadline `deadlineMs` (on
+ * `runtime.now()`): adb accepts a TCP connection even while nothing listens on the device, then
+ * closes it. A refusal, reset, timeout or abort is `undefined`, never a throw; the caller names
+ * it with today's text. The deadline closes the socket it dialled.
+ */
+export function openScrcpySocket(
+  port: number,
+  runtime: DeviceRuntime,
+  deadlineMs: number,
+  signal?: AbortSignal,
+): Promise<Socket | undefined> {
+  return new Promise((resolve) => {
+    let done = false;
+    let socket: Socket | undefined;
+    let cancel: (() => void) | undefined;
+    const finish = (value: Socket | undefined) => {
+      if (done) return;
+      done = true;
+      cancel?.();
+      signal?.removeEventListener("abort", aborted);
+      resolve(value);
+    };
+    const aborted = () => {
+      socket?.destroy();
+      finish(undefined);
+    };
+    if (signal?.aborted) {
+      resolve(undefined);
+      return;
+    }
+    signal?.addEventListener("abort", aborted, { once: true });
+    const connecting = (runtime.connect ?? defaultConnect)(port);
+    socket = connecting;
+    connecting.once("connect", () => {
+      connecting.off("error", failed);
+      // Startup waits on this socket across awaits before the capture listens to it: a reset
+      // (emulator killed, device unplugged) shows as its close, never as an unheard error.
+      connecting.on("error", () => {});
+      finish(connecting);
+    });
+    const failed = () => {
+      connecting.destroy();
+      finish(undefined);
+    };
+    connecting.once("error", failed);
+    // Armed after the dial, so a dial that itself passes the deadline gets the remaining
+    // (at least 1 ms) and is closed rather than outliving it.
+    if (!done)
+      cancel = runtime.after(Math.max(1, deadlineMs - runtime.now()), () => {
+        socket?.destroy();
+        finish(undefined);
+      });
+  });
+}
+
 const deviceNameBytes = 64;
+
+const defaultConnect = (port: number): Socket =>
+  connect({ host: "127.0.0.1", port, noDelay: true });
 
 /**
  * Reads `count` bytes from a forward-tunnel connection, then pauses it. adb accepts the TCP
- * connection even while nothing listens on the device, then closes it: that is `undefined`.
+ * connection even while nothing listens on the device, then closes that: that is `undefined`.
  */
 function preamble(
   socket: Socket,
@@ -65,9 +252,9 @@ function preamble(
   });
 }
 
-function open(port: number): Promise<Socket> {
+/** Waits for `socket` to connect; rejects if it fails first. */
+function connected(socket: Socket): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port, noDelay: true });
     socket.once("connect", () => {
       socket.off("error", reject);
       // Startup waits on this socket across awaits before the capture listens to it: a reset
@@ -95,112 +282,81 @@ export async function startScrcpyServer(options: {
   signal?: AbortSignal;
   startupMs?: number;
 }): Promise<ScrcpyConnection> {
-  const { command, runtime } = options;
+  const { runtime } = options;
   const check = () => options.signal?.throwIfAborted();
-  // The server deletes its own jar (`cleanup=true`), and a stopping server may do so late, so
-  // every run pushes a copy of its own.
-  const remoteJar = `/data/local/tmp/ace-${scrcpySocketName(options.profile.scid)}.jar`;
-  const pushed = await command(["push", options.jar, remoteJar], 64 * 1024, 60_000);
-  if (pushed.code !== 0)
-    throw new DeviceError(
-      "command_failed",
-      "Could not copy scrcpy-server to the device",
-      "Check that the device has free space in /data/local/tmp.",
-    );
-  check();
-  const name = scrcpySocketName(options.profile.scid);
-  const forwarded = await command(["forward", "tcp:0", `localabstract:${name}`], 4096, 10_000);
-  const port = Number(forwarded.stdout.trim());
-  if (forwarded.code !== 0 || !Number.isInteger(port) || port < 1 || port > 65535)
-    throw new DeviceError(
-      "command_failed",
-      "adb could not forward the scrcpy socket",
-      "Restart adb with `adb kill-server`, then start the device view again.",
-    );
-  let server: RawSupervisedProcess | undefined;
+  const tunnel = await startScrcpyTunnel(options);
   const sockets: Socket[] = [];
   let closing: Promise<void> | undefined;
   const close = () =>
     (closing ??= (async () => {
       for (const socket of sockets) socket.destroy();
-      await Promise.allSettled([
-        server?.stop({ graceMs: 1000 }),
-        command(["forward", "--remove", `tcp:${port}`], 4096, 5000),
-      ]);
+      await tunnel.close();
     })());
   try {
-    server = runtime.spawn({
-      command: options.adb,
-      args: [
-        "-s",
-        options.serial,
-        "shell",
-        [
-          `CLASSPATH=${remoteJar}`,
-          "app_process",
-          "/",
-          "com.genymobile.scrcpy.Server",
-          ...scrcpyServerArgs(scrcpyRelease.version, options.profile),
-        ].join(" "),
-      ],
-      env: options.env,
-      name: "device-scrcpy",
-    });
-    // Keep a bounded tail of the server's own words for a startup failure message.
-    let said = "";
-    const listen = (chunk: Buffer) => {
-      said = (said + chunk.toString("utf8")).slice(-2048);
-    };
-    server.stdout.on("data", listen);
-    server.stderr.on("data", listen);
-    let exited = false;
-    // `exited` reports the server's exit and does not reject.
-    void server.exited
-      .then(() => {
-        exited = true;
-      })
-      .catch(() => {});
+    // The server's exit, whatever settles it, ends every startup step at once.
+    const serverExit = tunnel.exited.then(
+      () => {},
+      () => {},
+    );
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
+    /**
+     * One startup step, bounded by the single startup deadline and by the server's exit:
+     * either ends it at once with `undefined`.
+     */
+    const step = <T>(work: Promise<T>): Promise<T | undefined> =>
+      new Promise<T | undefined>((resolve, reject) => {
+        const cancel = runtime.after(remaining(), () => resolve(undefined));
+        void serverExit.then(() => {
+          cancel();
+          resolve(undefined);
+        });
+        void work.then(resolve, reject).finally(cancel);
+      });
+    /** A new forward-tunnel connection, closed with the rest (and at once if startup ended). */
+    const dial = (): Socket => {
+      const socket = (runtime.connect ?? defaultConnect)(tunnel.port);
+      sockets.push(socket);
+      if (closing) socket.destroy();
+      return socket;
+    };
     let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
     while (!first) {
       check();
-      if (exited || runtime.now() > deadline)
-        throw new DeviceError(
-          "command_failed",
-          `scrcpy-server did not start${said.trim() ? `: ${said.trim().split("\n").at(-1)}` : ""}`,
-          "Use an Android 5 or later device or emulator image, or stop other screen mirroring tools.",
-        );
-      const socket = await open(port).catch(() => undefined);
-      if (socket) {
-        sockets.push(socket);
+      if (tunnel.isExited() || runtime.now() > deadline) throw scrcpyDidNotStart(tunnel.said());
+      const socket = dial();
+      const open = await step(connected(socket).catch(() => undefined));
+      if (open) {
         // The server answers its first socket with one dummy byte once it is listening.
-        const greeting = await preamble(socket, 1, runtime, remaining());
+        const greeting = await step(preamble(socket, 1, runtime, remaining()));
         if (greeting) {
           first = socket;
           early = greeting.subarray(1);
-        } else socket.destroy();
+        }
       }
-      if (!first) await new Promise<void>((resolve) => runtime.after(100, resolve));
+      if (!first) {
+        socket.destroy();
+        await step(new Promise<void>((resolve) => runtime.after(100, resolve)));
+      }
     }
     const hasVideo = options.profile.video !== false;
-    const control = hasVideo ? await open(port) : first;
-    if (hasVideo) sockets.push(control);
+    let control = first;
+    if (hasVideo) {
+      const socket = dial();
+      const open = await step(connected(socket));
+      if (!open) {
+        socket.destroy();
+        throw scrcpyClosedDuringStartup();
+      }
+      control = open;
+    }
     check();
     // The device name follows on the first socket once every socket is connected.
-    const rest = await preamble(
-      first,
-      Math.max(0, deviceNameBytes - early.length),
-      runtime,
-      remaining(),
+    const rest = await step(
+      preamble(first, Math.max(0, deviceNameBytes - early.length), runtime, remaining()),
     );
-    if (!rest)
-      throw new DeviceError(
-        "command_failed",
-        "scrcpy-server closed during startup",
-        "Start the device view again.",
-      );
+    if (!rest || tunnel.isExited()) throw scrcpyClosedDuringStartup();
     const meta = Buffer.concat([early, rest]);
     const nameBytes = meta.subarray(0, deviceNameBytes);
     const end = nameBytes.indexOf(0);
@@ -210,7 +366,7 @@ export async function startScrcpyServer(options: {
       initialVideo: hasVideo ? meta.subarray(deviceNameBytes) : Buffer.alloc(0),
       initialControl: hasVideo ? Buffer.alloc(0) : meta.subarray(deviceNameBytes),
       deviceName: nameBytes.subarray(0, end < 0 ? nameBytes.length : end).toString("utf8"),
-      exited: server.exited,
+      exited: tunnel.exited,
       close,
     };
   } catch (error) {

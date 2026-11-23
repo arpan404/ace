@@ -50,6 +50,19 @@ struct MarketListing: Decodable, Identifiable, Hashable {
     var key: MarketEntryKey { MarketEntryKey(source: source, type: type, name: name) }
 }
 
+/// A listing's palette or recipe face from the daemon's read-only look request.
+struct MarketLook: Decodable {
+    let face: BotFace?
+    let light: [String]?
+    let dark: [String]?
+
+    func swatches(prefersDark: Bool) -> [String] {
+        let preferred = prefersDark ? dark : light
+        if let preferred, !preferred.isEmpty { return preferred }
+        return (prefersDark ? light : dark) ?? []
+    }
+}
+
 /// A browse row's button (`bridge/market-actions.ts`): what it says and the installed copies it
 /// acts on, a bot package's one per bot.
 struct MarketListingAction: Decodable, Hashable {

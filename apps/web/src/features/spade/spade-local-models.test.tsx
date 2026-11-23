@@ -33,14 +33,14 @@ const withLocal = (spade: FakeSpadeApi) => {
 
 test("Add endpoint shows a running Ollama with its models, and Use adds it with no key", async () => {
   const { spade } = await spadeApp("/settings/spade/models", withLocal);
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   const found = within(await dialog.findByRole("region", { name: "On this computer" }));
   expect(found.getByText("Runs on this computer · 2 models")).toBeTruthy();
   expect(found.getByText("gemma3:4b, qwen3:8b")).toBeTruthy();
   expect(found.getByText("Not running on this computer")).toBeTruthy();
   await userEvent.click(found.getByRole("button", { name: "Use" }));
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {
@@ -55,13 +55,13 @@ test("Add endpoint shows a running Ollama with its models, and Use adds it with 
 
 test("LM Studio is offered under From even when it isn't running, filled in with no key", async () => {
   const { spade } = await spadeApp("/settings/spade/models", withLocal);
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await userEvent.click(dialog.getByRole("combobox", { name: "From" }));
   await userEvent.click(
     await screen.findByRole("option", { name: "LM Studio (on this computer)" }),
   );
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {
@@ -77,7 +77,7 @@ test("LM Studio is offered under From even when it isn't running, filled in with
 test("the model picker offers a running Ollama's models, and picking one chooses it", async () => {
   const { spade } = await spadeApp("/spade", withLocal);
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^qwen3:8b/ }));
@@ -95,7 +95,7 @@ test("a local model that didn't call tools in Spade's check isn't taken as a bot
     here.localChecks.set("gemma3:4b", "failed");
   });
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const local = within(await screen.findByRole("group", { name: "On this computer" }));
   await userEvent.click(local.getByRole("option", { name: /^gemma3:4b/ }));
@@ -144,7 +144,9 @@ test("Settings says what Spade's checks found on a local model, and Check again 
       ],
     });
   });
-  const ollama = within(await screen.findByRole("region", { name: "Ollama" }));
+  // Its provider's row on the list opens its page, where the check's finding leads the models.
+  await userEvent.click(await screen.findByRole("link", { name: "Ollama" }));
+  const ollama = within(await screen.findByRole("list", { name: "Model problems" }));
   expect(
     ollama.getByText("This model didn't call tools in Spade's check, so it can't run a bot."),
   ).toBeTruthy();

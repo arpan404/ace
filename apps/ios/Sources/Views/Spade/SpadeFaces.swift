@@ -61,7 +61,7 @@ struct SpadeGroupFaces: View {
 /// red when it failed, grey while it is off.
 struct SpadeBotFace: View {
     let bot: SpadeModel.Bot
-    private static let size = AceDesign.Size.tap - AceDesign.Space.tight
+    static let size = AceDesign.Size.tap - AceDesign.Space.tight
     var body: some View {
         Group {
             if bot.group != nil {

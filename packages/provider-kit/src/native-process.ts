@@ -24,6 +24,8 @@ export type SupervisorEventKind =
   | "exit"
   | "close"
   | "stdin-written"
+  | "hold-limit"
+  | "held"
   | "stdin-error";
 /** For output, returns whether the stream wants more: false pauses the native pump. */
 export type SupervisorEventHandler = (
@@ -42,6 +44,10 @@ interface NativeChildHandle {
   kill(signal: string): boolean;
   signalGroup(signal: string): "sent" | "gone" | "released";
   groupGone(): boolean;
+  hold(): boolean;
+  unhold(): void;
+  disown(): void;
+  leaderStart(): string | null | undefined;
   hasJob(): boolean;
   jobRunning(): boolean | null | undefined;
   jobTerminate(): void;
@@ -80,9 +86,10 @@ interface SupervisorAddon {
   supervisorReadOwnedGroups(path: string, ownerPid: number, ownerStart: string): string;
   supervisorWindowsTreeRecorded(path: string, leaderJson: string): boolean;
   supervisorProcessIdentity(pid: number): string | null;
-  supervisorProcessGroupIsGone(group: number): boolean;
-  supervisorKillGroup(group: number, signal: string): void;
-  supervisorGroupGone(group: number): boolean;
+  supervisorHoldGroup(group: number, start: string): boolean;
+  supervisorUnholdGroup(group: number, start: string): void;
+  supervisorSignalGroup(group: number, start: string, signal: string): string;
+  supervisorGroupGone(group: number, start: string): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
   supervisorCaptureTree(rootsJson: string, limit: number): string;
@@ -210,6 +217,8 @@ export interface NativeSpawnSpec {
   hide: boolean;
   /** Windows: the child joins a kill-on-close job before it runs (the shell's own job). */
   contain: boolean;
+  /** The process's output budget: what the native pumps read ahead never exceeds it. */
+  maxOutputBytes?: number;
 }
 
 /** A masked (undefined) variable isn't launched, like node's spawn. */
@@ -274,6 +283,7 @@ export class NativeChildProcess
           verbatim: spec.verbatim,
           hide: spec.hide,
           contain: spec.contain,
+          ...(spec.maxOutputBytes === undefined ? {} : { max_output_bytes: spec.maxOutputBytes }),
         }),
         // napi calls threadsafe functions error-first: (null, kind, data).
         (_error: unknown, kind, data) => this.onEvent(kind, data),
@@ -358,6 +368,22 @@ export class NativeChildProcess
       (kind === "stdout-end" ? this.stdout : this.stderr).push(null);
       return undefined;
     }
+    if (kind === "hold-limit") {
+      // Given up and still occupied at the hold limit: killed through the daemon's guard. This
+      // runs from a native callback, so nothing it throws may reach the top level.
+      try {
+        holdLimitHandler?.(this);
+      } catch (error) {
+        warnSafely(
+          `Process group ${this.pid} could not be killed at its hold limit: ${String(error)}`,
+        );
+      }
+      return undefined;
+    }
+    if (kind === "held") {
+      warnSafely(bytes.toString());
+      return undefined;
+    }
     if (kind === "stdin-written") {
       const written = this.written;
       this.written = undefined;
@@ -375,13 +401,21 @@ export class NativeChildProcess
     }
     const exit = parseExit(data);
     if (kind === "exit") {
-      try {
-        this.emit("exit", exit.code, exit.signal);
-      } finally {
-        // Like node's flushStdio: once the leader exits, a stream nobody reads is drained, so its
-        // EOF (and `close`) can arrive. Scheduled even when a listener threw.
-        process.nextTick(() => this.drainUnread());
+      // Every listener runs, the shell's tree cleanup included, even when an earlier one throws;
+      // the first throw still surfaces, after them all.
+      let thrown: { error: unknown } | undefined;
+      // `once` wrappers remove themselves when called, as `emit` would remove them.
+      for (const listener of this.rawListeners("exit") as ((...args: unknown[]) => unknown)[]) {
+        try {
+          listener.call(this, exit.code, exit.signal);
+        } catch (error) {
+          thrown ??= { error };
+        }
       }
+      // Like node's flushStdio: once the leader exits, a stream nobody reads is drained, so its
+      // EOF (and `close`) can arrive.
+      process.nextTick(() => this.drainUnread());
+      if (thrown) throw thrown.error;
       return undefined;
     }
     this.stdout.push(null);
@@ -417,6 +451,29 @@ export class NativeChildProcess
     return this.handle ? this.handle.groupGone() : true;
   }
 
+  /** Starts a stop: true while the group number is still this tree's (until `unhold`). */
+  hold(): boolean {
+    return this.handle?.hold() ?? false;
+  }
+
+  /** Ends a stop started with `hold`. */
+  unhold(): void {
+    this.handle?.unhold();
+  }
+
+  /** The owner gave the group up: the native hold limit starts. */
+  disown(): void {
+    this.handle?.disown();
+  }
+
+  /** The leader's kernel start, read at spawn. */
+  leaderStart(): string | undefined {
+    return this.handle?.leaderStart() ?? undefined;
+  }
+
+  /** Spawned by the native supervisor, which holds (or held) its leader. */
+  readonly spawned = true;
+
   /** Signals the leader through its own handle; false once it is reaped, never a reused pid. */
   kill(signal: NodeJS.Signals): boolean {
     try {
@@ -447,6 +504,52 @@ export class NativeChildProcess
       /* Best effort during process exit. */
     }
   }
+}
+
+/**
+ * A process group known by its leader's identity (pid and kernel start), as the native
+ * supervisor answers for it: held (and signalled by number) only while that leader is unreaped
+ * or verified alive; otherwise its recorded or verified members, one by one.
+ */
+export function nativeGroup(pid: number, start: string) {
+  const native = addon();
+  return {
+    hold: () => native.supervisorHoldGroup(pid, start),
+    unhold: () => native.supervisorUnholdGroup(pid, start),
+    signalGroup: (signal: NodeJS.Signals) => {
+      native.supervisorSignalGroup(pid, start, signal);
+    },
+    groupGone: () => native.supervisorGroupGone(pid, start),
+    disown: () => {},
+    leaderStart: () => start,
+    // Held only if the registry knows it; otherwise a group by identity alone.
+    spawned: false,
+  };
+}
+
+let holdLimitHandler: ((child: NativeChildProcess) => void) | undefined;
+
+/**
+ * A warning from a native callback: reported, never thrown into it. Node and Bun both run
+ * `warning` listeners on a later tick (`process.emitWarning` defers the emit), so a listener's
+ * throw cannot reach the native callback's stack: it has returned by then, and the throw is the
+ * process's ordinary uncaught-exception path, as for any other warning. The catch covers a
+ * runtime that would emit synchronously.
+ */
+export function warnSafely(message: string): void {
+  try {
+    process.emitWarning(message);
+  } catch {
+    /* A warning listener threw: nothing more can be reported. */
+  }
+}
+/**
+ * What a given-up group still occupied at the native hold limit gets: the owner's guarded kill
+ * (`process-owner.ts` installs it), so kept processes and a stop's caller are spared, and a
+ * group with spared members stays held.
+ */
+export function onHoldLimit(handler: (child: NativeChildProcess) => void): void {
+  holdLimitHandler = handler;
 }
 
 /** Spawns a supervised child; byte events arrive in arrival order. */

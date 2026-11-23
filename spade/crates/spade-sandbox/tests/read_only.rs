@@ -22,6 +22,7 @@ fn read_only_policy(world: &linux::World) -> Policy {
         toolchains: vec![],
         also_read: vec![],
         scratch: vec![],
+        runtime: vec![],
         proxy_port: None,
     })
 }

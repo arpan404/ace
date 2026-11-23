@@ -173,3 +173,45 @@ it("a path that ends interrupted asks the producer for the keyframe its successo
   d.egress("p2", 3, true);
   expect(d.marks()).toEqual([1, 3]);
 });
+
+it("closing a device's paths turns its producer off, after a move to ace-media still in flight", async () => {
+  const switches: string[] = [];
+  const moving = Promise.withResolvers<Switched>();
+  let producer: IngestProducer | undefined;
+  const paths = new DeviceVideoPaths({
+    media: {
+      attach: (added) => {
+        producer = added;
+        return {
+          streaming: () => false,
+          reconnect: () => {},
+          codecs: () => {},
+          encodes: () => {},
+          key: () => {},
+          close: () => {},
+        };
+      },
+    },
+    source: "scrcpy:1",
+    kind: "scrcpy",
+    origin: { kind: "scrcpy", host: "127.0.0.1", port: 0 },
+    deviceId: "d1",
+    emit: () => {},
+    switch: async (to) => {
+      switches.push(to ? to.path : "off");
+      return to ? moving.promise : { ingest: "off", boundary: null };
+    },
+    keyframe: () => {},
+    schedule: () => () => {},
+  });
+  // The producer is moving to ace-media (waiting for the device's keyframe) as the path closes.
+  const pointed = producer?.point(address("m1-a"));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(switches).toEqual(["m1-a"]);
+  paths.close();
+  moving.resolve({ ingest: "on", boundary: null });
+  await pointed;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Its writer is finished: nothing of it outlives the path.
+  expect(switches).toEqual(["m1-a", "off"]);
+});

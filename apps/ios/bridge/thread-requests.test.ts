@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { facts } from "@ace/fake-daemon";
 import { InteractionRequest } from "@ace/protocol";
 import {
@@ -50,6 +50,32 @@ const card = (kind: string) =>
     () => rows("thread.interaction").find((row) => row.kind === kind && row.state === "pending"),
     `the ${kind} card`,
   );
+
+test("all 300 approval actions arrive intact in native frames within 32 KiB", async () => {
+  const options = Array.from({ length: 300 }, (_, index) => ({
+    id: `action-${index}-${"€".repeat(100)}`,
+    label: `Choice ${index}`,
+    kind: "deny",
+  }));
+  const fake = asking("large-approval", { kind: "approval", title: "Choose", options });
+  const emit = vi.spyOn(globalThis.aceHost, "emit");
+  try {
+    open(connect(fake), "large-approval");
+    const approval = await card("approval");
+    expect(approval.options).toEqual(options);
+    const fragments = emit.mock.calls
+      .map(([frame]) => frame)
+      .filter((frame) => frame.startsWith('[{"type":"fragment"'));
+    expect(fragments.length).toBeGreaterThan(1);
+    expect(
+      fragments.reduce((bytes, fragment) => bytes + Buffer.byteLength(fragment), 0),
+    ).toBeGreaterThan(32_768);
+    for (const [frame] of emit.mock.calls)
+      expect(Buffer.byteLength(frame, "utf8")).toBeLessThanOrEqual(32_768);
+  } finally {
+    emit.mockRestore();
+  }
+});
 
 test("a plan is approved as is, or sent back only with what should change", async () => {
   const thread = open(

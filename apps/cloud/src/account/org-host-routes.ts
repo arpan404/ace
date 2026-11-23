@@ -261,7 +261,12 @@ export function orgHostRoutes(deps: {
         const parsed = AceOrgPolicySetRequest.safeParse(await jsonBody(request, 65_536));
         if (!parsed.success) return fail(400, "invalid_request");
         const body = JSON.stringify(parsed.data.policy);
-        const version = ((await orgs.policy(member.org))?.version ?? 0) + 1;
+        // The edit started from `parsed.data.version`: only the version after it may be written.
+        // The check below turns a base already passed into a refusal at once; the version's
+        // primary key makes it atomic when two saves race.
+        const current = (await orgs.policy(member.org))?.version ?? 0;
+        if (parsed.data.version !== current) return fail(409, "policy_changed");
+        const version = current + 1;
         const sha256 = policyBodySha256(body);
         const setAt = now();
         const setBy = member.principal.account.id;

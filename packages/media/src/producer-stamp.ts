@@ -41,3 +41,24 @@ export function readProducerStamp(extension: Uint8Array): ProducerStamp | undefi
   }
   return undefined;
 }
+
+const dialTag = 2;
+const dialLength = 4;
+
+/**
+ * The reader generation a unit of a scrcpy source ace-media reads itself came from (D1):
+ * extension tag 2, length 4, a big-endian u32, beside the producer stamp. Undefined when absent.
+ */
+export function readReaderDial(extension: Uint8Array): number | undefined {
+  const view = new DataView(extension.buffer, extension.byteOffset, extension.byteLength);
+  let offset = 0;
+  while (offset + 4 <= extension.byteLength) {
+    const kind = view.getUint16(offset);
+    const size = view.getUint16(offset + 2);
+    const body = offset + 4;
+    if (body + size > extension.byteLength) return undefined;
+    if (kind === dialTag && size === dialLength) return view.getUint32(body);
+    offset = body + size;
+  }
+  return undefined;
+}
