@@ -49,29 +49,21 @@ pub(super) fn task(raw: &str) -> Result<String, AgentError> {
 
 impl Engine {
     /// Whether a bot could be made or moved to `model` here: one of this machine's endpoints
-    /// serves it, or it is a well-formed subscription (ace says at its first turn whether the
-    /// CLI is there).
+    /// serves it, and it can run a bot.
     pub fn model_usable(&self, model: &str) -> bool {
-        self.check_model(model).is_ok()
-            && self.check_terms(model).is_ok()
-            && self.check_runs_bots(model).is_ok()
+        self.check_model(model).is_ok() && self.check_runs_bots(model).is_ok()
     }
 
-    /// A model reference the person may pick: `endpoint/model` on one of their endpoints, or a
-    /// subscription, `cli:<provider>[@<account>]/<model>` (ADR 0133), which ace checks when a turn
-    /// runs on it.
+    /// A model reference the person may pick: `endpoint/model` on one of their endpoints. Never a
+    /// coding subscription (`cli:…`): bots no longer think with one (ADR 0219).
     pub(super) fn check_model(&self, raw: &str) -> Result<String, AgentError> {
         let model = raw.trim();
-        if spade_core::brain::CliModel::is(model) {
-            return spade_core::brain::CliModel::parse(model)
-                .map(|_| model.to_owned())
-                .ok_or_else(|| {
-                    AgentError::Invalid(
-                        "a subscription model is cli:<provider>/<model>, for example \
-                         cli:codex/gpt-6.1-sol"
-                            .to_owned(),
-                    )
-                });
+        if super::retired_models::is_retired(model) {
+            return Err(AgentError::Invalid(
+                "Spade bots no longer think with coding subscriptions; pick a model from your \
+                 endpoints"
+                    .to_owned(),
+            ));
         }
         let valid = model.len() <= MODEL_CHARS
             && !model.chars().any(char::is_control)
@@ -149,8 +141,6 @@ impl Engine {
         };
         let task = task(&input.task)?;
         let model = self.check_model(&input.model)?;
-        // A subscription is the person's informed choice, never a default (ADR 0205 §1).
-        self.check_terms(&model)?;
         // A model that can't call tools serves titles and summaries only (ADR 0205 §3).
         self.check_runs_bots(&model)?;
         let id = self.ids.next("a");
@@ -243,7 +233,6 @@ impl Engine {
         if let Some(model) = new_model.as_deref()
             && model != agent.model
         {
-            self.check_terms(model)?;
             self.check_runs_bots(model)?;
         }
         let new_avatar = change
@@ -438,7 +427,6 @@ impl Engine {
         let activity = self.activity(&agent.conversation)?;
         let status = self.status_for(&agent.conversation, &activity);
         let mut oversight = self.oversight_json(&agent)?;
-        let held = self.terms_hold(&agent);
         // Its task (ADR 0144), and its access level: one level since ADR 0163, still shown so a
         // client from before reads it rather than taking a missing one for `ask`.
         if let Some(shown) = oversight.as_object_mut() {
@@ -503,18 +491,8 @@ impl Engine {
             );
             // Its place in a tree (ADR 0161).
             self.tree_fields(&agent.conversation, &activity, shown);
-            // A subscription its maker's terms no longer allow: it waits for the person
-            // (ADR 0205 §4).
-            shown.insert(
-                "terms_hold".into(),
-                held.clone().unwrap_or(serde_json::Value::Null),
-            );
         }
         let seen = self.store.seen(&agent.conversation)?;
-        let problem = activity.problem.or_else(|| {
-            held.as_ref()
-                .and_then(|h| h["text"].as_str().map(str::to_owned))
-        });
         // While it moves its line says where to.
         let status = match self.moving_to(&agent.conversation) {
             Some((_, machine)) => Some(format!("Moving to {machine}")),
@@ -528,7 +506,6 @@ impl Engine {
             last_message: activity.last_message,
             waiting_for: activity.waiting_for,
             questions_for_later: activity.questions_for_later,
-            problem,
             agent,
         })
     }
@@ -617,6 +594,11 @@ impl Engine {
     /// The model a new reply in `conversation` uses: its agent's model now.
     pub(crate) fn reply_model(&self, conversation: &str) -> String {
         match self.store.agent_for_conversation(conversation) {
+            // A bot not yet moved off a coding subscription thinks with its replacement
+            // (ADR 0219), chosen without reading keys.
+            Ok(Some(agent)) if super::retired_models::is_retired(&agent.model) => {
+                self.replacement_model(&agent.id, self.keyless_default_model())
+            }
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
             // Without reading keys: this runs while closing replies at start, before Spade
             // listens.

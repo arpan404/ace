@@ -379,8 +379,6 @@ fn shared_bots_route_only_to_the_organizations_endpoints_and_never_to_a_subscrip
             .is_none()
     );
     assert!(open.model_refusal(ModelPlace::Local).is_none());
-    // Whatever the policy says.
-    assert!(open.model_refusal(ModelPlace::Subscription).is_some());
 }
 
 #[test]

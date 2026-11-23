@@ -43,10 +43,6 @@ impl ToolSource for PluginTools {
                 return Vec::new();
             }
         };
-        // A subscription's CLI runs the plugin's servers itself (ADR 0133).
-        if spade_core::brain::CliModel::is(&agent.model) {
-            return Vec::new();
-        }
         let usable: Vec<String> = self
             .plugins
             .for_agent(&agent.id)

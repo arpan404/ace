@@ -246,12 +246,6 @@ impl Engine {
                 "The task is longer than {TASK_CHARS} characters; give the helper less."
             )));
         }
-        if spade_core::brain::CliModel::is(&self.reply_model(bot)) {
-            return Err(ToolOutput::error(
-                "Bots that think through a subscription have no helpers; that CLI splits work \
-                 its own way.",
-            ));
-        }
         let wanted = arguments
             .profile
             .as_deref()

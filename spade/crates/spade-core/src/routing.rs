@@ -6,8 +6,6 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use spade_models::Effort;
 
-use crate::brain::CliModel;
-
 pub mod fallback;
 
 /// What a model call is for.
@@ -200,7 +198,7 @@ pub struct Routing<'a, M: Models> {
 impl<M: Models> Routing<'_, M> {
     /// Whether a one-shot role can run on `reference`: an endpoint model the person configured.
     fn usable(&self, reference: &str) -> bool {
-        !CliModel::is(reference) && self.models.configured(reference)
+        self.models.configured(reference)
     }
 
     /// Whether `role` can run on `reference`: usable, and able to call tools when the role's
@@ -241,8 +239,8 @@ impl<M: Models> Routing<'_, M> {
             // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
             // asks the person about everything, or lets through what it shouldn't.
             Role::Verify => self.strongest_other(role),
-            // The reviewer runs on an endpoint: a bot that can't be compared (a subscription, an
-            // unpriced model) keeps the fast model rather than one the reviewer can't call.
+            // A bot that can't be compared (an unpriced model) keeps the fast model as its
+            // reviewer.
             Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
             Role::Review => fast(),
             _ => fast(),
@@ -258,12 +256,8 @@ impl<M: Models> Routing<'_, M> {
 
     /// The models `role` tries in order (ADR 0205 §2), at most [`MOST_IN_ROUTE`]: for `main`, the
     /// bot's own model, then the bot's `main` route, else the global one; for another role, its
-    /// override's usable models, else its one model. Gone models are skipped, and a route never
-    /// holds a subscription: a bot on one runs on it alone, never falling back to an endpoint.
+    /// override's usable models, else its one model. Gone models are skipped.
     pub fn route(&self, role: Role) -> Vec<String> {
-        if role == Role::Main && CliModel::is(self.own) {
-            return vec![self.own.to_owned()];
-        }
         let usable_of = |overrides: &Overrides| -> Vec<String> {
             overrides
                 .roles

@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use spade_core::brain::CliModel;
 use spade_core::routing::{Defaults, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing};
 use spade_models::{Effort, Endpoint};
 use spade_store::StoreError;
@@ -144,11 +143,8 @@ impl Engine {
     /// The models a step of `conversation` that began on `turn_model` tries, in order (ADR 0205
     /// §2): for a bot, its `main` route led by the reply's model; for a helper, the `helper`
     /// route from the helper's model on, when that model is on it, else the helper's model
-    /// alone. A subscription runs alone.
+    /// alone.
     pub(crate) fn step_route(&self, conversation: &str, turn_model: &str) -> Vec<String> {
-        if CliModel::is(turn_model) {
-            return vec![turn_model.to_owned()];
-        }
         let (route, role) = match self.helper_of(conversation) {
             Some(helper) => (
                 self.facts(&helper.parent).routing().route(Role::Helper),
@@ -440,7 +436,7 @@ impl Engine {
             }
             let mut checked: Vec<String> = Vec::new();
             for model in models {
-                let model = self.route_model(&model)?;
+                let model = self.one_shot_model(&model)?;
                 // Only `title` and `compact` run on a model that can't call tools (ADR 0205 §3).
                 if role.needs_tools() && !Person(self.models.endpoints()).calls_tools(&model) {
                     return Err(invalid(format!(
@@ -501,28 +497,9 @@ impl Engine {
         Ok(())
     }
 
-    /// `model` checked as one a route can hold (ADR 0205 §2): on the person's endpoints, never a
-    /// subscription, which is only ever a bot's own model, alone.
-    fn route_model(&self, model: &str) -> Result<String, OversightError> {
-        if CliModel::is(model.trim()) {
-            return Err(OversightError::Invalid(
-                "a route never holds a subscription: one is only ever a bot's own model, alone; \
-                 give this role models from your endpoints"
-                    .to_owned(),
-            ));
-        }
-        self.one_shot_model(model)
-    }
-
-    /// `model` checked as one a role can run on: on the person's endpoints, never a CLI.
+    /// `model` checked as one a role can run on: on the person's endpoints.
     fn one_shot_model(&self, model: &str) -> Result<String, OversightError> {
         let model = model.trim();
-        if CliModel::is(model) {
-            return Err(OversightError::Invalid(
-                "a subscription runs whole sessions; give this role a model from an endpoint"
-                    .to_owned(),
-            ));
-        }
         if !self.configured(model) {
             return Err(OversightError::Invalid(format!(
                 "{model} is not a model on your endpoints"

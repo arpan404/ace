@@ -157,7 +157,7 @@ impl Engine {
 
     /// Whether no turn of `id` may start now: the person has its computer, or paused it.
     pub(super) fn closed(&self, id: &str) -> bool {
-        self.held(id) || self.paused(id) || self.held_by_terms(id)
+        self.held(id) || self.paused(id)
     }
 
     /// Changes the stored pauses with `change`, read and written under the agent lock in one

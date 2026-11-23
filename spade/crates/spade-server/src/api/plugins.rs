@@ -32,10 +32,10 @@ fn plugins(state: &AppState) -> Result<Arc<Plugins>, Box<Response>> {
     })
 }
 
-/// The bot, and whether it runs on a subscription (it then gets only rules).
-fn agent(state: &AppState, id: &str) -> Result<bool, Box<Response>> {
+/// That the bot exists.
+fn agent(state: &AppState, id: &str) -> Result<(), Box<Response>> {
     match state.engine.agent_view(id) {
-        Ok(Some(view)) => Ok(spade_core::brain::CliModel::is(&view.agent.model)),
+        Ok(Some(_)) => Ok(()),
         Ok(None) => Err(Box::new(problem(StatusCode::NOT_FOUND, "no such agent"))),
         Err(error) => Err(Box::new(problem(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -45,12 +45,12 @@ fn agent(state: &AppState, id: &str) -> Result<bool, Box<Response>> {
 }
 
 async fn view(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    let (plugins, cli) = match (plugins(&state), agent(&state, &id)) {
-        (Ok(plugins), Ok(cli)) => (plugins, cli),
+    let plugins = match (plugins(&state), agent(&state, &id)) {
+        (Ok(plugins), Ok(())) => plugins,
         (Err(response), _) | (_, Err(response)) => return *response,
     };
     let _ = tokio::time::timeout(WAIT, plugins.refresh_now()).await;
-    Json(plugins.view(&id, cli)).into_response()
+    Json(plugins.view(&id)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -63,8 +63,8 @@ async fn set(
     Path(id): Path<String>,
     Body(body): Body<Allowed>,
 ) -> Response {
-    let (plugins, cli) = match (plugins(&state), agent(&state, &id)) {
-        (Ok(plugins), Ok(cli)) => (plugins, cli),
+    let plugins = match (plugins(&state), agent(&state, &id)) {
+        (Ok(plugins), Ok(())) => plugins,
         (Err(response), _) | (_, Err(response)) => return *response,
     };
     let names: BTreeSet<String> = body
@@ -79,7 +79,7 @@ async fn set(
             if let Err(error) = state.engine.plugins_changed(&id) {
                 tracing::error!(%error, "could not note the bot's changed plugins");
             }
-            Json(plugins.view(&id, cli)).into_response()
+            Json(plugins.view(&id)).into_response()
         }
         Err(error @ AllowError::Unknown(_)) => problem(StatusCode::BAD_REQUEST, &error.to_string()),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),
