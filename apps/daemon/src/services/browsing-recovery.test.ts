@@ -238,3 +238,37 @@ test("a browser that fails after publishing is withdrawn; only its replacement m
   await resources.close();
   expect(services.browser).toBeUndefined();
 });
+
+test("a service's own disposer still sees what it published, at shutdown and when it fails", async () => {
+  const { subject, resources } = startup();
+  const seen: string[] = [];
+  let attempts = 0;
+  await subject.start([
+    // Like source control: its disposer closes the service through its own slot.
+    service("sourceControl", (context) => {
+      context.services.sourceControl = {
+        close: () => void seen.push("source control closed"),
+      } as unknown as Services["sourceControl"];
+      context.resources.own(() => context.services.sourceControl?.close());
+    }),
+    // Published late, then the service fails: its disposer still reads what it published.
+    service("models", (context) => {
+      if (++attempts > 1) return;
+      context.onListen.push(() => {
+        context.services.modelsReady = Promise.resolve();
+      });
+      context.onListen.push(() => {
+        throw new Error("models listener failed");
+      });
+      context.resources.own(async () => {
+        if (context.services.modelsReady) seen.push("models waited");
+        await context.services.modelsReady;
+      });
+    }),
+  ]);
+  await subject.listening(server);
+  await settle();
+  expect(seen).toEqual(["models waited"]);
+  await resources.close();
+  expect(seen).toEqual(["models waited", "source control closed"]);
+});

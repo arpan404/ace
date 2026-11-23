@@ -281,17 +281,18 @@ export class ServiceStartup {
     const owner = {};
     let committed = false;
     // Callbacks may read services created later. Failed attempts never publish late writes.
+    // After commit `published` holds this attempt's own values, late writes included: they stay
+    // readable to it through its own disposal, after they leave the shared view.
     const services = new Proxy(published, {
       get: (target, key) =>
-        committed
-          ? Reflect.get(this.context.services, key)
-          : Reflect.has(target, key)
-            ? Reflect.get(target, key)
-            : Reflect.get(this.context.services, key),
+        Reflect.has(target, key)
+          ? Reflect.get(target, key)
+          : Reflect.get(this.context.services, key),
       set: (target, key, value) => {
         if (controller.signal.aborted) return true;
         if (!committed || typeof key !== "string") return Reflect.set(target, key, value);
         // A late write is this attempt's too: its failure or shutdown withdraws it.
+        Reflect.set(target, key, value);
         this.slots.claim(owner, key, value);
         this.slots.announce([key]);
         return true;
