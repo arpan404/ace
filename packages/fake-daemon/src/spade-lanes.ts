@@ -42,6 +42,8 @@ export interface FakeLane {
   model: string;
   /** Its last words once it has ended. */
   report?: string;
+  /** How many lanes had ended before it: which ended last when the clock reads the same. */
+  endedSeq?: number;
 }
 
 /** What the lanes need of the fake API. */
@@ -73,6 +75,7 @@ const live = (state: FakeLaneState) =>
 export class FakeSpadeLanes {
   readonly lanes = new Map<string, FakeLane>();
   readonly #host: FakeLanesHost;
+  #ends = 0;
 
   constructor(host: FakeLanesHost) {
     this.#host = host;
@@ -145,6 +148,7 @@ export class FakeSpadeLanes {
     if (!lane) return;
     lane.state = state;
     lane.endedMs = this.#host.now();
+    lane.endedSeq = ++this.#ends;
     lane.report = words;
     const host = this.#host;
     const closed =
@@ -201,6 +205,17 @@ export class FakeSpadeLanes {
       epoch: `r-${task}`,
       summary: "it waits on you to allow a step.",
     });
+  }
+
+  /** Stops every lane of `main` that hasn't ended, queued ones too; how many it stopped. */
+  stopAll(main: string): number {
+    let stopped = 0;
+    for (const lane of this.lanes.values())
+      if (lane.main === main && live(lane.state)) {
+        this.settle(lane.task, "stopped", "");
+        stopped++;
+      }
+    return stopped;
   }
 
   /**
@@ -325,10 +340,20 @@ export class FakeSpadeLanes {
     return undefined;
   }
 
-  /** `GET /v1/conversations/{main}/tasks`. */
-  tasks(main: string): FakeSpadeAnswer {
-    const rows = [...this.lanes.values()]
-      .filter((lane) => lane.main === main)
+  /** `GET /v1/conversations/{main}/tasks?ended=N`. */
+  tasks(main: string, ended = 20): FakeSpadeAnswer {
+    const mine = [...this.lanes.values()].filter((lane) => lane.main === main);
+    // Every lane that hasn't ended, and the `ended` that ended last.
+    const last = new Set(
+      mine
+        .filter((lane) => !live(lane.state))
+        .toSorted(
+          (a, b) => (b.endedMs ?? 0) - (a.endedMs ?? 0) || (b.endedSeq ?? 0) - (a.endedSeq ?? 0),
+        )
+        .slice(0, Math.max(0, Math.min(ended, 500))),
+    );
+    const rows = mine
+      .filter((lane) => live(lane.state) || last.has(lane))
       .toSorted((a, b) => rank[a.state] - rank[b.state] || a.startedMs - b.startedMs)
       .map((lane) => {
         const done = lane.plan.filter((item) => item.done).length;

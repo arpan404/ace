@@ -136,4 +136,32 @@ describe("a bot's task lanes in the fake API", () => {
       title: "Draft the quarterly note",
     });
   });
+
+  test("the list holds every running task and only the latest ended ones asked for", async () => {
+    const { bot, get } = staged();
+    const titles = async (ended: number) => {
+      const { body } = await get(`/v1/conversations/${bot.conversation}/tasks?ended=${ended}`);
+      return (body as { tasks: { title: string }[] }).tasks.map((task) => task.title);
+    };
+    // Two ended (the drive, then the quotes, which ended last); four haven't.
+    expect(await titles(1)).not.toContain("Clean up the shared drive");
+    expect(await titles(1)).toContain("Compare the three CRM quotes");
+    expect(await titles(0)).toHaveLength(4);
+    expect(await titles(20)).toHaveLength(6);
+  });
+
+  test("Stop on the bot stops every task, the queued one too, with the chat idle", async () => {
+    const { api, bot, get } = staged();
+    const stopped = await api.answer({
+      method: "POST",
+      path: `/v1/conversations/${bot.conversation}/stop`,
+      body: "",
+    });
+    expect(stopped.status).toBe(202);
+    const { body } = await get(`/v1/conversations/${bot.conversation}/tasks`);
+    const states = (body as { tasks: { state: string }[] }).tasks.map((task) => task.state);
+    expect(states.filter((state) => state === "stopped")).toHaveLength(4);
+    expect(states).not.toContain("working");
+    expect(states).not.toContain("queued");
+  });
 });

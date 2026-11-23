@@ -112,6 +112,8 @@ export function LanesPill(props: {
   lanes: readonly SpadeLane[];
   avatar: SpadeAvatar;
   onOpen(lane: string): void;
+  /** More ended tasks may be left out: a plain row asks for them. */
+  onOlder?: (() => void) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const needs = spadeLanesNeedYou(props.lanes);
@@ -145,6 +147,15 @@ export function LanesPill(props: {
             props.onOpen(lane);
           }}
         />
+        {props.onOlder && (
+          <button
+            type="button"
+            onClick={props.onOlder}
+            className={cn(agentRowStyles.box, "text-muted-foreground hover:text-foreground")}
+          >
+            Show older tasks
+          </button>
+        )}
       </PopoverContent>
     </Popover>
   );

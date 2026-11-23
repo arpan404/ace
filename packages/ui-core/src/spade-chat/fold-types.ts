@@ -167,6 +167,11 @@ export type SpadeEntry =
       replyTo?: SpadeReplyTo;
     }
   | SpadeReplyEntry
+  /**
+   * In a task lane: the bot's main chat wrote to the task (`task_message`, ADR 0217): the bot's
+   * words, never the person's. `untrusted` when they were written with untrusted content in view.
+   */
+  | { kind: "lane-message"; key: string; text: string; untrusted: boolean; at?: number }
   /** The model now reads a summary of what came before. */
   | { kind: "compacted"; key: string }
   /** The bot rewrote its own task (`task_update`): what it was, what it is, and its one line. */

@@ -1237,7 +1237,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
-    if (sub === "tasks" && request.method === "GET") return this.lanes.tasks(id);
+    if (sub === "tasks" && request.method === "GET")
+      return this.lanes.tasks(id, Number(new URLSearchParams(query).get("ended") ?? 20));
     if (sub === "task" && !subId && request.method === "GET") return this.lanes.task(id);
     if (sub === "panels")
       return this.panels.conversationRoute(
@@ -1419,8 +1420,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       }
       const open = list.findLast((stored) => stored.event.type === "reply_started");
       if (open) this.store(id, { type: "reply_stopped", reply: open.event.reply, text: "" });
+      // Stop on the bot stops every task of it too, even with the chat idle (ADR 0217 §5).
+      const tasks = this.lanes.stopAll(id);
       if (agent) this.status(agent, "idle", null);
-      return reply({});
+      return reply({}, open || tasks > 0 ? 202 : 200);
     }
     return problem(404, "Not found.");
   }

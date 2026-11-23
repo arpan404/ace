@@ -1,5 +1,6 @@
 import {
   spadeForLaterWords,
+  spadeLaneLive,
   spadeLiveSurfaces,
   spadeModelState,
   spadeSentText,
@@ -196,8 +197,13 @@ export function Conversation(props: {
   const open = spadeWorks(view, task, bot.progress?.continuing === true);
   // It drives its computer only while it is at work.
   const computer = useBotComputer(bot, conversation.side, open);
-  // Stopping lasts until nothing is open: the reply, its background jobs and the task's next step.
-  if (stopping && !open) setStopping(false);
+  // Its tasks run beside the chat (ADR 0217): Stop on the bot stops them too, so it shows while
+  // any hasn't ended, even with the chat itself idle.
+  const tasksRunning = lanes.lanes.some(spadeLaneLive);
+  const stoppable = open || tasksRunning;
+  // Stopping lasts until nothing is open: the reply, its background jobs, the task's next step,
+  // and its tasks.
+  if (stopping && !stoppable) setStopping(false);
   // Its replies are read aloud while Speak replies is on, or after the person spoke.
   const speech = useBotSpeech(bot.machine.key, bot.id);
   const spoken = useSpokenReplies({
@@ -211,7 +217,7 @@ export function Conversation(props: {
     // Stop also stops it talking, at once.
     stopSpeaking();
     setStopping(true);
-    conversation.stop().catch((error: unknown) => {
+    conversation.stop().then(lanes.changed, (error: unknown) => {
       setStopping(false);
       toast.error({ title: `Couldn't stop ${bot.name}`, description: message(error) });
     });
@@ -258,7 +264,12 @@ export function Conversation(props: {
       <PillRow>
         <ConversationPill bot={bot} onOpen={() => openProfile()} />
         {lanes.lanes.length > 0 && (
-          <LanesPill lanes={lanes.lanes} avatar={bot.avatar} onOpen={lanes.open} />
+          <LanesPill
+            lanes={lanes.lanes}
+            avatar={bot.avatar}
+            onOpen={lanes.open}
+            onOlder={lanes.older}
+          />
         )}
       </PillRow>
       <Scroller
@@ -389,7 +400,7 @@ export function Conversation(props: {
       <SpadeComposer
         name={bot.name}
         draftKey={`spade:${bot.machine.key}:${bot.id}`}
-        answering={open}
+        answering={stoppable}
         // While the person drives the bot is paused, not working: nothing to stop.
         onStop={computer.paused ? undefined : stop}
         stopping={stopping}

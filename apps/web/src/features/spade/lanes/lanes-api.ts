@@ -1,5 +1,6 @@
 import { parseSpadeLanes, parseSpadeTask, spadeLaneLive } from "@ace/ui-core/spade-chat";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
 import { segment, spadeHttp, SpadeRequestError, type SpadeTarget } from "../spade-requests.ts";
 import { useSpadeClient, useSpadeMachine } from "../spade-machine.tsx";
 
@@ -15,8 +16,15 @@ const conversationPath = (id: string) => `/v1/conversations/${segment(id)}`;
 export const lanesKey = (machine: string, main: string) =>
   ["spade", "lanes", machine, main] as const;
 
-export async function readLanes(target: SpadeTarget, main: string, signal?: AbortSignal) {
-  const body = await spadeHttp(target, "GET", `${conversationPath(main)}/tasks`, { signal });
+/** Every task that hasn't ended, and the `ended` that ended last. */
+export async function readLanes(
+  target: SpadeTarget,
+  main: string,
+  ended: number,
+  signal?: AbortSignal,
+) {
+  const path = `${conversationPath(main)}/tasks?ended=${ended}`;
+  const body = await spadeHttp(target, "GET", path, { signal });
   return parseSpadeLanes(body);
 }
 
@@ -49,12 +57,12 @@ export async function retryLane(target: SpadeTarget, lane: string, reply: string
  * main's chat moves (`moved` changes: a lane started, reported or asked), and every few seconds
  * while one hasn't ended, for its step.
  */
-export function useSpadeLanes(main: string, moved: number, enabled: boolean) {
+export function useSpadeLanes(main: string, moved: number, enabled: boolean, ended: number) {
   const client = useSpadeClient();
   const machine = useSpadeMachine().key;
   const query = useQuery({
-    queryKey: [...lanesKey(machine, main), "list", moved],
-    queryFn: ({ signal }) => readLanes(client, main, signal),
+    queryKey: [...lanesKey(machine, main), "list", ended, moved],
+    queryFn: ({ signal }) => readLanes(client, main, ended, signal),
     enabled,
     refetchInterval: (current) => (current.state.data?.some(spadeLaneLive) ? 4_000 : false),
     placeholderData: (previous) => previous,
@@ -79,5 +87,8 @@ export function useLaneTask(main: string, lane: string, moved: number) {
 export function useLanesChanged(main: string) {
   const cache = useQueryClient();
   const machine = useSpadeMachine().key;
-  return () => void cache.invalidateQueries({ queryKey: lanesKey(machine, main) });
+  return useCallback(
+    () => void cache.invalidateQueries({ queryKey: lanesKey(machine, main) }),
+    [cache, machine, main],
+  );
 }

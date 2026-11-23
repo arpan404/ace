@@ -7,6 +7,11 @@ import { spadeApp, withEndpoint } from "@/test/spade.ts";
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
 
+/** How many rows the open task list shows. */
+async function rows() {
+  return within(await screen.findByRole("list", { name: "Tasks" })).getAllByRole("button").length;
+}
+
 /** Errands, a bot running its tasks in lanes (ADR 0217), as the fake stages them. */
 function withErrands(spade: FakeSpadeApi) {
   withEndpoint(spade);
@@ -221,4 +226,72 @@ test("a helper that moved into a task asks as the task's", async () => {
       name: "Draft the quarterly note wants to send an email to dana@northwind.co",
     }),
   ).toBeTruthy();
+});
+
+test("in a task, main's words to it read as the bot's, quietly marked from the chat, and untrusted ones say so", async () => {
+  const { chat } = await errands();
+  await userEvent.click(
+    await chat.findByRole("button", { name: /^Started a task: Fix the March invoice/ }),
+  );
+  const task = within(await screen.findByRole("feed", { name: /^Conversation with/ }));
+  const words = [
+    "Dana's team pays on the 1st, so send it before then.",
+    "Northwind's site says invoices also go to their accounts team; copy them in.",
+  ] as const;
+  await task.findAllByText(words[0]);
+  for (const text of words) {
+    const found = task.getAllByText(text).map((each) => each.closest("[data-part=spade-message]"));
+    // The bot's message, never one of the person's.
+    expect(found.some((bubble) => bubble?.getAttribute("data-variant") === "bot")).toBe(true);
+    expect(found.some((bubble) => bubble && bubble.getAttribute("data-variant") !== "bot")).toBe(
+      false,
+    );
+  }
+  const captions = task.getAllByText(/^From the chat/).map((line) => line.textContent);
+  expect(captions).toEqual(["From the chat", "From the chat · Untrusted"]);
+});
+
+test("the task list asks for older ended tasks with a plain row, and the row goes once they're all in", async () => {
+  await spadeApp("/spade/errands", (spade) => {
+    const main = withErrands(spade);
+    for (let at = 0; at < 21; at++) {
+      const task = `${main}-lane-old-${at}`;
+      spade.lanes.start({
+        task,
+        main,
+        title: `Old errand ${at}`,
+        words: `Old errand ${at}`,
+        state: "working",
+        plan: [],
+        costMicros: 0,
+        asks: [],
+        moved: false,
+        model: "m",
+      });
+      spade.lanes.settle(task, "done", "Done.");
+    }
+  });
+  await screen.findByRole("feed", { name: "Conversation with Errands" });
+  await userEvent.click(await screen.findByRole("button", { name: /^Tasks:/ }));
+  // Four that haven't ended, and the twenty that ended last.
+  await waitFor(async () => expect(await rows()).toBe(24));
+  await userEvent.click(screen.getByRole("button", { name: "Show older tasks" }));
+  await waitFor(async () => expect(await rows()).toBe(27));
+  expect(screen.queryByRole("button", { name: "Show older tasks" })).toBeNull();
+});
+
+test("the bot's Stop shows while only its tasks run, and stops every one of them", async () => {
+  const { spade, main } = await errands();
+  // The chat itself is idle; its tasks are not.
+  const stop = await screen.findByRole("button", { name: /^Stop/ });
+  await userEvent.click(stop);
+  await waitFor(() => expect(spade.sent("POST", `/v1/conversations/${main}/stop`)).toHaveLength(1));
+  for (const name of ["invoice", "flights", "quarterly", "domain"])
+    expect(spade.lanes.lane(`${main}-lane-${name}`)?.state).toBe("stopped");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: /^Tasks:/ }).getAttribute("aria-label")).toBe(
+      "Tasks: Tasks",
+    ),
+  );
+  await waitFor(() => expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull());
 });

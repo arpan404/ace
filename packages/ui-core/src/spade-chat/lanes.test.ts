@@ -5,6 +5,7 @@ import {
   spadeLaneDetail,
   spadeLaneLive,
   spadeLaneRowState,
+  spadeLanesHaveOlder,
   spadeLanesNeedYou,
   spadeLanesPillWords,
 } from "./index.ts";
@@ -111,6 +112,12 @@ describe("a bot's task lanes in words", () => {
       "214 files moved",
     );
     expect(spadeLaneRowState(lane({ state: "working", needs_you: true }))).toBe("human");
+  });
+
+  test("older ended tasks may be left out only when a full page of ended ones came back", () => {
+    const ended = [lane({ state: "done" }), lane({ state: "failed" })];
+    expect(spadeLanesHaveOlder([lane({ state: "working" }), ...ended], 2)).toBe(true);
+    expect(spadeLanesHaveOlder([lane({ state: "working" }), ...ended], 20)).toBe(false);
   });
 
   test("its cost reads in dollars, and nothing before it spent any", () => {

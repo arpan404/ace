@@ -1,5 +1,11 @@
-import { spadeAgentTasks, spadeLanesMoved, type SpadeView } from "@ace/ui-core/spade-chat";
-import { useMemo } from "react";
+import {
+  spadeAgentTasks,
+  spadeEndedTasksPage,
+  spadeLanesHaveOlder,
+  spadeLanesMoved,
+  type SpadeView,
+} from "@ace/ui-core/spade-chat";
+import { useMemo, useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useSpadeClient } from "../spade-machine.tsx";
@@ -21,7 +27,9 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
     [view.entries, view.approvals.length],
   );
   const counted = spadeAgentTasks(bot.raw);
-  const listed = useSpadeLanes(bot.conversation, moved + counted, moved > 0 || counted > 0);
+  // Ended tasks come a page at a time; "Show older tasks" asks for the next.
+  const [ended, setEnded] = useState(spadeEndedTasksPage);
+  const listed = useSpadeLanes(bot.conversation, moved + counted, moved > 0 || counted > 0, ended);
   const titles = view.laneTitles;
   return useMemo<LanesHere>(() => {
     // A title the title role gave since the list was read wins (ADR 0217 §2a).
@@ -35,6 +43,10 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
       titleOf: (lane, said) =>
         titles.get(lane) ?? lanes.find((each) => each.task === lane)?.title ?? said,
       open,
+      changed,
+      older: spadeLanesHaveOlder(listed, ended)
+        ? () => setEnded((asked) => asked + spadeEndedTasksPage)
+        : undefined,
       retry: (lane, reply) =>
         retryLane(client, lane, reply).then(
           () => {
@@ -50,5 +62,5 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
     // `open` follows the route; the lanes, their titles and the bot's face are what this
     // changes with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listed, titles, bot.avatar, client]);
+  }, [listed, titles, ended, bot.avatar, client, changed]);
 }

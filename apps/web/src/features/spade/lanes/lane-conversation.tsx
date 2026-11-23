@@ -1,4 +1,4 @@
-import { spadeSentText } from "@ace/ui-core/spade-chat";
+import { spadeEndedTasksPage, spadeLanesHaveOlder, spadeSentText } from "@ace/ui-core/spade-chat";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { panelReveal } from "@/components/ui/rules.ts";
@@ -41,9 +41,12 @@ export function LaneConversation(props: {
   const conversation = useSpadeConversation(task);
   const { view, problem } = conversation;
   const moved = view.entries.length;
-  const lanes = useSpadeLanes(bot.conversation, moved, true);
+  // Its row, even when it ended long ago: the list is read further back until it is found.
+  const [ended, setEnded] = useState(spadeEndedTasksPage);
+  const lanes = useSpadeLanes(bot.conversation, moved, true, ended);
   const changed = useLanesChanged(bot.conversation);
   const lane = lanes.find((each) => each.task === task);
+  if (!lane && ended < 500 && spadeLanesHaveOlder(lanes, ended)) setEnded(500);
   const title = view.laneTitles.get(task) ?? lane?.title ?? "A task";
   const covering = useMediaQuery(coverQuery, false);
   const [panelOpen, setPanelOpen] = useState(!covering);

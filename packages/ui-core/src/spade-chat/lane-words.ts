@@ -84,3 +84,14 @@ export function spadeLanesMoved(
   for (const entry of entries) if (entry.kind === "quiet" && entry.quiet?.kind === "lane") lines++;
   return lines === 0 ? 0 : lines * 1000 + approvals;
 }
+
+/** How many ended tasks the list asks for at first, and how many more each time (ADR 0217). */
+export const spadeEndedTasksPage = 20;
+
+/**
+ * Whether older ended tasks may be left out: Spade lists every task that hasn't ended and the
+ * `asked` that ended last, so a full page of ended ones may have more behind it.
+ */
+export function spadeLanesHaveOlder(lanes: readonly Pick<SpadeLane, "state">[], asked: number) {
+  return lanes.filter((lane) => !spadeLaneLive(lane)).length >= asked;
+}

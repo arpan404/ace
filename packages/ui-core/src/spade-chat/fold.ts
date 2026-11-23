@@ -168,6 +168,15 @@ function countWaiting(state: SpadeConversationState, at: number) {
 
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
   const key = `s${stored.seq}`;
+  // A task that reports anything but waiting on the person no longer waits on its requests here
+  // (ADR 0217 §4): stopped, failed or done, what it asked can't be answered.
+  if (
+    event.type === "worker_reported" &&
+    event.kind === "lane" &&
+    event.state !== "needs_you" &&
+    event.state !== "stopping"
+  )
+    state.approvals = state.approvals.filter((approval) => approval.lane?.task !== event.worker);
   const capability = foldSpadeCapability(
     state.capabilities,
     event,
@@ -645,6 +654,15 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       }
       return state.approvals.length !== before || asked;
     }
+    case "lane_message":
+      steer(state, {
+        kind: "lane-message",
+        key,
+        text: event.text,
+        untrusted: event.untrusted,
+        ...stamp(stored),
+      });
+      return true;
     case "renamed":
       if (state.title === event.title) return false;
       state.title = event.title;

@@ -587,6 +587,12 @@ function RunItem(props: {
           Replied to {item.repliedTo.name}
         </p>
       );
+      // In a task's transcript, the bot's main chat wrote this to the task (ADR 0217).
+      const fromChat = item.fromChat && (
+        <p data-from-chat="" className="ml-1 text-xs leading-4 text-subtle-foreground">
+          From the chat{item.fromChat.untrusted ? " · Untrusted" : ""}
+        </p>
+      );
       if (doc && !words)
         return (
           <div className="flex w-full min-w-0 flex-col items-start gap-(--chat-run-gap)">
@@ -604,6 +610,7 @@ function RunItem(props: {
             {media}
             {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
             {replied}
+            {fromChat}
           </div>
         );
       return (
@@ -669,6 +676,7 @@ function RunItem(props: {
           {words && media}
           {item.files && <FileChips paths={item.files} onOpen={handlers.onOpenFile} />}
           {replied}
+          {fromChat}
         </div>
       );
     }

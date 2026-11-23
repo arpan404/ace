@@ -198,6 +198,18 @@ export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main:
     text: "Got it, dana@northwind.co. Writing the email now.",
     calls: [],
   });
+  // Main's own words to the task (`task_message`): the bot's, never the person's. The second was
+  // written with a web page in view, so it reads as untrusted.
+  host.store(invoice, {
+    type: "lane_message",
+    text: "Dana's team pays on the 1st, so send it before then.",
+    untrusted: false,
+  });
+  host.store(invoice, {
+    type: "lane_message",
+    text: "Northwind's site says invoices also go to their accounts team; copy them in.",
+    untrusted: true,
+  });
 
   lanes.settle(drive, "done", "214 files in six client folders; nothing deleted.");
   answer(

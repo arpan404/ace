@@ -122,6 +122,11 @@ type SpadeBubbleOf =
        * that bot: one quiet line under it says "Replied to Quill".
        */
       repliedTo?: { id: string; name: string };
+      /**
+       * In a task's transcript: the bot's main chat wrote this to the task (ADR 0217), not a
+       * reply of the task's; `untrusted` when untrusted content was in view as it was written.
+       */
+      fromChat?: { untrusted: boolean };
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -371,6 +376,21 @@ export function spadeBubbleStep(
   }
   if (entry.kind === "question") {
     bubbles.push(entry);
+    return;
+  }
+  if (entry.kind === "lane-message") {
+    bubbles.push({
+      kind: "bot",
+      key: entry.key,
+      text: entry.text,
+      live: false,
+      end: undefined,
+      failure: undefined,
+      images: [],
+      documents: [],
+      fromChat: { untrusted: entry.untrusted },
+      ...stamp(entry.at),
+    });
     return;
   }
   if (entry.kind === "job") {

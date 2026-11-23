@@ -230,3 +230,36 @@ describe("a task's question, rename and overlap in main", () => {
     expect(ask?.kind === "ask" && ask.lane?.title).toBe("Draft the quarterly note");
   });
 });
+
+test("a task that stops leaves no request of its waiting in main", () => {
+  const c = main();
+  c.stored({
+    type: "approval_requested",
+    reply: "r-lane",
+    call_id: "l1.k1",
+    name: "send_email",
+    arguments: { to: "dana@northwind.co" },
+    lane: { task: "l1", conversation: "l1", call_id: "k1", title: "Fix the March invoice" },
+  });
+  c.stored(report("l1", "Fix the March invoice", "needs_you"));
+  expect(c.view().approvals).toHaveLength(1);
+  c.stored(report("l1", "Fix the March invoice", "stopped"));
+  expect(c.view().approvals).toEqual([]);
+  expect(c.view().busy).toBe(false);
+});
+
+describe("in a task's own transcript", () => {
+  test("main's words to the task read as the bot's message, never the person's, and say when untrusted", () => {
+    const c = main();
+    c.stored({ type: "user_message", text: "Fix the March invoice" });
+    c.stored({ type: "lane_message", text: "Send it before the 1st.", untrusted: false });
+    c.stored({ type: "lane_message", text: "Copy accounts@ in.", untrusted: true });
+    expect(c.lines()).toEqual([
+      "person",
+      "bot: Send it before the 1st.",
+      "bot: Copy accounts@ in.",
+    ]);
+    const said = c.bubbles().flatMap((bubble) => (bubble.kind === "bot" ? [bubble.fromChat] : []));
+    expect(said).toEqual([{ untrusted: false }, { untrusted: true }]);
+  });
+});
