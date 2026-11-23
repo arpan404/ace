@@ -38,7 +38,8 @@ export class SpadeWorkerWatch {
   private shown: ReadonlySet<string> = new Set();
   /** Workers the list doesn't hold, each read from its own thread. */
   private readonly direct = new Map<string, { lease: Lease; stop: () => void }>();
-  private stopped = false;
+  /** Bumped by every stop, so work queued before it can tell it belongs to a closed conversation. */
+  private lifecycle = 0;
   /** The threads below each worker last read from their own thread, kept while it shows. */
   private readonly below = new Map<string, ReadonlySet<string>>();
   /** What each worker's hints last named below it, kept while the list isn't settled. */
@@ -110,7 +111,7 @@ export class SpadeWorkerWatch {
   }
 
   stop(): void {
-    this.stopped = true;
+    this.lifecycle++;
     this.stopObserving?.();
     this.stopObserving = undefined;
     this.lease?.release();
@@ -132,13 +133,14 @@ export class SpadeWorkerWatch {
     if (this.stopRoom) return;
     const room = this.owner.threadRoom();
     let live = true;
+    const lifecycle = this.lifecycle;
     const off = room.subscribe(() => {
       if (!live) return;
       live = false;
       off();
       this.stopRoom = undefined;
       queueMicrotask(() => {
-        if (this.stopped) return;
+        if (this.lifecycle !== lifecycle) return;
         if (room.getSnapshot() <= 0) return this.waitForRoom();
         this.changed();
       });
@@ -239,7 +241,6 @@ export class SpadeWorkerWatch {
   private store() {
     if (this.lease) return this.lease.store;
     try {
-      this.stopped = false;
       this.lease = this.owner.threads();
     } catch {
       // Offline: the workers read as still at work until the list is back.

@@ -220,8 +220,18 @@ struct InboxView: View {
         }
         .environment(\.otherMachines, otherMachines)
         // The machine's list caught up with the thread Open waited for: it opens now.
-        .onChange(of: awaitedListed) { _, listed in
-            if listed, let awaited = awaitedOpen { openThread(awaited.key); awaited.opened() }
+        .onChange(of: awaitedOutcome) { _, outcome in
+            guard let awaited = awaitedOpen else { return }
+            switch outcome {
+            case .opened: openThread(awaited.key, listed: inbox.client(awaited.key.machineId)?.inbox[awaited.key.id] != nil); awaited.opened()
+            // Gone, or its machine was removed: waiting would never open it.
+            case .missing, .unpaired: awaitedOpen = nil
+            case .waiting, nil: break
+            }
+        }
+        .onChange(of: awaitedLocateFailed) { _, failed in if failed { awaitedOpen = nil } }
+        .onChange(of: awaitedNeedsLocate) { _, key in
+            if let key { inbox.client(key.machineId)?.locate(key.id) }
         }
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -364,10 +374,10 @@ struct InboxView: View {
     /// reported missing.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
-            let client = inbox.client(key.machineId)
-            let result = OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true)
+            inbox.client(key.machineId)?.forgetLocate(key.id)
+            let result = openOutcome(key)
             switch result {
-            case .opened: openThread(key); opened()
+            case .opened: openThread(key, listed: inbox.client(key.machineId)?.inbox[key.id] != nil); opened()
             case .waiting: awaitedOpen = AwaitedOpen(key: key, opened: opened)
             case .unpaired, .missing: break
             }
@@ -377,9 +387,27 @@ struct InboxView: View {
     /// Another machine's thread Open asked for before that machine listed it, and what runs once
     /// it shows (a transfer's sheet closes).
     private struct AwaitedOpen { let key: InboxKey; let opened: @MainActor @Sendable () -> Void }
-    /// Whether the thread Open waits for has reached its machine's list.
-    private var awaitedListed: Bool {
-        awaitedOpen.map { inbox.client($0.key.machineId)?.inbox[$0.key.id] != nil } ?? false
+    /// What Open for `key` comes to now, from its machine's list: freshness, whether it is whole,
+    /// and what reading the thread by its id found when the list has older pages left.
+    private func openOutcome(_ key: InboxKey) -> OpenElsewhere {
+        let client = inbox.client(key.machineId)
+        return OpenElsewhere.of(paired: client != nil, listed: client?.inbox[key.id] != nil, loaded: client?.inboxConfirmed == true,
+                                complete: client?.listComplete ?? true, located: client?.located[key.id])
+    }
+    /// How the Open that waits stands: it opens once the thread shows (or is found by its id), and
+    /// gives up when the machine's live list, whole or read by id, says it is gone.
+    private var awaitedOutcome: OpenElsewhere? { awaitedOpen.map { openOutcome($0.key) } }
+    /// Reading the thread by id failed after trying again: the Open stops waiting (the error says so).
+    private var awaitedLocateFailed: Bool {
+        guard let key = awaitedOpen?.key else { return false }
+        return inbox.client(key.machineId)?.locateFailed.contains(key.id) ?? false
+    }
+    /// The Open that waits needs its thread read by id: its machine's live list has older pages.
+    /// Which thread, so a different target (or the same one asked again) is read in its turn.
+    private var awaitedNeedsLocate: InboxKey? {
+        guard let key = awaitedOpen?.key, let client = inbox.client(key.machineId),
+              client.inboxConfirmed, !client.listComplete, client.inbox[key.id] == nil else { return nil }
+        return key
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the
