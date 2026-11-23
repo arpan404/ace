@@ -427,13 +427,13 @@ pub fn normalize_ace_call(call: &Map, previous: Option<&ToolCall>) -> Map {
 }
 
 /// Approval previews can also echo private input or nested measured actions.
-pub fn redact_ace_approval(request: &mut InteractionRequest) {
+pub fn redact_ace_approval(request: &mut InteractionRequest) -> bool {
     let mcp_server = request_mcp_server(request);
     let InteractionRequest::Approval { target, .. } = request else {
-        return;
+        return false;
     };
     let Some(target) = target else {
-        return;
+        return false;
     };
     let owned = target.origin.as_deref() == Some("ace")
         || target.tool.starts_with("mcp__ace__")
@@ -443,13 +443,13 @@ pub fn redact_ace_approval(request: &mut InteractionRequest) {
     } else {
         None
     }) else {
-        return;
+        return false;
     };
     let Some(input) = target.input.as_ref().and_then(|raw| vetted_json(raw).ok()) else {
-        return;
+        return false;
     };
     if !private_ace_input(&name, &input) {
-        return;
+        return false;
     }
     let redacted = redact_ace_arguments(&name, &input);
     target.input = crate::item_model::vet_json(&redacted).ok();
@@ -461,6 +461,7 @@ pub fn redact_ace_approval(request: &mut InteractionRequest) {
         *title = "Approve computer input".to_owned();
         *description = Some("Input content is redacted.".to_owned());
     }
+    true
 }
 
 fn request_mcp_server(request: &InteractionRequest) -> Option<String> {

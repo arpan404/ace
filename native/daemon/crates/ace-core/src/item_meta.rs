@@ -227,6 +227,7 @@ pub struct ToolResult {
     pub content: Vec<ToolResultContent>,
     #[serde(
         rename = "structuredContent",
+        default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::json_io::deserialize_opt_raw",
         serialize_with = "crate::json_io::serialize_opt_raw"

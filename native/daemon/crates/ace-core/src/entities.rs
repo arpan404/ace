@@ -24,7 +24,19 @@ pub fn open_interaction(
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
-    crate::ace_tools::redact_ace_approval(&mut request);
+    // Redacted approvals replace their raw capture (which echoes the private
+    // input) with a marker, exactly as the TypeScript fold does.
+    let raw = if crate::ace_tools::redact_ace_approval(&mut request) {
+        let mut marker = crate::json_io::Map::new();
+        marker.insert("redacted".to_owned(), crate::json_io::Json::Bool(true));
+        vec![RawPayload::Inline {
+            payload_type: "ace.private-input".to_owned(),
+            name: None,
+            data: ace_json::Raw::from_value(&crate::json_io::Json::Object(marker)),
+        }]
+    } else {
+        raw
+    };
     if get(&state.interactions, interaction_key).is_some_and(|previous| previous.state == "pending")
     {
         return Some(());

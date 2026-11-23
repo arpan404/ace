@@ -254,12 +254,14 @@ pub enum ContentPart {
         #[serde(default)]
         arguments: String,
         #[serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::json_io::deserialize_opt_raw",
             serialize_with = "crate::json_io::serialize_opt_raw"
         )]
         values: Option<ace_json::Raw>,
         #[serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::json_io::deserialize_opt_raw",
             serialize_with = "crate::json_io::serialize_opt_raw"
@@ -352,6 +354,7 @@ pub enum ToolDetail {
         server: String,
         tool: String,
         #[serde(
+            default,
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::json_io::deserialize_opt_raw",
             serialize_with = "crate::json_io::serialize_opt_raw"
