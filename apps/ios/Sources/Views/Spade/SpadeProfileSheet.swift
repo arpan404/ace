@@ -46,6 +46,7 @@ struct SpadeProfileSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .environment(\.spadeProfileScope, SpadeProfileScope(client: client, agent: agent, name: profile?.name ?? name, machine: profile?.details.machine ?? ""))
             .refreshable { await load() }
             .navigationTitle(profile == nil ? name : "")
             .navigationBarTitleDisplayMode(.inline)

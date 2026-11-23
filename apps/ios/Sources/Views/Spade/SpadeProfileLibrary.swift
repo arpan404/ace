@@ -1,13 +1,30 @@
 import SwiftUI
 
-/// Library: what the bot keeps. Spade's own starts with what every bot knows about the person;
-/// then its notes, its pages, the files at the top of its workspace and its skills.
+/// Library: what the bot keeps. A search over all of it at the top; then Spade's own starts
+/// with what every bot knows about the person; then its notes, its pages, its past work, the
+/// files at the top of its workspace and its skills. While something is typed, the matches show
+/// in those groups instead.
 struct SpadeProfileLibrary: View {
     let library: SpadeProfile.Library
     let name: String
     let retry: () -> Void
+    @Environment(\.spadeProfileScope) private var scope
+    @State private var query = ""
 
     var body: some View {
+        if let scope {
+            SpadeLibrarySearchField(query: $query, name: name)
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sections(scope)
+            } else {
+                SpadeLibraryResults(scope: scope, query: query)
+            }
+        } else {
+            sections(nil)
+        }
+    }
+
+    @ViewBuilder private func sections(_ scope: SpadeProfileScope?) -> some View {
         if let about = library.about {
             Section("About you") {
                 SpadeProfileRows(part: about, none: "Nothing about you yet.",
@@ -28,6 +45,7 @@ struct SpadeProfileLibrary: View {
                 Label(page.title, ace: .fileText)
             }
         }
+        if let scope { SpadeLibraryPast(scope: scope) }
         Section("Files") {
             SpadeProfileRows(part: library.files, none: "\(name) hasn't kept any files yet.",
                              failed: "Couldn't read the files.", retry: retry) { file in
