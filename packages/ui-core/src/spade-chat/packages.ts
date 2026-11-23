@@ -153,7 +153,7 @@ const shape = z.object({
 /**
  * Whether a bot is a development bot (ADR 0200 §9): linked to a package with no market
  * signature, a folder on its machine that `ace bot dev` keeps it updated from. It shows
- * "Development" and is never updated or rolled back through the Marketplace.
+ * "Development" and is never updated or rolled back through the Store.
  */
 export const spadeIsDevelopment = (link: SpadePackage | undefined): boolean =>
   link?.source === "local";

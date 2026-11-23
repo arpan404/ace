@@ -73,7 +73,7 @@ export function FirstBotStart(props: { host: SpadeHost | undefined; onNewBot(): 
           onClick={() => openMarket("bots")}
           className="mt-3 self-start rounded-sm px-0.5 text-ui text-muted-foreground focus-ring hover:text-foreground"
         >
-          Get one from the Marketplace
+          Get one from the Store
         </button>
       )}
     </section>

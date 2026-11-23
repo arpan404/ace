@@ -112,10 +112,10 @@ export async function openApp(
 }
 
 /**
- * The Marketplace's page, once it shows: the whole window, since its panel (search, the places,
- * Installed) and its page are both the Marketplace's.
+ * The Store's page, once it shows: the whole window, since its panel (search, the places,
+ * Installed) and its page are both the Store's.
  */
 export async function findMarket(): Promise<HTMLElement> {
-  await screen.findByRole("region", { name: "Marketplace" });
+  await screen.findByRole("region", { name: "Store" });
   return document.body;
 }

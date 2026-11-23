@@ -30,5 +30,5 @@ export function thrownError(thrown: unknown): MarketResult {
   if (thrown instanceof PictureRefused) return marketError("refused", thrown.message);
   if (thrown instanceof MarketHttpError && thrown.status === 404)
     return marketError("not_found", thrown.message);
-  return marketError("failed", thrown instanceof Error ? thrown.message : "The marketplace failed");
+  return marketError("failed", thrown instanceof Error ? thrown.message : "The Store failed");
 }

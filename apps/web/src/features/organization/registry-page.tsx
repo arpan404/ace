@@ -5,7 +5,7 @@ import { useOpenMarket } from "@/lib/open-market.ts";
 
 /**
  * Settings › Organization › Registry (ADR 0206 §5): the organization's private packages, on the
- * Marketplace under its own publisher, seen only by its members. Every version is scanned like
+ * Store under its own publisher, seen only by its members. Every version is scanned like
  * any package and signed with the organization's own key, on a machine its owners choose; ace's
  * servers never hold it.
  */
@@ -21,7 +21,7 @@ export function RegistryPage(props: { org: AceOrgSpace }) {
           inline
         >
           <Button size="sm" variant="ghost" onClick={() => openMarket("installed")}>
-            Open Marketplace
+            Open Store
           </Button>
         </SettingRow>
         <SettingRow

@@ -12,7 +12,7 @@ export interface SuitReport {
   detail: SuitDetail | undefined;
   /** An agent's preview on top of the device setting; undefined when none runs. */
   preview: SuitId | null | undefined;
-  /** A Suit being tried on (the Marketplace's Try it); it wins until the trial ends. */
+  /** A Suit being tried on (the Store's Try it); it wins until the trial ends. */
   trial?: SuitDetail | undefined;
 }
 

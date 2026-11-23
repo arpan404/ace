@@ -35,7 +35,7 @@ interface Library {
   /** Ends the preview on this device, as an agent's revert does: the setting shows again. */
   revertPreview(): void;
   /**
-   * A Suit the person is trying on (the Marketplace's Try it): it shows over the setting and
+   * A Suit the person is trying on (the Store's Try it): it shows over the setting and
    * any agent's preview until `endTrial`. Undefined when none is being tried.
    */
   trial: SuitDetail | undefined;

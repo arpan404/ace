@@ -25,7 +25,7 @@ export const spadeNouns: readonly NounSpec[] = [
 
 const featureArg = {
   name: "FEATURE",
-  summary: "spade or marketplace",
+  summary: "spade or store",
   required: true,
 } as const;
 const botArg = { name: "BOT", summary: "A bot's id or name", required: true, ref: "bot" } as const;

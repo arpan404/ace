@@ -21,7 +21,7 @@ const install = (name: string, extra: Partial<MarketInstalled> = {}): MarketInst
 const answer = (...installed: MarketInstalled[]) => installedAnswer({ op: "installed", installed });
 const only = (item: MarketInstalled) => answer(item).rows[0];
 
-test("two waiting updates lead the list and are counted for the Marketplace entry", () => {
+test("two waiting updates lead the list and are counted for the Store entry", () => {
   const read = answer(
     install("alpha"),
     install("beta", { update: "2.0.0" }),
@@ -115,7 +115,7 @@ test("turning a withdrawn entry back on asks first, with its publisher's reason 
   ).toEqual({
     question: "Turn Digest back on?",
     detail:
-      "Its publisher withdrew it: It leaked mail headers. It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.",
+      "Its publisher withdrew it: It leaked mail headers. It runs again at your own risk, until ace turns it off the next time it reads the Store.",
     confirm: "Turn back on anyway",
   });
   expect(
@@ -131,7 +131,7 @@ test("turning a withdrawn entry back on asks first, with its publisher's reason 
   ).toEqual({
     question: "Resume Inbox?",
     detail:
-      "Its publisher withdrew it without saying why. It runs again at your own risk, until ace turns it off the next time it reads the Marketplace.",
+      "Its publisher withdrew it without saying why. It runs again at your own risk, until ace turns it off the next time it reads the Store.",
     confirm: "Resume anyway",
   });
   expect(only(install("notes", { state: "off" }))?.turnOnAsk).toBeNull();
@@ -142,7 +142,7 @@ test("Remove asks first, naming what goes", () => {
   expect(only(install("inbox", { type: "spade-bot", title: "Inbox", target: "b" }))).toMatchObject({
     removeQuestion: "Remove Inbox from Installed?",
     removeDetail:
-      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the Marketplace.",
+      "Inbox and the skills and plugins it brought stay yours. It stops getting updates from the Store.",
   });
   expect(only(install("harbour", { type: "suit", title: "Harbour dusk" }))).toMatchObject({
     removeQuestion: "Remove Harbour dusk?",
@@ -172,7 +172,7 @@ test("with nothing waiting the list says it's up to date, and empty says what sh
   });
   expect(answer()).toMatchObject({
     upToDate: null,
-    empty: "What you get from the Marketplace shows here.",
+    empty: "What you get from the Store shows here.",
   });
 });
 
@@ -216,7 +216,7 @@ test("turning a withdrawn entry back on and removing another change what Install
   expect(read.rows).toEqual([expect.objectContaining({ name: "digest", off: false, notes: [] })]);
 });
 
-test("the Marketplace's update count skips an update held for its bot's turn", async () => {
+test("the Store's update count skips an update held for its bot's turn", async () => {
   const { daemon, client } = sheetFixture();
   daemon.seedServices({
     marketplace: {

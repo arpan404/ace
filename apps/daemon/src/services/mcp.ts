@@ -167,7 +167,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         async request(caller, operation) {
           const market = services.marketAgent;
           if (!market)
-            return { op: "error", code: "unavailable", message: "The marketplace isn't ready yet" };
+            return { op: "error", code: "unavailable", message: "The Store isn't ready yet" };
           return market.forAgent(caller.threadId, operation);
         },
       }),
