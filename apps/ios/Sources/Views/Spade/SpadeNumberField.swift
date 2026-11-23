@@ -64,11 +64,17 @@ struct SpadeNumberField: UIViewRepresentable {
         var draft: Binding<SpadeQuestionCard.Draft>
         /// The edit the field is about to make, as it reported it, until the text changes.
         private var pending: (range: NSRange, string: String, language: String?)?
+        /// The language of the keyboard an edit is typed on (`UITextInputMode.primaryLanguage`).
+        private let language: (UITextField) -> String?
 
-        init(draft: Binding<SpadeQuestionCard.Draft>) { self.draft = draft }
+        init(draft: Binding<SpadeQuestionCard.Draft>,
+             language: @escaping (UITextField) -> String? = { $0.textInputMode?.primaryLanguage }) {
+            self.draft = draft
+            self.language = language
+        }
 
         func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-            pending = (range, string, field.textInputMode?.primaryLanguage)
+            pending = (range, string, language(field))
             return true
         }
 

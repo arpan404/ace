@@ -1,4 +1,6 @@
 import Foundation
+import SwiftUI
+import UIKit
 import Testing
 @testable import Ace
 
@@ -136,5 +138,51 @@ private extension SpadeQuestionCard.Draft {
     func replacingAll(with string: String, on language: String?) -> Self {
         guard case let .number(typed, _, _) = self else { return self }
         return editingNumber(replacing: NSRange(location: 0, length: typed.utf16.count), with: string, on: language)
+    }
+}
+
+/// The number field as UIKit drives it: each edit's range reported first, then the text changed.
+@MainActor @Suite struct SpadeNumberFieldTests {
+    /// The draft the field edits, kept where a binding can reach it.
+    final class Box { var draft = SpadeQuestionCard.Draft.number("", language: nil) }
+
+    private func field(_ box: Box, on keyboard: @escaping () -> String?) -> (UITextField, SpadeNumberField.Coordinator) {
+        let coordinator = SpadeNumberField.Coordinator(draft: Binding(get: { box.draft }, set: { box.draft = $0 }),
+                                                       language: { _ in keyboard() })
+        let field = UITextField()
+        field.delegate = coordinator
+        return (field, coordinator)
+    }
+
+    /// What UIKit does for one edit: asks the delegate, applies it, then sends `.editingChanged`.
+    private func edit(_ field: UITextField, _ coordinator: SpadeNumberField.Coordinator, replacing range: NSRange, with string: String) {
+        let old = (field.text ?? "") as NSString
+        guard coordinator.textField(field, shouldChangeCharactersIn: range, replacementString: string) else { return }
+        field.text = old.replacingCharacters(in: range, with: string)
+        coordinator.changed(field)
+    }
+
+    @Test func aPasteOverTheWholeNumberOnAGermanKeyboardIsReadOnThatKeyboard() {
+        let box = Box()
+        var keyboard: String?
+        let (field, coordinator) = self.field(box) { keyboard }
+        for (at, character) in "1,2".enumerated() {
+            edit(field, coordinator, replacing: NSRange(location: at, length: 0), with: String(character))
+        }
+        keyboard = "de-DE"
+        edit(field, coordinator, replacing: NSRange(location: 0, length: 3), with: "1,5")
+        #expect(box.draft.payload["text"] as? String == "1.5")
+        #expect(box.draft.payload["unread"] == nil)
+    }
+
+    @Test func aChangeTheFieldDidNotReportIsNeverReadOnOneKeyboard() {
+        let box = Box()
+        let (field, coordinator) = self.field(box) { "de-DE" }
+        edit(field, coordinator, replacing: NSRange(location: 0, length: 0), with: "1,5")
+        // Undo puts other text back without asking the delegate first.
+        field.text = "1,25"
+        coordinator.changed(field)
+        #expect(box.draft.payload["unread"] as? Bool == true)
+        #expect(box.draft.payload["text"] as? String == "1,25")
     }
 }
