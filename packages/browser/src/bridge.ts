@@ -177,7 +177,8 @@ export function connectBrowser(
         const recovering = service.videoRecovering(threadId, options.connectionId);
         if (recovering === (entry.recovering ?? false)) return;
         entry.recovering = recovering;
-        if (entry.grant) delivered(threadId, notice(threadId, entry));
+        // Any bound view hears it, before its first grant too.
+        if (entry.views.size > 0) delivered(threadId, notice(threadId, entry));
       },
       (event) => options.send(event),
       capture,
@@ -243,9 +244,18 @@ export function connectBrowser(
   };
   /** What this connection's view of the thread says now: ace-media's word, then the encoder's. */
   const notice = (threadId: string, entry: Subscription) => {
-    const grant = entry.grant;
+    // ace-media's last word on the view, or before its first one, what the port holds now.
+    const view = entry.views.values().next().value;
+    const port = options.media?.delivery();
+    const grant =
+      entry.grant ??
+      (view !== undefined && port
+        ? { granted: port.granted(view), why: port.why(view) }
+        : undefined);
     const undelivered = grant?.granted ? undefined : waiting(threadId, grant?.why);
-    return videoNotice(undelivered, service.videoRecovering(threadId, options.connectionId));
+    // What the view was told, so a state push tells it again only when this changes.
+    entry.recovering = service.videoRecovering(threadId, options.connectionId);
+    return videoNotice(undelivered, entry.recovering);
   };
   /** Why the thread's granted view gets no pictures yet: ace-media's `why`, else its source's. */
   const waiting = (threadId: string, why: string | undefined) => {
@@ -599,9 +609,14 @@ export function connectBrowser(
               const poster = await port?.poster(joined.viewer);
               // Bound, but not played yet (its tab isn't streaming into ace-media, or ace-media
               // refused the view): the reply and the view say why until the grant comes.
-              const undelivered = port?.granted(joined.viewer)
-                ? undefined
-                : waiting(threadId, port?.why(joined.viewer));
+              const bound = subscriptions.get(threadId);
+              // One reckoning for the reply and every change after: ace-media's word on the
+              // view, then the encoder's recovery.
+              const undelivered = bound
+                ? notice(threadId, bound)
+                : port?.granted(joined.viewer)
+                  ? undefined
+                  : waiting(threadId, port?.why(joined.viewer));
               if (!closed)
                 options.send({
                   type: "browser.result",

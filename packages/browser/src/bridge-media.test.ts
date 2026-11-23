@@ -507,3 +507,59 @@ test("a second subscriber naming a connection the daemon has since lost is refus
   expect(failures).toEqual([expect.stringMatching(/^media-connection-gone:/)]);
   client.close();
 });
+
+test("a view bound before any grant, whose every codec failed, hears the encoder is recovering in its reply and when that changes", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  let recovering = true;
+  /** Pushes the thread's state to this connection, as the service does on every change. */
+  let push: (() => void) | undefined;
+  const service = Object.assign(Object.create(t.service) as typeof t.service, {
+    videoRecovering: () => recovering,
+    subscribe: (...args: Parameters<typeof t.service.subscribe>) => {
+      const onState = args[3];
+      push = () => onState(t.service.state("thread"));
+      return t.service.subscribe(...args);
+    },
+  });
+  const client = connectBrowser(service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    // ace-media holds the view but hasn't played it: no grant event comes while it can't.
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "live" }),
+    },
+  });
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const reply = results.find(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.result",
+  );
+  expect(reply).toMatchObject({ ok: true, undelivered: { code: "recovering" } });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  // The encoder runs again: the view says what ace-media says, starting.
+  recovering = false;
+  push?.();
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  client.close();
+});
