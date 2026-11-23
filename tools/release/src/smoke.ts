@@ -17,6 +17,8 @@ import { verifyDesktopNatives } from "./native-smoke.ts";
 import { hashFile, verifyManifest, unpackArchive } from "@ace/service";
 import { z } from "zod";
 import { smokeOptions } from "./smoke-options.ts";
+import { shippedExecutableName, type AceProcess } from "@ace/service/process-names";
+import { targetPlatform } from "./rust-binary.ts";
 import { ScreenHelperIdentity } from "./screen-identity.ts";
 const options = smokeOptions(process.argv.slice(2));
 const artifact = resolve(options.root);
@@ -27,8 +29,9 @@ const manifest = InstalledRelease.parse(
 if (manifest.target !== `${process.platform}-${process.arch}`)
   throw new Error("Smoke check requires the target host");
 /** A native executable's path inside the bundle, as the checksum list and bundle layout name it. */
-const nativePath = (folder: string, name: string) =>
-  manifest.target.startsWith("win32-") ? `${folder}/${name}.exe` : `${folder}/${name}`;
+// The archive's paths always use `/`; `name` is the process's shipped one.
+const nativePath = (folder: string, name: AceProcess) =>
+  `${folder}/${shippedExecutableName(name, targetPlatform(manifest.target))}`;
 // Release mode authenticates the archive before executing any packaged binary.
 if (options.manifestPath && options.keyPath) {
   const { manifestPath, keyPath } = options;
@@ -49,9 +52,9 @@ if (options.manifestPath && options.keyPath) {
     await unpackArchive(archive, join(extracted, "release"));
     for (const path of [
       "files.json",
-      nativePath("media", "ace-media"),
-      nativePath("files", "ace-files"),
-      nativePath("history", "ace-history"),
+      nativePath("media", "media"),
+      nativePath("files", "files"),
+      nativePath("history", "history"),
     ])
       if (
         (await hashFile(join(extracted, "release", path))) !==
@@ -68,9 +71,9 @@ if (!options.manifestPath)
 const files = z
   .object({ checksums: z.record(z.string(), z.string()) })
   .parse(JSON.parse(await readFile(join(artifact, "files.json"), "utf8")));
-const mediaPath = nativePath("media", "ace-media");
-const filesPath = nativePath("files", "ace-files");
-const historyPath = nativePath("history", "ace-history");
+const mediaPath = nativePath("media", "media");
+const filesPath = nativePath("files", "files");
+const historyPath = nativePath("history", "history");
 if (!files.checksums[mediaPath]) throw new Error("Packaged ace-media checksum is missing");
 if (!files.checksums[filesPath]) throw new Error("Packaged ace-files checksum is missing");
 if (!files.checksums[historyPath]) throw new Error("Packaged ace-history checksum is missing");

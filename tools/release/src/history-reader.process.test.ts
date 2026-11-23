@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { shippedExecutableName } from "@ace/service/process-names";
 import { copyFile, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -56,7 +57,8 @@ try {
       const built = process.env.ACE_HISTORY_PATH;
       if (!built) throw new Error("The process tests' setup builds ace-history; it is missing");
       await mkdir(join(root, "history"));
-      await copyFile(built, join(root, "history", "ace-history"));
+      const shipped = join(root, "history", shippedExecutableName("history", process.platform));
+      await copyFile(built, shipped);
       const result = await promisify(execFile)(process.execPath, [join(root, "ace.mjs")], {
         cwd: root,
         timeout: 60_000,
@@ -65,7 +67,7 @@ try {
       const report = JSON.parse(result.stdout.trim().split("\n").at(-1) ?? "{}");
       expect(report.titles).toEqual(["packaged prompt"]);
       // The ace-history the package carries, not a development build, runs as its child.
-      expect(report.reader).toContain(join(root, "history", "ace-history"));
+      expect(report.reader).toContain(shipped);
       // The watchdog's sampler works in the package, which carries no koffi: it is bun:ffi.
       expect(report.resident).toBeGreaterThan(1024 * 1024);
       const shipped = await readdir(root, { recursive: true });
