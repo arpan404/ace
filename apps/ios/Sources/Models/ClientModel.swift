@@ -250,6 +250,8 @@ import QuartzCore
     /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
     /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
     var inboxConfirmed: Bool { inboxLoaded && listFresh && connection == "ready" }
+    /// An explicit Open starts over: what an earlier read by id found or failed at no longer stands.
+    func forgetLocate(_ id: String) { located[id] = nil; locateFailed.remove(id) }
     /// Asks the bridge to read a thread by its id, once; the answer lands in `located`.
     func locate(_ id: String) {
         guard located[id] == nil, !locateFailed.contains(id) else { return }

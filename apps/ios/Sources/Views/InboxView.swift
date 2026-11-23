@@ -230,8 +230,8 @@ struct InboxView: View {
             }
         }
         .onChange(of: awaitedLocateFailed) { _, failed in if failed { awaitedOpen = nil } }
-        .onChange(of: awaitedNeedsLocate) { _, needs in
-            if needs, let key = awaitedOpen?.key { inbox.client(key.machineId)?.locate(key.id) }
+        .onChange(of: awaitedNeedsLocate) { _, key in
+            if let key { inbox.client(key.machineId)?.locate(key.id) }
         }
         .sensoryFeedback(.success, trigger: settles)
         // Bulk actions, deletes, moves and Mark unread confirm with the same tap.
@@ -374,6 +374,7 @@ struct InboxView: View {
     /// reported missing.
     private var otherMachines: OtherMachines {
         OtherMachines(client: { inbox.client($0) }, name: { inbox.name($0) }, open: { key, opened in
+            inbox.client(key.machineId)?.forgetLocate(key.id)
             let result = openOutcome(key)
             switch result {
             case .opened: openThread(key, listed: inbox.client(key.machineId)?.inbox[key.id] != nil); opened()
@@ -402,9 +403,11 @@ struct InboxView: View {
         return inbox.client(key.machineId)?.locateFailed.contains(key.id) ?? false
     }
     /// The Open that waits needs its thread read by id: its machine's live list has older pages.
-    private var awaitedNeedsLocate: Bool {
-        guard let key = awaitedOpen?.key, let client = inbox.client(key.machineId) else { return false }
-        return client.inboxConfirmed && !client.listComplete && client.inbox[key.id] == nil
+    /// Which thread, so a different target (or the same one asked again) is read in its turn.
+    private var awaitedNeedsLocate: InboxKey? {
+        guard let key = awaitedOpen?.key, let client = inbox.client(key.machineId),
+              client.inboxConfirmed, !client.listComplete, client.inbox[key.id] == nil else { return nil }
+        return key
     }
 
     /// The thread to reopen is known to its machine. A machine that never lists it again (the

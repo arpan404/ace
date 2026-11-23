@@ -292,6 +292,8 @@ export function followInbox(
     if (!shown && !store.loaded) return;
     // The first list the phone sees replaces what it kept, whatever changed to bring it.
     const keys = shown ? changed : "all";
+    // A row joining is queued now, so freshness is queued again behind it.
+    let joined = false;
     shown = true;
     const nowUnconfirmed = store.unconfirmed === true;
     const nowFresh = isConfirmed(store, online());
@@ -317,13 +319,18 @@ export function followInbox(
       if (keys.has("ids")) {
         const now = new Set(store.ids);
         for (const id of listed) if (!now.has(id)) gone(id);
-        if (!flipped) for (const id of now) if (!listed.has(id)) row(id);
+        if (!flipped)
+          for (const id of now)
+            if (!listed.has(id)) {
+              row(id);
+              joined = true;
+            }
         listed = now;
       }
       if (flipped) for (const id of store.ids) row(id);
       else for (const key of keys) if (key.startsWith("thread:")) row(key.slice(7));
     }
-    putFresh(keys === "all");
+    putFresh(keys === "all" || joined);
     sections();
   };
   /**
@@ -346,8 +353,12 @@ export function followInbox(
     const key = `${now.confirmed}:${now.complete}`;
     if (!force && key === sentFresh) return;
     sentFresh = key;
-    // Read as it is sent, so a patch coalesced behind a later change is never older than it.
-    pump.put("inbox-fresh", () => ({ type: "inbox.fresh", ...freshness() }));
+    // Freshness describes the rows before it, so it goes after them: a task keeps its place in
+    // the queue when put again, so it is taken out and put last, behind every row queued so far
+    // and (as an inbox patch) behind the reset that replaces them. Read as it is sent, so a
+    // patch coalesced behind a later change is never older than it.
+    pump.clear("inbox:fresh");
+    pump.put("inbox:fresh", () => ({ type: "inbox.fresh", ...freshness() }));
   };
   const stops = [
     accounts.stop,
@@ -459,9 +470,15 @@ async function readOnce(
   let stop: (() => void) | undefined;
   const found = await new Promise<boolean | undefined>((resolve) => {
     const read = () => {
-      // Only the daemon's own refusal says the thread is gone; no room, a dropped connection or a
-      // timeout say nothing about it.
-      if (store.error) return resolve(store.error.code === "daemon" ? false : undefined);
+      // Only the daemon saying the thread is unknown says it is gone. Any other refusal (a full
+      // subscription table, no room, a dropped connection, a timeout) says nothing about it.
+      if (store.error) {
+        // The daemon answers an unknown thread `subscribe_failed`; the fake daemon `not_found`.
+        const unknown =
+          store.error.code === "daemon" &&
+          (store.error.message === "subscribe_failed" || store.error.message === "not_found");
+        return resolve(unknown ? false : undefined);
+      }
       if (!store.syncing && !store.unconfirmed && store.thread) return resolve(true);
     };
     stop = store.observe(read);

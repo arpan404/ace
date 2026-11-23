@@ -247,19 +247,47 @@ describe("inbox freshness for opening another machine's thread", () => {
     closers.push(followInbox(client, "mac", sink, new TestClock()));
     await client.start();
     await until(
-      () => (sink.read("inbox-fresh") as Patch | undefined)?.confirmed === true,
+      () => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === true,
       "empty list confirmed",
     );
-    expect(sink.read("inbox-fresh")).toEqual({
+    expect(sink.read("inbox:fresh")).toEqual({
       type: "inbox.fresh",
       confirmed: true,
       complete: true,
     });
     daemon.disconnectAll();
     await until(
-      () => (sink.read("inbox-fresh") as Patch | undefined)?.confirmed === false,
+      () => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === false,
       "connection lost",
     );
+  });
+
+  test("freshness is queued after the rows it describes, also after a reset replaces them", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    finished(daemon, "first", "First");
+    await client.start();
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    const behindRows = () => {
+      const keys = [...sink.readers.keys()];
+      const fresh = keys.indexOf("inbox:fresh");
+      const rows = keys.filter((key) => key.startsWith("inbox:") && key !== "inbox:fresh");
+      return (
+        fresh > -1 &&
+        rows.filter((key) => key !== "inbox:sections").every((key) => keys.indexOf(key) < fresh)
+      );
+    };
+    await until(() => behindRows() && sink.read("inbox:first") !== undefined, "first list");
+    // A thread joining after freshness was queued lands behind it in the queue unless it moves.
+    finished(daemon, "late", "Late");
+    await until(() => sink.read("inbox:late") !== undefined, "late row");
+    expect(behindRows()).toBe(true);
+    // A new list replaces every queued row; freshness is queued again behind them.
+    daemon.disconnectAll();
+    await until(() => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === false, "lost");
+    await until(() => (sink.read("inbox:fresh") as Patch | undefined)?.confirmed === true, "back");
+    expect(behindRows()).toBe(true);
   });
 
   test("the home list's pages decide completeness, even while the archive filter is on", async () => {
@@ -275,7 +303,7 @@ describe("inbox freshness for opening another machine's thread", () => {
       await client.command({ type: "thread.settle", threadId: ThreadId.parse(`t-${i}`) });
     const sink = new RecordingSink();
     closers.push(followInbox(client, "mac", sink, new TestClock()));
-    const complete = () => (sink.read("inbox-fresh") as Patch | undefined)?.complete;
+    const complete = () => (sink.read("inbox:fresh") as Patch | undefined)?.complete;
     await until(() => complete() === false, "older pages left");
     // The archive is short: its own window is whole, but the home list still has pages.
     await client.threadsWindow({ archived: true });
