@@ -74,6 +74,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "outputPath",
     "wakesAgent",
     "blocksPrompts",
+    "endsWithSession",
     "raw",
   ],
   "background.listening": ["task", "ports"],
@@ -337,6 +338,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         optionalString(fact.outputPath) &&
         (fact.wakesAgent === undefined || fact.wakesAgent === false) &&
         (fact.blocksPrompts === undefined || fact.blocksPrompts === true) &&
+        (fact.endsWithSession === undefined || fact.endsWithSession === true) &&
         (fact.raw === undefined || validData(raw, fact.raw))
       );
     case "background.listening":

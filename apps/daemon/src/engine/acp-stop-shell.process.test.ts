@@ -280,3 +280,20 @@ test("a message sent beside an Antigravity shell left running after its reply re
   expect(h.engine.queue(id).lastFailure).toBeNull();
   expect(sessions.map((session) => session.closed)).toEqual([false]);
 });
+
+test("a Stop over a shell Antigravity left running ends it with the session at once", async () => {
+  const { h, id, sessions, running, send } = await antigravity("antigravity-shell");
+  await expect.poll(() => h.store.getThread(id)?.status.state).toBe("done");
+  expect(Object.values(h.store.snapshotThread(id).backgroundTasks)).toMatchObject([
+    { status: "running", endsWithSession: true },
+  ]);
+  expect(h.command({ type: "thread.interrupt", threadId: id, cascade: true }).ok).toBe(true);
+  await h.engine.flush();
+  // No grace: nothing would report the shell ending by itself. The clock never moves here.
+  await expect.poll(() => sessions[0]?.closed).toBe(true);
+  await expect.poll(() => running().length).toBe(0);
+  expect(send("next")).toBe(true);
+  await h.engine.flush();
+  await expect.poll(() => sessions[1]?.prompts).toEqual(["next"]);
+  expect(h.engine.queue(id).lastFailure).toBeNull();
+});
