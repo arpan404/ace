@@ -37,7 +37,12 @@ pub fn apply(
         Ok(fact) => {
             let mut emitted = Vec::new();
             fold_inner(state, &fact, ctx, &mut emitted)?;
-            recompute_statuses(state, now, &mut emitted);
+            // `item.delta` returns early in the TypeScript fold (conditional
+            // recompute only, no `finish`): skip the unconditional derivation
+            // here, or root deltas re-derive silent children.
+            if !matches!(&fact, Fact::ItemDelta { .. }) {
+                recompute_statuses(state, now, &mut emitted);
+            }
             events.extend(emitted);
             Some(())
         }
@@ -113,11 +118,15 @@ impl FactBatch {
             };
         let mut emitted = Vec::new();
         fold_inner(state, &fact, ctx, &mut emitted)?;
+        // `item.delta` never takes the batch's deferred derivation in the
+        // TypeScript fold (it returns before `finish`): the conditional
+        // recompute inside `fold_inner` is the only one.
+        let is_delta = matches!(&fact, Fact::ItemDelta { .. });
         if stable_signal && emitted.is_empty() {
             state.status_observed_at = Some(now);
         } else if batchable {
             self.pending_at = Some(now);
-        } else {
+        } else if !is_delta {
             recompute_statuses(state, now, &mut emitted);
         }
         // Any non-signal control fact invalidates the cached eligibility
