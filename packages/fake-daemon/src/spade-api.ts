@@ -129,6 +129,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   liveModels = new Map<string, Json[] | number>();
   /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
   files = new Map<string, Record<string, string>>();
+  /** Workspace paths read with no revision, as Spade reads a file past the size it takes one of. */
+  readonly unrevised = new Set<string>();
   /** Empty folders made in each agent's workspace, by agent id. */
   folders = new Map<string, Set<string>>();
   /** Each bot's computer: driver, surfaces, terminal and file writes. */
@@ -1049,7 +1051,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         size: text.length,
         text,
         unreadable: null,
-        revision: fakeFileRevision(text),
+        revision: this.unrevised.has(path) ? null : fakeFileRevision(text),
       });
     }
     const prefix = path ? `${path}/` : "";

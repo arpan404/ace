@@ -172,6 +172,9 @@ export const spadeComputerRequests = spadeRequestArea(
       case "spade.files.revision":
         try {
           const file = await readFileRow(ask, request.agentId, request.path);
+          // Without a revision a change can't name what the person saw, and would land on
+          // whatever is there by then: it isn't offered.
+          if (file.revision === null) return uncheckable(file.path);
           return { ok: true as const, revision: file.revision };
         } catch (error) {
           return gone(error)
@@ -220,6 +223,13 @@ export const spadeComputerRequests = spadeRequestArea(
     }
   },
 );
+
+/** A file Spade gives no revision of (past the 32 MB it takes one of). */
+const uncheckable = (where: string): SpadeRefusal => ({
+  ok: false,
+  title: "Spade can't check this file",
+  message: `${where.split("/").at(-1) ?? where} is too large for Spade to tell whether it changed, so it can't be changed from the phone.`,
+});
 
 async function outcome(
   title: string,
@@ -270,18 +280,23 @@ async function upload(
       message: `${file.name} is larger than 32 MB, the most Spade takes.`,
     };
   const target = request.folder ? `${request.folder}/${file.name}` : file.name;
-  let opened: string | undefined;
+  // Replacing a file names its revision; a new one goes only while nothing is there, so a file
+  // the bot makes after this check is never overwritten.
+  let expect: { base: string } | { if_absent: true };
   try {
-    opened = (await readFileRow(ask, request.agentId, target)).revision ?? undefined;
+    const there = await readFileRow(ask, request.agentId, target);
+    if (there.revision === null) return { ...uncheckable(target), title };
+    expect = { base: there.revision };
   } catch (error) {
     if (!gone(error)) return spadeRefused("Couldn't check the file. Try again.", error);
+    expect = { if_absent: true };
   }
   try {
     const data = await readStaged(deps.chunks, file, signal);
     await ask(
       "POST",
       `${agentPath(request.agentId)}/files/upload`,
-      { path: target, data_b64: data, ...(opened ? { base: opened } : {}) },
+      { path: target, data_b64: data, ...expect },
       spadeUploadMs(data.length),
     );
     return { ok: true };

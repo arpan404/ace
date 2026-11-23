@@ -14,6 +14,7 @@ struct SpadeComputerFiles: View {
     let watch: SpadeComputerWatch
     let name: String
     let face: SpadeModel.Face
+    @Environment(\.scenePhase) private var scene
     @State private var path = ""
     @State private var folder: SpadeFolder?
     @State private var problem: String?
@@ -32,7 +33,7 @@ struct SpadeComputerFiles: View {
     private struct Renaming { let entry: SpadeFileEntry; let revision: String?; var to: String }
     private struct Deleting { let entry: SpadeFileEntry; let revision: String? }
 
-    private var mayAct: Bool { watch.mayAct(model) }
+    private var mayAct: Bool { scene == .active && watch.mayAct(model) }
 
     var body: some View {
         List {
@@ -245,8 +246,10 @@ struct SpadeComputerFiles: View {
         guard !entry.isFolder else { return (nil, true) }
         let reply = await model.spadeComputer(["type": "spade.files.revision", "agentId": watch.agent, "path": entry.path],
                                               failing: "Couldn't check the file. Try again.")
-        if reply.ok { return (reply.revision, true) }
-        alert = reply.problem
+        // A file's change always names its revision: without one it would land on whatever is
+        // there by the time it goes.
+        if reply.ok, let revision = reply.revision { return (revision, true) }
+        alert = reply.problem ?? "Couldn't check the file. Try again."
         if reply.gone == true { await load() }
         return (nil, false)
     }
