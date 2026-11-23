@@ -14,6 +14,7 @@ import {
 import { spadeConversationRequests } from "./spade-requests-conversation.ts";
 import { spadeGroupRequests } from "./spade-requests-groups.ts";
 import { spadeProfileRequests } from "./spade-requests-profile.ts";
+import { spadeProfileDetailRequests } from "./spade-requests-profile-details.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on, one area per module
@@ -33,6 +34,7 @@ export const spadeRequestAreas = [
   spadeRequestArea(spadeNewBotRequests, ({ spade, ask }, request) =>
     answerSpadeNewBot(spade, request, ask),
   ),
+  spadeProfileDetailRequests,
 ] as const;
 
 /** Every area's request schemas, in table order, as one tuple. */
