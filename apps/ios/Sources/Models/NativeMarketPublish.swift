@@ -205,10 +205,10 @@ struct MarketManagedListing: Decodable, Equatable {
     let withdrawable: Bool
     let signals: Signals?
 }
-struct MarketManagedAnswer: Decodable {
-    let listing: MarketManagedListing
-    /// After a withdrawal: what it did, in a sentence.
-    let message: String?
+struct MarketManagedAnswer: Decodable { let listing: MarketManagedListing }
+struct MarketWithdrawAnswer: Decodable {
+    let listing: MarketManagedListing?
+    let message: String
 }
 struct MarketProfileAnswer: Decodable { let profile: MarketPublisherProfile }
 
