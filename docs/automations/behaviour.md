@@ -3,7 +3,7 @@
 The contract of `@ace/automations` (the scheduler, triggers, durable runs and webhooks) and of
 the daemon's automation executor and run monitor (`apps/daemon/src/automation-*.ts`). Written
 against `ace/daemon-rust-rewrite` at 42386d3751.
-[ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md) decides
+[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) decides
 what moves to Rust; [porting-guide.md](porting-guide.md) says how. Product contract:
 [ADR 0015](../adr/0015-automations.md) and [ADR 0173](../adr/0173-automation-webhooks-through-ace-cloud.md);
 `packages/automations/README.md` describes the calendar and GitHub rules in prose and

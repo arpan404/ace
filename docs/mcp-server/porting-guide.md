@@ -2,7 +2,7 @@
 
 For builders who move a tool family's owner to Rust (ADR 0225, M1), and for every builder whose
 switch touches the MCP endpoint. Read
-[ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md) and
+[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
 [behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
 every test file by class. The engine's [porting guide](../engine/porting-guide.md) sets the rules
 for daemon crates; where this guide is silent, follow it.

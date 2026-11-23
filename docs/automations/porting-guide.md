@@ -1,7 +1,7 @@
 # Porting automations work to Rust
 
 For the builder who moves the automation run executor and monitor to Rust (ADR 0225, A1). Read
-[ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md) and
+[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
 [behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
 every test file by class. The engine's [porting guide](../engine/porting-guide.md) sets the rules
 for daemon crates; where this guide is silent, follow it.

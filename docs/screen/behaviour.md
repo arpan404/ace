@@ -2,7 +2,7 @@
 
 The contract of `@ace/screen`: the person's live view and takeover of Mac, Windows and Linux
 windows and Simulators, and agent computer use. Written against `ace/daemon-rust-rewrite` at
-42386d3751. [ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md)
+42386d3751. [ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md)
 decides what moves to Rust; [porting-guide.md](porting-guide.md) says how. Product contract:
 [ADR 0011](../adr/0011-screen-and-computer-use.md), [0048](../adr/0048-windows-screen-helper.md),
 [0049](../adr/0049-linux-screen-helper.md), [0067](../adr/0067-background-computer-use.md),

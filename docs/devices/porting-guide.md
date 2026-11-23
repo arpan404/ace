@@ -1,7 +1,7 @@
 # Porting devices work to Rust
 
 For the builder who moves Android's live video into ace-media. Read
-[ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md) and
+[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
 [behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
 every test file by class. The engine's [porting guide](../engine/porting-guide.md) sets the rules
 for daemon crates; ace-media's own rules are in [docs/media/plan.md](../media/plan.md) and

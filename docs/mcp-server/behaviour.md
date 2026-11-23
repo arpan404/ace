@@ -3,7 +3,7 @@
 The contract of `@ace/mcp-server`: the MCP endpoint agents call (tool listing, calls, budgets,
 leases, guidance) and the injection helpers adapters use to hand it to provider CLIs. Written
 against `ace/daemon-rust-rewrite` at 42386d3751.
-[ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md) decides
+[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) decides
 what moves to Rust; [porting-guide.md](porting-guide.md) says how. Product contract:
 [ADR 0010](../adr/0010-ace-mcp-server.md), [0078](../adr/0078-multi-device-mcp.md),
 [0086](../adr/0086-agent-facing-mcp-tools.md), [0122](../adr/0122-outside-mcp-clients.md), and

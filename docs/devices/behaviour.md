@@ -2,7 +2,7 @@
 
 The contract of `@ace/devices` (iOS Simulators, Android emulators and phones) that any
 reimplementation must keep. It is written for builders, against the code on
-`ace/daemon-rust-rewrite` at 42386d3751. [ADR 0225](../adr/0225-device-screen-automation-and-mcp-control-planes-stay-typescript.md)
+`ace/daemon-rust-rewrite` at 42386d3751. [ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md)
 decides what moves to Rust; [porting-guide.md](porting-guide.md) says how. The product contract
 is [ADR 0064](../adr/0064-in-app-devices.md), [ADR 0104](../adr/0104-browser-tab-device-ownership.md),
 [ADR 0115](../adr/0115-one-device-one-machine.md), [ADR 0143](../adr/0143-cowork-computer-use.md)
