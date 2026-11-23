@@ -15,7 +15,7 @@ struct SpadeGroupNewSheet: View {
     let made: (SpadeRoute) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
-    @State private var picked: Set<String> = []
+    @State private var picked: [String] = []
     @State private var asked: String?
     @State private var making = false
     @State private var problem: String?
@@ -47,7 +47,7 @@ struct SpadeGroupNewSheet: View {
                     .padding(.vertical, AceDesign.Space.related)
                 }
                 Section {
-                    ForEach(SpadeGroupDraft.shown(choices, query: query, picked: picked)) { memberRow($0) }
+                    ForEach(SpadeGroupDraft.shown(choices, query: query, picked: Set(picked))) { memberRow($0) }
                 } header: {
                     InsetHeader("Members")
                 } footer: {
@@ -93,7 +93,7 @@ struct SpadeGroupNewSheet: View {
         .onAppear {
             guard !started else { return }
             started = true
-            picked = Set(SpadeGroupDraft.start(choices, spadeOn: spadeOn))
+            picked = SpadeGroupDraft.start(choices, spadeOn: spadeOn)
         }
     }
 
@@ -106,7 +106,7 @@ struct SpadeGroupNewSheet: View {
     private func memberRow(_ choice: SpadeMemberChoice) -> some View {
         let on = picked.contains(choice.id)
         return Button {
-            if on { picked.remove(choice.id) } else { picked.insert(choice.id) }
+            if on { picked.removeAll { $0 == choice.id } } else { picked.append(choice.id) }
             problem = nil
         } label: {
             HStack(spacing: AceDesign.Space.row) {

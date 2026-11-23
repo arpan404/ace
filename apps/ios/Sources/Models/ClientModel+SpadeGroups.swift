@@ -28,11 +28,15 @@ extension ClientModel {
             SpadeGroupProfile(ok: false, title: $0, message: $1)
         }
     }
-    /// One change to the group: a new name, the members as they now are, or another lead.
-    func spadeGroupEdit(_ group: String, name: String? = nil, members: [SpadeMemberRef]? = nil, lead: String? = nil) async -> SpadeOutcome {
+    enum SpadeMemberEdit: String {
+        case add, remove
+    }
+
+    /// One change to the group: a new name, one member edit, or another lead.
+    func spadeGroupEdit(_ group: String, name: String? = nil, memberEdit: (SpadeMemberEdit, SpadeMemberRef)? = nil, lead: String? = nil) async -> SpadeOutcome {
         var payload: [String: Any] = ["type": "spade.group.edit", "groupId": group]
         if let name { payload["name"] = name }
-        if let members { payload["members"] = members.map(\.json) }
+        if let (action, member) = memberEdit { payload["memberEdit"] = ["action": action.rawValue, "member": member.json] }
         if let lead { payload["lead"] = lead }
         return await spadeRequest(payload, failing: "Couldn't change the club")
     }

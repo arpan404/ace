@@ -4,6 +4,7 @@ import {
   parseSpadeGroups,
   SpadeRequestError,
   spadeGroupMembersMax,
+  spadeGroupMembersMin,
   spadeGroupNameMax,
   type SpadeGroup,
   type SpadeGroupFile,
@@ -25,10 +26,8 @@ const agentId = z.string().min(1).max(256);
 const name = z.string().trim().min(1).max(spadeGroupNameMax);
 
 /** A member as Spade takes it: `machine` is its bot's host id, absent for the group's own. */
-const members = z
-  .array(z.object({ agent: agentId, machine: z.string().min(1).max(256).optional() }))
-  .min(1)
-  .max(spadeGroupMembersMax);
+const member = z.object({ agent: agentId, machine: z.string().min(1).max(256).optional() });
+const members = z.array(member).min(1).max(spadeGroupMembersMax);
 
 /** A message the person posts to a group: it starts a run its lead answers. */
 const SpadeGroupSendRequest = z.object({
@@ -52,12 +51,12 @@ export const spadeGroupRequests = spadeRequestArea(
     z.object({ type: z.literal("spade.group.create"), name, members, lead: agentId }),
     /** A group's profile, read afresh: its name, lead and members with their faces. */
     z.object({ type: z.literal("spade.group.read"), groupId }),
-    /** Only what changed: a new name, the members as they now are, or another lead. */
-    z.object({
+    /** Only what changed: a new name, one member edit, or another lead. */
+    z.strictObject({
       type: z.literal("spade.group.edit"),
       groupId,
       name: name.optional(),
-      members: members.optional(),
+      memberEdit: z.object({ action: z.enum(["add", "remove"]), member }).optional(),
       lead: agentId.optional(),
     }),
     /** Deletes the group and its conversation; its bots stay. */
@@ -104,11 +103,31 @@ export const spadeGroupRequests = spadeRequestArea(
           return spadeRefused("Couldn't read the club", error);
         }
       case "spade.group.edit": {
-        const { type: _, groupId: id, ...change } = request;
+        const { type: _, groupId: id, memberEdit, ...change } = request;
         const said = spade.groupName(id);
-        return changed(spade, said ? `Couldn't change ${said}` : "Couldn't change the club", () =>
-          ask("PATCH", groupPath(id), change),
-        );
+        const title = said ? `Couldn't change ${said}` : "Couldn't change the club";
+        const pending = groupEdits.get(spade) ?? new Set<string>();
+        if (pending.has(id)) return { ok: false, title, message: "A club edit is already saving." };
+        pending.add(id);
+        groupEdits.set(spade, pending);
+        try {
+          return await changed(spade, title, async () => {
+            if (!memberEdit) return ask("PATCH", groupPath(id), change);
+            const group = await readGroup(id, () => ask("GET", "/v1/groups"));
+            const roster = group.members.map(({ agent, machine }) =>
+              machine === null ? { agent } : { agent, machine },
+            );
+            const matches = (ref: z.infer<typeof member>) =>
+              ref.agent === memberEdit.member.agent && ref.machine === memberEdit.member.machine;
+            if (memberEdit.action === "add" && !roster.some(matches))
+              roster.push(memberEdit.member);
+            const next =
+              memberEdit.action === "remove" ? roster.filter((ref) => !matches(ref)) : roster;
+            return ask("PATCH", groupPath(id), { ...change, members: next });
+          });
+        } finally {
+          pending.delete(id);
+        }
       }
       case "spade.group.delete": {
         const said = spade.groupName(request.groupId);
@@ -131,6 +150,8 @@ export const spadeGroupRequests = spadeRequestArea(
     }
   },
 );
+
+const groupEdits = new WeakMap<NativeSpade, Set<string>>();
 
 const groupPath = (id: string) => `/v1/groups/${segment(id)}`;
 

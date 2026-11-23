@@ -54,9 +54,9 @@ enum SpadeGroupDraft {
         choices.first { $0.main && $0.machine == machine }.map { [$0.id] } ?? []
     }
 
-    /// The picked choices, in the order the choices are offered.
-    static func picked(_ choices: [SpadeMemberChoice], _ ids: Set<String>) -> [SpadeMemberChoice] {
-        choices.filter { ids.contains($0.id) }
+    /// The picked choices, in the order they were picked.
+    static func picked(_ choices: [SpadeMemberChoice], _ ids: [String]) -> [SpadeMemberChoice] {
+        ids.compactMap { id in choices.first { $0.id == id } }
     }
 
     /// Past this many bots the member list searches.
@@ -129,14 +129,9 @@ enum SpadeGroupDraft {
         return left.filter { $0.host == groupHost } + left.filter { $0.host != groupHost }
     }
 
-    /// The members once `choice` joins, named against the group's machine.
-    static func adding(_ choice: SpadeMemberChoice, to members: [Member], groupHost: String) -> [SpadeMemberRef] {
-        members.map(\.ref) + [SpadeMemberRef(agent: choice.agent, machine: choice.host == groupHost ? nil : choice.host)]
-    }
-
-    /// The members once `member` leaves.
-    static func removing(_ member: Member, from members: [Member]) -> [SpadeMemberRef] {
-        members.filter { $0.id != member.id }.map(\.ref)
+    /// The member to add, named against the group's machine.
+    static func joining(_ choice: SpadeMemberChoice, groupHost: String) -> SpadeMemberRef {
+        SpadeMemberRef(agent: choice.agent, machine: choice.host == groupHost ? nil : choice.host)
     }
 
     /// A rename as Spade takes it: one line, trimmed, at most `nameMax`; nil when nothing changes.

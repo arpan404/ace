@@ -35,7 +35,7 @@ import Testing
     @Test func aGroupHoldsAtMostThirtyTwoBots() {
         let many = (0..<33).map { Self.bot("b\($0)") }
         let choices = SpadeGroupDraft.choices([Self.machine("laptop", host: "h", bots: many)])
-        let all = SpadeGroupDraft.picked(choices, Set(choices.map(\.id)))
+        let all = SpadeGroupDraft.picked(choices, choices.map(\.id))
         #expect(SpadeGroupDraft.problem(name: "Crowd", picked: all, lead: SpadeGroupDraft.lead(all, asked: nil)) == "A club holds up to 32 bots.")
         #expect(SpadeGroupDraft.problem(name: "Crowd", picked: Array(all.prefix(32)), lead: SpadeGroupDraft.lead(Array(all.prefix(32)), asked: nil)) == nil)
     }
@@ -62,8 +62,9 @@ import Testing
     @Test func aLeadWhoseMachineDoesntAnswerCantMakeTheGroup() {
         let choices = SpadeGroupDraft.choices(machines)
         let picked = SpadeGroupDraft.picked(choices, ["studio-host/render", "laptop-host/notes"])
-        let notes = SpadeGroupDraft.lead(picked, asked: nil)
-        let render = SpadeGroupDraft.lead(picked, asked: "studio-host/render")
+        let notes = SpadeGroupDraft.lead(picked, asked: "laptop-host/notes")
+        let render = SpadeGroupDraft.lead(picked, asked: nil)
+        #expect(render?.machine == "studio")
         #expect(SpadeGroupDraft.problem(name: "Launch", picked: picked, lead: notes) == nil)
         #expect(SpadeGroupDraft.problem(name: "Launch", picked: picked, lead: render) == "render's machine isn't answering.")
     }
@@ -81,7 +82,6 @@ import Testing
         #expect(!SpadeGroupDraft.removable(three[0], from: three, lead: lead))
         #expect(SpadeGroupDraft.removable(three[1], from: three, lead: lead))
         #expect(!SpadeGroupDraft.removable(three[1], from: Array(three.prefix(2)), lead: lead))
-        #expect(SpadeGroupDraft.removing(three[1], from: three).map(\.agent) == ["spade", "render"])
     }
 
     @Test func onlyMembersOfTheGroupsOwnMachineMayLead() {
@@ -97,9 +97,8 @@ import Testing
         let members = [member("spade"), member("render", on: "studio-host")]
         let others = SpadeGroupDraft.others(choices, members: members, groupHost: "laptop-host")
         #expect(others.map(\.id) == ["laptop-host/notes", "studio-host/paint"])
-        let added = SpadeGroupDraft.adding(others[1], to: members, groupHost: "laptop-host")
-        #expect(added == [SpadeMemberRef(agent: "spade", machine: nil), SpadeMemberRef(agent: "render", machine: "studio-host"),
-                          SpadeMemberRef(agent: "paint", machine: "studio-host")])
+        let added = SpadeGroupDraft.joining(others[1], groupHost: "laptop-host")
+        #expect(added == SpadeMemberRef(agent: "paint", machine: "studio-host"))
         let full = (0..<32).map { member("b\($0)") }
         #expect(SpadeGroupDraft.others(choices, members: full, groupHost: "laptop-host").isEmpty)
     }

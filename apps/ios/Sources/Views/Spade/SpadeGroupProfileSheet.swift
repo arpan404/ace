@@ -127,7 +127,7 @@ struct SpadeGroupProfileSheet: View {
                 Menu {
                     ForEach(others) { choice in
                         Button(choice.host == groupHost ? choice.name : "\(choice.name) on \(choice.machineName)") {
-                            Task { await save(members: SpadeGroupDraft.adding(choice, to: profile.members, groupHost: groupHost)) }
+                            Task { await save(memberEdit: (.add, SpadeGroupDraft.joining(choice, groupHost: groupHost))) }
                         }
                         .accessibilityIdentifier("spade.group.add.\(choice.id)")
                     }
@@ -173,13 +173,13 @@ struct SpadeGroupProfileSheet: View {
         .frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .combine)
         .swipeActions(edge: .trailing) {
-            if removable {
-                Button("Remove", role: .destructive) { Task { await save(members: SpadeGroupDraft.removing(member, from: profile.members)) } }
+            if removable && !saving {
+                Button("Remove", role: .destructive) { Task { await save(memberEdit: (.remove, member.ref)) } }
             }
         }
         .contextMenu {
-            if removable {
-                Button(role: .destructive) { Task { await save(members: SpadeGroupDraft.removing(member, from: profile.members)) } } label: {
+            if removable && !saving {
+                Button(role: .destructive) { Task { await save(memberEdit: (.remove, member.ref)) } } label: {
                     Label("Remove", ace: .minusCircle)
                 }
                 .accessibilityIdentifier("spade.group.remove")
@@ -210,16 +210,18 @@ struct SpadeGroupProfileSheet: View {
     }
 
     /// One change; the profile is read again once it went, and a refusal says why.
-    @discardableResult private func save(name: String? = nil, members: [SpadeMemberRef]? = nil, lead: String? = nil) async -> Bool {
+    @discardableResult private func save(name: String? = nil, memberEdit: (ClientModel.SpadeMemberEdit, SpadeMemberRef)? = nil, lead: String? = nil) async -> Bool {
+        guard !saving else { return false }
         saving = true
         defer { saving = false }
-        let outcome = await client.spadeGroupEdit(group, name: name, members: members, lead: lead)
+        let outcome = await client.spadeGroupEdit(group, name: name, memberEdit: memberEdit, lead: lead)
         problem = outcome.problem
         if outcome.ok { await load() }
         return outcome.ok
     }
 
     private func delete() async {
+        guard !saving else { return }
         saving = true
         let outcome = await client.spadeGroupDelete(group)
         saving = false

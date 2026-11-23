@@ -3,6 +3,8 @@ import { expect, test } from "vitest";
 import type { FakeSpadeApi } from "@ace/fake-daemon";
 import { until } from "./test-host.ts";
 import { quick, setUp } from "./spade-test-host.ts";
+import { NativeServices } from "./native-services.ts";
+import { RecordingSink } from "./sheet-fixture.ts";
 
 /*
  * Spade's groups on the iPhone (ADR 0132): a group's row among the bots, with its members'
@@ -331,23 +333,31 @@ test("a group pinned from the phone is pinned in Spade, and its row says since w
 });
 
 test("a group made on the phone has the members and lead it was given, and says its conversation", async () => {
-  const { api, patches, ask } = await setUp((fake) => {
+  const { api, patches, owner, spade } = await setUp((fake) => {
     fake.addAgent({ id: "spade", name: "Spade", kind: "main" });
     fake.addAgent({ id: "research", name: "Research" });
   });
   await until(() => (patches.state?.list.rows?.length ?? 0) === 2);
 
-  const made = await ask({
-    type: "spade.group.create",
-    name: "Launch",
-    members: [{ agent: "spade" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
-    lead: "research",
+  const sink = new RecordingSink();
+  const services = new NativeServices(owner, sink);
+  services.spade = spade;
+  services.handle({
+    type: "service",
+    id: "create-club",
+    request: {
+      type: "spade.group.create",
+      name: " Launch ",
+      members: [{ agent: "spade" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
+      lead: "research",
+    },
   });
+  await until(() => sink.read("service:create-club") !== undefined);
 
   const group = api.teams.groups[0];
-  expect(made).toEqual({
+  expect(sink.read("service:create-club")).toMatchObject({
     ok: true,
-    made: { group: group?.id, conversation: group?.conversation },
+    value: { ok: true, made: { group: group?.id, conversation: group?.conversation } },
   });
   expect(group?.name).toBe("Launch");
   expect(group?.lead.agent).toBe("research");
@@ -416,12 +426,38 @@ test("a group's profile reads its members with faces and its lead, and its edits
     await ask({
       type: "spade.group.edit",
       groupId: "launch",
-      members: [{ agent: "spade" }, { agent: "research" }],
+      memberEdit: { action: "remove", member: { agent: "studio-notes", machine: "studio" } },
       lead: "research",
     }),
   ).toEqual({ ok: true });
-  expect(api.teams.groups[0]?.members.map((member) => member.agent)).toEqual(["spade", "research"]);
+  expect(api.teams.groups[0]?.members.map((member) => member.agent)).toEqual([
+    "spade",
+    "research",
+    "writer",
+    "notes",
+  ]);
   expect(api.teams.groups[0]?.lead.agent).toBe("research");
+});
+
+test("overlapping removals are refused and a retry keeps the first bot removed", async () => {
+  const { ask } = await setUp((fake) => team(fake));
+  const remove = (agent: string) =>
+    ask({
+      type: "spade.group.edit",
+      groupId: "launch",
+      memberEdit: { action: "remove", member: { agent } },
+    });
+
+  const [first, second] = await Promise.all([remove("writer"), remove("notes")]);
+  expect(first).toEqual({ ok: true });
+  expect(second).toMatchObject({ ok: false, message: "A club edit is already saving." });
+  expect(await remove("notes")).toEqual({ ok: true });
+
+  const profile = await ask({ type: "spade.group.read", groupId: "launch" });
+  expect(profile).toMatchObject({
+    ok: true,
+    group: { members: [{ agent: "spade" }, { agent: "research" }] },
+  });
 });
 
 test("a group Spade no longer has can't be read, and says so", async () => {
