@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -98,4 +98,29 @@ test("the package's afterPack refuses a Windows app that would find no koffi", a
   );
   await copyBesideApp(dist, "arm64")(packed("darwin"));
   expect(existsSync(join(root, "darwin/ace.app/Contents/Resources/daemon/ace.mjs"))).toBe(true);
+});
+
+test("native verification wants each service under its shipped name, the daemon's runtime too", async ({
+  onTestFinished,
+}) => {
+  const dist = await temporary(onTestFinished);
+  for (const path of [
+    "bin/ace-tray",
+    "bin/rg",
+    "media/ace Media Service",
+    "files/ace Files Service",
+    "history/ace History Service",
+    "runtime/bin/node",
+    "daemon/descriptor.node",
+    "daemon/group-keeper",
+  ]) {
+    await file(join(dist, path), "#!/bin/sh\n");
+    await chmod(join(dist, path), 0o755);
+  }
+  const problems = await verifyNatives("arm64", "darwin", dist).then(
+    () => "",
+    (error: unknown) => String(error),
+  );
+  expect(problems).toContain(`missing ${join(dist, "runtime/bin/ace Service")}`);
+  expect(problems.match(/missing/g)).toHaveLength(1);
 });

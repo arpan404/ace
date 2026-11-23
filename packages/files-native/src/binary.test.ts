@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filesBinaryName, filesBinaryPath } from "./binary.ts";
+import { filesBinaryPath } from "./binary.ts";
 
 const exists = (paths: string[]) => (path: string) => paths.includes(path);
 const fromSource = (paths: string[], env: Record<string, string> = {}) =>
@@ -21,27 +21,26 @@ describe("filesBinaryPath", () => {
           mode: "release",
           entry: "/rel/ace.mjs",
           platform: "linux",
-          exists: exists(["/rel/files/ace-files"]),
+          exists: exists(["/rel/files/ace-files-service"]),
         }),
-      ).toBe("/rel/files/ace-files");
+      ).toBe("/rel/files/ace-files-service");
     } finally {
       if (original === undefined) delete process.env.ACE_FILES_PATH;
       else process.env.ACE_FILES_PATH = original;
     }
   });
 
-  it("finds the desktop bundle's files folder and names the executable for Windows", () => {
-    expect(filesBinaryName("win32")).toBe("ace-files.exe");
+  it("finds the desktop bundle's files folder under the shipped Windows name", () => {
     expect(
       filesBinaryPath({
         mode: "release",
         entry: "/App/Resources/daemon/ace.mjs",
         platform: "win32",
         exists: (path) =>
-          path === "/App/Resources/files/ace-files.exe" ||
+          path === "/App/Resources/files/ace Files Service.exe" ||
           path.endsWith("/daemon/desktop-app.json"),
       }),
-    ).toBe("/App/Resources/files/ace-files.exe");
+    ).toBe("/App/Resources/files/ace Files Service.exe");
     expect(
       filesBinaryPath({
         mode: "release",

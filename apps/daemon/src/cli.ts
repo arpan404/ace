@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// oxlint-disable-next-line import/no-unassigned-import -- First: back to the folder ace was started from, before any module reads process.cwd().
+import "@ace/service/launch-directory-entry";
 import { withoutBenchWorkerPreload } from "@ace/provider-kit/worker";
 
 // A person's daemon runs this entry; a benchmark's worker preload must never reach it.
