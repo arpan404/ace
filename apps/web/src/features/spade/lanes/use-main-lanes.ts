@@ -21,11 +21,19 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
     [view.entries, view.approvals.length],
   );
   const counted = spadeAgentTasks(bot.raw);
-  const lanes = useSpadeLanes(bot.conversation, moved + counted, moved > 0 || counted > 0);
-  return useMemo<LanesHere>(
-    () => ({
+  const listed = useSpadeLanes(bot.conversation, moved + counted, moved > 0 || counted > 0);
+  const titles = view.laneTitles;
+  return useMemo<LanesHere>(() => {
+    // A title the title role gave since the list was read wins (ADR 0217 §2a).
+    const lanes = listed.map((lane) => {
+      const title = titles.get(lane.task);
+      return title && title !== lane.title ? { ...lane, title } : lane;
+    });
+    return {
       lanes,
       avatar: bot.avatar,
+      titleOf: (lane, said) =>
+        titles.get(lane) ?? lanes.find((each) => each.task === lane)?.title ?? said,
       open,
       retry: (lane, reply) =>
         retryLane(client, lane, reply).then(
@@ -38,9 +46,9 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
             return false;
           },
         ),
-    }),
-    // `open` follows the route; the lanes and the bot's face are what this changes with.
+    };
+    // `open` follows the route; the lanes, their titles and the bot's face are what this
+    // changes with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [lanes, bot.avatar, client],
-  );
+  }, [listed, titles, bot.avatar, client]);
 }

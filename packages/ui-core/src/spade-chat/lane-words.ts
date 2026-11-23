@@ -9,7 +9,7 @@ import { spadeMoney } from "./oversight.ts";
  * has ended.
  */
 
-/** "3 tasks · 1 needs you", counting the tasks that haven't ended; "Tasks" when none run. */
+/** "3 tasks · 1 needs you" ("2 need you"), counting the tasks that haven't ended; "Tasks" when none run. */
 export function spadeLanesPillWords(
   lanes: readonly Pick<SpadeLane, "state" | "needsYou">[],
 ): string {
@@ -17,7 +17,7 @@ export function spadeLanesPillWords(
   if (!live.length) return "Tasks";
   const count = `${live.length} ${live.length === 1 ? "task" : "tasks"}`;
   const needs = live.filter((lane) => lane.needsYou).length;
-  return needs ? `${count} · ${needs} needs you` : count;
+  return needs ? `${count} · ${needs} ${needs === 1 ? "needs" : "need"} you` : count;
 }
 
 /** Whether any task waits on the person: the pill then leads with that. */

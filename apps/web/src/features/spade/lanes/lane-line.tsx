@@ -21,8 +21,10 @@ export function LaneQuietLine(props: { quiet: LaneQuiet }) {
   const { quiet } = props;
   const here = useLanesHere();
   const lane = here?.lanes.find((each) => each.task === quiet.lane);
-  // The title as Spade has it now, which a later naming may have changed.
-  const line = spadeQuietLine(lane ? { ...quiet, title: lane.title } : quiet);
+  // The title as it stands now, which a later naming may have changed.
+  const line = spadeQuietLine(
+    here ? { ...quiet, title: here.titleOf(quiet.lane, quiet.title) } : quiet,
+  );
   const starts = quiet.event === "started" || quiet.event === "queued";
   const step = starts && lane && spadeLaneLive(lane) ? spadeLaneStep(lane) : undefined;
   const shown: SpadeQuietLine = step
@@ -50,4 +52,25 @@ export function LaneQuietLine(props: { quiet: LaneQuiet }) {
       )}
     </div>
   );
+}
+
+type OverlapQuiet = Extract<SpadeQuiet, { kind: "lanes-overlapped" }>;
+
+/**
+ * Two running tasks changed one file (ADR 0217 §3): "Fix the March invoice and Draft the
+ * quarterly note both changed totals.xlsx". A note, never a lock; it opens the first task.
+ */
+export function OverlapQuietLine(props: { quiet: OverlapQuiet }) {
+  const { quiet } = props;
+  const here = useLanesHere();
+  const line = spadeQuietLine(
+    here
+      ? {
+          ...quiet,
+          title: here.titleOf(quiet.lane, quiet.title),
+          otherTitle: here.titleOf(quiet.other, quiet.otherTitle),
+        }
+      : quiet,
+  );
+  return <QuietLine line={line} onOpen={here ? () => here.open(quiet.lane) : undefined} />;
 }

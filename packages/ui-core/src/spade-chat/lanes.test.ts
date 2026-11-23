@@ -86,6 +86,12 @@ describe("a bot's task lanes in words", () => {
     expect(spadeLanesPillWords(lanes)).toBe("3 tasks · 1 needs you");
     expect(spadeLanesNeedYou(lanes)).toBe(true);
     expect(spadeLanesPillWords([lane({ state: "working" })])).toBe("1 task");
+    expect(
+      spadeLanesPillWords([
+        lane({ state: "needs_you", needs_you: true }),
+        lane({ state: "needs_you", needs_you: true }),
+      ]),
+    ).toBe("2 tasks · 2 need you");
     expect(spadeLanesPillWords([lane({ state: "done" })])).toBe("Tasks");
   });
 

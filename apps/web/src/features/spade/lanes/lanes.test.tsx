@@ -36,9 +36,7 @@ async function errands() {
 
 test("the tasks pill counts the tasks that haven't ended and opens their list, solid, with each one's state and step", async () => {
   await errands();
-  await userEvent.click(
-    await screen.findByRole("button", { name: "Tasks: 4 tasks · 1 needs you" }),
-  );
+  await userEvent.click(await screen.findByRole("button", { name: "Tasks: 4 tasks · 2 need you" }));
   const list = await screen.findByRole("list", { name: "Tasks" });
   const row = (title: string) => within(list).getByRole("button", { name: `Open ${title}` });
   expect(row("Book flights to Lisbon").textContent).toContain("Needs you");
@@ -147,4 +145,80 @@ test("Settings has a Tasks row that runs tasks on the chat's own model and think
   expect(roles.getByRole("combobox", { name: "Tasks thinking" }).textContent).toContain(
     "Default: medium thinking",
   );
+});
+
+test("a task's question leads with the task in main and is answered there", async () => {
+  const { chat, spade, main, lane } = await errands();
+  const card = await chat.findByRole("group", {
+    name: "Draft the quarterly note asks: Should the revenue section compare against Q2 or against Q3 last year?",
+  });
+  expect(within(card).getByText("Draft the quarterly note asks")).toBeTruthy();
+  await userEvent.type(within(card).getByRole("textbox"), "Against Q2");
+  await userEvent.click(within(card).getByRole("button", { name: /^Send/ }));
+  await waitFor(() =>
+    expect(
+      spade.sent("POST", `/v1/conversations/${main}/questions/${lane("quarterly")}.q1`),
+    ).toEqual([{ answers: ["Against Q2"] }]),
+  );
+  await waitFor(() => expect(spade.lanes.lane(lane("quarterly"))?.state).toBe("working"));
+});
+
+test("two tasks changing one file read as one line, which opens the first task", async () => {
+  const { chat } = await errands();
+  await userEvent.click(
+    await chat.findByRole("button", {
+      name: "Draft the quarterly note and Fix the March invoice both changed finance/Q3-totals.xlsx",
+    }),
+  );
+  expect(
+    await screen.findByRole("button", {
+      name: "Draft the quarterly note, a task of Errands: back to Errands",
+    }),
+  ).toBeTruthy();
+});
+
+test("a task the title role renamed reads under its new title in the lines, the list and its own pill", async () => {
+  const { chat } = await errands();
+  // Spade moved the work under the person's first line; the title role named it after.
+  expect(
+    await chat.findByRole("button", {
+      name: "This is taking a while, so I moved it to its own task: Draft the quarterly note. I'm free to talk.",
+    }),
+  ).toBeTruthy();
+  expect(chat.queryByText(/from the numbers in Q3\.xlsx\. I'm free/)).toBeNull();
+  await userEvent.click(await screen.findByRole("button", { name: /^Tasks:/ }));
+  const list = await screen.findByRole("list", { name: "Tasks" });
+  await userEvent.click(
+    within(list).getByRole("button", { name: "Open Draft the quarterly note" }),
+  );
+  expect(
+    await screen.findByRole("button", {
+      name: "Draft the quarterly note, a task of Errands: back to Errands",
+    }),
+  ).toBeTruthy();
+});
+
+test("a helper that moved into a task asks as the task's", async () => {
+  await spadeApp("/spade/errands", (spade) => {
+    const main = withErrands(spade);
+    spade.store(main, {
+      type: "approval_requested",
+      reply: "r-moved",
+      call_id: `${main}-lane-quarterly.j1.k1`,
+      name: "send_email",
+      arguments: { to: "dana@northwind.co", subject: "Q3 note" },
+      lane: {
+        task: `${main}-lane-quarterly`,
+        conversation: `${main}-lane-quarterly`,
+        call_id: "j1.k1",
+        title: "Draft the quarterly note from the numbers in Q3.xlsx",
+      },
+    });
+  });
+  const chat = within(await screen.findByRole("feed", { name: "Conversation with Errands" }));
+  expect(
+    await chat.findByRole("group", {
+      name: "Draft the quarterly note wants to send an email to dana@northwind.co",
+    }),
+  ).toBeTruthy();
 });

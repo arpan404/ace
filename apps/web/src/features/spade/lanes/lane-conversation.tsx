@@ -44,7 +44,7 @@ export function LaneConversation(props: {
   const lanes = useSpadeLanes(bot.conversation, moved, true);
   const changed = useLanesChanged(bot.conversation);
   const lane = lanes.find((each) => each.task === task);
-  const title = lane?.title ?? "A task";
+  const title = view.laneTitles.get(task) ?? lane?.title ?? "A task";
   const covering = useMediaQuery(coverQuery, false);
   const [panelOpen, setPanelOpen] = useState(!covering);
   const [stopping, setStopping] = useState(false);

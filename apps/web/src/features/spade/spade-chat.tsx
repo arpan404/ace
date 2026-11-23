@@ -1,5 +1,5 @@
 import { CardFace } from "./spade-card.tsx";
-import { LaneQuietLine } from "./lanes/lane-line.tsx";
+import { LaneQuietLine, OverlapQuietLine } from "./lanes/lane-line.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import { SpadeNoticeRow } from "./spade-notice-row.tsx";
 import type { BotFaceState } from "@ace/ui-core/bot-face";
@@ -881,10 +881,14 @@ function Single(props: {
       const { onOpenBot, onOpenWork } = props.handlers;
       const quiet = item.quiet;
       // A task's line opens the task, and carries its step while it runs (ADR 0217 §7).
-      if (quiet.kind === "lane")
+      if (quiet.kind === "lane" || quiet.kind === "lanes-overlapped")
         return (
           <div className={cn("flex", space)}>
-            <LaneQuietLine quiet={quiet} />
+            {quiet.kind === "lane" ? (
+              <LaneQuietLine quiet={quiet} />
+            ) : (
+              <OverlapQuietLine quiet={quiet} />
+            )}
           </div>
         );
       // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
