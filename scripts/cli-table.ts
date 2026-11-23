@@ -23,84 +23,84 @@ import { exitCodeMeanings, topics } from "../apps/daemon/src/cli/help/topics.ts"
 
 const target = new URL("../native/cli/table.json", import.meta.url).pathname;
 
-function flag(flag: FlagSpec): Record<string, unknown> {
+function flag(spec: FlagSpec): Record<string, unknown> {
   return {
-    name: flag.name,
-    ...(flag.short ? { short: flag.short } : {}),
-    ...(flag.value ? { value: flag.value } : {}),
-    summary: flag.summary,
-    ...(flag.repeat ? { repeat: true } : {}),
-    ...(flag.choices ? { choices: [...flag.choices] } : {}),
-    ...(flag.ref ? { ref: flag.ref } : {}),
-    ...(flag.hidden ? { hidden: true } : {}),
+    name: spec.name,
+    ...(spec.short ? { short: spec.short } : {}),
+    ...(spec.value ? { value: spec.value } : {}),
+    summary: spec.summary,
+    ...(spec.repeat ? { repeat: true } : {}),
+    ...(spec.choices ? { choices: [...spec.choices] } : {}),
+    ...(spec.ref ? { ref: spec.ref } : {}),
+    ...(spec.hidden ? { hidden: true } : {}),
   };
 }
 
-function arg(arg: ArgSpec): Record<string, unknown> {
+function arg(spec: ArgSpec): Record<string, unknown> {
   return {
-    name: arg.name,
-    summary: arg.summary,
-    ...(arg.required ? { required: true } : {}),
-    ...(arg.variadic ? { variadic: true } : {}),
-    ...(arg.stdin ? { stdin: true } : {}),
-    ...(arg.ref ? { ref: arg.ref } : {}),
+    name: spec.name,
+    summary: spec.summary,
+    ...(spec.required ? { required: true } : {}),
+    ...(spec.variadic ? { variadic: true } : {}),
+    ...(spec.stdin ? { stdin: true } : {}),
+    ...(spec.ref ? { ref: spec.ref } : {}),
   };
 }
 
-function alias(alias: AliasSpec): Record<string, unknown> {
+function alias(spec: AliasSpec): Record<string, unknown> {
   return {
-    words: [...alias.words],
-    ...(alias.deprecatedSince ? { deprecatedSince: alias.deprecatedSince } : {}),
-    ...(alias.insertWords ? { insertWords: [...alias.insertWords] } : {}),
-    ...(alias.wordsAs ? { wordsAs: [...alias.wordsAs] } : {}),
+    words: [...spec.words],
+    ...(spec.deprecatedSince ? { deprecatedSince: spec.deprecatedSince } : {}),
+    ...(spec.insertWords ? { insertWords: [...spec.insertWords] } : {}),
+    ...(spec.wordsAs ? { wordsAs: [...spec.wordsAs] } : {}),
     // Pairs, not objects: their order is part of the rule (`clean --compact` picks its command
     // by the first matching flag), and JSON objects would lose it.
-    ...(alias.renameFlags ? { renameFlags: Object.entries(alias.renameFlags) } : {}),
-    ...(alias.setFlags ? { setFlags: [...alias.setFlags] } : {}),
-    ...(alias.byFlag ? { byFlag: Object.entries(alias.byFlag) } : {}),
-    ...(alias.quiet ? { quiet: true } : {}),
+    ...(spec.renameFlags ? { renameFlags: Object.entries(spec.renameFlags) } : {}),
+    ...(spec.setFlags ? { setFlags: [...spec.setFlags] } : {}),
+    ...(spec.byFlag ? { byFlag: Object.entries(spec.byFlag) } : {}),
+    ...(spec.quiet ? { quiet: true } : {}),
   };
 }
 
-function example(example: Example): Record<string, unknown> {
-  return { command: example.command, summary: example.summary };
+function example(spec: Example): Record<string, unknown> {
+  return { command: spec.command, summary: spec.summary };
 }
 
-function command(command: CommandSpec): Record<string, unknown> {
+function command(spec: CommandSpec): Record<string, unknown> {
   return {
-    id: command.id,
-    words: [...command.words],
-    summary: command.summary,
-    ...(command.description ? { description: command.description } : {}),
-    group: command.group,
-    ...(command.args ? { args: command.args.map(arg) } : {}),
-    ...(command.flags ? { flags: command.flags.map(flag) } : {}),
-    ...(command.examples ? { examples: command.examples.map(example) } : {}),
-    ...(command.aliases ? { aliases: command.aliases.map(alias) } : {}),
-    ...(command.exits ? { exits: command.exits.map((exit) => ({ ...exit })) } : {}),
-    ...(command.seeAlso ? { seeAlso: [...command.seeAlso] } : {}),
-    ...(command.output ? { output: command.output } : {}),
-    ...(command.mutates ? { mutates: true } : {}),
-    ...(command.offline ? { offline: true } : {}),
-    ...(command.hidden ? { hidden: true } : {}),
-    ...(command.nounDefault ? { nounDefault: true } : {}),
-    ...(command.personOnly ? { personOnly: command.personOnly } : {}),
-    ...(command.passthrough ? { passthrough: true } : {}),
+    id: spec.id,
+    words: [...spec.words],
+    summary: spec.summary,
+    ...(spec.description ? { description: spec.description } : {}),
+    group: spec.group,
+    ...(spec.args ? { args: spec.args.map(arg) } : {}),
+    ...(spec.flags ? { flags: spec.flags.map(flag) } : {}),
+    ...(spec.examples ? { examples: spec.examples.map(example) } : {}),
+    ...(spec.aliases ? { aliases: spec.aliases.map(alias) } : {}),
+    ...(spec.exits ? { exits: spec.exits.map((exit) => ({ ...exit })) } : {}),
+    ...(spec.seeAlso ? { seeAlso: [...spec.seeAlso] } : {}),
+    ...(spec.output ? { output: spec.output } : {}),
+    ...(spec.mutates ? { mutates: true } : {}),
+    ...(spec.offline ? { offline: true } : {}),
+    ...(spec.hidden ? { hidden: true } : {}),
+    ...(spec.nounDefault ? { nounDefault: true } : {}),
+    ...(spec.personOnly ? { personOnly: spec.personOnly } : {}),
+    ...(spec.passthrough ? { passthrough: true } : {}),
   };
 }
 
-function noun(noun: NounSpec): Record<string, unknown> {
+function noun(spec: NounSpec): Record<string, unknown> {
   return {
-    name: noun.name,
-    summary: noun.summary,
-    ...(noun.description ? { description: noun.description } : {}),
-    group: noun.group,
-    ...(noun.hidden ? { hidden: true } : {}),
+    name: spec.name,
+    summary: spec.summary,
+    ...(spec.description ? { description: spec.description } : {}),
+    group: spec.group,
+    ...(spec.hidden ? { hidden: true } : {}),
   };
 }
 
-function topic(topic: TopicSpec): Record<string, unknown> {
-  return { name: topic.name, summary: topic.summary, text: topic.text };
+function topic(spec: TopicSpec): Record<string, unknown> {
+  return { name: spec.name, summary: spec.summary, text: spec.text };
 }
 
 const table = commandTable();

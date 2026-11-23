@@ -89,7 +89,7 @@ and metadata); `cargo-bloat` inflates the file by keeping symbols, so measure si
 | `serde` 1.0 (`serde_core`) | `Serialize` for `help --json` and `help COMMAND --json`; `Deserialize` for the desktop app's version marker | 3.4 KiB, plus `serde_derive` at build time |
 | `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json` | 24.6 KiB (+1.1 KiB `zmij`) |
 | `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
-| `ctrlc` 3.4 | Ctrl+C forwarding in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
+| `ctrlc` 3.5 | Ctrl+C forwarding in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
 build time, never at run time. Nothing else is linked: no async runtime, no clap, no anyhow, no

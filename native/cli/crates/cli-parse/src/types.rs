@@ -40,6 +40,14 @@ pub struct Usage<'a> {
     pub flags: Flags<'a>,
 }
 
+impl std::fmt::Display for Usage<'_> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for Usage<'_> {}
+
 /// What a command line turned out to be.
 #[derive(Debug)]
 pub enum ParseResult<'a> {
