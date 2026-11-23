@@ -141,7 +141,8 @@ export type NativeStdioMode = "piped" | "ignore" | "inherit" | "stderr";
  * What the shell's spawn orchestration drives: a pid, piped streams, error,
  * exit and close events, and a direct kill for the tree-signal fallback.
  */
-export interface SpawnedChild {  readonly pid?: number | undefined;
+export interface SpawnedChild {
+  readonly pid?: number | undefined;
   readonly stdin: Writable;
   readonly stdout: Readable;
   readonly stderr: Readable;
@@ -230,7 +231,10 @@ function endedReadable(): Readable {
  * the process and its pipes are done. The shell feeds its streams; the
  * callers' orchestration (leases, gates, stops) runs unchanged on top.
  */
-export class NativeChildProcess extends EventEmitter implements SpawnedChild, SpawnedBytes, SpawnedHandle {
+export class NativeChildProcess
+  extends EventEmitter
+  implements SpawnedChild, SpawnedBytes, SpawnedHandle
+{
   readonly pid: number | undefined;
   readonly stdin: Writable;
   readonly stdout: Readable;
@@ -320,7 +324,9 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
       return;
     }
     if (kind === "stdin-error") {
-      const error = new Error(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString());
+      const error = new Error(
+        Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString(),
+      );
       // A closed reader surfaces the failure the way node's does.
       this.stdin.destroy(error);
       return;

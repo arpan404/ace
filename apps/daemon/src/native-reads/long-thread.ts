@@ -68,9 +68,9 @@ interface NativeLongThread {
 }
 
 function binding(source: NativeSource): NativeLongThread {
-  const handle = nativeHandle(
-    source.index.data.db as unknown as object,
-  ) as unknown as NativeLongThread | undefined;
+  const handle = nativeHandle(source.index.data.db as unknown as object) as unknown as
+    | NativeLongThread
+    | undefined;
   if (!handle) throw new Error("ACE_STORE=native needs the store addon");
   return handle;
 }
@@ -211,8 +211,8 @@ export function threadCatchUpNative(
   // The family merge sorts files with `localeCompare`, as `@ace/projection`
   // does; Rust keeps first-seen order so the shell's collation is exact.
   if (Array.isArray(response?.digest?.files)) {
-    response.digest.files = [...response.digest.files].toSorted((left: { path: string }, right: { path: string }) =>
-      left.path.localeCompare(right.path),
+    response.digest.files = [...response.digest.files].toSorted(
+      (left: { path: string }, right: { path: string }) => left.path.localeCompare(right.path),
     );
   }
   return response;

@@ -165,11 +165,11 @@ export function openScrcpySocket(
   return new Promise((resolve) => {
     let done = false;
     let socket: Socket | undefined;
-    let cancel = () => {};
+    let cancel: (() => void) | undefined;
     const finish = (value: Socket | undefined) => {
       if (done) return;
       done = true;
-      cancel();
+      cancel?.();
       signal?.removeEventListener("abort", aborted);
       resolve(value);
     };
@@ -210,13 +210,6 @@ const deviceNameBytes = 64;
 
 const defaultConnect = (port: number): Socket =>
   connect({ host: "127.0.0.1", port, noDelay: true });
-
-const closedDuringStartup = () =>
-  new DeviceError(
-    "command_failed",
-    "scrcpy-server closed during startup",
-    "Start the device view again.",
-  );
 
 /**
  * Reads `count` bytes from a forward-tunnel connection, then pauses it. adb accepts the TCP

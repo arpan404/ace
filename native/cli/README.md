@@ -11,13 +11,13 @@ native/cli/bench/bench.sh # hyperfine against the TypeScript CLI, and the §5 bu
 
 ## Crates
 
-| Crate | What it does |
-| ----- | ------------ |
-| `cli-table` | The command table as static data. `build.rs` turns `native/cli/table.json` into `&'static` arrays with routes sorted for binary search, so a run parses no JSON and builds no index. |
+| Crate       | What it does                                                                                                                                                                                                                             |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cli-table` | The command table as static data. `build.rs` turns `native/cli/table.json` into `&'static` arrays with routes sorted for binary search, so a run parses no JSON and builds no index.                                                     |
 | `cli-parse` | The pure parser: nouns, noun defaults, aliases (`insertWords`, `wordsAs`, `renameFlags`, `setFlags`, `byFlag`), global flags, values, choices, repeats, `-` words, missing arguments, typo suggestions and the usage messages and codes. |
-| `cli-out` | Who is on the other end (`--json`, `--quiet`, `--jq`, terminal checks), the failure envelope, exit codes and one locked `BufWriter` per run. |
-| `cli-wire` | The blocking daemon connection: endpoint and token reading with the TCP probe, the WebSocket request client, pinned-HTTPS `/v1` calls, and remote profiles (reading the profile store itself stays out, so the crate carries no SQLite). |
-| `ace-cli` | The `ace` binary: parse, run what is ported, otherwise hand the unchanged arguments to the bundle. |
+| `cli-out`   | Who is on the other end (`--json`, `--quiet`, `--jq`, terminal checks), the failure envelope, exit codes and one locked `BufWriter` per run.                                                                                             |
+| `cli-wire`  | The blocking daemon connection: endpoint and token reading with the TCP probe, the WebSocket request client, pinned-HTTPS `/v1` calls, and remote profiles (reading the profile store itself stays out, so the crate carries no SQLite). |
+| `ace-cli`   | The `ace` binary: parse, run what is ported, otherwise hand the unchanged arguments to the bundle.                                                                                                                                       |
 
 ## What runs here, and what hands over
 
@@ -40,7 +40,6 @@ Runs natively through the daemon connection (ADR 0221 step 4, providers group):
 - `ace remote list|use|remove`
 - `ace mcp list|add|revoke`
 
-
 Runs natively through the daemon (ADR 0221 step 4, Store/Spade):
 
 - `ace automation list|show|run|remove`
@@ -50,7 +49,6 @@ Runs natively through the daemon (ADR 0221 step 4, Store/Spade):
 - `ace store discover|search|show|installed`, `ace store source list|add|remove|on|off|refresh`,
   `ace store remove|restore|report|withdraw`, `ace store status|versions|signals`,
   `ace store draft list|show|delete`, `ace store profile show`, `ace store verification show|check`
-
 
 Hands over: every other command, and these cases even for the commands above (and the
 machine commands below):
@@ -149,17 +147,17 @@ Every dependency is listed with why it is needed and what it adds to the strippe
 Sizes are `cargo bloat --release --crates` (`.text`, which excludes the binary's headers and
 metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size with `wc -c`.
 
-| Crate | Why | Size added |
-| ----- | --- | ---------- |
-| `serde` 1.0 (`serde_core`) | `Serialize` for `help --json` and `help COMMAND --json`; `Deserialize` for the desktop app's version marker | 3.4 KiB, plus `serde_derive` at build time |
-| `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json`; untouched `--json` passthrough via `RawValue` | 43.2 KiB (+1.1 KiB `zmij`) |
-| `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
-| `uuid` 1.0 (`v4`) | Random `--idempotency-key` generation (`Uuid::new_v4`), matching `randomUUID()` | under 1 KiB (`getrandom` 232 B, `rand` 32 B) |
+| Crate                                            | Why                                                                                                                                                                                 | Size added                                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `serde` 1.0 (`serde_core`)                       | `Serialize` for `help --json` and `help COMMAND --json`; `Deserialize` for the desktop app's version marker                                                                         | 3.4 KiB, plus `serde_derive` at build time                                                                                            |
+| `serde_json` 1.0 (`itoa`, `memchr`, `zmij`)      | Compact and two-space JSON output; reading `desktop-app.json`; untouched `--json` passthrough via `RawValue`                                                                        | 43.2 KiB (+1.1 KiB `zmij`)                                                                                                            |
+| `strsim` 0.11                                    | Optimal string alignment distance for typo suggestions (`thraed` → `thread`)                                                                                                        | 2.2 KiB                                                                                                                               |
+| `uuid` 1.0 (`v4`)                                | Random `--idempotency-key` generation (`Uuid::new_v4`), matching `randomUUID()`                                                                                                     | under 1 KiB (`getrandom` 232 B, `rand` 32 B)                                                                                          |
 | `rusqlite` 0.41 (`bundled`, no default features) | The CLI profile store (`cli-profiles.sqlite`) and the durable outbox (`cli-outbox.sqlite`), read and written the way the TypeScript CLI does (busy timeout, WAL, `BEGIN IMMEDIATE`) | ~1.4 MiB, almost all of it the SQLite C amalgamation (`libsqlite3_sys` counts 98.6 KiB of Rust glue and 9.3 KiB of `rusqlite` itself) |
-| `url` 2 (no defaults) | WHATWG URL parsing for stored profile origins and relays, matching `new URL()` in the TypeScript schema | ~0 KiB, already linked through `cli-wire` |
-| `chrono` 0.4 (`alloc`, `clock`, `std`) | Machine-local timestamps for daemon log lines, formatted as the TypeScript formats them | 21.3 KiB |
-| `ctrlc` 3.5 | Ctrl+C handling: stopping the `tail` child in `daemon logs --follow`, and the Windows hand-over | 264 B on macOS and Linux (plus 272 B `nix`); Windows as before |
-| `base64` 0.23 | Standard base64 decoding for `ace sim screenshot`'s JPEG (`Buffer.from(base64, "base64")`) | ~0 KiB, already linked through `ureq` |
+| `url` 2 (no defaults)                            | WHATWG URL parsing for stored profile origins and relays, matching `new URL()` in the TypeScript schema                                                                             | ~0 KiB, already linked through `cli-wire`                                                                                             |
+| `chrono` 0.4 (`alloc`, `clock`, `std`)           | Machine-local timestamps for daemon log lines, formatted as the TypeScript formats them                                                                                             | 21.3 KiB                                                                                                                              |
+| `ctrlc` 3.5                                      | Ctrl+C handling: stopping the `tail` child in `daemon logs --follow`, and the Windows hand-over                                                                                     | 264 B on macOS and Linux (plus 272 B `nix`); Windows as before                                                                        |
+| `base64` 0.23                                    | Standard base64 decoding for `ace sim screenshot`'s JPEG (`Buffer.from(base64, "base64")`)                                                                                          | ~0 KiB, already linked through `ureq`                                                                                                 |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
 build time, never at run time. `serde_json`'s `raw_value` feature (no new crate) lets `--json`
@@ -205,18 +203,18 @@ Measured on `aarch64-apple-darwin` with the workspace `[profile.release]` (`opt-
 HTTP/1.1, local WS, remote profiles, pinned HTTPS/WSS) is `1.90 MiB` (`1,947.5 KiB`, well under the
 4 MB budget). No async runtime (`tokio`/`hyper`/`reqwest`) is in the dependency tree.
 
-| Crate | Features | Why | Size added |
-| ----- | -------- | --- | ---------- |
-| `serde` | `derive`, `std` (no defaults) | Borrowed deserialization and typed request encoding without DOM allocation | `~0 KiB` (traits + derive; codegen links with `serde_json`) |
-| `serde_json` | `std`, `raw_value` (no defaults) | `Box<RawValue>` passthrough for `--json`, envelope peeking, `/v1/*` JSON bodies | `+48.5 KiB` |
-| `tungstenite` | `handshake` (no defaults) | Blocking RFC 6455 WebSocket framing and HTTP upgrade over `std::net::TcpStream` / `rustls` | `+113.9 KiB` |
-| `rustls` | `ring`, `std`, `tls12` (no defaults) | Pinned TLS 1.2/1.3 for remote machine profiles (`ring` also provides SHA-256 for SPKI pinning) | `+840.8 KiB` |
-| `ureq` | `rustls-no-provider` (no defaults) | Blocking HTTP/1.1 client for local and pinned-HTTPS `/v1/*` calls (`rustls-no-provider` avoids `webpki-roots`'s unapproved license) | `+243.4 KiB` |
-| `url` | (no defaults) | WHATWG URL parsing and validation for local, remote, and relay origins | `+209.8 KiB` |
-| `chrono` | `alloc`, `std`, `clock` (no defaults) | Local-machine clock for `ace bot running` wake times (this machine's zone, as the app shows it) and UTC dates in automation and market lines | `+21.7 KiB` |
-| `uuid` | `v4` (no defaults) | Fresh `--idempotency-key` values for automation mutations, so a retry runs once | `<1 KiB` (inlined) |
-| `x509-parser` | (no defaults) | Leaf X.509 DER parsing for SPKI extraction and `[notBefore, notAfter)` validity checks | `+80.8 KiB` |
-| `security-framework` / `schannel` | target-gated (`macos` / `windows`) | Lazy OS system CA roots for `.ts.net` renewal fallback (ADR 0097) without reading `SSL_CERT_FILE` / `SSL_CERT_DIR` (Linux reads fixed `/etc/ssl/...` bundle paths via `rustls` PEM parser) | `+17.8 KiB` (macOS `Security.framework` bindings; `0` on Linux) |
+| Crate                             | Features                              | Why                                                                                                                                                                                        | Size added                                                      |
+| --------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| `serde`                           | `derive`, `std` (no defaults)         | Borrowed deserialization and typed request encoding without DOM allocation                                                                                                                 | `~0 KiB` (traits + derive; codegen links with `serde_json`)     |
+| `serde_json`                      | `std`, `raw_value` (no defaults)      | `Box<RawValue>` passthrough for `--json`, envelope peeking, `/v1/*` JSON bodies                                                                                                            | `+48.5 KiB`                                                     |
+| `tungstenite`                     | `handshake` (no defaults)             | Blocking RFC 6455 WebSocket framing and HTTP upgrade over `std::net::TcpStream` / `rustls`                                                                                                 | `+113.9 KiB`                                                    |
+| `rustls`                          | `ring`, `std`, `tls12` (no defaults)  | Pinned TLS 1.2/1.3 for remote machine profiles (`ring` also provides SHA-256 for SPKI pinning)                                                                                             | `+840.8 KiB`                                                    |
+| `ureq`                            | `rustls-no-provider` (no defaults)    | Blocking HTTP/1.1 client for local and pinned-HTTPS `/v1/*` calls (`rustls-no-provider` avoids `webpki-roots`'s unapproved license)                                                        | `+243.4 KiB`                                                    |
+| `url`                             | (no defaults)                         | WHATWG URL parsing and validation for local, remote, and relay origins                                                                                                                     | `+209.8 KiB`                                                    |
+| `chrono`                          | `alloc`, `std`, `clock` (no defaults) | Local-machine clock for `ace bot running` wake times (this machine's zone, as the app shows it) and UTC dates in automation and market lines                                               | `+21.7 KiB`                                                     |
+| `uuid`                            | `v4` (no defaults)                    | Fresh `--idempotency-key` values for automation mutations, so a retry runs once                                                                                                            | `<1 KiB` (inlined)                                              |
+| `x509-parser`                     | (no defaults)                         | Leaf X.509 DER parsing for SPKI extraction and `[notBefore, notAfter)` validity checks                                                                                                     | `+80.8 KiB`                                                     |
+| `security-framework` / `schannel` | target-gated (`macos` / `windows`)    | Lazy OS system CA roots for `.ts.net` renewal fallback (ADR 0097) without reading `SSL_CERT_FILE` / `SSL_CERT_DIR` (Linux reads fixed `/etc/ssl/...` bundle paths via `rustls` PEM parser) | `+17.8 KiB` (macOS `Security.framework` bindings; `0` on Linux) |
 
 With the providers group (`ace provider|model|account|machine|device|remote|mcp`, step 4) the
 stripped release binary is **4,307,792 bytes (4.11 MiB)** on `aarch64-apple-darwin`, over the
@@ -230,26 +228,26 @@ Measured by `bench/bench.sh` on a release build with `hyperfine --shell=none`, a
 home (no daemon) and no colour; medians, which the script checks against the budgets. The machine
 is shared, so single runs spread wide; the medians below hold run after run.
 
-| Run | Budget | Measured | TypeScript from source |
-| --- | ------ | -------- | ---------------------- |
-| `ace version` | under 3 ms | 2.02 ms | 102.7 ms |
-| `ace help` | under 3 ms | 2.17 ms | 36.3 ms |
-| `ace help thread` | under 3 ms | 2.36 ms | 40.5 ms |
-| a usage error (`ace thraed list`) | — | 2.32 ms | 40.3 ms |
-| `ace __complete`, daemon down | under 3 ms | 2.30 ms | 39.1 ms |
-| `ace --json` (management tree) | — | 2.52 ms | — |
-| stripped binary | under 4 MB | 1.95 MiB | — |
+| Run                               | Budget     | Measured | TypeScript from source |
+| --------------------------------- | ---------- | -------- | ---------------------- |
+| `ace version`                     | under 3 ms | 2.02 ms  | 102.7 ms               |
+| `ace help`                        | under 3 ms | 2.17 ms  | 36.3 ms                |
+| `ace help thread`                 | under 3 ms | 2.36 ms  | 40.5 ms                |
+| a usage error (`ace thraed list`) | —          | 2.32 ms  | 40.3 ms                |
+| `ace __complete`, daemon down     | under 3 ms | 2.30 ms  | 39.1 ms                |
+| `ace --json` (management tree)    | —          | 2.52 ms  | —                      |
+| stripped binary                   | under 4 MB | 1.95 MiB | —                      |
 
 The TypeScript column is the source CLI on Bun (`bun apps/daemon/src/cli.ts`), not the installed
 bundle; the bundle on its bundled Node is slower still (ADR 0221 measured 232 ms for `version`).
 
 Hand-over, with a bundle that exits at once so only process costs are left (medians):
 
-| Run | Median |
-| --- | ------ |
-| Node running the bundle alone | 35.7 ms |
-| `ace` handing the same bundle over | 42.9 ms |
-| `ace version` (the binary's own start, no exec) | 2.2 ms |
+| Run                                             | Median  |
+| ----------------------------------------------- | ------- |
+| Node running the bundle alone                   | 35.7 ms |
+| `ace` handing the same bundle over              | 42.9 ms |
+| `ace version` (the binary's own start, no exec) | 2.2 ms  |
 
 The binary's start is 2.2 ms. macOS's `exec` of Node accounts for the remaining ~5 ms: in the same
 session a 300-byte Rust program that only `exec`s the same Node and bundle measured 44.2 ms
