@@ -16,6 +16,8 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+# ace-adapter-cursor: the Cursor translator shell calls into its JSON API.
+ace-adapter-cursor = { path = "../ace-adapter-cursor" }
 ace-store = { path = "../ace-store" }
 # ace-adapter-codex: the Codex translator behind the exported translator name (E1).
 ace-adapter-codex = { path = "../ace-adapter-codex" }

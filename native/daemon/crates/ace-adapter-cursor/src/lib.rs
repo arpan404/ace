@@ -3,4 +3,7 @@
 //! translator closure into translate, E3 the session into session.
 
 pub mod session;
-pub mod translate;
+mod translate;
+
+pub use translate::CursorTranslator;
+pub use translate::api::{next_deadline_json, take_diagnostics_json, tick_json, translate_json};

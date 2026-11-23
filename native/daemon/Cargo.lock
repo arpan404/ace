@@ -52,7 +52,12 @@ name = "ace-adapter-cursor"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -96,6 +101,7 @@ name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-codex",
+ "ace-adapter-cursor",
  "ace-core",
  "ace-store",
  "napi",
