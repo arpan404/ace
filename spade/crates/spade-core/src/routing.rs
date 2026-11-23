@@ -126,6 +126,22 @@ pub struct Overrides {
         deserialize_with = "known_efforts"
     )]
     pub efforts: BTreeMap<Role, Effort>,
+    /// The working budget in tokens (ADR 0216): the bot compacts once its prompt reaches it,
+    /// the model's window still the ceiling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u32>,
+}
+
+/// The smallest working budget the person may set: below it a bot would compact nearly every
+/// step.
+pub const LEAST_CONTEXT_TOKENS: u32 = 16_000;
+
+/// The working budget (ADR 0216): the bot's, else the global one, else `default`.
+pub fn context_tokens(bot: &Overrides, global: &Overrides, default: u32) -> (u32, Source) {
+    [(bot, Source::Bot), (global, Source::Global)]
+        .into_iter()
+        .find_map(|(overrides, source)| overrides.context_tokens.map(|t| (t, source)))
+        .unwrap_or((default, Source::Default))
 }
 
 /// The stored efforts this build knows; the rest (a newer build's word) are left out.

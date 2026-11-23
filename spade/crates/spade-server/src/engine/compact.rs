@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use spade_core::Event;
-use spade_core::compaction::{self, Plan};
+use spade_core::compaction::{self, Budget, Plan};
 use spade_core::context;
 use spade_core::event::Known;
 use spade_models::Message;
@@ -29,10 +29,14 @@ fn last_prompt_tokens(events: &[Event]) -> u32 {
 }
 
 /// The budget: the model's own context window (or the fallback for a model that doesn't say),
-/// capped only by a budget the person set.
-fn budget(engine: &Engine, model: &str) -> u32 {
+/// capped only by `SPADE_CONTEXT_TOKENS`, and the working budget the conversation compacts at
+/// well before it (ADR 0216).
+fn budget(engine: &Engine, id: &str, model: &str) -> Budget {
     let window = engine.models.resolve(model).and_then(|(_, m)| m.context);
-    budget_for(window, &engine.limits)
+    Budget {
+        window: budget_for(window, &engine.limits),
+        working: engine.context_tokens(id).0,
+    }
 }
 
 fn budget_for(window: Option<u64>, limits: &super::Limits) -> u32 {
@@ -50,8 +54,8 @@ pub(super) async fn if_needed(
     model: &str,
     events: &[Event],
 ) -> bool {
-    let Some(plan) = compaction::plan(events, last_prompt_tokens(events), budget(engine, model))
-    else {
+    let budget = budget(engine, id, model);
+    let Some(plan) = compaction::plan_within(events, last_prompt_tokens(events), budget) else {
         return false;
     };
     run(engine, id, model, events, plan, None).await;
@@ -97,7 +101,6 @@ async fn run(
         images: Vec::new(),
     });
     let ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
-    let carried = compaction::lines(&ledger);
     // Paid for like every model call (ADR 0135).
     let hint = super::ledger::turn_hint(events);
     // The `compact` role's model when it fits and costs less (ADR 0162).
@@ -133,15 +136,8 @@ async fn run(
     if let Some(summary) = &written {
         super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
     }
-    let summary = match written {
-        Some(summary) => compaction::render(&summary, &carried),
-        None => {
-            let mut text = LEFT_OUT.to_owned();
-            text.push('\n');
-            text.push_str(&compaction::carried_section(&carried));
-            text
-        }
-    };
+    // The summary, the person's own words kept whole and the writes carried out (ADR 0216).
+    let summary = compaction::written(written.as_ref(), LEFT_OUT, &ledger);
     let event = Event::Known(Known::ContextCompacted {
         summary,
         keep_from: plan.keep_from,
@@ -152,6 +148,21 @@ async fn run(
     });
     if let Err(error) = engine.record(id, &event) {
         tracing::error!(%error, "could not store a compaction");
+    }
+}
+
+/// Stores the next batch of aged tool results when one is due (ADR 0216). Returns whether it
+/// did; a store that fails ages nothing, so the step goes on as it was.
+pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
+    let Some(before) = spade_core::aging::due(events) else {
+        return false;
+    };
+    match engine.record(id, &Event::Known(Known::ResultsAged { before })) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(%error, "could not store aged results");
+            false
+        }
     }
 }
 

@@ -35,6 +35,9 @@ struct Change {
     /// Each role named maps to how hard its model thinks (ADR 0213), or `null` to clear it.
     #[serde(default)]
     efforts: BTreeMap<String, Option<String>>,
+    /// The working budget in tokens (ADR 0216), or `null` to clear it.
+    #[serde(default, deserialize_with = "present")]
+    context_tokens: Option<Option<u32>>,
 }
 
 impl Change {
@@ -44,6 +47,7 @@ impl Change {
             allowed: self.allowed,
             escalate: self.escalate,
             efforts: self.efforts,
+            context_tokens: self.context_tokens,
         }
     }
 }

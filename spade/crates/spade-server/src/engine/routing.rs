@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use spade_core::brain::CliModel;
-use spade_core::routing::{Defaults, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing};
+use spade_core::routing::{
+    Defaults, LEAST_CONTEXT_TOKENS, MOST_IN_ROUTE, Models, Overrides, Role, Route, Routing, Source,
+};
 use spade_models::{Effort, Endpoint};
 use spade_store::StoreError;
 
@@ -61,6 +63,8 @@ pub struct RolesChange {
     pub escalate: Option<Option<bool>>,
     /// An effort per role by name, `None` to clear it (ADR 0213).
     pub efforts: BTreeMap<String, Option<String>>,
+    /// The working budget in tokens, `None` to clear it (ADR 0216).
+    pub context_tokens: Option<Option<u32>>,
 }
 
 /// Everything a conversation's roles are resolved from.
@@ -111,6 +115,17 @@ impl Engine {
             global.roles.insert(Role::Review, route);
         }
         global
+    }
+
+    /// The working budget `conversation` compacts at (ADR 0216), and where it came from. Reads
+    /// two settings, never the conversation.
+    pub(crate) fn context_tokens(&self, conversation: &str) -> (u32, Source) {
+        let bot = self
+            .agent_of(conversation)
+            .map(|a| self.read_overrides(&agent_key(&a)).unwrap_or_default())
+            .unwrap_or_default();
+        let global = self.read_overrides(GLOBAL).unwrap_or_default();
+        spade_core::routing::context_tokens(&bot, &global, self.limits.working_tokens)
     }
 
     /// What the person already uses: every bot's model, and the review, fast and new-bot models.
@@ -233,7 +248,6 @@ impl Engine {
         prompt: &spade_models::Prompt,
         hint: super::ledger::Hint,
     ) -> String {
-        use spade_core::routing::Source;
         use spade_models::Capability;
         let choice = self.facts(conversation).routing().resolve(Role::Compact);
         let candidate = choice.model;
@@ -339,6 +353,8 @@ impl Engine {
                 .map(|r| (r.name(), r.default_effort().name()))
                 .collect::<BTreeMap<_, _>>(),
             "escalate": global.escalate,
+            "context_tokens": global.context_tokens,
+            "context_tokens_default": self.limits.working_tokens,
         }))
     }
 
@@ -349,6 +365,11 @@ impl Engine {
             return Ok(None);
         };
         let facts = self.facts(&stored.conversation);
+        let context = spade_core::routing::context_tokens(
+            &facts.bot,
+            &facts.global,
+            self.limits.working_tokens,
+        );
         let routing = facts.routing();
         let roles: Vec<Value> = routing
             .table()
@@ -373,8 +394,13 @@ impl Engine {
                 "efforts": efforts_json(&facts.bot),
                 "allowed": facts.bot.allowed,
                 "escalate": facts.bot.escalate,
+                "context_tokens": facts.bot.context_tokens,
             },
             "escalate": routing.escalate(),
+            "context_tokens": {
+                "tokens": context.0,
+                "source": context.1.name(),
+            },
             "spend": self.role_spend_json(&stored.conversation),
         })))
     }
@@ -479,6 +505,14 @@ impl Engine {
         }
         if let Some(escalate) = change.escalate {
             overrides.escalate = escalate;
+        }
+        if let Some(tokens) = change.context_tokens {
+            if tokens.is_some_and(|t| t < LEAST_CONTEXT_TOKENS) {
+                return Err(invalid(format!(
+                    "a working budget is at least {LEAST_CONTEXT_TOKENS} tokens"
+                )));
+            }
+            overrides.context_tokens = tokens;
         }
         for (name, effort) in change.efforts {
             let role = Role::parse(&name)
