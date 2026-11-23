@@ -33,6 +33,14 @@ pub(super) struct Shared {
     moved_jobs: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
+/// The marker that keeps a queued lane from ever starting.
+fn queued_stop() -> Event {
+    Event::Known(Known::StopRequested {
+        reply: None,
+        jobs: Vec::new(),
+    })
+}
+
 impl Engine {
     /// The lane job `job` of `id` moved to, if it moved.
     pub(super) fn moved_job(&self, id: &str, job: &str) -> Option<String> {
@@ -81,9 +89,11 @@ impl Engine {
     }
 
     /// Where the lane `id` stands now.
+    /// Read with everything under it (ADR 0217 §5, AGENTS.md priority 1): never call this under
+    /// the record lock, which reading what is under it takes.
     pub(super) fn lane_state(&self, id: &str) -> State {
         match self.load(id) {
-            Ok(events) => lane::state(&events, self.continuing(id, false)),
+            Ok(events) => lane::state(&events, self.around(id, &events)),
             Err(_) => State::Stopped,
         }
     }
@@ -101,35 +111,34 @@ impl Engine {
         if lanes.is_empty() {
             return;
         }
+        // How each stands with what is under it, read before the record lock (which reading it
+        // takes): a lane whose reply closed while its job or worker runs holds its slot.
+        let states: Vec<(StoredHelper, State)> = lanes
+            .into_iter()
+            .map(|row| {
+                let state = self.lane_state(&row.conversation);
+                (row, state)
+            })
+            .collect();
+        let running = states
+            .iter()
+            .filter(|(_, state)| state.live() && *state != State::Queued)
+            .count();
+        let mut free = self.limits.tasks_at_once.max(1).saturating_sub(running);
+        let model = self.lane_model(main);
         let mut drive = Vec::new();
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if !self.admission.load(std::sync::atomic::Ordering::SeqCst) || self.deleting(main) {
                 return;
             }
-            let stages: Vec<(StoredHelper, Stage, bool)> = lanes
-                .into_iter()
-                .map(|row| {
-                    let (stage, open) =
-                        self.load(&row.conversation)
-                            .map_or((Stage::Ended, false), |events| {
-                                let open = Transcript::fold(events.iter()).open_reply().is_some();
-                                (helper::stage(&events), open)
-                            });
-                    (row, stage, open)
-                })
-                .collect();
-            let running = stages
-                .iter()
-                .filter(|(_, stage, open)| *stage == Stage::Running || *open);
-            let mut free = self
-                .limits
-                .tasks_at_once
-                .max(1)
-                .saturating_sub(running.count());
-            let model = self.lane_model(main);
-            for (row, stage, open) in stages {
-                match stage {
+            for (row, _) in states {
+                // Looked at again under the lock: a stop may have marked it since.
+                let Ok(events) = self.load(&row.conversation) else {
+                    continue;
+                };
+                let open = Transcript::fold(events.iter()).open_reply().is_some();
+                match helper::stage(&events) {
                     _ if open => drive.push(row.conversation),
                     Stage::Queued if free > 0 => {
                         let started = Event::reply_started(self.ids.next("r"), &model);
@@ -191,14 +200,8 @@ impl Engine {
         if helper::stage(&events) == Stage::Queued {
             return;
         }
-        let around = tree::Around {
-            carries_on: self.continuing(id, false)
-                || matches!(
-                    spade_core::task::next(&events, &self.limits.task),
-                    spade_core::task::Next::Continue { .. }
-                ),
-            ..tree::Around::default()
-        };
+        // The same fold as its state: its own jobs, waits, continuation and what is under it.
+        let around = self.around(id, &events);
         let settled = match tree::settled(&events, around) {
             Some(settled) => settled,
             // Stopped before it began: no reply to settle in.
@@ -233,48 +236,55 @@ impl Engine {
         }
     }
 
-    /// Stops every lane of `main` (Stop on the bot, ADR 0217 §5): a running one like any reply,
-    /// a queued one with a marker so it never starts. Whether any was stopped.
-    pub(super) fn stop_lanes(self: &Arc<Self>, main: &str) -> bool {
-        let mut any = false;
-        for row in self.lanes_of(main) {
-            any |= self.stop_lane(&row.conversation);
+    /// Stops every lane of `main` (Stop on the bot, ADR 0217 §5). Every queued one is marked in
+    /// one write first, so none is admitted into a slot a stopping lane frees; then each running
+    /// one is stopped like any reply. Whether any was stopped.
+    pub(in super::super) fn stop_lanes(self: &Arc<Self>, main: &str) -> Result<bool, StoreError> {
+        let lanes = self.lanes_of(main);
+        if lanes.is_empty() {
+            return Ok(false);
         }
-        any
+        let marked = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let mut marked = Vec::new();
+            for row in &lanes {
+                if helper::stage(&self.load(&row.conversation)?) == Stage::Queued {
+                    self.append(&row.conversation, &queued_stop())?;
+                    marked.push(row.conversation.clone());
+                }
+            }
+            marked
+        };
+        let mut any = !marked.is_empty();
+        for row in &lanes {
+            if marked.contains(&row.conversation) {
+                self.check_lane(&row.conversation);
+            } else {
+                any |= self.end_work(&row.conversation, Self::stop_wakes)?;
+            }
+        }
+        Ok(any)
     }
 
-    /// Stops one lane and what it started, only it (ADR 0217 §5).
-    pub(super) fn stop_lane(self: &Arc<Self>, id: &str) -> bool {
+    /// Stops one lane and what it started, only it (ADR 0217 §5): a queued one is marked so it
+    /// never starts, a running one stopped like any reply.
+    pub(in super::super) fn stop_lane(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
         let queued = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            match self.load(id) {
-                Ok(events) if helper::stage(&events) == Stage::Queued => {
-                    let marker = Event::Known(Known::StopRequested {
-                        reply: None,
-                        jobs: Vec::new(),
-                    });
-                    if let Err(error) = self.append(id, &marker) {
-                        tracing::error!(%error, "could not stop a queued task lane");
-                    }
-                    true
-                }
-                _ => false,
+            let queued = helper::stage(&self.load(id)?) == Stage::Queued;
+            if queued {
+                self.append(id, &queued_stop())?;
             }
+            queued
         };
-        if queued {
-            self.check_lane(id);
-            if let Some(row) = self.lane_row(id) {
-                self.fill_lanes(&row.parent);
-            }
-            return true;
+        if !queued {
+            return self.end_work(id, Self::stop_wakes);
         }
-        match self.stop(id) {
-            Ok(stopped) => stopped,
-            Err(error) => {
-                tracing::error!(%error, "could not store a task lane's stop");
-                false
-            }
+        self.check_lane(id);
+        if let Some(row) = self.lane_row(id) {
+            self.fill_lanes(&row.parent);
         }
+        Ok(true)
     }
 
     /// Every lane's conversation, for checking owed reports when Spade opens.

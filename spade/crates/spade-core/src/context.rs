@@ -781,7 +781,10 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             }
             // A wake's note, a job's check-in (ADR 0160) and a worker's report (ADR 0161) read
             // like a job's result.
-            Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_) => {
+            Known::WakeFired { .. }
+            | Known::JobProgress { .. }
+            | Known::WorkerReported(_)
+            | Known::LaneMessage(_) => {
                 if let Some(text) = crate::wake::note_text(event) {
                     if pending.is_empty() {
                         push_person(&mut out, text, Vec::new());
@@ -1198,9 +1201,14 @@ pub fn untrusted_event(event: &Event, registry: &Registry) -> bool {
         Event::Known(Known::PluginsStarted { added, .. }) => !added.is_empty(),
         // A wake's data (a service's line, a thread's title) or a job's output (ADR 0160).
         Event::Known(
-            known
-            @ (Known::WakeFired { .. } | Known::JobProgress { .. } | Known::WorkerReported(_)),
+            known @ (Known::WakeFired { .. }
+            | Known::JobProgress { .. }
+            | Known::WorkerReported(_)
+            | Known::LaneMessage(_)),
         ) => crate::wake::untrusted(known),
+        // A lane started while main had untrusted content in view carries that taint
+        // (ADR 0217 §3): its gate is never weaker than main's was.
+        Event::Known(Known::LaneOf(link)) => link.untrusted,
         // Names of files and pages from the person's turn at the computer (ADR 0142).
         Event::Known(
             Known::ComputerHandedBack { data, .. } | Known::PersonActivity { data, .. },
@@ -1232,6 +1240,12 @@ fn describe_event(before: &[Event], event: &Event) -> String {
         }) => format!("a message from {}", agent.name),
         Event::Known(Known::PanelAction { surface, .. }) => {
             format!("an action from the page of the panel {surface}")
+        }
+        Event::Known(Known::LaneOf(_)) => {
+            "untrusted content the main conversation had in view when this task began".to_owned()
+        }
+        Event::Known(Known::LaneMessage(_)) => {
+            "a message from the main conversation written with untrusted content in view".to_owned()
         }
         Event::Known(Known::UserMessage { documents, .. }) if !documents.is_empty() => {
             let names: Vec<String> = documents

@@ -837,6 +837,9 @@ pub enum Known {
     /// A lane wrote a file another lane still working wrote too (ADR 0217 §3): a note to the
     /// writing lane and a line in main, never a lock.
     LanesOverlapped(crate::lane::Overlap),
+    /// Main's words to one of its lanes (`task_message`, ADR 0217 §3): the bot's, never the
+    /// person's. It steers the lane's turn or opens its next reply, like a job's result.
+    LaneMessage(crate::lane::Message),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),

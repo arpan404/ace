@@ -35,7 +35,7 @@ impl Engine {
         detailed: bool,
     ) -> Result<Value, StoreError> {
         let events = self.load(&row.conversation)?;
-        let state = lane::state(&events, self.continuing(&row.conversation, false));
+        let state = lane::state(&events, self.around(&row.conversation, &events));
         let link = lane::link(&events);
         let task = spade_core::goal::view::task(&events);
         let progress = task.as_ref().map(|t| {

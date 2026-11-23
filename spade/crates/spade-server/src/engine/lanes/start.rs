@@ -176,6 +176,16 @@ impl Engine {
         lane_id: String,
         build: impl FnOnce(&[Event]) -> Option<(Opened, Vec<Event>, Vec<Event>)>,
     ) -> Result<Option<StoredHelper>, ToolOutput> {
+        // Read before the record lock, which reading a lane's state takes; it only says whether
+        // `lane_started` reads queued: `fill_lanes` decides what starts.
+        let running_before = self
+            .lanes_of(main)
+            .iter()
+            .filter(|l| {
+                let state = self.lane_state(&l.conversation);
+                state.live() && state != lane::State::Queued
+            })
+            .count();
         let created = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(main) {
@@ -204,14 +214,7 @@ impl Engine {
                 model: self.lane_model(main),
                 created_ms: self.now_ms(),
             };
-            let running = self
-                .lanes_of(main)
-                .iter()
-                .filter(|l| {
-                    let state = self.lane_state(&l.conversation);
-                    state.live() && state != lane::State::Queued
-                })
-                .count();
+            let running = running_before;
             let started = Event::Known(Known::LaneStarted(Started {
                 lane: row.conversation.clone(),
                 conversation: row.conversation.clone(),

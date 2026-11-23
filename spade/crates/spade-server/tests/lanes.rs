@@ -1292,3 +1292,274 @@ async fn a_helper_of_mains_moved_work_asks_in_main_and_reports_to_the_lane() -> 
     wait_count(&spade, &lane_id, "reply_finished", 2).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn a_lane_that_ends_its_reply_with_its_job_still_running_reads_working_until_it_ends()
+-> Result {
+    let fetch = FakeTool::new("fetch_report", Risk::Read, "Revenue is up 12%.")
+        .background()
+        .slow(Duration::from_millis(1500));
+    let routes = vec![route(
+        "Fetch the Q3 report",
+        vec![
+            Script::reply("").call("j1", "fetch_report", json!({})),
+            Script::reply("Waiting for the report."),
+            Script::reply("The report says revenue is up 12%."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Fetch the Q3 report"),
+        Script::reply("Started."),
+        Script::reply("Revenue is up 12%."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![fetch]), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Fetch the Q3 report.").await?;
+    let lane_id = id_of(
+        wait_tasks(&spade, &conversation, |t| !t.is_empty())
+            .await?
+            .first(),
+    );
+    // The lane's reply ended while its job runs: it, and the bot, still read working.
+    wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(found[0]["state"], "working", "{found:#?}");
+    let row = roster_state(&spade, &agent).await?;
+    assert_ne!(row["state"], "idle", "{row}");
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "worker_reported"),
+        0
+    );
+    // Once the job's result is read, it reports, once.
+    let events = wait_count(&spade, &conversation, "worker_reported", 1).await?;
+    let report = events
+        .iter()
+        .find(|e| e["type"] == "worker_reported")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(report["state"], "finished");
+    assert_eq!(count(&spade.events(&lane_id).await?, "job_finished"), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_on_an_idle_bot_stops_its_running_and_queued_lanes_and_admits_none() -> Result {
+    let routes = vec![
+        route(
+            "Book flights to Lisbon",
+            vec![Script::reply("never").held(Duration::from_secs(30))],
+        ),
+        route("Renew the domain", vec![Script::reply("Renewed.")]),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Book flights to Lisbon" }),
+            )
+            .call("t2", "task_start", json!({ "title": "Renew the domain" })),
+        Script::reply("Started both; the domain waits its turn."),
+    ]);
+    let options = with(Limits {
+        tasks_at_once: 1,
+        ..Default::default()
+    });
+    let spade = Spade::start_routed(routes, main, Vec::new(), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Book flights and renew the domain.")
+        .await?;
+    let found = wait_tasks(&spade, &conversation, |t| {
+        titled(t, "Book flights to Lisbon").is_some_and(|f| f["state"] == "working")
+            && titled(t, "Renew the domain").is_some_and(|d| d["state"] == "queued")
+    })
+    .await?;
+    let domain = id_of(titled(&found, "Renew the domain"));
+    wait_count(&spade, &conversation, "reply_finished", 2).await?;
+    // Main itself is idle; Stop on the bot still stops both, and the queued one never starts.
+    let (status, body) = spade
+        .post(&format!("/v1/conversations/{conversation}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.iter().all(|t| t["state"] == "stopped")
+    })
+    .await?;
+    assert_eq!(found.len(), 2);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(count(&spade.events(&domain).await?, "reply_started"), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn stop_on_a_queued_lane_marks_it_so_it_never_starts() -> Result {
+    let routes = vec![
+        route(
+            "Book flights to Lisbon",
+            vec![Script::reply("Booked.").held(Duration::from_millis(800))],
+        ),
+        route("Renew the domain", vec![Script::reply("Renewed.")]),
+    ];
+    let mut main = warm_up();
+    main.extend([
+        Script::reply("")
+            .call(
+                "t1",
+                "task_start",
+                json!({ "title": "Book flights to Lisbon" }),
+            )
+            .call("t2", "task_start", json!({ "title": "Renew the domain" })),
+        Script::reply("Started both."),
+        Script::reply("The flights are booked."),
+    ]);
+    let options = with(Limits {
+        tasks_at_once: 1,
+        ..Default::default()
+    });
+    let spade = Spade::start_routed(routes, main, Vec::new(), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Book flights and renew the domain.")
+        .await?;
+    let found = wait_tasks(&spade, &conversation, |t| {
+        titled(t, "Renew the domain").is_some_and(|d| d["state"] == "queued")
+    })
+    .await?;
+    let domain = id_of(titled(&found, "Renew the domain"));
+    let (status, body) = spade
+        .post(&format!("/v1/conversations/{domain}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    // The flights end and free the slot; the stopped one stays stopped.
+    wait_tasks(&spade, &conversation, |t| {
+        titled(t, "Book flights to Lisbon").is_some_and(|f| f["state"] == "finished")
+    })
+    .await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(
+        titled(&found, "Renew the domain").map(|t| &t["state"]),
+        Some(&json!("stopped"))
+    );
+    assert_eq!(count(&spade.events(&domain).await?, "reply_started"), 0);
+    Ok(())
+}
+
+/// Makes the database refuse events matching `when` (SQL over `NEW`) until [`allow`], as a crash
+/// between two writes would leave them: the trigger's name is `name`.
+fn refuse(spade: &Spade, name: &str, when: &str) -> Result {
+    let connection = spade_store::Store::connect(&spade.database())?;
+    connection.execute_batch(&format!(
+        "CREATE TRIGGER {name} BEFORE INSERT ON events WHEN {when} \
+         BEGIN SELECT RAISE(ABORT, 'refused for a test'); END;"
+    ))?;
+    Ok(())
+}
+
+fn allow(spade: &Spade, name: &str) -> Result {
+    let connection = spade_store::Store::connect(&spade.database())?;
+    connection.execute_batch(&format!("DROP TRIGGER {name};"))?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lanes_request_is_never_stored_without_its_copy_in_main() -> Result {
+    let send = FakeTool::new("send_email", Risk::Write, "sent");
+    let routes = vec![route(
+        "Send Dana the invoice",
+        vec![
+            Script::reply("").call("e1", "send_email", json!({ "to": "dana@northwind.co" })),
+            Script::reply("Sent."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Send Dana the invoice"),
+        Script::reply("Started."),
+        Script::reply("The task stopped early."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![send]), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    // Main's copy can't be written, as if Spade died between the two writes.
+    refuse(
+        &spade,
+        "no_mirror",
+        "json_extract(NEW.body, '$.type') = 'approval_requested' \
+         AND json_extract(NEW.body, '$.lane') IS NOT NULL",
+    )?;
+    spade.say(&conversation, "Send Dana the invoice.").await?;
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.first().is_some_and(|t| t["state"] == "failed")
+    })
+    .await?;
+    let lane_id = id_of(found.first());
+    let lane_events = spade.events(&lane_id).await?;
+    assert_eq!(
+        count(&lane_events, "approval_requested"),
+        0,
+        "the lane waits on a request main can't show: {:?}",
+        types(&lane_events)
+    );
+    allow(&spade, "no_mirror")?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_answer_to_a_lanes_request_lands_in_main_and_the_lane_together_or_not_at_all() -> Result
+{
+    let send = FakeTool::new("send_email", Risk::Write, "sent");
+    let sent = send.calls();
+    let routes = vec![route(
+        "Send Dana the invoice",
+        vec![
+            Script::reply("").call("e1", "send_email", json!({ "to": "dana@northwind.co" })),
+            Script::reply("Sent."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Send Dana the invoice"),
+        Script::reply("Started."),
+        Script::reply("Sent."),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![send]), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Send Dana the invoice.").await?;
+    let events = wait_count(&spade, &conversation, "approval_requested", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let call = asked["call_id"].as_str().unwrap_or_default().to_owned();
+    refuse(
+        &spade,
+        "no_lane_answer",
+        &format!(
+            "json_extract(NEW.body, '$.type') = 'approval_answered' \
+             AND NEW.conversation_id = '{lane_id}'"
+        ),
+    )?;
+    let path = format!("/v1/conversations/{conversation}/approvals/{call}");
+    let (status, _) = spade.post(&path, json!({ "allowed": true })).await?;
+    assert_eq!(status, 500, "the answer could not be stored");
+    // Nothing of it landed: main still asks, and the bot still needs the person.
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "approval_answered"),
+        0
+    );
+    assert_eq!(roster_state(&spade, &agent).await?["state"], "waiting");
+    allow(&spade, "no_lane_answer")?;
+    let (status, body) = spade.post(&path, json!({ "allowed": true })).await?;
+    assert_eq!(status, 202, "{body}");
+    wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(0), 1);
+    Ok(())
+}

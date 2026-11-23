@@ -189,10 +189,12 @@ impl Engine {
             Err(refused) => return ToolOutput::error(refused),
         };
         let events = self.load(main).unwrap_or_default();
-        if let Err(refused) = lane::stop_allowed(&events, &arguments.because) {
+        if let Err(refused) = lane::stop_allowed(&events, &row.conversation, &arguments.because) {
             return ToolOutput::error(refused);
         }
-        self.stop_lane(&row.conversation);
+        if let Err(error) = self.stop_lane(&row.conversation) {
+            return ToolOutput::error(format!("Spade could not stop it: {error}"));
+        }
         ToolOutput::ok(json!({ "task": row.conversation, "state": "stopped" }).to_string())
     }
 
@@ -218,11 +220,39 @@ impl Engine {
 }
 
 impl Engine {
-    /// After lane `id` stored `asked` (an `ask_user` card, and its deferral when it waits on
-    /// nothing): the same card in main, naming the lane, where the person answers it (ADR 0217
-    /// §4). Its call id there is `<lane>.<call>`.
-    pub(in super::super) fn ask_in_main(&self, id: &str, asked: &[Event]) {
-        let Some(row) = self.lane_row(id) else { return };
+    /// Stores `asked` (an `ask_user` card, and its deferral when it waits on nothing) in `id`,
+    /// unless `reply` was stopped; a lane's goes to main too in the same write, naming the lane,
+    /// where the person answers it (ADR 0217 §4). Its call id there is `<lane>.<call>`.
+    pub(in super::super) fn ask_question(
+        self: &Arc<Self>,
+        id: &str,
+        reply: &str,
+        asked: &[Event],
+    ) -> Result<bool, StoreError> {
+        let mirror = self.question_mirror(id, asked);
+        {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            if spade_core::turn::stop_requested(&self.load(id)?, reply) {
+                return Ok(false);
+            }
+            match &mirror {
+                Some((main, mirrored)) => {
+                    self.append_across(&[(id, asked), (main.as_str(), mirrored.as_slice())], &[])?;
+                }
+                None => {
+                    self.append_events(id, asked)?;
+                }
+            }
+        }
+        if let Some((main, _)) = mirror {
+            self.announce(&main);
+        }
+        Ok(true)
+    }
+
+    /// Main and the copy of `asked` it shows, when `id` is a lane.
+    fn question_mirror(&self, id: &str, asked: &[Event]) -> Option<(String, Vec<Event>)> {
+        let row = self.lane_row(id)?;
         let title = self.lane_title(id);
         let mirrored: Vec<Event> = asked
             .iter()
@@ -255,17 +285,7 @@ impl Engine {
                 _ => None,
             })
             .collect();
-        if mirrored.is_empty() {
-            return;
-        }
-        let stored = {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            self.append_events(&row.parent, &mirrored)
-        };
-        match stored {
-            Ok(_) => self.announce(&row.parent),
-            Err(error) => tracing::error!(%error, "could not ask a task lane's question in main"),
-        }
+        (!mirrored.is_empty()).then_some((row.parent, mirrored))
     }
 
     /// The lane and its own call id when `call_id` in `main` is a lane's card asked there.
@@ -283,6 +303,43 @@ impl Engine {
             }) if c == call_id => Some((lane.conversation.clone(), lane.call_id.clone())),
             _ => None,
         })
+    }
+
+    /// Main and its copy of lane `lane_id`'s card `call_id` closed the way `answered` closed the
+    /// lane's, when main shows that card.
+    pub(in super::super) fn closed_copy(
+        &self,
+        lane_id: &str,
+        call_id: &str,
+        answered: &Event,
+    ) -> Option<(String, Event)> {
+        let row = self.lane_row(lane_id)?;
+        let mirrored = format!("{lane_id}.{call_id}");
+        let closed = match answered {
+            Event::Known(Known::QuestionAnswered {
+                answers,
+                late,
+                typed,
+                ..
+            }) => Known::QuestionAnswered {
+                call_id: mirrored.clone(),
+                answers: answers.clone(),
+                late: *late,
+                typed: *typed,
+            },
+            Event::Known(Known::QuestionDeferred { by_bot, .. }) => Known::QuestionDeferred {
+                call_id: mirrored.clone(),
+                by_bot: *by_bot,
+            },
+            Event::Known(Known::QuestionDismissed { late, .. }) => Known::QuestionDismissed {
+                call_id: mirrored.clone(),
+                late: *late,
+            },
+            _ => return None,
+        };
+        let events = self.load(&row.parent).ok()?;
+        spade_core::question::standing(events.iter(), &mirrored)?;
+        Some((row.parent, Event::Known(closed)))
     }
 
     /// The lane's card `call_id` was answered (`answered`, as stored in the lane): main's copy

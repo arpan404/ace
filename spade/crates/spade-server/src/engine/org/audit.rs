@@ -241,6 +241,27 @@ impl Engine {
         Ok(stored)
     }
 
+    /// Stores events in several conversations and `entries` in one write, all or none; the
+    /// caller holds `record_lock`. A request and its copy in a lane's bot, or an answer in both,
+    /// can never land one without the other (ADR 0217 §4).
+    pub(crate) fn append_across(
+        &self,
+        writes: &[(&str, &[Event])],
+        entries: &[Entry],
+    ) -> Result<(), StoreError> {
+        let stored = self.store.append_across(writes, entries, self.now_ms());
+        for (id, _) in writes {
+            self.forget_activity(id);
+        }
+        for ((id, _), events) in writes.iter().zip(stored?) {
+            self.publish_stored(id, &events);
+        }
+        if !entries.is_empty() {
+            self.after_audit();
+        }
+        Ok(())
+    }
+
     /// [`Engine::append_audited`] for one event, taking `record_lock`.
     pub(crate) fn record_audited(
         &self,
