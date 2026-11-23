@@ -32,55 +32,90 @@ extension EnvironmentValues {
         self.agent = agent
     }
 
-    func read() async {
-        let answer = await client.spadeMove(agent)
-        if answer.ok { row = answer.part }
+    struct Confirmation {
+        let target: SpadeMoveTarget
+        let moveId: String?
     }
 
-    func move(to target: SpadeMoveTarget) async {
-        guard !busy else { return }
-        busy = true
-        problem = nil
-        defer {
-            busy = false
-            client.spadeRefresh()
-            target.client.spadeRefresh()
+    var confirmation: Confirmation?
+    private var approvedId: String?
+    private(set) var acceptedId: String?
+    private var revision = 0
+    private var loaded = false
+
+    var moveId: String? { row?.id }
+
+    func watch(targets: [SpadeMoveTarget]) async {
+        await read(targets: targets)
+        while !loaded || row?.moving == true {
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            await read(targets: targets)
         }
+    }
+
+    private func read(targets: [SpadeMoveTarget]) async {
+        guard !busy else { return }
+        let revision = self.revision
+        let answer = await client.spadeMove(agent)
+        guard !Task.isCancelled, revision == self.revision, answer.ok else { return }
+        loaded = true
+        row = answer.part
+        if let row, row.id == approvedId, row.waitsForYou,
+           let target = targets.first(where: { $0.host == row.to && $0.ready }) {
+            await accept(row, on: target)
+        }
+    }
+
+    func confirm(_ choice: Confirmation) async {
+        guard !busy, choice.target.ready else { return }
+        if let id = choice.moveId {
+            guard let row, row.id == id, row.to == choice.target.host, row.waitsForYou else { return }
+            await accept(row, on: choice.target)
+            return
+        }
+        guard row?.moving != true else { return }
+        busy = true
+        revision += 1
+        problem = nil
         let id = SpadeProfileAccess.moveId(UUID())
-        let started = await client.spadeMoveStart(agent, to: target.host, move: id)
+        let started = await client.spadeMoveStart(agent, to: choice.target.host, move: id)
+        busy = false
         guard started.ok else {
             problem = started.problem ?? "Couldn't move it."
             return
         }
         row = started.part
-        // Packing takes a moment: read the move until it says what to accept, or ends.
-        var accept = row?.accept
-        var tries = 0
-        while accept == nil, tries < 600, row?.moving == true, !Task.isCancelled {
-            tries += 1
-            try? await Task.sleep(for: .milliseconds(500))
-            let answer = await client.spadeMove(agent)
-            guard answer.ok else { break }
-            row = answer.part
-            accept = row?.accept
-        }
-        guard let accept else {
-            if row?.failed != true { problem = "The move took too long to get ready." }
-            return
-        }
+        approvedId = id
+        client.spadeRefresh()
+        if let row, row.waitsForYou { await accept(row, on: choice.target) }
+    }
+
+    private func accept(_ row: SpadeProfileAccess.Move, on target: SpadeMoveTarget) async {
+        guard let id = row.id, let accept = row.accept else { return }
+        busy = true
+        revision += 1
+        approvedId = nil
+        problem = nil
         let accepted = await target.client.spadeMoveAccept(id, accept: accept)
-        if !accepted.ok { problem = accepted.problem ?? "\(target.name) didn't take it." }
+        busy = false
+        if accepted.ok { acceptedId = id }
+        else { problem = accepted.problem ?? "\(target.name) didn't take it." }
+        client.spadeRefresh()
+        target.client.spadeRefresh()
     }
 
     /// `cancel` (also dismisses a failed move), `check` or `arrival`.
-    func end(_ action: String) async {
+    func end(_ action: String, targets: [SpadeMoveTarget]) async {
         guard !busy else { return }
         busy = true
+        revision += 1
+        approvedId = nil
         problem = nil
         let outcome = await client.spadeMoveEnd(agent, action: action)
         busy = false
         if !outcome.ok { problem = outcome.problem }
-        await read()
+        await read(targets: targets)
     }
 }
 
@@ -99,34 +134,38 @@ struct SpadeMoveLine: View {
                         .foregroundStyle(row.failed ? AceTheme.StatusText.failed : AceDesign.Ink.primary)
                         .accessibilityIdentifier("spade.move.line")
                     actions(row)
-                    if let problem = flow.problem {
-                        Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
-                    }
                 }
             }
-        }
-        .task(id: flow.row?.moving == true) {
-            await flow.read()
-            while flow.row?.moving == true && !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                await flow.read()
+            if let problem = flow.problem {
+                Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
             }
         }
     }
 
     @ViewBuilder private func actions(_ row: SpadeProfileAccess.Move) -> some View {
         HStack(spacing: AceDesign.Space.group) {
-            if row.canCancel { button("Cancel") { await flow.end("cancel") } }
-            if row.check { button("Check again") { await flow.end("check") } }
-            if row.canKeep { button("Keep it here") { await flow.end("cancel") } }
+            if row.canCancel { button("Cancel") { await flow.end("cancel", targets: targets) } }
+            if row.check { button("Check again") { await flow.end("check", targets: targets) } }
+            if row.canKeep { button("Keep it here") { await flow.end("cancel", targets: targets) } }
             if row.failed {
                 if let target = targets.first(where: { $0.host == row.to && $0.ready }) {
-                    button("Try again") { await flow.move(to: target) }
+                    confirmButton("Try again", target: target, id: nil)
                 }
-                button("Dismiss") { await flow.end("cancel") }
+                button("Dismiss") { await flow.end("cancel", targets: targets) }
             }
-            if row.arrived { button("Dismiss") { await flow.end("arrival") } }
+            if row.waitsForYou, let id = row.id, id != flow.acceptedId,
+               let target = targets.first(where: { $0.host == row.to && $0.ready }) {
+                confirmButton("Continue move", target: target, id: id)
+            }
+            if row.arrived { button("Dismiss") { await flow.end("arrival", targets: targets) } }
         }
+    }
+
+    private func confirmButton(_ title: String, target: SpadeMoveTarget, id: String?) -> some View {
+        Button(title) { flow.confirmation = .init(target: target, moveId: id) }
+            .aceFont(AceDesign.TextRole.action)
+            .buttonStyle(.borderless)
+            .disabled(flow.busy)
     }
 
     private func button(_ title: String, _ act: @escaping () async -> Void) -> some View {
@@ -149,7 +188,7 @@ struct SpadeMoveMenu: View {
             Menu("Move to…") {
                 ForEach(targets) { target in
                     Button(target.ready ? target.name : "\(target.name) · offline") {
-                        Task { await flow.move(to: target) }
+                        flow.confirmation = .init(target: target, moveId: nil)
                     }
                     .disabled(!target.ready)
                 }

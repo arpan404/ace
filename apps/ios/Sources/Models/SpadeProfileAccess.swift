@@ -40,6 +40,8 @@ enum SpadeProfileAccess {
         }
     }
     struct Move: Decodable, Equatable, Sendable {
+        let id: String?
+        let waitsForYou: Bool
         let line: String
         let failed: Bool
         let arrived: Bool

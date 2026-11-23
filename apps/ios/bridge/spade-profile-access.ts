@@ -108,6 +108,8 @@ export interface SpadeMoveAccept {
 }
 
 export interface SpadeMoveRow {
+  id: string | null;
+  waitsForYou: boolean;
   /** One sentence: where it is going and how far, or why it failed, or what needs the person. */
   line: string;
   failed: boolean;
@@ -129,6 +131,8 @@ export function spadeMoveRow(agent: SpadeAgent, move: SpadeMove | undefined): Sp
   if (move) {
     const failed = move.state === "failed";
     return {
+      id: move.id,
+      waitsForYou: move.state === "awaiting",
       line: spadeMoveLine(move, agent.name),
       failed,
       arrived: false,
@@ -142,6 +146,8 @@ export function spadeMoveRow(agent: SpadeAgent, move: SpadeMove | undefined): Sp
   }
   if (!agent.arrived) return null;
   return {
+    id: null,
+    waitsForYou: false,
     line: spadeArrivalLine(agent.arrived),
     failed: false,
     arrived: true,

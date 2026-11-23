@@ -166,6 +166,64 @@ test("a bot that works can't move, and says why", async () => {
   });
 });
 
+test("a move still packing can be cancelled, and one waiting for the person's say can be accepted again", async () => {
+  const staged = {
+    id: "mv_0c0d",
+    to: { host: "studio", name: "Studio" },
+    state: "packing",
+    sent: 0,
+    total: 0,
+    waiting: false,
+    problem: null,
+    can_cancel: true,
+  };
+  const from = await listed((fake) => {
+    fake.addAgent({ id: "writer", name: "Writer" });
+    fake.here = "mac-mini";
+  });
+  const to = await setUp();
+  const bot = from.api.agents.find((each) => each.id === "writer");
+  if (!bot) throw new Error("no bot");
+  bot.move = staged;
+
+  const packing = partOf<SpadeMoveRow | null>(
+    await from.ask({ type: "spade.move.read", agentId: "writer" }),
+  );
+  expect(packing).toMatchObject({
+    id: "mv_0c0d",
+    moving: true,
+    canCancel: true,
+    accept: null,
+    waitsForYou: false,
+  });
+
+  // Packed, and the other machine waits for the person: the phone that lost track of it
+  // accepts the move it already started, by its id.
+  bot.move = {
+    ...staged,
+    state: "awaiting",
+    from: "mac-mini",
+    via: "dev-mac-mini",
+    digest: "b".repeat(64),
+  };
+  const awaiting = partOf<SpadeMoveRow | null>(
+    await from.ask({ type: "spade.move.read", agentId: "writer" }),
+  );
+  expect(awaiting).toMatchObject({ id: "mv_0c0d", waitsForYou: true, moving: true });
+  const accept = awaiting?.accept;
+  if (!accept) throw new Error("the move isn't packed");
+  expect(await to.ask({ type: "spade.move.accept", move: "mv_0c0d", accept })).toEqual({
+    ok: true,
+  });
+  expect(to.api.acceptedMoves.get("mv_0c0d")).toBe("writer");
+
+  bot.move = staged;
+  expect(await from.ask({ type: "spade.move.end", agentId: "writer", action: "cancel" })).toEqual({
+    ok: true,
+  });
+  expect(partOf(await from.ask({ type: "spade.move.read", agentId: "writer" }))).toBeNull();
+});
+
 test("deleting a bot that made workers asks first, and its workers stay as the person's", async () => {
   const { ask, api } = await listed((fake) => {
     fake.addAgent({ id: "writer", name: "Writer" });

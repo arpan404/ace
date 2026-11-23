@@ -163,10 +163,31 @@ struct SpadeProfileDetails<Editor: View>: View {
     /// Where it could move: the other machines that run Spade.
     private var targets: [SpadeMoveTarget] { machines.filter { $0.host != client.spade.host } }
 
+    private struct MoveWatch: Equatable {
+        let started: Bool
+        let id: String?
+        let ready: [String]
+    }
+
     var body: some View {
         if let move { SpadeMoveLine(flow: move, targets: targets) }
         SpadeProfileTask(task: profile.details.task, edit: edit)
             .task(id: agent) { if move == nil { move = SpadeMoveFlow(client: client, agent: agent) } }
+            .task(id: MoveWatch(started: move != nil, id: move?.moveId, ready: targets.filter(\.ready).map(\.host))) {
+                await move?.watch(targets: targets)
+            }
+            .confirmationDialog(
+                "Move \(profile.name)?",
+                isPresented: Binding(get: { move?.confirmation != nil }, set: { shown in
+                    if !shown { move?.confirmation = nil }
+                }),
+                titleVisibility: .visible,
+                presenting: move?.confirmation
+            ) { choice in
+                Button("Move to \(choice.target.name)") { Task { await move?.confirm(choice) } }
+            } message: { choice in
+                Text("\(profile.name) will run on \(choice.target.name) after the move.")
+            }
         SpadeProfileRunsWith(client: client, agent: agent, details: profile.details) {
             if let move { SpadeMoveMenu(flow: move, targets: targets, name: profile.name) }
         }
