@@ -1,4 +1,5 @@
 import type { StatementSync } from "node:sqlite";
+import type { FailureReport, TransactionOutcome } from "./store-stream.ts";
 
 /** Reserve ranges durably before publishing events. Old builds also skip this high-water mark, so
  * the existing host_sequence format remains readable in both directions. Every sequence handed
@@ -7,11 +8,14 @@ import type { StatementSync } from "node:sqlite";
 export class StreamSequences {
   private cursor = 0;
   private reserved = 0;
+  /** Ranges written by transactions that have not settled yet; a rollback forgets them. */
+  private pending: number[] = [];
   constructor(privateOptions: {
     statement(sql: string): StatementSync;
-    commit(run: () => void): void;
-    /** A range through `through` is reserved and about to be used. */
-    reserved?(through: number): void;
+    /** Runs the reservation; settles only when the outermost transaction that wrote it does. */
+    commit(run: () => void, outcome: TransactionOutcome): void;
+    /** A range through `through` is reserved by a committed transaction and about to be used. */
+    reserved?(through: number, report?: FailureReport): void;
   }) {
     this.options = privateOptions;
   }
@@ -21,6 +25,7 @@ export class StreamSequences {
       this.options.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq,
     );
     this.reserved = this.cursor;
+    this.pending = [];
   }
   /** The highest sequence this database reserved. */
   reservedThrough(): number {
@@ -49,13 +54,48 @@ export class StreamSequences {
     return this.cursor;
   }
   prepare(events: number, after: number): void {
-    if (after + events <= this.reserved) return;
+    // A range already requested covers the batch even before its transaction commits, so a
+    // second admission in the same outer transaction must not ask for another refill.
+    if (after + events <= this.provisional()) return;
     const through = after + Math.max(65536, events);
     if (!Number.isSafeInteger(through)) throw new Error("Sequence exhausted");
-    this.options.commit(() => {
-      this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);
-    });
-    this.reserved = through;
-    this.options.reserved?.(through);
+    this.pending.push(through);
+    const settle = () => {
+      const index = this.pending.indexOf(through);
+      if (index >= 0) this.pending.splice(index, 1);
+    };
+    try {
+      this.options.commit(
+        () => {
+          this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);
+        },
+        {
+          // Only the outermost commit counts: a rollback forgets the pending range.
+          committed: (report) => {
+            settle();
+            const raised = Number.isNaN(this.reserved) || through > this.reserved;
+            this.reserved = Number.isNaN(this.reserved)
+              ? through
+              : Math.max(this.reserved, through);
+            if (raised) this.options.reserved?.(through, report);
+          },
+          rolledBack: settle,
+        },
+      );
+    } catch (error) {
+      settle();
+      throw error;
+    }
+  }
+  /** The highest sequence a confirmed or pending reservation holds: the provisional range. */
+  private provisional(): number {
+    let limit = this.reserved;
+    for (const through of this.pending)
+      limit = Number.isNaN(limit) ? through : Math.max(limit, through);
+    return limit;
+  }
+  /** Whether a committed reservation covers `seq`; false while none has committed. */
+  covers(seq: number): boolean {
+    return seq <= this.reserved;
   }
 }
