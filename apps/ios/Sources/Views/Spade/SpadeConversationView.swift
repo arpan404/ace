@@ -30,6 +30,10 @@ struct SpadeConversationView: View {
     @State private var voiceSetup: SpadeOnboarding.Voice?
     /// The person put first run's interview off until this chat opens again.
     @State private var firstRunLater = false
+    /// Closes the chat once its bot is deleted from the profile.
+    @Environment(\.dismiss) private var dismiss
+    /// A decision's words the profile's Change quotes into the composer.
+    @State private var quoted: String?
     /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
     @State private var follow = ChatEndFollow(slack: Double(AceDesign.Space.group))
     /// Where the scroll is and which stack holds the rows, kept where writing them redraws nothing.
@@ -172,7 +176,8 @@ struct SpadeConversationView: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $profileShown) {
-            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name) }
+            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name, quote: { quoted = $0 },
+                                         deleted: { dismiss() }) }
         }
         .background(AceDesign.Surface.background)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
@@ -224,7 +229,8 @@ struct SpadeConversationView: View {
     }
 
     private func composer(_ reader: ScrollViewProxy) -> some View {
-        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, records: talk, problem: $problem) { out in
+        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, records: talk, problem: $problem,
+                      quoted: $quoted) { out in
             if let group { return await client.spadeGroupSend(group, conversation: conversation, text: out.text) }
             let outcome = await client.spadeSend(conversation, text: out.text, files: out.files, voice: out.voice)
             if out.voice != nil, !outcome.ok { await offerVoiceSetup() }

@@ -15,6 +15,8 @@ struct SpadeComposer: View {
     /// The recorder starts as the composer shows (Talk to Spade).
     var records = false
     @Binding var problem: String?
+    /// Words the profile asked to quote into the field (a decision's Change); taken once, then nil.
+    var quoted: Binding<String?> = .constant(nil)
     /// Spade's answer to one message.
     let send: (SpadeComposerPicks.Outgoing) async -> SpadeOutcome
     /// A message went: the chat shows its end.
@@ -68,6 +70,12 @@ struct SpadeComposer: View {
             guard records, !recordedAtOnce else { return }
             recordedAtOnce = true
             await recorder.start()
+        }
+        .onChange(of: quoted.wrappedValue, initial: true) { _, quote in
+            guard let quote else { return }
+            draft = SpadeQuote.into(draft, quote: quote)
+            quoted.wrappedValue = nil
+            typing = true
         }
     }
 

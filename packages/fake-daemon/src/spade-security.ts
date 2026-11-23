@@ -346,11 +346,30 @@ export class FakeSpadeSecurity {
       return reply(this.view(id));
     }
     if ((sub === "network" || sub === "plugin-network") && method === "PUT") {
-      const policy = this.policyFrom(body);
-      if (typeof policy === "string") return problem(400, policy);
+      const key = sub === "network" ? "network" : "plugin_network";
       const settings = this.bot(id);
-      if (sub === "network") settings.network = policy;
-      else settings.plugin_network = policy;
+      const old = settings[key] ?? this.botDefaults[key];
+      const site = body.site;
+      let next = body;
+      if (site && typeof site === "object" && "entry" in site && typeof site.entry === "string") {
+        const entry = site.entry;
+        switch ("action" in site ? site.action : undefined) {
+          case "remove_entry":
+            next = { ...old, allow: old.allow.filter((host) => host !== entry) };
+            break;
+          case "remove_default":
+            next = { ...old, dropped: [...new Set([...old.dropped, entry])] };
+            break;
+          case "restore_default":
+            next = { ...old, dropped: old.dropped.filter((host) => host !== entry) };
+            break;
+          default:
+            return problem(400, "Unknown site edit.");
+        }
+      }
+      const policy = this.policyFrom(next);
+      if (typeof policy === "string") return problem(400, policy);
+      settings[key] = policy;
       return reply(this.view(id));
     }
     if (sub === "toolchains" && method === "PUT") {

@@ -5,6 +5,10 @@
 //! so the picture never stops while a keyframe is on its way; serve-sim starts every
 //! subscription with its description and an IDR. Units go out on the same channel as the
 //! picture encoders', under the source's encoder token.
+//!
+//! ace-media is the only reader of a Simulator's stream, so a stream that ends or never sends
+//! its IDR is replaced by another subscription; the picture carries on at its first IDR. Only a
+//! source with no stream for [`Timings::give_up`] fails.
 use super::pictures::Encoded;
 use crate::encode::worker::Output;
 use crate::serve_sim::{HttpBody, Record, Records, Translator, loopback_url};
@@ -21,11 +25,25 @@ use tokio::sync::mpsc;
 
 /// Longest a connect may take: serve-sim is on this machine.
 const CONNECT: Duration = Duration::from_secs(2);
-/// Longest a new subscription may take to send its first IDR before it is given up.
-const KEY_DEADLINE: Duration = Duration::from_secs(5);
-/// Longest the first subscription may take to send its first IDR. Past it the source fails, and
-/// the daemon reads serve-sim itself again, inside its 2 s fallback.
-const FIRST_KEY_DEADLINE: Duration = Duration::from_millis(1_500);
+/// How long a reader waits on serve-sim.
+#[derive(Debug, Clone, Copy)]
+pub struct Timings {
+    /// Longest a subscription may take to send its first IDR while nothing else streams,
+    /// before another replaces it.
+    pub first_key: Duration,
+    /// Longest a keyframe subscription may take to send its first IDR while the active one
+    /// goes on, before it is given up.
+    pub key: Duration,
+    /// Longest the source may go with no stream (from its open, or from its stream ending)
+    /// before it fails.
+    pub give_up: Duration,
+}
+
+pub const TIMINGS: Timings = Timings {
+    first_key: Duration::from_secs(3),
+    key: Duration::from_secs(5),
+    give_up: Duration::from_secs(15),
+};
 /// Most bytes of records waiting for the coordinator; past it records are dropped to the next
 /// keyframe, which is asked for.
 const RECORD_BUDGET: usize = 8 * 1024 * 1024;
@@ -119,6 +137,10 @@ impl Recovery {
         true
     }
 
+    /// A replacement is needed (nothing streams, or a fresh IDR is), until one starts.
+    fn want(&mut self) {
+        self.open = true;
+    }
     /// A replacement's IDR went out: the stream is whole again.
     fn started(&mut self) {
         self.open = false;
@@ -172,14 +194,20 @@ struct Handle {
 
 pub struct Readers {
     outputs: mpsc::Sender<Encoded>,
+    timings: Timings,
     threads: HashMap<u64, Handle>,
     closing: Vec<(JoinHandle<()>, u64)>,
 }
 
 impl Readers {
     pub fn new(outputs: mpsc::Sender<Encoded>) -> Self {
+        Self::with_timings(outputs, TIMINGS)
+    }
+
+    pub fn with_timings(outputs: mpsc::Sender<Encoded>, timings: Timings) -> Self {
         Self {
             outputs,
+            timings,
             threads: HashMap::new(),
             closing: Vec::new(),
         }
@@ -196,12 +224,13 @@ impl Readers {
         let (mailbox, messages, own) = Mailbox::new();
         let outputs = self.outputs.clone();
         let name = source.to_owned();
+        let timings = self.timings;
         let spawned = std::thread::Builder::new()
             .name("ace-media-reader".into())
             .spawn(move || {
                 let addr = SocketAddr::from(([127, 0, 0, 1], port));
                 run(
-                    Coordinator::new(addr, path, own),
+                    Coordinator::new(addr, path, own, timings),
                     mailbox,
                     outputs,
                     (name, token),
@@ -271,6 +300,13 @@ struct Coordinator {
     /// Each subscription's decoder configuration: each opens with its own description.
     translators: HashMap<u32, Translator>,
     recovery: Recovery,
+    timings: Timings,
+    /// Since when no subscription streams (none has sent its IDR yet, or the active one ended).
+    lost_at: Option<Instant>,
+    /// Why the last subscription couldn't open, for the failure if none ever does.
+    unreachable: Option<String>,
+    /// Why serve-sim last ended a stream, for the failure if none streams again.
+    ended: Option<String>,
     #[cfg(target_os = "macos")]
     transcode: Option<super::sim_transcode::Transcode>,
     #[cfg(target_os = "macos")]
@@ -279,7 +315,10 @@ struct Coordinator {
 }
 
 impl Coordinator {
-    fn new(addr: SocketAddr, path: String, own: Sender<Message>) -> Self {
+    fn new(addr: SocketAddr, path: String, own: Sender<Message>, timings: Timings) -> Self {
+        let mut recovery = Recovery::default();
+        // Nothing streams yet: the first subscription opens as a replacement would.
+        recovery.want();
         Self {
             addr,
             path,
@@ -290,7 +329,11 @@ impl Coordinator {
             next: None,
             streams: HashMap::new(),
             translators: HashMap::new(),
-            recovery: Recovery::default(),
+            recovery,
+            timings,
+            lost_at: Some(Instant::now()),
+            unreachable: None,
+            ended: None,
             #[cfg(target_os = "macos")]
             transcode: None,
             #[cfg(target_os = "macos")]
@@ -338,6 +381,8 @@ impl Coordinator {
             }
             self.next = None;
             self.recovery.started();
+            self.lost_at = None;
+            self.unreachable = None;
         }
         let translator = self.translators.entry(id).or_default();
         if self.active != Some(id) {
@@ -422,8 +467,9 @@ impl Coordinator {
         // Elsewhere the stream passes through: nothing routes a Simulator here off a Mac.
         #[cfg(not(target_os = "macos"))]
         let _ = encodes;
-        if self.next.is_none() {
-            self.subscribe()?;
+        // The fresh IDR comes from a new subscription; one that can't open now is tried again.
+        if self.next.is_none() && self.subscribe().is_err() {
+            self.recovery.want();
         }
         Ok(())
     }
@@ -442,9 +488,37 @@ impl Coordinator {
 
     /// Opens a replacement if recovery says it is time (`now` from the shell's clock).
     fn attempt(&mut self, now: Instant) {
-        if self.recovery.attempt(now, self.next.is_some()) {
-            let _ = self.subscribe();
+        if self.recovery.attempt(now, self.next.is_some())
+            && let Err(reason) = self.subscribe()
+        {
+            self.unreachable = Some(reason);
         }
+    }
+
+    /// The active subscription ended: nothing streams until a replacement sends its IDR.
+    fn lost(&mut self, id: u32, now: Instant) {
+        self.end(id);
+        self.active = None;
+        self.lost_at = Some(now);
+        self.recovery.want();
+        self.attempt(now);
+    }
+
+    /// Why the source fails once it has gone [`Timings::give_up`] with no stream, if it has.
+    fn given_up(&self, now: Instant) -> Option<String> {
+        let since = self.lost_at?;
+        if now.saturating_duration_since(since) < self.timings.give_up {
+            return None;
+        }
+        Some(match &self.unreachable {
+            Some(reason) => format!("reader-unreachable: {reason}"),
+            None => match &self.ended {
+                Some(ended) => {
+                    format!("reader-stalled: serve-sim sent no keyframe in time ({ended})")
+                }
+                None => "reader-stalled: serve-sim sent no keyframe in time".into(),
+            },
+        })
     }
 
     /// The subscription `id` gave up before its IDR (timed out or ended).
@@ -480,27 +554,25 @@ fn run(
             .blocking_send((source.clone(), token, output))
             .is_ok()
     };
-    if let Err(reason) = coordinator.subscribe() {
-        let _ = send(Output::Failed(format!("reader-unreachable: {reason}")));
-        return;
-    }
     loop {
         // The shell's clock, read once per turn: the recovery decisions are given it.
         let now = Instant::now();
-        // The source must start in time, or the daemon reads serve-sim again; replacements
-        // opened before the first IDR don't move the deadline.
-        if coordinator.active.is_none() && coordinator.started.elapsed() >= FIRST_KEY_DEADLINE {
-            let _ = send(Output::Failed(
-                "reader-stalled: serve-sim sent no keyframe in time".into(),
-            ));
+        // Replacements opened while nothing streams don't move the give-up.
+        if let Some(reason) = coordinator.given_up(now) {
+            let _ = send(Output::Failed(reason));
             break;
         }
-        // A keyframe subscription that never sent its IDR is given up; the active one goes on.
-        if let Some((id, opened)) = coordinator.next
-            && opened.elapsed() >= KEY_DEADLINE
-            && coordinator.active.is_some()
-        {
-            coordinator.next_failed(id, now);
+        // A subscription that never sent its IDR is given up: while nothing else streams,
+        // another replaces it; a keyframe one leaves the active one going on.
+        if let Some((id, opened)) = coordinator.next {
+            let deadline = if coordinator.active.is_some() {
+                coordinator.timings.key
+            } else {
+                coordinator.timings.first_key
+            };
+            if now.saturating_duration_since(opened) >= deadline {
+                coordinator.next_failed(id, now);
+            }
         }
         // A deferred or failed attempt is tried again once its turn comes.
         coordinator.attempt(now);
@@ -541,19 +613,18 @@ fn run(
                 coordinator.key();
                 Ok(())
             }
+            // serve-sim ended a stream (the Simulator rotated, slept, or serve-sim restarted it):
+            // another subscription takes over at its IDR.
             Ok(Message::Ended(id, reason)) => {
-                let first = coordinator.active.is_none()
-                    && coordinator.next.is_some_and(|(next, _)| next == id);
-                if coordinator.active == Some(id) || first {
-                    Err(format!("ended: {reason}"))
+                coordinator.ended = Some(reason);
+                if coordinator.active == Some(id) {
+                    coordinator.lost(id, now);
+                } else if coordinator.next.is_some_and(|(next, _)| next == id) {
+                    coordinator.next_failed(id, now);
                 } else {
-                    if coordinator.next.is_some_and(|(next, _)| next == id) {
-                        coordinator.next_failed(id, now);
-                    } else {
-                        coordinator.end(id);
-                    }
-                    Ok(())
+                    coordinator.end(id);
                 }
+                Ok(())
             }
             Ok(Message::Drain) => {
                 let mut held = Vec::new();

@@ -69,6 +69,15 @@ pub enum SecurityError {
     Stale(&'static str),
 }
 
+/// An edit to the current policy, applied under the same lock as a full replacement.
+#[derive(serde::Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum NetworkSiteEdit {
+    RemoveEntry { entry: String },
+    RemoveDefault { entry: String },
+    RestoreDefault { entry: String },
+}
+
 /// A network policy with each addition's form checked and every dropped name a default.
 fn checked(mut policy: NetworkPolicy) -> Result<NetworkPolicy, SecurityError> {
     policy.allow = policy
@@ -616,12 +625,53 @@ impl Security {
         policy: NetworkPolicy,
         may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
-        let policy = checked(policy)?;
+        self.update_network(bot, which, may_loosen, |_| checked(policy).map(Some))
+    }
+
+    pub fn edit_network_site(
+        &self,
+        bot: &str,
+        which: Network,
+        edit: NetworkSiteEdit,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.update_network(bot, which, may_loosen, |old| {
+            let mut policy = old.clone();
+            match edit {
+                NetworkSiteEdit::RemoveEntry { entry } => {
+                    policy.allow.retain(|host| host != &entry)
+                }
+                NetworkSiteEdit::RemoveDefault { entry } => {
+                    if !policy.dropped.contains(&entry) {
+                        policy.dropped.push(entry);
+                    }
+                }
+                NetworkSiteEdit::RestoreDefault { entry } => {
+                    policy.dropped.retain(|host| host != &entry);
+                }
+            }
+            if &policy == old {
+                return Ok(None);
+            }
+            checked(policy).map(Some)
+        })
+    }
+
+    fn update_network(
+        &self,
+        bot: &str,
+        which: Network,
+        may_loosen: &dyn Fn() -> bool,
+        update: impl FnOnce(&NetworkPolicy) -> Result<Option<NetworkPolicy>, SecurityError>,
+    ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
             let held = settings::effective(current, &self.machine());
             let old = match which {
                 Network::Commands => &held.network,
                 Network::Plugins => &held.plugin_network,
+            };
+            let Some(policy) = update(old)? else {
+                return Ok(());
             };
             if settings::widens(old, &policy) && !may_loosen() {
                 return Err(SecurityError::PersonOnly(attest::CONFIRM));

@@ -11,7 +11,13 @@ import { segment } from "./spade-text.ts";
  * dispatch.
  */
 
-export type SpadeRefusal = { ok: false; title: string; message: string; at?: number };
+export type SpadeRefusal = {
+  ok: false;
+  title: string;
+  message: string;
+  confirmPerson?: boolean;
+  at?: number;
+};
 export type SpadeOutcome = { ok: true } | SpadeRefusal;
 
 export type SpadeAsk = (

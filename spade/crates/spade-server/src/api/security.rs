@@ -20,7 +20,7 @@ use spade_sandbox::egress::NetworkPolicy;
 use super::body::{Body, Digested};
 use super::{AppState, off_thread, problem};
 use crate::security::permissions::Asker;
-use crate::security::{Commands, Network, Security, SecurityError};
+use crate::security::{Commands, Network, NetworkSiteEdit, Security, SecurityError};
 use spade_core::permission::Switch;
 
 pub(super) fn routes() -> Router<AppState> {
@@ -518,12 +518,25 @@ async fn agent(State(state): State<AppState>, Path(id): Path<String>) -> Respons
     .await
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+enum SiteWrite {
+    SiteEdit { site: NetworkSiteEdit },
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum NetworkWrite {
+    Site(SiteWrite),
+    Policy(NetworkPolicy),
+}
+
 /// A bot's network change, as its route reads it.
 struct NetworkChange {
     id: String,
     headers: HeaderMap,
     member: Option<super::org_guard::Stamped>,
-    body: NetworkPolicy,
+    body: NetworkWrite,
     digest: String,
 }
 
@@ -540,12 +553,19 @@ async fn set_network(state: AppState, which: Network, change: NetworkChange) -> 
     } = change;
     let value = format!("{}:{digest}", network_word(which));
     let says = Say::new(&state, &headers, member.as_ref(), &id, value);
-    off_thread(
-        move || match security.set_network(&id, which, body, &|| says.given()) {
+    off_thread(move || {
+        let may_loosen = || says.given();
+        let result = match body {
+            NetworkWrite::Site(SiteWrite::SiteEdit { site }) => {
+                security.edit_network_site(&id, which, site, &may_loosen)
+            }
+            NetworkWrite::Policy(policy) => security.set_network(&id, which, policy, &may_loosen),
+        };
+        match result {
             Ok(_) => Json(view(&security, &id)).into_response(),
             Err(error) => failed(error),
-        },
-    )
+        }
+    })
     .await
 }
 
@@ -554,7 +574,7 @@ async fn network(
     Path(id): Path<String>,
     headers: HeaderMap,
     member: Option<axum::Extension<super::org_guard::Stamped>>,
-    Digested(body, digest): Digested<NetworkPolicy>,
+    Digested(body, digest): Digested<NetworkWrite>,
 ) -> Response {
     let member = member.map(|axum::Extension(member)| member);
     let change = NetworkChange {
@@ -572,7 +592,7 @@ async fn plugin_network(
     Path(id): Path<String>,
     headers: HeaderMap,
     member: Option<axum::Extension<super::org_guard::Stamped>>,
-    Digested(body, digest): Digested<NetworkPolicy>,
+    Digested(body, digest): Digested<NetworkWrite>,
 ) -> Response {
     let member = member.map(|axum::Extension(member)| member);
     let change = NetworkChange {
