@@ -1,4 +1,5 @@
-//! Old tool results age out of the prompt (ADR 0216). A long result the bot read many steps ago
+//! Old tool results age out of the prompt when the person turns `age_results` on (ADR 0216; off
+//! by default, so models see full output). A long result the bot read many steps ago
 //! is shown in later prompts as a short stub that says what it was and how to get it back; the
 //! person's words, the bot's own words, questions and answers, errors and recent results are
 //! always shown whole.

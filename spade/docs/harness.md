@@ -22,7 +22,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                     |
 | `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                     |
 | `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`                                     | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list and the person's messages kept word for word (`said`, `said_earlier`), carried forward by the next compaction                                                                                                                    |
-| `results_aged`                               | `before`                                                                                | Tool results before index `before` that may age show as stubs from now on ([ADR 0216](../../docs/adr/0216-spade-keeps-a-bots-context-small.md)); stored in batches                                                                                                                                                                             |
+| `results_aged`                               | `before`                                                                                | With aging turned on, tool results before index `before` that may age show as stubs from now on ([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)); stored in batches                                                                                                                                        |
 | `command_ran`                                | `reply`, `call_id`, `contained`, `exit_code?`, `timed_out?`, `reached[]`, `refused[]`   | Where a `shell` command ran and how: `contained` when Spade's sandbox held it, the hosts it reached and the ones the network policy refused (`{host, port, reason}`). Stored right after its `tool_finished` (or, for a command that became a job, before its `job_finished`); the model never reads it, the app shows it in the reply's steps |
 | `job_started`                                | `reply`, `job`, `name`                                                                  | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                                                                                                                                                                             |
 | `job_finished`                               | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`                      | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                                                                                                                                                                               |
@@ -163,8 +163,10 @@ the bot's workspace at `skills/<name>/`.
 
 ## Old results age out
 
-A long task keeps its prompt small by showing old tool results as stubs (ADR 0216). Before each
-model call, after the compaction check, the engine stores `results_aged { before }` when a batch is
+Off by default: models see every tool result whole. A person who wants a long task's prompt smaller
+and cheaper turns on `age_results` for a bot or for every bot (model roles settings; ADR 0216), and
+old tool results then show as stubs. Before each model call, after the compaction check, the engine
+stores `results_aged { before }` when a batch is
 due: the boundary is the start of the 4th latest step, moved back until at least 8 results follow
 it, and a batch is due once the results between the previous boundary and it that may age add up to
 64,000 characters. A result before the boundary shows as one line: the tool, its arguments
@@ -179,12 +181,11 @@ cut.
 
 ## Compaction
 
-Before each model call, if the next request's prompt reaches the working budget (128,000 tokens
-unless the person set `context_tokens` for the bot or for every bot on the model roles settings, at
-least 16,000), or 75% of the smallest context window among the models that may serve the step (the
-turn's model and its fallbacks) when that is smaller (200,000 tokens for a model that doesn't say,
-capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158, ADR 0216), the
-engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`): what the latest
+Before each model call, if the next request's prompt reaches 90% of the smallest context window
+among the models that may serve the step (the turn's model and its fallbacks; 200,000 tokens for a
+model that doesn't say, capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice),
+or the lower cap the person set as `context_tokens` for the bot or for every bot on the model roles
+settings (none by default, at least 16,000; ADR 0158, ADR 0216), the engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`): what the latest
 step since the last compaction reported, plus a token per 4 characters of everything stored after
 it; with no report since the last compaction, the shown span's text alone, so a size from before a
 compaction never counts. `tokens_before` stores that estimate. The cut is sized against the shown
@@ -193,7 +194,7 @@ own fresh results are never cut or aged, so when they overflow the window by the
 still goes out over it, as before ADR 0216; bounding them is
 [#2669](https://github.com/arpan404/ace/issues/2669). It cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
-the same share of the trigger as 35% is of 75% are kept. It asks the conversation's own model for
+35% of the window are kept (the same share of a lower cap as 35% is of 90%). It asks the conversation's own model for
 a JSON summary (goal, decisions with who made them, open commitments, facts, open questions,
 references, notes) by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and

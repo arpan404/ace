@@ -405,11 +405,13 @@ efforts: {<role>: effort | null}, effort_defaults: {<role>: effort}, escalate}`;
 `GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route, effort,
 effort_source}], overrides: {roles, routes, efforts, allowed, escalate}, escalate, spend: {today,
 month}}`; `source` is `bot`, `global`, `default` or `own`; `effort_source` is `bot`, `global` or
-`default`). An unknown effort word is refused with `400`. Both also carry the working budget
-([ADR 0216](../../docs/adr/0216-spade-keeps-a-bots-context-small.md)): `PUT` takes
-`context_tokens: tokens | null` (at least 16,000, else `400`); the global view answers
-`context_tokens` and `context_tokens_default`, a bot's `overrides.context_tokens` and the resolved
-`context_tokens: {tokens, source}`. `roles` keeps each override's first model, for clients from before routes.
+`default`). An unknown effort word is refused with `400`. Both also carry two context choices
+([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)), each
+`null` to clear it: `context_tokens: tokens` is a lower cap on the prompt before compaction (at
+least 16,000, else `400`; none by default), and `age_results: bool` turns aging of old tool results
+on (off by default). The global view answers `context_tokens` and `age_results`; a bot's has them
+in `overrides` and resolved as `context_tokens: {tokens, source}` (`tokens` `null` for none) and
+`age_results: {on, source}`. `roles` keeps each override's first model, for clients from before routes.
 `PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
 `GET /v1/models/package-routes` answers `{fast: {route, tools}, capable: {route, tools}}`: the
 models a package's bot naming `fast` or `capable` would think with, its model then the global
