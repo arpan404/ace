@@ -990,6 +990,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
           return problem(400, "style.accent is one colour, like #2f7bea");
         agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
       }
+      // As Spade: how it talks, kept as sent and taken from its next turn.
+      if (body.personality && typeof body.personality === "object")
+        agent.personality = body.personality as Json;
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(
