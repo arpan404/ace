@@ -19,3 +19,11 @@ allow = [
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[bans]
+# `gix`'s `pack-cache-lru-static` feature pulls `uluru` (MPL-2.0), which must
+# stay off (ADR 0224 §9): deny it by name so Cargo's feature unification
+# across the workspace cannot sneak it in. Checked by `check:daemon-native`.
+deny = [
+  "uluru",
+]

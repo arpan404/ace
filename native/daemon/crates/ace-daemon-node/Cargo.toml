@@ -35,6 +35,8 @@ ace-adapter-api = { path = "../ace-adapter-api" }
 thiserror = { version = "2" }
 # ace-adapter-acp: the ACP translator behind ACE_TRANSLATORS=acp (E1); the binding only translates.
 ace-adapter-acp = { path = "../ace-adapter-acp" }
+# ace-git: Git behind @ace/git's interfaces behind ACE_GIT (G0 owns the foundations); the binding only translates.
+ace-git = { path = "../ace-git" }
 # ace-supervisor: spawning, containment and the inventory journal behind
 # @ace/provider-kit's process exports (E2a); the binding only translates.
 ace-supervisor = { path = "../ace-supervisor" }
