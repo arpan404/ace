@@ -361,15 +361,23 @@ function joinsWork(item: Item): boolean {
 /**
  * For each stretch (a turn's output between two of the person's messages), the position of its
  * last item that goes into a work log. The agent's words before it are said between steps and
- * join the log; the words after it are the answer. One pass, as `buildBlocks` walks.
+ * join the log; the words after it are the answer. `runWork` is the same position for each run,
+ * so the words a run ended on are known even when a later run of the stretch takes more steps.
+ * One pass, as `buildBlocks` walks.
  */
 function lastWorkOf(
   order: readonly string[],
   source: BlockSource,
   standsIn: (id: string, item: Item) => boolean,
-): { stretchAt: Int32Array; lastWork: Map<number, number>; lastStretch: number } {
+): {
+  stretchAt: Int32Array;
+  lastWork: Map<number, number>;
+  runWork: Map<string, number>;
+  lastStretch: number;
+} {
   const stretchAt = new Int32Array(order.length);
   const lastWork = new Map<number, number>();
+  const runWork = new Map<string, number>();
   let stretch = 0;
   let turn: string | undefined;
   let ask: string | undefined;
@@ -390,9 +398,29 @@ function lastWorkOf(
     // Look ahead only within the work segment on this side of a launch card.
     if (isLaunch(item)) stretch++;
     stretchAt[index] = stretch;
-    if (!standsIn(id, item) && joinsWork(item)) lastWork.set(stretch, index);
+    if (!standsIn(id, item) && joinsWork(item)) {
+      lastWork.set(stretch, index);
+      if (item.runId) runWork.set(item.runId, index);
+    }
   }
-  return { stretchAt, lastWork, lastStretch: stretch };
+  return { stretchAt, lastWork, runWork, lastStretch: stretch };
+}
+
+/**
+ * Whether the agent's message at `index` is what one of its runs ended on: the run completed by
+ * itself and took no step after it. A report that wakes the agent later in the same turn starts
+ * a run of its own, so these words were said to the person, not on the way between steps: they
+ * stay in view, whatever steps the next run takes.
+ */
+function closesRun(
+  source: BlockSource,
+  item: Item,
+  index: number,
+  runWork: ReadonlyMap<string, number>,
+): boolean {
+  if (item.type !== "message" || item.role !== "assistant" || !item.runId) return false;
+  if (source.run?.(item.runId)?.state !== "completed") return false;
+  return (runWork.get(item.runId) ?? -1) < index;
 }
 
 const isPseudoTurn = (id: string) => id === "" || id.startsWith("ask:");
@@ -409,7 +437,7 @@ function stillWorking(source: BlockSource, turn: TurnMark, lastStretch: boolean)
   // A turn a usage limit paused does nothing more: it reads as complete as it stands.
   if (turn.paused) return false;
   const { turnSettled } = source;
-  if (turnSettled) return turn.heads.some((id) => !turnSettled(id));
+  if (turnSettled) return turn.heads.some((id) => !turnSettled(id)) && !ownWorkEnded(source, turn);
   return turn.heads.some((id) => {
     const run = source.run?.(id);
     return !run || run.state === "active";
@@ -503,7 +531,9 @@ export function buildBlocks(source: BlockSource): Block[] {
   const standsIn = (id: string, item: Item) => isAsk(item) && !!askedHere(id, item)?.length;
   let lastAnswer: string | undefined;
   const order = visibleHistoryOrder(source.order, source.item);
-  const { stretchAt, lastWork, lastStretch } = lastWorkOf(order, source, standsIn);
+  const { stretchAt, lastWork, runWork, lastStretch } = lastWorkOf(order, source, standsIn);
+  // Messages a completed run ended on (`closesRun`): each stays in view as an answer.
+  const closing = new Set<string>();
   const paused = pausedTurnsOf(order, source);
   const turns = new Map<string, TurnMark>();
   const ordered: TurnMark[] = [];
@@ -778,7 +808,10 @@ export function buildBlocks(source: BlockSource): Block[] {
             // that is already on screen.
             const at = stretchAt[index] ?? -1;
             const working = !!mark && stillWorking(source, mark, at === lastStretch);
+            const closes = closesRun(source, item, index, runWork);
+            if (closes) closing.add(id);
             const between =
+              !closes &&
               !launchNarration &&
               !paused.answers.has(index) &&
               (working ? !!(stretch.work || stretch.earlier) : (lastWork.get(at) ?? -1) > index);
@@ -948,11 +981,15 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (newest === turn && source.restartedTail) turn.automatic = true;
     // A turn a usage limit paused is a complete turn, held or not: it settles here as it
     // stands, and the limit is said only in the composer's strip (ADR 0053).
-    if (
+    const unsettled =
       !turn.paused &&
       ((pseudo && newest === turn && source.unsettledTail) ||
-        (!pseudo && !settled(source, turn, newestRun === turn)))
-    ) {
+        (!pseudo && !settled(source, turn, newestRun === turn)));
+    // The agent itself has stopped and only work it handed off goes on (a delegated child still
+    // running): the turn reads as it will once that settles, folded behind its head, with its
+    // subagent rows (which say who still works) in view where they happened.
+    const waiting = unsettled && !pseudo && ownWorkEnded(source, turn);
+    if (unsettled && !waiting) {
       for (const block of turn.work) block.ongoing = true;
       // The newest turn says what it is doing in one line at the top of its flow, under its
       // ask, where its "Worked for" head stands once it settles (DESIGN.md §8).
@@ -1036,7 +1073,10 @@ export function buildBlocks(source: BlockSource): Block[] {
         for (const index of [...turn.blocks].toSorted((a, b) => a - b)) {
           const block = blocks[index];
           if (!block) continue;
-          if (block.kind === "message" && (index > finalStep || index === turn.lastMessage)) {
+          if (
+            block.kind === "message" &&
+            (index > finalStep || index === turn.lastMessage || closing.has(block.itemId))
+          ) {
             answers.push(block.itemId);
             blocks[index] = { ...block, headed: true };
             continue;
@@ -1047,6 +1087,8 @@ export function buildBlocks(source: BlockSource): Block[] {
               ? block.itemId
               : undefined;
           if (launches || receipt !== undefined) {
+            // While a child still works its rows stay apart, each where it happened.
+            if (waiting) continue;
             crewRows++;
             if (crew) {
               crew.itemIds.push(...(launches ?? []));
@@ -1228,6 +1270,24 @@ function idleOf(source: BlockSource, turn: TurnMark): number | undefined {
  * Whether a turn's whole tree has settled: every run in it has ended and every agent it spawned
  * has finished. What is still open is added to `watch`, so its settling rebuilds the blocks.
  */
+/**
+ * Whether the turn's agent has stopped: every run of its own has ended (the last one the tree
+ * numbered into the turn too) and no background command of it still runs. Work it handed off,
+ * a delegated child, may go on: that is the tree's, and its rows say so.
+ */
+function ownWorkEnded(source: BlockSource, turn: TurnMark): boolean {
+  for (const id of turn.heads) {
+    const run = source.turnEnding?.(id) ?? source.run?.(id);
+    if (!run || run.state === "active") return false;
+  }
+  for (const id of turn.runs) if (source.run?.(id)?.state === "active") return false;
+  for (const id of turn.tasks) {
+    const status = source.task?.(id)?.status;
+    if (status === "running" || status === "unknown") return false;
+  }
+  return true;
+}
+
 function settled(source: BlockSource, turn: TurnMark, newest: boolean): boolean {
   const { turnSettled } = source;
   if (turnSettled) return turn.heads.every((id) => turnSettled(id));

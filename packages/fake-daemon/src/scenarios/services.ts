@@ -1,6 +1,7 @@
 import { savedTranscripts } from "../catalog/history.ts";
 import { aceToolThreadIds } from "./ace-tool-results.ts";
 import { postedImageThreadId, publishedPages } from "./visualization.ts";
+import { delegationRoundsIds } from "./delegation-rounds.ts";
 import {
   automationList,
   automationRuns,
@@ -21,6 +22,7 @@ export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
     attachmentImages: [
       ...aceToolThreadIds.map((threadId) => ({ threadId, name: "screen.png" })),
       { threadId: postedImageThreadId, name: "latency.png" },
+      { threadId: delegationRoundsIds.parent, name: "mockup.png" },
     ],
     attachmentTexts: publishedPages.map((page) => ({
       threadId: page.threadId,

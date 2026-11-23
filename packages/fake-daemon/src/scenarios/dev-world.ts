@@ -10,6 +10,7 @@ import { coldStartReplay } from "./cold-start-replay.ts";
 import { delegatedDocs } from "./delegated-docs.ts";
 import { nestedDelegation } from "./nested-delegation.ts";
 import { queuedDelegation } from "./queued-delegation.ts";
+import { delegationRounds } from "./delegation-rounds.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { summaryFleet } from "./summary-fleet.ts";
 import { childActions } from "./child-actions.ts";
@@ -72,6 +73,8 @@ export function devWorld(): WorldThread[] {
     ...nestedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
     // Two children delegated with one run slot free: one runs, one waits in the launch queue.
     ...queuedDelegation().map((scenario) => ({ scenario, agoMs: 0 })),
+    // A parent woken by each child's report, one child still working: one turn, folded.
+    ...delegationRounds().map((scenario) => ({ scenario, agoMs: 0 })),
     // An OpenCode thread whose agent started a separate Codex conversation (thread_start).
     ...startedConversation().map((scenario) => ({ scenario, agoMs: minute })),
     // The person's bug report written in markdown: it renders in their bubble.
