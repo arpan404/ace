@@ -6,23 +6,24 @@ import {
   untrusted,
   type StoredTrust,
 } from "./stored-decode.ts";
-import { ItemTextStore } from "./item-text-store.ts";
+import {
+  ItemTextStore,
+  headRange,
+  sliceByteRows,
+  sourcesInFillOrder,
+  tailRange,
+  trimLowStart,
+} from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
 import { nativeReads } from "./native-reads/switch.ts";
+import { NativeItemRows, TsItemRows, type ItemRows } from "./item-rows.ts";
 import {
   fetchBodies,
-  fetchChunks,
-  fetchExistence,
-  fetchHeads,
   fetchHeadsBySeqs,
-  fetchNeighborSeqs,
   fetchPreviews,
-  fetchRangeBodies,
   fetchStreamBytes,
   fetchStreamSizes,
-  fetchTailHeads,
-  fetchTarget,
   groupBodyRows,
   type PreviewRow,
 } from "./native-reads/items.ts";
@@ -37,6 +38,7 @@ import {
   type ItemsPage,
   type OmittedItem,
   RawPayload,
+  type TextSource,
   type ThreadId,
 } from "@ace/protocol";
 import { applyDelta, inRootLane, retainedTail } from "@ace/projection";
@@ -108,6 +110,24 @@ export class ItemStore {
   private readonly db: DatabaseSync;
   private readonly statement: (sql: string) => StatementSync;
   private readonly trust: StoredTrust;
+  /** The leaf reads the loaders call: today's statements, or the same reads as Rust batches. */
+  private readonly rows: ItemRows;
+  /**
+   * The window's primed rows while its add loop runs: bodies, previews, sizes and bytes for
+   * the jump point and neighbors, fetched in the loop's order before it starts. `wirePage`
+   * serves its single-item calls from here and falls back to the data source otherwise.
+   */
+  private windowCache:
+    | {
+        threadId: ThreadId;
+        heads: Map<number, { id: string; created_seq: number; size: number; item_type: string }>;
+        bodies: Map<string, { item: unknown; created_seq: unknown }>;
+        chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
+        previews: Map<string, PreviewRow>;
+        sizes: Map<string, unknown>;
+        byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
+      }
+    | undefined;
   constructor(
     db: DatabaseSync,
     statement: (sql: string) => StatementSync,
@@ -115,6 +135,7 @@ export class ItemStore {
   ) {
     this.statement = statement;
     this.db = db;
+    this.rows = nativeReads("items") ? new NativeItemRows(db) : new TsItemRows(statement);
     this.texts = new ItemTextStore(db, trust);
     this.trust = trust;
   }
@@ -301,41 +322,47 @@ export class ItemStore {
     limit: number,
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> {
-    if (nativeReads("items")) return this.wirePageBatched(threadId, before, limit, byteLimit);
-    const rows = this.statement(
-      "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-    ).all(threadId, before, limit + 1);
+    // A window's add loop serves its single-item reads from primed rows; anything else the
+    // loop asks for falls back to the data source below, exactly as its own page would.
+    const cached =
+      nativeReads("items") && this.windowCache?.threadId === threadId && limit === 1
+        ? this.windowCache.heads.get(before - 1)
+        : undefined;
+    if (cached) return this.wirePageSingle(threadId, cached, byteLimit);
+    const rows = this.rows.wireHeads(threadId, before, limit + 1);
     const decoded = WirePageRows.parse(rows);
+    const take = decoded.slice(0, limit);
+    // Native priming, after the loop's own head pre-check below has chosen which bodies it
+    // will read: one batched read per table for the chosen prefix, never earlier. Previews
+    // accumulate nothing here (their measured size is unknown until read), so the prefix can
+    // only overshoot the stored-size break, never undershoot it; anything the loop still
+    // needs faults in on demand through the same statements.
+    const primed = (() => {
+      if (!nativeReads("items") || this.windowCache) return undefined;
+      const wanted = ItemStore.selectTake(take, byteLimit);
+      const kinds = new Map(wanted.map((head) => [String(head.id), head.item_type]));
+      return this.primeIds(
+        wanted.map((head) => String(head.id)),
+        kinds,
+      );
+    })();
     const items: Item[] = [];
     const cursors: [string, number][] = [];
     let bytes = 512;
-    for (const row of decoded.slice(0, limit)) {
+    for (const row of take) {
       const id = String(row.id);
-      const overhead = Buffer.byteLength(JSON.stringify(id)) + 64;
-      const preview =
-        row.item_type === "message" || row.item_type === "notice" || row.item_type === "reasoning";
-      // The authoritative encoded size is already persisted by the payload owner.
-      // Tool/artifact details have no smaller wire preview: reject them before
-      // loading their body into JS, parsing it, or allocating its serialized copy.
-      // Text items instead carry bounded previews and separate full-text sources.
-      if (!preview && bytes + row.size + overhead > byteLimit) {
-        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
-        break;
-      }
-      const item = this.pageItem(id, row.item_type);
-      // A body this build wrote is read as stored and takes no text chunks, so its stored size
-      // is exactly its JSON's. Text previews and older bodies are measured.
-      const size =
-        (!preview && isTrusted(this.trust, row.created_seq)
-          ? row.size
-          : Buffer.byteLength(JSON.stringify(item))) + overhead;
-      if (bytes + size > byteLimit) {
-        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
-        break;
-      }
-      items.push(item);
+      const out = this.pageOne(
+        row,
+        bytes,
+        byteLimit,
+        items.length === 0,
+        () => (primed ? this.assemblePrimed(primed, id, row.item_type) : undefined),
+        () => this.pageItem(id, row.item_type),
+      );
+      if ("done" in out) break;
+      items.push(out.item);
       cursors.push([id, Number(row.created_seq)]);
-      bytes += size;
+      bytes += out.size;
     }
     items.reverse();
     return {
@@ -348,128 +375,279 @@ export class ItemStore {
   private static isPreviewType(type: string): boolean {
     return type === "message" || type === "notice" || type === "reasoning";
   }
-  /** Text sizes and bytes for batched previews, fetched in the loader's order: previews first. */
-  private previewTextData(previewRows: Map<string, PreviewRow>): {
-    sizes: Map<string, number>;
+  /**
+   * The head pre-check the output loop runs before loading a body: non-preview items larger
+   * than the remaining budget stop the page here, without their body ever being read. Shared
+   * by the loop and by priming so the two cannot diverge.
+   */
+  private static preFits(
+    bytes: number,
+    size: number,
+    itemType: string,
+    overhead: number,
+    byteLimit: number,
+  ): boolean {
+    return ItemStore.isPreviewType(itemType) || bytes + size + overhead <= byteLimit;
+  }
+  /**
+   * One wire-page item, exactly as the output loop reads it: the shared pre-check, the load,
+   * then the measured full check. Returns the item and its budgeted size, `done` when the
+   * page ends here, and throws the page's capacity error when it cannot even start.
+   */
+  private pageOne(
+    head: { id: unknown; created_seq: unknown; size: unknown; item_type: string },
+    bytes: number,
+    byteLimit: number,
+    empty: boolean,
+    load: () => Item | undefined,
+    fallback: () => Item,
+  ): { item: Item; size: number } | { done: "break" } {
+    const id = String(head.id);
+    const overhead = Buffer.byteLength(JSON.stringify(id)) + 64;
+    const preview = ItemStore.isPreviewType(head.item_type);
+    const fail = (): { done: "break" } => {
+      if (empty) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
+      return { done: "break" };
+    };
+    // The authoritative encoded size is already persisted by the payload owner.
+    // Tool/artifact details have no smaller wire preview: reject them before
+    // loading their body into JS, parsing it, or allocating its serialized copy.
+    // Text items instead carry bounded previews and separate full-text sources.
+    if (!ItemStore.preFits(bytes, Number(head.size), head.item_type, overhead, byteLimit))
+      return fail();
+    const item = load() ?? fallback();
+    // A body this build wrote is read as stored and takes no text chunks, so its stored size
+    // is exactly its JSON's. Text previews and older bodies are measured.
+    const size =
+      (!preview && isTrusted(this.trust, Number(head.created_seq))
+        ? Number(head.size)
+        : Buffer.byteLength(JSON.stringify(item))) + overhead;
+    if (bytes + size > byteLimit) return fail();
+    return { item, size };
+  }
+  /**
+   * The output loop's own head pre-check, run over the take list to choose which bodies to
+   * fetch: the prefix that passes with stored sizes. Previews accumulate nothing here (their
+   * measured size is unknown until read), so the prefix can only overshoot what the loop
+   * keeps, never undershoot it for stored sizes; anything the loop still needs faults in on
+   * demand through the same statements.
+   */
+  private static selectTake<T extends { id: unknown; item_type: string; size: unknown }>(
+    take: readonly T[],
+    byteLimit: number,
+  ): T[] {
+    const wanted: T[] = [];
+    let bytes = 512;
+    for (const head of take) {
+      const overhead = Buffer.byteLength(JSON.stringify(String(head.id))) + 64;
+      if (!ItemStore.preFits(bytes, Number(head.size), head.item_type, overhead, byteLimit)) break;
+      wanted.push(head);
+      if (!ItemStore.isPreviewType(head.item_type)) bytes += Number(head.size) + overhead;
+    }
+    return wanted;
+  }
+  /** Rows primed for one output loop: bodies, previews, sizes and bytes by id. */
+  private primeIds(
+    ids: readonly string[],
+    kinds: Map<string, string>,
+  ): {
+    bodies: Map<string, { item: unknown; created_seq: unknown }>;
+    chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
+    previews: Map<string, PreviewRow>;
+    sizes: Map<string, unknown>;
     byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
   } {
-    const parsed = new Map<string, Item>();
-    for (const [id, row] of previewRows) parsed.set(id, this.texts.previewFromRow(row).item);
-    const streamIds: string[] = [];
-    const streamingByStream = new Map<string, boolean>();
-    for (const item of parsed.values())
-      for (const source of this.texts.sourcesOf(item)) {
-        if (!streamingByStream.has(source.streamId)) {
-          streamIds.push(source.streamId);
-          streamingByStream.set(source.streamId, source.streaming);
-        }
-      }
-    const sizes = new Map<string, number>();
-    for (const row of fetchStreamSizes(this.db, streamIds)) sizes.set(row.id, row.size);
-    const ranges: { id: string; start: number; end: number }[] = [];
-    for (const [streamId, streaming] of streamingByStream) {
-      const size = sizes.get(streamId);
-      if (size === undefined) continue;
-      if (streaming) ranges.push({ id: streamId, start: Math.max(0, size - 8192), end: size });
-      else ranges.push({ id: streamId, start: 0, end: Math.min(8192, size) });
+    const bodyIds = ids.filter((id) => !ItemStore.isPreviewType(kinds.get(id) ?? ""));
+    const previewIds = ids.filter((id) => ItemStore.isPreviewType(kinds.get(id) ?? ""));
+    const grouped = groupBodyRows(fetchBodies(this.db, bodyIds));
+    const previews = new Map<string, PreviewRow>();
+    for (const row of fetchPreviews(this.db, previewIds)) previews.set(String(row.id), row);
+    const { sizes, byteRows } = this.primePreviewBytes([...previews.values()]);
+    return { bodies: grouped.bodies, chunks: grouped.chunks, previews, sizes, byteRows };
+  }
+  /**
+   * Sizes and bytes for batched previews, in the order `fill` reads them: sizes for every
+   * source first, then bytes round by round, one round per text part, so each range matches
+   * the remaining allowance the fill will have. Single-source previews take exactly two calls.
+   */
+  private primePreviewBytes(previewRows: PreviewRow[]): {
+    sizes: Map<string, unknown>;
+    byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
+  } {
+    const parsed = new Map<string, { item: Item; streaming: boolean }>();
+    for (const row of previewRows) {
+      const item = this.texts.previewFromRow({
+        item: row.item,
+        target: row.target,
+        created_seq: row.created_seq,
+      }).item;
+      parsed.set(String(row.id), { item, streaming: !item.complete });
     }
+    const order = new Map<string, TextSource[]>();
+    const streamIds: string[] = [];
+    const seen = new Set<string>();
+    for (const [id, entry] of parsed) {
+      const sources = sourcesInFillOrder(entry.item);
+      order.set(id, sources);
+      for (const source of sources)
+        if (!seen.has(source.streamId)) {
+          seen.add(source.streamId);
+          streamIds.push(source.streamId);
+        }
+    }
+    const sizes = new Map<string, unknown>();
+    for (const row of fetchStreamSizes(this.db, streamIds)) sizes.set(String(row.id), row.size);
     const byteRows = new Map<string, { offset: number; bytes: Uint8Array }[]>();
-    for (const row of fetchStreamBytes(this.db, ranges)) {
-      const list = byteRows.get(row.stream_id);
-      if (list) list.push({ offset: row.offset, bytes: row.bytes });
-      else byteRows.set(row.stream_id, [{ offset: row.offset, bytes: row.bytes }]);
+    const remaining = new Map<string, number>();
+    const position = new Map<string, number>();
+    for (const id of parsed.keys()) {
+      remaining.set(id, 4096);
+      position.set(id, 0);
+    }
+    for (;;) {
+      const ranges: { id: string; start: number; end: number }[] = [];
+      const pending: { id: string; streamId: string; start: number; end: number }[] = [];
+      for (const [id, entry] of parsed) {
+        const sources = order.get(id) ?? [];
+        const at = position.get(id) ?? sources.length;
+        if (at >= sources.length) continue;
+        const source = sources[at];
+        if (!source) continue;
+        const size = sizes.get(source.streamId);
+        // A missing size throws in the fill, exactly as its single read does.
+        if (size === undefined) {
+          position.set(id, sources.length);
+          continue;
+        }
+        const numericSize = Number(size);
+        const rem = remaining.get(id) ?? 4096;
+        const [start, end] = entry.streaming
+          ? tailRange(numericSize, rem)
+          : headRange(numericSize, rem);
+        ranges.push({ id: source.streamId, start, end });
+        pending.push({ id, streamId: source.streamId, start, end });
+      }
+      if (!pending.length) break;
+      if (ranges.length)
+        for (const row of fetchStreamBytes(this.db, ranges)) {
+          const streamId = String(row.stream_id);
+          const entry = { offset: Number(row.offset), bytes: row.bytes as Uint8Array };
+          const list = byteRows.get(streamId);
+          if (list) list.push(entry);
+          else byteRows.set(streamId, [entry]);
+        }
+      for (const step of pending) {
+        const text = trimLowStart(
+          sliceByteRows(byteRows.get(step.streamId) ?? [], step.start, step.end),
+          step.start,
+        ).text;
+        remaining.set(step.id, (remaining.get(step.id) ?? 4096) - text.length);
+        position.set(step.id, (position.get(step.id) ?? 0) + 1);
+      }
     }
     return { sizes, byteRows };
   }
-  private materializeFromGroup(
+  /**
+   * Prime the rows the window's add loop will read, in its order: heads for the decided
+   * jump point and neighbors, then the prefix its own pre-check chooses, then exact preview
+   * bytes. The add loop itself is unchanged and stops where it always did; anything beyond
+   * the prefix faults in through the data source.
+   */
+  private primeWindow(
+    threadId: ThreadId,
+    targetSeq: number,
+    older: number[],
+    newer: number[],
+    byteLimit: number,
+  ): void {
+    const heads = new Map<
+      number,
+      { id: string; created_seq: number; size: number; item_type: string }
+    >();
+    for (const row of fetchHeadsBySeqs(this.db, threadId, [targetSeq, ...older, ...newer])) {
+      const seq = Number(row.created_seq);
+      heads.set(seq, {
+        id: String(row.id),
+        created_seq: seq,
+        size: Number(row.size),
+        item_type: String(row.item_type),
+      });
+    }
+    const order: number[] = [targetSeq];
+    for (let i = 0; i < Math.max(older.length, newer.length); i++) {
+      const old = older[i];
+      if (old !== undefined) order.push(old);
+      const next = newer[i];
+      if (next !== undefined) order.push(next);
+    }
+    const kinds = new Map<string, string>();
+    const ids: string[] = [];
+    let bytes = 512;
+    for (const seq of order) {
+      const head = heads.get(seq);
+      if (!head) break;
+      const overhead = Buffer.byteLength(JSON.stringify(head.id)) + 64;
+      if (!ItemStore.preFits(bytes, head.size, head.item_type, overhead, byteLimit)) break;
+      ids.push(head.id);
+      kinds.set(head.id, head.item_type);
+      if (!ItemStore.isPreviewType(head.item_type)) bytes += head.size + overhead;
+    }
+    const primed = this.primeIds(ids, kinds);
+    this.windowCache = { threadId, heads, ...primed };
+  }
+  /** A primed item, or undefined when the loop must read it through the data source. */
+  private assemblePrimed(
+    cache: {
+      bodies: Map<string, { item: unknown; created_seq: unknown }>;
+      chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
+      previews: Map<string, PreviewRow>;
+      sizes: Map<string, unknown>;
+      byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
+    },
     id: string,
-    bodies: Map<string, { item: string; created_seq: number }>,
-    chunks: Map<string, { seq: number; field: string; append: string }[]>,
-  ): Item {
-    const body = bodies.get(id);
-    if (!body) JSON.parse("undefined");
-    const found = bodies.get(id);
-    if (!found) throw new Error("Missing item body");
+    type: string,
+  ): Item | undefined {
+    if (ItemStore.isPreviewType(type)) {
+      const row = cache.previews.get(id);
+      if (!row) return undefined;
+      return this.texts.readBatched(id, row, cache.sizes, cache.byteRows);
+    }
+    const body = cache.bodies.get(id);
+    if (!body) return undefined;
     return this.withChunks(
-      storedItem(Number(found.created_seq), String(found.item), this.trust),
-      (chunks.get(id) ?? []).map((row) => ({ seq: row.seq, field: row.field, append: row.append })),
+      storedItem(Number(body.created_seq), String(body.item), this.trust),
+      (cache.chunks.get(id) ?? []).map((row) => ({
+        seq: row.seq,
+        field: row.field,
+        append: row.append,
+      })),
     );
   }
-  /**
-   * `wirePage` on batched fetches: heads first, then bodies and previews for the prefix that
-   * passes the stored-size guard, then sizes and bytes, then the same budget loop. Five
-   * statements whatever the page holds.
-   */
-  private wirePageBatched(
+  /** One wire-page item served from a window's primed rows, measured exactly as its page. */
+  private wirePageSingle(
     threadId: ThreadId,
-    before: number,
-    limit: number,
+    head: { id: string; created_seq: number; size: number; item_type: string },
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> {
-    const rows = fetchHeads(this.db, threadId, before, limit + 1);
-    const decoded = WirePageRows.parse(rows);
-    const take = decoded.slice(0, limit);
-    // The stored-size guard before any body is read, as the loader's own pre-check does.
-    let fetchTake = take.length;
-    {
-      let floor = 512;
-      for (let index = 0; index < take.length; index++) {
-        const head = take[index];
-        if (!head) break;
-        const overhead = Buffer.byteLength(JSON.stringify(String(head.id))) + 64;
-        if (!ItemStore.isPreviewType(head.item_type) && floor + head.size + overhead > byteLimit) {
-          if (index === 0) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
-          fetchTake = index;
-          break;
-        }
-        floor += head.size + overhead;
-      }
-    }
-    const candidate = take.slice(0, fetchTake);
-    const previewIds = candidate
-      .filter((head) => ItemStore.isPreviewType(head.item_type))
-      .map((head) => String(head.id));
-    const bodyIds = candidate
-      .filter((head) => !ItemStore.isPreviewType(head.item_type))
-      .map((head) => String(head.id));
-    const grouped = groupBodyRows(fetchBodies(this.db, bodyIds));
-    const previewRows = new Map<string, PreviewRow>();
-    for (const row of fetchPreviews(this.db, previewIds)) previewRows.set(row.id, row);
-    const { sizes, byteRows } = this.previewTextData(previewRows);
-    const items: Item[] = [];
-    const cursors: [string, number][] = [];
-    let bytes = 512;
-    for (const row of take) {
-      const id = String(row.id);
-      const overhead = Buffer.byteLength(JSON.stringify(id)) + 64;
-      const preview = ItemStore.isPreviewType(row.item_type);
-      if (!preview && bytes + row.size + overhead > byteLimit) {
-        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
-        break;
-      }
-      const item = preview
-        ? this.texts.readBatched(id, previewRows.get(id), sizes, byteRows)
-        : this.materializeFromGroup(id, grouped.bodies, grouped.chunks);
-      // A body this build wrote is read as stored and takes no text chunks, so its stored size
-      // is exactly its JSON's. Text previews and older bodies are measured.
-      const size =
-        (!preview && isTrusted(this.trust, row.created_seq)
-          ? row.size
-          : Buffer.byteLength(JSON.stringify(item))) + overhead;
-      if (bytes + size > byteLimit) {
-        if (!items.length) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
-        break;
-      }
-      items.push(item);
-      cursors.push([id, Number(row.created_seq)]);
-      bytes += size;
-    }
-    items.reverse();
+    const validated = WirePageRows.parse([head]);
+    const row = validated[0];
+    if (!row) throw new Error("Invalid item page");
+    const id = String(row.id);
+    const cache = this.windowCache;
+    const out = this.pageOne(
+      row,
+      512,
+      byteLimit,
+      true,
+      () => (cache ? this.assemblePrimed(cache, id, row.item_type) : undefined),
+      () => this.pageItem(id, row.item_type),
+    );
+    if ("done" in out) throw new ItemPageCapacityExceeded("Item detail exceeds page capacity");
     return {
       threadId,
-      items,
-      itemSeqs: Object.fromEntries(cursors),
-      itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
+      items: [out.item],
+      itemSeqs: { [id]: Number(row.created_seq) },
+      itemsBefore: null,
     };
   }
   /** An item as a page shows it: text cut to its bounded preview, other bodies whole. */
@@ -575,114 +753,7 @@ export class ItemStore {
     return row ? Number(row.created_seq) : undefined;
   }
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
-    if (nativeReads("items"))
-      return this.windowBatched(threadId, aroundSeq, before, after, byteLimit);
-    const target =
-      this.statement(
-        "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>=? ORDER BY created_seq LIMIT 1",
-      ).get(threadId, aroundSeq) ??
-      this.statement(
-        "SELECT created_seq FROM item_heads WHERE thread_id=? ORDER BY created_seq DESC LIMIT 1",
-      ).get(threadId);
-    if (!target)
-      return {
-        threadId,
-        targetSeq: null,
-        items: [],
-        itemSeqs: {},
-        itemsBefore: null,
-        itemsAfter: null,
-      };
-    const targetSeq = Number(target.created_seq);
-    const older = this.statement(
-      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
-    ).all(threadId, targetSeq, before);
-    const newer = this.statement(
-      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>? ORDER BY created_seq LIMIT ?",
-    ).all(threadId, targetSeq, after);
-    const selected = new Map<number, Item>();
-    const omitted: OmittedItem[] = [];
-    let bytes = 512;
-    // Read the target first so a byte-limited window always includes the jump point.
-    const add = (seq: number): boolean => {
-      let page: Omit<ItemsPage, "seq">;
-      try {
-        // wirePage reserves 512 envelope bytes itself. Pass only this window's
-        // remaining item allowance so neighbor preflight also rejects details
-        // that fit a standalone page but cannot fit alongside the jump target.
-        page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
-      } catch (error) {
-        if (!(error instanceof ItemPageCapacityExceeded)) throw error;
-        // A neighbor that fits a window of its own waits for the next one.
-        if (seq !== targetSeq && this.fitsAlone(threadId, seq, byteLimit)) return false;
-        // Larger than any window: it comes reduced to an eighth of one, leaving room for its
-        // neighbors, so a window that starts at it still reaches older items.
-        page = this.reducedPage(threadId, seq, Math.min(byteLimit - bytes, byteLimit / 8) + 512);
-        if (!page.items[0]) {
-          if (seq === targetSeq) throw error;
-          return false;
-        }
-      }
-      const item = page.items[0];
-      if (!item) return false;
-      const size =
-        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
-      const marks = page.omitted ?? [];
-      bytes += size + (marks.length ? Buffer.byteLength(JSON.stringify(marks)) : 0);
-      omitted.push(...marks);
-      selected.set(seq, item);
-      return true;
-    };
-    if (!add(targetSeq)) throw new Error("Item detail exceeds window capacity");
-    // Alternate sides until the budget is reached, preserving one contiguous interval.
-    let left = 0,
-      right = 0;
-    while (left < older.length || right < newer.length) {
-      const old = older[left];
-      if (old) {
-        if (!add(Number(old.created_seq))) break;
-        left++;
-      }
-      const next = newer[right];
-      if (next) {
-        if (!add(Number(next.created_seq))) break;
-        right++;
-      }
-    }
-    const entries = [...selected].toSorted((a, b) => a[0] - b[0]);
-    const first = entries[0]?.[0] ?? targetSeq,
-      last = entries.at(-1)?.[0] ?? targetSeq;
-    return {
-      threadId,
-      targetSeq,
-      items: entries.map(([, item]) => item),
-      itemSeqs: Object.fromEntries(entries.map(([seq, item]) => [item.id, seq])),
-      itemsBefore: this.statement(
-        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq<? LIMIT 1",
-      ).get(threadId, first)
-        ? first
-        : null,
-      itemsAfter: this.statement(
-        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq>? LIMIT 1",
-      ).get(threadId, last)
-        ? last
-        : null,
-      ...(omitted.length ? { omitted: omitted.toSorted((a, b) => a.seq - b.seq) } : {}),
-    };
-  }
-  /**
-   * `window` on batched fetches: the target, neighbors and every head in four calls, then one
-   * call each for bodies, previews, sizes and bytes. The jump-point-first loop, cursors and
-   * cut flags match the loader exactly.
-   */
-  private windowBatched(
-    threadId: ThreadId,
-    aroundSeq: number,
-    before: number,
-    after: number,
-    byteLimit: number,
-  ) {
-    const targetSeq = fetchTarget(this.db, threadId, aroundSeq);
+    const targetSeq = this.rows.windowTarget(threadId, aroundSeq);
     if (targetSeq === null)
       return {
         threadId,
@@ -692,74 +763,32 @@ export class ItemStore {
         itemsBefore: null,
         itemsAfter: null,
       };
-    const neighbors = fetchNeighborSeqs(this.db, threadId, targetSeq, before, after);
+    const neighbors = this.rows.windowNeighbors(threadId, targetSeq, before, after);
     const older = neighbors.older;
     const newer = neighbors.newer;
-    const seqs = [targetSeq, ...older, ...newer];
-    const heads = new Map<number, { id: string; size: number; item_type: string }>();
-    for (const row of fetchHeadsBySeqs(this.db, threadId, seqs))
-      heads.set(Number(row.created_seq), {
-        id: String(row.id),
-        size: Number(row.size),
-        item_type: String(row.item_type),
-      });
-    const previewIds: string[] = [];
-    const bodyIds: string[] = [];
-    for (const head of heads.values()) {
-      if (ItemStore.isPreviewType(head.item_type)) previewIds.push(head.id);
-      else bodyIds.push(head.id);
-    }
-    const grouped = groupBodyRows(fetchBodies(this.db, bodyIds));
-    const previewRows = new Map<string, PreviewRow>();
-    for (const row of fetchPreviews(this.db, previewIds)) previewRows.set(row.id, row);
-    const { sizes, byteRows } = this.previewTextData(previewRows);
-    const selected = new Map<number, Item>();
-    const omitted: OmittedItem[] = [];
-    let bytes = 512;
-    // The loader's single-item page from prefetched rows, or `undefined` when the loader would
-    // take its capacity path. Throws exactly where the loader's own page would.
-    const fastSingle = (seq: number): Item | undefined => {
-      const head = heads.get(seq);
-      if (!head) return undefined;
-      const allowance = byteLimit - bytes + 512;
-      const id = head.id;
-      const overhead = Buffer.byteLength(JSON.stringify(id)) + 64;
-      const preview = ItemStore.isPreviewType(head.item_type);
-      if (!preview && 512 + head.size + overhead > allowance) return undefined;
-      const item = preview
-        ? this.texts.readBatched(id, previewRows.get(id), sizes, byteRows)
-        : this.materializeFromGroup(id, grouped.bodies, grouped.chunks);
-      const size =
-        (!preview && isTrusted(this.trust, seq)
-          ? head.size
-          : Buffer.byteLength(JSON.stringify(item))) + overhead;
-      if (512 + size > allowance) return undefined;
-      return item;
-    };
-    // Read the target first so a byte-limited window always includes the jump point.
-    const add = (seq: number): boolean => {
-      let fast: Item | undefined;
-      let fastFailed = false;
-      try {
-        fast = fastSingle(seq);
-      } catch {
-        fastFailed = true;
-      }
-      if (fast && !fastFailed) {
-        const size =
-          Buffer.byteLength(JSON.stringify(fast)) + Buffer.byteLength(JSON.stringify(fast.id)) + 64;
-        bytes += size;
-        selected.set(seq, fast);
-        return true;
-      }
-      if (!fastFailed) {
-        // Budget capacity: the loader's own page decides, same as its `add` does.
+    // Native priming, in the add loop's order below: heads for the decided jump point and
+    // neighbors, then the prefix its own pre-check chooses, then exact preview bytes. The
+    // add loop itself is unchanged and stops where it always did; anything beyond the
+    // prefix faults in through the data source.
+    if (nativeReads("items")) this.primeWindow(threadId, targetSeq, older, newer, byteLimit);
+    try {
+      const selected = new Map<number, Item>();
+      const omitted: OmittedItem[] = [];
+      let bytes = 512;
+      // Read the target first so a byte-limited window always includes the jump point.
+      const add = (seq: number): boolean => {
         let page: Omit<ItemsPage, "seq">;
         try {
+          // wirePage reserves 512 envelope bytes itself. Pass only this window's
+          // remaining item allowance so neighbor preflight also rejects details
+          // that fit a standalone page but cannot fit alongside the jump target.
           page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
         } catch (error) {
           if (!(error instanceof ItemPageCapacityExceeded)) throw error;
+          // A neighbor that fits a window of its own waits for the next one.
           if (seq !== targetSeq && this.fitsAlone(threadId, seq, byteLimit)) return false;
+          // Larger than any window: it comes reduced to an eighth of one, leaving room for its
+          // neighbors, so a window that starts at it still reaches older items.
           page = this.reducedPage(threadId, seq, Math.min(byteLimit - bytes, byteLimit / 8) + 512);
           if (!page.items[0]) {
             if (seq === targetSeq) throw error;
@@ -775,60 +804,39 @@ export class ItemStore {
         omitted.push(...marks);
         selected.set(seq, item);
         return true;
-      }
-      // A prefetched assemble threw where the loader's own page also throws: run it so the
-      // error matches exactly, including its message.
-      let page: Omit<ItemsPage, "seq">;
-      try {
-        page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
-      } catch (error) {
-        if (!(error instanceof ItemPageCapacityExceeded)) throw error;
-        if (seq !== targetSeq && this.fitsAlone(threadId, seq, byteLimit)) return false;
-        page = this.reducedPage(threadId, seq, Math.min(byteLimit - bytes, byteLimit / 8) + 512);
-        if (!page.items[0]) {
-          if (seq === targetSeq) throw error;
-          return false;
+      };
+      if (!add(targetSeq)) throw new Error("Item detail exceeds window capacity");
+      // Alternate sides until the budget is reached, preserving one contiguous interval.
+      let left = 0,
+        right = 0;
+      while (left < older.length || right < newer.length) {
+        const old = older[left];
+        if (old !== undefined) {
+          if (!add(old)) break;
+          left++;
+        }
+        const next = newer[right];
+        if (next !== undefined) {
+          if (!add(next)) break;
+          right++;
         }
       }
-      const item = page.items[0];
-      if (!item) return false;
-      const size =
-        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
-      const marks = page.omitted ?? [];
-      bytes += size + (marks.length ? Buffer.byteLength(JSON.stringify(marks)) : 0);
-      omitted.push(...marks);
-      selected.set(seq, item);
-      return true;
-    };
-    if (!add(targetSeq)) throw new Error("Item detail exceeds window capacity");
-    // Alternate sides until the budget is reached, preserving one contiguous interval.
-    let left = 0,
-      right = 0;
-    while (left < older.length || right < newer.length) {
-      const old = older[left];
-      if (old !== undefined) {
-        if (!add(old)) break;
-        left++;
-      }
-      const next = newer[right];
-      if (next !== undefined) {
-        if (!add(next)) break;
-        right++;
-      }
+      const entries = [...selected].toSorted((a, b) => a[0] - b[0]);
+      const first = entries[0]?.[0] ?? targetSeq,
+        last = entries.at(-1)?.[0] ?? targetSeq;
+      const existence = this.rows.windowExistence(threadId, first, last);
+      return {
+        threadId,
+        targetSeq,
+        items: entries.map(([, item]) => item),
+        itemSeqs: Object.fromEntries(entries.map(([seq, item]) => [item.id, seq])),
+        itemsBefore: existence.hasBefore ? first : null,
+        itemsAfter: existence.hasAfter ? last : null,
+        ...(omitted.length ? { omitted: omitted.toSorted((a, b) => a.seq - b.seq) } : {}),
+      };
+    } finally {
+      this.windowCache = undefined;
     }
-    const entries = [...selected].toSorted((a, b) => a[0] - b[0]);
-    const first = entries[0]?.[0] ?? targetSeq,
-      last = entries.at(-1)?.[0] ?? targetSeq;
-    const existence = fetchExistence(this.db, threadId, first, last);
-    return {
-      threadId,
-      targetSeq,
-      items: entries.map(([, item]) => item),
-      itemSeqs: Object.fromEntries(entries.map(([seq, item]) => [item.id, seq])),
-      itemsBefore: existence.hasBefore ? first : null,
-      itemsAfter: existence.hasAfter ? last : null,
-      ...(omitted.length ? { omitted: omitted.toSorted((a, b) => a.seq - b.seq) } : {}),
-    };
   }
   /**
    * A snapshot's transcript tail: the items the client's bounded window holds after its trim
@@ -844,76 +852,10 @@ export class ItemStore {
     limit: number,
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
-    if (nativeReads("items")) return this.tailBatched(threadId, rootAgentId, limit, byteLimit);
-    const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
-    // The root lane is the root agent's items and the thread's own (no agent): one indexed
-    // read each, never one IN query, which would sort the whole lane.
-    const lane = (agentId: string) =>
-      this.statement(`${columns} AND agent_id = ? ORDER BY created_seq DESC LIMIT ?`).all(
-        threadId,
-        agentId,
-        Math.floor(limit / 2),
-      );
-    const rows = [
-      ...this.statement(`${columns} ORDER BY created_seq DESC LIMIT ?`).all(threadId, limit + 1),
-      ...(rootAgentId === undefined ? [] : lane(rootAgentId)),
-      ...lane(""),
-    ];
-    const heads = new Map<number, z.infer<typeof TailHead>>();
-    // The bound follows `limit`; the element schema is the shared, compiled `TailHead`.
-    // oxlint-disable-next-line ace/zod-schema-in-function -- wraps a module-level schema
-    for (const row of z
-      .array(TailHead)
-      .max(3 * limit + 1)
-      .parse(rows))
-      heads.set(row.created_seq, row);
-    const sorted = [...heads.values()].toSorted((a, b) => a.created_seq - b.created_seq);
-    const entries = sorted.map((head) => ({
-      id: String(head.id),
-      seq: head.created_seq,
-      root: inRootLane(head.agent_id, rootAgentId),
-    }));
-    const sizes = new Map(sorted.map((head) => [String(head.id), head.size]));
-    // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
-    const bytes = (ids: readonly { id: string }[]) =>
-      ids.reduce(
-        (total, { id }, index) =>
-          total +
-          (sizes.get(id) ?? 0) +
-          2 * Buffer.byteLength(JSON.stringify(id)) +
-          1 +
-          (index ? 2 : 0),
-        4,
-      );
-    let capacity = Math.min(limit, entries.length);
-    let tail = retainedTail(entries, capacity);
-    while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
-    // A newest item larger than the whole budget still shows, as its bounded text preview.
-    const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
-    const whole = preview ? undefined : this.materializeAll(tail.kept.map((entry) => entry.id));
-    const kept = tail.kept.flatMap((entry) => {
-      const item = whole ? whole.get(entry.id) : this.stepItem(threadId, entry.id);
-      return item ? [{ item, seq: entry.seq ?? 0 }] : [];
-    });
-    return {
-      threadId,
-      items: kept.map((entry) => entry.item),
-      itemSeqs: Object.fromEntries(kept.map((entry) => [entry.item.id, entry.seq])),
-      itemsBefore: tail.before ?? null,
-      ...(preview && kept[0] ? { previewed: [kept[0].item.id] } : {}),
-    };
-  }
-  /**
-   * `tail` on batched fetches: the three head reads in one call, then one bodies+chunks
-   * statement for the kept ids. Trimming, budgets and the single-item preview match the loader.
-   */
-  private tailBatched(
-    threadId: ThreadId,
-    rootAgentId: string | undefined,
-    limit: number,
-    byteLimit: number,
-  ): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
-    const rows = fetchTailHeads(this.db, threadId, rootAgentId, limit);
+    // Heads through the data source (one call native, three indexed reads back to back);
+    // everything below is the loader unchanged, including the single-statement bodies read
+    // the concurrent-completion test hooks.
+    const rows = this.rows.tailHeads(threadId, rootAgentId, limit);
     const heads = new Map<number, z.infer<typeof TailHead>>();
     // The bound follows `limit`; the element schema is the shared, compiled `TailHead`.
     // oxlint-disable-next-line ace/zod-schema-in-function -- wraps a module-level schema
@@ -964,7 +906,6 @@ export class ItemStore {
     limit: number,
     byteLimit?: number,
   ): Omit<ItemsPage, "seq"> {
-    if (nativeReads("items")) return this.pageBatched(threadId, before, limit, byteLimit);
     if (
       !Number.isSafeInteger(before) ||
       before < 1 ||
@@ -973,66 +914,7 @@ export class ItemStore {
       limit > 200
     )
       throw new Error("Invalid item page");
-    const rows = this.statement(
-      "SELECT id, created_seq, size FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
-    ).all(threadId, before, limit + 1);
-    let count = 0;
-    // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
-    let bytes = 4;
-    while (count < Math.min(rows.length, limit)) {
-      const row = rows[count];
-      if (!row) break;
-      const size =
-        Number(row.size) + 2 * Buffer.byteLength(JSON.stringify(row.id)) + 1 + (count ? 2 : 0);
-      if (bytes + size > (byteLimit ?? 1024 * 1024) && (count > 0 || byteLimit !== undefined))
-        break;
-      bytes += size;
-      count++;
-    }
-    // A newest item larger than the whole budget still shows, as its bounded text preview.
-    const newest = rows[0];
-    const oversized =
-      count === 0 && newest ? this.stepItem(threadId, String(newest.id)) : undefined;
-    if (oversized) count = 1;
-    const oldestRow = rows[count - 1];
-    const oldest = oldestRow ? Number(oldestRow.created_seq) : before;
-    const items = oversized
-      ? [oversized]
-      : count
-        ? this.statement(
-            "SELECT id, item, created_seq FROM items WHERE thread_id = ? AND created_seq >= ? AND created_seq < ? ORDER BY created_seq",
-          )
-            .all(threadId, oldest, before)
-            .map((row) => this.materialize(String(row.id), row.item, row.created_seq))
-        : [];
-    return {
-      threadId,
-      items,
-      itemSeqs: Object.fromEntries(
-        rows.slice(0, count).map((row) => [String(row.id), Number(row.created_seq)]),
-      ),
-      itemsBefore: rows.length > count ? oldest : null,
-    };
-  }
-  /**
-   * `page` on batched fetches: heads first, then the range bodies and every chunk in two
-   * statements. The budget loop, oversized preview and cursors match the loader exactly.
-   */
-  private pageBatched(
-    threadId: ThreadId,
-    before: number,
-    limit: number,
-    byteLimit?: number,
-  ): Omit<ItemsPage, "seq"> {
-    if (
-      !Number.isSafeInteger(before) ||
-      before < 1 ||
-      !Number.isInteger(limit) ||
-      limit < 1 ||
-      limit > 200
-    )
-      throw new Error("Invalid item page");
-    const rows = fetchHeads(this.db, threadId, before, limit + 1);
+    const rows = this.rows.pageHeads(threadId, before, limit + 1);
     let count = 0;
     // Budget both items:{} and itemOrder:[], including serialized ids, colons and commas.
     let bytes = 4;
@@ -1057,24 +939,19 @@ export class ItemStore {
       ? [oversized]
       : count
         ? (() => {
-            const bodies = fetchRangeBodies(this.db, threadId, oldest, before);
-            const ids = bodies.map((row) => String(row.id));
-            const chunkRows = fetchChunks(this.db, ids);
-            const chunks = new Map<string, { seq: number; field: string; append: string }[]>();
-            for (const row of chunkRows) {
-              const list = chunks.get(row.item_id);
+            const bodies = this.rows.rangeBodies(threadId, oldest, before);
+            const chunks = new Map<string, { seq: unknown; field: unknown; append: unknown }[]>();
+            for (const row of this.rows.chunksFor(bodies.map((body) => String(body.id)))) {
+              const key = String(row.item_id);
+              const list = chunks.get(key);
               const entry = { seq: row.seq, field: row.field, append: row.append };
               if (list) list.push(entry);
-              else chunks.set(row.item_id, [entry]);
+              else chunks.set(key, [entry]);
             }
             return bodies.map((row) =>
               this.withChunks(
                 storedItem(Number(row.created_seq), String(row.item), this.trust),
-                (chunks.get(String(row.id)) ?? []).map((entry) => ({
-                  seq: entry.seq,
-                  field: entry.field,
-                  append: entry.append,
-                })),
+                chunks.get(String(row.id)) ?? [],
               ),
             );
           })()
