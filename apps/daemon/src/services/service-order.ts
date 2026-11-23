@@ -6,8 +6,10 @@ export type ServiceName = (typeof serviceOrder)[number]["name"];
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceOrder = [
   { name: "settings", phase: "core", requires: [], after: [] },
+  // The one ace-media the screen, devices and browser share: it starts before them.
+  { name: "media", phase: "core", requires: [], after: [] },
   // Screens start once settings have loaded.
-  { name: "screen", phase: "core", requires: [], after: ["settings"] },
+  { name: "screen", phase: "core", requires: [], after: ["settings", "media"] },
   {
     name: "sourceControl",
     phase: "core",
@@ -27,7 +29,7 @@ export const serviceOrder = [
     name: "devices",
     phase: "core",
     requires: [],
-    after: ["screen", "files", "settings"],
+    after: ["screen", "files", "settings", "media"],
   },
   { name: "relay", phase: "core", requires: ["files"], after: [] },
   { name: "plugins", phase: "core", requires: [], after: [] },
@@ -46,7 +48,7 @@ export const serviceOrder = [
     name: "browser",
     phase: "core",
     requires: [],
-    after: ["settings", "userBrowser"],
+    after: ["settings", "userBrowser", "media"],
   },
   { name: "browsing", phase: "core", requires: [], after: ["browser"] },
   {

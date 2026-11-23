@@ -154,7 +154,7 @@ export const noMediaRecorder: MediaRecorder = refusingRecorder(
   "it isn't installed for this computer",
 );
 
-/** One per daemon: the browser and the screen share it. */
+/** Runtimes made for contexts the `media` service never ran in (a test's own context). */
 const started = new WeakMap<object, DaemonMedia | undefined>();
 
 /** What starting ace-media needs of the daemon: no setting among it. */
@@ -162,14 +162,35 @@ export type MediaContext = Pick<ServiceContext, "services" | "id" | "resources" 
   config: Pick<ServiceContext["config"], "dataDir">;
 };
 
+/**
+ * The daemon's `media` service: its one ace-media, which the screen, the devices and the
+ * browser all stream into and every client watches. Each service starts with its own view of
+ * `services`, so ace-media is made here, once, and published for them; made by each of them,
+ * a tab would stream into one process while its viewers watched another.
+ */
+export function startMediaService(context: MediaContext): void {
+  const media = createMedia(context);
+  publish(context, media);
+}
+
+/** The daemon's ace-media, as the `media` service published it; undefined where there is none. */
 export function startMedia(context: MediaContext): DaemonMedia | undefined {
+  const shared = context.services.media;
+  if (shared !== undefined) return shared ?? undefined;
+  // A context the `media` service didn't run in: it gets its own, once.
   if (started.has(context.services)) return started.get(context.services);
   const media = createMedia(context);
   started.set(context.services, media);
-  if (media) context.services.mediaDelivery = () => media.delivery();
-  if (media) context.services.mediaAcceleration = media.acceleration;
-  if (media) context.services.mediaPid = () => media.pid();
+  publish(context, media);
   return media;
+}
+
+function publish(context: MediaContext, media: DaemonMedia | undefined): void {
+  context.services.media = media ?? null;
+  if (!media) return;
+  context.services.mediaDelivery = () => media.delivery();
+  context.services.mediaAcceleration = media.acceleration;
+  context.services.mediaPid = () => media.pid();
 }
 
 function createMedia(context: MediaContext): DaemonMedia | undefined {

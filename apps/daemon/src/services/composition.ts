@@ -26,6 +26,7 @@ import { startPlugins } from "./plugins.ts";
 import { startSuits } from "./suits.ts";
 import { startMarketplace } from "./marketplace.ts";
 import { startBrowser } from "./browser.ts";
+import { startMediaService } from "./media.ts";
 import { startBrowsing } from "./browsing.ts";
 import { startUserBrowser } from "./user-browser.ts";
 import { startContext } from "./context.ts";
@@ -47,6 +48,7 @@ import { serviceOrder, type ServiceName } from "./service-order.ts";
 /** Each service's start, by its name in `serviceOrder` (`service-order.ts`). */
 const starts: Record<ServiceName, ServiceDefinition["start"]> = {
   screen: startScreen,
+  media: startMediaService,
   settings: startSettings,
   sourceControl: startSourceControl,
   accounts: startAccounts,
