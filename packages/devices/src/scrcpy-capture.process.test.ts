@@ -1,3 +1,4 @@
+import { connect, Socket } from "node:net";
 import { afterEach, expect, it } from "vitest";
 import { fixture as scrcpyFixture, nal, sps, until, type Cleanup } from "./testing/fake-scrcpy.ts";
 
@@ -5,7 +6,7 @@ const cleanup: Cleanup = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-const fixture = (options: { resetAtControl?: boolean; exitAtControl?: boolean } = {}) =>
+const fixture = (options: Parameters<typeof scrcpyFixture>[1] = {}) =>
   scrcpyFixture(cleanup, options);
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
   const { frames, commands } = await fixture();
@@ -181,4 +182,27 @@ it("a server that exits mid-handshake fails the view at once, not at the startup
   });
   // The startup deadline is 10 s; the exit is seen within a few of the helper's polls.
   expect(performance.now() - started).toBeLessThan(3_000);
+});
+
+it("a control connect that never completes fails the view at the startup deadline and is closed", async () => {
+  const hung: Socket[] = [];
+  let late = false;
+  let dialled = 0;
+  await expect(
+    fixture({
+      // The clock passes the startup deadline as control is dialled; its connect never lands.
+      now: () => (late ? 61_000 : 1000),
+      connect: (port) => {
+        if (dialled++ === 0) return connect({ host: "127.0.0.1", port, noDelay: true });
+        late = true;
+        const socket = new Socket();
+        hung.push(socket);
+        return socket;
+      },
+    }),
+  ).rejects.toMatchObject({
+    code: "command_failed",
+    message: "scrcpy-server closed during startup",
+  });
+  expect(hung.map((socket) => socket.destroyed)).toEqual([true]);
 });

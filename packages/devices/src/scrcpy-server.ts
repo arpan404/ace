@@ -27,6 +27,9 @@ export type ScrcpyConnection = {
 
 const deviceNameBytes = 64;
 
+const defaultConnect = (port: number): Socket =>
+  connect({ host: "127.0.0.1", port, noDelay: true });
+
 const closedDuringStartup = () =>
   new DeviceError(
     "command_failed",
@@ -72,9 +75,9 @@ function preamble(
   });
 }
 
-function open(port: number): Promise<Socket> {
+/** Waits for `socket` to connect; rejects if it fails first. */
+function connected(socket: Socket): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port, noDelay: true });
     socket.once("connect", () => {
       socket.off("error", reject);
       // Startup waits on this socket across awaits before the capture listens to it: a reset
@@ -185,6 +188,13 @@ export async function startScrcpyServer(options: {
         });
         void work.then(resolve, reject).finally(cancel);
       });
+    /** A new forward-tunnel connection, closed with the rest (and at once if startup ended). */
+    const dial = (): Socket => {
+      const socket = (runtime.connect ?? defaultConnect)(port);
+      sockets.push(socket);
+      if (closing) socket.destroy();
+      return socket;
+    };
     let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
     while (!first) {
@@ -195,33 +205,31 @@ export async function startScrcpyServer(options: {
           `scrcpy-server did not start${said.trim() ? `: ${said.trim().split("\n").at(-1)}` : ""}`,
           "Use an Android 5 or later device or emulator image, or stop other screen mirroring tools.",
         );
-      const socket = await open(port).catch(() => undefined);
-      if (socket) {
-        sockets.push(socket);
+      const socket = dial();
+      const open = await step(connected(socket).catch(() => undefined));
+      if (open) {
         // The server answers its first socket with one dummy byte once it is listening.
         const greeting = await step(preamble(socket, 1, runtime, remaining()));
         if (greeting) {
           first = socket;
           early = greeting.subarray(1);
-        } else socket.destroy();
+        }
       }
-      if (!first) await new Promise<void>((resolve) => runtime.after(100, resolve));
+      if (!first) {
+        socket.destroy();
+        await step(new Promise<void>((resolve) => runtime.after(100, resolve)));
+      }
     }
     const hasVideo = options.profile.video !== false;
     let control = first;
     if (hasVideo) {
-      const opening = open(port);
-      // A connect that lands after startup gave up is closed with the rest.
-      void opening.then(
-        (socket) => {
-          sockets.push(socket);
-          if (closing) socket.destroy();
-        },
-        () => {},
-      );
-      const connected = await step(opening);
-      if (!connected) throw closedDuringStartup();
-      control = connected;
+      const socket = dial();
+      const open = await step(connected(socket));
+      if (!open) {
+        socket.destroy();
+        throw closedDuringStartup();
+      }
+      control = open;
     }
     check();
     // The device name follows on the first socket once every socket is connected.

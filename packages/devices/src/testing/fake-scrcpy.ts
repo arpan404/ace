@@ -106,6 +106,8 @@ export async function fixture(
     exitAtControl?: boolean;
     media?: DeviceMedia;
     now?: () => number;
+    /** Opens each forward-tunnel connection, in place of a real TCP connect. */
+    connect?: (port: number) => Socket;
     /** Each published frame, as it is published. */
     onFrame?: (frame: Frame) => void;
   } = {},
@@ -179,6 +181,7 @@ export async function fixture(
         return () => clearTimeout(timer);
       },
       spawn: spawnRawSupervised,
+      ...(options.connect ? { connect: options.connect } : {}),
     },
     publish: (frame) => {
       frames.push(frame);
