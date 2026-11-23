@@ -67,14 +67,15 @@ Branch from `ace/rust-git-forge` once G0 has landed on it, one branch per work i
 11. **Gates** (ADR 0224 §7). Every item runs its cross list both ways
     (`bun scripts/native-cross.ts ACE_GIT <file>`); write items (G4, G5) also run
     `bun scripts/native-git-digest.ts <file>` on every file of their proof list and pass only
-    with identical state digests and identical completion records, compared separately, and every
-    write's postconditions met (ADR 0224 §7); G6 and G7 run their files with
-    `ACE_GIT_VERIFY=strict`. Each log records the selected and the completing backend per
-    operation, and checkpoints' producer and consumer backends. A gate fails on: a fallback your
-    item doesn't list for that test (by test name, reason and count); a listed fallback that didn't
-    occur; a test that selected native and completed natively zero times; and, for cross files, a
-    missing native → TypeScript or TypeScript → native pair for checkpoint → diff or
-    checkpoint → restore over the two runs.
+    with identical state digests (raw index, HEAD and ref bytes where preservation is promised)
+    and identical completion records compared by value (messages, every `details` value such as
+    `safetyCheckpointId`, after id mapping), and every write's postconditions met; G6 and G7 run
+    their files with `ACE_GIT_VERIFY=strict`. A gate fails on: a test where an operation selected
+    native and that operation never completed natively (another operation's completion doesn't
+    count); a fallback your item doesn't list for that test and operation (reason and count), or a
+    listed one that didn't occur; in cross files, a producer → consumer edge the file exercises
+    (derived from its switch-off run) without both backend directions over the two runs; under
+    strict, a snapshot test none of whose equal verdicts had a Rust-hashed row.
 12. **Never touch the person's repositories.** Tests use `test-repo.ts`'s temp repositories;
     benches clone with `git clone --local` into a temp directory (`benchmark-ops.ts`). Shadow
     measurement (G6) runs on read-only local clones of this repository and the main checkout.
@@ -127,7 +128,9 @@ dispatch to the shells.
   `ACE_GIT_VERIFY=strict|shadow`, and the per-operation record (selected, completed, fallback
   reason, the producer of each checkpoint and the consumer of each use of it). The digest log
   writes two records per write or failed write: the state digest and the completion record, as
-  ADR 0224 §7 defines them; the scripts check postconditions, pairs and per-test native counts.
+  ADR 0224 §7 defines them; the scripts check postconditions, the producer → consumer edges each
+  file exercises, native completions per test and operation, and strict verdicts with how each
+  call's rows were produced.
   If G0 has already landed when this is read, these record kinds are a follow-up on the same
   files (`scripts/native-cross.ts`, `scripts/native-git-digest.ts`, `native-core.ts`).
 - `deny.toml` bans `uluru`; `check:daemon-native` runs `cargo deny check`.
@@ -168,7 +171,9 @@ Inside today's TypeScript service (no core needed): the shell replaces the proce
   modes, deadlines (`git_timeout` with `args`), cancellation before and after dispatch,
   `git_closed`, `runningChildren`, the Windows strategy chosen by the `platform` port (so the
   taskkill tests keep running on macOS), and spawning in a `directoryFd` (rule 5 until the
-  supervisor can). (b): `diagnostics`. Proof: `process-runtime.process`, `timeout-cleanup.process`,
+  supervisor can). Stderr tails redact before they clip (ADR 0224 §8a rule 3): the fix to
+  `failure-text.ts:28` lands in TypeScript first with a test, then you port the fixed version.
+  (b): `diagnostics`. Proof: `process-runtime.process`, `timeout-cleanup.process`,
   `escaped-descendants.process`, `read-cancellation.process`, `reliability.process`,
   `cleanup-receipts.process`, `lifecycle.process`, `system-transport.process`.
 - **G2b, ordering and leases.** `serial` per canonical root across instances, `ReadGate(2)`,
@@ -255,12 +260,22 @@ capture, collision checks and child locks (`restore.ts:17`–`:70`).
   `audit-ownership.process`, `audit-cli.process`, `credential-restoration.process`, the
   non-executing files, `transfer-capture.process`, the daemon's `run-checkpoints.process`.
 - **Restore (ADR 0224 §5a, hard rules).** The safety capture always runs the CLI snapshot
-  (S1–S13 with `git add`), whatever `ACE_GIT` says. Port today's restore step for step. The
-  pre-destructive check (every path differing between the safety and target trees, and its
-  ancestors, still holds the safety tree's bytes and mode, hashed by Git with `git add`'s filters,
-  and index and HEAD are as at the capture; on drift a new safety capture from S1, twice at most,
-  then fail without touching the checkout) is new behaviour: it lands in TypeScript first with its
-  own test, in its own change, and G5 ports it after.
+  (S1–S13 with `git add`), whatever `ACE_GIT` says. Port today's restore step for step. The guard
+  is new behaviour and lands in TypeScript first, with its own tests, in its own change; you port
+  it after:
+  - touch set per repository: every path of its owned safety tree and owned target tree, with
+    ancestors (not only the differences: the reset can rewrite an unchanged entry);
+  - witness: stat (type, mode, size, mtime and ctime in nanoseconds, device, inode) of the
+    target's paths and the listed files before S1, again after S13, plus raw-byte hashes and
+    symlink targets of the safety tree's paths; a moved tuple or a safety path missing from the
+    first stat is drift during the capture;
+  - plan, check, apply over the whole hierarchy: owned trees, subtrees and child object copies
+    first; then the check of every repository's touch set (stat; raw re-hash where stat moved),
+    the raw index bytes and HEAD; writes only after every check passes, parent first, each child
+    re-checked just before its write;
+  - on drift before any write: new capture from S1, twice at most, then fail without writing; a
+    child drifting after the parent was written stops there with `safetyCheckpointId` and the
+    repositories written.
 - Gate: identical state digests and completion records for every file above (checkpoint trees and
   refs; after a restore, the checkout's raw bytes, ignored files included, with HEAD and the index
   unchanged, never a fresh snapshot's tree), the postconditions, and ADR 0224 §7's cross list both
@@ -277,7 +292,9 @@ changed rows and adds `L`, the inputs are revalidated, and S11–S13 run as befo
   identity (through Git; a published index is read while `index.lock` exists, as today), the
   nested scan, the candidate set `C`, every `.gitignore` in `C`'s directories and their ancestors,
   `info/exclude`, `core.excludesFile`, every `.gitattributes` there, `info/attributes`, the config
-  stamp, and the stat of every hashed path, after N14 and before S11. Any drift discards the
+  stamp, the global and system attributes files (`core.attributesFile`; the system file unless
+  `GIT_ATTR_NOSYSTEM`), the stat of every hashed path, and the stat of every `L` path Git added
+  (taken just before N14 and again), after N14 and before S11. Any drift discards the
   attempt and restarts **from S1** on the CLI path, once (`inputs_changed`); never from S4.
 
 - Preconditions and `L` exactly as N10–N11; reasons `config`, `attributes` (per path, counted),

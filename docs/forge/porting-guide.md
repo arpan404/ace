@@ -24,7 +24,10 @@ Branch from `ace/rust-git-forge` once F0 has landed on it, one branch per work i
    environment values or stdin. Every reply, stderr tail and diagnostic is redacted through
    `ace-redaction` before it is cached (`GhApi`'s ETag and GraphQL caches, list caches), kept as
    `raw`, logged, put in an error, or serialized; the matcher's values are the child's
-   environment values for that request only, never written anywhere.
+   environment values for that request only, never written anywhere. Stderr is kept as a bounded byte
+   window, decoded once (never per chunk), its partial first or last line dropped at the cut, and
+   redacted whole before it is clipped, matched or projected (`command.ts:138`–`:140` today
+   decodes per chunk into a 4,096-character head; the fix lands in TypeScript first, in F0r).
 3. **Same TypeScript interface.** Every export of the 15 entry points keeps its signature, result
    shape, error kind and timing (behaviour.md §1). Classes are the native ones when `ACE_FORGE`
    names their host (`new GitHubForge(...)` gets the native class), chosen per instance through
@@ -118,7 +121,8 @@ environment as the matcher's values (`createEnvironmentMatcher`,
 `packages/redaction/src/environment.ts:19`), so a credential the CLI echoes as a bare value is
 masked; forge's patterns (`gh*_`, `github_pat_`, `Bearer`, `token`/`authorization` keys) move into
 `@ace/redaction`, which gains GitLab's `glpat-`, `gloas-`, `glrt-` and URL user-info. One owner,
-no second pattern list. Proof: the redaction file `json-credentials` and `index` tests, forge's
+no second pattern list. The same change makes the runner's stderr head redact-then-clip (ADR 0224 §8a rule 3), with a
+test for a secret straddling the cut. Proof: the redaction file `json-credentials` and `index` tests, forge's
 `github.process` (unknown fields kept only after redaction), plus the new test for an echoed
 environment value; then the forge files that read `raw`.
 
