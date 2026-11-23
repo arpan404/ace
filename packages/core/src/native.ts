@@ -198,7 +198,14 @@ export function apply(
   ctx: ApplyContext,
 ): EventPayload[] {
   const backend = coreBackend();
-  const factJson = JSON.stringify(fact);
+  // `JSON.stringify` throws on `bigint` (and circular refs); the core's
+  // `diagnosticData` turns those into `{unsupported: ...}` warnings, so omit
+  // them here and let validation reject the fact (which the core then
+  // notices with serializable data). Matches the TypeScript fold's
+  // rejection path for non-JSON facts.
+  const factJson = JSON.stringify(fact, (_, value) =>
+    typeof value === "bigint" ? undefined : value,
+  ) as string;
   if (backend === "native") {
     return applyResult(state, handleFor(state).apply(factJson, ctx.now, idsNext(ctx)));
   }
@@ -226,7 +233,11 @@ export class FactBatch {
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
     return applyResult(
       this.state,
-      handleFor(this.state).batchApply(JSON.stringify(fact), ctx.now, idsNext(ctx)),
+      handleFor(this.state).batchApply(
+        JSON.stringify(fact, (_, value) => (typeof value === "bigint" ? undefined : value)) as string,
+        ctx.now,
+        idsNext(ctx),
+      ),
     );
   }
   flush(): EventPayload[] {
