@@ -104,6 +104,11 @@ export function createSpadeHttp(context: {
    */
   requestStamp?(write: MemberRequest): Record<string, string> | undefined;
   /**
+   * Why this socket may not read `path`, or undefined when it may: on an organization's host,
+   * the audit log is only for a member whose role allows `audit:read` (ADR 0206 §4.2).
+   */
+  readRefusal?(path: string): Promise<string | undefined>;
+  /**
    * The daemon's places for pictures' previews, shared by every socket (`spade/image-preview.ts`);
    * this socket's own when the host has none (a test's).
    */
@@ -271,6 +276,9 @@ export function createSpadeHttp(context: {
     }
     if (body && body.length > requestBodyLimit(message.method, admitted.path))
       return refused("too_large", "The body is too large for this route.");
+    const unreadable =
+      message.method === "GET" ? await context.readRefusal?.(admitted.path) : undefined;
+    if (unreadable) return refused("forbidden", unreadable);
     // A member's write on an organization's host carries their stamp over this very request.
     const member =
       message.method === "GET"
