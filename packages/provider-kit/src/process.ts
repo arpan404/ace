@@ -257,7 +257,7 @@ function spawnOwned(
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
       destroy(pid);
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     controller.abort();
@@ -277,7 +277,7 @@ function spawnOwned(
       closed = true;
       if (timer) clearTimeout(timer);
       if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
-        unregisterGroup(pid);
+        unregisterGroup(pid, groupOf(child));
         job?.dispose();
       }
       resolve({
@@ -316,7 +316,7 @@ function spawnOwned(
             clearTimeout(retainedKill);
             cancelRecheck?.();
             if (windows) {
-              unregisterGroup(pid);
+              unregisterGroup(pid, groupOf(child));
               job?.dispose();
             }
           };
@@ -387,7 +387,7 @@ function spawnOwned(
     // A journal failure cannot leave an unowned process running.
     if (pid !== undefined) {
       destroy(pid);
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     throw error;

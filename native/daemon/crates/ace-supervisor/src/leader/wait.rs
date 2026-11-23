@@ -125,7 +125,7 @@ impl Leader {
                 .and_then(|status| status.code())
         });
         self.mark_exited();
-        self.step();
+        self.step(false);
         RawExit { code, signal: None }
     }
 

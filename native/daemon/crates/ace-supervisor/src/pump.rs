@@ -17,26 +17,47 @@ use tokio_util::sync::CancellationToken;
 pub const MAX_IN_FLIGHT: usize = 4;
 /// The most bytes one read hands the shell.
 pub const CHUNK_BYTES: usize = 65_536;
-/// How much more a pump reads once the shell's stream is full, at most:
-/// never past what is left of the process's output budget.
+/// How much the process's pumps together read ahead of full shell streams,
+/// at most: never past what is left of the process's output budget.
 pub const PAUSED_READ_BYTES: usize = 1_048_576;
 /// How often a pump at its paused allowance checks whether the pipe hung up.
 const HANGUP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
-/// The process's output budget (`maxOutputBytes`), shared by its outputs:
-/// what a pump may still read ahead of the shell's own count.
+/// What the process's outputs share: its output budget
+/// (`maxOutputBytes`), the read-ahead pool both pumps draw on while their
+/// shell streams are full, and whether every writer is known gone.
 #[derive(Default)]
 pub struct OutputBudget {
     limit: Option<u64>,
     read: std::sync::atomic::AtomicU64,
+    /// Bytes read while their stream was full, both pumps together.
+    ahead: std::sync::atomic::AtomicUsize,
+    /// Every process that could write is gone (Windows: the job emptied).
+    writers_gone: std::sync::atomic::AtomicBool,
 }
 
 impl OutputBudget {
     pub fn new(limit: Option<u64>) -> Arc<Self> {
         Arc::new(Self {
             limit,
-            read: std::sync::atomic::AtomicU64::new(0),
+            ..Self::default()
         })
+    }
+
+    /// Every writer is gone: what is buffered in the pipes is all there is.
+    pub fn mark_writers_gone(&self) {
+        self.writers_gone
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    fn writers_gone(&self) -> bool {
+        self.writers_gone.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn ahead_room(&self) -> usize {
+        PAUSED_READ_BYTES
+            .saturating_sub(self.ahead.load(std::sync::atomic::Ordering::Relaxed))
+            .min(self.remaining())
     }
 
     fn remaining(&self) -> usize {
@@ -86,28 +107,38 @@ impl Flow {
         })
     }
 
-    /// The shell's stream is full: read at most `PAUSED_READ_BYTES` more
-    /// until `resume`.
+    /// The shell's stream is full: from now on reads draw on the shared
+    /// read-ahead pool, until `resume`.
     pub fn pause(&self) {
-        if let Ok(mut state) = self.state.lock()
-            && !state.paused
-        {
+        if let Ok(mut state) = self.state.lock() {
             state.paused = true;
-            state.paused_bytes = 0;
         }
     }
 
-    /// The shell's stream wants more.
+    /// The shell's stream wants more: what it read ahead goes back to the pool.
     pub fn resume(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.paused = false;
         }
+        self.give_back();
         self.changed.notify_one();
+    }
+
+    /// Returns this stream's read-ahead to the shared pool: it was taken up,
+    /// or the stream is done.
+    fn give_back(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            let returned = std::mem::take(&mut state.paused_bytes);
+            self.budget
+                .ahead
+                .fetch_sub(returned, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     /// The shell's stream is gone: the pump stops and closes its pipe end.
     pub fn close(&self) {
         self.closed.cancel();
+        self.give_back();
     }
 
     pub(crate) fn delivered(&self) {
@@ -125,12 +156,13 @@ impl Flow {
         if state.in_flight >= MAX_IN_FLIGHT {
             return None;
         }
-        let room = if state.paused && !state.draining {
-            PAUSED_READ_BYTES
-                .saturating_sub(state.paused_bytes)
-                .min(self.budget.remaining())
-        } else {
+        let room = if !state.paused {
             CHUNK_BYTES
+        } else if state.draining {
+            // The writer is gone: the rest is bounded, but still budgeted.
+            CHUNK_BYTES.min(self.budget.remaining())
+        } else {
+            self.budget.ahead_room()
         };
         if room == 0 {
             return None;
@@ -147,6 +179,9 @@ impl Flow {
             && state.paused
         {
             state.paused_bytes += bytes;
+            self.budget
+                .ahead
+                .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -193,7 +228,7 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
                 () = flow.closed.cancelled() => return,
                 // At the allowance: look for a hangup without consuming.
                 () = tokio::time::sleep(HANGUP_POLL), if at_cap => {
-                    if reader.hung_up() {
+                    if reader.hung_up() || flow.budget.writers_gone() {
                         flow.drain();
                     }
                 }

@@ -166,7 +166,11 @@ pub fn spawn_child<E: EventSink + Clone>(
         outputs[1] = Some(flow);
     }
     let [stdout, stderr] = outputs;
-    runtime.spawn(wait_and_close(Arc::clone(&leader), sink, pumps));
+    #[cfg(windows)]
+    let writers = job.clone().map(|job| (job, Arc::clone(&budget)));
+    #[cfg(not(windows))]
+    let writers = ();
+    runtime.spawn(wait_and_close(Arc::clone(&leader), sink, pumps, writers));
     Ok(SupervisedChild {
         leader,
         stdin,
@@ -179,10 +183,18 @@ pub fn spawn_child<E: EventSink + Clone>(
 
 /// Reports the leader's exit, starts its release, then `close` once every
 /// pump is done.
+/// Windows: the child's job and its outputs' shared state, so the outputs
+/// learn when every writer is gone (the job emptied after the exit).
+#[cfg(windows)]
+type Writers = Option<(Arc<ChildJob>, Arc<crate::pump::OutputBudget>)>;
+#[cfg(not(windows))]
+type Writers = ();
+
 async fn wait_and_close<E: EventSink>(
     leader: Arc<Leader>,
     sink: E,
     pumps: Vec<tokio::task::JoinHandle<()>>,
+    writers: Writers,
 ) {
     let watched = Arc::clone(&leader);
     let exit = tokio::task::spawn_blocking(move || watched.wait_exit())
@@ -195,6 +207,12 @@ async fn wait_and_close<E: EventSink>(
     // descendant holding stdout must not hold this back: the shell's exit
     // listener ends the tree once it hears it.
     sink.exit(exit.clone());
+    #[cfg(windows)]
+    if let Some((job, budget)) = writers {
+        tokio::spawn(watch_writers(job, budget));
+    }
+    #[cfg(not(windows))]
+    let () = writers;
     #[cfg(unix)]
     tokio::spawn(release_when_group_empty(leader));
     #[cfg(not(unix))]
@@ -206,49 +224,11 @@ async fn wait_and_close<E: EventSink>(
     sink.close(exit);
 }
 
-/// The longest wait between scans for an exited leader's group to empty.
+mod release;
 #[cfg(unix)]
-const RELEASE_POLL_MAX: std::time::Duration = std::time::Duration::from_secs(5);
-/// The bound on holding an exited leader for a group that outlives it: then
-/// it is released anyway (members recorded first), and stops reach the
-/// recorded members one by one.
-#[cfg(unix)]
-const RELEASE_HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(600);
-
-/// Releases and reaps the exited leader: once two consecutive scans find
-/// its group empty, the shell gives the group up, or the hold reaches its
-/// bound. Scans at once, then at growing intervals (at most every five
-/// seconds); a stop polling for the group wakes it to scan at once.
-#[cfg(unix)]
-async fn release_when_group_empty(leader: Arc<Leader>) {
-    use crate::leader::ReleaseStep;
-    let bound = tokio::time::Instant::now() + RELEASE_HOLD_FOR;
-    let mut delay = std::time::Duration::from_millis(1);
-    loop {
-        let probe = Arc::clone(&leader);
-        let bounded = tokio::time::Instant::now() >= bound;
-        let step = tokio::task::spawn_blocking(move || {
-            if bounded {
-                probe.step_bounded()
-            } else {
-                probe.step()
-            }
-        })
-        .await;
-        match step {
-            Ok(ReleaseStep::Done) | Err(_) => return,
-            Ok(ReleaseStep::Held | ReleaseStep::Reaping) => {}
-        }
-        tokio::select! {
-            () = tokio::time::sleep(delay) => {
-                delay = (delay * 2).min(RELEASE_POLL_MAX);
-            }
-            () = leader.wake.notified() => {
-                delay = std::time::Duration::from_millis(1);
-            }
-        }
-    }
-}
+use release::release_when_group_empty;
+#[cfg(windows)]
+use release::watch_writers;
 
 impl SupervisedChild {
     /// The leader's pid.
@@ -329,9 +309,14 @@ impl SupervisedChild {
         self.leader.group_gone()
     }
 
-    /// Recorded members that still run, and the children they prove.
-    pub fn members(&self) -> Vec<crate::signal::TreeRef> {
-        self.leader.members()
+    /// The shell gave the group up: the hold limit starts.
+    pub fn disown(&self) {
+        self.leader.disown();
+    }
+
+    /// The leader's kernel start, read at spawn.
+    pub fn leader_start(&self) -> Option<String> {
+        self.leader.start().map(str::to_owned)
     }
 
     /// Starts a stop: true while the group id is still this tree's, and

@@ -44,7 +44,8 @@ interface NativeChildHandle {
   groupGone(): boolean;
   hold(): boolean;
   unhold(): void;
-  members(): string;
+  disown(): void;
+  leaderStart(): string | null | undefined;
   hasJob(): boolean;
   jobRunning(): boolean | null | undefined;
   jobTerminate(): void;
@@ -87,8 +88,6 @@ interface SupervisorAddon {
   supervisorHoldGroup(group: number, start: string): boolean;
   supervisorUnholdGroup(group: number, start: string): void;
   supervisorSignalGroup(group: number, start: string, signal: string): string;
-  supervisorGroupMembers(group: number, start: string): string;
-  supervisorDisownGroup(group: number, start: string): void;
   supervisorGroupGone(group: number, start?: string): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
@@ -445,10 +444,18 @@ export class NativeChildProcess
     this.handle?.unhold();
   }
 
-  /** Recorded members that still run, and the children they prove: signalled one by one. */
-  members(): readonly { pid: number; start: string }[] {
-    return this.handle ? parseMembers(this.handle.members()) : [];
+  /** The owner gave the group up: the native hold limit starts. */
+  disown(): void {
+    this.handle?.disown();
   }
+
+  /** The leader's kernel start, read at spawn. */
+  leaderStart(): string | undefined {
+    return this.handle?.leaderStart() ?? undefined;
+  }
+
+  /** Spawned by the native supervisor, which holds (or held) its leader. */
+  readonly spawned = true;
 
   /** Signals the leader through its own handle; false once it is reaped, never a reused pid. */
   kill(signal: NodeJS.Signals): boolean {
@@ -482,11 +489,6 @@ export class NativeChildProcess
   }
 }
 
-function parseMembers(json: string): { pid: number; start: string }[] {
-  // Trusted: the addon's own `[{pid, start}]`.
-  return JSON.parse(json) as { pid: number; start: string }[];
-}
-
 /**
  * A process group known by its leader's identity (pid and kernel start), as the native
  * supervisor answers for it: held (and signalled by number) only while that leader is unreaped
@@ -500,8 +502,11 @@ export function nativeGroup(pid: number, start: string) {
     signalGroup: (signal: NodeJS.Signals) => {
       native.supervisorSignalGroup(pid, start, signal);
     },
-    members: () => parseMembers(native.supervisorGroupMembers(pid, start)),
     groupGone: () => native.supervisorGroupGone(pid, start),
+    disown: () => {},
+    leaderStart: () => start,
+    // Held only if the registry knows it; otherwise a group by identity alone.
+    spawned: false,
   };
 }
 

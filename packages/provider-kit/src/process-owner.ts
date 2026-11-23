@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
-import { signalTreeMember, type TreeMember } from "./process-tree.ts";
+import { captureTree, signalTreeMember, type TreeMember } from "./process-tree.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   NativeChildProcess,
@@ -70,18 +70,23 @@ export function signalOwnedMembers(members: readonly TreeMember[], signal: NodeJ
 }
 
 /**
- * A process group as the native supervisor knows it, by its leader's identity. While `hold()`
- * holds, the leader is unreaped (or, for a group it did not spawn, verified alive), so its group
- * number is the tree ace started and `signalGroup` may use it. Once `hold()` fails it never is
- * again: only `members()` (recorded with their start times while the number was safe, plus the
- * children they prove) are signalled, one by one.
+ * A process group as the native supervisor knows it, by its leader's identity. The invariant:
+ * its number is signalled only while `hold()` holds, that is while ace holds the leader
+ * unreaped, which pins the group id. The leader is reaped only once the group is confirmed
+ * empty, so once `hold()` fails there is nothing left to signal by group, and nothing is.
  */
 export interface GroupHandle {
   hold(): boolean;
   unhold(): void;
   signalGroup(signal: NodeJS.Signals): void;
-  members(): readonly TreeMember[];
+  /** Gone only once confirmed empty while held. */
   groupGone(): boolean;
+  /** The owner gave the group up: the native hold limit starts. */
+  disown(): void;
+  /** The leader's kernel start: the identity ownership is keyed by. */
+  leaderStart(): string | undefined;
+  /** Whether this supervisor spawned (and holds or held) the leader. */
+  readonly spawned: boolean;
 }
 /** The child's own group handle, when the native supervisor spawned it. */
 export function groupOf(child: unknown): GroupHandle | undefined {
@@ -95,6 +100,22 @@ export function groupOf(child: unknown): GroupHandle | undefined {
 function nativeHandle(pid: number, start: string | undefined): GroupHandle | undefined {
   if (supervisorBackend() !== "native" || start === undefined) return undefined;
   return nativeGroup(pid, start);
+}
+
+/** A live leader with this start, and its tree by proven parent links, one by one. */
+function signalVerifiedTree(pid: number, start: string, signal: NodeJS.Signals): void {
+  let members: TreeMember[] = [];
+  try {
+    if (processIdentity(pid)?.start !== start) return;
+    members = [
+      { pid, start },
+      ...captureTree([pid]).members.map((m) => ({ pid: m.pid, start: m.start })),
+    ];
+  } catch (error) {
+    process.emitWarning(`Process tree ${pid} could not be read: ${String(error)}`);
+    return;
+  }
+  signalOwnedMembers(members, signal);
 }
 
 /** The guard, then the group by number: callers hold the group first. */
@@ -141,7 +162,10 @@ export function killGroup(
   const handle = group ?? nativeHandle(pid, start);
   if (handle) {
     if (!handle.hold()) {
-      signalOwnedMembers(handle.members(), signal);
+      // Never by number. A group this supervisor did not spawn (a previous run's, recovered by
+      // its leader's identity) gets its leader and the tree its parent links prove, each by
+      // verified identity; one it spawned and released was confirmed empty.
+      if (!handle.spawned && start !== undefined) signalVerifiedTree(pid, start, signal);
       return;
     }
     try {
@@ -214,9 +238,9 @@ export async function stopRetainedGroup(
   start?: string,
 ): Promise<void> {
   if (supervisorBackend() === "native" && process.platform !== "win32" && !group && !start) {
-    // Under the native supervisor a pid alone proves nothing: nothing is signalled.
+    // Under the native supervisor a pid alone proves nothing: nothing is signalled, and the
+    // pid's current owner, whoever it is, keeps its registration.
     process.emitWarning(`Process group ${pid} has no recorded identity, so it is not stopped`);
-    unregisterGroup(pid);
     return;
   }
   killGroup(pid, "SIGTERM", group, start);
@@ -231,7 +255,7 @@ export async function stopRetainedGroup(
     }
     await delay(Math.min(25, remaining));
   }
-  unregisterGroup(pid);
+  unregisterGroup(pid, group, start);
 }
 function cleanup(): void {
   // Negative-pid signals are invalid on Windows; each owner registers the
@@ -307,16 +331,18 @@ export function registerGroup(
  * Ownership ends even when a journal cannot record it. This runs in exit listeners, where a
  * throw would be uncaught and end the daemon (a full disk did, through the inventory's delete).
  */
-export function unregisterGroup(pid: number): void {
-  const start = owned.get(pid)?.start;
+export function unregisterGroup(pid: number, group?: GroupHandle, start?: string): void {
+  // Keyed by identity where the caller has one: a stale caller never ends a later owner's
+  // registration of the same pid.
+  const caller = group?.leaderStart() ?? start;
+  const registered = owned.get(pid)?.start;
+  if (caller !== undefined && registered !== undefined && caller !== registered) {
+    group?.disown();
+    return;
+  }
   owned.delete(pid);
-  // The native supervisor may now release the group's leader: ace no longer stops this group.
-  if (start !== undefined && supervisorBackend() === "native")
-    try {
-      supervisorAddon().supervisorDisownGroup(pid, start);
-    } catch (error) {
-      process.emitWarning(`Could not release process group ${pid}: ${String(error)}`);
-    }
+  // The owner gives its group up through its own handle, never by number.
+  group?.disown();
   for (const journal of journals)
     try {
       journal.remove(pid);

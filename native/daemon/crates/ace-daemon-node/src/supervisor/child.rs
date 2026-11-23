@@ -259,17 +259,20 @@ impl NativeChild {
         guarded("supervisor group probe", || Ok(self.child.group_gone()))
     }
 
-    /// What a stop may signal one by one once the group number may not be:
-    /// recorded members that still run and the children they prove, as JSON.
+    /// The leader's kernel start, read at spawn: the identity its group is
+    /// owned by.
     #[napi(catch_unwind)]
-    pub fn members(&self) -> napi::Result<String> {
-        guarded("supervisor group members", || {
-            let members = self.child.members();
-            Ok(super::members_json(
-                members
-                    .iter()
-                    .map(|member| (member.pid, member.start.as_str())),
-            ))
+    pub fn leader_start(&self) -> napi::Result<Option<String>> {
+        guarded("supervisor leader start", || Ok(self.child.leader_start()))
+    }
+
+    /// The shell gave the group up: the hold limit starts; release still
+    /// waits for the group to be confirmed empty.
+    #[napi(catch_unwind)]
+    pub fn disown(&self) -> napi::Result<()> {
+        guarded("supervisor group disown", || {
+            self.child.disown();
+            Ok(())
         })
     }
 

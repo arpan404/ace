@@ -446,6 +446,14 @@ limit`, `rpc-writer.ts:36`), not `InputRejected`. With a TypeScript session (E5 
      (`engine/index.ts:1428`–`:1466`) and releases the threadsafe function last (§4). Nothing waits
      synchronously on a tokio task.
 
+**7a′. Group signals in the native supervisor.** A process group's number is signalled only
+while ace holds its leader unreaped (the unreaped leader pins the group id). The leader is reaped
+only after two consecutive empty scans while it is still held. Once the owner has given the group
+up and the hold limit passes, the still-held group is killed by number and the reap waits for it
+to empty. After release there is nothing left to signal by group, and nothing is. Descendants that
+left the group are stopped one by one by verified identity, as the subreaper's orphans
+(behaviour.md §15).
+
 **7a. The process journal, one encoding for both backends.** Rust writes and reads the journal rows
 TypeScript writes today, byte for byte: `processes(pid INTEGER PRIMARY KEY, entry TEXT)` with the
 JSON entry `process-inventory.ts` writes, and the `escapees`, `kept`, `lineage` tables
