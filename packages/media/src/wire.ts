@@ -576,6 +576,14 @@ export const mediaFeatures = [
 ] as const;
 export type MediaFeature = (typeof mediaFeatures)[number];
 
+/**
+ * What the daemon offers a child at spawn. `scrcpy-video` is offered only when D1's switch
+ * makes ace-media the reader: with it off, the handshake is exactly as it was before D1.
+ */
+export function offeredMediaFeatures(scrcpyVideo: boolean): MediaFeature[] {
+  return mediaFeatures.filter((feature) => feature !== "scrcpy-video" || scrcpyVideo);
+}
+
 export function decodeToMedia(
   bytes: Uint8Array,
   lane: ControlLane,

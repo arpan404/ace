@@ -84,8 +84,12 @@ export async function fakeDevice(
       socket.write(Buffer.from([0]));
       return;
     }
-    if (options.atControl) options.atControl();
-    else if (options.resetAtControl && !controlSeen) {
+    if (options.atControl) {
+      // The server process exits now, leaving both sockets open and silent.
+      options.atControl();
+      return;
+    }
+    if (options.resetAtControl && !controlSeen) {
       controlSeen = true;
       // The emulator dies before it names itself: control is reset at once, and the first
       // socket, still awaited for the device name, ends a moment later.
@@ -214,7 +218,7 @@ export async function fixture(
     },
     failure: (error) => failures.push(error),
     // Video comes only through ace-media: a loopback stands in for it unless a test brings one.
-    media: options.media ?? (await loopbackMedia(cleanup)),
+    media: options.media ?? (await loopbackMedia(cleanup, options.connect)),
   });
   cleanup.push(() => capture.stop());
   return { capture, device, frames, failures, commands };

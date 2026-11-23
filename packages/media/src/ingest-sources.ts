@@ -429,7 +429,9 @@ export class IngestSources {
       // sticks to the entry: a retired path still accepts it, and a reopen carries it.
       dial: (host, port) => {
         entry.dial = { host, port };
-        const dial = ++entry.reader;
+        // The wire's u32: 0 means "none", so a dial's generation stays in 1..=4294967295.
+        entry.reader = entry.reader >= 0xffff_ffff ? 1 : entry.reader + 1;
+        const dial = entry.reader;
         const live = entry.live;
         if (live) this.#send({ type: "source.dial", source: live.id, host, port, dial });
       },

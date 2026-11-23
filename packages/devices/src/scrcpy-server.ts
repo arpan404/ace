@@ -151,19 +151,21 @@ export async function startScrcpyTunnel(options: {
 }
 
 /**
- * Connects one tunnel socket, bounded by `timeoutMs`: adb accepts a TCP connection even
- * while nothing listens on the device, then closes it. A refusal, reset, timeout or abort
- * is `undefined`, never a throw; the caller names it with today's text.
+ * Connects one tunnel socket, bounded by the startup deadline `deadlineMs` (on
+ * `runtime.now()`): adb accepts a TCP connection even while nothing listens on the device, then
+ * closes it. A refusal, reset, timeout or abort is `undefined`, never a throw; the caller names
+ * it with today's text. The deadline closes the socket it dialled.
  */
 export function openScrcpySocket(
   port: number,
   runtime: DeviceRuntime,
-  timeoutMs: number,
+  deadlineMs: number,
   signal?: AbortSignal,
 ): Promise<Socket | undefined> {
   return new Promise((resolve) => {
     let done = false;
     let socket: Socket | undefined;
+    let cancel = () => {};
     const finish = (value: Socket | undefined) => {
       if (done) return;
       done = true;
@@ -171,21 +173,16 @@ export function openScrcpySocket(
       signal?.removeEventListener("abort", aborted);
       resolve(value);
     };
-    const cancel = runtime.after(Math.max(1, timeoutMs), () => {
-      socket?.destroy();
-      finish(undefined);
-    });
     const aborted = () => {
       socket?.destroy();
       finish(undefined);
     };
     if (signal?.aborted) {
-      cancel();
       resolve(undefined);
       return;
     }
     signal?.addEventListener("abort", aborted, { once: true });
-    const connecting = connect({ host: "127.0.0.1", port, noDelay: true });
+    const connecting = (runtime.connect ?? defaultConnect)(port);
     socket = connecting;
     connecting.once("connect", () => {
       connecting.off("error", failed);
@@ -199,6 +196,13 @@ export function openScrcpySocket(
       finish(undefined);
     };
     connecting.once("error", failed);
+    // Armed after the dial, so a dial that itself passes the deadline gets the remaining
+    // (at least 1 ms) and is closed rather than outliving it.
+    if (!done)
+      cancel = runtime.after(Math.max(1, deadlineMs - runtime.now()), () => {
+        socket?.destroy();
+        finish(undefined);
+      });
   });
 }
 

@@ -372,6 +372,8 @@ export async function scrcpyCapture(options: {
   /** D1: ace-media ended the source, mid-handshake or mid-stream. */
   const mediaClosed = (reason: string | undefined): void => {
     readerEnded = true;
+    // A reader that ended has nothing left to install a link for.
+    early.clear();
     const pending = handshake;
     handshake = undefined;
     if (pending) {
@@ -493,11 +495,12 @@ export async function scrcpyCapture(options: {
         runtime.after(remaining(), () => reject(error()));
       });
     // A server exit fails the start at once, with today's text; a rejecting server is no
-    // exit, as today.
-    const serverExit = (): Promise<never> =>
+    // exit, as today. Before its greeting that is "did not start"; after it, the server
+    // closed during startup, as the switch-off path names the same two cases.
+    const serverExit = (error: () => unknown): Promise<never> =>
       tunnel.exited.then(
         () => {
-          throw scrcpyDidNotStart(tunnel.said());
+          throw error();
         },
         () => new Promise<never>(() => {}),
       );
@@ -519,7 +522,7 @@ export async function scrcpyCapture(options: {
       await abortRace(
         Promise.race([
           attempt.greeted.promise,
-          serverExit(),
+          serverExit(() => scrcpyDidNotStart(tunnel.said())),
           failAt(() => scrcpyDidNotStart(tunnel.said())),
         ]),
         options.signal,
@@ -527,15 +530,12 @@ export async function scrcpyCapture(options: {
       options.signal?.throwIfAborted();
       const socket = await abortRace(
         Promise.race([
-          openScrcpySocket(port, runtime, remaining(), options.signal).then((connected) => {
+          openScrcpySocket(port, runtime, deadline, options.signal).then((connected) => {
             if (connectDone) {
               connected?.destroy();
               return new Promise<Socket>(() => {});
             }
-            if (connected === undefined)
-              throw remaining() <= 1
-                ? scrcpyDidNotStart(tunnel.said())
-                : scrcpyClosedDuringStartup();
+            if (connected === undefined) throw scrcpyClosedDuringStartup();
             // Owned before anything can throw: the finally below destroys it on any failure.
             attempt.control = connected;
             if (options.signal?.aborted) {
@@ -545,8 +545,8 @@ export async function scrcpyCapture(options: {
             }
             return connected;
           }),
-          serverExit(),
-          failAt(() => scrcpyDidNotStart(tunnel.said())),
+          serverExit(() => scrcpyClosedDuringStartup()),
+          failAt(() => scrcpyClosedDuringStartup()),
         ]),
         options.signal,
       );
@@ -559,8 +559,8 @@ export async function scrcpyCapture(options: {
       const deviceName = await abortRace(
         Promise.race([
           attempt.ready.promise,
-          serverExit(),
-          failAt(() => scrcpyDidNotStart(tunnel.said())),
+          serverExit(() => scrcpyClosedDuringStartup()),
+          failAt(() => scrcpyClosedDuringStartup()),
         ]),
         options.signal,
       );
@@ -658,6 +658,7 @@ export async function scrcpyCapture(options: {
       scrcpyPaths = undefined;
       repointQueued = false;
       greetedEarly = undefined;
+      early.clear();
     }
     pathsD1 = wantD1;
     if (!wantD1) pathsFor();
@@ -675,6 +676,8 @@ export async function scrcpyCapture(options: {
         env: options.env,
         ...(options.signal ? { signal: options.signal } : {}),
       }).catch(async (error: unknown) => {
+        // A handshake that never started still never leaves a reader's units held.
+        early.clear();
         paths?.close();
         await frames?.stop();
         throw error;
@@ -685,6 +688,7 @@ export async function scrcpyCapture(options: {
       const source = pathsForMedia(tunnel.port, scrcpyMediaStartupMs);
       if (!source) {
         await tunnel.close();
+        early.clear();
         throw new DeviceError(
           "command_failed",
           "The Android live view needs ace-media",
@@ -769,6 +773,7 @@ export async function scrcpyCapture(options: {
         // Its reader ended before the link was in (its end and ready came together): no link
         // over a reader that is gone.
         if (readerEnded) {
+          early.clear();
           await disconnect(started);
           throw scrcpyClosedDuringStartup();
         }
@@ -785,6 +790,8 @@ export async function scrcpyCapture(options: {
         if (repointQueued) void rehandshake().catch(() => {});
         return;
       } catch (error) {
+        // A handshake that failed (deadline, close, server exit) keeps nothing for a link.
+        early.clear();
         await tunnel.close();
         throw error;
       }

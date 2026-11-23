@@ -22,6 +22,7 @@ import { VideoStreamReader } from "../scrcpy-protocol.ts";
  */
 export async function loopbackMedia(
   cleanup: (() => Promise<void> | void)[],
+  connect?: (port: number) => Socket,
 ): Promise<DeviceMedia & { add: DeviceMedia["attach"]; pictures: Buffer[] }> {
   const dir = await mkdtemp(join(tmpdir(), "ace-loopback-"));
   const socket = join(dir, "ingest.sock");
@@ -193,7 +194,9 @@ export async function loopbackMedia(
     };
     const dial = (dialPort: number): Promise<Socket | undefined> =>
       new Promise((resolve) => {
-        const connecting = new Socket();
+        // A test's injected dial (the daemon's, here) stands in for both ends of the tunnel,
+        // so a connect it holds open is held open for the reader too.
+        const connecting = connect?.(dialPort) ?? new Socket();
         connecting.once("connect", () => {
           connecting.off("error", failed);
           connecting.on("error", () => {});
@@ -207,7 +210,7 @@ export async function loopbackMedia(
           }, 10);
         };
         connecting.once("error", failed);
-        connecting.connect(dialPort, "127.0.0.1");
+        if (connect === undefined) connecting.connect(dialPort, "127.0.0.1");
       });
     void run(generation, port);
     // The source is up: point the capture at it now, as the daemon's own sources do once
