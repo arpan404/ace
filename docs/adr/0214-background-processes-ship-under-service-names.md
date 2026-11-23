@@ -90,10 +90,12 @@ gets the flag.
   processes, so their code pages are no longer shared.
 - Windows Firewall keys rules by executable path, so the desktop daemon's first LAN listen after
   this update may prompt again. Task Manager's Details tab and `Get-Process` show `ace Service`
-  (measured), but its Processes tab shows the file's version-resource description, which for
-  the runtime copy is still "Bun"; giving the copy and the Rust natives a description of their
-  own is a follow-up.
-- `bunfig.toml` in the working directory and package auto-install apply to the daemon under
-  either name, as before this decision; they are not changed here.
+  (measured). Its Processes tab names a process by the file's version-resource description,
+  which `Get-Process` reports as "Bun" for the runtime copy; giving the copy and the Rust natives
+  a description of their own is a follow-up.
+- `bunfig.toml` is read from the working directory under either name, so every launch runs the
+  daemon in its entry script's folder (as the desktop app already did), never the folder
+  `ace open` was run in or a user service's home. Package auto-install applies under either
+  name, as before this decision, and is not changed here.
 - Linux truncates `comm` to 15 characters: `top` shows `ace-history-ser`; `ps -f` shows the full
   name.
