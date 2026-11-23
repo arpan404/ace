@@ -144,11 +144,11 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
    machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
-host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
+   host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
    `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
    else `403` ("this move is another machine's"), the same manifest included; another manifest
    answers `409`. Unreachable, or `429`/`503` at `begin`, means wait and try again (`waiting:
-true`); Cancel works until the commit. Every step of a move to here holds that move's lock
+   true`); Cancel works until the commit. Every step of a move to here holds that move's lock
    (`steps_of`), as do its recovery and the sweep (which skips a move whose lock is taken), and
    every state change is made only from the state it expects (`advance_move`).
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
@@ -185,7 +185,7 @@ true`); Cancel works until the commit. Every step of a move to here holds that m
      webhooks get new secrets, every bot's security settings lose every grant, its toolchains
      and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
      moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
-arrival, host}`.
+     arrival, host}`.
    - `move_arrive_undo` on any refusal, error or cut-off copy: first `unplace` puts back each
      recorded file (its record goes once that is on disk); then `undoing`, the recorded rows out
      a batch at a time, then (refused while a file record is left: `FilesPlaced`) the claims go and the move reads `receiving` (to copy again) or
@@ -405,7 +405,11 @@ efforts: {<role>: effort | null}, effort_defaults: {<role>: effort}, escalate}`;
 `GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route, effort,
 effort_source}], overrides: {roles, routes, efforts, allowed, escalate}, escalate, spend: {today,
 month}}`; `source` is `bot`, `global`, `default` or `own`; `effort_source` is `bot`, `global` or
-`default`). An unknown effort word is refused with `400`. `roles` keeps each override's first model, for clients from before routes.
+`default`). An unknown effort word is refused with `400`. Both also carry the working budget
+([ADR 0216](../../docs/adr/0216-spade-keeps-a-bots-context-small.md)): `PUT` takes
+`context_tokens: tokens | null` (at least 16,000, else `400`); the global view answers
+`context_tokens` and `context_tokens_default`, a bot's `overrides.context_tokens` and the resolved
+`context_tokens: {tokens, source}`. `roles` keeps each override's first model, for clients from before routes.
 `PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
 `GET /v1/models/package-routes` answers `{fast: {route, tools}, capable: {route, tools}}`: the
 models a package's bot naming `fast` or `capable` would think with, its model then the global
@@ -544,8 +548,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+  "context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.
