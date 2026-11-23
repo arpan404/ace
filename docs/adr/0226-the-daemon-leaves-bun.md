@@ -16,6 +16,10 @@ and its own switch left out of its prerequisites, old launchers' entry points ke
 (porting guide): T1 is split into T1a (the loopback listener) and T1b (the remote TLS
 listeners), and the outbox, input backpressure, frame packing and pings stay TypeScript above the
 `MainSocket` seam until T3.
+Third review (2026-11-23): the T0 and T1 briefs gained the hop-header, guard and caller-ownership
+rules, ws's handshake order, an event ABI with send completion and backpressure, capacity
+reservation across the async handshake, the shutdown order, paired off/on ship tolerances, and a
+generated list of server-starting tests (fact 2's counts corrected).
 
 ## Context
 
@@ -139,13 +143,16 @@ Recorded numbers that already bear on the transport, from their own reports:
    `binary(frame)`, `welcomed`, `revoked`, `close`. The services reach the daemon through a
    `SocketContext` of about 30 members (authorization, org standing, send, fail). The transport
    can move long before the services do, only if it can hand messages to them.
-2. **The black-box tests start the server in process.** 198 test files build the server through
-   `socket-test-support.ts`'s `fixture()`, which calls `startServer` in the test's own process
-   with a TypeScript `Store` and a stub handler, and drive it over a real WebSocket. At least 52 of
-   them inject TypeScript ports into `ServerOptions` (provider statuses, relay, clock, models,
-   commands, notifications, locked use, screen and others), and about 130 seed or read the
-   `Store` directly. 89 files are `*.server.process.test.ts`. Only three test files start the
-   daemon as a separate program (`daemon-launch-test-support.ts`, `daemon-crash-test-support.ts`).
+2. **The black-box tests start the server in process.** 198 test files import
+   `socket-test-support.ts`; 108 of them build the server with its `fixture()`, which calls
+   `startServer` in the test's own process with a TypeScript `Store` and a stub handler, and drive
+   it over a real WebSocket. 80 of those pass options, injecting TypeScript ports into
+   `ServerOptions` (provider statuses, relay, clock, models, commands, notifications, locked use,
+   screen and others), and 72 seed or read the `Store` directly. Other files start servers through
+   `startServer` directly (26 files), `remote-test-support.ts`, the engine and agent-control
+   harnesses, or `startDaemon` (the whole composition in process, as `daemon-lifecycle.process`
+   does). 89 files are `*.server.process.test.ts`. Three test files start the daemon as a separate
+   program through `daemon-launch-test-support.ts` or `daemon-crash-test-support.ts`.
 3. **Synchronous `Store.atomic` callers pin the JavaScript thread** (ADR 0222 §3, ADR 0223 §4): 614
    call sites in 176 files share one connection and transaction on the JS thread. While any of
    them exists, the core cannot leave that thread, and the process cannot invert.
@@ -349,7 +356,7 @@ parsed twice. It does not remove what sank phase 1b, which was divergence, not s
     it.
 - **Two alternatives were rejected.** A Rust program running the TypeScript shell as a child: every
   one of the 614 synchronous `atomic` callers would cross a process boundary (ADR 0222 §1's
-  reasons), the 198 in-process socket test files could no longer inject their ports, and restart
+  reasons), the in-process server tests (fact 2) could no longer inject their ports, and restart
   would supervise two processes whose order matters. Embedding a JavaScript engine in the Rust
   program (V8 through `deno_core`, QuickJS): JavaScript would still run in the daemon, which the
   owner ruled out, and the daemon's code relies on Bun's APIs.
@@ -402,7 +409,7 @@ the native part, the daemon refuses to start and says so.
 | Phase | What moves to Rust                                                                                                                                                                                                                                                                                                       | Switch                                              | Needs                                                       | Proven by                                                                                                                                                                                                                                           |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | T0    | Switch parsing with boot-time dependency resolution, the `ace-transport` crate skeleton, the route table and its check; the baseline measurements; no behaviour (wire roots and `check:wire-fixtures` come with the first Rust producer, T2; `ace-daemon-bin` with T7)                                                   | none                                                | ADR 0223 E0                                                 | `check:daemon-native`                                                                                                                                                                                                                               |
-| T1    | T1a: the loopback listener in Rust: HTTP/1.1 accept, WebSocket upgrade and framing, a Rust socket behind `MainSocket`; HTTP requests proxied to the unchanged TypeScript chain; upgrade admission decided by today's TypeScript. T1b: the LAN and Tailscale TLS listeners, SNI and per-message deflate (after its spike) | `ACE_TRANSPORT=native` (T1a), `native,remote` (T1b) | T0                                                          | the socket, admission, close, liveness, compression and TLS files (porting guide T1), then all 198 `fixture()` files with the switch on                                                                                                             |
+| T1    | T1a: the loopback listener in Rust: HTTP/1.1 accept, WebSocket upgrade and framing, a Rust socket behind `MainSocket`; HTTP requests proxied to the unchanged TypeScript chain; upgrade admission decided by today's TypeScript. T1b: the LAN and Tailscale TLS listeners, SNI and per-message deflate (after its spike) | `ACE_TRANSPORT=native` (T1a), `native,remote` (T1b) | T0                                                          | the socket, admission, close, liveness, compression and TLS files (porting guide T1), then every server-starting test file (porting guide T1a.8's list), switch off and on                                                                          |
 | T2    | Hello, authentication and device identity: `RemoteAuth`, tickets, pairing codes and links, devices and their scopes, account and machine grants on the socket, org standing checks (behaviour.md §6's rules)                                                                                                             | `ACE_TRANSPORT=native,auth`                         | T1, store phase 5's **writer** default-on                   | `auth`, `handed-ticket`, `ticket-allocation`, `devices-access`, `remote-boundaries`, `ownership`, `host-identity` server files and the account-access socket files                                                                                  |
 | T3    | Subscriptions and fan-out: `subscription`, sidebar subscription, `WireEncoder`, `EventEncodings`, wire trims and short deltas, command lanes and `socket-reads`' core reads; events from `ace-store`'s publication                                                                                                       | `ACE_TRANSPORT=native,fanout`                       | T2 (so the writer is on); E5 not needed                     | `subscription-*`, `subscription.process`, `sidebar-live.process`, `sidebar-pagination.process`, `sidebar-tabs.process`, `sidebar-read-state`, `wire-trim`, `wire-trims.process`, `wire-encoder`, `frame-packing.process`, `socket-commands-recheck` |
 | T4    | T4a the lenient legacy-row decoder, then reads to the wire (§4): items pages and windows, snapshots, then the sidebar (turns, steps and catch-up are store phase 2's, §4 item 6)                                                                                                                                         | `ACE_STORE_READS=wire[,sidebar]`                    | T3, T4a default-on (the sidebar also `ThreadCache` in Rust) | §4 item 7                                                                                                                                                                                                                                           |

@@ -17,9 +17,9 @@ observes, and must hold unchanged with any `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_REL
 
 - `startServer(options)` returns the server's URLs, notification hooks, maintenance gate,
   diagnostics queues, remote-start promises and `close()` (`server.ts:88`–`:110`). The daemon's
-  composition (`index.ts`) calls it once; 198 test files call it through
-  `socket-test-support.ts`'s `fixture()` with a TypeScript `Store` and injected ports (ADR 0226,
-  fact 2).
+  composition (`index.ts`) calls it once; 108 test files call it through
+  `socket-test-support.ts`'s `fixture()` with a TypeScript `Store` and injected ports, and others
+  through `startServer`, the test harnesses or `startDaemon` (ADR 0226, fact 2).
 - One protocol implementation serves every route: the daemon's own listeners hand `ws` sockets,
   and the relay hands channels wrapped to the same surface (`main-socket.ts`, `relay-socket.ts`).
 - Per authenticated socket, `createSocketRegistry` (`services/registry.ts`) builds 64 service
@@ -344,7 +344,7 @@ cases move into `#[cfg(test)]` beside the Rust function that replaces it; **—*
 move.
 
 - **(a), the server over its socket**: the 89 `*.server.process.test.ts` files and every other file
-  that uses `fixture()` (198 in all), among them `socket-admission`, `socket-close-log`,
+  that starts a server (porting guide T1a.8 lists them), among them `socket-admission`, `socket-close-log`,
   `remote-compression`, `tailscale-https`, `access-cors`, `auth`, `handed-ticket`,
   `ticket-allocation`, `devices-access`, `devices-first-use`, `remote-boundaries`, `remote`,
   `remote-restart`, `remote-runtime`, `ownership`, `host-identity`, `maintenance`, `cold-start`,

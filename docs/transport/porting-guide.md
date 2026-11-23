@@ -26,9 +26,10 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    in their schema's key order, strings as `JsString`, stored JSON spliced as stored. No
    `serde_json` on a wire value.
 4. **One route table.** `native/daemon/catalog/routes.json` names each client message type's owner
-   (`rust:<crate>` or `js:<service>`) and each HTTP route's (`rust:` or `js:`). It is generated
-   from the Zod unions and the registry; `check:daemon-native` fails on a message type without an
-   owner. Moving a type to Rust is a one-line change there plus the handler.
+   (`rust:<crate>` or `js:main`) and each HTTP stage's (`rust:<crate>` or `js`). It is generated:
+   message types from the Zod schemas, owners and HTTP stages from `scripts/transport-owners.ts`,
+   the one place ownership changes (T0.3); `check:daemon-native` fails when they disagree. Moving a
+   type to Rust is a one-line change there plus the handler.
 5. **Bridges keep order.** `JsSocketService` feeds each socket's TypeScript sessions one ordered
    queue, as `SocketInput` does (`socket-input.ts`); a Rust handler for a type and a TypeScript
    one for the next type on the same socket still run in arrival order. Liveness frames are
@@ -60,7 +61,7 @@ an Opus review against the task's "Reviewer checks".
 Commands every task uses (from the repository root; load limits apply):
 
 ```sh
-# Rust, inside native/daemon
+# Rust, inside native/daemon (from T0.2 on; T0.1 runs only the TypeScript commands)
 (cd native/daemon && CARGO_BUILD_JOBS=4 cargo fmt --all --check \
   && CARGO_BUILD_JOBS=4 cargo clippy --workspace --all-targets --locked \
   && CARGO_BUILD_JOBS=4 cargo test -p ace-transport --locked \
@@ -90,91 +91,116 @@ nothing from git, nothing new beyond what a task names.
   (`ACE_STORE`, `ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_SUPERVISOR`, `ACE_CORE`, `ACE_ENGINE`,
   `ACE_GIT`, `ACE_TRANSPORT`) through from the bench's own environment, so a bench can compare off
   and on; create `packages/provider-kit/src/native-switches.test.ts`.
+- **Commands**: the TypeScript ones only. The Rust block starts with T0.2, which creates the
+  crate it tests.
 - **Types and signatures** (exported):
-  `type TransportPart = "loopback" | "remote"`;
-  `function transportParts(): ReadonlySet<TransportPart>` (`ACE_TRANSPORT` unset: empty;
-  `native`: loopback; `native,remote`: both; anything else throws naming the value, at module load
-  as the other switches do);
-  `interface SwitchNeed { phase: string; needs: readonly string[] }`;
-  `function resolveSwitches(explicit: ReadonlySet<string>, defaultOn: ReadonlySet<string>, needs: readonly SwitchNeed[]): { on: ReadonlySet<string>; fellBack: readonly { phase: string; because: string }[] }`,
-  a pure function that throws `NativeSwitchConflict` (message names both phases) when an explicit
-  phase's need is off, and otherwise drops default-on phases whose needs are off, transitively.
-  The table holds one row now (`transport.remote` needs `transport.loopback`); later phases add
-  theirs. `defaultOn` is empty: nothing is default-on.
-- **Invariants**: ADR 0226 §6 "Dependent switches resolve together at boot"; switches are read
+  - `type TransportPart = "loopback" | "remote"`;
+  - `interface SwitchNeed { phase: string; needs: readonly string[] }`;
+  - `function resolveSwitches(explicit: ReadonlySet<string>, defaultOn: ReadonlySet<string>, needs: readonly SwitchNeed[]): { on: ReadonlySet<string>; fellBack: readonly { phase: string; because: string }[] }`,
+    pure. **Order**: first, default-on phases whose needs are not on fall back, transitively,
+    until nothing changes; then every explicit phase is checked against that final set, and any
+    explicit phase with a need that isn't on throws `NativeSwitchConflict`, naming both phases. So an
+    explicit phase whose need fell back as a default is refused, not silently started.
+  - `function transportParts(): ReadonlySet<TransportPart>`, derived from the resolver's `on` set,
+    which the module computes once at load from the environment (`ACE_TRANSPORT` unset: nothing
+    explicit; `native`: `transport.loopback`; `native,remote`: both; any other value throws naming
+    it, as the other switches do).
+  - The table holds one row now (`transport.remote` needs `transport.loopback`); later phases add
+    theirs. `defaultOn` is empty: nothing is default-on.
+- **Invariants**: ADR 0226 §6 "Dependent switches resolve together at boot"; resolution happens
   once per process, at module load, before anything binds or opens.
-- **Stays TypeScript**: all of it (this is the TypeScript switch module).
-- **Switch**: `ACE_TRANSPORT`, default off. No code reads `transportParts()` yet.
+- **Stays TypeScript**: all of it. **Switch**: `ACE_TRANSPORT`, default off; nothing reads
+  `transportParts()` yet.
 - **Tests**: `native-switches.test.ts` is new, allowed because no test covers switch resolution
-  today (its header says so): a table of `(explicit, defaultOn, needs) → on, fellBack, or throws`.
-  Then the existing provider-kit native files, switch off:
+  today (its header says so): a table of `(explicit, defaultOn, needs) → on, fellBack, or throws`,
+  including a default fallback that makes an explicit phase throw. Then, switch off,
   `bun --bun x vitest run packages/provider-kit/src/process-interactive.native.process.test.ts --maxWorkers=4`.
-- **Bench**: none.
-- **Must not**: change any existing switch's parsing or meaning; read `ACE_TRANSPORT` anywhere
-  else; add a dependency.
-- **Reviewer checks**: the diff touches only the three files; the table test fails if the
-  transitive fall-back or the explicit refusal is removed; `bun run typecheck` and `lint` pass;
-  `ACE_TRANSPORT=bogus bun -e 'import("@ace/provider-kit/native-switches")'` throws naming
-  `bogus`.
+- **Bench**: none. **Must not**: change any existing switch's parsing or meaning; read
+  `ACE_TRANSPORT` anywhere else; add a dependency.
+- **Reviewer checks**: only the three files change; the table test fails if the transitive
+  fall-back, the ordering or the explicit refusal is removed;
+  `ACE_TRANSPORT=bogus bun -e 'import("@ace/provider-kit/native-switches")'` throws naming `bogus`.
 
-#### T0.2 The `ace-transport` crate
+#### T0.2 The `ace-transport` crate (ready)
 
 - **Files**: create `native/daemon/crates/ace-transport/Cargo.toml`, `src/lib.rs`, `src/error.rs`;
   change `native/daemon/crates/ace-daemon-node/Cargo.toml` to depend on it (path); update
-  `native/daemon/Cargo.lock` with `--locked` builds afterwards. The workspace's `members =
-["crates/*"]` picks the crate up.
+  `native/daemon/Cargo.lock`. The workspace's `members = ["crates/*"]` picks the crate up.
 - **Layout**: `lib.rs` declares `pub mod error;` and nothing else yet; `error.rs` holds
   `#[derive(Debug, thiserror::Error)] pub enum TransportError { #[error("bind {addr}: {source}")] Bind { addr: std::net::SocketAddr, source: std::io::Error }, #[error("listener closed")] Closed }`.
 - **Crates**: `thiserror` 2 (MIT OR Apache-2.0, already in the lock). No napi: the crate has no
-  Node types (ADR 0222 §1's rule for core crates).
-- **Lints**: `[lints] workspace = true`; no `unsafe`, `unwrap`, `expect`.
+  Node types (ADR 0222 §1's rule for core crates). `[lints] workspace = true`.
 - **Tests**: none (no behaviour). **Bench**: none.
 - **Must not**: add modules or dependencies beyond these; export anything from the addon.
-- **Reviewer checks**: `cargo deny check` passes; `cargo build --release -p ace-daemon-node`
-  passes; the crate compiles without napi in its tree (`cargo tree -p ace-transport` shows no
-  `napi`).
+- **Reviewer checks**: `cargo deny check bans licenses sources` and the release build pass;
+  `cargo tree -p ace-transport` shows no `napi`.
 
 #### T0.3 The route table and its check
 
-- **Files**: create `scripts/generate-transport-routes.ts` and the generated
-  `native/daemon/catalog/routes.json`; change `scripts/check-daemon-native.ts` to run the
-  generator with `--check` (fails naming the stale file, as `generate-rust-protocol.ts --check`
-  does).
-- **What it writes**: `{ "messages": { "<type>": "js:main", … }, "http": { "loopback": [ … ], "remote": [ … ] } }`.
-  `messages` lists every `type` literal of the unions `SocketMessage` covers
-  (`apps/daemon/src/services/socket.ts`: `ClientMessage`, `PluginClientMessage`,
-  `SuitClientMessage`, `SuitReportMessage`, `MarketClientMessage`, `BrowserClientMessage`,
-  `BrowserBackendClientMessage`, `UserBrowserExtensionMessage`), read from the Zod schemas'
-  discriminated-union options, sorted, each owned by `js:main`. `http` lists the chain stages of
-  behaviour.md §3 in order (`org-gate`, `mcp`, `spade-grant`, `web`, `attachments`, `icons`,
-  `suits`, `preview`, `access` for loopback; `org-gate`, `outside-mcp`, `transfers`,
-  `machine-calls`, `web`, `attachments`, `icons`, `suits`, `preview`, `access` for remote), each
-  `js`. The check fails when a union gains a type the file lacks, or the file names a type no union
-  has.
-- **Stays TypeScript**: everything; the table only records owners.
-- **Tests**: none new; `node scripts/generate-transport-routes.ts --check` is the check.
-  **Bench**: none.
-- **Must not**: hand-edit `routes.json`; import daemon internals beyond the schema packages; mark
-  anything `rust:`.
-- **Reviewer checks**: adding a literal to a union in a scratch change makes `--check` fail;
-  `routes.json` is sorted and stable across two runs.
+- **Files**: create `scripts/transport-owners.ts` (the one place ownership changes), the generator
+  `scripts/generate-transport-routes.ts`, and its output `native/daemon/catalog/routes.json`;
+  change `scripts/check-daemon-native.ts` to run the generator with `--check` (fails naming the
+  stale file, as `generate-rust-protocol.ts --check` does). This replaces rule 4's "generated from
+  the registry": message types come from the schemas; owners and the HTTP stages come from
+  `transport-owners.ts`.
+- **Schema entry points**: `ClientMessage` (`@ace/protocol`, `wire.ts:243`, a discriminated
+  union), `BrowserClientMessage` (`browser.ts:527`, discriminated union),
+  `BrowserBackendClientMessage` (`browser-backend.ts:112`, discriminated union),
+  `UserBrowserExtensionMessage` (`user-browser.ts:118`, a plain `z.union`), and the strict objects
+  `PluginClientMessage` (`@ace/protocol/plugins`, `plugins.ts:271`), `SuitClientMessage` and
+  `SuitReportMessage` (`@ace/protocol/suits`, `suits.ts:399`, `:484`), `MarketClientMessage`
+  (`@ace/protocol/marketplace`, `marketplace.ts:627`), the union `SocketMessage` covers
+  (`apps/daemon/src/services/socket.ts`). The generator walks each schema: a discriminated or
+  plain union recurses into its options; an object (strict or not) contributes its `type` field's
+  literal (or every value of a literal union or enum); anything else, or an object without a
+  literal `type`, fails the generator naming the schema.
+- **Owners file**: `export const messageOwners: Record<string, "js:main" | \`rust:${string}\`> = {}`(overrides; every type not listed is`js:main`) and
+`export const httpStages: readonly { listener: "loopback" | "remote"; stage: string; owner: "js" | \`rust:${string}\` }[]`,
+in chain order: loopback `org-gate`, `mcp`, `spade-grant`, `web`, `attachments`, `icons`,
+`suits`, `preview`, `access`; remote `org-gate`, `outside-mcp`, `transfers`, `machine-calls`,
+`web`, `attachments`, `icons`, `suits`, `preview`, `access`(behaviour.md §3), all`js`.
+- **Output shape**: `{ "messages": { "<type>": "<owner>", … }, "http": [ { "listener": …, "stage": …, "owner": … }, … ] }`,
+  messages sorted by type, `http` in chain order.
+- **Check**: fails when a schema gains a type the file lacks, the file names a type no schema has,
+  an override names an unknown type, or two schemas define the same type.
+- **Tests**: none new; the `--check` run is the check. **Bench**: none.
+- **Must not**: hand-edit `routes.json`; import daemon internals beyond the schema packages and
+  the owners file; mark anything `rust:`.
+- **Reviewer checks**: a scratch literal added to `PluginClientMessage` or to an option of
+  `UserBrowserExtensionMessage` makes `--check` fail; two runs give identical bytes.
 
 #### T0.4 Baseline measurements (owner-scheduled, no builder)
 
-Items 1, 2 and 3 of "Measurements to schedule", switch off, on the T0 merge commit. They are the
-"before" of T1a.
+The "off" side of the paired runs below, on the T0 merge commit, one at a time.
 
 ### T1a: the loopback listener in Rust (switch `ACE_TRANSPORT=native`, default off)
 
 What moves: accepting connections on the loopback port, HTTP/1.1 parsing, the WebSocket upgrade
-and framing. **What stays TypeScript in all of T1a**: every HTTP handler (reached through a proxy
-hop, unchanged), upgrade admission (path, Origin, the 256 cap, pre-auth budgets: Rust asks
-TypeScript), hello and authentication, the outbox, frame packing, input backpressure policy (it
-calls `pause`/`resume`), pings and the idle sweep, the close-grace closer, the remote listeners,
-the relay. Rust implements the `MainSocket` interface (`apps/daemon/src/main-socket.ts`) and
-nothing above it.
+handshake and framing. **What stays TypeScript in all of T1a**: every HTTP handler (reached through
+a proxy hop, unchanged), upgrade admission decisions (path, Origin, the 256 cap, pre-auth budgets:
+Rust asks TypeScript), hello and authentication, the outbox, frame packing, input backpressure
+policy (it calls `pause`/`resume`), ace's JSON pings and the idle sweep, the close-grace closer, the
+remote listeners, the relay. Rust implements the `MainSocket` interface
+(`apps/daemon/src/main-socket.ts`) and nothing above it.
 
-#### T1a.1 TypeScript seams, no behaviour change
+**Paired benches and the ship rule** (all T1a benches; one bench at a time on this Mac, scheduled
+by the owner). Each pair runs off then on, back to back, three pairs, A B A B; a pair whose load
+average differs by more than 2× between its two runs is discarded and rerun. T1a may go default-on
+only if every median passes:
+
+| Bench                                                                                      | Metric                                  | On must be                   |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- | ---------------------------- |
+| `FANOUT_EVENTS=3000 FANOUT_ROUNDS=3 bun apps/daemon/bench/fanout.ts`                       | daemon CPU per event, 1/3/6 subs        | ≤ off × 1.10 at each count   |
+| `node tools/daemon-bench/src/run.ts --output=<file>` (standard workload, no baseline gate) | `phases.*.cpuMsPerTurn`                 | ≤ off × 1.10                 |
+| same                                                                                       | `phases.*.transactionsPerTurn`          | within ±1% of off            |
+| same                                                                                       | `idle.cpuPercent`                       | ≤ off + 0.2 points of a core |
+| same                                                                                       | `startup.heapUsed`, `phases.*.heapUsed` | ≤ off + 4 MiB                |
+| same                                                                                       | `startup.rss`, `phases.*.rss`           | ≤ off + 16 MiB               |
+
+`bun run bench:daemon` compares against its stored baseline, not against the other leg, so it is
+not the ship rule. If any median fails, T1a stays opt-in and ships with T3 (ADR 0226 §6).
+
+#### T1a.1 TypeScript seams, no behaviour change (ready)
 
 - **Files**: change `apps/daemon/src/socket-upgrade.ts`, `apps/daemon/src/access-http.ts`,
   `apps/daemon/src/server.ts`; create `apps/daemon/src/http-peer.ts`.
@@ -189,71 +215,141 @@ nothing above it.
   `access-http.ts` reads `sourceAddress` (`:126`) and `/v1/stop`'s ports (`:205`–`:206`) through
   `peerOf`. `server.ts`'s `connected` takes `request?: { headers: IncomingHttpHeaders }` instead of
   `IncomingMessage` (it reads only the User-Agent, `:386`).
-- **Invariants**: behaviour.md §2 (upgrade rules, Origin independent of credentials, no Origin
-  admitted on loopback) and §3 (Origin on HTTP); `/v1/stop` proves its caller by the connection's
-  ports (stop ownership, ADR 0226 §5), so those ports must be the client's real ones.
-- **Tests (switch off only; nothing is native yet)**: `socket-admission.server.process`,
-  `access-cors.server.process`, `auth.server.process`, `web-http.process`, `cli-stop.process`,
-  `daemon-lifecycle.process`, `audit-shutdown.process`, each alone.
-- **Bench**: none.
-- **Must not**: change any decision, status code, order of checks or log line; add tests.
-- **Reviewer checks**: the extracted function is the old body moved, not rewritten (compare the
-  diff hunk by hunk); the seven files pass.
+- **Invariants**: behaviour.md §2 and §3; `/v1/stop` proves its caller by the connection's ports
+  (`shutdown-receipt.ts:36`, `peer-process.ts`), so those ports must be the client's real ones.
+- **Tests (switch off; nothing is native yet)**: `socket-admission.server.process`,
+  `auth.server.process`, `access-cors.server.process`, `daemon-lifecycle.process`,
+  `daemon-stop-restart.process` (the real `ace stop`, which sends its caller chain,
+  `cli/daemon-stop.ts:149`), each alone.
+- **Bench**: none. **Must not**: change any decision, status code, order of checks or log line;
+  add tests.
+- **Reviewer checks**: the extracted function is the old body moved, not rewritten (compare hunk
+  by hunk); the five files pass.
 
-#### T1a.2 Rust: the loopback listener and the HTTP proxy hop
+#### T1a.2 Rust: the loopback HTTP listener and the proxy hop (a standalone milestone)
 
-- **Files**: create `native/daemon/crates/ace-transport/src/{listener.rs,proxy.rs,peer.rs}`; change
-  `lib.rs`, `error.rs`, `Cargo.toml`.
-- **Crates** (versions as in the lock): `tokio` 1.54 (`net`, `rt-multi-thread`, `sync`, `macros`,
-  `time`; MIT), `tokio-util` 0.7.20 (`CancellationToken`; MIT), `hyper` 1.12 (`server`, `client`,
+Compiles and is tested alone: upgrade requests are handed to an `UpgradeHandler` whose only
+implementation in this task, `RefuseUpgrades`, closes the connection without an answer. T1a.3
+replaces it.
+
+- **Files**: create `native/daemon/crates/ace-transport/src/{listener.rs,proxy.rs,hop.rs,peer.rs}`;
+  change `lib.rs`, `error.rs`, `Cargo.toml`.
+- **Crates** (versions as in the lock; run `cargo deny check` on the resolved feature graph, not
+  only the direct licences): `tokio` 1.54 (`net`, `rt-multi-thread`, `sync`, `macros`, `time`;
+  MIT), `tokio-util` 0.7.20 (`CancellationToken`; MIT), `hyper` 1.12 (`server`, `client`,
   `http1`; MIT), `hyper-util` 0.1.21 (`tokio`; MIT), `http-body-util` 0.1.5 (MIT), `http` 1.5
-  (MIT OR Apache-2.0), `bytes` 1.12 (MIT).
+  (MIT OR Apache-2.0), `bytes` 1.12 (MIT), `getrandom` (MIT OR Apache-2.0, for the secret).
 - **Types and signatures**:
 
   ```rust
-  pub struct Peer { pub remote: SocketAddr, pub local: SocketAddr }
-  pub struct ProxyTarget { pub addr: SocketAddr, pub secret: [u8; 32] }
-  pub struct UpgradeRequest { pub path: String, pub origin: Option<String>, pub user_agent: Option<String>, pub peer: Peer }
-  pub enum UpgradeDecision { Accept, Forbidden, Unavailable, Drop }
-  pub trait UpgradeAdmission: Send + Sync + 'static {
-      fn admit(&self, request: UpgradeRequest) -> Pin<Box<dyn Future<Output = UpgradeDecision> + Send>>;
+  pub struct Peer { pub remote: SocketAddr, pub local: SocketAddr }      // from the accepted TcpStream only
+  pub struct HopSecret([u8; 32]);                                         // OS CSPRNG (getrandom), no Debug/Display
+  impl HopSecret { pub fn generate() -> Result<Self, TransportError>; pub fn header_value(&self) -> HeaderValue; }
+  pub struct ProxyTarget { pub addr: SocketAddr /* 127.0.0.1 only */, pub secret: Arc<HopSecret> }
+  pub trait UpgradeHandler: Send + Sync + 'static {
+      fn upgrade(&self, request: Request<Incoming>, peer: Peer) -> Pin<Box<dyn Future<Output = Response<Full<Bytes>>> + Send>>;
   }
-  pub struct LoopbackListener { /* addr, CancellationToken, JoinSet of connections */ }
+  pub struct RefuseUpgrades;
+  pub struct LoopbackListener { /* local addr, CancellationToken, JoinSet of connections */ }
   impl LoopbackListener {
-      pub async fn bind(addr: SocketAddr, target: ProxyTarget, admission: Arc<dyn UpgradeAdmission>, sockets: Arc<dyn SocketSink>) -> Result<Self, TransportError>;
+      pub async fn bind(addr: SocketAddr /* 127.0.0.1 only */, target: ProxyTarget, upgrades: Arc<dyn UpgradeHandler>) -> Result<Self, TransportError>;
       pub fn local_addr(&self) -> SocketAddr;
-      pub async fn close(self);
+      pub async fn close(self, deadline: Duration);
   }
   ```
 
-  (`SocketSink` is T1a.3's.) A non-upgrade request is forwarded to `target` over a fresh
-  `hyper::client::conn::http1` connection with its method, path, headers and streamed body,
-  after removing every client-sent `x-ace-*` header and adding `x-ace-proxy: <secret hex>`,
-  `x-ace-peer-address`, `x-ace-peer-port`, `x-ace-local-port` from `Peer`; the response streams
-  back unchanged. An upgrade request is answered by T1a.3.
+- **The hop**, in `hop.rs`, pure and unit-tested:
+  - Four reserved headers, and only these: `x-ace-hop-secret`, `x-ace-hop-peer-address`,
+    `x-ace-hop-peer-port`, `x-ace-hop-local-port`. Every client-sent instance of them is removed;
+    every other header passes as sent, including the `x-ace-*` headers clients use today
+    (`x-ace-sha256` for uploads, `attachments-upload.ts:55`; `x-ace-json-input`; `x-ace-constraint`;
+    and the rest). Then exactly one value of each reserved header is added, from `HopSecret` and
+    `Peer` (address as `ip`, ports as decimal).
+  - Hop-by-hop headers (RFC 9110 §7.6.1: `Connection`, `Keep-Alive`, `Proxy-Connection`, `TE`,
+    `Trailer`, `Transfer-Encoding`, `Upgrade`, and every header `Connection` names) are not
+    forwarded in either direction; hyper frames each leg itself (`Content-Length` kept, chunked
+    re-framed).
+- **Connections**: both ends bind or connect to `127.0.0.1` only. HTTP/1.1 keep-alive with Node's
+  server defaults (keep-alive timeout 5 s, headers timeout 60 s, request timeout 300 s), so a
+  client sees the same connection behaviour as with `node:http`. A non-upgrade request is forwarded
+  over a fresh `hyper::client::conn::http1` connection to `target`, method, raw target, headers and
+  body streamed; the response streams back. **Cancellation**: a client that goes away mid-request
+  or mid-response drops the upstream connection at once (the TypeScript handler sees its request
+  abort, as today); an upstream failure mid-response resets the client connection, never ends a
+  truncated body as complete. **Close**: stop accepting, close idle keep-alive connections at once,
+  let in-flight requests finish until `deadline`, then drop the rest.
+- **Invariants**: behaviour.md §2 (`port: 0` picks a free port) and §3 (the chain's answers pass
+  through byte for byte, CORS and `no-store` included).
+- **Tests**: `#[cfg(test)]` unit tests for `hop.rs` (reserved names stripped and re-added once;
+  other `x-ace-*` kept; hop-by-hop removed) and one in-crate test that proxies a request to a
+  local hyper test server; new code with no TypeScript counterpart, so allowed.
+- **Must not**: answer any HTTP request itself; hold a body whole (no `collect()`); log or format
+  the secret; use `serde_json`; bind or connect anywhere but 127.0.0.1.
+- **Reviewer checks**: a client-sent `x-ace-hop-secret` never reaches the target; `x-ace-sha256`
+  does; `HopSecret` has no `Debug`; clippy and deny pass.
 
-- **Invariants**: behaviour.md §2 (loopback only binds 127.0.0.1; `port: 0` picks a free port),
-  §3 (the chain's answers pass through byte for byte, including CORS headers and `no-store`);
-  closing stops accepting, then waits for open connections as `server.close()` does.
-- **Tests**: `#[cfg(test)]` unit tests only for the header filter and peer encoding (new code with
-  no TypeScript counterpart); the proof is T1a.6's run.
-- **Must not**: answer any HTTP request itself; keep a body in memory whole; use `serde_json`;
-  bind anything but the address given.
-- **Reviewer checks**: a client-sent `x-ace-proxy` never reaches the target; bodies stream
-  (no `collect()` on request or response bodies); clippy and deny pass.
+#### T1a.3 Rust: the WebSocket handshake
 
-#### T1a.3 Rust: the WebSocket upgrade and the socket
-
-- **Files**: create `native/daemon/crates/ace-transport/src/{ws.rs,socket.rs}`; change `lib.rs`,
+- **Files**: create `native/daemon/crates/ace-transport/src/upgrade.rs`; change `lib.rs`,
   `Cargo.toml`.
-- **Crates**: `tokio-tungstenite` 0.30 (MIT; `default-features = false`, no TLS, no `connect`)
-  and `tungstenite` 0.30 (MIT OR Apache-2.0; `handshake` for `derive_accept_key`). No compression:
-  loopback sockets never compress (behaviour.md §2).
-- **Types and signatures**:
+- **Crates**: `tungstenite` 0.30 (MIT OR Apache-2.0; `handshake` for `derive_accept_key`).
+- **Types**:
 
   ```rust
-  pub enum SocketEvent { Message { data: Bytes, binary: bool }, SendDone { id: u64, error: Option<String> }, Error { message: String }, Close { code: u16, reason: Bytes } }
-  pub trait SocketSink: Send + Sync + 'static { fn opened(&self, socket: SocketHandle, user_agent: Option<String>, events: mpsc::UnboundedReceiver<SocketEvent>); }
+  pub struct UpgradeRequest { pub target: String /* the raw request-target */, pub origin: Option<String>, pub user_agent: Option<String>, pub peer: Peer }
+  pub enum AdmissionDecision { Accept { reservation: u64 }, Forbidden, Unavailable, Drop }
+  pub trait UpgradeAdmission: Send + Sync + 'static {
+      fn admit(&self, request: UpgradeRequest) -> Pin<Box<dyn Future<Output = AdmissionDecision> + Send>>;
+      fn release(&self, reservation: u64);               // the handshake failed after Accept
+  }
+  pub trait SocketSink: Send + Sync + 'static {
+      fn opened(&self, reservation: u64, upgraded: hyper::upgrade::Upgraded, user_agent: Option<String>);
+  }
+  pub struct WebSocketUpgrades { admission: Arc<dyn UpgradeAdmission>, sink: Arc<dyn SocketSink> }  // implements UpgradeHandler
+  ```
+
+- **Order, pinned to today's** (Node fires `upgrade`, then `admitUpgrades`, then `ws` 8.22's
+  `handleUpgrade`):
+  1. admission with the **raw request-target** exactly as received (`/` passes; `/?x`, `//`,
+     absolute-form and anything else is `Drop`, as `request.url !== "/"` is today,
+     `socket-upgrade.ts:52`); `Drop` closes with no answer; `Forbidden` and `Unavailable` write
+     `refuseUpgrade`'s bytes exactly: `HTTP/1.1 403 Forbidden` or `503 Service Unavailable`, then
+     `Connection: close`, `Content-Length: 0`, empty body (`socket-upgrade.ts:6`–`:9`);
+  2. then `ws`'s checks, in its order, each failure written as `ws`'s `abortHandshake` writes it
+     (`HTTP/1.1 <code> <reason>`, `Connection: close`, `Content-Type: text/html`,
+     `Content-Length`, the message as body), and the reservation released: method not `GET` →
+     405 `Invalid HTTP method`; `Upgrade` not `websocket` (case-insensitive) → 400
+     `Invalid Upgrade header`; `Sec-WebSocket-Key` not matching `^[+/0-9A-Za-z]{22}==$` → 400
+     `Missing or invalid Sec-WebSocket-Key header`; `Sec-WebSocket-Version` not 13 or 8 → 400
+     `Missing or invalid Sec-WebSocket-Version header` with `Sec-WebSocket-Version: 13, 8`; an
+     unparsable `Sec-WebSocket-Protocol` → 400 `Invalid Sec-WebSocket-Protocol header`;
+  3. `101`: `HTTP/1.1 101 Switching Protocols`, `Upgrade: websocket`, `Connection: Upgrade`,
+     `Sec-WebSocket-Accept`, and `Sec-WebSocket-Protocol` set to the first offered protocol when any
+     was offered (`ws`'s default); no `Sec-WebSocket-Extensions` (no compression on loopback);
+  4. then `hyper::upgrade::on`; if it fails, release the reservation; else `SocketSink::opened`.
+- **Tests**: unit tests for the decision table above (inputs → status, headers, body bytes);
+  allowed as new code. **Must not**: start framing (T1a.4's), accept a target other than `/`,
+  negotiate extensions.
+- **Reviewer checks**: each row of step 2 compared with `ws`'s
+  `node_modules/.bun/ws@8.22.0/node_modules/ws/lib/websocket-server.js` `handleUpgrade`; the raw
+  target is compared, not a parsed path.
+
+#### T1a.4 Rust: the socket and its lifecycle
+
+- **Files**: create `native/daemon/crates/ace-transport/src/socket.rs`; change `lib.rs`,
+  `Cargo.toml`.
+- **Crates**: `tokio-tungstenite` 0.30 (MIT; `default-features = false`: no TLS, no `connect`).
+  `WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config))` with
+  `max_message_size = Some(1 << 20)` and `max_frame_size = Some(1 << 20)`.
+- **Types**:
+
+  ```rust
+  pub enum SocketEvent {
+      Message { data: Bytes, binary: bool },
+      Sent { id: u64, error: Option<String> },
+      Error { code: &'static str, message: String },     // "too_big", "protocol", "io"
+      Close { code: u16, reason: Bytes },
+  }
   #[derive(Clone)] pub struct SocketHandle { /* Arc of shared state */ }
   impl SocketHandle {
       pub fn send(&self, data: Bytes, binary: bool, id: u64);
@@ -261,104 +357,188 @@ nothing above it.
       pub fn terminate(&self);
       pub fn pause(&self); pub fn resume(&self); pub fn is_paused(&self) -> bool;
       pub fn buffered_amount(&self) -> u64; pub fn ready_state(&self) -> u8;
+      pub fn delivered(&self, bytes: u64);              // the JS side consumed a message
   }
+  pub fn open(upgraded: Upgraded) -> (SocketHandle, mpsc::UnboundedReceiver<SocketEvent>);
   ```
 
-  The upgrade: ask `UpgradeAdmission`; `Forbidden` answers `403 Forbidden`, `Unavailable`
-  `503 Service Unavailable` (the bodies `refuseUpgrade` writes today), `Drop` closes the
-  connection without an answer; `Accept` answers `101` with `Sec-WebSocket-Accept`, takes
-  `hyper::upgrade::on`, and wraps it with `WebSocketStream::from_raw_socket(…, Role::Server,
-Some(config))`, `config.max_message_size = Some(1 << 20)` and `max_frame_size = Some(1 << 20)`.
+- **Invariants** (as `ws` behaves today, which the tests pin):
+  - events in production order on one queue; `Close` is the last event, exactly once, on every exit
+    path; after `Close`, nothing;
+  - **every `send` id gets exactly one `Sent`, before `Close`**: after the frame is flushed to the
+    kernel (`error: None`), or with an error when it can't be (closing, closed, I/O failure),
+    including sends still queued at teardown, each failed with
+    `"WebSocket is not open: readyState <n> (<NAME>)"` as `ws` words it;
+  - `buffered_amount` counts bytes accepted by `send` and not yet flushed;
+  - `pause` stops reading the socket (messages already read are still delivered); independently,
+    the reader stops while more than 1 MiB of delivered messages is not yet `delivered` by the JS
+    side, so the queue to JavaScript holds at most 1 MiB plus one message (below
+    `socket-input.ts`'s 8 MiB last resort); the outbound queue is unbounded, as `ws`'s is, bounded
+    by the TypeScript outbox through `buffered_amount`;
+  - `ready_state` 1 → 2 → 3; `close` is idempotent and sends the close frame with its code and
+    reason; `terminate` drops the connection and reports `Close` with `1006`;
+  - an oversized message: `Error { code: "too_big" }`, then the close frame `1009`, then `Close`;
+  - WebSocket **control** frames are the framing layer's: a peer's ping is answered with a pong and
+    never surfaced, a pong is ignored, as `ws` does (`autoPong`); ace's JSON `{ "type": "ping" }`
+    is an ordinary text `Message` for TypeScript to answer;
+  - a peer's close is answered and reported with its code and reason (`1005` when none).
+- **Tests**: unit tests for the bookkeeping (send ids, ready state, buffered amount, the delivery
+  bound) over an in-memory duplex. **Must not**: parse or answer any data message; hold a message
+  after it is queued to the sink; block on a JavaScript call.
+- **Reviewer checks**: no message parsing in `ace-transport`; one `Close` per exit path; no `Sent`
+  after `Close`.
 
-- **Invariants** (as `ws` behaves today, which the tests pin): events in arrival order and `Close`
-  last; `send` after close reports `SendDone` with an error, never panics; `buffered_amount` counts
-  bytes accepted by `send` and not yet flushed to the kernel; `pause` stops reading the socket
-  (frames already read are still delivered); `ready_state` goes 1 → 2 → 3; `close` is idempotent
-  and sends the close frame with its code and reason; an oversized message emits `Error`, then
-  closes with `1009`; a peer's close is answered and reported with its code and reason (`1005` when
-  none).
-- **Tests**: unit tests only for the ready-state and buffered-amount bookkeeping; the proof is
-  T1a.6's run.
-- **Must not**: parse, inspect or answer any message (pings included: they stay TypeScript); hold
-  a message after it is handed to the sink; block on a JavaScript call.
-- **Reviewer checks**: no `serde`, no message parsing in `ace-transport`; every exit path of the
-  connection task sends exactly one `Close`.
-
-#### T1a.4 The binding
+#### T1a.5 The binding
 
 - **Files**: create `native/daemon/crates/ace-daemon-node/src/transport.rs`; change its `lib.rs`.
 - **Exports** (napi 3, translating only, as `supervisor.rs` does with `ThreadsafeFunction`):
-  `class NativeLoopback { static start(port: u32, targetPort: u32, secretHex: string, admit: (path: string, origin: string | null, address: string) => Promise<string>, opened: (socket: NativeSocketHandle, userAgent: string | null) => void): Promise<NativeLoopback>; port(): u32; close(): Promise<void> }`
-  and `class NativeSocketHandle { listen(events: (kind: string, data: Buffer | null, code: u32, id: number) => void): void; send(data: Buffer, binary: boolean, id: number): void; close(code: u32 | null, reason: string): void; terminate(): void; pause(): void; resume(): void; isPaused(): boolean; bufferedAmount(): number; readyState(): number }`.
-  Each inbound message is copied into a new JavaScript `Buffer`, and the Rust copy is zeroed after
-  the call (behaviour.md §7: no frame is retained after handling).
-- **Invariants**: one `ThreadsafeFunction` per socket, so events keep their order; panics become JS
-  errors (napi's `catch_unwind`); the addon never waits synchronously on a tokio task.
-- **Tests**: none here. **Must not**: put any decision in the binding.
-- **Reviewer checks**: the binding has no logic beyond conversions; `listen` before any event is
-  delivered (events queue until then).
 
-#### T1a.5 The TypeScript shell
-
-- **Files**: create `packages/provider-kit/src/native-transport.ts` (addon loading as
-  `native-process.ts:99`–`:130` does, with `ACE_TRANSPORT_ADDON`, else `ACE_STORE_ADDON`, else the
-  development build; refuses with a message naming the path when `ACE_TRANSPORT` is set and the
-  addon is missing) and add `"./native-transport"` to `packages/provider-kit/package.json`
-  `exports`; create `apps/daemon/src/native-socket.ts`: `class NativeSocket implements MainSocket`
-  over a `NativeSocketHandle`, with `on`/`once`/`off` for `message`, `close`, `error`, `send`
-  callbacks matched by id, and `RawData` as `Buffer`.
-- **Invariants**: `MainSocket`'s contract as `ws` keeps it (T1a.3's list); a `send` callback runs
-  once.
-- **Tests**: none new. **Must not**: change `MainSocket`.
-- **Reviewer checks**: `native-socket.ts` holds no protocol logic; the type checks against
-  `MainSocket` with no casts.
-
-#### T1a.6 Wiring, and the proof
-
-- **Files**: change `apps/daemon/src/server.ts`, `apps/daemon/src/server-http.ts`,
-  `apps/daemon/src/listener.ts`; create `apps/daemon/src/proxy-guard.ts`.
-- **Behaviour**: with `transportParts().has("loopback")`: the `local` HTTP server from
-  `httpChains` listens on `127.0.0.1:0`, wrapped by `proxyGuard(secret, handler)`, which answers
-  `403` to a request without the per-boot secret (constant-time compare), removes the `x-ace-*`
-  headers and records `setPeer`; `NativeLoopback.start(options.port, internalPort, secret, admit,
-opened)` binds the daemon's loopback port; `admit` runs `upgradeDecision` with the server's
-  existing `preAuth`, `full` and origin set; `opened` wraps the handle in `NativeSocket`, runs
-  `preAuth.track`, and calls `connected(socket, true, { headers: { "user-agent": … } })`. The URL,
-  endpoint file and `close()` order (native listener first, then the internal server) are as
-  today. Switch off: no code path changes.
-- **Invariants**: behaviour.md §§2, 3, 5, 6, 7 as observed over the socket; `/v1/stop` sees the
-  client's real ports through `peerOf`.
-- **Tests, each alone, off then on**: `socket-admission.server.process`,
-  `socket-close-log.server.process`, `auth.server.process`, `access-cors.server.process`,
-  `maintenance.server.process`, `server.process`, `web-http.process`, `frame-packing.process`,
-  `outbox-work.process`, `socket-liveness.process`, `attachments.process`,
-  `attachment-range.process`, `attachment-upload.process`, `attachment-http-budget.process`,
-  `attachment-binary.process`, `handed-ticket.server.process`, `ticket-allocation.server.process`,
-  `cold-start.server.process`, `cli-stop.process`, `daemon-lifecycle.process`,
-  `audit-shutdown.process`. Then every other `fixture()` file, one at a time, by the owner's
-  schedule:
-
-  ```sh
-  for f in $(grep -rl socket-test-support apps/daemon/src | grep '\.test\.ts$'); do
-    test -f "$f" || continue
-    ACE_TRANSPORT=native bun --bun x vitest run "$f" --maxWorkers=4 || echo "FAIL $f"
-  done
+  ```ts
+  class NativeLoopback {
+    static start(
+      options: { port: number; targetPort: number; secretHex: string },
+      admit: (request: {
+        target: string;
+        origin: string | null;
+        address: string;
+      }) => Promise<{
+        decision: "accept" | "forbidden" | "unavailable" | "drop";
+        reservation: number;
+      }>,
+      release: (reservation: number) => void,
+      opened: (socket: NativeSocketHandle, reservation: number, userAgent: string | null) => void,
+    ): Promise<NativeLoopback>;
+    port(): number;
+    close(deadlineMs: number): Promise<void>;
+  }
+  type NativeSocketEvent =
+    | { kind: "message"; data: Buffer; binary: boolean }
+    | { kind: "sent"; id: number; error: string | null }
+    | { kind: "error"; code: "too_big" | "protocol" | "io"; message: string }
+    | { kind: "close"; code: number; reason: Buffer };
+  class NativeSocketHandle {
+    listen(events: (event: NativeSocketEvent) => void): void; // events queue until called
+    send(data: Buffer, binary: boolean, id: number): void;
+    close(code: number | null, reason: string): void;
+    terminate(): void;
+    pause(): void;
+    resume(): void;
+    isPaused(): boolean;
+    bufferedAmount(): number;
+    readyState(): number;
+  }
   ```
 
-  Files that use remote listeners or the relay (`remote*`, `relay*`, `tailscale-https`,
-  `sni-listener`) keep their remote sockets on TypeScript in T1a and must pass either way.
+  The secret: `NativeLoopback.generateSecret(): string` returns 32 bytes from the OS CSPRNG
+  (`HopSecret::generate`) as hex, once per boot; TypeScript's guard keeps it in memory and passes
+  it to `start`, so both ends hold the same bytes. It is never logged, written to disk, or
+  published in the endpoint file or any discovery file.
 
-- **Bench (before is T0.4; after on this task's commit; one at a time, owner-scheduled)**:
-  `FANOUT_EVENTS=3000 FANOUT_ROUNDS=3 bun apps/daemon/bench/fanout.ts` with `ACE_TRANSPORT` unset
-  and `=native`, interleaved A B A B; then `bun run bench:daemon --runs=3` off and on (T0.1 passes
-  the switch through). T1a goes default-on only if neither is worse beyond the bench's
-  tolerances; otherwise it waits for T3 (ADR 0226 §6).
-- **Must not**: touch the remote listeners, the relay or any handler; move the outbox, pings or
-  input policy; add tests; run the full suite or any bench on its own.
-- **Reviewer checks**: switch-off diff is inert (every new branch is behind `transportParts()`);
-  the 21 listed files pass off and on; `daemon-endpoint` and the `ace serve --json` output are the
-  same with the switch on; a request sent straight to the internal port without the secret gets
-  `403`.
+- **Ordering and bytes**: one `ThreadsafeFunction` per socket carries all of its events in
+  `SocketEvent` order; the binding calls `delivered(bytes)` after the JS callback for a `message`
+  returns. Each message is copied into a new JavaScript `Buffer` and the Rust copy is zeroed right
+  after; TypeScript zeroes its `Buffer` after handling, as `socket-input.ts:83`–`:87` does today
+  (each side zeroes its own copy).
+- **Invariants**: panics become JS errors (napi's `catch_unwind`); the addon never waits
+  synchronously on a tokio task; `admit` is the only JS call Rust awaits, with a 5 s bound after
+  which the upgrade is `Unavailable` and the reservation released.
+- **Must not**: put any decision in the binding. **Reviewer checks**: conversions only; an event
+  object per `SocketEvent` variant, nothing implicit.
+
+#### T1a.6 The TypeScript shell
+
+- **Files**: create `packages/provider-kit/src/native-transport.ts` and add `"./native-transport"`
+  to `packages/provider-kit/package.json` `exports`; create `apps/daemon/src/native-socket.ts`.
+- **Loading is lazy**: `transportAddon()` loads the addon on its first call only (as
+  `native-process.ts:99`–`:130`, with `ACE_TRANSPORT_ADDON`, else `ACE_STORE_ADDON`, else the
+  development build) and is called only when `transportParts()` has `loopback`; importing the
+  module never touches the binary, so the switch-off path runs without it. With the switch on and
+  no addon, it throws naming the path, before any listener starts.
+- `class NativeSocket implements MainSocket` over a `NativeSocketHandle`: `message` events become
+  `("message", data, binary)`; `sent` events run the matching `send` callback once (with an
+  `Error` when `error` is set) and are dropped when no callback was given; `error` becomes an
+  `Error` with `code`; `close` becomes `("close", code, reason)` after every pending callback ran.
+- **Tests**: none new. **Must not**: change `MainSocket`.
+- **Reviewer checks**: no protocol logic in `native-socket.ts`; it type-checks against
+  `MainSocket` with no casts.
+
+#### T1a.7 Wiring
+
+- **Files**: change `apps/daemon/src/server.ts`, `apps/daemon/src/server-http.ts`,
+  `apps/daemon/src/socket-admission.ts`, `apps/daemon/src/machine-tunnel/wiring.ts`; create
+  `apps/daemon/src/proxy-guard.ts`.
+- **The guard** (`proxyGuard(secret, handler)`, wrapping the `local` chain from `httpChains`),
+  before dispatch, all of: the TCP peer of the request is loopback (`127.0.0.1` or `::1`); exactly
+  one `x-ace-hop-secret`, equal to the secret in constant time (`timingSafeEqual`); exactly one
+  valid value for each peer field (an IP address; ports integers 1–65535). Anything missing,
+  malformed or duplicated: `403`, the request never reaches the chain. Then it deletes the four hop
+  headers, records `setPeer(request, …)` from them, and calls the chain, whose own authentication
+  (bearer, org gate) runs unchanged.
+- **Capacity across the async handshake**: `admit` runs `upgradeDecision` with the server's
+  `preAuth`, `full` and origin set, and on `accept` **reserves** a pre-auth slot and one of the 256
+  socket slots at once (`PreAuthAdmission.reserve(kind, address): number`, counted by `admits` and
+  `full`); `opened` turns the reservation into `preAuth.track(socket, …)`; `release` frees it. A
+  burst of upgrades can't pass against capacity that's already promised. The own-Origin check uses
+  the **public** (native) port, not the internal server's (`ownLoopbackOrigin`,
+  `socket-upgrade.ts:11`–`:24`).
+- **Ports**: the internal server listens on `127.0.0.1:0` and is tracked with `tunnel.track`; the
+  native port is held through a new `MachineTunnel.hold(port): () => void` (over
+  `AcePorts.hold`, `wiring.ts:57`) from the moment it binds until it closes, so the tunnel treats
+  both as ace's (ADR 0194).
+- **Start**: internal server first, then `NativeLoopback.start`; if the native start fails, close
+  the internal server and rethrow; nothing is half started. The URL and the endpoint file name the
+  native port.
+- **Shutdown**, in `server.ts`'s order (`:1330`–`:1370`): native sockets get
+  `closer.gracefulClose(socket, 1001, "Daemon shutdown")` with the other sockets, before awaiting
+  the listeners; then the native listener closes (its drain bounded by the same shutdown deadline)
+  and the internal server closes; sockets opened late get the same 1001 and bounded terminate;
+  `close()` resolves only after every native socket reported `close`.
+- **Switch off**: no code path changes; every new branch is behind `transportParts()`.
+- **Tests (wiring only, off then on)**: `socket-admission.server.process`, `auth.server.process`,
+  `maintenance.server.process`, `socket-close-log.server.process`, each alone. **Must not**: touch
+  the remote listeners, the relay or any handler; move the outbox, pings or input policy.
+- **Reviewer checks**: the guard refuses each malformed case; reservations are released on every
+  failure path; the shutdown order matches `server.ts`.
+
+#### T1a.8 The proof run
+
+- **Files**: create `scripts/list-server-tests.ts`, which prints every test file that starts a
+  daemon server: files calling `fixture(` from `socket-test-support.ts`, `startServer(`,
+  `startDaemon(`, or importing a support module that does (`socket-test-support`,
+  `remote-test-support`, `engine/test-support`, `agent-control/daemon-test-support`,
+  `daemon-launch-test-support`, `daemon-crash-test-support`), in `apps/daemon/src` and
+  `packages/*/src`; and create `apps/daemon/src/native-loopback.process.test.ts`, new because no
+  test covers these today (its header says so), each case run with the switch off and on:
+  - **the guard**: a request straight to the internal port without the secret, with a wrong
+    secret, with duplicated or malformed hop fields gets `403`; a client's own `x-ace-hop-*`
+    headers sent to the public port are not what the chain sees;
+  - **caller ownership through the hop**: a real child process posts `/v1/stop` with its own
+    caller chain to the public port, and the shutdown receipt (`daemon-shutdown.json`) records that
+    child as the verified caller; the same request with forged `x-ace-hop-*` ports records none;
+  - **socket failures**: a message over 1 MiB closes with `1009`; a peer that drops the TCP
+    connection is reported as `1006`; a `send` after close calls back with an error; shutdown
+    closes open sockets with `1001`.
+- **Run, both legs per file** (one file at a time):
+
+  ```sh
+  node scripts/list-server-tests.ts > /tmp/t1a-files.txt
+  while read -r f; do
+    test -f "$f" || continue
+    bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; off=$?
+    ACE_TRANSPORT=native bun --bun x vitest run "$f" --maxWorkers=4 >/dev/null 2>&1; on=$?
+    echo "$off $on $f"
+  done < /tmp/t1a-files.txt
+  ```
+
+  Every file passes on both legs. Files whose remote sockets matter (`remote*`, `relay*`,
+  `tailscale-https`, `access-cors`, `ticket-allocation`) keep those on TypeScript in T1a and must
+  still pass.
+
+- **Bench**: the paired runs above, owner-scheduled.
+- **Must not**: run the full suite or a bench on its own. **Reviewer checks**: the list includes
+  `daemon-stop-restart.process` and the engine and agent-control harness users; the off/on table
+  is in the PR; `native-loopback.process` fails on the native leg if the guard or the hop is
+  removed.
 
 ### T1b: the remote listeners (switch `ACE_TRANSPORT=native,remote`, default off)
 
@@ -373,10 +553,11 @@ tasks, in order:
    `remote-compression.server.process.test.ts`. `tungstenite` 0.30 refuses RSV1 frames
    (`src/protocol/mod.rs:643`).
 2. **T1b.1 TLS termination**: `rustls` 0.23.46 (Apache-2.0 OR ISC OR MIT) with
-   `default-features = false` and the `ring` provider (`ring` 0.17: Apache-2.0 AND ISC; the
-   `aws-lc-rs` default is not used), `tokio-rustls` 0.26.6 (MIT OR Apache-2.0); the key and
-   certificate TypeScript already loads from `tls/` (`tls-identity.ts`) passed as PEM bytes, never
-   regenerated (pin continuity); SNI with the Tailscale certificate.
+   `default-features = false` and the `ring` provider (`ring` 0.17: Apache-2.0 AND ISC, allowed;
+   the `aws-lc-rs` default is not used), `tokio-rustls` 0.26.6 (MIT OR Apache-2.0); `cargo deny`
+   on the resolved feature graph; the key and certificate TypeScript already loads from `tls/`
+   (`tls-identity.ts`) passed as PEM bytes, never regenerated (pin continuity); SNI with the
+   Tailscale certificate.
 3. **T1b.2 Per-connection state and peer identity** through the proxy hop (trusted keep-alive,
    Tailscale peer), with the remote chain unchanged.
 4. **T1b.3 Per-message deflate** as the spike decided, with allowlisted outbound compression and the
@@ -384,10 +565,13 @@ tasks, in order:
 5. **T1b.4 Run-time toggling** (`remote-runtime.ts`, `remote-direct.ts`) of the native remote
    listeners, with `remoteStarted`'s semantics.
 
-Proof: `remote.server`, `remote-boundaries.server`, `remote-runtime.server`, `remote-restart.server`,
-`remote-compression.server`, `tailscale-https.server`, `sni-listener.process`,
-`tls-identity-node.process`, `remote-direct.process`, `remote-payloads.process`, off and on. Bench:
-items 5 and 6 of "Measurements to schedule", direct path.
+Proof of Rust TLS termination: the files that dial the daemon's remote listener with the real
+client and its pinned fingerprint (`remote.server`, `remote-boundaries.server`,
+`remote-runtime.server`, `remote-restart.server`, `remote-compression.server`,
+`tailscale-https.server`, `remote-direct.process`, `remote-payloads.process`, `access-cors.server`,
+`ticket-allocation.server`), off and on; `tls-identity-node.process` and any other file that runs
+its own Node TLS server prove nothing about Rust and are not on the list. Bench: items 5 and 6 of
+"Measurements to schedule", direct path, paired as for T1a.
 
 ### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
