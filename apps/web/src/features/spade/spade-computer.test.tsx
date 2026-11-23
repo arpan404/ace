@@ -2,7 +2,9 @@ import { fakeFileRevision, type FakeSpadeApi } from "@ace/fake-daemon";
 import { configure, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, onTestFinished, test } from "vitest";
+import { editorText, replaceEditorText } from "@/test/editor-text.ts";
 import { botAtWork, botRow, openProfile, spadeApp, withEndpoint } from "@/test/spade.ts";
+import { openSource } from "@/test/spade-files.ts";
 
 configure({ asyncUtilTimeout: 10_000 });
 beforeEach(() => localStorage.clear());
@@ -238,9 +240,8 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   // Shared: changes go with no take-over.
   const files = await screen.findByRole("list", { name: "Files" });
   await userEvent.click(await within(files).findByRole("button", { name: /^plan\.md/ }));
-  const editor = await screen.findByRole("textbox", { name: "plan.md" });
-  await waitFor(() => expect((editor as HTMLTextAreaElement).value).toBe("# Plan\n"));
-  await userEvent.type(editor, "Day 2");
+  const { box } = await openSource("plan.md", "# Plan\n");
+  await replaceEditorText(userEvent.setup(), box, "# Plan{Enter}Day 2");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   await waitFor(() =>
     expect(spade.sent("PUT", "/v1/agents/scout/files?path=plan.md")).toEqual([
@@ -249,7 +250,6 @@ test("the file manager opens and saves a file, makes a folder, moves, uploads an
   );
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nDay 2");
 
-  await userEvent.click(screen.getByRole("button", { name: "Files" }));
   await userEvent.click(await screen.findByRole("button", { name: "New folder" }));
   await userEvent.type(screen.getByRole("textbox", { name: "New folder name" }), "trips{Enter}");
   await waitFor(() =>
@@ -410,13 +410,14 @@ test("while a take-over is on its way, files can be read and downloaded but ever
     );
   const files = await screen.findByRole("list", { name: "Files" });
   await userEvent.click(within(files).getByRole("button", { name: /^plan\.md/ }));
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
+  const { box } = await openSource("plan.md", "# Plan\n");
+  const editor = box as HTMLTextAreaElement;
   // Shared: it can be changed now.
   expect(editor.readOnly).toBe(false);
 
   // Delete asks first; taken over meanwhile (the bot's work still stopping), the answer waits.
-  await userEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
   const confirm = within(await screen.findByRole("dialog", { name: "Delete plan.md?" }));
   spade.computer.stopping("scout", true);
   spade.answer({ method: "POST", path: "/v1/agents/scout/computer/take-over", body: undefined });
@@ -425,10 +426,10 @@ test("while a take-over is on its way, files can be read and downloaded but ever
   expect(writes()).toEqual([]);
   expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\n");
   await screen.findByText("Stopping Scout…");
-  expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
-    false,
-  );
+  // Reading and downloading still work.
+  await userEvent.click(within(files).getByRole("button", { name: "More for plan.md" }));
+  const download = await screen.findByRole("menuitem", { name: "Download" });
+  expect(download.getAttribute("aria-disabled")).not.toBe("true");
 });
 
 test("the status says the bot waits for the person while their input makes it yield", async () => {
@@ -445,15 +446,15 @@ test("words typed while a file saves stay as the draft", async () => {
     seed(api);
     api.files.set("scout", { "plan.md": "# Plan\n" });
   });
-  const editor = await screen.findByRole<HTMLTextAreaElement>("textbox", { name: "plan.md" });
-  await waitFor(() => expect(editor.value).toBe("# Plan\n"));
-  fireEvent.change(editor, { target: { value: "# Plan\nDay 1" } });
+  const { region, box } = await openSource("plan.md", "# Plan\n");
+  const user = userEvent.setup();
+  await replaceEditorText(user, box, "# Plan{Enter}Day 1");
   // Saved, then typed in before the answer came back.
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
-  fireEvent.change(editor, { target: { value: "# Plan\nDay 1\nDay 2" } });
+  await user.keyboard("{Enter}Day 2");
   await waitFor(() => expect(spade.files.get("scout")?.["plan.md"]).toBe("# Plan\nDay 1"));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saving…" })).toBeNull());
-  expect(editor.value).toBe("# Plan\nDay 1\nDay 2");
+  expect(editorText(region)).toBe("# Plan\nDay 1\nDay 2");
   expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
 });
 

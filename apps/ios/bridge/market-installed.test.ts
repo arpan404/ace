@@ -195,7 +195,11 @@ test("turning a withdrawn entry back on and removing another change what Install
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const service = new NativeMarket(client, () => 1);
+  const service = new NativeMarket(
+    client,
+    () => 1,
+    async () => {},
+  );
   const ask = async (operation: Record<string, unknown>, fresh?: true) =>
     (await service.answer(
       NativeMarketRequest.parse({ type: "market.native", operation, fresh }),
@@ -230,7 +234,11 @@ test("the Marketplace's update count skips an update held for its bot's turn", a
   close = () => client.close();
   await client.start();
   await until(() => client.connectionState().getSnapshot() === "ready", "connected");
-  const service = new NativeMarket(client, () => 1);
+  const service = new NativeMarket(
+    client,
+    () => 1,
+    async () => {},
+  );
   const home = await service.answer(
     NativeMarketRequest.parse({ type: "market.native", operation: { op: "home" } }),
     new AbortController().signal,

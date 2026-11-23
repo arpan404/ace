@@ -6,17 +6,25 @@ import { hasCapability, type MediaSocketOpen } from "@ace/native-host";
 
 type Early = (text: string) => void;
 /**
- * Whether a paired machine took this phone's proof of the person's standing on this socket
- * (ADR 0190 §7): `missing` when the phone has no key for the machine (paired before it named
- * one) or the machine refused it (an ordinary link, or a new owner).
+ * Whether a machine took this phone's proof of the person's standing on this socket (ADR 0190
+ * §3, §7). On a paired machine `missing` is a phone with no key for it (paired before it named
+ * one) or a refusal (an ordinary link, or a new owner). On an account machine's relayed socket it
+ * is no person's grant for the phone's session, or a refusal (another account owns the machine).
  */
 export type PairedStanding = "proven" | "missing";
+/** The route a verdict's socket took: `relay` through ace's relay, else `direct`. */
+export type StandingRoute = "direct" | "relay";
 /**
- * Swift proves on a paired machine's socket itself: it reads the welcome there, signs that
- * socket's challenge with the Secure Enclave key and sends `device.standing`, so the script
- * never chooses what is signed. It reports only the daemon's verdict, here.
+ * Swift proves on the socket itself: it reads the welcome there and signs that socket's
+ * challenge, with the pairing's Secure Enclave key (`device.standing`) or, through the relay,
+ * with a person's grant and the runtime's own key over the channel's handshake hash
+ * (`account.standing`), so the script never chooses what is signed. It reports only the
+ * daemon's verdict, here.
  */
-type Standing = (standing: PairedStanding) => void;
+type Standing = (
+  standing: PairedStanding | undefined,
+  source: { socket: string; route: StandingRoute },
+) => void;
 const sockets = new Map<
   string,
   {
@@ -24,6 +32,8 @@ const sockets = new Map<
     trust: TrustMonitor | undefined;
     early: Early | undefined;
     standing: Standing | undefined;
+    /** The route the last verdict named; what a clear of it is reported for. */
+    route: StandingRoute;
     seen: number;
     /** Binary bytes handed to Swift and not yet sent (`aceSocket(id, "sent", n)`). */
     buffered: number;
@@ -62,7 +72,7 @@ function nativeSocket(
   return {
     supportsBinary: true,
     open(events) {
-      sockets.set(id, { events, trust, early, standing, seen: 0, buffered: 0 });
+      sockets.set(id, { events, trust, early, standing, route: "direct", seen: 0, buffered: 0 });
       host.socket(id, "open", opening);
     },
     sendBinary(bytes) {
@@ -80,7 +90,10 @@ function nativeSocket(
       host.socket(id, "send", text);
     },
     close() {
+      const socket = sockets.get(id);
       sockets.delete(id);
+      // The client closes its own sockets (reconnect, route switch) and Swift says nothing back.
+      socket?.standing?.(undefined, { socket: id, route: socket.route });
       host.socket(id, "close", "");
     },
   };
@@ -137,9 +150,16 @@ export function socketEvent(id: string, type: string, value: string | Uint8Array
     socket.events.message(value);
   } else if (type === "trust") socket.trust?.report(value);
   else if (type === "standing") {
-    if (value === "proven" || value === "missing") socket.standing?.(value);
+    // `<verdict>` or `<verdict> relay`; `cleared` is the daemon's expiry passing.
+    const [verdict, via] = value.split(" ");
+    if (via === "relay") socket.route = "relay";
+    const source = { socket: id, route: socket.route };
+    if (verdict === "proven" || verdict === "missing") socket.standing?.(verdict, source);
+    else if (verdict === "cleared") socket.standing?.(undefined, source);
   } else if (type === "close") {
     sockets.delete(id);
+    // A verdict belongs to the socket it was proven on; the next one starts unproven.
+    socket.standing?.(undefined, { socket: id, route: socket.route });
     // "<code>" or "<code> <reason>": the reason tells the owner's revocation from any other 4003.
     const space = value.indexOf(" ");
     if (space < 0) socket.events.close(Number(value));

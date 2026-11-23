@@ -21,6 +21,7 @@ import { OpenReviews } from "./open-reviews.ts";
 import type { MarketplaceOptions, MarketRequestPorts } from "./options.ts";
 import { botRecipe, listPublishables, type PickPorts } from "./pick.ts";
 import { withMarketInstalls } from "./pick-ports.ts";
+import { EntryLooks } from "./looks.ts";
 import { MarketPictures } from "./pictures.ts";
 import { markOwnProfile } from "./own-profile.ts";
 import { publishRequest } from "./publish-request.ts";
@@ -82,6 +83,7 @@ export class MarketplaceService {
   readonly #trust: Trust;
   readonly #reviews: OpenReviews;
   readonly #pictures = new MarketPictures();
+  readonly #looks: EntryLooks;
   readonly #listeners = new Set<(counts: { installed: number; updates: number }) => void>();
   #queue: Promise<unknown> = Promise.resolve();
   #refreshing: Promise<void> | undefined;
@@ -112,6 +114,11 @@ export class MarketplaceService {
       recover: () => this.#recover(),
       enforceBlocklist: () => this.#enforceBlocklist(),
       emit: () => this.#emit(),
+    });
+    this.#looks = new EntryLooks({
+      fetch: (entry) =>
+        this.#reviews.fetchEntry(entry.source, entry.type, entry.name, entry.version),
+      now: options.now,
     });
   }
 
@@ -289,6 +296,8 @@ export class MarketplaceService {
           operation.type,
           operation.name,
         );
+      case "look":
+        return this.#looks.read(operation);
       case "prepare":
         return this.#serial(async () =>
           this.#reviews.prepare(

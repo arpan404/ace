@@ -55,6 +55,8 @@ export const antigravityQuirks: AcpQuirks = {
     if (text.toLowerCase().startsWith("connection lost")) return { kind: "network", message: text };
     return undefined;
   },
+  // Its server reports a cancelled prompt as message text before answering `cancelled`.
+  cancelNotice: (text) => text.trim() === "The request was cancelled by the client.",
   capabilities(version) {
     const supported = admitsVersion("antigravity", version);
     return {

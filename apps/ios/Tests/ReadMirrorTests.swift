@@ -65,6 +65,54 @@ import Testing
         #expect(model.readGeneration(Self.list) == before + 1)
     }
 
+    @Test func aScreensOwnAnswerIsNotLateButOneAfterItStoppedWaitingIsAndEvictionIsNeither() async throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        func reply(_ id: String) throws -> Data {
+            try frame([["type": "service.reply", "id": id, "ok": true, "message": "",
+                        "value": ["result": ["kind": "list"]], "cache": ["key": key, "family": "prompts"]]])
+        }
+        let stop = model.watchRead(Self.list)
+        // The reply goes out from the dispatch, which runs once the waiter is registered.
+        let own = try reply("native-1")
+        _ = try await model.services.wait(id: "native-1") { model.receive(own); return true }
+        #expect(model.lateKept(Self.list) == 0)
+
+        // Replacing the entry after nothing waits for it moves the revision each time.
+        model.receive(try reply("native-2"))
+        let first = model.lateKept(Self.list)
+        #expect(first > 0)
+        model.receive(try reply("native-3"))
+        #expect(model.lateKept(Self.list) > first)
+
+        let settled = model.lateKept(Self.list)
+        model.receive(try frame([["type": "service.evict", "key": key]]))
+        #expect(model.lateKept(Self.list) == settled)
+
+        stop()
+    }
+
+    @Test func anAnswerNobodyIsWatchingLeavesNoLateRevisionBehind() throws {
+        let model = ClientModel(now: { 0 })
+        let key = try #require(ReadMirror.key(Self.list))
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.reads.lateRevisions.isEmpty)
+        let stop = model.watchRead(Self.list)
+        model.receive(try frame([["type": "service.cache", "key": key, "family": "prompts", "value": ["result": ["kind": "list"]]]]))
+        #expect(model.lateKept(Self.list) > 0)
+        stop()
+        #expect(model.reads.lateRevisions.isEmpty)
+    }
+
+    @Test func aFamilysGenerationMovesWhetherOrNotAnyAnswerOfItIsKept() throws {
+        let model = ClientModel(now: { 0 })
+        let before = model.familyGeneration("forge")
+        // A "Show more" page nothing is kept for yet: the family still moves, so a screen keyed
+        // on it reads again rather than keeping rows an update made out of date.
+        model.receive(try frame([["type": "service.generations", "generations": ["forge": before + 1]]]))
+        #expect(model.familyGeneration("forge") == before + 1)
+    }
+
     @Test func pullToRefreshNamesTheSameReadAsAnOrdinaryVisit() {
         let page: [String: Any] = ["type": "forge.pulls", "project": "p", "screens": 1]
         var refreshing = page

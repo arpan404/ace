@@ -176,6 +176,29 @@ export function useMarketEntry(key: EntryKey) {
   });
 }
 
+/** An entry's key with the version its listing names, when it names one. */
+export type VersionedKey = EntryKey & { version?: string | undefined };
+
+/**
+ * What a Suit or bot looks like on its card, from the daemon's `look`: no review is opened and
+ * none waits on installs. A named version's look never changes, so it is read once.
+ */
+export function useMarketLook(key: VersionedKey, enabled: boolean) {
+  return useDaemonQuery({
+    queryKey: ["marketplace-look", key.source, key.type, key.name, key.version ?? ""],
+    enabled,
+    staleTime: key.version ? Infinity : reviewStale,
+    retry: false,
+    read: (client, signal) =>
+      market(
+        client,
+        { op: "look", ...keyOnly(key), ...(key.version ? { version: key.version } : {}) },
+        "look",
+        signal,
+      ),
+  });
+}
+
 /** A review and every row of its pages, read through `readReview` until it has them all. */
 export interface PreparedReview {
   review: MarketReview;

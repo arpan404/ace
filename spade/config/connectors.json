@@ -343,7 +343,7 @@
       ],
       "url": "https://api.githubcopilot.com/mcp/",
       "sign_in": ["token", "oauth_client"],
-      "notes": "A personal access token always works. Sign in shows a code to enter on GitHub once Spade's own GitHub app is registered. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
+      "notes": "A personal access token always works. Sign in shows a code to enter on GitHub, through Spade's own GitHub app. Organisations may need to approve the app, and those on Copilot Business or Enterprise must allow MCP servers.",
       "key_url": "https://github.com/settings/personal-access-tokens",
       "source": "https://github.com/github/github-mcp-server",
       "checked": "2026-11-19",

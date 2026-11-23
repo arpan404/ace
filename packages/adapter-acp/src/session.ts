@@ -116,7 +116,8 @@ function sanitizedError(error: unknown, ctx: SessionContext): Error {
   );
 }
 class AcpSession implements ProviderSession {
-  readonly steerViaCancel = true;
+  /** Set at initialize unless the agent takes a steer into its running turn (`steerNow`). */
+  steerViaCancel?: true;
   nativeSessionId = "";
   readonly configuration: AcpConfiguration;
   get effectiveCapabilities() {
@@ -398,6 +399,8 @@ class AcpSession implements ProviderSession {
       ),
     );
     const negotiated = this.configuration.initialize(result);
+    // An agent without the steering extension can only be steered by cancelling its turn.
+    if (negotiated.capabilities.steeringMode !== "native") this.steerViaCancel = true;
     if (negotiated.versionChanged)
       this.frame("note", "diagnostic", {
         event: "acp-version-changed",
@@ -605,6 +608,17 @@ class AcpSession implements ProviderSession {
       throw new InputRejected("ACP input queue capacity reached");
     const batch: Batch = { written: false };
     try {
+      const [steer] = inputs;
+      // Taken into the running turn; or, when no turn could take it, queued as the next prompt.
+      if (
+        delivery === "steer" &&
+        steer &&
+        inputs.length === 1 &&
+        !this.steerViaCancel &&
+        this.promptId !== undefined &&
+        (await this.steerNow(steer, fence))
+      )
+        return;
       await this.enqueue(
         inputs,
         batch,
@@ -621,6 +635,31 @@ class AcpSession implements ProviderSession {
         cause: error,
       });
     }
+  }
+  /**
+   * Sends a steer into the running turn through the steering extension (`_session/steering`,
+   * idle input left with ace). True once the agent took it. False when no turn could take it,
+   * the input unconsumed: it goes in as the next prompt. A failure refuses it unsent.
+   */
+  private async steerNow(parts: ContentPart[], fence: SteerFence | undefined): Promise<boolean> {
+    if (fence && !fence.current()) throw new SteerTargetLost();
+    const reply = object(
+      await this.rpc.request(
+        "_session/steering",
+        {
+          sessionId: this.nativeSessionId,
+          prompt: parts.map(encodeContent),
+          _meta: { steering: { idleBehavior: "promptRequired" } },
+        },
+        { signal: this.ctx.signal },
+      ),
+    );
+    const outcome = reply["outcome"];
+    if (outcome === "injected" || outcome === "startedNewTurn") return true;
+    if (outcome === "promptRequired") return false;
+    throw new InputRejected(
+      `The agent couldn't take the steer (${string(outcome) || "no outcome"})`,
+    );
   }
   private enqueue(
     inputs: ContentPart[][],
@@ -684,7 +723,14 @@ class AcpSession implements ProviderSession {
     }
     this.queuedBytes -= next.bytes;
     this.active = true;
-    this.queueChanged();
+    // The queue reads one shorter only once the prompt went out (or failed to): its turn has
+    // started by then, so the thread never reads done in between.
+    let reported = false;
+    const report = () => {
+      if (reported) return;
+      reported = true;
+      this.queueChanged();
+    };
     try {
       if (next.commandId) {
         this.ctx.onInputMessage?.({ commandId: next.commandId, nativeId: next.commandId });
@@ -719,6 +765,7 @@ class AcpSession implements ProviderSession {
       );
       // The request frame goes out synchronously, or the request fails without writing it.
       if (this.promptFrames !== written) next.batch.written = true;
+      report();
       const promptId = this.promptId;
       try {
         const result = await reply;
@@ -742,6 +789,7 @@ class AcpSession implements ProviderSession {
     } catch (error) {
       next.reject(sanitizedError(error, this.ctx));
     } finally {
+      report();
       this.active = false;
       // drain() settles each turn it takes, so its rejection has no reporter here.
       void this.drain().catch(() => {});

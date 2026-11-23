@@ -139,6 +139,7 @@ export function seedFakeLibrary(spade: FakeSpadeApi, now: number) {
       title: null,
     },
     escalate: null,
+    efforts: { review: "high" },
   });
   spade.roles.spend.set("flights", {
     helper: 420_000,

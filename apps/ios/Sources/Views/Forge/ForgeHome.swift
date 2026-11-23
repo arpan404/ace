@@ -31,6 +31,10 @@ struct ForgeHome: View {
     /// Opens pairing while no computer is paired; nil while that isn't known yet.
     var pair: (() -> Void)?
     @State private var features: ForgeFeatures?
+    /// The `featuresId` the `features` above answers; a stale answer never gates a read.
+    @State private var featuresStamp = ""
+    /// The page reads on screen, watched across pagination (`ReadWatches`).
+    @State private var watches = ReadWatches()
     @State private var projects: [ForgeProject] = []
     @State private var projectsFailed: String?
     /// Each list's filters, kept by the page that shows this one so they outlive it.
@@ -96,14 +100,19 @@ struct ForgeHome: View {
             .nativeTitle(headingTitle, subtitle: InboxConnectionProblem.of(inbox)?.text ?? projects.first { $0.id == chosen }?.name,
                          hasMenu: inbox.showsMachineNames || projects.count > 1) { titleMenu }
             .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")") { await loadProjects() }
+            .task(id: "\(session?.hostId ?? "")|\((shownReads ?? []).compactMap { ReadMirror.key($0) }.joined())") { watchShownReads() }
+            .onAppear { watchShownReads() }
+            .onDisappear { watches.release() }
             .task(id: loadKey) { await load(fresh: false) }
             // Keyed on the project, the connection and the forge's changes, never the filter: a
             // new filter re-reading these would hide New pull request and read the list again
             // twice. A read that failed while the machine was out runs again once it is back.
-            .task(id: "\(session?.hostId ?? "")|\(session?.client.connection ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)") {
+            .task(id: featuresId) {
                 features = nil
+                let stamp = featuresId
                 guard let client = session?.client, let chosen else { return }
                 features = try? await client.read(["type": "forge.features", "project": chosen], as: ForgeFeatures.self)
+                featuresStamp = stamp
                 if kind == .issues && features?.issues == false || kind == .inbox && features?.inbox == false { kind = .pulls }
             }
             .sheet(item: $creatingIssue) { target in
@@ -137,19 +146,42 @@ struct ForgeHome: View {
     private static func listKey(_ machine: String, _ project: String, _ kind: ForgeKind, _ filter: String, _ query: String) -> String {
         [machine, project, kind.rawValue, filter, query].joined(separator: "|")
     }
+    private var featuresId: String {
+        "\(session?.hostId ?? "")|\(session?.client.connection ?? "")|\(chosen ?? "")|\(session?.client.familyGeneration("forge") ?? 0)"
+    }
     /// The read on screen: the daemon saying it changed, or an answer kept after the screen
-    /// stopped waiting for it, reads it again. Issues and Inbox wait on the features read too.
+    /// stopped waiting for it (its stored revision, not whether one is kept), reads it again. Issues and Inbox wait on the features read too.
     private var loadKey: String {
         guard let client = session?.client, let chosen else { return listKey }
-        let read = kind == .pulls
-            ? ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query)
-            : ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query)
+        guard let reads = shownReads else { return listKey }
+        // Features count only once read for this machine, project and forge generation.
+        let current = featuresStamp == featuresId
         let ready = switch kind {
         case .pulls: true
-        case .issues: features?.issues == true
-        case .inbox: features?.inbox == true
+        case .issues: current && features?.issues == true
+        case .inbox: current && features?.inbox == true
         }
-        return "\(listKey)|\(client.connection)|\(client.readGeneration(read))|\(client.hasKept(read))|\(ready)"
+        return "\(listKey)|\(client.connection)|\(client.familyGeneration("forge"))|\(reads.map { client.lateKept($0) }.reduce(0, +))|\(ready)"
+    }
+
+    /// The reads the list on screen is made of, one per page reached: a "Show more" reply is
+    /// kept under its own key, and a late answer to any of them is the one to draw.
+    private var shownReads: [[String: Any]]? { reads(upTo: kind == .pulls ? pulls.screens : issues.screens) }
+    private func reads(upTo screens: Int) -> [[String: Any]]? {
+        guard let chosen else { return nil }
+        let count = min(max(screens, 1), forgeMaxScreens)
+        switch kind {
+        case .pulls: return (1...count).map { ClientModel.forgePullsRead(project: chosen, filter: pullsFilter, query: query, screens: $0) }
+        case .issues: return (1...count).map { ClientModel.forgeIssuesRead(project: chosen, filter: issuesFilter, query: query, screens: $0) }
+        case .inbox: return nil
+        }
+    }
+
+    /// Watches the shown pages' reads: new ones join before any that left are released, so a
+    /// page kept across pagination never goes unwatched.
+    private func watchShownReads() {
+        guard let client = session?.client, let reads = shownReads else { return watches.release() }
+        watches.sync(client, reads)
     }
 
     @ViewBuilder private var content: some View {
@@ -351,6 +383,11 @@ struct ForgeHome: View {
 
     private func more() async {
         guard let client = session?.client, let chosen else { return }
+        // The next page is watched before it is asked for, so its reply can't land unwatched;
+        // the pages already watched stay (`ReadWatches.add`).
+        let next = (kind == .pulls ? pulls.screens : issues.screens) + 1
+        guard next <= forgeMaxScreens else { return }
+        if let read = reads(upTo: next)?.last { watches.add(client, read) }
         let (pullsFilter, issuesFilter, query) = (pullsFilter, issuesFilter, query)
         switch kind {
         case .pulls:
@@ -376,5 +413,25 @@ struct ForgeEmpty<Content: View>: View {
     var body: some View {
         ScrollView { content().padding(.top, AceDesign.Space.pageState).frame(maxWidth: .infinity) }
             .background(surface)
+    }
+}
+
+/// The reads a screen watches (`ClientModel.watchRead`), by key. `sync` adds the ones missing
+/// before it releases the ones no longer shown, so nothing is unwatched in between.
+@MainActor final class ReadWatches {
+    private var held: [String: @MainActor () -> Void] = [:]
+    func add(_ client: ClientModel, _ read: [String: Any]) {
+        guard let key = ReadMirror.key(read), held[key] == nil else { return }
+        held[key] = client.watchRead(read)
+    }
+    func sync(_ client: ClientModel, _ reads: [[String: Any]]) {
+        for read in reads { add(client, read) }
+        let keep = Set(reads.compactMap { ReadMirror.key($0) })
+        for key in held.keys where !keep.contains(key) { held.removeValue(forKey: key)?() }
+    }
+    func release() {
+        let all = held.values
+        held = [:]
+        for stop in all { stop() }
     }
 }
