@@ -68,6 +68,7 @@ fn policy(world: &World, proxy_port: Option<u16>) -> Policy {
         toolchains: vec![world.home.join(".cargo")],
         also_read: vec![],
         scratch: vec![],
+        runtime: vec![],
         proxy_port,
     })
 }

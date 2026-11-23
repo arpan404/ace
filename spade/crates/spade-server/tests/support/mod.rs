@@ -381,6 +381,11 @@ pub struct Options {
     /// Spade's classifier (ADR 0172) is on. Off by default here, so tests of the reviewer keep
     /// their script; its own tests turn it on, as it is in a real Spade.
     pub classifier: bool,
+    /// How the sandbox worlds' `python` finds and sets up Python (ADR 0220); as Spade does when
+    /// absent.
+    pub python: Option<spade_server::workspace::python::Setup>,
+    /// The sandbox worlds' shell waits this long before it ends a command's processes.
+    pub shell_end_delay: Option<Duration>,
 }
 
 /// A reviewer whose endpoint refuses connections (a local port nothing listens on).
@@ -490,6 +495,8 @@ impl Default for Options {
             search: None,
             reviewer: Some(UNREACHABLE_REVIEWER.to_owned()),
             classifier: false,
+            python: None,
+            shell_end_delay: None,
         }
     }
 }

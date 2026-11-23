@@ -879,6 +879,21 @@ impl Security {
         Ok(found)
     }
 
+    /// Every folder any bot may write: each bot's own write grants, before any narrowing, so
+    /// the list is never short. What Spade checks a program it runs on the host against (ADR
+    /// 0220). An error when the bots can't be read.
+    pub fn writable_folders(&self) -> Result<Vec<PathBuf>, String> {
+        let agents = self.store.agents().map_err(|e| e.to_string())?;
+        Ok(agents
+            .iter()
+            .flat_map(|agent| self.bot(&agent.id).grants)
+            .filter_map(|grant| match grant.scope {
+                Scope::Folder { path, write: true } => Some(PathBuf::from(path)),
+                _ => None,
+            })
+            .collect())
+    }
+
     /// A bot's effective grants: its own, narrowed by every bot above it (ADR 0161).
     pub fn effective_grants(&self, bot: &str) -> Vec<Grant> {
         let mut chain = self.ancestors(bot);

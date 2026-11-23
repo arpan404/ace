@@ -49,6 +49,7 @@ pub fn command(runner: &Runner, place: &Place) -> Result<Command, String> {
         toolchains: vec![program_dir],
         also_read: Vec::new(),
         scratch: Vec::new(),
+        runtime: Vec::new(),
         proxy_port: None,
     });
     let launch = runner
