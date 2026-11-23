@@ -349,6 +349,48 @@ describe("the phone's Summary", () => {
     expect(view(sink)?.agents?.unsure[0]?.step).toBe("Not loaded");
   });
 
+  test("a delegate whose thread settled after the Summary showed it flips to done, even when its thread isn't loaded", async () => {
+    const { client, daemon, sink, follow } = await opened(
+      "flip",
+      [...working, ...delegate("k1", "k1", { state: "working", agents: 1 })],
+      {
+        limits: { threads: 3, threadReserve: 1 },
+        before: (fake) => {
+          child(fake, "k1", "flip", working);
+          fake.createThread({ id: "x", workspaceId: "ace", title: "x", provider: "codex" });
+        },
+      },
+    );
+    // Another view takes the spare room: k1's thread can't be read, only its list entry.
+    client.thread("x", { optional: true });
+    follow();
+    await until(() => names(view(sink)?.agents?.working)?.includes("k1") === true, "k1 working");
+    daemon.apply("k1", [facts.endTurn("root")]);
+    await until(() => names(view(sink)?.agents?.working)?.includes("k1") === false, "k1 settled");
+    expect(view(sink)?.now.sub).not.toContain("working");
+    expect(view(sink)?.agents?.unsure).toEqual([]);
+  });
+
+  test("two active delegates beyond the loaded page still show as working, first, and in the header count", async () => {
+    const ids = Array.from({ length: 200 }, (_, index) => `d${index}`);
+    const live = new Set(["d198", "d199"]);
+    const { sink, follow } = await opened(
+      "many",
+      [...working, ...ids.flatMap((id) => delegate(id, id, { state: "done" }))],
+      {
+        before: (fake) => {
+          for (const id of ids) child(fake, id, "many", live.has(id) ? working : settledWith());
+        },
+      },
+    );
+    follow();
+    await until(() => view(sink)?.agents?.working.length === 2, "both active delegates working");
+    const agents = view(sink)?.agents;
+    expect(names(agents?.working)?.toSorted()).toEqual(["d198", "d199"]);
+    expect(view(sink)?.now.sub).toBe("2 agents working");
+    expect(agents?.counts.working).toBe(2);
+  });
+
   test("a delegate stays working while the thread it delegated to still works", async () => {
     const { daemon, sink, follow } = await opened(
       "parent",
@@ -523,21 +565,26 @@ describe("the phone's Summary", () => {
           fake.createThread({ id, workspaceId: "ace", title: id, provider: "codex" });
       },
     });
+    const kidRead = () => view(sink)?.agents?.working[0]?.step.includes("not loaded") === false;
     const room = client.threadRoom();
     const other = client.thread("x", { optional: true });
     expect(room.getSnapshot()).toBe(0);
     follow();
-    // No room for kid: its branch can't read done, nor working.
-    await until(() => view(sink)?.now.lead === "Syncing", "kid refused");
+    // No room for kid: the list says it works, and its row says its facts aren't loaded.
+    await until(
+      () => view(sink)?.agents?.working[0]?.step.includes("not loaded") === true,
+      "kid refused",
+    );
+    expect(view(sink)?.now.lead).toBe("Working");
     other.release();
-    await until(() => view(sink)?.now.lead === "Working", "kid read once room freed");
+    await until(() => kidRead(), "kid read once room freed");
     // The person opens two threads: kid gives its room way, then gets it back when they close.
     const x = client.thread("x");
     const y = client.thread("y");
-    await until(() => view(sink)?.now.lead === "Syncing", "kid gave way");
+    await until(() => !kidRead(), "kid gave way");
     y.release();
     x.release();
-    await until(() => view(sink)?.now.lead === "Working", "kid read again");
+    await until(() => kidRead(), "kid read again");
   });
 
   test("closing the page stops the summary and lets every delegated thread go", async () => {

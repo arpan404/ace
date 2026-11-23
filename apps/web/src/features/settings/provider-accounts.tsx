@@ -13,13 +13,7 @@ import { useRef, useState } from "react";
 import { formatResets } from "@/features/accounts/index.ts";
 import { accountLimit } from "@ace/ui-core";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import {
-  SettingList,
-  SettingListItem,
-  SettingNote,
-  SettingSection,
-} from "@/components/setting-row.tsx";
+import { SettingList, SettingNote, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -34,8 +28,8 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/compo
 import { useToast } from "@/components/ui/toast.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useNow } from "@/lib/time.ts";
-import { cn } from "@/lib/cn.ts";
-import { part, type SuitPartState } from "@/lib/suit-part.ts";
+import { part } from "@/lib/suit-part.ts";
+import { AccountRowFrame, AccountStateWords } from "./account-row.tsx";
 import { AccountWindows } from "./account-windows.tsx";
 import { accountFix, accountSignInTarget, agentProvider } from "./provider-problem.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
@@ -107,17 +101,6 @@ export function ProviderAccounts(props: {
   );
 }
 
-/** An account row's `data-state` for Suits: waiting when it needs the person, failed on a problem. */
-const accountRowState = {
-  ready: undefined,
-  action: "waiting",
-  problem: "failed",
-  idle: "disabled",
-} as const satisfies Record<keyof typeof toneOf, SuitPartState | undefined>;
-
-/** A status in its tone's colour, words only: an account's sub line. */
-const toneOf = { ready: "done", action: "needs-you", problem: "failed", idle: "idle" } as const;
-
 function AccountItem(props: {
   account: AccountView;
   provider: ProviderKind;
@@ -162,22 +145,13 @@ function AccountItem(props: {
       : undefined;
   const home = account.implicit ? account.cliHome : undefined;
   return (
-    // A new account's link (#account-<id>) scrolls to its row and flashes it.
-    <SettingListItem
-      id={`account-${account.id}`}
-      tabIndex={-1}
-      {...part("list-row", accountRowState[state.tone], "account")}
-      className="flex-wrap gap-x-3 gap-y-2 py-2 focus-ring-inset"
-    >
-      <AccountBadge account={account} tooltip={false} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="flex min-w-0 items-center gap-2">
-          <Tip label={label}>
-            {/* oxlint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- focusable so its tooltip reaches the keyboard */}
-            <span tabIndex={0} className="truncate rounded-xs font-medium focus-ring">
-              {label}
-            </span>
-          </Tip>
+    <AccountRowFrame
+      id={account.id}
+      tone={state.tone}
+      badge={<AccountBadge account={account} tooltip={false} />}
+      label={label}
+      marks={
+        <>
           <AccountKeyMark method={account.authMethod} />
           {account.isDefault && (
             <span
@@ -192,107 +166,104 @@ function AccountItem(props: {
               {antigravitySignInLabel(account.antigravitySignIn)}
             </span>
           )}
-        </span>
-        {(words || home) && (
-          <span className="flex min-w-0 items-baseline gap-1 text-xs text-subtle-foreground">
-            {words && (
-              <span
-                data-tone={toneOf[state.tone]}
-                className={cn("shrink-0", state.tone !== "ready" && "text-(--tone-text)")}
-              >
-                {words}
-              </span>
-            )}
+        </>
+      }
+      sub={
+        (words || home) && (
+          <>
+            {words && <AccountStateWords tone={state.tone}>{words}</AccountStateWords>}
             {words && home && <span aria-hidden>·</span>}
             {home && (
               <span className="min-w-0 truncate" title={home}>
                 {home}
               </span>
             )}
-          </span>
-        )}
-      </div>
-      {/* On a narrow screen the usage and actions wrap under the name. */}
-      <div className="ml-auto flex items-center justify-end gap-2 @max-[34rem]:w-full @max-[34rem]:pl-8">
-        {windows.length > 0 && <AccountWindows windows={windows} now={now} />}
-        {signIn && props.manageable && fix ? (
-          <Button size="sm" variant="secondary" onClick={() => signIn(target)}>
-            {fix === "sign_in" ? "Sign in" : "Reconnect"}
-          </Button>
-        ) : null}
-        {showDefault && (
-          <Button size="sm" variant="ghost" onClick={makeDefault}>
-            Make default
-          </Button>
-        )}
-        {signIn && props.manageable ? (
-          <Menu>
-            <MenuTrigger
-              render={
-                <IconButton
-                  ref={menuTrigger}
-                  icon={DotsThreeIcon}
-                  label={`Manage ${label}`}
-                  size="sm"
-                  onPointerEnter={() => void preloadSignIn()}
-                />
-              }
-            />
-            <MenuContent align="end" finalFocus={renaming ? false : undefined}>
-              <MenuItem onClick={() => signIn(target)}>Sign in again</MenuItem>
-              {support.data?.supported &&
-                (provider === "opencode" ? (
-                  (support.data.upstreams ?? []).flatMap((upstream) => {
-                    const parsed = ApiKeyUpstream.safeParse(upstream);
-                    return parsed.success
-                      ? [
-                          <MenuItem
-                            key={upstream}
-                            onClick={() =>
-                              keyLogin.start({
-                                provider,
-                                ...(account.implicit ? {} : { instance: account.id }),
-                                method: "api_key",
-                                upstream: parsed.data,
-                              })
-                            }
-                          >
-                            Use {apiKeyUpstreamLabel(parsed.data)} API key
-                          </MenuItem>,
-                        ]
-                      : [];
-                  })
-                ) : (
-                  <MenuItem
-                    onClick={() =>
-                      keyLogin.start({
-                        provider,
-                        ...(account.implicit ? {} : { instance: account.id }),
-                        method: "api_key",
-                      })
-                    }
-                  >
-                    Use API key
+          </>
+        )
+      }
+      right={
+        <>
+          {windows.length > 0 && <AccountWindows windows={windows} now={now} />}
+          {signIn && props.manageable && fix ? (
+            <Button size="sm" variant="secondary" onClick={() => signIn(target)}>
+              {fix === "sign_in" ? "Sign in" : "Reconnect"}
+            </Button>
+          ) : null}
+          {showDefault && (
+            <Button size="sm" variant="ghost" onClick={makeDefault}>
+              Make default
+            </Button>
+          )}
+          {signIn && props.manageable ? (
+            <Menu>
+              <MenuTrigger
+                render={
+                  <IconButton
+                    ref={menuTrigger}
+                    icon={DotsThreeIcon}
+                    label={`Manage ${label}`}
+                    size="sm"
+                    onPointerEnter={() => void preloadSignIn()}
+                  />
+                }
+              />
+              <MenuContent align="end" finalFocus={renaming ? false : undefined}>
+                <MenuItem onClick={() => signIn(target)}>Sign in again</MenuItem>
+                {support.data?.supported &&
+                  (provider === "opencode" ? (
+                    (support.data.upstreams ?? []).flatMap((upstream) => {
+                      const parsed = ApiKeyUpstream.safeParse(upstream);
+                      return parsed.success
+                        ? [
+                            <MenuItem
+                              key={upstream}
+                              onClick={() =>
+                                keyLogin.start({
+                                  provider,
+                                  ...(account.implicit ? {} : { instance: account.id }),
+                                  method: "api_key",
+                                  upstream: parsed.data,
+                                })
+                              }
+                            >
+                              Use {apiKeyUpstreamLabel(parsed.data)} API key
+                            </MenuItem>,
+                          ]
+                        : [];
+                    })
+                  ) : (
+                    <MenuItem
+                      onClick={() =>
+                        keyLogin.start({
+                          provider,
+                          ...(account.implicit ? {} : { instance: account.id }),
+                          method: "api_key",
+                        })
+                      }
+                    >
+                      Use API key
+                    </MenuItem>
+                  ))}
+                <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
+                <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
+                {!account.isDefault && native && (
+                  <MenuItem onClick={makeDefault}>Make default</MenuItem>
+                )}
+                <MenuSeparator />
+                <MenuItem onClick={() => signIn({ ...target, action: "logout" })}>Log out</MenuItem>
+                {removable && (
+                  <MenuItem danger onClick={() => setRemoving(true)}>
+                    Remove account…
                   </MenuItem>
-                ))}
-              <MenuItem onClick={() => setRenaming(true)}>Rename</MenuItem>
-              <MenuItem onClick={() => setRenaming(true)}>Change badge</MenuItem>
-              {!account.isDefault && native && (
-                <MenuItem onClick={makeDefault}>Make default</MenuItem>
-              )}
-              <MenuSeparator />
-              <MenuItem onClick={() => signIn({ ...target, action: "logout" })}>Log out</MenuItem>
-              {removable && (
-                <MenuItem danger onClick={() => setRemoving(true)}>
-                  Remove account…
-                </MenuItem>
-              )}
-            </MenuContent>
-          </Menu>
-        ) : (
-          <span aria-hidden className="size-6 shrink-0" />
-        )}
-      </div>
+                )}
+              </MenuContent>
+            </Menu>
+          ) : (
+            <span aria-hidden className="size-6 shrink-0" />
+          )}
+        </>
+      }
+    >
       {renaming && (
         <AccountLabelEditor
           account={account}
@@ -318,7 +289,7 @@ function AccountItem(props: {
             actions.remove(native, account.id).catch(fail(`Couldn't remove ${account.label}`));
         }}
       />
-    </SettingListItem>
+    </AccountRowFrame>
   );
 }
 

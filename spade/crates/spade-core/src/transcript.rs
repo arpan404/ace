@@ -117,6 +117,16 @@ impl Transcript {
                     outcome: Outcome::Finished,
                 })
             }
+            // A lane's question, asked in main too (ADR 0217 §4): main reads waiting until it is
+            // answered or the lane moves on; main's own turn never waits on it.
+            Known::QuestionAsked {
+                call_id,
+                lane: Some(lane),
+                ..
+            } => {
+                self.helper_awaiting
+                    .push((call_id.clone(), lane.task.clone()));
+            }
             Known::QuestionAsked { call_id, .. } => {
                 self.paused = false;
                 // A call that stopped to ask the person (a sign-in to reconnect) runs no longer.
@@ -140,12 +150,15 @@ impl Transcript {
                 call_id,
                 late: false,
             } => {
+                self.helper_awaiting.retain(|(id, _)| id != call_id);
                 for question in self.questions.iter_mut().filter(|q| &q.call_id == call_id) {
                     question.answered = true;
                 }
             }
-            Known::QuestionAnswered { late: true, .. }
-            | Known::QuestionDismissed { late: true, .. } => {}
+            Known::QuestionAnswered { call_id, late: true, .. }
+            | Known::QuestionDismissed { call_id, late: true } => {
+                self.helper_awaiting.retain(|(id, _)| id != call_id);
+            }
             Known::ReplyStarted { reply, .. } => {
                 self.stopping = false;
                 self.paused = false;
@@ -213,6 +226,27 @@ impl Transcript {
                     .push((call_id.clone(), helper.job.clone()));
                 self.asked.push((call_id.clone(), name.clone()));
             }
+            // A lane's call (ADR 0217 §4), asked here too: it waits until answered or the lane
+            // reports it no longer needs the person.
+            Known::ApprovalRequested {
+                call_id,
+                name,
+                lane: Some(lane),
+                ..
+            } => {
+                self.helper_awaiting
+                    .push((call_id.clone(), lane.task.clone()));
+                self.asked.push((call_id.clone(), name.clone()));
+            }
+            Known::LaneRequestsClosed(closed) => {
+                self.helper_awaiting.retain(|(id, _)| !closed.calls.contains(id));
+            }
+            Known::WorkerReported(report)
+                if report.kind == crate::tree::Kind::Lane
+                    && report.state != crate::tree::ReportState::NeedsYou =>
+            {
+                self.helper_awaiting.retain(|(_, lane)| lane != &report.worker);
+            }
             Known::ApprovalRequested { call_id, name, .. } => {
                 self.paused = false;
                 if !self.stopping {
@@ -243,6 +277,16 @@ impl Transcript {
             Known::JobStarted { job, .. } => {
                 self.paused = false;
                 self.jobs.push(job.clone());
+            }
+            // The work moved to a lane (ADR 0217 §2a): its jobs are the lane's, and a helper's
+            // request waits until answered or the lane moves on.
+            Known::ReplyMoved(moved) => {
+                self.jobs.retain(|id| !moved.jobs.contains(id));
+                for (_, owner) in self.helper_awaiting.iter_mut() {
+                    if moved.jobs.contains(owner) {
+                        owner.clone_from(&moved.lane);
+                    }
+                }
             }
             Known::JobFinished { job, .. } => {
                 self.jobs.retain(|id| id != job);
@@ -327,6 +371,13 @@ impl Transcript {
             | Known::WorkerStarted(_)
             | Known::WorkerReported(_)
             | Known::WorkerDetached { .. }
+            | Known::LaneOf(_)
+            | Known::LaneStarted(_)
+            | Known::AskRouted(_)
+            | Known::LaneTitled(_)
+            | Known::LanesOverlapped(_)
+            | Known::LaneMessage(_)
+            | Known::LaneMessaged(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)
@@ -563,6 +614,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -591,6 +643,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -629,6 +682,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step_with("r1", vec![call("c1")]),
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "c1".into(),
                 name: "send_email".into(),
@@ -919,6 +973,7 @@ mod tests {
             Event::reply_started("r1", "m"),
             step,
             Event::Known(Known::QuestionAsked {
+                lane: None,
                 reply: "r1".into(),
                 call_id: "q1".into(),
                 question: "Window or aisle?".into(),
@@ -947,6 +1002,7 @@ mod tests {
     fn a_helpers_approval_keeps_the_bot_waiting_after_its_reply_and_ends_with_the_helper() {
         let asked = |call_id: &str| {
             Event::Known(Known::ApprovalRequested {
+                lane: None,
                 reply: "r1".into(),
                 call_id: call_id.into(),
                 name: "workspace_write".into(),

@@ -107,6 +107,7 @@ final class NativeHost: @unchecked Sendable {
         if operation == "loopback.listen" { listenLoopback(request.input, callback: callback); return }
         if operation == "credential", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.current() }; return }
         if operation == "credential.fresh", let grants = target?.relay?.grants { accountGrant(grants, callback: callback) { try await $0.fresh() }; return }
+        if operation == "member.standing" { memberStanding(request.input, callback: callback); return }
         if operation.hasPrefix("snapshot.") { snapshot(request, callback: callback); return }
         storageQueue.async { [self] in
             let result: Result<String, Error> = Result {
@@ -142,6 +143,29 @@ final class NativeHost: @unchecked Sendable {
             do {
                 let token = try await read(grants)
                 let json = try JSONEncoder().encode(["grant": token])
+                result = .success(String(decoding: json, as: UTF8.self))
+            } catch { result = .failure(error) }
+            reply(result, to: callback)
+        }
+    }
+    /// An organization's host's challenge on this socket (`{"host", "nonce", "binding"}`), proved
+    /// as the member (ADR 0206 §2.2): `{"grant", "proof"}` with this route's own member grant and
+    /// the phone's key for the host signing `standingProofText`. The script names only the
+    /// challenge its socket was given; the grant, the key and the text are this side's. Fails on a
+    /// machine that isn't reached as an organization's host.
+    private func memberStanding(_ input: Data, callback: Callback) {
+        struct Challenge: Decodable { let host: String; let nonce: String; let binding: String? }
+        guard let route = target?.relay, let member = route.member,
+              let challenge = try? JSONDecoder().decode(Challenge.self, from: input) else {
+            reply(.failure(HostError.unsupported), to: callback); return
+        }
+        Task { [self] in
+            let result: Result<String, Error>
+            do {
+                let grant = try await route.grants.current()
+                let proof = try member.keys.proof(host: challenge.host, nonce: challenge.nonce, binding: challenge.binding,
+                                                  grant: grant, hostId: route.hostId)
+                let json = try JSONEncoder().encode(["grant": grant, "proof": proof])
                 result = .success(String(decoding: json, as: UTF8.self))
             } catch { result = .failure(error) }
             reply(result, to: callback)

@@ -14,6 +14,7 @@ pub mod home;
 pub mod images;
 pub mod learning;
 pub mod local_models;
+pub mod logging;
 pub mod media;
 pub mod org;
 pub mod outside;

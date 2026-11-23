@@ -1,15 +1,11 @@
 import SwiftUI
 
-/// The files on the next message, in one row above the words: a picture or video as a small
-/// thumbnail of its staged bytes (a video with its length; tap to view or play it full screen),
-/// any other file, or one the bridge refused, as a chip with its name and why. Each shows its
-/// upload as a line on its bottom edge (`UploadLine`) and has Remove; under them, while Send
-/// waits for the files, the line saying so (`AttachmentUploads`).
+/// Files on the next message, with previews, upload progress and removal in one row.
 struct ComposerMediaStrip: View {
     let files: [AttachmentFile]
     /// Where the picked bytes were staged (`AttachMenu.staging`).
     var staging = AttachmentStaging()
-    /// Space before the first file and after the last.
+    /// Space from the composer's edge to the field's text.
     var inset: CGFloat = AceTheme.Spacing.none
     let remove: (String) -> Void
     /// Uploads a failed file again; nil offers no Retry.
@@ -20,37 +16,26 @@ struct ComposerMediaStrip: View {
     @State private var carriedViewing: AttachmentFile?
     @Environment(\.messageAttachments) private var stored
     var body: some View {
-        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            strip
-            if let waits = AttachmentUploads.line(files) {
-                Text(waits).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.mutedForeground)
-                    .padding(.horizontal, inset)
-                    .accessibilityIdentifier("composer.uploadsWait")
-            }
-        }
-    }
-    private var strip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            // Spaced and padded so each thumbnail's Remove target, which reaches past its corner,
-            // stays inside the row and clear of the next file.
-            HStack(spacing: ComposerMediaThumb.reach + AceDesign.Space.tight) {
+            HStack(spacing: AceDesign.Space.tight) {
                 ForEach(files) { file in
-                    if let carried = file.carried, file.kind == "image", carried.thumbnail, stored != nil {
-                        ComposerMediaThumb(file: file, source: .carried(carried)) { carriedViewing = file } remove: { remove(file.id) }
-                            .transition(.opacity)
-                    } else if file.kind == "image" || file.kind == "video", file.state != "failed", let url = staging.file(file.id) {
-                        ComposerMediaThumb(file: file, source: .staged(url)) { viewing = StagedMedia(file: file, url: url) } remove: { remove(file.id) }
-                    } else {
+                    if file.state == "failed" {
                         AttachmentChip(file: file, remove: { remove(file.id) }, retry: retry.map { retry in { retry(file.id) } },
-                                       asText: asText.flatMap { asText in ComposerIntake.restorable(file, in: staging) ? { asText(file.id) } : nil },
-                                       staysAttached: asText == nil ? nil : ComposerIntake.staysAttached(file, in: staging))
+                                       asText: restore(file), staysAttached: pasteLimit(file))
+                    } else if let carried = file.carried, file.kind == "image", carried.thumbnail, stored != nil {
+                        ComposerMediaTile(file: file, source: .carried(carried), open: { carriedViewing = file }, remove: { remove(file.id) })
+                    } else if file.kind == "image" || file.kind == "video", let url = staging.file(file.id) {
+                        ComposerMediaTile(file: file, source: .staged(url), open: { viewing = StagedMedia(file: file, url: url) }, remove: { remove(file.id) })
+                    } else {
+                        ComposerMediaTile(file: file, remove: { remove(file.id) }, asText: restore(file), staysAttached: pasteLimit(file))
                     }
                 }
             }
-            .padding(.horizontal, inset)
-            .padding(.top, ComposerMediaThumb.reach).padding(.trailing, ComposerMediaThumb.reach)
+            .padding(.leading, inset)
+            .padding(.trailing, AceDesign.Space.margin)
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
         .fullScreenCover(item: $carriedViewing) { file in
             MediaViewer(title: file.name) {
                 guard let carried = file.carried else { return nil }
@@ -64,6 +49,15 @@ struct ComposerMediaStrip: View {
                 MediaViewer(title: media.name) { await MediaViewer.image(at: media.url) }
             }
         }
+    }
+
+    private func restore(_ file: AttachmentFile) -> (() -> Void)? {
+        guard let asText, ComposerIntake.restorable(file, in: staging) else { return nil }
+        return { asText(file.id) }
+    }
+
+    private func pasteLimit(_ file: AttachmentFile) -> String? {
+        asText == nil ? nil : ComposerIntake.staysAttached(file, in: staging)
     }
 }
 
@@ -80,21 +74,17 @@ private struct StagedMedia: Identifiable {
     }
 }
 
-/// A staged picture or video, square and rounded, decoded off the main thread at the size it is
-/// drawn (a picture one at a time, a video's first frame with its length). One the phone can't
-/// decode (SVG, PSD, a broken file) shows as a chip.
-private struct ComposerMediaThumb: View {
-    /// Where the picture comes from: a file staged on the phone, or one the thread already stores.
+/// A fixed-size preview, with a file icon and name when no thumbnail is available.
+private struct ComposerMediaTile: View {
     enum Source: Equatable { case staged(URL), carried(AttachmentFile.Carried) }
     let file: AttachmentFile
-    let source: Source
-    let open: () -> Void
+    var source: Source? = nil
+    var open: (() -> Void)? = nil
     let remove: () -> Void
-    static let side: CGFloat = 56
-    /// Remove answers a 44pt square over the thumbnail's top-right corner that reaches `reach`
-    /// past it, so it never covers the middle, where a tap opens the picture.
-    static let target: CGFloat = 44
-    static let reach: CGFloat = 20
+    var asText: (() -> Void)? = nil
+    var staysAttached: String? = nil
+    private let side = AceDesign.Size.attachmentTile
+    private let reach = AceDesign.Space.related
     @Environment(\.displayScale) private var scale
     @Environment(\.messageAttachments) private var stored
     @State private var image: UIImage?
@@ -103,75 +93,104 @@ private struct ComposerMediaThumb: View {
     @State private var finishing = false
     private var video: Bool { file.kind == "video" }
     var body: some View {
-        if unreadable { AttachmentChip(file: file, remove: remove) } else { thumb }
-    }
-    private var thumb: some View {
-        Button(action: open) {
-            ZStack(alignment: .bottom) {
-                AceTheme.Colours.fill
-                if let image {
-                    Image(uiImage: image).resizable().scaledToFill()
-                        .frame(width: Self.side, height: Self.side).clipped()
-                }
-                if let length {
-                    Text(length).aceFont(AceTheme.Typography.caption, relativeTo: .caption2).monospacedDigit()
-                        .foregroundStyle(AceDesign.Ink.onMedia)
-                        .shadow(color: AceDesign.Ink.onMediaShadow, radius: AceDesign.Ink.onMediaShadowRadius)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                        .padding(AceDesign.Space.tight)
-                }
-                if finishing {
-                    AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .caption)
-                        .foregroundStyle(AceDesign.Ink.onMedia)
-                        .frame(width: AceDesign.Size.badge, height: AceDesign.Size.badge)
-                        .background(AceTheme.RowStatus.working, in: Circle())
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity)
-                }
-                UploadLine(state: file.state, progress: file.progress, finishing: finishing)
+        Group {
+            if let open, !unreadable {
+                Button(action: open) { preview.contentShape(AceDesign.Shape.attachment) }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(video ? "Plays it full screen" : "Opens it full screen")
+                    .accessibilityIdentifier("composer.media")
+            } else {
+                preview
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("composer.attachment")
+                    .contextMenu {
+                        if let asText { Button("Paste as Text", ace: .textAlignLeft, action: asText) }
+                        if let staysAttached { Text(staysAttached) }
+                        if asText != nil || staysAttached != nil {
+                            Button("Remove", ace: .x, role: .destructive, action: remove)
+                        }
+                    }
+                    .accessibilityHint(staysAttached ?? "")
+                    .accessibilityActions {
+                        if let asText { Button("Paste as Text", action: asText) }
+                    }
             }
-            .frame(width: Self.side, height: Self.side)
-            .clipShape(AceDesign.Shape.block)
-            .uploadFinishing(file.state, $finishing)
-            .contentShape(AceDesign.Shape.block)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel([file.name, length.map { "video, \($0)" }, file.state == "uploading" ? "uploading" : nil].compactMap { $0 }.joined(separator: ", "))
-        .accessibilityHint(video ? "Plays it full screen" : "Opens it full screen")
-        .accessibilityAddTraits(.isImage)
-        .accessibilityIdentifier("composer.media")
+        .accessibilityLabel([file.name, length].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityValue(file.state == "uploading" ? "Uploading" : "")
+        .padding(.top, reach)
+        .padding(.trailing, reach)
         .overlay(alignment: .topTrailing) {
             Button(action: remove) {
                 AceIcon(.x, size: AceDesign.Size.glyphSmall, relativeTo: .caption2)
                     .foregroundStyle(AceTheme.Colours.foreground)
                     .frame(width: AceDesign.Size.badge, height: AceDesign.Size.badge)
                     .background(AceDesign.Surface.veil, in: Circle())
-                    // The X sits inside the thumbnail's corner, at the target's lower left.
-                    .padding(.leading, AceDesign.Space.tight).padding(.bottom, AceDesign.Space.tight)
-                    .frame(width: Self.target, height: Self.target, alignment: .bottomLeading)
+                    .padding(.top, reach + AceDesign.Space.tight)
+                    .padding(.trailing, reach + AceDesign.Space.tight)
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap, alignment: .topTrailing)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .offset(x: Self.reach, y: -Self.reach)
             .accessibilityLabel("Remove \(file.name)")
             .accessibilityIdentifier("composer.media.remove")
         }
+        .uploadFinishing(file.state, $finishing)
         .task(id: source) {
-            guard case .staged(let url) = source else {
-                if case .carried(let carried) = source {
-                    image = await stored?.thumbnail(carried.itemId, carried.ref, Self.side * scale)
+            switch source {
+            case .carried(let carried):
+                image = await stored?.thumbnail(carried.itemId, carried.ref, side * scale)
+                unreadable = image == nil
+            case .staged(let url):
+                if video {
+                    let frame = await VideoPreview.frame(url, mimeType: file.mimeType ?? "video/quicktime", pixels: side * scale)
+                    image = frame.image
+                    length = frame.seconds.map(VideoPreview.length)
+                    unreadable = frame.image == nil && frame.seconds == nil
+                } else {
+                    image = await PreviewDecoder.shared.preview(at: url, pixels: side * scale)
                     unreadable = image == nil
                 }
-                return
+            case nil:
+                break
             }
-            if video {
-                let frame = await VideoPreview.frame(url, mimeType: file.mimeType ?? "video/quicktime", pixels: Self.side * scale)
-                image = frame.image
-                length = frame.seconds.map(VideoPreview.length)
-                unreadable = frame.image == nil && frame.seconds == nil
+        }
+    }
+
+    private var preview: some View {
+        ZStack {
+            AceTheme.Colours.fill
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+                    .frame(width: side, height: side).clipped()
             } else {
-                image = await PreviewDecoder.shared.preview(at: url, pixels: Self.side * scale)
-                unreadable = image == nil
+                VStack(spacing: AceDesign.Space.tight) {
+                    AceIcon(video ? .playCircle : file.kind == "image" ? .image : .file,
+                            size: AceDesign.Size.glyphMeta, relativeTo: .caption2)
+                    Text(file.name).lineLimit(1).truncationMode(.middle)
+                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption2)
+                }
+                .foregroundStyle(AceTheme.Colours.foreground)
+                .padding(.horizontal, AceDesign.Space.tight)
+            }
+            if let length {
+                Text(length).aceFont(AceTheme.Typography.caption, relativeTo: .caption2).monospacedDigit()
+                    .foregroundStyle(AceDesign.Ink.onMedia)
+                    .shadow(color: AceDesign.Ink.onMediaShadow, radius: AceDesign.Ink.onMediaShadowRadius)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(AceDesign.Space.tight)
+            }
+        }
+        .frame(width: side, height: side)
+        .clipShape(AceDesign.Shape.attachment)
+        .overlay(alignment: .bottom) {
+            if file.state == "uploading" || finishing {
+                UploadLine(state: file.state, progress: file.progress, finishing: finishing)
+                    .background(AceDesign.Surface.veil)
+                    .clipShape(AceDesign.Shape.control)
+                    .padding(.horizontal, AceDesign.Space.related)
+                    .padding(.bottom, AceDesign.Space.tight)
+                    .allowsHitTesting(false)
             }
         }
     }

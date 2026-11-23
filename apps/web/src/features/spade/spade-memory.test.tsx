@@ -199,7 +199,7 @@ test("suggested notes wait under Suggested: Keep moves one into the notes, Dismi
   expect(spade.notes.notes.some((note) => note.suggested)).toBe(false);
 });
 
-test("a question from the bot shows as its bubble, and its row says it asked you", async () => {
+test("a question from the bot shows as its bubble, and its row says it needs you", async () => {
   await spadeApp("/spade/travel", (api) => {
     const travel = withTravel(api);
     api.question(travel, "q1", "Which airport do you fly from?");
@@ -209,5 +209,5 @@ test("a question from the bot shows as its bubble, and its row says it asked you
   expect(bubble.textContent).toContain("Which airport do you fly from?");
   // It waits on the person: no working line says so again under the question.
   expect(chat.queryByRole("status")).toBeNull();
-  expect((await botRow("Travel")).textContent).toMatch(/Asked you a question$/);
+  expect((await botRow("Travel")).textContent).toMatch(/Needs you$/);
 });

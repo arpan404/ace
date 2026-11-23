@@ -12,7 +12,7 @@ export function orgRoutes(rest: readonly string[]): Methods | undefined {
   if (rest.length === 2)
     switch (first) {
       case "registry":
-        return post({ kind: "org-registry", org });
+        return { GET: { kind: "org-registry-admin", org }, POST: { kind: "org-registry", org } };
       case "keys":
         return { GET: { kind: "org-keys", org }, POST: { kind: "org-key-add", org } };
       case "entries":
@@ -26,6 +26,10 @@ export function orgRoutes(rest: readonly string[]): Methods | undefined {
     if (rest.length === 4) {
       const entry = entryKey(a, b);
       return entry ? get({ kind: "org-entry", org, ...entry }) : undefined;
+    }
+    if (rest.length === 6) {
+      const key = d === "withdraw" ? versionKey(a, b, c) : undefined;
+      return key ? post({ kind: "org-version-withdraw", org, ...key }) : undefined;
     }
     const key = rest.length === 5 ? versionKey(a, b, c) : undefined;
     return key ? get({ kind: "org-version", org, ...key }) : undefined;

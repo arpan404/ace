@@ -2,7 +2,7 @@ import Foundation
 
 /// The bridge's Fleet map (`fleetMap.combine` in `bridge/fleet-map.ts`): every machine and
 /// device with its state, how it's reached, its problem and the fixes, and each machine's reach
-/// rows. Every word and decision arrives ready; Swift draws the rows and runs the actions.
+/// rows. Every word and decision arrives ready; Swift draws the picture and rows, and runs the actions.
 struct FleetMapReply: Decodable, Equatable {
     struct Line: Decodable, Equatable, Hashable { let label: String; let value: String }
     struct Problem: Decodable, Equatable { let what: String; let why: String }
@@ -42,6 +42,7 @@ struct FleetMapReply: Decodable, Equatable {
     let problems: Int
     let rows: [Row]
     let reach: [Reach]
+    let picture: FleetPicture?
 
     var machines: [Row] { rows.filter { $0.kind == "machine" } }
     var devices: [Row] { rows.filter { $0.kind == "device" } }
@@ -58,4 +59,55 @@ struct FleetMapReply: Decodable, Equatable {
         default: .laptop
         }
     }
+}
+
+// Coordinates are in the shared layout's own space. Swift fits the whole picture to the row.
+struct FleetPicture: Decodable, Equatable {
+    struct Point: Decodable, Equatable {
+        let x: CGFloat
+        let y: CGFloat
+        var cg: CGPoint { CGPoint(x: x, y: y) }
+    }
+    struct Node: Decodable, Equatable, Identifiable {
+        let id: String
+        let x: CGFloat
+        let y: CGFloat
+        let mark: String
+        let label: String
+        let status: String
+        let token: String
+    }
+    struct Box: Decodable, Equatable {
+        let x: CGFloat
+        let y: CGFloat
+        let width: CGFloat
+        let height: CGFloat
+        var rect: CGRect { CGRect(x: x, y: y, width: width, height: height) }
+    }
+    struct Zone: Decodable, Equatable {
+        struct Label: Decodable, Equatable {
+            let x: CGFloat
+            let y: CGFloat
+            let anchor: String
+        }
+        let box: Box
+        let label: Label
+        let name: String
+    }
+    struct Wire: Decodable, Equatable {
+        let kind: String
+        let relayed: Bool
+        let points: [Point]
+    }
+    struct Cloud: Decodable, Equatable {
+        let x: CGFloat
+        let y: CGFloat
+        let label: String
+    }
+    let width: CGFloat
+    let height: CGFloat
+    let nodes: [Node]
+    let zones: [Zone]
+    let wires: [Wire]
+    let cloud: Cloud?
 }

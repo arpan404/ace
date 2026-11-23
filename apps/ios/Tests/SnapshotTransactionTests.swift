@@ -63,7 +63,7 @@ import Testing
         #expect(!shown.requiresSnapshot)
     }
 
-    @Test func newerBeginCancelsOlderStaging() throws {
+    @Test func newerWarmBeginKeepsStagedRowsAndSupersedesTheOlderFence() throws {
         let model = ClientModel(now: { 0 })
         model.open("thread")
         let epoch = try #require(model.thread?.epoch)
@@ -75,14 +75,15 @@ import Testing
         let shown = try #require(model.thread)
         model.receive(try frame([["type": "thread.snapshot.begin", "threadId": "thread", "epoch": epoch, "revision": 2]]))
         model.receive(try frame([item("b", thread: "thread", epoch: epoch, index: 0)]))
-        // A newer snapshot supersedes the old one before it commits.
+        // The bridge has already sent b, so the next pass only sends c and the removal.
         model.receive(try frame([["type": "thread.snapshot.begin", "threadId": "thread", "epoch": epoch, "revision": 3]]))
-        model.receive(try frame([item("c", thread: "thread", epoch: epoch, index: 0)]))
+        model.receive(try frame([item("c", thread: "thread", epoch: epoch, index: 1)]))
         model.receive(try frame([["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": "a", "row": NSNull()]]))
         model.receive(try frame([["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 1, "revision": 2]]))
         #expect(shown.order == ["a"], "old fence cannot commit superseded staging")
-        model.receive(try frame([["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 1, "revision": 3]]))
-        #expect(shown.order == ["c"])
+        model.receive(try frame([["type": "thread.ready", "threadId": "thread", "epoch": epoch, "count": 2, "revision": 3]]))
+        #expect(shown.order == ["b", "c"])
+        #expect(!shown.requiresSnapshot)
     }
 
     @Test func stagingNeverShowsStaleDone() throws {

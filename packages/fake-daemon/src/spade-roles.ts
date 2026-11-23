@@ -9,11 +9,12 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 type Json = Record<string, unknown>;
 type Roles = Record<string, string | null>;
 
-export const fakeRoleNames = ["helper", "verify", "review", "compact", "title"] as const;
+export const fakeRoleNames = ["task", "helper", "verify", "review", "compact", "title"] as const;
 
 /** How hard each role thinks with nothing set (ADR 0213), and the words an effort takes. */
 export const fakeEffortDefaults: Record<string, string> = {
   main: "medium",
+  task: "medium",
   helper: "low",
   verify: "medium",
   review: "medium",
@@ -112,17 +113,22 @@ export class FakeSpadeRoles {
 
   agentView(agent: string, own: string, fast: string | null) {
     const bot = this.bots.get(agent) ?? { roles: empty(), escalate: null, efforts: {} };
-    const effortOf = (role: string) =>
+    const effortOf = (role: string): { effort: string | undefined; effort_source: string } =>
       bot.efforts[role]
         ? { effort: bot.efforts[role], effort_source: "bot" }
         : this.globalEfforts[role]
           ? { effort: this.globalEfforts[role], effort_source: "global" }
-          : { effort: fakeEffortDefaults[role], effort_source: "default" };
+          : // A task's effort follows main's until it has its own (ADR 0217 §8a).
+            role === "task"
+            ? { ...effortOf("main"), effort_source: "default" }
+            : { effort: fakeEffortDefaults[role], effort_source: "default" };
     const month = this.spend.get(agent) ?? {};
     const roles = [
       { role: "main", model: own, source: "own", ...effortOf("main") },
       ...fakeRoleNames.map((role) => {
-        const fallback = role === "verify" ? (this.strongest ?? fast) : fast;
+        // Tasks run on the bot's own model until set (ADR 0217 §8a).
+        const fallback =
+          role === "verify" ? (this.strongest ?? fast) : role === "task" ? own : fast;
         const [model, source] = bot.roles[role]
           ? [bot.roles[role], "bot"]
           : this.global[role]

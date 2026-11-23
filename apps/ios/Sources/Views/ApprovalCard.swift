@@ -137,17 +137,21 @@ struct ApprovalCard: View {
 /// lines.
 struct CommandBlock: View {
     let command: String
+    @State private var contentHeight = AceDesign.Size.tap * 3
     var body: some View {
         ScrollView(.vertical) {
             (Text("$ ").foregroundStyle(AceTheme.Colours.subtleForeground) + Text(command).foregroundStyle(AceTheme.Colours.foreground))
                 .aceMonospace(AceTheme.Typography.code, relativeTo: .footnote)
                 .textSelection(.enabled)
+                .lineLimit(nil)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, AceDesign.Space.row).padding(.vertical, AceDesign.Space.row)
+                .padding(AceDesign.Space.row)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
         }
         .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: AceDesign.Size.tap * 3)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(height: min(contentHeight, AceDesign.Size.tap * 3))
+        .clipped()
         .requestInset()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Command")

@@ -18,15 +18,13 @@ export {
   useSetPolicy,
 } from "./use-org.ts";
 export { EnrollRefused, enrollThisMachine } from "./enroll-host.ts";
+export { effectLock, type PolicyEffect } from "./policy-words.ts";
 export {
-  allowEntries,
-  allowText,
-  blockEntries,
-  blockText,
-  effectLock,
-  lines,
+  policyDraft,
+  policyFromDraft,
+  readAuditLines,
   readPolicy,
-  type PolicyEffect,
-} from "./policy-words.ts";
+  type AuditRow,
+  type PolicyDraft,
+} from "@ace/ui-core/org";
 export { approverLine } from "@ace/ui-core/spade-chat";
-export { readAuditLines, type AuditRow } from "./audit-lines.ts";

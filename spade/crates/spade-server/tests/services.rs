@@ -320,6 +320,175 @@ async fn only_a_service_marked_keep_starts_again_after_a_restart() -> Result {
 }
 
 #[tokio::test]
+async fn the_person_starts_a_stopped_service_again_as_it_started_once() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start_on(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "echo $$ >> pids.txt; exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("").call(
+                "s2",
+                "service_start",
+                json!({ "name": "s_web", "command": "exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Started."),
+            title(),
+        ],
+        Options {
+            ids: Some(Arc::new(KnownServiceId::default())),
+            ..options(&workspaces, Reviewer::Fake)
+        },
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Start it").await?;
+    let start_web = format!("/v1/agents/{}/services/s_web/start", bot.id);
+    let pids = bot.folder.join("pids.txt");
+    eventually("the first run wrote its PID", || {
+        std::fs::read_to_string(&pids).is_ok_and(|p| p.lines().count() == 1)
+    })
+    .await?;
+    let (status, _) = spade.post(&start_web, json!({})).await?;
+    assert_eq!(status, 409, "a running service is not started twice");
+
+    let (status, _) = spade
+        .delete(&format!("/v1/agents/{}/services/web", bot.id))
+        .await?;
+    assert_eq!(status, 204);
+    assert_eq!(services_of(&spade, &bot).await?[0]["state"], "stopped");
+
+    let (status, _) = spade.post(&start_web, json!({})).await?;
+    assert_eq!(status, 202);
+    eventually("the service ran its own command again", || {
+        std::fs::read_to_string(&pids).is_ok_and(|p| p.lines().count() == 2)
+    })
+    .await?;
+    let listed = services_of(&spade, &bot).await?;
+    assert_eq!(listed.len(), 2);
+    let other = listed
+        .iter()
+        .find(|s| s["name"] == "s_web")
+        .ok_or("missing service named s_web")?;
+    assert_eq!(other["restarts"], 0);
+    let restarted = listed
+        .iter()
+        .find(|s| s["id"] == "s_web")
+        .ok_or("missing service with id s_web")?;
+    assert_eq!(restarted["state"], "running");
+    assert_eq!(restarted["restarts"], 1);
+    let again = std::fs::read_to_string(&pids)?;
+    assert!(alive(again.lines().last().unwrap_or_default()));
+
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{}/services/nope/start", bot.id),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    let (status, _) = spade
+        .post("/v1/agents/nobody/services/s_web/start", json!({}))
+        .await?;
+    assert_eq!(status, 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_paused_bot_s_service_is_not_started_by_the_person() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Started."),
+            title(),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Start it").await?;
+    let listed = services_of(&spade, &bot).await?;
+    let service = listed[0]["id"].as_str().ok_or("no service id")?;
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{}/pause", bot.id), json!({}))
+        .await?;
+    assert!(status < 300, "{status}");
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{}/services/{service}/start", bot.id),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 409);
+    assert_ne!(services_of(&spade, &bot).await?[0]["state"], "running");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stopping_or_pausing_a_service_as_it_starts_never_leaves_an_orphan() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Started."),
+            title(),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Start it").await?;
+    let listed = services_of(&spade, &bot).await?;
+    let service = listed[0]["id"].as_str().ok_or("no service id")?;
+    let base = format!("/v1/agents/{}", bot.id);
+    let stop = format!("{base}/services/{service}");
+    let start = format!("{stop}/start");
+    let pause = format!("{base}/pause");
+    let resume = format!("{base}/resume");
+    assert_eq!(spade.delete(&stop).await?.0, 204);
+    for _ in 0..12 {
+        let (started, stopped) = tokio::join!(spade.post(&start, json!({})), spade.delete(&stop));
+        assert_eq!(started?.0, 202);
+        let stopped = stopped?.0;
+        assert!(matches!(stopped, 204 | 409), "{stopped}");
+        assert_eq!(services.is_running(service), stopped == 409);
+        if stopped == 409 {
+            assert_eq!(spade.delete(&stop).await?.0, 204);
+        }
+
+        let (started, paused) =
+            tokio::join!(spade.post(&start, json!({})), spade.post(&pause, json!({})));
+        let started = started?.0;
+        assert!(matches!(started, 202 | 409), "{started}");
+        assert!(paused?.0 < 300);
+        assert!(!services.is_running(service));
+        assert_eq!(services_of(&spade, &bot).await?[0]["state"], "stopped");
+        assert!(spade.post(&resume, json!({})).await?.0 < 300);
+        if started == 202 {
+            assert_eq!(spade.delete(&stop).await?.0, 204);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn starting_a_service_is_held_like_a_shell_command_and_asks_when_unreviewed() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());
@@ -443,15 +612,22 @@ async fn a_url_wait_polls_only_loopback_and_fires_when_it_answers() -> Result {
     Ok(())
 }
 
-/// Counting ids, but every service's id is `s_web`, so a script can name it.
-struct KnownServiceId(AtomicU64);
+/// Counting ids, with a known first service id so a script can name it.
+#[derive(Default)]
+struct KnownServiceId {
+    sequence: AtomicU64,
+    services: AtomicU64,
+}
 
 impl Ids for KnownServiceId {
     fn next(&self, prefix: &str) -> String {
-        if prefix == "s" {
+        if prefix == "s" && self.services.fetch_add(1, Ordering::SeqCst) == 0 {
             return "s_web".to_owned();
         }
-        format!("{prefix}_{}", self.0.fetch_add(1, Ordering::SeqCst) + 1)
+        format!(
+            "{prefix}_{}",
+            self.sequence.fetch_add(1, Ordering::SeqCst) + 1
+        )
     }
 }
 
@@ -486,7 +662,7 @@ async fn waits_on_a_service_named_by_its_id_fire_on_its_line_and_its_exit() -> R
             Script::reply("It ended."),
         ],
         Options {
-            ids: Some(Arc::new(KnownServiceId(AtomicU64::new(0)))),
+            ids: Some(Arc::new(KnownServiceId::default())),
             ..options(&workspaces, Reviewer::Fake)
         },
     )

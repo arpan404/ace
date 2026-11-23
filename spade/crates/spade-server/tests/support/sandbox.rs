@@ -10,7 +10,7 @@ use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::security::{Security, Setup};
 use spade_server::tools::{EngineHandle, Tool};
 use spade_server::workspace::shell::{Confine, Confinement, Kind, Shell};
-use spade_server::workspace::{Workspaces, workspace_tools};
+use spade_server::workspace::{Workspaces, workspace_tools, workspace_tools_with};
 use spade_store::Store;
 use spade_testkit::Script;
 
@@ -252,6 +252,17 @@ pub async fn world_with_options(
     world_with(options, false, sandboxed, Vec::new(), scripts).await
 }
 
+/// [`world_with_options`], its commands run in the bot's terminal (as Spade runs them on macOS)
+/// when `terminal`.
+pub async fn world_in_with_options(
+    options: super::Options,
+    terminal: bool,
+    sandboxed: bool,
+    scripts: impl FnOnce(&Places) -> Vec<Script>,
+) -> Result<World> {
+    world_with(options, terminal, sandboxed, Vec::new(), scripts).await
+}
+
 async fn world_with(
     options: super::Options,
     terminal: bool,
@@ -296,7 +307,10 @@ async fn world_built(
         options.workspaces.get_or_insert_with(|| workspaces.clone());
     }
     let bots = EngineHandle::default();
-    let shell = Shell::system().confined(wrap(late.clone()));
+    let mut shell = Shell::system().confined(wrap(late.clone()));
+    if let Some(delay) = options.shell_end_delay {
+        shell = shell.with_end_delay(delay);
+    }
     let kept = (shell.clone(), workspaces.clone(), bots.clone());
     let commands = if terminal {
         let terminals = spade_server::computer::Terminals::new(
@@ -309,7 +323,12 @@ async fn world_built(
     } else {
         shell.into()
     };
-    let mut tools: Vec<Arc<dyn Tool>> = workspace_tools(workspaces.clone(), bots.clone(), commands);
+    let python = options
+        .python
+        .clone()
+        .unwrap_or_else(spade_server::workspace::python::Setup::system);
+    let mut tools: Vec<Arc<dyn Tool>> =
+        workspace_tools_with(workspaces.clone(), bots.clone(), commands, python);
     tools.extend(extra);
     let scripts = scripts(&Places {
         root: root.clone(),

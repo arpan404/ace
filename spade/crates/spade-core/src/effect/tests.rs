@@ -449,6 +449,7 @@ fn the_answer_kept_for_an_undeclared_tool_is_the_persons_latest_for_that_exact_t
     // (call, offered name, the tool's key: bot, server, original name and schema)
     let asked = |call: &str, name: &str, key: &str| {
         Event::Known(Known::ApprovalRequested {
+            lane: None,
             reply: "r".into(),
             call_id: call.into(),
             name: name.into(),
@@ -700,6 +701,7 @@ fn an_answer_given_before_the_bot_arrived_from_another_machine_is_not_remembered
     let key = "a_1|plugin:files@h1/fs:delete#s1";
     let asked = |call: &str| {
         Event::Known(Known::ApprovalRequested {
+            lane: None,
             reply: "r".into(),
             call_id: call.into(),
             name: "files__delete".into(),

@@ -24,6 +24,31 @@ import Testing
         model.receive(frame)
     }
 
+    @Test func suitArtworkUsesTheRequestedSchemeOrTheOnlyAvailablePalette() throws {
+        let decoder = JSONDecoder()
+        let both = try decoder.decode(MarketLook.self, from: Data(##"{"light":["#FBFBFC"],"dark":["#15171B"]}"##.utf8))
+        #expect(both.swatches(prefersDark: false) == ["#FBFBFC"])
+        #expect(both.swatches(prefersDark: true) == ["#15171B"])
+
+        let darkOnly = try decoder.decode(MarketLook.self, from: Data(##"{"light":[],"dark":["#15171B"]}"##.utf8))
+        #expect(darkOnly.swatches(prefersDark: false) == ["#15171B"])
+
+        let missing = try decoder.decode(MarketLook.self, from: Data("{}".utf8))
+        #expect(missing.swatches(prefersDark: true).isEmpty)
+    }
+
+    @Test func fallbackArtworkGroupsPluginVariantsAndLeavesUnknownTypesNeutral() {
+        let spade = MarketFallbackKind(type: "spade-plugin")
+        let ace = MarketFallbackKind(type: "ace-plugin")
+        #expect(spade.glyph == ace.glyph)
+        #expect(spade.tint == ace.tint)
+
+        let types = ["suit", "spade-bot", "spade-skill", "spade-plugin"]
+        #expect(Set(types.map { MarketFallbackKind(type: $0).tint }).count == types.count)
+        #expect(MarketFallbackKind(type: "future").glyph == .package)
+        #expect(MarketFallbackKind(type: "future").tint == "neutral")
+    }
+
     @Test func theKeptHomeGivesTheMarketplaceItsUpdatesWord() throws {
         let model = ClientModel(now: { 0 })
         #expect(model.keptMarketHome == nil)

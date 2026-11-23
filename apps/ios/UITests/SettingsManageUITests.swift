@@ -19,16 +19,19 @@ import XCTest
         XCTAssertTrue(add.waitForExistence(timeout: 20))
         screenshot("providers")
         add.tap()
-        let gemini = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Amp'")).firstMatch
-        let found = gemini.waitForExistence(timeout: 20)
+        let amp = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Amp'")).firstMatch
+        let found = amp.waitForExistence(timeout: 20)
         screenshot("registry")
         if !found { print("TREE", app.debugDescription) }
         XCTAssertTrue(found)
-        let search = app.searchFields.firstMatch
+        let search = app.searchFields.matching(NSPredicate(format: "placeholderValue == %@ OR label == %@", "Search agents", "Search agents")).firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 10))
         search.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         search.typeText("zzzz")
         XCTAssertTrue(app.buttons["Add one by command"].waitForExistence(timeout: 10))
         screenshot("registry-no-match")
+        search.tap()
         search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4))
         search.typeText("google")
         XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Gemini CLI'")).firstMatch.waitForExistence(timeout: 10))

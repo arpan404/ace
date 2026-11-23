@@ -33,13 +33,39 @@ struct ComposerDock<Leading: View, Content: View>: View {
     }
 }
 
-/// The first message's composer card. Follow-ups use `ComposerView`, which shares its send button.
-struct ComposerSurface<Content: View>: View {
-    @ViewBuilder var content: () -> Content
+/// The glass row shared by the first message and thread replies.
+struct ComposerCapsule<Top: View, Leading: View, Field: View, Trailing: View>: View {
+    /// What sits inside the capsule above the field: the pending attachments' strip.
+    @ViewBuilder var top: () -> Top
+    @ViewBuilder var leading: () -> Leading
+    @ViewBuilder var field: () -> Field
+    @ViewBuilder var trailing: () -> Trailing
+
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.none, content: content)
-            .padding(.vertical, AceDesign.Space.related)
-            .composerGlass(in: AceShape.field)
+        VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+            top()
+            HStack(alignment: .bottom, spacing: AceTheme.Spacing.none) {
+                leading()
+                    .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                    .foregroundStyle(AceTheme.Colours.foreground)
+                    .tint(AceTheme.Colours.foreground)
+                    .buttonStyle(.plain)
+                field().padding(.leading, ComposerCapsuleMetrics.fieldInset)
+                trailing()
+            }
+            .frame(minHeight: AceDesign.Size.tap)
+        }
+        .aceContainerShape(AceShape.field)
+        .composerGlass(in: AceShape.field)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+extension ComposerCapsule where Top == EmptyView {
+    /// A capsule with nothing above its field.
+    init(@ViewBuilder leading: @escaping () -> Leading, @ViewBuilder field: @escaping () -> Field,
+         @ViewBuilder trailing: @escaping () -> Trailing) {
+        self.init(top: { EmptyView() }, leading: leading, field: field, trailing: trailing)
     }
 }
 

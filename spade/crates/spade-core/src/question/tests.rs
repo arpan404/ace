@@ -79,6 +79,7 @@ fn step(reply: &str, calls: &[(&str, Value)]) -> Event {
 fn asked(reply: &str, call_id: &str, arguments: Value) -> Event {
     let ask = ask(arguments);
     k(Known::QuestionAsked {
+        lane: None,
         reply: reply.into(),
         call_id: call_id.into(),
         question: ask.summary(),

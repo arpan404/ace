@@ -61,9 +61,10 @@ struct MarketRow: View {
         return parts.joined(separator: " · ")
     }
 
-    /// VoiceOver reads title, type, publisher; the button follows as its own element.
+    /// VoiceOver reads the listing and its rank when present. The action is a separate element.
     private var spoken: String {
-        [listing.title, listing.typeWord, listing.byAce ? "By ace" : listing.publisher, listing.line]
+        [rank.map { "Rank \($0)" }, listing.title, listing.typeWord,
+         listing.byAce ? "By ace" : listing.publisher, listing.line, note]
             .compactMap { $0 }.joined(separator: ", ")
     }
 
@@ -143,27 +144,116 @@ struct MarketRowAction: View {
     }
 }
 
-/// A listing's picture, or its type's own glyph until there is one (a Suit's palette, a bot, a
-/// skill's lightning, a plugin). Pictures are read by hash and kept for the launch.
+/// The same artwork sources as the web Store: a listing preview, then the package's look.
 struct MarketListingIcon: View {
     let listing: MarketListing
     var size: CGFloat = AceDesign.Size.tap + AceDesign.Space.row
+    var height: CGFloat? = nil
 
     var body: some View {
-        MarketPictureView(hash: listing.picture, kind: "preview", size: size) {
-            AceIcon(Self.glyph(listing.type), size: size * 0.45, relativeTo: .title3)
-                .foregroundStyle(AceDesign.Ink.muted)
+        MarketPictureView(hash: listing.picture, kind: "preview", size: size, height: height) {
+            MarketPackageArt(listing: listing, size: height.map { min($0 / 2, size) } ?? size, featured: height != nil)
+                .id(LookKey(entry: listing.key, version: listing.version))
         }
         .accessibilityHidden(true)
     }
 
-    static func glyph(_ type: String) -> AceIcon.Name {
+    private struct LookKey: Hashable {
+        let entry: MarketEntryKey
+        let version: String?
+    }
+}
+
+private struct MarketPackageArt: View {
+    let listing: MarketListing
+    let size: CGFloat
+    let featured: Bool
+    @Environment(\.marketRows) private var rows
+    @Environment(\.colorScheme) private var scheme
+    @State private var look: MarketLook?
+
+    var body: some View {
+        let swatches = look?.swatches(prefersDark: scheme == .dark).compactMap(Color.init(hexString:)) ?? []
+        Group {
+            if let face = look?.face {
+                BotFaceView(face: face, size: size)
+            } else if !swatches.isEmpty {
+                HStack(spacing: AceTheme.Spacing.none) {
+                    ForEach(swatches.indices, id: \.self) { swatches[$0] }
+                }
+            } else {
+                MarketFallbackTile(type: listing.type, title: featured ? listing.title : nil)
+            }
+        }
+        .task(id: rows.model?.marketGeneration) {
+            guard listing.type == "suit" || listing.type == "spade-bot",
+                  let model = rows.model, let result = try? await model.marketLook(listing),
+                  !Task.isCancelled else { return }
+            look = result
+        }
+    }
+}
+
+enum MarketFallbackKind {
+    case suit, bot, skill, plugin, app, other
+
+    init(type: String) {
         switch type {
-        case "suit": .palette
-        case "spade-bot": .robot
-        case "spade-skill": .lightning
-        case "spade-plugin", "ace-plugin": .plug
-        default: .package
+        case "suit": self = .suit
+        case "spade-bot": self = .bot
+        case "spade-skill": self = .skill
+        case "spade-plugin", "ace-plugin": self = .plugin
+        case "app": self = .app
+        default: self = .other
+        }
+    }
+
+    var glyph: AceIcon.Name {
+        switch self {
+        case .suit: .palette
+        case .bot: .robot
+        case .skill: .puzzlePiece
+        case .plugin: .plug
+        case .app: .squaresLinked
+        case .other: .package
+        }
+    }
+
+    var tint: String {
+        switch self {
+        case .suit: "violet"
+        case .bot: "blue"
+        case .skill: "green"
+        case .plugin: "amber"
+        case .app: "rose"
+        case .other: "neutral"
+        }
+    }
+}
+
+private struct MarketFallbackTile: View {
+    let type: String
+    let title: String?
+
+    var body: some View {
+        let kind = MarketFallbackKind(type: type)
+        let tint = ProjectTint.chosen(kind.tint) ?? AceDesign.Ink.muted
+        VStack(spacing: AceDesign.Space.related) {
+            AceIcon(kind.glyph, size: title == nil ? AceDesign.Size.barIcon : AceDesign.Size.emptyIcon)
+                .foregroundStyle(tint)
+            if let title {
+                Text(title)
+                    .aceFont(AceDesign.TextRole.rowTitle)
+                    .fontWeight(AceDesign.Typeface.strong)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, AceDesign.Space.margin)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            LinearGradient(colors: [tint.opacity(0.24), tint.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 }
@@ -175,43 +265,51 @@ struct MarketPictureView<Placeholder: View>: View {
     /// `preview` or `avatar`.
     let kind: String
     let size: CGFloat
+    var height: CGFloat? = nil
     var round = false
     @ViewBuilder let placeholder: () -> Placeholder
     @Environment(\.marketRows) private var rows
-    @State private var image: UIImage?
+    @Environment(\.displayScale) private var scale
+    @State private var loaded: (key: String, image: UIImage)?
+
+    private var pixels: CGFloat { (max(size, height ?? size) * scale).rounded(.up) }
+    private var imageKey: String? { hash.map { "\(kind)/\($0)/\(pixels)" } }
 
     var body: some View {
         ZStack {
             if round { Circle().fill(AceDesign.Surface.fill) } else {
                 RoundedRectangle(cornerRadius: AceDesign.Size.rowCorner, style: .continuous).fill(AceDesign.Surface.fill)
             }
-            if let image {
-                Image(uiImage: image).resizable().scaledToFill()
+            if let loaded, loaded.key == imageKey {
+                Image(uiImage: loaded.image).resizable().scaledToFill()
             } else {
                 placeholder()
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: size, height: height ?? size)
         .clipShape(round ? AnyShape(Circle()) : AnyShape(RoundedRectangle(cornerRadius: AceDesign.Size.rowCorner, style: .continuous)))
-        .task(id: hash) { await load() }
+        .task(id: imageKey) { await load() }
     }
 
     private func load() async {
-        guard let hash else { image = nil; return }
-        if let kept = MarketPictures.cache.object(forKey: hash as NSString) { image = kept; return }
+        guard let hash, let key = imageKey else { return }
+        if let kept = MarketPictures.cache.object(forKey: key as NSString) {
+            loaded = (key, kept)
+            return
+        }
         guard let model = rows.model, let picture = try? await model.marketPicture(hash, kind: kind),
               let data = Data(base64Encoded: picture.data) else { return }
-        let pixels = size * 3
+        let pixels = self.pixels
         let decoded = await Task.detached(priority: .utility) {
             ImageDecoding.source(data).flatMap { ImageDecoding.preview($0, pixels: pixels) }
         }.value
         guard let decoded, !Task.isCancelled else { return }
-        MarketPictures.cache.setObject(decoded, forKey: hash as NSString, cost: Int(decoded.size.width * decoded.size.height * 4))
-        image = decoded
+        MarketPictures.cache.setObject(decoded, forKey: key as NSString, cost: Int(decoded.size.width * decoded.size.height * 4))
+        loaded = (key, decoded)
     }
 }
 
-/// Market pictures decoded this launch, by hash.
+/// Market pictures decoded this launch, keyed by kind, hash and pixel size.
 @MainActor enum MarketPictures {
     static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()

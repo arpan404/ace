@@ -4,15 +4,17 @@ import * as aceIcons from "@ace/icons";
 import type { Icon } from "@ace/icons";
 import { machineIconGlyphs, projectGlyphIcons } from "@ace/ui-core";
 import { aceGlyphSvgs } from "./generate-glyphs.ts";
+import { assetSvg, filledAssetSvg, spadeTabSvg, type AssetWeight } from "./icon-svg.ts";
 import {
   spadeEggPath,
   spadeEye,
   spadeEyes,
   spadePupilAt,
   spadePupilForSize,
+  spadeRingForSize,
   spadeTiltDeg,
+  type SpadePoint,
 } from "@ace/ui-core/spade";
-import { assetSvg, filledAssetSvg, spadeTabSvg, type AssetWeight } from "./icon-svg.ts";
 import {
   barIconSize,
   barIcons,
@@ -20,6 +22,7 @@ import {
   extra,
   filledIcons,
   fromSymbols,
+  sidebarFilledIcons,
   tabIconSize,
   tabIcons,
 } from "./icon-names.ts";
@@ -34,8 +37,8 @@ import {
  * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`), and those in `filledIcons`
  * filled (`icon-<name>-fill`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
- * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`), with Spade's
- * face still and in one colour as `tab-spade` (the app draws it moving elsewhere, `SpadeMark`), and the navigation bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
+ * also written at tab size (`tab-<name>`), with filled variants for the iPad sidebar. Navigation
+ * bar glyphs (`barIcons`) are written at bar size (`bar-<name>`). Add an icon by adding its name to
  * `extra`, or a row to `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark (`@ace/ui-core`) is included, so
  * the bridge can name them. The outputs are committed.
  */
@@ -88,7 +91,11 @@ await writeFile(
   join(folder, "Contents.json"),
   `${JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2)}\n`,
 );
-const writeAsset = async (asset: string, svg: string) => {
+const writeAsset = async (
+  asset: string,
+  svg: string,
+  rendering: "template" | "original" = "template",
+) => {
   const set = join(folder, `${asset}.imageset`);
   await mkdir(set, { recursive: true });
   await writeFile(join(set, `${asset}.svg`), svg);
@@ -97,7 +104,7 @@ const writeAsset = async (asset: string, svg: string) => {
     info: { author: "xcode", version: 1 },
     properties: {
       "preserves-vector-representation": true,
-      "template-rendering-intent": "template",
+      "template-rendering-intent": rendering,
     },
   };
   await writeFile(join(set, "Contents.json"), `${JSON.stringify(contents, null, 2)}\n`);
@@ -119,29 +126,40 @@ for (const name of filledIcons) {
   if (!source) throw new Error(`${name} is a filled icon but not one of the icons.`);
   await writeAsset(assetName(name, "fill"), filledAssetSvg(source.icon, source.turn));
 }
-// The tab bar's glyphs at its size, outline and filled, each named in `names` above.
+// The tab bar's glyphs at its size, each named in `names` above.
 for (const name of tabIcons) {
   const source = sources.find((entry) => entry.name === name);
   if (!source) throw new Error(`${name} is a tab icon but not one of the icons: add it to extra.`);
   await writeAsset(`tab-${name}`, assetSvg(source.icon, "regular", source.turn, tabIconSize));
-  await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
+  if (sidebarFilledIcons.has(name))
+    await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
 }
-// Spade's face for the system tab bar: the bar draws one colour and can't move it.
-const { pupil, pad } = spadePupilForSize(tabIconSize - 2);
-await writeAsset(
-  "tab-spade",
-  spadeTabSvg(
-    {
-      eyes: spadeEyes,
-      eye: spadeEye,
-      pupil,
-      pupilAt: (eye) => spadePupilAt(eye, pupil, pad),
-      tilt: spadeTiltDeg,
-      egg: spadeEggPath,
-    },
-    tabIconSize,
-  ),
-);
+// Spade's face for the tab bar, in colour as the desktop rail draws it (`SpadeMark`).
+{
+  const { pupil, pad } = spadePupilForSize(tabIconSize);
+  const face = {
+    eyes: spadeEyes,
+    eye: spadeEye,
+    pupil,
+    pupilAt: (eye: SpadePoint) => spadePupilAt(eye, pupil, pad),
+    ring: spadeRingForSize(tabIconSize),
+    tilt: spadeTiltDeg,
+    egg: spadeEggPath,
+  };
+  await writeAsset("tab-spade", spadeTabSvg(face, tabIconSize), "original");
+  // fx-spade-look translates the resting pupils by these offsets in the 24-unit box.
+  const rest = spadePupilAt({ x: 0, y: 0 }, pupil, pad);
+  const glances = [
+    { dx: -1.1, dy: -0.5 },
+    { dx: 1.1, dy: -0.6 },
+  ];
+  for (const [index, glance] of glances.entries()) {
+    const look = { dx: rest.x + glance.dx, dy: rest.y + glance.dy };
+    const frame = { ...face, pupilAt: (eye: SpadePoint) => spadePupilAt(eye, pupil, pad, look) };
+    await writeAsset(`tab-spade-look-${index + 1}`, spadeTabSvg(frame, tabIconSize), "original");
+  }
+  await writeAsset("tab-spade-blink", spadeTabSvg(face, tabIconSize, true), "original");
+}
 // The navigation bar's button glyphs at a bar symbol's size.
 for (const { name, weight } of barIcons) {
   const source = sources.find((entry) => entry.name === name);

@@ -95,3 +95,36 @@ test("notes the phone cleared don't go, and an unreadable note is dropped, not t
   expect(joined).toContain('count="1"');
   expect(joined).toContain("[1] b.ts:4");
 });
+
+test("a send's admission names the notes it carried, so the phone settles exactly those", async () => {
+  const session = await thread();
+  session.handle({ type: "code.set", notes: [note("a", 1, "a.ts", [0, 0], "Why?", "x")] });
+  session.handle({ type: "send", text: "With a note", opposite: false, requestId: "carried" });
+  await until(() => latest("admission", "carried"), "the admission");
+  expect(latest("admission", "carried")).toMatchObject({ ok: true, notes: ["a"] });
+  // The next message has none left to carry, and its admission names none.
+  session.handle({ type: "send", text: "Plain", opposite: false, requestId: "none" });
+  await until(() => latest("admission", "none"), "the second admission");
+  expect(latest("admission", "none")?.notes).toBeUndefined();
+});
+
+test("a /goal is saved without the notes, and its admission names none, so they stay", async () => {
+  const session = await thread();
+  session.handle({ type: "code.set", notes: [note("a", 1, "a.ts", [0, 0], "Why?", "x")] });
+  session.handle({ type: "send", text: "/goal ship it", opposite: false, requestId: "goal" });
+  await until(() => latest("admission", "goal"), "the admission");
+  expect(latest("admission", "goal")).toMatchObject({ ok: true });
+  expect(latest("admission", "goal")?.notes).toBeUndefined();
+  expect(commands("thread.goal.set")).toHaveLength(1);
+  expect(latest("thread.codeSent")).toBeUndefined();
+});
+
+test("a message too long to take is refused by its own request, so the phone gives its notes back", async () => {
+  const session = await thread();
+  session.handle({ type: "code.set", notes: [note("a", 1, "a.ts", [0, 0], "Why?", "x")] });
+  session.handle({ type: "send", text: "x".repeat(100_001), opposite: false, requestId: "long" });
+  await until(() => latest("admission", "long"), "the refusal");
+  expect(latest("admission", "long")).toMatchObject({ ok: false });
+  expect(String(latest("admission", "long")?.message)).toContain("too long");
+  expect(commands("thread.send")).toHaveLength(0);
+});

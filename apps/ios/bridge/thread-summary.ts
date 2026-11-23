@@ -1,4 +1,11 @@
-import type { ChangeTap, ClientCore, Lease, Scheduler, ThreadSource } from "@ace/client";
+import type {
+  ChangeTap,
+  ClientCore,
+  Lease,
+  Scheduler,
+  SidebarSource,
+  ThreadSource,
+} from "@ace/client";
 import type { Agent, ThreadCatchUpResponse, TurnSummary } from "@ace/protocol";
 import {
   agentForest,
@@ -14,6 +21,7 @@ import {
   type ThreadWork,
 } from "@ace/ui-core";
 import { touchesTree, type PatchSink, type Preview } from "./agents.ts";
+import { withLiveStatus } from "./thread-summary-live.ts";
 import { summaryView, type SummaryPlan } from "./thread-summary-view.ts";
 
 /*
@@ -26,7 +34,7 @@ import { summaryView, type SummaryPlan } from "./thread-summary-view.ts";
 
 export type SummaryReads = Pick<
   ClientCore,
-  "thread" | "threadRoom" | "turnsPage" | "threadCatchUp" | "threadReadState"
+  "thread" | "threadRoom" | "threads" | "turnsPage" | "threadCatchUp" | "threadReadState"
 >;
 
 export interface SummaryDeps {
@@ -101,6 +109,7 @@ export class ThreadSummary {
    * change a row's words without touching the tree, so they put the Summary again. */
   #rowItems = new Map<string, Set<string>>();
   #forest: ReturnType<typeof agentForest>;
+  readonly #list: { store: SidebarSource; release(): void };
 
   constructor(
     reads: SummaryReads,
@@ -118,11 +127,12 @@ export class ThreadSummary {
     this.#sink = sink;
     this.#preview = preview;
     this.#deps = deps;
-    this.#works.set(threadId, workOf(store));
+    this.#list = reads.threads();
+    this.#works.set(threadId, this.#workOf(store));
     this.#forest = this.#join();
     const tap: ChangeTap = (keys) => {
       if (reshapes(keys)) {
-        this.#works.set(threadId, workOf(store));
+        this.#works.set(threadId, this.#workOf(store));
         this.#forest = this.#join();
       }
       if (keys === "all" || keys.has("cursor")) this.#readTurn();
@@ -136,11 +146,29 @@ export class ThreadSummary {
         this.#put();
     };
     this.#stops.push(store.observe(tap));
+    // The list's live statuses overrule what parents recorded: re-read every thread's part.
+    this.#stops.push(
+      this.#list.store.observe((keys) => {
+        if (keys !== "all" && ![...keys].some((changed) => changed.startsWith("thread:"))) return;
+        this.#works.set(threadId, this.#workOf(store));
+        for (const [id, held] of this.#held) this.#works.set(id, this.#workOf(held.lease.store));
+        this.#forest = this.#join();
+        this.#put();
+      }),
+    );
     const room = reads.threadRoom();
     this.#stops.push(room.subscribe(() => this.#roomChanged(room.getSnapshot())));
     this.#readTurn();
     void this.#readCatchUp();
     this.#put();
+  }
+
+  /** A thread's facts, its delegates' statuses read from the thread list while it is confirmed. */
+  #workOf(store: ThreadSource): ThreadWork {
+    const list = this.#list.store;
+    const work = workOf(store);
+    if (list.syncing || list.unconfirmed) return work;
+    return withLiveStatus(work, (id) => list.thread(id)?.status);
   }
 
   /** Clear: Since you looked goes, until the thread moves on past this cursor. */
@@ -175,6 +203,7 @@ export class ThreadSummary {
       held.lease.release();
     }
     this.#held.clear();
+    this.#list.release();
     this.#turnWait?.();
     this.#tick?.();
     this.#sink.clear(key);
@@ -295,12 +324,12 @@ export class ThreadSummary {
           if (this.#rowsRead(id, keys)) this.#put();
           return;
         }
-        this.#works.set(id, workOf(lease.store));
+        this.#works.set(id, this.#workOf(lease.store));
         this.#forest = this.#join();
         this.#put();
       });
       this.#held.set(id, { lease, stop });
-      this.#works.set(id, workOf(lease.store));
+      this.#works.set(id, this.#workOf(lease.store));
       took = true;
     }
     return took;

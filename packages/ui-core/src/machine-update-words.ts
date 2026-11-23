@@ -68,6 +68,8 @@ export function updateBlocker(machine: UpdateMachine): UpdateBlocker | null {
 /** An update in progress, failed or just finished, in a few words; null when none is. */
 export function updateProgressWords(update: MachineUpdate): string | null {
   switch (update.state) {
+    case "checking":
+      return "Checking for updates…";
     case "waiting":
       return update.busy > 0
         ? `Waiting for ${plural(update.busy, "agent")} to finish`
@@ -187,11 +189,17 @@ export function machineSoftware(machine: UpdateMachine): SoftwareView {
     };
   // The fleet list's words for an offer ("Update available · 0.0.19"), after what it runs now.
   const offer = update.available ? ` · Update available · ${update.available}` : "";
-  const line = `ace ${update.version}${offer || (update.checkedAt === null ? "" : " · Up to date")}`;
+  const checking = update.state === "checking";
+  const isCurrent =
+    (update.state === "none" || update.state === "updated") &&
+    update.checkedAt !== null &&
+    !update.blocked &&
+    !update.error;
+  const line = `ace ${update.version}${offer || (isCurrent ? " · Up to date" : "")}`;
   const updating = isUpdating(update);
   const failed = update.state === "failed";
   const progress =
-    failed || updating || update.state === "updated"
+    failed || updating || checking || update.state === "updated"
       ? updateProgressWords(update)
       : update.last && !update.available
         ? update.last.ok
@@ -199,19 +207,20 @@ export function machineSoftware(machine: UpdateMachine): SoftwareView {
           : `The update to ${update.last.to} failed: ${update.last.error ?? "it didn't finish"}`
         : null;
   const may = blocker === null;
-  const actions: SoftwareAction[] = !may
-    ? []
-    : updating
-      ? update.state === "installing"
-        ? []
-        : update.ask?.mode === "now"
-          ? ["cancel"]
-          : ["now", "cancel"]
-      : failed && update.available
-        ? ["retry", "now"]
-        : update.available
-          ? ["idle", "now"]
-          : ["check"];
+  const actions: SoftwareAction[] =
+    !may || checking
+      ? []
+      : updating
+        ? update.state === "installing"
+          ? []
+          : update.ask?.mode === "now"
+            ? ["cancel"]
+            : ["now", "cancel"]
+        : failed && update.available
+          ? ["retry", "now"]
+          : update.available
+            ? ["idle", "now"]
+            : ["check"];
   const link =
     blocker === "release-page" && update.releaseUrl && update.available
       ? { words: "Update from the release page", url: update.releaseUrl }

@@ -17,6 +17,7 @@ import { seedFakeReach } from "./fake-spade-reach.ts";
 import { seedFakeRunning } from "./fake-spade-running.ts";
 import { seedFakeWork } from "./fake-spade-work.ts";
 import { seedFakeDelegation, seedFakeSurvey } from "./fake-spade-delegation.ts";
+import { seedFakeAccounts } from "./fake-spade-accounts.ts";
 import { seedFakeModelAccess } from "./fake-spade-models.ts";
 import { seedFakeTexting } from "./fake-spade-texting.ts";
 
@@ -575,6 +576,7 @@ export function seedFakeSpade(
   seedFakeReach(here, now);
   seedFakeRunning(here, now);
   seedFakeModelAccess(here, minutes);
+  seedFakeAccounts(here, now);
   seedFakeCapabilities(
     here,
     (back) => {

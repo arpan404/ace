@@ -1,7 +1,7 @@
 import { spadeMostInRoute } from "@ace/ui-core/spade-chat";
-import { PlusIcon, XIcon } from "@ace/icons";
+import { XIcon } from "@ace/icons";
 import { useId, useState, type ReactNode } from "react";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingAddRow, SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { SpadeModelPicker } from "./spade-model-picker.tsx";
 import { Beside, fault, Refusal } from "./spade-settings-rows.tsx";
@@ -57,6 +57,7 @@ export function RouteSettingRow(props: {
           <SpadeModelPicker
             id={id}
             label={props.title}
+            className={props.beside ? "w-(--setting-select-width)" : undefined}
             value={first}
             none={props.none}
             follows={props.follows}
@@ -125,15 +126,7 @@ function AddFallback(props: {
 }) {
   const [adding, setAdding] = useState(false);
   const id = useId();
-  if (!adding)
-    return (
-      <div className="flex justify-end px-3 pb-1">
-        <Button size="sm" variant="ghost" onClick={() => setAdding(true)}>
-          <PlusIcon aria-hidden size={14} />
-          Add a fallback
-        </Button>
-      </div>
-    );
+  if (!adding) return <SettingAddRow onClick={() => setAdding(true)}>Add a fallback</SettingAddRow>;
   return (
     <SettingRow title="If it can't answer" htmlFor={id} density="compact" variant="route-fallback">
       <SpadeModelPicker

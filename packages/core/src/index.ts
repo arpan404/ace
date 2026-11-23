@@ -15,7 +15,7 @@ export { hasUnresponsiveAncestor } from "./liveness.ts";
 export { nextDeadline, DeadlineIndex } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 
-export { readyForChildResults } from "./external.ts";
+export { externalAgentStatus, readyForChildResults } from "./external.ts";
 export { acceptsPersonInput, continueMessage } from "./person-input.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";

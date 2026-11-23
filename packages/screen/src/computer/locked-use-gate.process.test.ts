@@ -58,6 +58,7 @@ async function gated(facts: Facts) {
   let client: ComputerClient | undefined;
   const gate = lockedUseGate({
     enabled: async () => facts.setting,
+    revocation: () => 0,
     status: async () => (await connect()).request({ type: "status" }),
     intervalActive: () => running > 0,
     runUnprotected: (send) => send(),

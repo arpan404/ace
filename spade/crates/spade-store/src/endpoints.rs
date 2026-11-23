@@ -22,7 +22,33 @@ pub struct StoredEndpoint {
     /// binary at read time, so shipped corrections reach it.
     pub preset: Option<String>,
     pub created_ms: i64,
+    /// How it signs in when not with a key (ADR 0214); never a token.
+    pub sign_in: Option<StoredSignIn>,
     pub models: Vec<StoredModel>,
+}
+
+/// A sign-in account's facts that are not secrets (ADR 0214). Its tokens are in the keychain.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct StoredSignIn {
+    /// `chatgpt`.
+    pub kind: String,
+    /// The provider's own id for the account (ChatGPT's account id).
+    pub account_id: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub plan: Option<String>,
+    /// Whether its tokens are in the keychain, as Spade last left them.
+    #[serde(default)]
+    pub signed_in: bool,
+}
+
+fn sign_in_from(text: Option<String>) -> Option<StoredSignIn> {
+    serde_json::from_str(&text?).ok()
+}
+
+fn sign_in_json(sign_in: Option<&StoredSignIn>) -> Option<String> {
+    sign_in.and_then(|s| serde_json::to_string(s).ok())
 }
 
 /// A model the person saved. Missing facts are filled at read time from presets or defaults.
@@ -56,7 +82,7 @@ impl Store {
         let connection = self.lock()?;
         let mut statement = connection.prepare(
             "SELECT id, name, format, base_url, headers, session_header, needs_key, key_env,
-                    created_ms, preset
+                    created_ms, preset, sign_in
              FROM endpoints ORDER BY created_ms, id",
         )?;
         let mut endpoints = statement
@@ -72,6 +98,7 @@ impl Store {
                     key_env: row.get(7)?,
                     created_ms: row.get(8)?,
                     preset: row.get(9)?,
+                    sign_in: sign_in_from(row.get(10)?),
                     models: Vec::new(),
                 })
             })?
@@ -103,15 +130,27 @@ impl Store {
         Ok(endpoints)
     }
 
-    /// Adds an endpoint and its models; refused if the id is taken.
+    /// Adds an endpoint and its models; refused if the id is taken or was ever retired: an id
+    /// names one endpoint for good (ADR 0214).
     pub fn insert_endpoint(&self, endpoint: &StoredEndpoint) -> Result<()> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
+        let retired = tx
+            .query_row(
+                "SELECT 1 FROM retired_endpoints WHERE id = ?1",
+                params![endpoint.id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some();
+        if retired {
+            return Err(StoreError::Exists(endpoint.id.clone()));
+        }
         let inserted = tx.execute(
             "INSERT OR IGNORE INTO endpoints
              (id, name, format, base_url, headers, session_header, needs_key, key_env, created_ms,
-              preset)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+              preset, sign_in)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 endpoint.id,
                 endpoint.name,
@@ -122,7 +161,8 @@ impl Store {
                 endpoint.needs_key,
                 endpoint.key_env,
                 endpoint.created_ms,
-                endpoint.preset
+                endpoint.preset,
+                sign_in_json(endpoint.sign_in.as_ref())
             ],
         )?;
         if inserted == 0 {
@@ -139,7 +179,7 @@ impl Store {
     pub fn update_endpoint(&self, endpoint: &StoredEndpoint) -> Result<bool> {
         let changed = self.lock()?.execute(
             "UPDATE endpoints SET name = ?2, format = ?3, base_url = ?4, headers = ?5,
-                    session_header = ?6, needs_key = ?7, key_env = ?8
+                    session_header = ?6, needs_key = ?7, key_env = ?8, sign_in = ?9
              WHERE id = ?1",
             params![
                 endpoint.id,
@@ -149,18 +189,38 @@ impl Store {
                 headers_json(&endpoint.headers),
                 endpoint.session_header,
                 endpoint.needs_key,
-                endpoint.key_env
+                endpoint.key_env,
+                sign_in_json(endpoint.sign_in.as_ref())
             ],
         )?;
         Ok(changed > 0)
     }
 
-    /// Deletes an endpoint and its saved models. Returns whether it existed.
-    pub fn delete_endpoint(&self, id: &str) -> Result<bool> {
-        let changed = self
-            .lock()?
-            .execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
+    /// Deletes an endpoint and its saved models, and retires its id for good at `at_ms`.
+    /// Returns whether it existed.
+    pub fn delete_endpoint(&self, id: &str, at_ms: i64) -> Result<bool> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let changed = tx.execute("DELETE FROM endpoints WHERE id = ?1", params![id])?;
+        tx.execute(
+            "INSERT OR IGNORE INTO retired_endpoints (id, retired_ms) VALUES (?1, ?2)",
+            params![id, at_ms],
+        )?;
+        tx.commit()?;
         Ok(changed > 0)
+    }
+
+    /// Whether `id` was once an endpoint's and was removed: it is never given out again.
+    pub fn endpoint_retired(&self, id: &str) -> Result<bool> {
+        Ok(self
+            .lock()?
+            .query_row(
+                "SELECT 1 FROM retired_endpoints WHERE id = ?1",
+                params![id],
+                |_| Ok(()),
+            )
+            .optional()?
+            .is_some())
     }
 
     /// Saves or replaces a model on `endpoint`. Returns whether the endpoint exists.

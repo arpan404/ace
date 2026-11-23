@@ -27,6 +27,23 @@ struct MachineAppUpdateInfo: Codable, Sendable, Equatable {
     let needsYou: Bool
 }
 
+/// `machine.update` (`bridge/machine-update.ts`): this machine's own update, checked and started
+/// from the phone. `known` is false when its ace doesn't answer the request.
+struct MachineUpdateInfo: Codable, Sendable, Equatable {
+    let known: Bool
+    let version: String
+    let available: String?
+    let line: String?
+    /// "current", "checking", "available", "waiting", "downloading", "restarting" or "failed".
+    let phase: String
+    let percent: Double?
+    let error: String?
+    /// "app-closed", "release-page", "source" or "unknown" when it can't start here.
+    let blocked: String?
+    /// Threads at work or waiting on a person.
+    let busy: Int
+}
+
 /// `host.storage` (`bridge/host-storage.ts`): one machine's Storage page, already worded.
 struct StoragePage: Decodable, Sendable, Equatable {
     struct Row: Decodable, Sendable, Equatable, Identifiable { let kind: String; let title: String; let detail: String; let size: String; var id: String { kind } }

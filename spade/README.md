@@ -42,7 +42,8 @@ crates/
   spade-models/    endpoints and models, chat, typed output, streaming, cache counts
   spade-core/      pure logic: events, transcript, prompts, spending, checkpoints, titles
   spade-store/     SQLite: conversations, event log, spending ledger
-  spade-keys/      endpoint API keys in the OS keychain (ADR 0119)
+  spade-keys/      endpoint API keys in the OS keychain, read once per process (ADR 0119)
+  spade-keychain-macos/  the macOS Security calls that file Spade's entries with its own access list
   spade-search/    web search through ace cloud (ADR 0210)
   spade-ace/       ace's tools (MCP client of the daemon) and skill library (skills.request)
   spade-fetch/     web_fetch: one page as readable text, refusing local and private addresses

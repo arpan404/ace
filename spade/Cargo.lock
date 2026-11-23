@@ -3726,6 +3726,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-chatgpt"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "futures-util",
+ "keyring-core",
+ "libc",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "spade-connect",
+ "spade-keys",
+ "spade-sandbox-windows",
+ "spade-testkit",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "spade-classify"
 version = "0.1.0"
 dependencies = [
@@ -3840,15 +3863,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-keychain-macos"
+version = "0.1.0"
+dependencies = [
+ "core-foundation 0.10.1",
+ "core-foundation-sys",
+ "security-framework",
+ "security-framework-sys",
+]
+
+[[package]]
 name = "spade-keys"
 version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
+ "nix 0.28.0",
+ "sha2 0.11.1",
+ "spade-keychain-macos",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tracing",
  "windows-native-keyring-store",
  "zbus-secret-service-keyring-store",
+ "zeroize",
 ]
 
 [[package]]
@@ -3873,6 +3912,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "chrono",
  "futures-util",
  "genai",
  "reqwest",
@@ -3954,6 +3994,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "spade-ace",
+ "spade-chatgpt",
  "spade-classify",
  "spade-conform",
  "spade-connect",
@@ -3983,6 +4024,7 @@ dependencies = [
  "uuid",
  "wat",
  "win32job",
+ "zip",
 ]
 
 [[package]]
@@ -3990,6 +4032,7 @@ name = "spade-store"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2 0.11.1",
  "spade-core",

@@ -91,5 +91,15 @@ struct AceShortcuts: AppShortcutsProvider {
             "Open \(.applicationName) inbox",
             "Show my \(.applicationName) inbox",
         ], shortTitle: "Open inbox", systemImageName: "tray")
+        // App Shortcut phrases can't hold free words: Siri asks "What should Spade do?" next.
+        AppShortcut(intent: AskSpadeIntent(), phrases: [
+            "Ask Spade in \(.applicationName)",
+            "Tell Spade in \(.applicationName)",
+            "Ask \(.applicationName) Spade",
+        ], shortTitle: "Ask Spade", systemImageName: "bubble.left")
+        AppShortcut(intent: TalkToSpadeIntent(), phrases: [
+            "Talk to Spade in \(.applicationName)",
+            "Talk to \(.applicationName) Spade",
+        ], shortTitle: "Talk to Spade", systemImageName: "mic")
     }
 }

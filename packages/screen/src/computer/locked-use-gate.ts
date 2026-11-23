@@ -36,6 +36,11 @@ export interface LockedUseTurnScope {
 export interface LockedUseGatePorts {
   enabled(): Promise<boolean>;
   /**
+   * The revocation generation: it changes, synchronously, each time the person turns locked
+   * use off. Read before deciding, so a call that read "on" can't act after the change.
+   */
+  revocation(): number;
+  /**
    * A protected interval is queued, running, or may still hold the Mac unlocked (relocking,
    * faulted). Read whatever the setting says, so turning it off mid-interval changes nothing.
    */
@@ -51,13 +56,17 @@ export interface LockedUseGatePorts {
   turn(threadId: string, agentId: string): string | undefined;
   /** The computer helper processes that will carry out requests for `app`. */
   agentProcessIDs(app: string): Promise<readonly number[]>;
-  /** `optIn` is the person's setting as read for this call: the service requires it on. */
+  /**
+   * `optIn` is the person's setting as read for this call: the service requires it on.
+   * `revocation` is the generation read before deciding: a changed one refuses the run.
+   */
   runProtected<T>(
     scope: LockedUseTurnScope,
     agentProcessIDs: readonly number[],
     work: (signal: AbortSignal) => Promise<T>,
     signal: AbortSignal,
     optIn: boolean,
+    revocation: number,
   ): Promise<T>;
 }
 
@@ -108,6 +117,8 @@ function intervalActive(ports: LockedUseGatePorts): boolean {
 
 export function lockedUseGate(ports: LockedUseGatePorts): LockedUseGate {
   return async (call, send) => {
+    // Before any await: turning locked use off from here on refuses the protected run.
+    const revocation = ports.revocation();
     let route: Protected | undefined;
     try {
       route = await decide(ports, call);
@@ -128,6 +139,7 @@ export function lockedUseGate(ports: LockedUseGatePorts): LockedUseGate {
       (signal) => send(AbortSignal.any([call.signal, signal])),
       call.signal,
       route.optIn,
+      revocation,
     );
   };
 }

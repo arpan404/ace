@@ -133,3 +133,44 @@ it.skipIf(process.platform === "win32")(
     }
   },
 );
+
+/** Runs a fake `name` that prints `stderr` (no trailing newline) and exits 1. */
+async function failingCli(name: string, stderr: string) {
+  const dir = await mkdtemp(join(tmpdir(), "forge-stderr-"));
+  try {
+    await writeFile(join(dir, "said"), stderr);
+    await writeFile(join(dir, name), `#!/bin/sh\ncat '${join(dir, "said")}' >&2\nexit 1\n`);
+    await chmod(join(dir, name), 0o755);
+    const runner = createCommandRunner({ cwd: dir, env: { PATH: `${dir}:${process.env.PATH}` } });
+    return await runner({
+      command: name,
+      args: [],
+      signal: new AbortController().signal,
+      mode: "json",
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+it.skipIf(process.platform === "win32")(
+  "a bkt status line longer than the kept stderr head is still read",
+  async () => {
+    const result = await failingCli(
+      "bkt",
+      `Error: 429 Too Many Requests: ${"slow down ".repeat(600)}`,
+    );
+    expect(result.http).toMatchObject({ status: 429 });
+  },
+);
+
+it.skipIf(process.platform === "win32")(
+  "a network failure printed after a token on the same line still reads as unreachable",
+  async () => {
+    const result = await failingCli(
+      "gh",
+      "Get https://api.example.org/x?access_token=abc123: dial tcp: connection refused\n",
+    );
+    expect(result.unreachable).toBe(true);
+  },
+);

@@ -45,12 +45,48 @@ impl Engine {
         call_id: &str,
         reply: QuestionReply,
     ) -> Result<(), QuestionError> {
+        // A lane's card asked in main goes to the lane, then main's copy closes (ADR 0217 §4).
+        // Main's copy closes in the same write as a waiting card; a late answer, delivered to
+        // the lane on its own, closes it after.
+        let (target, inner) = self
+            .lane_question(id, call_id)
+            .unwrap_or_else(|| (id.to_owned(), call_id.to_owned()));
+        let answered = match self.answer_card(&target, &inner, reply) {
+            // The lane's card took an answer whose copy in main never closed (a crash between
+            // the two writes): asked again, main's copy closes as the lane's did.
+            Err(QuestionError::NotOpen) if target != id => {
+                return match self.lane_card_closed(&target, &inner) {
+                    Some(closed) => {
+                        self.close_in_main(&target, &inner, &closed);
+                        Ok(())
+                    }
+                    None => Err(QuestionError::NotOpen),
+                };
+            }
+            other => other?,
+        };
+        if let Some((answered, false)) = answered
+            && self.is_lane(&target)
+        {
+            self.close_in_main(&target, &inner, &answered);
+        }
+        Ok(())
+    }
+
+    /// Answers the card `call_id` of `id` and says what was stored and whether main's copy of a
+    /// lane's card closed with it (nothing for an app's form, which is never asked in main).
+    fn answer_card(
+        self: &Arc<Self>,
+        id: &str,
+        call_id: &str,
+        reply: QuestionReply,
+    ) -> Result<Option<(Event, bool)>, QuestionError> {
         if !self.reachable(id)? {
             return Err(QuestionError::NotFound);
         }
         // An app's form goes back to the call waiting on it (ADR 0202 §2).
         if question::elicit::call_of(call_id).is_some() {
-            return self.answer_form(id, call_id, reply);
+            return self.answer_form(id, call_id, reply).map(|()| None);
         }
         let waiting = {
             // Checked and stored under one lock, so two answers to one card cannot both land.
@@ -98,24 +134,37 @@ impl Engine {
             };
             let event = Event::Known(event);
             if card.standing == Standing::Waiting {
-                self.append(id, &event)?;
-                None
+                // A lane's card closes main's copy in the same write (ADR 0217 §4).
+                match self.closed_copy(id, call_id, &event) {
+                    Some((main, closed)) => {
+                        let lane = std::slice::from_ref(&event);
+                        self.append_across(&[(id, lane), (main.as_str(), &[closed])], &[])?;
+                        Ok((event, true))
+                    }
+                    None => {
+                        self.append(id, &event)?;
+                        Ok((event, false))
+                    }
+                }
             } else {
-                Some(event)
+                Err(event)
             }
         };
         match waiting {
             // The waiting turn reads it now.
-            None => {
+            Ok((event, closed)) => {
                 self.live(id).wake.notify_one();
                 self.announce(id);
-                Ok(())
+                if let Some(row) = self.lane_row(id).filter(|_| closed) {
+                    self.announce(&row.parent);
+                }
+                Ok(Some((event, closed)))
             }
             // Delivered under its own lock, which finds a card answered meanwhile.
-            Some(late) => match self.deliver_as(id, &late, None)? {
+            Err(late) => match self.deliver_as(id, &late, None)? {
                 spade_store::Delivered::Stored(_) => {
                     self.announce(id);
-                    Ok(())
+                    Ok(Some((late, false)))
                 }
                 _ => Err(QuestionError::NotOpen),
             },

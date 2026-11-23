@@ -213,6 +213,8 @@ impl Engine {
                 epoch: "deleted".to_owned(),
                 summary: "the person deleted it.".to_owned(),
                 words: None,
+                error: None,
+                untrusted: false,
             }));
             let _ = self.record(&link.parent_conversation, &gone);
         }
@@ -230,6 +232,8 @@ fn ace_report(thread: &str, name: &str, state: ReportState, summary: &str) -> Ev
         epoch: state.name().to_owned(),
         summary: summary.to_owned(),
         words: None,
+        error: None,
+        untrusted: false,
     }))
 }
 

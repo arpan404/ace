@@ -12,7 +12,11 @@ struct SpadeComposer: View {
     let answering: Bool
     /// Files and voice go with the message (a bot's chat); a group's takes words only.
     let attaches: Bool
+    /// The recorder starts as the composer shows (Talk to Spade).
+    var records = false
     @Binding var problem: String?
+    /// Words the profile asked to quote into the field (a decision's Change); taken once, then nil.
+    var quoted: Binding<String?> = .constant(nil)
     /// Spade's answer to one message.
     let send: (SpadeComposerPicks.Outgoing) async -> SpadeOutcome
     /// A message went: the chat shows its end.
@@ -21,6 +25,7 @@ struct SpadeComposer: View {
     @State private var draft = ""
     @State private var picks = SpadeComposerPicks()
     @State private var recorder = SpadeVoiceRecorder()
+    @State private var recordedAtOnce = false
     /// Why the last pick couldn't be read (`AttachMenu`).
     @State private var pickProblem: String?
     @FocusState private var typing: Bool
@@ -28,38 +33,54 @@ struct SpadeComposer: View {
     private let staging = AttachmentStaging()
 
     var body: some View {
+        let rowInset = AceDesign.Space.tight
+        let textInset = attaches ? AceDesign.Space.tight : AceDesign.Space.margin
+        let attachWidth = attaches ? AceDesign.Size.tap + AceDesign.Space.tight : 0
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             notice
-            if !picks.files.isEmpty {
-                ComposerMediaStrip(files: picks.strip, staging: staging, inset: AceDesign.Space.margin) { remove($0) }
-                    .opacity(picks.sending ? AceTheme.Opacity.disabled(.light) : 1)
-                    .accessibilityIdentifier("spade.attachments")
-            }
             if recorder.recording, let began = recorder.began {
                 SpadeRecordingLine(began: began)
             } else if let voice = picks.voice {
                 SpadeRecordedLine(seconds: voice.seconds, sending: picks.sending) { remove(voice.file.localId) }
             }
-            HStack(alignment: .bottom, spacing: AceDesign.Space.tight) {
-                if attaches {
-                    AttachMenu(stage: { picks.add($0) }, problem: $pickProblem, identifier: "spade.attach", staging: staging)
-                        .disabled(picks.sending || recorder.recording)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                if !picks.files.isEmpty {
+                    ComposerMediaStrip(files: picks.strip, staging: staging, inset: rowInset + attachWidth + textInset, remove: remove)
+                        .accessibilityIdentifier("spade.attachments")
                 }
-                TextField("Message \(name)", text: $draft, axis: .vertical)
-                    .aceFont(AceDesign.TextRole.message)
-                    .lineLimit(1...6)
-                    .focused($typing)
-                    .padding(.horizontal, attaches ? AceDesign.Space.tight : AceDesign.Space.margin)
-                    .padding(.vertical, AceDesign.Space.related)
-                    .accessibilityIdentifier("spade.composer")
-                trailing
+                HStack(alignment: .bottom, spacing: AceDesign.Space.tight) {
+                    if attaches {
+                        AttachMenu(stage: { picks.add($0) }, problem: $pickProblem, identifier: "spade.attach", staging: staging)
+                            .disabled(picks.sending || recorder.recording)
+                    }
+                    TextField("Message \(name)", text: $draft, axis: .vertical)
+                        .aceFont(AceDesign.TextRole.message)
+                        .lineLimit(1...6)
+                        .focused($typing)
+                        .padding(.horizontal, textInset)
+                        .padding(.vertical, AceDesign.Space.related)
+                        .accessibilityIdentifier("spade.composer")
+                    trailing
+                }
+                .padding(rowInset)
             }
-            .padding(AceDesign.Space.tight)
             .aceGlass(in: AceDesign.Shape.field, interactive: true)
             .padding(.horizontal, AceDesign.Space.margin)
             .padding(.bottom, AceDesign.Space.related)
         }
         .onDisappear { recorder.cancel() }
+        // Once: coming back to this chat from another doesn't record again.
+        .task {
+            guard records, !recordedAtOnce else { return }
+            recordedAtOnce = true
+            await recorder.start()
+        }
+        .onChange(of: quoted.wrappedValue, initial: true) { _, quote in
+            guard let quote else { return }
+            draft = SpadeQuote.into(draft, quote: quote)
+            quoted.wrappedValue = nil
+            typing = true
+        }
     }
 
     /// One line above the field: Spade's refusal, a pick that couldn't be read, or why the

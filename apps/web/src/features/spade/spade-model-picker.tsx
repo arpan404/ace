@@ -1,6 +1,7 @@
 import {
   mergeSpadeModels,
   spadeChecking,
+  spadeEndpointUsable,
   spadeLocalChoices,
   spadeModelGroups,
   spadeModelLabel,
@@ -161,7 +162,7 @@ function useModelSources(live: boolean, forBots: boolean): SpadeModelSources {
       queryKey: [...modelsKey, machine, "live", endpoint.id],
       queryFn: ({ signal }: { signal: AbortSignal }) =>
         readLiveModels(client, endpoint.id, { signal }),
-      enabled: live && (!endpoint.needsKey || endpoint.keySet === true),
+      enabled: live && spadeEndpointUsable(endpoint),
       staleTime: 60_000,
       retry: false,
     })),
@@ -261,7 +262,7 @@ function ModelList(props: {
         ))}
         {nothing && (
           <p className="px-2 py-1.5 text-ui text-muted-foreground">
-            Add an endpoint in Models first.
+            Add a provider in Models first.
           </p>
         )}
         {!nothing && flat.length === 0 && (

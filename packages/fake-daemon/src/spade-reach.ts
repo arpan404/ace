@@ -23,7 +23,11 @@ export class FakeSpadeReach {
   };
   /** How many notices wait for the next digest or brief. */
   held = 0;
-  readonly agents = new Map<string, boolean | null>();
+  /** Each bot's own choices; null follows Spade's setting. */
+  readonly agents = new Map<
+    string,
+    { notify: boolean | null; approvals: "notify" | "wait" | null }
+  >();
 
   route(method: string, body: Json): FakeSpadeAnswer {
     if (method === "PUT")
@@ -42,10 +46,15 @@ export class FakeSpadeReach {
   }
 
   agentRoute(method: string, agent: string, body: Json): FakeSpadeAnswer {
+    const own = this.agents.get(agent) ?? { notify: null, approvals: null };
     if (method === "PUT") {
-      const notify = body.notify;
-      this.agents.set(agent, typeof notify === "boolean" ? notify : null);
+      // As Spade: only the fields sent change; null follows Spade's setting again.
+      if ("notify" in body) own.notify = typeof body.notify === "boolean" ? body.notify : null;
+      if ("approvals" in body)
+        own.approvals =
+          body.approvals === "notify" || body.approvals === "wait" ? body.approvals : null;
+      this.agents.set(agent, own);
     }
-    return reply({ notify: this.agents.get(agent) ?? null });
+    return reply(own);
   }
 }

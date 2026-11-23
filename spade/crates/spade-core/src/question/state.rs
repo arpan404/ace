@@ -102,6 +102,15 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
                     card.standing = Standing::Dismissed;
                 }
             }
+            // A lane's cards asked in main close when the lane ends (ADR 0217 §4).
+            Known::LaneRequestsClosed(closed) => {
+                for call_id in &closed.calls {
+                    let open = [Standing::Waiting, Standing::Deferred];
+                    if let Some(card) = card(&mut cards, call_id, &open) {
+                        card.standing = Standing::Closed;
+                    }
+                }
+            }
             Known::ToolFinished { call_id, .. } => {
                 if let Some(card) = card(&mut cards, call_id, &[Standing::Waiting]) {
                     card.standing = Standing::Closed;
@@ -166,6 +175,8 @@ impl OpenCards {
                 .rposition(|c| c.call_id == id && !(waiting_only && c.deferred))
         };
         match known {
+            // A lane's card asked in main is the lane's to wait on, never main's stop check's.
+            Known::QuestionAsked { lane: Some(_), .. } => {}
             Known::QuestionAsked { reply, call_id, .. } => self.0.push(OpenCard {
                 call_id: call_id.clone(),
                 reply: reply.clone(),
