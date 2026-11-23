@@ -9,7 +9,7 @@ import { writeArchive } from "@ace/marketplace";
 import { registrySignerIo, type RegistryFetch } from "@ace/marketplace/registry-io";
 import { signPending } from "@ace/marketplace/signer";
 import { keySetOf, registryLink, sampleSkill, sampleSuit, testKey } from "@ace/marketplace/testing";
-import { MarketScanContextBody, VersionBody } from "@ace/protocol/marketplace";
+import { MarketScanContextBody, RegistryAdmin, VersionBody } from "@ace/protocol/marketplace";
 import {
   asSigner,
   catalogueOf,
@@ -43,6 +43,7 @@ const as = (account: string, orgRole?: string, inOrg = acme) =>
 const read = (path: string, authorization?: string) =>
   market.fetch(path, authorization ? { headers: { authorization } } : {});
 const member = () => as("user_member", "member");
+const admin = () => as("user_admin", "admin");
 
 /** An owner's request from their own session: the grant names this very body (ADR 0190). */
 async function asOwner(
@@ -481,6 +482,97 @@ describe("the registry's key chain", () => {
       readRegistryKeyUpload(after.keys[0]?.link.upload ?? "").statement.publicKey,
     ]);
     expect(after.keys).toHaveLength(1);
+  });
+});
+
+describe("the registry as its admins see it", () => {
+  const listing = `/v1/orgs/${acme}/registry`;
+  const withdrawPath = (name: string, org = acme) =>
+    `/v1/orgs/${org}/entries/spade-skill/${name}/1.0.0/withdraw`;
+  type Listed = {
+    entries: {
+      name: string;
+      versions: {
+        version: string;
+        status: string;
+        held: boolean;
+        scan?: { verdict: string };
+        withdrawal?: { reason: string };
+      }[];
+    }[];
+  };
+  const versionsOf = async (name: string) => {
+    const answer = await read(listing, admin());
+    expect(answer.status).toBe(200);
+    const body = RegistryAdmin.parse(await answer.json()) as Listed;
+    return body.entries.find((entry) => entry.name === name)?.versions ?? [];
+  };
+
+  it("lists each entry's versions with their state and scan verdict, to admins only", async () => {
+    const held = await publish(market, {
+      type: "spade-skill",
+      name: "admin-held",
+      files: warned("admin-held"),
+      grant: grantFor("user_admin", { org: acme, orgRole: "admin" }),
+    });
+    expect(held.status).toBe(201);
+    expect(await versionsOf("acme-triage")).toEqual([
+      expect.objectContaining({ version: "1.0.0", status: "not-reviewed", held: false }),
+    ]);
+    expect(await versionsOf("admin-held")).toEqual([
+      expect.objectContaining({
+        status: "waiting",
+        held: true,
+        scan: expect.objectContaining({ verdict: "warn" }),
+      }),
+    ]);
+    const answer = await read(listing, admin());
+    expect(answer.headers.get("cache-control")).toBe("private, no-store");
+    // Another organization's entries never show in this one's list.
+    const all = RegistryAdmin.parse(await answer.json()).entries.map((entry) => entry.name);
+    expect(all).not.toContain("other-secret");
+    // A member who may not publish is refused; anyone outside sees nothing there.
+    expect((await read(listing, member())).status).toBe(403);
+    expect((await read(listing, as("user_o", "owner", other))).status).toBe(404);
+    expect((await read(listing, as("user_nobody"))).status).toBe(404);
+    expect((await read(listing)).status).toBe(404);
+  });
+
+  it("withdraws a version only with the person's own grant naming that request, queued for the registry's signer", async () => {
+    const body = JSON.stringify({ reason: "Leaks a token" });
+    // An admin's ordinary grant, read on the way, withdraws nothing.
+    const plain = await market.fetch(withdrawPath("acme-triage"), {
+      method: "POST",
+      headers: { authorization: admin() },
+      body,
+    });
+    expect(plain.status).toBe(401);
+    expect(
+      (await asOwner(acme, withdrawPath("acme-triage"), body, "user_m", "member")).answer.status,
+    ).toBe(403);
+    // Another organization's version is not there for Acme's admin.
+    expect(
+      (await asOwner(acme, withdrawPath("other-secret", other), body, "user_admin", "admin")).answer
+        .status,
+    ).toBe(404);
+    const { answer } = await asOwner(
+      acme,
+      withdrawPath("acme-triage"),
+      body,
+      "user_admin",
+      "admin",
+    );
+    expect(answer.status).toBe(202);
+    expect(await versionsOf("acme-triage")).toEqual([
+      expect.objectContaining({ withdrawal: expect.objectContaining({ reason: "Leaks a token" }) }),
+    ]);
+    // ace's own signer never sees it: it is the registry's signer's to sign.
+    const pending = (await (
+      await market.fetch("/v1/signer/pending", { headers: asSigner })
+    ).json()) as { withdrawals: { name: string }[] };
+    expect(pending.withdrawals.map((each) => each.name)).not.toContain(`acme-triage@${acme}`);
+    const empty = await asOwner(acme, withdrawPath("acme-triage"), "{}", "user_admin", "admin");
+    expect(empty.answer.status).toBe(400);
   });
 });
 
