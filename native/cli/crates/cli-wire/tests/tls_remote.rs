@@ -156,7 +156,11 @@ fn pinned_remote_exchanges_ticket_over_https_and_runs_wss_request() {
         let n = tls1.read(&mut req_buf).unwrap();
         let req_text = std::str::from_utf8(&req_buf[..n]).unwrap();
         assert!(req_text.starts_with("POST /v1/tickets HTTP/1.1\r\n"));
-        assert!(req_text.contains(&format!("Authorization: Bearer {DEVICE_TOKEN}\r\n")));
+        assert!(
+            req_text
+                .to_ascii_lowercase()
+                .contains(&format!("authorization: bearer {DEVICE_TOKEN}\r\n"))
+        );
 
         let body = format!(r#"{{"ticket":"{TICKET_HEX}","expiresAt":1800000000000}}"#);
         let resp = format!(

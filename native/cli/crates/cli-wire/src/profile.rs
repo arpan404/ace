@@ -233,20 +233,24 @@ struct RawRelay {
 }
 
 fn validate_relay_url(raw: &str) -> Result<(), WireError> {
-    let rest = raw
-        .strip_prefix("wss://")
-        .or_else(|| raw.strip_prefix("ws://"))
-        .ok_or_else(|| WireError::InvalidTarget {
-            detail: "Relay URL must start with ws:// or wss://".into(),
-        })?;
-    if rest.is_empty()
-        || rest.contains('@')
-        || rest.contains('?')
-        || rest.contains('#')
-        || rest.bytes().any(|b| b.is_ascii_control() || b == b' ')
+    if raw.bytes().any(|b| b.is_ascii_control() || b == b' ') {
+        return Err(WireError::InvalidTarget {
+            detail: "Relay URL must not contain whitespace or control characters".into(),
+        });
+    }
+    let parsed = url::Url::parse(raw).map_err(|_| WireError::InvalidTarget {
+        detail: "Relay URL must be a valid ws:// or wss:// URL".into(),
+    })?;
+    if !matches!(parsed.scheme(), "ws" | "wss")
+        || parsed.host().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
     {
         return Err(WireError::InvalidTarget {
-            detail: "Relay URL must not contain credentials, queries, or fragments".into(),
+            detail: "Relay URL must be ws:// or wss:// without credentials, queries, or fragments"
+                .into(),
         });
     }
     Ok(())

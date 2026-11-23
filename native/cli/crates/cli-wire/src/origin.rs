@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Validated local and remote daemon origin URLs.
+//! Validated local and remote daemon origin URLs backed by the WHATWG `url` crate.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+use url::{Host, Url};
 
 use crate::error::WireError;
 
@@ -18,36 +20,33 @@ pub struct LocalOrigin {
 impl LocalOrigin {
     /// Validates a local daemon endpoint string as written in `daemon-endpoint`.
     pub fn parse(raw: &str) -> Result<Self, WireError> {
-        let rest =
-            raw.strip_prefix("http://127.0.0.1")
-                .ok_or_else(|| WireError::InvalidTarget {
-                    detail: "Local daemon origin must be http://127.0.0.1[:PORT][/]".into(),
-                })?;
-
-        let port = if rest.is_empty() || rest == "/" {
-            80
-        } else if let Some(after_colon) = rest.strip_prefix(':') {
-            let port_str = after_colon.strip_suffix('/').unwrap_or(after_colon);
-            if port_str.is_empty() || !port_str.bytes().all(|b| b.is_ascii_digit()) {
-                return Err(WireError::InvalidTarget {
-                    detail: "Local daemon origin has an invalid port or path".into(),
-                });
-            }
-            let parsed: u16 = port_str.parse().map_err(|_| WireError::InvalidTarget {
-                detail: "Local daemon origin port is out of range".into(),
-            })?;
-            if parsed == 0 {
-                return Err(WireError::InvalidTarget {
-                    detail: "Local daemon origin port must be non-zero".into(),
-                });
-            }
-            parsed
-        } else {
+        if raw.bytes().any(|b| b.is_ascii_control() || b == b' ') {
             return Err(WireError::InvalidTarget {
-                detail: "Local daemon origin must not contain a path, query, fragment, or userinfo"
+                detail: "Local daemon origin must not contain whitespace or control characters"
                     .into(),
             });
-        };
+        }
+        let parsed = Url::parse(raw).map_err(|_| WireError::InvalidTarget {
+            detail: "Local daemon origin must be http://127.0.0.1[:PORT][/]".into(),
+        })?;
+        if parsed.scheme() != "http"
+            || parsed.host() != Some(Host::Ipv4(Ipv4Addr::LOCALHOST))
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.path() != "/"
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(WireError::InvalidTarget {
+                detail: "Local daemon origin must be http://127.0.0.1[:PORT][/] without credentials, path, query, or fragment".into(),
+            });
+        }
+        let port = parsed.port_or_known_default().unwrap_or(80);
+        if port == 0 {
+            return Err(WireError::InvalidTarget {
+                detail: "Local daemon origin port must be non-zero".into(),
+            });
+        }
 
         Ok(Self {
             raw: raw.to_owned(),
@@ -90,6 +89,12 @@ impl LocalOrigin {
     pub fn ws_url(&self) -> String {
         format!("ws://127.0.0.1:{}/", self.port)
     }
+
+    /// Full HTTP URL for a validated `/v1/...` path.
+    #[must_use]
+    pub(crate) fn endpoint_url(&self, path: &str) -> String {
+        format!("http://127.0.0.1:{}{path}", self.port)
+    }
 }
 
 /// Validated remote HTTPS daemon origin (`https://HOST[:PORT][/]`).
@@ -107,52 +112,46 @@ pub struct RemoteOrigin {
 impl RemoteOrigin {
     /// Parses a remote HTTPS origin without credentials, path, query, or fragment.
     pub fn parse(raw: &str) -> Result<Self, WireError> {
-        let rest = raw
-            .strip_prefix("https://")
-            .ok_or_else(|| WireError::InvalidTarget {
+        if raw.bytes().any(|b| b.is_ascii_control() || b == b' ') {
+            return Err(WireError::InvalidTarget {
+                detail: "Remote origin must not contain whitespace or control characters".into(),
+            });
+        }
+        let parsed = Url::parse(raw).map_err(|_| WireError::InvalidTarget {
+            detail: "Remote origin must be a valid https://HOST[:PORT][/] URL".into(),
+        })?;
+        if parsed.scheme() != "https" {
+            return Err(WireError::InvalidTarget {
                 detail: "Remote requests require pinned HTTPS".into(),
-            })?;
-        let authority = rest.strip_suffix('/').unwrap_or(rest);
-        if authority.is_empty()
-            || authority.contains(['/', '?', '#', '@', '\\', ' ', '\t', '\r', '\n'])
+            });
+        }
+        if !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.path() != "/"
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
         {
             return Err(WireError::InvalidTarget {
                 detail: "Remote origin must be https://HOST[:PORT][/] without credentials or path"
                     .into(),
             });
         }
-
-        let (host, port, is_ipv6_literal) = if let Some(after_open) = authority.strip_prefix('[') {
-            let (addr, remainder) =
-                after_open
-                    .split_once(']')
-                    .ok_or_else(|| WireError::InvalidTarget {
-                        detail: "Remote origin has an unclosed IPv6 host literal".into(),
-                    })?;
-            if addr.parse::<Ipv6Addr>().is_err() {
-                return Err(WireError::InvalidTarget {
-                    detail: "Remote origin has an invalid IPv6 host".into(),
-                });
-            }
-            let port = parse_optional_port(remainder, 443)?;
-            (addr.to_owned(), port, true)
-        } else if let Some((h, p)) = authority.rsplit_once(':') {
-            if h.is_empty() || h.contains(':') {
+        let port = parsed.port_or_known_default().unwrap_or(443);
+        if port == 0 {
+            return Err(WireError::InvalidTarget {
+                detail: "Remote origin port must be non-zero".into(),
+            });
+        }
+        let (host, is_ipv6_literal) = match parsed.host() {
+            Some(Host::Domain(domain)) if !domain.is_empty() => (domain.to_owned(), false),
+            Some(Host::Ipv4(addr)) => (addr.to_string(), false),
+            Some(Host::Ipv6(addr)) => (addr.to_string(), true),
+            _ => {
                 return Err(WireError::InvalidTarget {
                     detail: "Remote origin has an invalid host".into(),
                 });
             }
-            let port = parse_port_digits(p)?;
-            (h.to_ascii_lowercase(), port, false)
-        } else {
-            (authority.to_ascii_lowercase(), 443, false)
         };
-
-        if !is_ipv6_literal && !is_valid_hostname(&host) {
-            return Err(WireError::InvalidTarget {
-                detail: "Remote origin has an invalid hostname".into(),
-            });
-        }
 
         Ok(Self {
             raw: raw.to_owned(),
@@ -202,6 +201,16 @@ impl RemoteOrigin {
         }
     }
 
+    /// Full HTTPS URL for a validated `/v1/...` path.
+    #[must_use]
+    pub(crate) fn endpoint_url(&self, path: &str) -> String {
+        if self.is_ipv6_literal {
+            format!("https://[{}]:{}{path}", self.host, self.port)
+        } else {
+            format!("https://{}:{}{path}", self.host, self.port)
+        }
+    }
+
     /// True if this host is a Tailscale `MagicDNS` name (`*.ts.net` and not an IP address),
     /// matching `tailnetName()` in `apps/daemon/src/client-access.ts`.
     #[must_use]
@@ -222,99 +231,63 @@ pub fn is_tailnet_name(host: &str) -> bool {
     })
 }
 
-fn parse_optional_port(rest: &str, default_port: u16) -> Result<u16, WireError> {
-    if rest.is_empty() {
-        Ok(default_port)
-    } else if let Some(digits) = rest.strip_prefix(':') {
-        parse_port_digits(digits)
-    } else {
-        Err(WireError::InvalidTarget {
-            detail: "Remote origin has trailing characters after host".into(),
-        })
-    }
-}
-
-fn parse_port_digits(digits: &str) -> Result<u16, WireError> {
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
-        return Err(WireError::InvalidTarget {
-            detail: "Remote origin port is invalid".into(),
-        });
-    }
-    let port: u16 = digits.parse().map_err(|_| WireError::InvalidTarget {
-        detail: "Remote origin port is out of range".into(),
-    })?;
-    if port == 0 {
-        return Err(WireError::InvalidTarget {
-            detail: "Remote origin port must be non-zero".into(),
-        });
-    }
-    Ok(port)
-}
-
-fn is_valid_hostname(host: &str) -> bool {
-    !host.is_empty()
-        && host.len() <= 253
-        && host
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
-        && !host.starts_with('.')
-        && !host.contains("..")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn local_origin_matches_ts_host_connection_rules() {
-        let with_slash = LocalOrigin::parse("http://127.0.0.1:4312/").unwrap();
-        assert_eq!(with_slash.port(), 4312);
-        assert_eq!(with_slash.ws_url(), "ws://127.0.0.1:4312/");
+        let with_slash = LocalOrigin::parse("http://127.0.0.1:4242/").unwrap();
+        assert_eq!(with_slash.port(), 4242);
+        assert_eq!(with_slash.ws_url(), "ws://127.0.0.1:4242/");
 
-        let without_slash = LocalOrigin::parse("http://127.0.0.1:4312").unwrap();
-        assert_eq!(without_slash.port(), 4312);
+        let without_slash = LocalOrigin::parse("http://127.0.0.1:4242").unwrap();
+        assert_eq!(without_slash.port(), 4242);
 
         let default_port = LocalOrigin::parse("http://127.0.0.1/").unwrap();
         assert_eq!(default_port.port(), 80);
 
         for invalid in [
-            "https://127.0.0.1:4312/",
-            "http://localhost:4312/",
-            "http://127.0.0.1:4312/v1",
-            "http://user@127.0.0.1:4312/",
-            "http://127.0.0.1:4312/?a=1",
-            "http://127.0.0.1:4312/#frag",
+            "https://127.0.0.1:4242/",
+            "http://localhost:4242/",
+            "http://127.0.0.1:4242/v1",
+            "http://127.0.0.1:4242/?a=1",
+            "http://127.0.0.1:4242/#frag",
+            "http://user@127.0.0.1:4242/",
             "http://127.0.0.1:0/",
-            "http://127.0.0.1:70000/",
-            "http://127.0.0.1:4312/\n",
+            "http://127.0.0.1:99999/",
+            "not-a-url",
         ] {
             assert!(
                 LocalOrigin::parse(invalid).is_err(),
-                "expected invalid local origin: {invalid}"
+                "expected {invalid:?} to fail"
             );
         }
     }
 
     #[test]
     fn remote_origin_and_tailnet_detection() {
-        let lan = RemoteOrigin::parse("https://192.168.1.5:8443/").unwrap();
-        assert_eq!(lan.host(), "192.168.1.5");
-        assert_eq!(lan.port(), 8443);
-        assert!(!lan.is_tailnet());
-
-        let ts = RemoteOrigin::parse("https://Mac.Tailnet.ts.net/").unwrap();
+        let ts = RemoteOrigin::parse("https://Mac.Tailnet.ts.net:7331/").unwrap();
         assert_eq!(ts.host(), "mac.tailnet.ts.net");
-        assert_eq!(ts.port(), 443);
+        assert_eq!(ts.port(), 7331);
         assert!(ts.is_tailnet());
+        assert_eq!(ts.wss_url(), "wss://mac.tailnet.ts.net:7331/");
 
-        let v6 = RemoteOrigin::parse("https://[::1]:9443").unwrap();
+        let ip = RemoteOrigin::parse("https://192.168.1.5:4243/").unwrap();
+        assert!(!ip.is_tailnet());
+        assert_eq!(ip.port(), 4243);
+
+        let v6 = RemoteOrigin::parse("https://[::1]:4243/").unwrap();
         assert_eq!(v6.host(), "::1");
-        assert_eq!(v6.port(), 9443);
-        assert_eq!(v6.wss_url(), "wss://[::1]:9443/");
-        assert!(!v6.is_tailnet());
+        assert_eq!(v6.host_header(), "[::1]:4243");
+        assert_eq!(v6.wss_url(), "wss://[::1]:4243/");
+
+        assert!(!is_tailnet_name(".ts.net"));
+        assert!(!is_tailnet_name("100.64.0.1"));
+        assert!(is_tailnet_name("box.tail.ts.net."));
 
         for invalid in [
-            "http://192.168.1.5:8443/",
+            "http://example.com:4242/",
             "https://user:pass@example.com/",
             "https://example.com/path",
             "https://example.com/?q=1",
@@ -322,7 +295,7 @@ mod tests {
         ] {
             assert!(
                 RemoteOrigin::parse(invalid).is_err(),
-                "expected invalid remote origin: {invalid}"
+                "expected {invalid:?} to fail"
             );
         }
     }

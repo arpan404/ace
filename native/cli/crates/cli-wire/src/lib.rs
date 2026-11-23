@@ -4,7 +4,6 @@
 pub mod error;
 pub mod home;
 pub mod http;
-pub mod http_parse;
 pub mod origin;
 pub mod profile;
 pub mod protocol;
