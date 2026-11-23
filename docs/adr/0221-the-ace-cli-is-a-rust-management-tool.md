@@ -64,13 +64,13 @@ text, stderr and exit code. The proof is the existing CLI tests run against the 
 
 Budgets, measured with `hyperfine` on release builds by `native/cli/bench` and kept in its README:
 
-| Run                                          | Budget                                     |
-| -------------------------------------------- | ------------------------------------------ |
-| `ace version`, `ace help`, `ace help thread` | under 3 ms                                 |
-| a completion request with the daemon down    | under 3 ms                                 |
-| `ace status --json` with the daemon up       | under 15 ms plus the daemon's own time     |
-| handing over to the bundle                   | under 1 ms added to the bundle's own start |
-| stripped binary                              | under 4 MB                                 |
+| Run                                          | Budget                                                                     |
+| -------------------------------------------- | -------------------------------------------------------------------------- |
+| `ace version`, `ace help`, `ace help thread` | under 3 ms                                                                 |
+| a completion request with the daemon down    | under 3 ms                                                                 |
+| `ace status --json` with the daemon up       | under 15 ms plus the daemon's own time                                     |
+| handing over to the bundle                   | under 1 ms added to the bundle's own start                                 |
+| stripped binary                              | under 5 MB (2026-11-23: SQLite for the CLI's own stores adds about 1.4 MB) |
 
 How:
 
