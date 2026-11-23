@@ -206,8 +206,8 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
   const read = shape.safeParse(raw);
   if (!read.success) return undefined;
   const link = read.data;
-  const effects = link.effects.flatMap((raw) => {
-    const effect = effectShape.safeParse(raw);
+  const effects = link.effects.flatMap((each) => {
+    const effect = effectShape.safeParse(each);
     return effect.success ? [effect.data] : [];
   });
   return {

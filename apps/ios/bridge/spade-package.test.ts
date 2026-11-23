@@ -214,8 +214,8 @@ test("a switch read on a version the bot no longer has is refused and changes no
   const { ask, api } = await withBot(marketLink);
   const pay = () => {
     const link = api.agents.find((agent) => agent.id === "flights")?.package;
-    const effects = (link?.["effects"] ?? []) as { key: string; on: boolean }[];
-    return effects.find((each) => each.key === "pay")?.on;
+    const stored = (link?.["effects"] ?? []) as { key: string; on: boolean }[];
+    return stored.find((each) => each.key === "pay")?.on;
   };
 
   const refused = await ask({
@@ -286,15 +286,17 @@ test("a template update whose effects can't all be read offers nothing to take",
   expect("offer" in review).toBe(false);
 });
 
+/** A tool grant on `deploy` held to `env`. */
+const tool = (env: string) => ({
+  key: "network:tool:deploy",
+  effect: "network",
+  hosts: [],
+  grant: { kind: "tool", tool: "deploy", arguments: { env } },
+  why: "Ships.",
+  on: true,
+});
+
 test("a template update names what it stops asking for and what it now asks for otherwise", async () => {
-  const tool = (env: string) => ({
-    key: "network:tool:deploy",
-    effect: "network",
-    hosts: [],
-    grant: { kind: "tool", tool: "deploy", arguments: { env } },
-    why: "Ships.",
-    on: true,
-  });
   const { ask } = await withBot(
     {
       source: "spade",

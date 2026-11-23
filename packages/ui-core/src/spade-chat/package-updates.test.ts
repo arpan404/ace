@@ -1,19 +1,20 @@
+import type { PackagePlan } from "@ace/protocol/marketplace";
 import { expect, test } from "vitest";
 import { updateSentences } from "./package-updates.ts";
 import { effectLimits, parseSpadePackage } from "./packages.ts";
 
 /* What a package update says it does to a bot's effects, and how a bot's package line reads. */
 
-const plan = {
+const plan: PackagePlan = {
   name: "same",
   task: "same",
   face: "same",
   personality: "same",
   routines: [],
   notes_kept: 0,
-  asks_more: [] as string[],
-  off: [] as string[],
-} as const;
+  asks_more: [],
+  off: [],
+};
 
 const deploy = (pattern: string) => ({
   key: "network:tool:deploy",
