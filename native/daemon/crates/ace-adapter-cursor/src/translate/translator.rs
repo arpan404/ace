@@ -4,10 +4,10 @@
 //! `malformed` diagnostic plus a `signal` fact, and a budget breach fences
 //! the turn.
 
-use serde_json::{Value, json};
-
 use super::children::Children;
-use super::envelope::parse_envelope;
+use super::delta::{DeltaFlow, translate_delta};
+use super::envelope::{Envelope, num_units, parse_envelope, string};
+use super::json::{J, encode_units, units_eq};
 use super::streamed_answer::StreamedAnswer;
 use super::tool_events::ToolEvents;
 use super::transcript::Transcript;
@@ -16,43 +16,43 @@ use super::{BudgetError, BudgetResult};
 /// A send the host holds until the run's admission (`segment`) starts it.
 #[derive(Clone)]
 pub(crate) struct Attempt {
-    pub(crate) generation: String,
-    pub(crate) operation_id: String,
-    pub(crate) command_id: Option<String>,
+    pub(crate) generation: Vec<u16>,
+    pub(crate) operation_id: Vec<u16>,
+    pub(crate) command_id: Option<Vec<u16>>,
     pub(crate) segment: i64,
-    pub(crate) body: Value,
+    pub(crate) body: J,
 }
 
 /// The translator's live fold. Field-for-field what the TypeScript holds.
 pub struct CursorTranslator {
-    root: String,
+    root: Vec<u16>,
     root_seen: bool,
-    generation: Option<String>,
-    operation: Option<String>,
+    generation: Option<Vec<u16>>,
+    operation: Option<Vec<u16>>,
     segment: i64,
     sequence: i64,
     active: bool,
     replacement: bool,
     interrupted: bool,
-    cwd: String,
+    cwd: Vec<u16>,
     transcript: Transcript,
     tools: ToolEvents,
     children: Children,
-    pub(crate) max: usize,
+    max: usize,
     usage_position: u64,
     overflow: bool,
-    current_raw: Option<Value>,
+    current_raw: Option<J>,
     notice_index: u64,
-    pub(crate) notice_sequence: i64,
+    notice_sequence: i64,
     attempt: Option<Attempt>,
-    turn_namespace: String,
+    turn_namespace: Vec<u16>,
     saw_text: bool,
     answer: StreamedAnswer,
-    saved: String,
+    saved: Vec<u16>,
     recovered_any: bool,
-    gaps: Vec<String>,
-    pub(crate) now: i64,
-    diagnostics: Vec<Value>,
+    gaps: Vec<Vec<u16>>,
+    now: i64,
+    diagnostics: Vec<J>,
 }
 
 impl CursorTranslator {
@@ -61,8 +61,8 @@ impl CursorTranslator {
         if !(1..=8192).contains(&max) || !(4096..=8_388_608).contains(&retained_limit) {
             return Err("Invalid SDK translator budget".to_owned());
         }
+        let root = root_key.encode_utf16().collect::<Vec<u16>>();
         Ok(CursorTranslator {
-            root: root_key,
             root_seen: false,
             generation: None,
             operation: None,
@@ -71,8 +71,8 @@ impl CursorTranslator {
             active: false,
             replacement: false,
             interrupted: false,
-            cwd: String::new(),
-            transcript: Transcript::new("unopened".to_owned(), max),
+            cwd: Vec::new(),
+            transcript: Transcript::new(encode_units("unopened"), max),
             tools: ToolEvents::new(max, retained_limit),
             children: Children::new(max),
             max,
@@ -82,44 +82,47 @@ impl CursorTranslator {
             notice_index: 0,
             notice_sequence: -1,
             attempt: None,
-            turn_namespace: String::new(),
+            turn_namespace: Vec::new(),
             saw_text: false,
             answer: StreamedAnswer::new(),
-            saved: String::new(),
+            saved: Vec::new(),
             recovered_any: false,
             gaps: Vec::new(),
             now: 0,
             diagnostics: Vec::new(),
+            root,
         })
     }
 
-    pub fn take_diagnostics(&mut self) -> Vec<Value> {
+    pub(crate) fn take_diagnostics(&mut self) -> Vec<J> {
         std::mem::take(&mut self.diagnostics)
     }
 
-    pub fn tick(&mut self) -> Vec<Value> {
+    pub(crate) fn tick(&mut self) -> Vec<J> {
         Vec::new()
     }
 
     /// Fold one frame's payload data into facts. Never fails on provider data.
-    pub fn translate_frame(
+    pub(crate) fn translate_frame(
         &mut self,
-        payload_data: &Value,
+        payload_data: &J,
         seq: i64,
-        channel: &str,
-        dir: &str,
+        channel: &[u16],
+        dir: &[u16],
         now: i64,
-    ) -> Vec<Value> {
+    ) -> Vec<J> {
         self.now = now;
         self.diagnostics.clear();
         self.notice_index = 0;
         self.notice_sequence = seq;
         self.current_raw = None;
-        if channel != "sdk" || self.overflow {
+        if !units_eq(channel, "sdk") || self.overflow {
             return Vec::new();
         }
-        self.diagnostics
-            .push(json!({ "type": "cursor.sdk.v1", "data": payload_data.clone() }));
+        self.diagnostics.push(J::Obj(vec![
+            (encode_units("type"), J::Str(encode_units("cursor.sdk.v1"))),
+            (encode_units("data"), payload_data.clone()),
+        ]));
         match self.translate_guarded(payload_data, seq, dir) {
             Ok(facts) => facts,
             Err(_) => self.overflowed(),
@@ -127,63 +130,69 @@ impl CursorTranslator {
     }
 
     /// Fence the turn after a payload or identity budget breach.
-    pub(crate) fn overflowed(&mut self) -> Vec<Value> {
+    pub(crate) fn overflowed(&mut self) -> Vec<J> {
         if self.overflow {
             return Vec::new();
         }
         self.overflow = true;
         let mut facts = self.children.preserve();
-        let overflow = json!({ "overflow": true });
+        let overflow = J::Obj(vec![(encode_units("overflow"), J::Bool(true))]);
         let mut step = Step::new(self);
         facts.push(step.notice(
-            "SDK payload or identity budget exceeded. Host must be stopped; checkpoint retained and surviving work remains uncertain.",
+            &encode_units(
+                "SDK payload or identity budget exceeded. Host must be stopped; checkpoint retained and surviving work remains uncertain.",
+            ),
             &overflow,
             "error",
-            "cursor.diagnostic",
+            &encode_units("cursor.diagnostic"),
         ));
-        facts.push(json!({
-            "type": "process.exited",
-            "deliberate": false,
-            "message": "SDK translation budget exceeded",
-        }));
+        facts.push(J::Obj(vec![
+            (encode_units("type"), J::Str(encode_units("process.exited"))),
+            (encode_units("deliberate"), J::Bool(false)),
+            (
+                encode_units("message"),
+                J::Str(encode_units("SDK translation budget exceeded")),
+            ),
+        ]));
         facts
     }
 
     fn translate_guarded(
         &mut self,
-        payload_data: &Value,
+        payload_data: &J,
         seq: i64,
-        dir: &str,
-    ) -> BudgetResult<Vec<Value>> {
+        dir: &[u16],
+    ) -> BudgetResult<Vec<J>> {
         let Some(event) = parse_envelope(payload_data) else {
             let mut step = Step::new(self);
             let notice = step.notice(
-                "Malformed SDK boundary envelope",
+                &encode_units("Malformed SDK boundary envelope"),
                 payload_data,
                 "error",
-                "cursor.diagnostic",
+                &encode_units("cursor.diagnostic"),
             );
             return Ok(vec![notice]);
         };
         if self.generation.as_deref() != Some(event.generation) && self.generation.is_some() {
-            if event.kind != "open" {
+            if !units_eq(event.kind, "open") {
                 return Ok(Vec::new());
             }
             self.sequence = -1;
-            self.generation = Some(event.generation.to_owned());
+            self.generation = Some(event.generation.to_vec());
         }
         if seq <= self.sequence {
             return Ok(Vec::new());
         }
         self.sequence = seq;
         if self.generation.is_none() {
-            self.generation = Some(event.generation.to_owned());
+            self.generation = Some(event.generation.to_vec());
         }
         self.current_raw = event.raw.cloned();
-        let namespace = format!(
-            "{}:{}:{}",
-            event.generation, event.operation_id, event.segment
-        );
+        let mut namespace = event.generation.to_vec();
+        namespace.extend_from_slice(&encode_units(":"));
+        namespace.extend_from_slice(event.operation_id);
+        namespace.extend_from_slice(&encode_units(":"));
+        namespace.extend_from_slice(&num_units(event.segment));
         let admitted = self.attempt.as_ref().is_some_and(|attempt| {
             attempt.operation_id == event.operation_id
                 && attempt.segment == event.segment
@@ -195,7 +204,8 @@ impl CursorTranslator {
                     "blob",
                     "result",
                 ]
-                .contains(&event.kind)
+                .iter()
+                .any(|kind| units_eq(event.kind, kind))
         });
         let mut step = Step::new(self);
         let mut facts = Vec::new();
@@ -210,32 +220,32 @@ impl CursorTranslator {
 
 /// The translator's fields, borrowed disjointly for one frame.
 pub struct Step<'a> {
-    pub(crate) root: &'a str,
+    pub(crate) root: &'a [u16],
     pub(crate) root_seen: &'a mut bool,
-    pub(crate) generation: &'a mut Option<String>,
-    pub(crate) operation: &'a mut Option<String>,
+    pub(crate) generation: &'a mut Option<Vec<u16>>,
+    pub(crate) operation: &'a mut Option<Vec<u16>>,
     pub(crate) segment: &'a mut i64,
     pub(crate) active: &'a mut bool,
     pub(crate) replacement: &'a mut bool,
     pub(crate) interrupted: &'a mut bool,
-    pub(crate) cwd: &'a mut String,
+    pub(crate) cwd: &'a mut Vec<u16>,
     pub(crate) transcript: &'a mut Transcript,
     pub(crate) tools: &'a mut ToolEvents,
     pub(crate) children: &'a mut Children,
     pub(crate) max: usize,
     pub(crate) usage_position: &'a mut u64,
     pub(crate) attempt: &'a mut Option<Attempt>,
-    pub(crate) turn_namespace: &'a mut String,
+    pub(crate) turn_namespace: &'a mut Vec<u16>,
     pub(crate) saw_text: &'a mut bool,
     pub(crate) answer: &'a mut StreamedAnswer,
-    pub(crate) saved: &'a mut String,
+    pub(crate) saved: &'a mut Vec<u16>,
     pub(crate) recovered_any: &'a mut bool,
-    pub(crate) gaps: &'a mut Vec<String>,
+    pub(crate) gaps: &'a mut Vec<Vec<u16>>,
     pub(crate) now: i64,
-    pub(crate) diagnostics: &'a mut Vec<Value>,
+    pub(crate) diagnostics: &'a mut Vec<J>,
     pub(crate) notice_index: &'a mut u64,
     pub(crate) notice_sequence: i64,
-    pub(crate) current_raw: &'a mut Option<Value>,
+    pub(crate) current_raw: &'a mut Option<J>,
 }
 
 impl<'a> Step<'a> {
@@ -270,95 +280,51 @@ impl<'a> Step<'a> {
         }
     }
 
-    pub(crate) fn notice(&mut self, text: &str, data: &Value, level: &str, code: &str) -> Value {
-        let item = format!(
-            "sdk:notice:{}:{}:{}",
-            self.generation.as_deref().unwrap_or("invalid"),
-            self.notice_sequence,
-            *self.notice_index
-        );
-        *self.notice_index += 1;
-        let mut raw = vec![
-            self.current_raw
-                .clone()
-                .unwrap_or(json!({ "type": "cursor.sdk.v1", "data": data.clone() })),
-        ];
-        if [
-            "Malformed SDK boundary",
-            "Checkpoint snapshot retained",
-            "Shell output has no observed",
-            "SDK task summary",
-            "SDK checkpoint recovery",
-        ]
-        .iter()
-        .any(|prefix| text.starts_with(prefix))
-        {
-            raw.push(json!({ "type": "native-notice", "data": {} }));
-        }
-        json!({
-            "type": "item.upsert",
-            "agent": self.root,
-            "item": item,
-            "draft": {
-                "type": "notice",
-                "diagnostic": true,
-                "code": code,
-                "text": text,
-                "level": level,
-                "complete": true,
-                "raw": raw,
-            },
-        })
-    }
-
-    /// A notice closure over this frame's notice state, for the delta helpers.
-    pub(crate) fn notice_fn<'x>(
-        diagnostics: &'x mut Vec<Value>,
-        index: &'x mut u64,
-        sequence: i64,
-        current_raw: &'x Option<Value>,
-        generation: &'x Option<String>,
-        root: &'x str,
-    ) -> impl FnMut(&str, &Value, &str) -> Value + 'x {
-        move |text: &str, data: &Value, level: &str| {
-            let item = format!(
-                "sdk:notice:{}:{sequence}:{}",
-                generation.as_deref().unwrap_or("invalid"),
-                *index
-            );
-            *index += 1;
-            let mut raw = vec![
-                current_raw
-                    .clone()
-                    .unwrap_or(json!({ "type": "cursor.sdk.v1", "data": data.clone() })),
-            ];
-            if [
-                "Malformed SDK boundary",
-                "Checkpoint snapshot retained",
-                "Shell output has no observed",
-                "SDK task summary",
-                "SDK checkpoint recovery",
-            ]
-            .iter()
-            .any(|prefix| text.starts_with(prefix))
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn delta(
+        &mut self,
+        body: &J,
+        agent: &[u16],
+        namespace: &[u16],
+        envelope: &J,
+        current: Option<&Envelope>,
+        depth: u32,
+    ) -> BudgetResult<Vec<J>> {
+        let kind = string(body.get("type").unwrap_or(&J::Null));
+        if depth == 0 && agent == self.root {
+            if kind.is_some_and(|kind| units_eq(kind, "text-delta")) {
+                *self.saw_text = true;
+                self.answer
+                    .add(string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]));
+            } else if kind.is_some_and(|kind| kind.len() >= 9 && units_eq(&kind[..9], "tool-call"))
             {
-                raw.push(json!({ "type": "native-notice", "data": {} }));
+                self.answer.reset();
             }
-            let _ = diagnostics;
-            json!({
-                "type": "item.upsert",
-                "agent": root,
-                "item": item,
-                "draft": {
-                    "type": "notice",
-                    "diagnostic": true,
-                    "code": "cursor.diagnostic",
-                    "text": text,
-                    "level": level,
-                    "complete": true,
-                    "raw": raw,
-                },
-            })
         }
+        let mut usage = || {
+            *self.usage_position += 1;
+            *self.usage_position
+        };
+        let mut notice = Self::notice_fn(
+            &mut *self.diagnostics,
+            &mut *self.notice_index,
+            self.notice_sequence,
+            &*self.current_raw,
+            &*self.generation,
+            self.root,
+        );
+        let mut flow = DeltaFlow {
+            children: &mut *self.children,
+            tools: &mut *self.tools,
+            transcript: &mut *self.transcript,
+            current,
+            envelope,
+            operation: self.operation.as_deref(),
+            segment: *self.segment,
+            cwd: self.cwd,
+            next_usage: &mut usage,
+            notice: &mut notice,
+        };
+        translate_delta(body, agent, namespace, &mut flow, depth)
     }
 }

@@ -2,13 +2,12 @@
 //! Streaming shell output and surviving-call fences (`tool-events.ts`,
 //! output and preserve).
 
-use std::collections::HashSet;
-
-use serde_json::{Map, Value, json};
+use std::collections::BTreeSet;
 
 use super::BudgetResult;
 use super::children::Children;
-use super::envelope::{Envelope, native_identity, string};
+use super::envelope::{Envelope, cat, native_identity, string};
+use super::json::{J, encode_units};
 use super::tool_events::ToolEvents;
 use super::tools::tool_kind;
 use super::transcript::Transcript;
@@ -17,38 +16,39 @@ impl ToolEvents {
     #[allow(clippy::too_many_arguments)]
     pub fn output(
         &mut self,
-        body: &Map<String, Value>,
-        agent: &str,
-        namespace: &str,
+        body: &J,
+        agent: &[u16],
+        namespace: &[u16],
         event: &Envelope,
-        envelope: &Value,
+        envelope: &J,
         transcript: &mut Transcript,
         children: &mut Children,
-        operation: Option<&str>,
+        operation: Option<&[u16]>,
         segment: i64,
-        cwd: &str,
-        notice: &mut dyn FnMut(&str, &Value, &str) -> Value,
-    ) -> BudgetResult<Vec<Value>> {
-        let id = native_identity(body.get("callId").unwrap_or(&Value::Null))?;
-        let text = string(body.get("text").unwrap_or(&Value::Null)).unwrap_or("");
+        cwd: &[u16],
+        notice: &mut dyn FnMut(&[u16], &J, &str) -> J,
+    ) -> BudgetResult<Vec<J>> {
+        let id = native_identity(body.get("callId").unwrap_or(&J::Null))?;
+        let text = string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]);
         let Some(id) = id else { return Ok(Vec::new()) };
         if text.is_empty() {
             return Ok(Vec::new());
         }
-        let key = format!("{namespace}:call:{id}");
+        let key = cat(&[namespace, &encode_units(":call:"), &id]);
         let mut facts = Vec::new();
         if !self.calls.contains_key(&key) {
-            let mut started = Map::new();
-            started.insert(
-                "type".to_owned(),
-                Value::String("tool-call-started".to_owned()),
-            );
-            started.insert("callId".to_owned(), Value::String(id.clone()));
+            let mut started = vec![
+                (
+                    encode_units("type"),
+                    J::Str(encode_units("tool-call-started")),
+                ),
+                (encode_units("callId"), J::Str(id.clone())),
+            ];
             if let Some(tool_call) = body.get("toolCall") {
-                started.insert("toolCall".to_owned(), tool_call.clone());
+                started.push((encode_units("toolCall"), tool_call.clone()));
             }
             facts.extend(self.translate(
-                &started,
+                &J::Obj(started),
                 agent,
                 namespace,
                 Some(event),
@@ -69,24 +69,24 @@ impl ToolEvents {
         }
         tool.output = true;
         let owner = tool.agent.clone();
-        facts.push(json!({
-            "type": "item.delta",
-            "agent": owner,
-            "item": key,
-            "field": "output",
-            "append": text,
-        }));
+        facts.push(J::Obj(vec![
+            (encode_units("type"), J::Str(encode_units("item.delta"))),
+            (encode_units("agent"), J::Str(owner)),
+            (encode_units("item"), J::Str(key)),
+            (encode_units("field"), J::Str(encode_units("output"))),
+            (encode_units("append"), J::Str(text.to_vec())),
+        ]));
         Ok(facts)
     }
 
-    pub fn preserve(&mut self, owner: Option<&str>) -> Vec<Value> {
+    pub fn preserve(&mut self, owner: Option<&[u16]>) -> Vec<J> {
         let mut facts = Vec::new();
-        let owners: Vec<String> = match owner {
-            Some(owner) => vec![owner.to_owned()],
+        let owners: Vec<Vec<u16>> = match owner {
+            Some(owner) => vec![owner.to_vec()],
             None => self.pending_by_owner.keys().cloned().collect(),
         };
         for key in owners {
-            let pending: Vec<String> = self
+            let pending: Vec<Vec<u16>> = self
                 .pending_by_owner
                 .get(&key)
                 .map(|pending| pending.iter().cloned().collect())
@@ -112,39 +112,45 @@ impl ToolEvents {
                 } else {
                     "other"
                 };
-                facts.push(json!({
-                    "type": "background.started",
-                    "agent": agent,
-                    "task": format!("surviving:{item}"),
-                    "kind": kind,
-                    "title": format!("Unresolved SDK {name}"),
-                    "item": item,
-                    "stoppable": false,
-                }));
-                facts.push(json!({
-                    "type": "background.ended",
-                    "task": format!("surviving:{item}"),
-                    "status": "unknown",
-                    "uncertain": true,
-                }));
+                facts.push(J::Obj(vec![
+                    (
+                        encode_units("type"),
+                        J::Str(encode_units("background.started")),
+                    ),
+                    (encode_units("agent"), J::Str(agent)),
+                    (
+                        encode_units("task"),
+                        J::Str(cat(&[&encode_units("surviving:"), &item])),
+                    ),
+                    (encode_units("kind"), J::Str(encode_units(kind))),
+                    (
+                        encode_units("title"),
+                        J::Str(cat(&[&encode_units("Unresolved SDK "), &name])),
+                    ),
+                    (encode_units("item"), J::Str(item.clone())),
+                    (encode_units("stoppable"), J::Bool(false)),
+                ]));
+                facts.push(J::Obj(vec![
+                    (
+                        encode_units("type"),
+                        J::Str(encode_units("background.ended")),
+                    ),
+                    (
+                        encode_units("task"),
+                        J::Str(cat(&[&encode_units("surviving:"), &item])),
+                    ),
+                    (encode_units("status"), J::Str(encode_units("unknown"))),
+                    (encode_units("uncertain"), J::Bool(true)),
+                ]));
             }
             if self
                 .pending_by_owner
                 .get(&key)
-                .is_some_and(HashSet::is_empty)
+                .is_some_and(BTreeSet::is_empty)
             {
                 self.pending_by_owner.remove(&key);
             }
         }
         facts
     }
-}
-
-/// Slice text to whole characters within so many UTF-16 code units.
-pub(crate) fn utf16_slice(text: &str, max: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= max {
-        return text.to_owned();
-    }
-    String::from_utf16_lossy(&units[..max])
 }

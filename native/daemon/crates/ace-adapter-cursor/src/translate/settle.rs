@@ -2,55 +2,60 @@
 //! The settled-frame decisions: the terminal switch of the dispatch
 //! (`translator.ts` step, second half).
 
-use serde_json::{Map, Value, json};
-
 use super::BudgetResult;
-use super::envelope::{Envelope, object, string};
+use super::envelope::{Envelope, is, string};
 use super::facts::failed_run;
 use super::failure_kind::cursor_failure;
+use super::json::{J, encode_units, units_eq};
 use super::translator::Step;
 
 impl Step<'_> {
     pub fn finish(
         &mut self,
         event: &Envelope,
-        envelope: &Value,
-        body: &Map<String, Value>,
-        namespace: &str,
-        dir: &str,
-    ) -> BudgetResult<Vec<Value>> {
+        envelope: &J,
+        body: &J,
+        namespace: &[u16],
+        dir: &[u16],
+    ) -> BudgetResult<Vec<J>> {
         match event.kind {
-            "segment" => Ok(Vec::new()),
-            "delta-chunk" | "delta" => {
-                let root = self.root.to_owned();
+            kind if units_eq(kind, "segment") => Ok(Vec::new()),
+            kind if units_eq(kind, "delta-chunk") || units_eq(kind, "delta") => {
+                let root = self.root.to_vec();
                 self.delta(body, &root, namespace, envelope, Some(event), 0)
             }
-            "message" => {
+            kind if units_eq(kind, "message") => {
                 // Frames from an earlier build: the stream's copy of onDelta, never shown twice.
-                Ok(vec![json!({ "type": "signal", "agent": self.root })])
+                Ok(vec![J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("signal"))),
+                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                ])])
             }
-            "cancel" => {
-                if dir == "send" {
-                    *self.replacement = body.get("replacement") == Some(&Value::Bool(true));
+            kind if units_eq(kind, "cancel") => {
+                if units_eq(dir, "send") {
+                    *self.replacement = matches!(body.get("replacement"), Some(J::Bool(true)));
                     *self.interrupted = !*self.replacement;
                 }
                 Ok(Vec::new())
             }
-            "result" => {
+            kind if units_eq(kind, "result") => {
                 if !*self.active {
                     return Ok(Vec::new());
                 }
-                if !["finished", "cancelled", "error"]
-                    .contains(&string(body.get("status").unwrap_or(&Value::Null)).unwrap_or(""))
+                if !is(body.get("status").unwrap_or(&J::Null), "finished")
+                    && !is(body.get("status").unwrap_or(&J::Null), "cancelled")
+                    && !is(body.get("status").unwrap_or(&J::Null), "error")
                 {
                     let mut facts = Vec::new();
                     facts.extend(self.tools.preserve(None));
                     facts.extend(self.children.preserve());
                     facts.push(self.notice(
-                        "Unrecognized SDK terminal status; execution remains uncertain",
+                        &encode_units(
+                            "Unrecognized SDK terminal status; execution remains uncertain",
+                        ),
                         envelope,
                         "warning",
-                        "cursor.diagnostic",
+                        &encode_units("cursor.diagnostic"),
                     ));
                     return Ok(facts);
                 }
@@ -58,15 +63,16 @@ impl Step<'_> {
                 facts.extend(self.transcript.end());
                 facts.extend(self.tools.preserve(None));
                 facts.extend(self.children.preserve());
-                if body.get("status") == Some(&Value::String("error".to_owned())) {
-                    let error = object(body.get("error").unwrap_or(&Value::Null));
+                if is(body.get("status").unwrap_or(&J::Null), "error") {
+                    let error = body.get("error").unwrap_or(&J::Null);
                     facts.push(
                         self.notice(
-                            string(error.get("message").unwrap_or(&Value::Null))
-                                .unwrap_or("Cursor SDK run failed"),
+                            &string(error.get("message").unwrap_or(&J::Null))
+                                .map(|message| message.to_vec())
+                                .unwrap_or_else(|| encode_units("Cursor SDK run failed")),
                             envelope,
                             "error",
-                            "cursor.run-failed",
+                            &encode_units("cursor.run-failed"),
                         ),
                     );
                 }
@@ -74,34 +80,44 @@ impl Step<'_> {
                     return Ok(facts);
                 }
                 *self.active = false;
-                let outcome = if body.get("status") == Some(&Value::String("finished".to_owned())) {
+                let outcome = if is(body.get("status").unwrap_or(&J::Null), "finished") {
                     "completed"
-                } else if body.get("status") == Some(&Value::String("cancelled".to_owned()))
+                } else if is(body.get("status").unwrap_or(&J::Null), "cancelled")
                     || *self.interrupted
                 {
                     "interrupted"
                 } else {
                     "failed"
                 };
-                let mut ended = json!({
-                    "type": "turn.ended",
-                    "agent": self.root,
-                    "nativeTurnId": format!("sdk:{}", event.operation_id),
-                    "outcome": outcome,
-                });
+                let mut ended = J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("turn.ended"))),
+                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                    (
+                        encode_units("nativeTurnId"),
+                        J::Str(super::envelope::cat(&[
+                            &encode_units("sdk:"),
+                            event.operation_id,
+                        ])),
+                    ),
+                    (encode_units("outcome"), J::Str(encode_units(outcome))),
+                ]);
                 if outcome == "failed" {
-                    let error = object(body.get("error").unwrap_or(&Value::Null));
-                    ended["error"] = failed_run(
-                        error.get("code").unwrap_or(&Value::Null),
-                        string(error.get("message").unwrap_or(&Value::Null))
-                            .unwrap_or("Cursor SDK run failed"),
-                        error.get("retryable").unwrap_or(&Value::Null),
+                    let error = body.get("error").unwrap_or(&J::Null);
+                    ended.set(
+                        "error",
+                        failed_run(
+                            error.get("code").unwrap_or(&J::Null),
+                            &string(error.get("message").unwrap_or(&J::Null))
+                                .map(|message| message.to_vec())
+                                .unwrap_or_else(|| encode_units("Cursor SDK run failed")),
+                            error.get("retryable").unwrap_or(&J::Null),
+                        ),
                     );
                 }
                 facts.push(ended);
                 Ok(facts)
             }
-            "error" => {
+            kind if units_eq(kind, "error") => {
                 let mut facts = Vec::new();
                 // A send Cursor refused or failed to take: nothing is starting any more.
                 if self
@@ -110,65 +126,81 @@ impl Step<'_> {
                     .is_some_and(|attempt| attempt.operation_id == event.operation_id)
                 {
                     *self.attempt = None;
-                    facts.push(json!({
-                        "type": "wake.expected",
-                        "agent": self.root,
-                        "until": self.now,
-                    }));
+                    facts.push(J::Obj(vec![
+                        (encode_units("type"), J::Str(encode_units("wake.expected"))),
+                        (encode_units("agent"), J::Str(self.root.to_vec())),
+                        (encode_units("until"), J::Num(self.now.to_string())),
+                    ]));
                 }
                 if !*self.root_seen {
                     *self.root_seen = true;
-                    facts.push(json!({
-                        "type": "agent.seen",
-                        "agent": self.root,
-                        "origin": "root",
-                        "fidelity": "full",
-                        "native": { "provider": "cursor" },
-                        "cwd": self.cwd.clone(),
-                    }));
+                    facts.push(J::Obj(vec![
+                        (encode_units("type"), J::Str(encode_units("agent.seen"))),
+                        (encode_units("agent"), J::Str(self.root.to_vec())),
+                        (encode_units("origin"), J::Str(encode_units("root"))),
+                        (encode_units("fidelity"), J::Str(encode_units("full"))),
+                        (
+                            encode_units("native"),
+                            J::Obj(vec![(
+                                encode_units("provider"),
+                                J::Str(encode_units("cursor")),
+                            )]),
+                        ),
+                        (encode_units("cwd"), J::Str(self.cwd.clone())),
+                    ]));
                 }
-                let text = string(body.get("message").unwrap_or(&Value::Null))
-                    .unwrap_or("SDK failure; delivery or execution is uncertain");
+                let text = string(body.get("message").unwrap_or(&J::Null))
+                    .map(|text| text.to_vec())
+                    .unwrap_or_else(|| {
+                        encode_units("SDK failure; delivery or execution is uncertain")
+                    });
                 let failure = cursor_failure(
-                    body.get("code").unwrap_or(&Value::Null),
-                    text,
-                    body.get("retryable").unwrap_or(&Value::Null),
+                    body.get("code").unwrap_or(&J::Null),
+                    &text,
+                    body.get("retryable").unwrap_or(&J::Null),
                 );
                 facts.extend(self.tools.preserve(None));
                 facts.extend(self.children.preserve());
-                facts.push(self.notice(
-                    text,
-                    envelope,
-                    "error",
-                    &failure.code.unwrap_or_else(|| {
-                        if failure.kind == "quota" {
-                            "quota".to_owned()
-                        } else {
-                            "cursor.run-failed".to_owned()
-                        }
-                    }),
-                ));
+                let code = failure.code.unwrap_or_else(|| {
+                    if failure.kind == "quota" {
+                        encode_units("quota")
+                    } else {
+                        encode_units("cursor.run-failed")
+                    }
+                });
+                facts.push(self.notice(&text, envelope, "error", &code));
                 if *self.active
                     && !*self.replacement
-                    && body.get("settled") == Some(&Value::Bool(true))
+                    && matches!(body.get("settled"), Some(J::Bool(true)))
                 {
                     *self.active = false;
-                    let ended = json!({
-                        "type": "turn.ended",
-                        "agent": self.root,
-                        "nativeTurnId": format!("sdk:{}", event.operation_id),
-                        "outcome": "failed",
-                        "error": failed_run(
-                            body.get("code").unwrap_or(&Value::Null),
-                            string(body.get("message").unwrap_or(&Value::Null)).unwrap_or("SDK run failed"),
-                            body.get("retryable").unwrap_or(&Value::Null),
+                    let message = string(body.get("message").unwrap_or(&J::Null))
+                        .map(|message| message.to_vec())
+                        .unwrap_or_else(|| encode_units("SDK run failed"));
+                    facts.push(J::Obj(vec![
+                        (encode_units("type"), J::Str(encode_units("turn.ended"))),
+                        (encode_units("agent"), J::Str(self.root.to_vec())),
+                        (
+                            encode_units("nativeTurnId"),
+                            J::Str(super::envelope::cat(&[
+                                &encode_units("sdk:"),
+                                event.operation_id,
+                            ])),
                         ),
-                    });
-                    facts.push(ended);
+                        (encode_units("outcome"), J::Str(encode_units("failed"))),
+                        (
+                            encode_units("error"),
+                            failed_run(
+                                body.get("code").unwrap_or(&J::Null),
+                                &message,
+                                body.get("retryable").unwrap_or(&J::Null),
+                            ),
+                        ),
+                    ]));
                 }
                 Ok(facts)
             }
-            "close" => Ok(self.children.preserve()),
+            kind if units_eq(kind, "close") => Ok(self.children.preserve()),
             _ => Ok(Vec::new()),
         }
     }

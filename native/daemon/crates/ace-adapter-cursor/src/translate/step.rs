@@ -1,53 +1,51 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The frame dispatch: envelope kinds into facts (`translator.ts` step).
 
-use serde_json::{Map, Value, json};
-
-use super::envelope::{native_identity, object, string};
+use super::envelope::{Envelope, cat, is, native_identity, string};
+use super::json::{J, encode_units, units_eq};
 use super::recovered_tail::{store_gap, stored_update};
-use super::translator::{Attempt, Step};
-use super::turns::utf16_head;
+use super::translator::Step;
 use super::{BudgetError, BudgetResult};
 
 impl Step<'_> {
     pub fn step(
         &mut self,
-        event: &super::envelope::Envelope,
-        envelope: &Value,
-        namespace: &str,
-        dir: &str,
-    ) -> BudgetResult<Vec<Value>> {
-        let body = object(event.body);
+        event: &Envelope,
+        envelope: &J,
+        namespace: &[u16],
+        dir: &[u16],
+    ) -> BudgetResult<Vec<J>> {
+        let body = event.body;
         match event.kind {
-            "open" => {
-                *self.saved = String::new();
+            kind if units_eq(kind, "open") => {
+                *self.saved = Vec::new();
                 *self.root_seen = true;
-                *self.cwd = string(body.get("cwd").unwrap_or(&Value::Null))
-                    .unwrap_or("")
-                    .to_owned();
-                let model = string(body.get("model").unwrap_or(&Value::Null));
-                let mut native = Map::new();
-                native.insert("provider".to_owned(), Value::String("cursor".to_owned()));
+                *self.cwd = string(body.get("cwd").unwrap_or(&J::Null))
+                    .unwrap_or(&[])
+                    .to_vec();
+                let model = string(body.get("model").unwrap_or(&J::Null));
+                let mut native = vec![(encode_units("provider"), J::Str(encode_units("cursor")))];
                 if let Some(agent_id) = event.agent_id {
-                    native.insert("nativeId".to_owned(), Value::String(agent_id.to_owned()));
+                    native.push((encode_units("nativeId"), J::Str(agent_id.to_vec())));
                 }
-                let mut seen = Map::new();
-                seen.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-                seen.insert("agent".to_owned(), Value::String(self.root.to_owned()));
-                seen.insert("origin".to_owned(), Value::String("root".to_owned()));
-                seen.insert("fidelity".to_owned(), Value::String("full".to_owned()));
-                seen.insert("cwd".to_owned(), Value::String(self.cwd.clone()));
-                if let Some(model) = model {
-                    seen.insert("model".to_owned(), Value::String(model.to_owned()));
+                let mut seen = vec![
+                    (encode_units("type"), J::Str(encode_units("agent.seen"))),
+                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                    (encode_units("origin"), J::Str(encode_units("root"))),
+                    (encode_units("fidelity"), J::Str(encode_units("full"))),
+                    (encode_units("cwd"), J::Str(self.cwd.clone())),
+                ];
+                if let Some(model) = model.filter(|model| !model.is_empty()) {
+                    seen.push((encode_units("model"), J::Str(model.to_vec())));
                 }
-                seen.insert("native".to_owned(), Value::Object(native));
-                return Ok(vec![Value::Object(seen)]);
+                seen.push((encode_units("native"), J::Obj(native)));
+                return Ok(vec![J::Obj(seen)]);
             }
-            "send" => {
-                *self.attempt = Some(Attempt {
-                    generation: event.generation.to_owned(),
-                    operation_id: event.operation_id.to_owned(),
-                    command_id: event.command_id.map(str::to_owned),
+            kind if units_eq(kind, "send") => {
+                *self.attempt = Some(super::translator::Attempt {
+                    generation: event.generation.to_vec(),
+                    operation_id: event.operation_id.to_vec(),
+                    command_id: event.command_id.map(|command| command.to_vec()),
                     segment: event.segment,
                     body: event.body.clone(),
                 });
@@ -56,13 +54,16 @@ impl Step<'_> {
                 if *self.active {
                     return Ok(Vec::new());
                 }
-                return Ok(vec![json!({
-                    "type": "wake.expected",
-                    "agent": self.root,
-                    "until": self.now + 600_000,
-                })]);
+                return Ok(vec![J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("wake.expected"))),
+                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                    (
+                        encode_units("until"),
+                        J::Num((self.now + 600_000).to_string()),
+                    ),
+                ])]);
             }
-            "segment" => {
+            kind if units_eq(kind, "segment") => {
                 let admitted = self.attempt.as_ref().is_some_and(|attempt| {
                     attempt.operation_id == event.operation_id && attempt.segment == event.segment
                 });
@@ -72,17 +73,19 @@ impl Step<'_> {
                 let attempt = self.attempt.clone().ok_or(BudgetError::Exceeded)?;
                 return self.admit(&attempt);
             }
-            "admission" => {
+            kind if units_eq(kind, "admission") => {
                 let admitted = self.attempt.as_ref().is_some_and(|attempt| {
                     attempt.operation_id
-                        == string(body.get("operationId").unwrap_or(&Value::Null)).unwrap_or("")
+                        == string(body.get("operationId").unwrap_or(&J::Null)).unwrap_or(&[])
                         && Some(attempt.segment)
-                            == body.get("segment").and_then(|segment| segment.as_i64())
+                            == body
+                                .get("segment")
+                                .and_then(|segment| segment.as_int().ok())
                 });
                 if !admitted {
                     return Ok(Vec::new());
                 }
-                if body.get("admitted") == Some(&Value::Bool(true)) {
+                if matches!(body.get("admitted"), Some(J::Bool(true))) {
                     let attempt = self.attempt.clone().ok_or(BudgetError::Exceeded)?;
                     return self.admit(&attempt);
                 }
@@ -90,13 +93,13 @@ impl Step<'_> {
                 // Cursor's store had no run for it. Whether it was sent is the
                 // daemon's to say: only it knows whether the last run's
                 // processes were proven gone before that read.
-                return Ok(vec![json!({
-                    "type": "wake.expected",
-                    "agent": self.root,
-                    "until": self.now,
-                })]);
+                return Ok(vec![J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("wake.expected"))),
+                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                    (encode_units("until"), J::Num(self.now.to_string())),
+                ])]);
             }
-            "recovered" => {
+            kind if units_eq(kind, "recovered") => {
                 if !*self.active || event.run_id.is_none() {
                     return Ok(Vec::new());
                 }
@@ -109,66 +112,80 @@ impl Step<'_> {
                 }
                 return match stored_update(event.body) {
                     Some(update) => {
-                        let update = object(&update).clone();
                         let namespace = self.turn_namespace.clone();
                         self.delta(&update, self.root, &namespace, envelope, Some(event), 0)
                     }
                     None => Ok(Vec::new()),
                 };
             }
-            "recovered-result" => {
-                if self.saved.encode_utf16().count() < 4 * 1024 * 1024 {
-                    self.saved
-                        .push_str(string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(""));
+            kind if units_eq(kind, "recovered-result") => {
+                if self.saved.len() < 4 * 1024 * 1024 {
+                    self.saved.extend_from_slice(
+                        string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]),
+                    );
                 }
                 return Ok(Vec::new());
             }
-            "recovery" => return self.recover(event, envelope, body),
-            "snapshot" => {
+            kind if units_eq(kind, "recovery") => return self.recover(event, envelope, body),
+            kind if units_eq(kind, "snapshot") => {
                 return Ok(vec![self.notice(
-                    "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
+                    &encode_units(
+                        "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
+                    ),
                     envelope,
                     "warning",
-                    "cursor.diagnostic",
+                    &encode_units("cursor.diagnostic"),
                 )]);
             }
             _ => {}
         }
         // A shared host/store failure fences execution even when an old segment caused it.
-        if event.kind == "error"
+        if units_eq(event.kind, "error")
             && ["boundary_overflow", "checkpoint_budget"]
-                .contains(&string(body.get("code").unwrap_or(&Value::Null)).unwrap_or(""))
+                .iter()
+                .any(|code| is(body.get("code").unwrap_or(&J::Null), code))
         {
             let mut facts = Vec::new();
             facts.extend(self.tools.preserve(None));
             facts.extend(self.children.preserve());
             facts.push(
                 self.notice(
-                    string(body.get("message").unwrap_or(&Value::Null))
-                        .unwrap_or("SDK host resource budget failed; checkpoint retained"),
+                    &string(body.get("message").unwrap_or(&J::Null))
+                        .map(|message| message.to_vec())
+                        .unwrap_or_else(|| {
+                            encode_units("SDK host resource budget failed; checkpoint retained")
+                        }),
                     envelope,
                     "error",
-                    "cursor.diagnostic",
+                    &encode_units("cursor.diagnostic"),
                 ),
             );
-            facts.push(json!({
-                "type": "process.exited",
-                "deliberate": false,
-                "message": utf16_head(
-                    string(body.get("message").unwrap_or(&Value::Null)).unwrap_or("Cursor's turn was fenced"),
-                    512,
+            facts.push(J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("process.exited"))),
+                (encode_units("deliberate"), J::Bool(false)),
+                (
+                    encode_units("message"),
+                    J::Str(super::turns::utf16_head(
+                        &string(body.get("message").unwrap_or(&J::Null))
+                            .map(|message| message.to_vec())
+                            .unwrap_or_else(|| encode_units("Cursor's turn was fenced")),
+                        512,
+                    )),
                 ),
-            }));
+            ]));
             return Ok(facts);
         }
-        if event.kind == "blob" {
-            return Ok(vec![json!({ "type": "signal", "agent": self.root })]);
+        if units_eq(event.kind, "blob") {
+            return Ok(vec![J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("signal"))),
+                (encode_units("agent"), J::Str(self.root.to_vec())),
+            ])]);
         }
-        if event.kind == "shell-output" {
-            let parent = native_identity(body.get("parentCallId").unwrap_or(&Value::Null))?;
+        if units_eq(event.kind, "shell-output") {
+            let parent = native_identity(body.get("parentCallId").unwrap_or(&J::Null))?;
             let child = match &parent {
                 Some(parent) => {
-                    let call = format!("{namespace}:call:{parent}");
+                    let call = cat(&[namespace, &encode_units(":call:"), parent]);
                     self.children
                         .calls
                         .get(&call)
@@ -178,13 +195,13 @@ impl Step<'_> {
             };
             if parent.is_some() && child.is_none() {
                 return Ok(vec![self.notice(
-                    "Shell output has no observed owning child",
+                    &encode_units("Shell output has no observed owning child"),
                     envelope,
                     "warning",
-                    "cursor.diagnostic",
+                    &encode_units("cursor.diagnostic"),
                 )]);
             }
-            let agent = child.unwrap_or_else(|| self.root.to_owned());
+            let agent = child.unwrap_or_else(|| self.root.to_vec());
             let mut notice = Step::notice_fn(
                 &mut *self.diagnostics,
                 &mut *self.notice_index,
@@ -209,7 +226,7 @@ impl Step<'_> {
         }
         let stale =
             Some(event.operation_id) != self.operation.as_deref() || event.segment != *self.segment;
-        if event.kind == "host-exit" {
+        if units_eq(event.kind, "host-exit") {
             let unsettled =
                 self.children.calls.values().any(|child| !child.settled) || self.tools.has_open();
             let preserved = self.children.preserve();
@@ -218,52 +235,54 @@ impl Step<'_> {
             }
             let mut facts = preserved;
             facts.push(self.notice(
-                "Cursor stopped unexpectedly. Unfinished work needs your attention.",
+                &encode_units("Cursor stopped unexpectedly. Unfinished work needs your attention."),
                 envelope,
                 "warning",
-                "cursor.work-stopped",
+                &encode_units("cursor.work-stopped"),
             ));
             return Ok(facts);
         }
         // A failure of the attempted send is the person's to see though no turn started.
-        let attempt_failed = event.kind == "error"
+        let attempt_failed = units_eq(event.kind, "error")
             && self
                 .attempt
                 .as_ref()
                 .is_some_and(|attempt| attempt.operation_id == event.operation_id);
         if stale
             && !attempt_failed
-            && !(event.kind == "error" && event.operation_id == "open" && !*self.root_seen)
+            && !(units_eq(event.kind, "error")
+                && units_eq(event.operation_id, "open")
+                && !*self.root_seen)
         {
             // Surviving child facts belong to their original call namespace, never the replacement root.
-            if event.kind == "delta"
-                && string(body.get("type").unwrap_or(&Value::Null)) == Some("tool-call-completed")
+            if units_eq(event.kind, "delta")
+                && is(body.get("type").unwrap_or(&J::Null), "tool-call-completed")
             {
-                let call = format!(
-                    "{namespace}:call:{}",
-                    native_identity(body.get("callId").unwrap_or(&Value::Null))?
-                        .unwrap_or_default()
-                );
+                let call = cat(&[
+                    namespace,
+                    &encode_units(":call:"),
+                    &native_identity(body.get("callId").unwrap_or(&J::Null))?.unwrap_or_default(),
+                ]);
                 if self.tools.calls.contains_key(&call) || self.children.calls.contains_key(&call) {
-                    let agent = self.tools.agent_of(&call).unwrap_or(self.root).to_owned();
+                    let agent = self.tools.agent_of(&call).unwrap_or(self.root).to_vec();
                     return self.delta(body, &agent, namespace, envelope, Some(event), 0);
                 }
             }
-            if (event.kind == "delta" || event.kind == "delta-chunk")
-                && string(body.get("type").unwrap_or(&Value::Null)) == Some("tool-call-delta")
+            if (units_eq(event.kind, "delta") || units_eq(event.kind, "delta-chunk"))
+                && is(body.get("type").unwrap_or(&J::Null), "tool-call-delta")
             {
-                let call = format!(
-                    "{namespace}:call:{}",
-                    native_identity(body.get("callId").unwrap_or(&Value::Null))?
-                        .unwrap_or_default()
-                );
+                let call = cat(&[
+                    namespace,
+                    &encode_units(":call:"),
+                    &native_identity(body.get("callId").unwrap_or(&J::Null))?.unwrap_or_default(),
+                ]);
                 let child = self
                     .children
                     .calls
                     .get(&call)
                     .map(|child| (child.key.clone(), child.settled));
                 if let Some((key, false)) = child {
-                    let update = object(body.get("taskUpdate").unwrap_or(&Value::Null)).clone();
+                    let update = body.get("taskUpdate").unwrap_or(&J::Null).clone();
                     return self.delta(&update, &key, namespace, envelope, Some(event), 1);
                 }
             }

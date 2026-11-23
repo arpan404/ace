@@ -6,4 +6,4 @@ pub mod session;
 mod translate;
 
 pub use translate::CursorTranslator;
-pub use translate::json::{next_deadline_json, take_diagnostics_json, tick_json, translate_json};
+pub use translate::api::{next_deadline_json, take_diagnostics_json, tick_json, translate_json};

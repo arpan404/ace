@@ -3,12 +3,16 @@
 //! readers, transcript, children, tool views, delta decoding, streamed-answer
 //! matching, recovered tails, failure kinds and usage, folded by `translator`.
 
+pub mod api;
+pub mod child_fence;
 pub mod children;
 pub mod delta;
 pub mod envelope;
 pub mod facts;
 pub mod failure_kind;
 pub mod json;
+pub mod notice;
+pub mod parse;
 pub mod recovered_tail;
 pub mod settle;
 pub mod step;
@@ -20,7 +24,7 @@ pub mod tools;
 pub mod transcript;
 pub mod translator;
 pub mod turns;
-mod usage;
+pub mod usage;
 
 pub use translator::CursorTranslator;
 

@@ -1,60 +1,64 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The translator's turn decisions: admission, restart recovery and the frame
-//! dispatch (`translator.ts` minus the state it folds).
+//! The translator's turn decisions: Cursor admitted the send, and restart
+//! recovery (`translator.ts`).
 
-use serde_json::{Map, Value, json};
-
-use super::envelope::{object, string};
+use super::envelope::string;
 use super::facts::{failed_run, is_truthy};
+use super::json::units_eq;
+use super::json::{J, encode_units};
 use super::transcript::Transcript;
 use super::translator::{Attempt, Step};
 use super::{BudgetError, BudgetResult};
 
 /// Whether a JSON value validates as one message part of a send.
-fn is_content_part(value: &Value) -> bool {
-    let map = match value {
-        Value::Object(map) => map,
-        _ => return false,
+fn is_content_part(value: &J) -> bool {
+    let J::Obj(_) = value else {
+        return false;
     };
-    match string(map.get("type").unwrap_or(&Value::Null)) {
-        Some("text") => string(map.get("text").unwrap_or(&Value::Null)).is_some(),
-        Some("image") => {
-            string(map.get("mimeType").unwrap_or(&Value::Null)).is_some()
-                && string(map.get("url").unwrap_or(&Value::Null)).is_some()
+    match string(value.get("type").unwrap_or(&J::Null)) {
+        Some(kind) if units_eq(kind, "text") => {
+            string(value.get("text").unwrap_or(&J::Null)).is_some()
         }
-        Some("file") => {
-            if string(map.get("path").unwrap_or(&Value::Null)).is_none() {
+        Some(kind) if units_eq(kind, "image") => {
+            string(value.get("mimeType").unwrap_or(&J::Null)).is_some()
+                && string(value.get("url").unwrap_or(&J::Null)).is_some()
+        }
+        Some(kind) if units_eq(kind, "file") => {
+            if string(value.get("path").unwrap_or(&J::Null)).is_none() {
                 return false;
             }
-            if let Some(mime) = map.get("mimeType")
-                && !mime.is_string()
+            if let Some(mime) = value.get("mimeType")
+                && !matches!(mime, J::Str(_))
             {
                 return false;
             }
-            if let Some(name) = map.get("name")
-                && !(name.is_string() && name.as_str().unwrap_or("").len() <= 255)
+            if let Some(name) = value.get("name")
+                && !matches!(name, J::Str(units) if units.len() <= 255)
             {
                 return false;
             }
-            match map.get("content") {
+            match value.get("content") {
                 None => true,
-                Some(Value::Object(content)) => {
-                    match string(content.get("encoding").unwrap_or(&Value::Null)) {
-                        Some("base64") => {
-                            matches!(content.get("data"), Some(Value::String(data)) if data.len() <= 44 * 1024 * 1024)
-                        }
-                        Some("text") => {
-                            matches!(content.get("data"), Some(Value::String(data)) if data.len() <= 128 * 1024)
-                        }
+                Some(J::Obj(_)) => {
+                    let content = value.get("content").unwrap_or(&J::Null);
+                    match string(content.get("encoding").unwrap_or(&J::Null)) {
+                        Some(encoding) if units_eq(encoding, "base64") => matches!(
+                            content.get("data"),
+                            Some(J::Str(data)) if data.len() <= 44 * 1024 * 1024
+                        ),
+                        Some(encoding) if units_eq(encoding, "text") => matches!(
+                            content.get("data"),
+                            Some(J::Str(data)) if data.len() <= 128 * 1024
+                        ),
                         _ => false,
                     }
                 }
                 Some(_) => false,
             }
         }
-        Some("mention") => {
-            let entry = string(map.get("entryId").unwrap_or(&Value::Null)).unwrap_or("");
-            let name = string(map.get("name").unwrap_or(&Value::Null)).unwrap_or("");
+        Some(kind) if units_eq(kind, "mention") => {
+            let entry = string(value.get("entryId").unwrap_or(&J::Null)).unwrap_or(&[]);
+            let name = string(value.get("name").unwrap_or(&J::Null)).unwrap_or(&[]);
             !entry.is_empty() && entry.len() <= 256 && !name.is_empty() && name.len() <= 256
         }
         _ => false,
@@ -62,64 +66,74 @@ fn is_content_part(value: &Value) -> bool {
 }
 
 /// The first `max` UTF-16 code units of text, whole characters only.
-pub(crate) fn utf16_head(text: &str, max: usize) -> String {
-    let units: Vec<u16> = text.encode_utf16().collect();
-    if units.len() <= max {
-        return text.to_owned();
-    }
-    String::from_utf16_lossy(&units[..max])
+pub(crate) fn utf16_head(text: &[u16], max: usize) -> Vec<u16> {
+    text[..text.len().min(max)].to_vec()
 }
 
 impl Step<'_> {
     /// Cursor admitted the attempted send: the turn starts and its input shows.
-    pub fn admit(&mut self, attempt: &Attempt) -> BudgetResult<Vec<Value>> {
+    pub fn admit(&mut self, attempt: &Attempt) -> BudgetResult<Vec<J>> {
         *self.attempt = None;
-        let body = object(&attempt.body);
-        let namespace = format!(
-            "{}:{}:{}",
-            attempt.generation, attempt.operation_id, attempt.segment
-        );
+        let body = &attempt.body;
+        let mut namespace = attempt.generation.clone();
+        namespace.extend_from_slice(&encode_units(":"));
+        namespace.extend_from_slice(&attempt.operation_id);
+        namespace.extend_from_slice(&encode_units(":"));
+        namespace.extend_from_slice(&super::envelope::num_units(attempt.segment));
         let mut facts = Vec::new();
-        if self.operation.as_deref() != Some(attempt.operation_id.as_str()) || !*self.active {
+        if self.operation.as_deref() != Some(attempt.operation_id.as_slice()) || !*self.active {
             self.tools.trim();
             self.children.trim();
             *self.usage_position = 0;
             *self.operation = Some(attempt.operation_id.clone());
             *self.active = true;
-            facts.push(json!({
-                "type": "turn.started",
-                "agent": self.root,
-                "nativeTurnId": format!("sdk:{}", attempt.operation_id),
-                "trigger": "user",
-            }));
+            facts.push(J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("turn.started"))),
+                (encode_units("agent"), J::Str(self.root.to_vec())),
+                (
+                    encode_units("nativeTurnId"),
+                    J::Str(super::envelope::cat(&[
+                        &encode_units("sdk:"),
+                        &attempt.operation_id,
+                    ])),
+                ),
+                (encode_units("trigger"), J::Str(encode_units("user"))),
+            ]));
         }
         facts.extend(self.transcript.end());
-        if let Some(Value::Array(input)) = body.get("input")
+        if let Some(J::Arr(input)) = body.get("input")
             && !input.is_empty()
             && input.len() <= 64
             && input.iter().all(is_content_part)
         {
-            let suffix = attempt
-                .command_id
-                .clone()
-                .unwrap_or_else(|| attempt.segment.to_string());
-            let mut draft = json!({
-                "type": "message",
-                "role": "user",
-                "parts": input,
-                "complete": true,
-            });
+            let suffix = match &attempt.command_id {
+                Some(command_id) => command_id.clone(),
+                None => super::envelope::num_units(attempt.segment),
+            };
+            let mut draft = vec![
+                (encode_units("type"), J::Str(encode_units("message"))),
+                (encode_units("role"), J::Str(encode_units("user"))),
+                (encode_units("parts"), J::Arr(input.clone())),
+                (encode_units("complete"), J::Bool(true)),
+            ];
             if let Some(command_id) = &attempt.command_id
                 && command_id.len() <= 256
             {
-                draft["nativeId"] = Value::String(command_id.clone());
+                draft.push((encode_units("nativeId"), J::Str(command_id.clone())));
             }
-            facts.push(json!({
-                "type": "item.upsert",
-                "agent": self.root,
-                "item": format!("{namespace}:user:{suffix}"),
-                "draft": draft,
-            }));
+            facts.push(J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("item.upsert"))),
+                (encode_units("agent"), J::Str(self.root.to_vec())),
+                (
+                    encode_units("item"),
+                    J::Str(super::envelope::cat(&[
+                        &namespace,
+                        &encode_units(":user:"),
+                        &suffix,
+                    ])),
+                ),
+                (encode_units("draft"), J::Obj(draft)),
+            ]));
         }
         *self.segment = attempt.segment;
         *self.replacement = false;
@@ -142,22 +156,22 @@ impl Step<'_> {
     pub fn recover(
         &mut self,
         event: &super::envelope::Envelope,
-        envelope: &Value,
-        body: &Map<String, Value>,
-    ) -> BudgetResult<Vec<Value>> {
-        let status = string(body.get("nativeStatus").unwrap_or(&Value::Null)).unwrap_or("unknown");
-        let result: Option<String> = if matches!(body.get("resultParts"), Some(Value::Number(_))) {
+        envelope: &J,
+        body: &J,
+    ) -> BudgetResult<Vec<J>> {
+        let status = string(body.get("nativeStatus").unwrap_or(&J::Null)).unwrap_or(&[]);
+        let result: Option<Vec<u16>> = if matches!(body.get("resultParts"), Some(J::Num(_))) {
             Some(std::mem::take(self.saved))
         } else {
-            *self.saved = String::new();
-            string(body.get("result").unwrap_or(&Value::Null)).map(str::to_owned)
+            *self.saved = Vec::new();
+            string(body.get("result").unwrap_or(&J::Null)).map(|result| result.to_vec())
         };
-        let result_cut = body.get("resultCut") == Some(&Value::Bool(true));
+        let result_cut = matches!(body.get("resultCut"), Some(J::Bool(true)));
         // The stored result is the turn's final answer: whatever of it was
         // never shown is shown, so a finished turn never ends on a fragment.
         let mut answer = Vec::new();
         let mut apart = false;
-        if status == "finished"
+        if units_eq(status, "finished")
             && *self.active
             && let Some(result) = &result
             && !result.is_empty()
@@ -168,70 +182,79 @@ impl Step<'_> {
                 answer.extend(self.transcript.end());
             }
             let namespace = self.turn_namespace.clone();
-            let mut update = Map::new();
-            update.insert("type".to_owned(), Value::String("text-delta".to_owned()));
-            update.insert("text".to_owned(), Value::String(missing.text));
+            let update = J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("text-delta"))),
+                (encode_units("text"), J::Str(missing.text)),
+            ]);
             answer.extend(self.delta(&update, self.root, &namespace, envelope, Some(event), 0)?);
         }
         let mut from_result = Vec::new();
         if !answer.is_empty() && *self.saw_text {
             from_result.push(self.notice(
-                if apart {
+                &encode_units(if apart {
                     "The answer above is Cursor's saved result for this turn; what ace showed of it as it streamed differs."
                 } else {
                     "The end of this answer is from Cursor's saved result for this turn."
-                },
+                }),
                 envelope,
                 "info",
-                "cursor.recovered",
+                &encode_units("cursor.recovered"),
             ));
         }
-        let what = if status == "finished" {
-            "Cursor finished this run while ace was restarting.".to_owned()
-        } else if status == "running" || status == "queued" {
-            "ace restarted while this Cursor run was working, so it was stopped. Nothing was sent again.".to_owned()
+        let what = if units_eq(status, "finished") {
+            encode_units("Cursor finished this run while ace was restarting.")
+        } else if units_eq(status, "running") || units_eq(status, "queued") {
+            encode_units(
+                "ace restarted while this Cursor run was working, so it was stopped. Nothing was sent again.",
+            )
         } else {
-            format!("Cursor's run ended ({status}) while ace was restarting.")
+            let mut what = encode_units("Cursor's run ended (");
+            what.extend_from_slice(status);
+            what.extend_from_slice(&encode_units(") while ace was restarting."));
+            what
         };
         let source = if *self.recovered_any || !answer.is_empty() {
-            " What it did after the live stream was cut off is recovered from Cursor's saved session."
+            encode_units(
+                " What it did after the live stream was cut off is recovered from Cursor's saved session.",
+            )
         } else {
-            ""
+            Vec::new()
         };
         let mut facts = Vec::new();
         facts.extend(answer);
         facts.extend(self.transcript.end());
         facts.extend(self.tools.preserve(None));
         facts.extend(self.children.preserve());
-        let level = if is_truthy(body.get("interrupted").unwrap_or(&Value::Null)) {
+        let mut noticed = what;
+        noticed.extend_from_slice(&source);
+        let level = if is_truthy(body.get("interrupted").unwrap_or(&J::Null)) {
             "warning"
         } else {
             "info"
         };
-        facts.push(self.notice(
-            &format!("{what}{source}"),
-            envelope,
-            level,
-            "cursor.recovered",
-        ));
+        facts.push(self.notice(&noticed, envelope, level, &encode_units("cursor.recovered")));
         facts.extend(from_result);
         if result_cut {
             facts.push(self.notice(
-                "Cursor's saved answer is longer than ace shows; it is cut after the first 4 MiB.",
+                &encode_units(
+                    "Cursor's saved answer is longer than ace shows; it is cut after the first 4 MiB.",
+                ),
                 envelope,
                 "info",
-                "cursor.recovered",
+                &encode_units("cursor.recovered"),
             ));
         }
         for gap in std::mem::take(self.gaps) {
-            facts.push(self.notice(&gap, envelope, "info", "cursor.recovered"));
+            facts.push(self.notice(&gap, envelope, "info", &encode_units("cursor.recovered")));
         }
-        if body.get("tailOmitted") == Some(&Value::Bool(true)) {
+        if matches!(body.get("tailOmitted"), Some(J::Bool(true))) {
             facts.push(self.notice(
-                "This turn began before ace was updated, so what Cursor did after the restart can't be lined up with what is shown here; it isn't repeated.",
+                &encode_units(
+                    "This turn began before ace was updated, so what Cursor did after the restart can't be lined up with what is shown here; it isn't repeated.",
+                ),
                 envelope,
                 "info",
-                "cursor.recovered",
+                &encode_units("cursor.recovered"),
             ));
         }
         self.gaps.clear();
@@ -240,31 +263,36 @@ impl Step<'_> {
         }
         *self.active = false;
         // A run a restart cut off is not done: it stopped part-way and needs the person's look.
-        let outcome = if status == "finished" {
+        let outcome = if units_eq(status, "finished") {
             "completed"
-        } else if status == "cancelled" {
+        } else if units_eq(status, "cancelled") {
             "interrupted"
         } else {
             "failed"
         };
         let operation = self.operation.clone().ok_or(BudgetError::Exceeded)?;
-        let mut ended = json!({
-            "type": "turn.ended",
-            "agent": self.root,
-            "nativeTurnId": format!("sdk:{operation}"),
-            "outcome": outcome,
-        });
+        let mut ended = J::Obj(vec![
+            (encode_units("type"), J::Str(encode_units("turn.ended"))),
+            (encode_units("agent"), J::Str(self.root.to_vec())),
+            (
+                encode_units("nativeTurnId"),
+                J::Str(super::envelope::cat(&[&encode_units("sdk:"), &operation])),
+            ),
+            (encode_units("outcome"), J::Str(encode_units(outcome))),
+        ]);
         if outcome == "failed" {
-            let message = string(body.get("error").unwrap_or(&Value::Null))
-                .map(str::to_owned)
+            let message = string(body.get("error").unwrap_or(&J::Null))
+                .map(|message| message.to_vec())
                 .unwrap_or_else(|| {
-                    if is_truthy(body.get("interrupted").unwrap_or(&Value::Null)) {
-                        "ace restarted while Cursor was working, so the run was stopped".to_owned()
+                    if is_truthy(body.get("interrupted").unwrap_or(&J::Null)) {
+                        encode_units(
+                            "ace restarted while Cursor was working, so the run was stopped",
+                        )
                     } else {
-                        "Cursor SDK run failed".to_owned()
+                        encode_units("Cursor SDK run failed")
                     }
                 });
-            ended["error"] = failed_run(&Value::Null, &message, &Value::Null);
+            ended.set("error", failed_run(&J::Null, &message, &J::Null));
         }
         facts.push(ended);
         Ok(facts)

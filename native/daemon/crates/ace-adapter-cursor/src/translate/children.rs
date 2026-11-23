@@ -2,47 +2,56 @@
 //! Child identities belong to task calls until native IDs arrive
 //! (`children.ts`). No native resume is implied.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{Value, json};
-
-use super::envelope::{native_identity, object, string};
+use super::envelope::{cat, native_identity, string, trim_text};
+use super::json::{J, encode_units};
 use super::{BudgetError, BudgetResult};
 
 /// A live provider subagent routed by its spawning task call.
 pub struct Child {
-    pub key: String,
-    pub parent: String,
-    pub call: String,
-    pub turn: String,
-    pub native: Option<String>,
+    pub key: Vec<u16>,
+    pub parent: Vec<u16>,
+    pub call: Vec<u16>,
+    pub turn: Vec<u16>,
+    pub native: Option<Vec<u16>>,
     pub background: bool,
     pub settled: bool,
     pub uncertain: bool,
     pub summary: bool,
-    pub description: Option<String>,
+    pub description: Option<Vec<u16>>,
 }
 
 impl Child {
-    fn surviving(&self, agent: &str) -> Value {
-        json!({
-            "type": "background.started",
-            "agent": agent,
-            "task": format!("background:{}", self.call),
-            "kind": "subagent",
-            "title": self.description.clone().unwrap_or_else(|| "Subagent".to_owned()),
-            "childAgent": self.key,
-            "item": self.call,
-            "stoppable": false,
-        })
+    pub(crate) fn surviving(&self, agent: &[u16]) -> J {
+        let title = match &self.description {
+            Some(description) => description.clone(),
+            None => encode_units("Subagent"),
+        };
+        J::Obj(vec![
+            (
+                encode_units("type"),
+                J::Str(encode_units("background.started")),
+            ),
+            (encode_units("agent"), J::Str(agent.to_vec())),
+            (
+                encode_units("task"),
+                J::Str(cat(&[&encode_units("background:"), &self.call])),
+            ),
+            (encode_units("kind"), J::Str(encode_units("subagent"))),
+            (encode_units("title"), J::Str(title)),
+            (encode_units("childAgent"), J::Str(self.key.clone())),
+            (encode_units("item"), J::Str(self.call.clone())),
+            (encode_units("stoppable"), J::Bool(false)),
+        ])
     }
 }
 
 /// Task-call-owned children with native-id linking and pending tracking.
 pub struct Children {
-    pub(crate) calls: BTreeMap<String, Child>,
-    native: BTreeMap<String, String>,
-    pending_by_parent: BTreeMap<String, HashSet<String>>,
+    pub calls: BTreeMap<Vec<u16>, Child>,
+    pub(crate) native: BTreeMap<Vec<u16>, Vec<u16>>,
+    pub(crate) pending_by_parent: BTreeMap<Vec<u16>, BTreeSet<Vec<u16>>>,
     limit: usize,
 }
 
@@ -58,40 +67,34 @@ impl Children {
 
     pub fn ensure(
         &mut self,
-        call: &str,
-        parent: &str,
-        args: &Value,
-        cwd: &str,
-    ) -> BudgetResult<Vec<Value>> {
-        if let Some(child) = self.calls.get(call) {
-            let input = object(args);
-            let native = native_identity(input.get("agentId").unwrap_or(&Value::Null))?.or(
-                native_identity(input.get("resume").unwrap_or(&Value::Null))?,
-            );
-            return self.link_by_key(
-                call,
-                native.as_deref(),
-                cwd,
-                &child.key.clone(),
-                &child.parent.clone(),
-            );
+        call: &[u16],
+        parent: &[u16],
+        args: &J,
+        cwd: &[u16],
+    ) -> BudgetResult<Vec<J>> {
+        if self.calls.contains_key(call) {
+            let input = args;
+            let native = native_identity(input.get("agentId").unwrap_or(&J::Null))?
+                .or(native_identity(input.get("resume").unwrap_or(&J::Null))?);
+            let existing = self.calls.get(call).ok_or(BudgetError::Exceeded)?;
+            let (key, parent) = (existing.key.clone(), existing.parent.clone());
+            return self.link_by_key(call, native.as_deref(), cwd, &key, &parent);
         }
         if self.calls.len() >= self.limit {
             return Err(BudgetError::Exceeded);
         }
-        let input = object(args);
-        let key = format!("child:{call}");
-        let native = native_identity(input.get("agentId").unwrap_or(&Value::Null))?.or(
-            native_identity(input.get("resume").unwrap_or(&Value::Null))?,
-        );
-        let description = string(input.get("description").unwrap_or(&Value::Null))
-            .map(|text| text.trim().to_owned())
+        let input = args;
+        let key = cat(&[&encode_units("child:"), call]);
+        let native = native_identity(input.get("agentId").unwrap_or(&J::Null))?
+            .or(native_identity(input.get("resume").unwrap_or(&J::Null))?);
+        let description = string(input.get("description").unwrap_or(&J::Null))
+            .map(trim_text)
             .filter(|text| !text.is_empty());
         let child = Child {
             key: key.clone(),
-            parent: parent.to_owned(),
-            call: call.to_owned(),
-            turn: format!("task:{call}"),
+            parent: parent.to_vec(),
+            call: call.to_vec(),
+            turn: cat(&[&encode_units("task:"), call]),
             native: native.clone(),
             background: false,
             settled: false,
@@ -99,57 +102,77 @@ impl Children {
             summary: false,
             description,
         };
-        self.calls.insert(call.to_owned(), child);
+        self.calls.insert(call.to_vec(), child);
         self.pending_by_parent
-            .entry(parent.to_owned())
+            .entry(parent.to_vec())
             .or_default()
-            .insert(call.to_owned());
+            .insert(call.to_vec());
         if let Some(native) = &native {
             self.native.insert(native.clone(), key.clone());
         }
-        let name = string(input.get("description").unwrap_or(&Value::Null));
-        let model = string(input.get("model").unwrap_or(&Value::Null));
+        let name =
+            string(input.get("description").unwrap_or(&J::Null)).filter(|name| !name.is_empty());
+        let model =
+            string(input.get("model").unwrap_or(&J::Null)).filter(|model| !model.is_empty());
         let role = string(
-            object(input.get("subagentType").unwrap_or(&Value::Null))
+            input
+                .get("subagentType")
+                .unwrap_or(&J::Null)
                 .get("kind")
-                .unwrap_or(&Value::Null),
-        );
-        let mut seen = json!({
-            "type": "agent.seen",
-            "agent": key,
-            "parent": parent,
-            "spawnedBy": call,
-            "origin": "provider_subagent",
-            "fidelity": "placeholder",
-            "cwd": cwd,
-            "native": { "provider": "cursor" },
-        });
+                .unwrap_or(&J::Null),
+        )
+        .filter(|role| !role.is_empty());
+        let mut native_ref = vec![(encode_units("provider"), J::Str(encode_units("cursor")))];
         if let Some(native) = &native {
-            seen["native"]["nativeId"] = Value::String(native.clone());
+            native_ref.push((encode_units("nativeId"), J::Str(native.clone())));
         }
+        let mut seen = vec![
+            (encode_units("type"), J::Str(encode_units("agent.seen"))),
+            (encode_units("agent"), J::Str(key.clone())),
+            (encode_units("parent"), J::Str(parent.to_vec())),
+            (encode_units("spawnedBy"), J::Str(call.to_vec())),
+            (
+                encode_units("origin"),
+                J::Str(encode_units("provider_subagent")),
+            ),
+            (
+                encode_units("fidelity"),
+                J::Str(encode_units("placeholder")),
+            ),
+            (encode_units("cwd"), J::Str(cwd.to_vec())),
+            (encode_units("native"), J::Obj(native_ref)),
+        ];
         if let Some(name) = name {
-            seen["name"] = Value::String(name.to_owned());
+            seen.push((encode_units("name"), J::Str(name.to_vec())));
         }
         if let Some(model) = model {
-            seen["model"] = Value::String(model.to_owned());
+            seen.push((encode_units("model"), J::Str(model.to_vec())));
         }
         if let Some(role) = role {
-            seen["role"] = Value::String(role.to_owned());
+            seen.push((encode_units("role"), J::Str(role.to_vec())));
         }
         Ok(vec![
-            seen,
-            json!({ "type": "turn.started", "agent": key, "nativeTurnId": format!("task:{call}"), "trigger": "spawn" }),
+            J::Obj(seen),
+            J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("turn.started"))),
+                (encode_units("agent"), J::Str(key)),
+                (
+                    encode_units("nativeTurnId"),
+                    J::Str(cat(&[&encode_units("task:"), call])),
+                ),
+                (encode_units("trigger"), J::Str(encode_units("spawn"))),
+            ]),
         ])
     }
 
     fn link_by_key(
         &mut self,
-        call: &str,
-        native: Option<&str>,
-        cwd: &str,
-        child_key: &str,
-        parent: &str,
-    ) -> BudgetResult<Vec<Value>> {
+        call: &[u16],
+        native: Option<&[u16]>,
+        cwd: &[u16],
+        child_key: &[u16],
+        parent: &[u16],
+    ) -> BudgetResult<Vec<J>> {
         let Some(native) = native else {
             return Ok(Vec::new());
         };
@@ -161,202 +184,45 @@ impl Children {
             || self
                 .native
                 .get(native)
-                .is_some_and(|linked| linked != child_key)
+                .is_some_and(|linked| linked.as_slice() != child_key)
         {
             return Err(BudgetError::Exceeded);
         }
         let child = self.calls.get_mut(call).ok_or(BudgetError::Exceeded)?;
-        child.native = Some(native.to_owned());
+        child.native = Some(native.to_vec());
         child.summary = true;
-        self.native.insert(native.to_owned(), child_key.to_owned());
-        Ok(vec![json!({
-            "type": "agent.seen",
-            "agent": child_key,
-            "parent": parent,
-            "spawnedBy": call,
-            "origin": "provider_subagent",
-            "fidelity": "summary",
-            "cwd": cwd,
-            "native": { "provider": "cursor", "nativeId": native },
-        })])
+        self.native.insert(native.to_vec(), child_key.to_vec());
+        Ok(vec![J::Obj(vec![
+            (encode_units("type"), J::Str(encode_units("agent.seen"))),
+            (encode_units("agent"), J::Str(child_key.to_vec())),
+            (encode_units("parent"), J::Str(parent.to_vec())),
+            (encode_units("spawnedBy"), J::Str(call.to_vec())),
+            (
+                encode_units("origin"),
+                J::Str(encode_units("provider_subagent")),
+            ),
+            (encode_units("fidelity"), J::Str(encode_units("summary"))),
+            (encode_units("cwd"), J::Str(cwd.to_vec())),
+            (
+                encode_units("native"),
+                J::Obj(vec![
+                    (encode_units("provider"), J::Str(encode_units("cursor"))),
+                    (encode_units("nativeId"), J::Str(native.to_vec())),
+                ]),
+            ),
+        ])])
     }
 
     pub fn link(
         &mut self,
-        call: &str,
-        native: Option<String>,
-        cwd: &str,
-    ) -> BudgetResult<Vec<Value>> {
+        call: &[u16],
+        native: Option<Vec<u16>>,
+        cwd: &[u16],
+    ) -> BudgetResult<Vec<J>> {
         let (key, parent) = match self.calls.get(call) {
             Some(child) => (child.key.clone(), child.parent.clone()),
             None => return Ok(Vec::new()),
         };
         self.link_by_key(call, native.as_deref(), cwd, &key, &parent)
-    }
-
-    pub fn result(
-        &mut self,
-        call: &str,
-        result: &Value,
-        failed: bool,
-        cwd: &str,
-    ) -> BudgetResult<Vec<Value>> {
-        if !matches!(self.calls.get(call), Some(child) if !child.settled) {
-            return Ok(Vec::new());
-        }
-        let value = object(object(result).get("value").unwrap_or(&Value::Null));
-        let native = native_identity(value.get("agentId").unwrap_or(&Value::Null))?;
-        let mut facts = Vec::new();
-        facts.extend(self.link(call, native, cwd)?);
-        let has_steps = matches!(
-            value.get("conversationSteps"),
-            Some(Value::Array(steps)) if !steps.is_empty()
-        );
-        if has_steps {
-            facts.extend(self.observe(call, cwd));
-        }
-        let background = value.get("isBackground") == Some(&Value::Bool(true));
-        if background {
-            let make_background = self.calls.get(call).is_some_and(|child| !child.background);
-            if make_background {
-                let child = self.calls.get_mut(call).ok_or(BudgetError::Exceeded)?;
-                child.background = true;
-                let seen_agent = child.parent.clone();
-                let surviving = child.surviving(&seen_agent);
-                facts.push(
-                    json!({ "type": "agent.linked", "agent": child.key, "background": true }),
-                );
-                facts.push(surviving);
-            }
-        } else if failed
-            || object(result).get("status") == Some(&Value::String("success".to_owned()))
-        {
-            let child = self.calls.get_mut(call).ok_or(BudgetError::Exceeded)?;
-            child.settled = true;
-            let (key, turn, parent, background) = (
-                child.key.clone(),
-                child.turn.clone(),
-                child.parent.clone(),
-                child.background,
-            );
-            if let Some(pending) = self.pending_by_parent.get_mut(&parent) {
-                pending.remove(call);
-                if pending.is_empty() {
-                    self.pending_by_parent.remove(&parent);
-                }
-            }
-            facts.push(json!({
-                "type": "turn.ended",
-                "agent": key,
-                "nativeTurnId": turn,
-                "outcome": if failed { "failed" } else { "completed" },
-            }));
-            if background {
-                facts.push(json!({
-                    "type": "background.ended",
-                    "task": format!("background:{call}"),
-                    "status": if failed { "failed" } else { "completed" },
-                }));
-            }
-        }
-        Ok(facts)
-    }
-
-    /// One-level live or returned task content establishes summary fidelity.
-    pub fn observe(&mut self, call: &str, cwd: &str) -> Vec<Value> {
-        let Some(child) = self.calls.get_mut(call) else {
-            return Vec::new();
-        };
-        if child.summary {
-            return Vec::new();
-        }
-        child.summary = true;
-        let mut seen = json!({
-            "type": "agent.seen",
-            "agent": child.key,
-            "parent": child.parent,
-            "spawnedBy": child.call,
-            "origin": "provider_subagent",
-            "fidelity": "summary",
-            "cwd": cwd,
-            "native": { "provider": "cursor" },
-        });
-        if let Some(native) = &child.native {
-            seen["native"]["nativeId"] = Value::String(native.clone());
-        }
-        vec![seen]
-    }
-
-    pub fn preserve_owned(&mut self, parent: &str) -> Vec<Value> {
-        self.preserve_children(Some(parent))
-    }
-
-    pub fn preserve(&mut self) -> Vec<Value> {
-        self.preserve_children(None)
-    }
-
-    fn preserve_children(&mut self, parent: Option<&str>) -> Vec<Value> {
-        let mut facts = Vec::new();
-        let parents: Vec<String> = match parent {
-            Some(parent) => vec![parent.to_owned()],
-            None => self.pending_by_parent.keys().cloned().collect(),
-        };
-        for key in parents {
-            let pending: Vec<String> = self
-                .pending_by_parent
-                .get(&key)
-                .map(|pending| pending.iter().cloned().collect())
-                .unwrap_or_default();
-            for call in pending {
-                let ready = self
-                    .calls
-                    .get(&call)
-                    .is_some_and(|child| !child.settled && !child.uncertain);
-                if !ready {
-                    continue;
-                }
-                let Some(child) = self.calls.get_mut(&call) else {
-                    continue;
-                };
-                child.uncertain = true;
-                child.background = true;
-                let seen_agent = child.parent.clone();
-                let surviving = child.surviving(&seen_agent);
-                facts.push(surviving);
-                facts.push(json!({
-                    "type": "background.ended",
-                    "task": format!("background:{call}"),
-                    "status": "unknown",
-                    "uncertain": true,
-                }));
-                if let Some(set) = self.pending_by_parent.get_mut(&key) {
-                    set.remove(&call);
-                }
-            }
-            if self
-                .pending_by_parent
-                .get(&key)
-                .is_some_and(HashSet::is_empty)
-            {
-                self.pending_by_parent.remove(&key);
-            }
-        }
-        facts
-    }
-
-    pub fn trim(&mut self) {
-        let settled: Vec<String> = self
-            .calls
-            .iter()
-            .filter(|(_, child)| child.settled)
-            .map(|(call, _)| call.clone())
-            .collect();
-        for call in settled {
-            if let Some(child) = self.calls.remove(&call)
-                && let Some(native) = child.native
-            {
-                self.native.remove(&native);
-            }
-        }
     }
 }

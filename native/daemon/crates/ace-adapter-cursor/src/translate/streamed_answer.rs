@@ -4,22 +4,15 @@
 //! against what ace showed without holding that text again.
 //!
 //! Everything is counted in UTF-16 code units and hashed as UTF-16LE, as
-//! Node's sha256 over `utf16le` does. A delta that ends mid surrogate pair
-//! cannot occur here: every text this crate sees parsed as JSON, and JSON
-//! with a lone surrogate never parses, so pairs are always whole.
+//! Node's sha256 over `utf16le` does. Lone surrogates hash as their units,
+//! so a delta that ends mid-pair matches the whole text's hash.
 
 use sha2::{Digest, Sha256};
 
+use super::json::{is_high, is_low};
+
 /// The recovered answer is cut after this many UTF-8 bytes.
 const CAP: usize = 4 * 1024 * 1024;
-
-fn is_high(code: u16) -> bool {
-    (0xd800..0xdc00).contains(&code)
-}
-
-fn is_low(code: u16) -> bool {
-    (0xdc00..0xe000).contains(&code)
-}
 
 fn width(code: u16) -> usize {
     if code < 0x80 {
@@ -79,14 +72,13 @@ impl StreamedAnswer {
         *self = StreamedAnswer::new();
     }
 
-    pub fn add(&mut self, text: &str) {
-        let units: Vec<u16> = text.encode_utf16().collect();
+    pub fn add(&mut self, units: &[u16]) {
         self.length += units.len();
         let mut bytes = Vec::with_capacity(units.len() * 2);
-        le_bytes(&units, &mut bytes);
+        le_bytes(units, &mut bytes);
         self.hash.update(&bytes);
         if !self.full {
-            self.fit(&units);
+            self.fit(units);
         }
     }
 
@@ -94,29 +86,25 @@ impl StreamedAnswer {
     fn fit(&mut self, units: &[u16]) {
         let mut at = 0;
         // A high surrogate that ended the last delta pairs with a low one
-        // starting this one. JSON text never holds a lone surrogate, so this
-        // only pairs whole characters split across deltas.
+        // starting this one.
         if !self.held.is_empty() {
             let pairs = !units.is_empty() && is_low(units[0]);
-            if pairs {
-                let mut combined = std::mem::take(&mut self.held);
-                combined.push(units[0]);
-                if !self.take(&combined, 4) {
-                    self.held = combined;
-                    self.held.pop();
-                    return;
-                }
-                at = 1;
-            } else {
-                if units.is_empty() {
-                    return;
-                }
-                let held = std::mem::take(&mut self.held);
-                if !self.take(&held, 3) {
-                    self.held = held;
-                    return;
-                }
+            if !pairs && units.is_empty() {
+                return;
             }
+            let mut combined = std::mem::take(&mut self.held);
+            if pairs {
+                combined.push(units[0]);
+            }
+            let size = if pairs { 4 } else { 3 };
+            if !self.take(&combined, size) {
+                self.held = combined;
+                if pairs {
+                    self.held.pop();
+                }
+                return;
+            }
+            at = usize::from(pairs);
         }
         let from = at;
         let mut bytes = self.capped_bytes;
@@ -175,39 +163,37 @@ impl StreamedAnswer {
     /// its start, all of it (`apart`) when what streamed differs, nothing when
     /// it is all shown. A saved answer recovery cut (`cut`) is shown already
     /// only when it is exactly the start of what streamed that fits in 4 MiB.
-    pub fn missing(&self, result: &str, cut: bool) -> Option<Missing> {
-        let units: Vec<u16> = result.encode_utf16().collect();
-        if self.length > units.len() {
+    pub fn missing(&self, result: &[u16], cut: bool) -> Option<Missing> {
+        if self.length > result.len() {
             if !cut {
                 return Some(Missing {
-                    text: result.to_owned(),
+                    text: result.to_vec(),
                     apart: true,
                 });
             }
             let (start_units, start_digest) = self.cut();
-            let hex = hex_bytes(&digest_of(&units));
-            return if start_units == units.len() && start_digest == hex {
+            let hex = hex_bytes(&digest_of(result));
+            return if start_units == result.len() && start_digest == hex {
                 None
             } else {
                 Some(Missing {
-                    text: result.to_owned(),
+                    text: result.to_vec(),
                     apart: true,
                 })
             };
         }
-        if hex_bytes(&digest_of(&units[..self.length])) != hex_bytes(&self.hash.clone().finalize())
+        if hex_bytes(&digest_of(&result[..self.length])) != hex_bytes(&self.hash.clone().finalize())
         {
             return Some(Missing {
-                text: result.to_owned(),
+                text: result.to_vec(),
                 apart: true,
             });
         }
-        if self.length == units.len() {
+        if self.length == result.len() {
             None
         } else {
-            let rest = String::from_utf16_lossy(&units[self.length..]);
             Some(Missing {
-                text: rest,
+                text: result[self.length..].to_vec(),
                 apart: false,
             })
         }
@@ -216,6 +202,6 @@ impl StreamedAnswer {
 
 /// The unsliced saved answer when it differs, or its unshown tail.
 pub struct Missing {
-    pub text: String,
+    pub text: Vec<u16>,
     pub apart: bool,
 }

@@ -4,14 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::{Value, json};
-
+use super::json::{J, encode_units};
 use super::{BudgetError, BudgetResult};
 
 struct Position {
     order: u64,
-    text: Option<String>,
-    thinking: Option<String>,
+    text: Option<Vec<u16>>,
+    thinking: Option<Vec<u16>>,
     field: Option<Field>,
 }
 
@@ -23,13 +22,13 @@ enum Field {
 
 /// The open items per agent, keyed by agent key with an order per field.
 pub struct Transcript {
-    prefix: String,
+    prefix: Vec<u16>,
     limit: usize,
-    positions: BTreeMap<String, Position>,
+    positions: BTreeMap<Vec<u16>, Position>,
 }
 
 impl Transcript {
-    pub fn new(prefix: String, limit: usize) -> Self {
+    pub fn new(prefix: Vec<u16>, limit: usize) -> Self {
         Transcript {
             prefix,
             limit,
@@ -37,29 +36,26 @@ impl Transcript {
         }
     }
 
-    pub fn append(&mut self, agent: &str, field: &str, text: &str) -> BudgetResult<Vec<Value>> {
+    pub fn append(&mut self, agent: &[u16], field: &str, text: &[u16]) -> BudgetResult<Vec<J>> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
         let limit = self.limit;
-        let position = match self.positions.get_mut(agent) {
-            Some(position) => position,
-            None => {
-                if self.positions.len() >= limit {
-                    return Err(BudgetError::Exceeded);
-                }
-                self.positions.insert(
-                    agent.to_owned(),
-                    Position {
-                        order: 0,
-                        text: None,
-                        thinking: None,
-                        field: None,
-                    },
-                );
-                self.positions.get_mut(agent).ok_or(BudgetError::Exceeded)?
+        if !self.positions.contains_key(agent) {
+            if self.positions.len() >= limit {
+                return Err(BudgetError::Exceeded);
             }
-        };
+            self.positions.insert(
+                agent.to_vec(),
+                Position {
+                    order: 0,
+                    text: None,
+                    thinking: None,
+                    field: None,
+                },
+            );
+        }
+        let position = self.positions.get_mut(agent).ok_or(BudgetError::Exceeded)?;
         let mut facts = Vec::new();
         let want = if field == "text" {
             Field::Text
@@ -72,29 +68,52 @@ impl Transcript {
             position.thinking.as_ref()
         };
         if position.field != Some(want) || current.is_none() {
-            let agent_owned = agent.to_owned();
-            facts.extend(self.boundary(&agent_owned));
+            let agent_units = agent.to_vec();
+            facts.extend(self.boundary(&agent_units));
             let position = self.positions.get_mut(agent).ok_or(BudgetError::Exceeded)?;
             position.order += 1;
-            let item = format!("{}:{agent}:{field}:{}", self.prefix, position.order);
+            let order = position.order.to_string();
+            let order = order.encode_utf16().collect::<Vec<u16>>();
+            let mut item = self.prefix.clone();
+            item.push(u16::from(b':'));
+            item.extend_from_slice(agent);
+            item.push(u16::from(b':'));
+            item.extend_from_slice(&field.encode_utf16().collect::<Vec<u16>>());
+            item.push(u16::from(b':'));
+            item.extend_from_slice(&order);
             if want == Field::Text {
-                position.text = Some(item);
+                position.text = Some(item.clone());
                 position.field = Some(Field::Text);
-                facts.push(json!({
-                    "type": "item.upsert",
-                    "agent": agent,
-                    "item": position.text,
-                    "draft": { "type": "message", "role": "assistant", "parts": [], "complete": false },
-                }));
+                facts.push(J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("item.upsert"))),
+                    (encode_units("agent"), J::Str(agent.to_vec())),
+                    (encode_units("item"), J::Str(item)),
+                    (
+                        encode_units("draft"),
+                        J::Obj(vec![
+                            (encode_units("type"), J::Str(encode_units("message"))),
+                            (encode_units("role"), J::Str(encode_units("assistant"))),
+                            (encode_units("parts"), J::Arr(Vec::new())),
+                            (encode_units("complete"), J::Bool(false)),
+                        ]),
+                    ),
+                ]));
             } else {
-                position.thinking = Some(item);
+                position.thinking = Some(item.clone());
                 position.field = Some(Field::Thinking);
-                facts.push(json!({
-                    "type": "item.upsert",
-                    "agent": agent,
-                    "item": position.thinking,
-                    "draft": { "type": "reasoning", "text": "", "complete": false },
-                }));
+                facts.push(J::Obj(vec![
+                    (encode_units("type"), J::Str(encode_units("item.upsert"))),
+                    (encode_units("agent"), J::Str(agent.to_vec())),
+                    (encode_units("item"), J::Str(item)),
+                    (
+                        encode_units("draft"),
+                        J::Obj(vec![
+                            (encode_units("type"), J::Str(encode_units("reasoning"))),
+                            (encode_units("text"), J::Str(Vec::new())),
+                            (encode_units("complete"), J::Bool(false)),
+                        ]),
+                    ),
+                ]));
             }
         }
         let position = self.positions.get(agent).ok_or(BudgetError::Exceeded)?;
@@ -104,18 +123,25 @@ impl Transcript {
             position.thinking.clone()
         };
         if let Some(item) = item {
-            facts.push(json!({
-                "type": "item.delta",
-                "agent": agent,
-                "item": item,
-                "field": if want == Field::Text { "text" } else { "reasoning" },
-                "append": text,
-            }));
+            facts.push(J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("item.delta"))),
+                (encode_units("agent"), J::Str(agent.to_vec())),
+                (encode_units("item"), J::Str(item)),
+                (
+                    encode_units("field"),
+                    J::Str(encode_units(if want == Field::Text {
+                        "text"
+                    } else {
+                        "reasoning"
+                    })),
+                ),
+                (encode_units("append"), J::Str(text.to_vec())),
+            ]));
         }
         Ok(facts)
     }
 
-    pub fn boundary(&mut self, agent: &str) -> Vec<Value> {
+    pub fn boundary(&mut self, agent: &[u16]) -> Vec<J> {
         let position = match self.positions.get_mut(agent) {
             Some(position) => position,
             None => return Vec::new(),
@@ -127,18 +153,24 @@ impl Transcript {
         };
         position.field = None;
         match item {
-            Some(item) => vec![json!({
-                "type": "item.upsert",
-                "agent": agent,
-                "item": item,
-                "draft": { "type": kind, "complete": true },
-            })],
+            Some(item) => vec![J::Obj(vec![
+                (encode_units("type"), J::Str(encode_units("item.upsert"))),
+                (encode_units("agent"), J::Str(agent.to_vec())),
+                (encode_units("item"), J::Str(item)),
+                (
+                    encode_units("draft"),
+                    J::Obj(vec![
+                        (encode_units("type"), J::Str(encode_units(kind))),
+                        (encode_units("complete"), J::Bool(true)),
+                    ]),
+                ),
+            ])],
             None => Vec::new(),
         }
     }
 
-    pub fn end(&mut self) -> Vec<Value> {
-        let agents: Vec<String> = self.positions.keys().cloned().collect();
+    pub fn end(&mut self) -> Vec<J> {
+        let agents: Vec<Vec<u16>> = self.positions.keys().cloned().collect();
         let mut facts = Vec::new();
         for agent in &agents {
             facts.extend(self.boundary(agent));
