@@ -31,3 +31,16 @@ extension XCUIApplication {
         XCTFail("the app never started with its arguments \(launchArguments); it reported \(got)")
     }
 }
+
+/// The spike fixture's `ios-stream` thread is shared by every test in a run: a test that needs it
+/// live starts a fresh answer streaming first, so it never depends on which test ran before.
+enum FixtureStream {
+    static func restart() async throws {
+        let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
+        guard let url = URL(string: "http://127.0.0.1:\(port)/stream/restart") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        _ = try await URLSession.shared.data(for: request)
+    }
+}

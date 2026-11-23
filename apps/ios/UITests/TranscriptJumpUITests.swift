@@ -4,7 +4,10 @@ import XCTest
 /// older page landing leaves the reader's line where it was. Read each frame from what is drawn
 /// (`TranscriptJumpProbe`).
 @MainActor final class TranscriptJumpUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws {
+        continueAfterFailure = false
+        try await FixtureStream.restart()
+    }
 
     /// A long finished thread opens at its end: from the first frame its rows are drawn, they
     /// don't move.
