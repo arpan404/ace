@@ -1,13 +1,17 @@
 import SwiftUI
 
 /// A bot's profile (docs/design/spade.md §4) as a sheet over its chat: its face and name, where
-/// it runs, then Details · Library · Computer as a segmented control, each read from Spade as
-/// the sheet opens and again on a pull. The task edits on its own page; the rest is to read.
+/// it runs, then Details · Permissions · Work · Library · Computer as a segmented control, as
+/// web's tabs; at accessibility text sizes, where five segments don't fit, a menu. Each is read
+/// from Spade as it shows and again on a pull. The task edits on its own page.
 struct SpadeProfileSheet: View {
     let client: ClientModel
     let agent: String
     let name: String
+    /// Change on one of its decisions: the words go into its composer, and the sheet closes.
+    var quote: (String) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var part: Part = .details
     /// Publish this bot to the Store (#2548).
     @State private var publishing = false
@@ -16,7 +20,7 @@ struct SpadeProfileSheet: View {
     private var problem: String? { reads.problem }
 
     enum Part: String, CaseIterable, Identifiable {
-        case details = "Details", library = "Library", computer = "Computer"
+        case details = "Details", permissions = "Permissions", work = "Work", library = "Library", computer = "Computer"
         var id: String { rawValue }
     }
 
@@ -25,17 +29,17 @@ struct SpadeProfileSheet: View {
             List {
                 head
                 if let profile {
-                    Section {
-                        Picker("Part", selection: $part) {
-                            ForEach(Part.allCases) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                        .accessibilityIdentifier("spade.profile.part")
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
+                    Section { tabs }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets())
                     switch part {
                     case .details: SpadeProfileDetails(profile: profile, retry: retry, edit: editor)
+                    case .permissions: SpadeProfilePermissions(client: client, agent: agent, name: profile.name)
+                    case .work:
+                        SpadeProfileWork(client: client, agent: agent) { words in
+                            quote(words)
+                            dismiss()
+                        }
                     case .library: SpadeProfileLibrary(library: profile.library, name: profile.name, retry: retry)
                     case .computer: SpadeProfileComputer(computer: profile.computer, retry: retry)
                     }
@@ -71,6 +75,18 @@ struct SpadeProfileSheet: View {
         .task { await load() }
         .presentationDragIndicator(.visible)
         .accessibilityIdentifier("spade.profile.sheet")
+    }
+
+    /// The tabs: five segments, or a menu of them where accessibility text sizes leave no room.
+    @ViewBuilder private var tabs: some View {
+        let picker = Picker("Part", selection: $part) {
+            ForEach(Part.allCases) { Text($0.rawValue).tag($0) }
+        }
+        if typeSize.isAccessibilitySize {
+            picker.pickerStyle(.menu).accessibilityIdentifier("spade.profile.part")
+        } else {
+            picker.pickerStyle(.segmented).accessibilityIdentifier("spade.profile.part")
+        }
     }
 
     /// The face, large, then the name and where it runs.
