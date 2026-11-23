@@ -269,13 +269,28 @@ fn other(error: impl std::fmt::Display) -> Failure {
 async fn run() -> Result<(), Failure> {
     let env = |key: &str| std::env::var(key).ok();
     let config = Config::from_env(env).map_err(other)?;
+    // Before the folder is opened (its lock taken, its database migrated): only the released
+    // Spade may open the live home (ADR 0119 amendment 1).
+    spade_keys::owner::may_open(
+        &config.data_dir,
+        spade_keys::owner::release_binary(),
+        spade_keys::owner::account_home().as_deref(),
+    )
+    .map_err(other)?;
     let home = Home::open(&config.data_dir).map_err(|e| match e {
         HomeError::Busy(_) => Failure::Busy(e),
         e => other(e),
     })?;
 
-    let keychain = match KeyStore::os() {
-        Ok(store) => Some(store),
+    // A release Spade on the live home files its keychain entries under its own service; any
+    // other build or home under the dev one, so the two never touch each other's (ADR 0119
+    // amendment 1).
+    let placement = spade_keys::Placement::of_this_process(&config.data_dir);
+    let keychain = match KeyStore::os(&placement.service()) {
+        Ok(store) => {
+            tracing::info!(service = store.service(), "keychain entries");
+            Some(store)
+        }
         Err(error) => {
             tracing::warn!(%error, "no keychain; endpoint keys come from the environment only");
             None
