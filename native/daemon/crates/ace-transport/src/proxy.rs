@@ -170,7 +170,6 @@ impl ExchangeDeadline {
 #[derive(Debug)]
 pub struct RequestActivity {
     in_flight: AtomicUsize,
-    completed: AtomicUsize,
     changes: AtomicUsize,
     changed_at: Mutex<Instant>,
     notify: Notify,
@@ -180,7 +179,6 @@ impl Default for RequestActivity {
     fn default() -> Self {
         Self {
             in_flight: AtomicUsize::new(0),
-            completed: AtomicUsize::new(0),
             changes: AtomicUsize::new(0),
             changed_at: Mutex::new(Instant::now()),
             notify: Notify::new(),
@@ -209,19 +207,9 @@ impl RequestActivity {
         self.note_change();
     }
 
-    fn finish(&self, completed: bool) {
-        if completed {
-            self.completed.fetch_add(1, Ordering::SeqCst);
-        }
+    fn finish(&self) {
         self.in_flight.fetch_sub(1, Ordering::SeqCst);
         self.note_change();
-    }
-
-    /// Whether any response has finished on this connection yet. A fresh
-    /// connection's header read is the header timeout's business, not the
-    /// keep-alive one's.
-    pub fn completed_any(&self) -> bool {
-        self.completed.load(Ordering::SeqCst) > 0
     }
 
     /// Resolve once no request has been in flight for `idle`, which is Node's
@@ -289,7 +277,6 @@ impl InFlight {
         inner: B,
         error: fn(B::Error) -> ProxyError,
         upstream: Option<Upstream>,
-        counts_as_answer: bool,
     ) -> TrackedBody<B> {
         self.armed = false;
         TrackedBody {
@@ -299,7 +286,6 @@ impl InFlight {
             deadlines: Arc::clone(&self.deadlines),
             at: self.at,
             upstream,
-            counts_as_answer,
             finished: false,
         }
     }
@@ -309,7 +295,7 @@ impl Drop for InFlight {
     fn drop(&mut self) {
         if self.armed {
             self.deadlines.clear(self.at);
-            self.activity.finish(false);
+            self.activity.finish();
         }
     }
 }
@@ -333,19 +319,20 @@ pub struct TrackedBody<B: Body<Data = Bytes>> {
     deadlines: Arc<ExchangeDeadline>,
     at: Instant,
     upstream: Option<Upstream>,
-    counts_as_answer: bool,
     finished: bool,
 }
 
 impl<B: Body<Data = Bytes>> TrackedBody<B> {
-    fn finish(&mut self, completed: bool) {
+    /// Called on every way an answer ends: the body's end, a trailers frame,
+    /// an error, the client going away, or the connection being closed.
+    fn finish(&mut self) {
         if self.finished {
             return;
         }
         self.finished = true;
         self.upstream = None;
         self.deadlines.clear(self.at);
-        self.activity.finish(completed && self.counts_as_answer);
+        self.activity.finish();
     }
 }
 
@@ -359,14 +346,21 @@ impl<B: Body<Data = Bytes> + Unpin> Body for TrackedBody<B> {
     ) -> Poll<Option<Result<Frame<Bytes>, ProxyError>>> {
         let this = self.get_mut();
         match Pin::new(&mut this.inner).poll_frame(cx) {
-            Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
+            Poll::Ready(Some(Ok(frame))) => {
+                // A trailers frame ends a chunked body, and hyper may drop the
+                // body without asking for `None` again.
+                if frame.is_trailers() {
+                    this.finish();
+                }
+                Poll::Ready(Some(Ok(frame)))
+            }
             Poll::Ready(Some(Err(error))) => {
-                this.finish(false);
+                this.finish();
                 let map = this.error;
                 Poll::Ready(Some(Err(map(error))))
             }
             Poll::Ready(None) => {
-                this.finish(true);
+                this.finish();
                 Poll::Ready(None)
             }
             Poll::Pending => Poll::Pending,
@@ -384,11 +378,7 @@ impl<B: Body<Data = Bytes> + Unpin> Body for TrackedBody<B> {
 
 impl<B: Body<Data = Bytes>> Drop for TrackedBody<B> {
     fn drop(&mut self) {
-        // An empty or fixed-length answer need not be polled to its end: a body
-        // hyper is done with reports `is_end_stream`, which is a finished
-        // response. Anything else was cut short.
-        let complete = self.inner.is_end_stream();
-        self.finish(complete);
+        self.finish();
     }
 }
 
@@ -529,7 +519,7 @@ async fn forward(
 
     let (mut parts, body) = response.into_parts();
     parts.headers = header_map(hop::response_headers(&header_pairs(&parts.headers)));
-    let answer = in_flight.track(body, ProxyError::Body, Some(upstream), true);
+    let answer = in_flight.track(body, ProxyError::Body, Some(upstream));
     Ok(Response::from_parts(parts, answer.boxed_unsync()))
 }
 
@@ -564,7 +554,7 @@ fn build_request(
 fn answered(answer: Response<Full<Bytes>>, in_flight: InFlight) -> Response<HopBody> {
     answer.map(|body| {
         in_flight
-            .track(body, |never| match never {}, None, false)
+            .track(body, |never| match never {}, None)
             .boxed_unsync()
     })
 }

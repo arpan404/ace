@@ -249,6 +249,33 @@ async fn a_chunked_get_keeps_its_body() {
 }
 
 #[tokio::test]
+async fn a_client_that_half_closes_after_its_body_still_gets_the_answer() {
+    let (upstream, seen) = internal_server().await;
+    let bound = listener(upstream, &"ab".repeat(32)).await;
+
+    let mut client = client(bound.local_addr()).await;
+    client
+        .write_all(b"POST /half HTTP/1.1\r\nHost: localhost\r\nContent-Length: 3\r\n\r\nhey")
+        .await
+        .expect("the request is written");
+    // The client shuts its write side down, as a client waiting for the answer may.
+    client.shutdown().await.expect("the write side shuts down");
+
+    let response = answer(&mut client).await;
+    let response = String::from_utf8_lossy(&response);
+    assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
+    assert!(
+        response.ends_with("ok"),
+        "a half-closed client still reads the whole answer: {response}"
+    );
+    assert_eq!(
+        seen.lock().expect("no poison")[0].body,
+        b"hey",
+        "the whole body reached the internal server"
+    );
+}
+
+#[tokio::test]
 async fn an_absolute_form_target_is_forwarded_as_received() {
     let (upstream, head) = raw_internal_server().await;
     let bound = listener(upstream, &"ab".repeat(32)).await;

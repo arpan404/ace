@@ -91,6 +91,9 @@ allowed`. A request without an Origin (the CLI, native clients) is not refused f
   `access-cors.server.process` and the route tests in §12). Range requests, upload budgets and
   relay attachments keep their limits (`attachment-range`, `attachment-http-budget`,
   `attachment-relay`, `attachment-upload` process tests).
+- **Parity note (T1a.2's proxy hop)**: a client that goes away while its upload is backpressured is
+  noticed on the next read or write of its socket, not immediately — exactly what Node's HTTP server
+  does when it pauses a socket the same way. The exchange's 300 s deadline bounds the wait.
 - **Recorded difference (T1a.2's proxy hop)**: a request-target in absolute form with no path
   (`GET http://host`) reaches the handlers as `http://host/`, because `http::Uri` fills the empty
   path when the hop frames the request and cannot represent it otherwise. Direct browser, iOS and

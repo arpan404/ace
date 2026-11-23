@@ -164,6 +164,9 @@ async fn serve_hyper(
     let mut builder = hyper::server::conn::http1::Builder::new();
     builder
         .keep_alive(true)
+        // A client may shut its write side down after its request and wait for
+        // the answer; hyper's default would abort that upload.
+        .half_close(true)
         .timer(TokioTimer::new())
         .header_read_timeout(HEADERS_TIMEOUT)
         // The peek's 16 KiB cap is Node's `maxHeaderSize`, and every later head
@@ -192,9 +195,11 @@ async fn serve_hyper(
             // guard aborts the upstream. This fires even when the body is not
             // being polled (a client blocked on a write).
             _ = deadlines.reached() => return,
-            // An idle keep-alive connection closes like Node's; a connection
-            // that never answered is the header timeout's.
-            _ = activity.wait_idle(KEEP_ALIVE_TIMEOUT), if !closing && activity.completed_any() => {
+            // An idle keep-alive connection closes like Node's. The head
+            // deadline above already bounds the wait for the first head, and
+            // every start and finish restarts this window, so the arm must stay
+            // enabled: a disabled arm is never woken again.
+            _ = activity.wait_idle(KEEP_ALIVE_TIMEOUT), if !closing => {
                 closing = true;
                 connection.as_mut().graceful_shutdown();
             }
