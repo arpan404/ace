@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, stat, truncate, writeFile } from "node:fs/promises";
+import { shippedExecutableName } from "@ace/service/process-names";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
@@ -44,7 +45,7 @@ test.runIf(process.platform !== "win32")(
     expect(await stageAceFiles({ repo, root, target: host, env: { ACE_FILES_BIN: source } })).toBe(
       "prebuilt",
     );
-    const staged = join(root, "files", "ace-files");
+    const staged = join(root, "files", shippedExecutableName("files", process.platform));
     expect(stagedAceFiles(root, host)).toBe(staged);
     expect((await stat(staged)).mode & 0o111).not.toBe(0);
     const licenses = await readFile(join(root, "files/THIRD-PARTY-LICENSES"), "utf8");

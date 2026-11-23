@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { chmod, copyFile, lstat, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { ReleaseTarget } from "@ace/protocol";
+import { shippedExecutableName, type AceProcess } from "@ace/service/process-names";
 import type { z } from "zod";
 import { assertLinuxRuntimeFloor } from "./glibc.ts";
 
@@ -22,17 +23,23 @@ export function executableName(name: string, target: Target): string {
   return target.startsWith("win32-") ? `${name}.exe` : name;
 }
 
+/** The OS a release target runs on. */
+export function targetPlatform(target: Target): NodeJS.Platform {
+  return target.startsWith("win32-") ? "win32" : target.startsWith("darwin-") ? "darwin" : "linux";
+}
+
 /**
- * Where a staged native executable lands in a release or desktop bundle: `<root>/<folder>/<name>`.
- * Both bundle layouts put `ace-media` in `media/` and `ace-files` in `files/`.
+ * Where a staged native executable lands in a release or desktop bundle:
+ * `<root>/<folder>/<shipped name>`. Both bundle layouts put ace-media in `media/` as
+ * `ace Media Service` (`ace-media-service` on Linux), and ace-files in `files/` alike.
  */
 export function stagedRustBinary(
   root: string,
   target: Target,
   folder: string,
-  packageName: string,
+  process: AceProcess,
 ): string {
-  return join(root, folder, executableName(packageName, target));
+  return join(root, folder, shippedExecutableName(process, targetPlatform(target)));
 }
 
 export function assertRustLibraries(packageName: string, output: string): void {
@@ -100,17 +107,21 @@ export async function rustBinarySource(options: {
   return { executable, triple, prebuilt: Boolean(override) };
 }
 
-/** Copies a built executable into the bundle's `<folder>/`, runnable, and checks Linux links. */
+/**
+ * Copies a built executable into the bundle's `<folder>/` under the name `process` ships as,
+ * runnable, and checks Linux links.
+ */
 export async function installRustBinary(options: {
   executable: string;
   root: string;
   target: Target;
   folder: string;
+  process: AceProcess;
   packageName: string;
 }): Promise<string> {
-  const { executable, root, target, folder, packageName } = options;
+  const { executable, root, target, folder, process, packageName } = options;
   await mkdir(join(root, folder), { recursive: true });
-  const destination = stagedRustBinary(root, target, folder, packageName);
+  const destination = stagedRustBinary(root, target, folder, process);
   await copyFile(executable, destination);
   await chmod(destination, 0o755);
   if (target.startsWith("linux-")) await checkLinuxRustBinary(packageName, destination);
