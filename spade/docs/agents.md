@@ -365,11 +365,16 @@ already added renews that account. The ID token decides the account only once it
 OpenAI's sign-in, its `aud` is this client and it hasn't ended, and the access token may not name
 another account; otherwise the sign-in fails and nothing is kept.
 
-**The person's say.** Starting a sign-in, signing an account out and removing a `chatgpt` account
+**The person's say.** Starting a sign-in, reading or cancelling one, and signing an account out
 need the person's stamp (`x-ace-person`, ADR 0171 amendment 7), which ace's daemon makes only for
-a window that proved it is theirs; without it Spade answers `403`. The stamp's target and value:
-`accounts` and `chatgpt_sign_in:<method>:<account or empty>`; `account:<id>` and `sign_out`;
-`account:<id>` and `remove`. Removing a key account needs none.
+a window that proved it is theirs; without it Spade answers `403`. Changing or removing a
+`chatgpt` account needs it too, decided on the very row the change writes, under the lock that
+holds it (a key account needs none). `GET /v1/models` without the stamp answers `account: null`
+for every signed-in account: no email, plan or sign-in state. The stamp covers the whole request:
+target `accounts` (starting, reading and cancelling sign-ins, and `GET /v1/models`) or
+`account:<id>`, and value `<METHOD> <path and query>:<SHA-256 of the body, hex>`, so it holds for
+that request and no other. A new ChatGPT account is named `ChatGPT`, then `ChatGPT 2` and on,
+never its email.
 
 `POST /v1/endpoints/{id}/sign-out` deletes a `chatgpt` account's tokens from the keychain and
 answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay. `DELETE
@@ -377,11 +382,21 @@ answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay.
 
 A ChatGPT account's calls go to `https://chatgpt.com/backend-api/codex/responses` (streamed,
 `store: false`) with its access token and `chatgpt-account-id`; its live models are
-`GET …/codex/models`. The access token is refreshed when it has under five minutes left. A `401`
-before anything streamed refreshes the token once (however many calls report the same token) and
-sends the call once more on the same account. Failures on a signed-in account read only as an
+`GET …/codex/models`. The access token is refreshed when it has under five minutes left. Every call
+holds its token with the generation of the credential it belongs to; a sign-in, sign-out, removal
+or refused refresh starts a new generation, and a send under an old one is refused before it
+goes. Retries are one loop: a `401` before anything streamed gets the account's own refresh once
+(shared by every call reporting the same token, a failed refresh included) and the same request
+again with the new token; a refused effort steps down without sending the same request twice; a
+`401` that still comes is the answer, whatever was refused before it. A model list refused with
+`401` is refreshed and asked again once too. Failures on a signed-in account read only as an
 allowlisted line (the usage refusal, `the ChatGPT backend refused the call (<status>)`, or that it
-could not be reached), never anything the backend sent back. A refresh
+could not be reached; a plan only when it is one ChatGPT has), never anything the backend sent
+back; a failed model list says only its status. A sign-in that stops repeats only a known OAuth
+error code. The device code's own `slow_down`, `expired_token` and `access_denied` are read before
+the status, and an `expires_in` of 0 is a code already over. An ID token is taken only when its
+`aud` is this client (with others beside it, `azp` must be this client too) and it hasn't ended
+when it arrives. A refresh
 the server refuses signs the account out ("This ChatGPT account is signed out. Sign in again in
 Settings › Spade › Models."). A usage limit ends the call with one line naming the reset time
 when the server gives one.

@@ -333,8 +333,9 @@ async fn a_sign_in_being_kept_cannot_be_cancelled_and_is_kept() -> Result {
 }
 
 #[tokio::test]
-async fn a_device_sign_in_told_to_slow_down_keeps_waiting_and_finishes() -> Result {
+async fn a_device_sign_in_told_to_slow_down_waits_five_seconds_longer_between_polls() -> Result {
     let s = setup().await?;
+    // Answered with a 403, as not-yet-finished is: only the body says to slow down.
     s.fake.slow_down_once();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let flow = s
@@ -344,6 +345,81 @@ async fn a_device_sign_in_told_to_slow_down_keeps_waiting_and_finishes() -> Resu
     let ended = until_ended_within(&s.flows, &flow.id, Duration::from_secs(15)).await?;
     assert_eq!(ended.state, "done", "{:?}", ended.error);
     assert_eq!(ended.user_code, None, "the code goes once it ends");
+    let gaps = s.fake.poll_gaps();
+    assert_eq!(gaps.len(), 1, "{gaps:?}");
+    assert!(
+        gaps[0] >= Duration::from_millis(5_500),
+        "the poll after slow_down came after {:?}, not the 1 s interval plus 5 s",
+        gaps[0]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_device_code_the_server_says_expired_ends_the_sign_in_at_once_even_with_a_403() -> Result
+{
+    let s = setup().await?;
+    s.fake.expire_next_poll();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let flow = s
+        .flows
+        .start(Method::Device, keeper(&s.flows, seen))
+        .await?;
+    let ended = until_ended_within(&s.flows, &flow.id, Duration::from_secs(4)).await?;
+    assert_eq!(ended.state, "failed");
+    assert!(
+        ended
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("expired")),
+        "{:?}",
+        ended.error
+    );
+    assert_eq!(s.fake.polls(), 0, "it was not taken as still waiting");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_device_code_that_lasts_zero_seconds_is_already_over() -> Result {
+    let s = setup().await?;
+    s.fake.device_never_approved(0);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let started = std::time::Instant::now();
+    let flow = s
+        .flows
+        .start(Method::Device, keeper(&s.flows, seen))
+        .await?;
+    let ended = until_ended_within(&s.flows, &flow.id, Duration::from_secs(4)).await?;
+    assert_eq!(ended.state, "failed");
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "{:?}",
+        started.elapsed()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_id_token_that_ended_before_it_arrived_keeps_nothing() -> Result {
+    let s = setup().await?;
+    // Valid when the sign-in starts, ended by the time the person finishes it.
+    s.fake.id_expires_at(1_500);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let flow = s
+        .flows
+        .start(Method::Browser, keeper(&s.flows, seen.clone()))
+        .await?;
+    s.now.store(2_000, Ordering::SeqCst);
+    let url = flow.url.clone().ok_or("no sign-in address")?;
+    let back = format!(
+        "{}?code=c&state={}",
+        query(&url, "redirect_uri").unwrap_or_default(),
+        query(&url, "state").unwrap_or_default()
+    );
+    assert_eq!(reqwest::get(back).await?.status(), 200);
+    let ended = until_ended(&s.flows, &flow.id).await?;
+    assert_eq!(ended.state, "failed");
+    assert!(seen.lock().unwrap_or_else(|p| p.into_inner()).is_empty());
     Ok(())
 }
 
@@ -408,14 +484,14 @@ async fn a_rejected_token_is_refreshed_once_however_many_calls_report_it() -> Re
     let s = setup().await?;
     let accounts = s.flows.accounts().clone();
     accounts.keep("chatgpt", &signed(&s.fake)).await?;
-    let rejected = accounts.bearer("chatgpt").await?;
+    let rejected = accounts.current_bearer("chatgpt").await?;
     let (a, b) = tokio::join!(
-        accounts.bearer_after_rejection("chatgpt", &rejected),
-        accounts.bearer_after_rejection("chatgpt", &rejected),
+        accounts.bearer_after_rejection("chatgpt", &rejected.token, rejected.generation),
+        accounts.bearer_after_rejection("chatgpt", &rejected.token, rejected.generation),
     );
     let (a, b) = (a?, b?);
     assert_eq!(a, b);
-    assert_ne!(a, rejected);
+    assert_ne!(a.token, rejected.token);
     assert_eq!(s.fake.refreshes(), vec!["refresh-0".to_owned()]);
     Ok(())
 }
@@ -449,5 +525,70 @@ async fn a_sign_in_whose_tokens_name_different_accounts_keeps_nothing() -> Resul
     assert_eq!(ended.state, "failed");
     assert!(seen.lock().unwrap_or_else(|p| p.into_inner()).is_empty());
     assert_eq!(s.keys.sign_in_secret("chatgpt", "refresh")?, None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_call_from_before_a_sign_out_and_a_new_sign_in_never_gets_the_new_credential() -> Result {
+    let s = setup().await?;
+    let accounts = s.flows.accounts().clone();
+    accounts.keep("chatgpt", &signed(&s.fake)).await?;
+    let old = accounts.current_bearer("chatgpt").await?;
+    assert!(accounts.is_current("chatgpt", old.generation));
+    // Removed, and another account signed in under the same id.
+    accounts.forget("chatgpt").await?;
+    let other: spade_chatgpt::Tokens = serde_json::from_value(s.fake.tokens(7))?;
+    accounts.keep("chatgpt", &other).await?;
+    assert!(!accounts.is_current("chatgpt", old.generation));
+    let after = accounts
+        .bearer_after_rejection("chatgpt", &old.token, old.generation)
+        .await;
+    assert!(after.is_err(), "the old call got {after:?}");
+    assert!(
+        s.fake.refreshes().is_empty(),
+        "nothing was refreshed for it"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refresh_that_failed_is_shared_with_every_call_reporting_the_same_token() -> Result {
+    let s = setup().await?;
+    let accounts = s.flows.accounts().clone();
+    accounts.keep("chatgpt", &signed(&s.fake)).await?;
+    let held = accounts.current_bearer("chatgpt").await?;
+    s.fake.refresh_down();
+    for _ in 0..3 {
+        let again = accounts
+            .bearer_after_rejection("chatgpt", &held.token, held.generation)
+            .await;
+        assert!(matches!(again, Err(BearerError::Failed(_))), "{again:?}");
+    }
+    assert_eq!(s.fake.refresh_attempts(), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_sign_in_stopped_with_an_unknown_error_never_repeats_it() -> Result {
+    let s = setup().await?;
+    for (sent, shown) in [
+        ("rt_secret_value_9", "OpenAI's sign-in stopped"),
+        ("access_denied", "OpenAI's sign-in stopped (access_denied)"),
+    ] {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let flow = s
+            .flows
+            .start(Method::Browser, keeper(&s.flows, seen))
+            .await?;
+        let url = flow.url.clone().ok_or("no sign-in address")?;
+        let back = format!(
+            "{}?error={sent}&state={}",
+            query(&url, "redirect_uri").unwrap_or_default(),
+            query(&url, "state").unwrap_or_default()
+        );
+        assert_eq!(reqwest::get(back).await?.status(), 200);
+        let ended = until_ended(&s.flows, &flow.id).await?;
+        assert_eq!(ended.error.as_deref(), Some(shown));
+    }
     Ok(())
 }

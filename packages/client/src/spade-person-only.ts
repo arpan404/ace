@@ -55,23 +55,29 @@ const botPermissions = /^\/v1\/agents\/([^/?#]+)\/security\/permissions$/;
 const moveAccept = /^\/v1\/moves\/([^/?#]+)\/accept$/;
 const account = /^\/v1\/endpoints\/([^/?#]+)$/;
 const accountSignOut = /^\/v1\/endpoints\/([^/?#]+)\/sign-out$/;
+const signInFlow = /^\/v1\/accounts\/chatgpt\/[^/?#]+$/;
 
 /**
- * A change to Spade's provider accounts only the person may make (ADR 0214): starting a ChatGPT
- * sign-in (`sign-in`), signing an account out (`sign-out:<id>`), removing an account
- * (`remove-account:<id>`; Spade needs the stamp only for a signed-in one).
+ * What only the person may do or see with Spade's provider accounts (ADR 0214): start a ChatGPT
+ * sign-in (`sign-in`), read or cancel one (`sign-in-flow`), see the accounts' details
+ * (`account-details`: `GET /v1/models`, which Spade answers without them unstamped), sign an
+ * account out (`sign-out:<id>`), change one (`change-account:<id>`) or remove one
+ * (`remove-account:<id>`; for the last two Spade needs the stamp only for a signed-in account).
  */
 function accountRoute(method: string, bare: string): string | undefined {
   if (method === "POST" && bare === "/v1/accounts/chatgpt") return "sign-in";
+  if ((method === "GET" || method === "DELETE") && signInFlow.test(bare)) return "sign-in-flow";
+  if (method === "GET" && bare === "/v1/models") return "account-details";
   const out = method === "POST" ? accountSignOut.exec(bare)?.[1] : undefined;
   if (out !== undefined) {
     const id = decoded(out);
     return id === undefined ? undefined : `sign-out:${id}`;
   }
-  const removed = method === "DELETE" ? account.exec(bare)?.[1] : undefined;
-  if (removed !== undefined) {
-    const id = decoded(removed);
-    return id === undefined ? undefined : `remove-account:${id}`;
+  const changed = method === "DELETE" || method === "PATCH" ? account.exec(bare)?.[1] : undefined;
+  if (changed !== undefined) {
+    const id = decoded(changed);
+    if (id === undefined) return undefined;
+    return method === "DELETE" ? `remove-account:${id}` : `change-account:${id}`;
   }
   return undefined;
 }

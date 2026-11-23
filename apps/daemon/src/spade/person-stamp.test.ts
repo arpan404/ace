@@ -210,43 +210,75 @@ test("a change that may loosen what a bot may do is stamped over the bytes Spade
     expect(personOnlyWrite(method, path, json({})), `${method} ${path}`).toBeUndefined();
 });
 
-test("starting a ChatGPT sign-in, signing an account out and removing one are the person's", () => {
+test("Spade's provider accounts are the person's, stamped over the whole request", () => {
+  const empty = sha(Buffer.alloc(0));
+  const start = json({ method: "browser", terms_read: true });
+  const rename = json({ name: "Work" });
   const cases: [string, string, Buffer | undefined, unknown][] = [
     [
       "POST",
       "/v1/accounts/chatgpt",
-      json({ method: "browser", terms_read: true }),
-      { target: "accounts", value: "chatgpt_sign_in:browser:" },
+      start,
+      { target: "accounts", value: `POST /v1/accounts/chatgpt:${sha(start)}` },
     ],
     [
-      "POST",
-      "/v1/accounts/chatgpt",
-      json({ method: "device", terms_read: true, account: "chatgpt-2" }),
-      { target: "accounts", value: "chatgpt_sign_in:device:chatgpt-2" },
+      "GET",
+      "/v1/accounts/chatgpt/flow-1",
+      undefined,
+      { target: "accounts", value: `GET /v1/accounts/chatgpt/flow-1:${empty}` },
     ],
-    // A body Spade won't take is never stamped, so never forwarded.
-    ["POST", "/v1/accounts/chatgpt", json({ method: "carrier-pigeon" }), undefined],
-    ["POST", "/v1/accounts/chatgpt", json({ method: "browser", account: "../x" }), undefined],
+    [
+      "DELETE",
+      "/v1/accounts/chatgpt/flow-1",
+      undefined,
+      { target: "accounts", value: `DELETE /v1/accounts/chatgpt/flow-1:${empty}` },
+    ],
+    [
+      "GET",
+      "/v1/models",
+      undefined,
+      { target: "accounts", value: `GET /v1/models:${empty}`, optional: true },
+    ],
     [
       "POST",
       "/v1/endpoints/chatgpt/sign-out",
       undefined,
-      { target: "account:chatgpt", value: "sign_out" },
+      { target: "account:chatgpt", value: `POST /v1/endpoints/chatgpt/sign-out:${empty}` },
     ],
-    // Removing a key account needs no stamp: Spade decides, so it goes either way.
+    [
+      "PATCH",
+      "/v1/endpoints/chatgpt-2",
+      rename,
+      {
+        target: "account:chatgpt-2",
+        value: `PATCH /v1/endpoints/chatgpt-2:${sha(rename)}`,
+        optional: true,
+      },
+    ],
     [
       "DELETE",
       "/v1/endpoints/chatgpt-2",
       undefined,
-      { target: "account:chatgpt-2", value: "remove", optional: true },
+      {
+        target: "account:chatgpt-2",
+        value: `DELETE /v1/endpoints/chatgpt-2:${empty}`,
+        optional: true,
+      },
     ],
-    // Reading, renaming and the sign-in's own progress stay the window's.
-    ["GET", "/v1/endpoints/chatgpt", undefined, undefined],
-    ["PATCH", "/v1/endpoints/chatgpt", json({ name: "Work" }), undefined],
-    ["DELETE", "/v1/accounts/chatgpt/flow-1", undefined, undefined],
+    // An account id Spade won't take is never stamped.
+    ["DELETE", "/v1/endpoints/..%2Fx", undefined, undefined],
+    // Reading one account's live model list stays the window's.
+    ["GET", "/v1/endpoints/chatgpt/models", undefined, undefined],
   ];
   for (const [method, path, body, expected] of cases)
     expect(personOnlyWrite(method, path, body), `${method} ${path}`).toEqual(expected);
+  // Any other body, or another route, is another stamp: one never stands for the other.
+  const told = personOnlyWrite(
+    "POST",
+    "/v1/accounts/chatgpt",
+    json({ method: "browser", terms_read: false }),
+  );
+  expect(told).not.toEqual(personOnlyWrite("POST", "/v1/accounts/chatgpt", start));
   expect(personOnlyRoute("POST", "/v1/accounts/chatgpt")).toBe("sign-in");
   expect(personOnlyRoute("DELETE", "/v1/endpoints/openai")).toBe("remove-account:openai");
 });

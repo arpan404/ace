@@ -18,6 +18,7 @@ pub mod listing;
 mod media;
 mod probes;
 mod prompt;
+mod signed;
 mod speech;
 pub mod terms;
 mod thoughts;
@@ -28,7 +29,7 @@ pub use catalog::{
     Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, Model, Price, Resolved, Role,
 };
 pub use chatgpt::SignIn;
-pub use client::{Bearers, KEYLESS, Models};
+pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use effort::Effort;
 pub use error::{ModelError, Unserved};
@@ -40,6 +41,7 @@ pub use probes::{PROBE_TOOL, PROBE_WAIT, Probe, ProbeResults};
 pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };
+pub use signed::{BearerFuture, Bearers, Credential};
 pub use spade_keys::{KeyRequest, Keys};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
 pub use terms::{CliTerms, TermsNotice, TermsRecord, TermsStatus};

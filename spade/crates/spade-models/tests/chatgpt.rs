@@ -8,7 +8,8 @@ use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use spade_models::{
-    Bearers, Catalog, Effort, Endpoint, Format, Keys, Model, ModelError, Models, Prompt, SignIn,
+    Bearers, Catalog, Credential, Effort, Endpoint, Format, Keys, Model, ModelError, Models,
+    Prompt, SignIn,
 };
 use spade_testkit::{FakeProvider, Script, Seen};
 
@@ -38,6 +39,9 @@ struct Client {
     models: Models,
     asked: Arc<Mutex<Vec<String>>>,
     rejected: Arc<Mutex<Vec<String>>>,
+    /// How many sends may still go before the account's credential changes (signed out, say);
+    /// unlimited unless a test sets it.
+    sends_left: Arc<std::sync::atomic::AtomicI64>,
 }
 
 fn client_for(root: &str, backend: &str, token: Option<&'static str>) -> Result<Client> {
@@ -52,32 +56,48 @@ fn client_for(root: &str, backend: &str, token: Option<&'static str>) -> Result<
     let current = Arc::new(Mutex::new(token.map(str::to_owned)));
     let (log, now) = (asked.clone(), current.clone());
     let (refused, renewed) = (rejected.clone(), current);
+    let sends_left = Arc::new(std::sync::atomic::AtomicI64::new(i64::MAX));
+    let left = sends_left.clone();
     models.set_bearers(Bearers::new(
         backend,
         move |id| {
             log.lock().unwrap_or_else(|p| p.into_inner()).push(id);
             let token = now.lock().unwrap_or_else(|p| p.into_inner()).clone();
             Box::pin(async move {
-                token.ok_or_else(|| {
-                    "This ChatGPT account is signed out. Sign in again in Settings › Spade › Models."
-                        .to_owned()
-                })
+                token
+                    .map(|token| Credential {
+                        token,
+                        generation: 1,
+                    })
+                    .ok_or_else(|| {
+                        "This ChatGPT account is signed out. Sign in again in Settings › Spade › Models."
+                            .to_owned()
+                    })
             })
         },
-        move |_id, token| {
+        move |_id, old: Credential| {
             refused
                 .lock()
                 .unwrap_or_else(|p| p.into_inner())
-                .push(token.clone());
-            let next = format!("{token}-new");
+                .push(old.token.clone());
+            let next = format!("{}-new", old.token);
             *renewed.lock().unwrap_or_else(|p| p.into_inner()) = Some(next.clone());
-            Box::pin(async move { Ok(next) })
+            Box::pin(async move {
+                Ok(Credential {
+                    token: next,
+                    generation: old.generation,
+                })
+            })
+        },
+        move |_id, _generation| {
+            left.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) > 0
         },
     ));
     Ok(Client {
         models,
         asked,
         rejected,
+        sends_left,
     })
 }
 
@@ -376,6 +396,162 @@ async fn a_backend_that_refuses_the_effort_is_asked_again_without_it_on_the_same
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .is_empty()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_call_whose_account_was_signed_out_after_its_first_send_sends_nothing_more() -> Result {
+    // The first send is refused for its effort; the account is signed out before the second.
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(400), Script::reply("ok")]).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    client
+        .sends_left
+        .store(1, std::sync::atomic::Ordering::SeqCst);
+    let error = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi").effort(Effort::High))
+        .await
+        .err()
+        .ok_or("the call should fail")?;
+    assert!(matches!(error, ModelError::SignIn { .. }), "{error:?}");
+    assert_eq!(
+        fake.seen().len(),
+        1,
+        "the fallback was never sent with the old token"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_401_after_a_refused_effort_is_the_answer_not_the_earlier_refusal() -> Result {
+    let fake = FakeProvider::start_sequence(vec![
+        Script::failing(400),
+        Script::failing(401),
+        Script::failing(401),
+    ])
+    .await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let error = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi").effort(Effort::High))
+        .await
+        .err()
+        .ok_or("the call should fail")?;
+    assert_eq!(error.status(), Some(401), "{error:?}");
+    assert_eq!(
+        fake.seen().len(),
+        3,
+        "the refusal, the 401, and one try with the new token"
+    );
+    assert_eq!(
+        client
+            .rejected
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len(),
+        1
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn after_a_401_and_a_refused_effort_no_request_is_sent_twice_the_same() -> Result {
+    let fake = FakeProvider::start_sequence(vec![
+        Script::failing(401),
+        Script::failing(400),
+        Script::reply("ok"),
+    ])
+    .await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let reply = client
+        .models
+        .chat(
+            "chatgpt/gpt-5.5",
+            &Prompt::ask("hi").max_tokens(500).effort(Effort::High),
+        )
+        .await?;
+    assert_eq!(reply.text, "ok");
+    let seen = fake.seen();
+    assert_eq!(seen.len(), 3);
+    // The 401's request again with the new token, then without the effort: never a repeat.
+    assert_eq!(
+        header(&seen[1], "authorization").as_deref(),
+        Some("Bearer access-1-new")
+    );
+    assert_eq!(seen[1].body["reasoning"]["effort"], "high");
+    assert!(
+        seen[2].body["reasoning"].get("effort").is_none(),
+        "{}",
+        seen[2].body
+    );
+    Ok(())
+}
+
+/// A model list that refuses the first token with a `401` whose body is prose naming the token,
+/// and lists for any other; or refuses every token when `always`.
+async fn listing(always: bool) -> Result<String> {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(move |headers: HeaderMap| async move {
+            let sent = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            if always || sent == "Bearer access-1" {
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    format!(r#"{{"error":{{"message":"Workspace Acme rejected {sent}"}}}}"#),
+                )
+                    .into_response();
+            }
+            axum::Json(serde_json::json!({ "models": [ { "slug": "gpt-5.5" } ] })).into_response()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(root)
+}
+
+#[tokio::test]
+async fn a_model_list_refused_with_a_401_gets_one_new_token_and_lists() -> Result {
+    let root = listing(false).await?;
+    let client = client_for(&root, &root, Some("access-1"))?;
+    let listed = client.models.list("chatgpt").await?;
+    assert_eq!(
+        listed.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["gpt-5.5"]
+    );
+    assert_eq!(
+        *client.rejected.lock().unwrap_or_else(|p| p.into_inner()),
+        vec!["access-1".to_owned()]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_signed_in_accounts_list_failure_says_only_fixed_words() -> Result {
+    let root = listing(true).await?;
+    let client = client_for(&root, &root, Some("access-1"))?;
+    let error = client
+        .models
+        .list("chatgpt")
+        .await
+        .err()
+        .ok_or("it should fail")?;
+    let shown = format!("{error} {error:?}");
+    assert!(
+        !shown.contains("Acme") && !shown.contains("access-1"),
+        "{shown}"
+    );
+    assert!(
+        shown.contains("the ChatGPT backend refused the model list (401)"),
+        "{shown}"
     );
     Ok(())
 }

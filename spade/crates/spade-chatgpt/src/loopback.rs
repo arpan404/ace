@@ -96,12 +96,11 @@ async fn answer(mut stream: TcpStream, state: &str) -> Option<Result<String, Str
             "Sign-in stopped. You can close this tab.",
         )
         .await;
-        let error: String = error
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .take(60)
-            .collect();
-        return Some(Err(format!("OpenAI's sign-in stopped ({error})")));
+        // Only a known OAuth code is repeated; anything else the redirect carried is not.
+        return Some(Err(match crate::oauth::known_code(&error) {
+            Some(code) => format!("OpenAI's sign-in stopped ({code})"),
+            None => "OpenAI's sign-in stopped".to_owned(),
+        }));
     }
     let code = query("code").filter(|c| !c.is_empty())?;
     respond(

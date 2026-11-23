@@ -20,6 +20,7 @@ use crate::effort::{self, Refusals, Sent};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
+use crate::signed::{Bearers, Signed};
 use crate::{failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
@@ -33,45 +34,11 @@ pub struct Models {
     keys: Keys,
     /// `spade/<version>`, sent as every request's User-Agent.
     user_agent: String,
-    http: reqwest::Client,
-    listing: ListBounds,
+    pub(crate) http: reqwest::Client,
+    pub(crate) listing: ListBounds,
     refusals: Refusals,
     /// Access tokens for accounts that sign in (ADR 0214), set by the server.
-    bearers: Arc<RwLock<Option<Bearers>>>,
-}
-
-/// What [`Bearers`] answers: a token, or one plain line saying why there is none.
-pub type BearerFuture = Pin<Box<dyn Future<Output = Result<String, String>> + Send>>;
-
-/// Finds a signed-in account's access token by account (endpoint) id, refreshing it when it is
-/// about to end, and a new one when the backend refused one. A token only ever goes to
-/// `backend`'s origin, whatever address the account says. Tokens are never printed.
-#[derive(Clone)]
-pub struct Bearers {
-    backend: String,
-    find: Arc<dyn Fn(String) -> BearerFuture + Send + Sync>,
-    rejected: Arc<dyn Fn(String, String) -> BearerFuture + Send + Sync>,
-}
-
-impl Bearers {
-    /// `find(account)` and `rejected(account, refused token)`, for calls to `backend` only.
-    pub fn new(
-        backend: impl Into<String>,
-        find: impl Fn(String) -> BearerFuture + Send + Sync + 'static,
-        rejected: impl Fn(String, String) -> BearerFuture + Send + Sync + 'static,
-    ) -> Self {
-        Self {
-            backend: backend.into(),
-            find: Arc::new(find),
-            rejected: Arc::new(rejected),
-        }
-    }
-}
-
-impl std::fmt::Debug for Bearers {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Bearers(…)")
-    }
+    pub(crate) bearers: Arc<RwLock<Option<Bearers>>>,
 }
 
 /// A streamed reply, its first item already read.
@@ -87,8 +54,8 @@ struct Call {
     options: ChatOptions,
     /// The endpoint answers only streamed requests (a ChatGPT account).
     streamed_only: bool,
-    /// For a signed-in account: it, and the token this call carries.
-    signed: Option<(Endpoint, String)>,
+    /// For a signed-in account: it, and the credential this call carries.
+    signed: Option<Signed>,
 }
 
 /// A model resolved once for every try of one call (ADR 0213): a try that drops the effort goes
@@ -107,8 +74,8 @@ struct Resolved {
     key: String,
     /// The endpoint answers only streamed requests (a ChatGPT account).
     streamed_only: bool,
-    /// For a signed-in account: it, and the token this call carries.
-    signed: Option<(Endpoint, String)>,
+    /// For a signed-in account: it, and the credential this call carries.
+    signed: Option<Signed>,
 }
 
 impl Resolved {
@@ -171,59 +138,6 @@ impl Models {
     pub fn with_listing_bounds(mut self, bounds: ListBounds) -> Self {
         self.listing = bounds;
         self
-    }
-
-    /// Where signed-in accounts' tokens come from (ADR 0214).
-    pub fn set_bearers(&self, bearers: Bearers) {
-        *self.bearers.write().unwrap_or_else(|p| p.into_inner()) = Some(bearers);
-    }
-
-    /// Where a signed-in account's token may go, checked against its address: never anywhere
-    /// but the backend it was issued for.
-    fn bearers_for(&self, endpoint: &Endpoint) -> Result<Bearers, ModelError> {
-        let refuse = |message: &str| ModelError::SignIn {
-            endpoint: endpoint.id.clone(),
-            message: message.to_owned(),
-        };
-        let bearers = self
-            .bearers
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .clone()
-            .ok_or_else(|| refuse("this Spade cannot use sign-in accounts"))?;
-        if !crate::base_url::same_origin(&endpoint.base_url, &bearers.backend) {
-            return Err(refuse(
-                "this account's address is not the ChatGPT backend, so its sign-in is not sent there",
-            ));
-        }
-        Ok(bearers)
-    }
-
-    /// The access token for a signed-in account, or why there is none.
-    async fn bearer(&self, endpoint: &Endpoint) -> Result<String, ModelError> {
-        let bearers = self.bearers_for(endpoint)?;
-        (bearers.find)(endpoint.id.clone())
-            .await
-            .map_err(|message| ModelError::SignIn {
-                endpoint: endpoint.id.clone(),
-                message,
-            })
-    }
-
-    /// After the backend refused `token`: a new token for the account (refreshed once, however
-    /// many calls report the same refusal).
-    async fn bearer_after_rejection(
-        &self,
-        endpoint: &Endpoint,
-        token: &str,
-    ) -> Result<String, ModelError> {
-        let bearers = self.bearers_for(endpoint)?;
-        (bearers.rejected)(endpoint.id.clone(), token.to_owned())
-            .await
-            .map_err(|message| ModelError::SignIn {
-                endpoint: endpoint.id.clone(),
-                message,
-            })
     }
 
     /// The shipped presets: endpoint templates and known model facts.
@@ -326,27 +240,7 @@ impl Models {
             .endpoint(endpoint_id)
             .ok_or_else(|| ModelError::UnknownModel(format!("{endpoint_id}/")))?;
         if let Some(SignIn::ChatGpt { account_id }) = &endpoint.sign_in {
-            let token = self
-                .bearer(&endpoint)
-                .await
-                .map_err(|e| ModelError::Listing {
-                    endpoint: endpoint.id.clone(),
-                    message: e.to_string(),
-                })?;
-            let mut signed = endpoint.clone();
-            signed.headers.extend(chatgpt::headers(account_id, None));
-            return listing::fetch(
-                &self.http,
-                &signed,
-                Some(&token),
-                &[("client_version", chatgpt::CLIENT_VERSION)],
-                self.listing,
-            )
-            .await
-            .map_err(|message| ModelError::Listing {
-                endpoint: endpoint.id.clone(),
-                message,
-            });
+            return self.list_signed(&endpoint, account_id).await;
         }
         let key = if endpoint.needs_key {
             Some(
@@ -362,9 +256,9 @@ impl Models {
         };
         listing::fetch(&self.http, &endpoint, key.as_deref(), &[], self.listing)
             .await
-            .map_err(|message| ModelError::Listing {
+            .map_err(|failure| ModelError::Listing {
                 endpoint: endpoint.id.clone(),
-                message,
+                message: failure.message,
             })
     }
 
@@ -384,51 +278,64 @@ impl Models {
         Fut: Future<Output = Result<T, ModelError>>,
     {
         let resolved = self.resolve_call(reference, prompt).await?;
-        let signed = resolved.signed.clone();
-        match self.tries(resolved, &once).await {
-            // A signed-in account's token refused before anything streamed: a new token once
-            // (refreshed once, however many calls report it), and the call once more on the
-            // same account.
-            Err(error) if error.status() == Some(401) => {
-                let Some((endpoint, token)) = signed else {
-                    return Err(error);
-                };
-                self.bearer_after_rejection(&endpoint, &token).await?;
-                let again = self.resolve_call(reference, prompt).await?;
-                self.tries(again, &once).await
-            }
-            other => other,
-        }
+        self.tries(resolved, &once).await
     }
 
-    /// [`Models::thinking`]'s tries on one resolved call.
-    async fn tries<T, F, Fut>(&self, resolved: Resolved, once: &F) -> Result<T, ModelError>
+    /// [`Models::thinking`]'s tries, in one loop. A signed-in account's credential is checked
+    /// before every send; a `401` before anything streamed gets the account's own refresh once,
+    /// and the same request is sent again with it. A request the same as one already refused is
+    /// never sent again: where no limit is sent, dropping the room changes nothing. A `401` that
+    /// still comes is the answer, whatever was refused before it.
+    async fn tries<T, F, Fut>(&self, mut resolved: Resolved, once: &F) -> Result<T, ModelError>
     where
         F: Fn(Call) -> Fut,
         Fut: Future<Output = Result<T, ModelError>>,
     {
+        let room = resolved.room > 0 && resolved.answer.is_some() && !resolved.streamed_only;
         let mut send = if resolved.effort.is_some() {
             self.refusals.start(&resolved.key)
         } else {
             Sent::Nothing
         };
-        let refusal = match once(resolved.call(send)).await {
-            Err(error) if effort::refused(&error) => error,
-            other => return other,
-        };
-        while let Some(next) = send.after_refusal(resolved.room > 0 && resolved.answer.is_some()) {
-            send = next;
+        let mut refusal: Option<ModelError> = None;
+        let mut refreshed = false;
+        loop {
+            if let Some(signed) = &resolved.signed {
+                self.still_current(signed)?;
+            }
             match once(resolved.call(send)).await {
                 Ok(answered) => {
-                    self.refusals.remember(&resolved.key, send);
+                    if refusal.is_some() {
+                        self.refusals.remember(&resolved.key, send);
+                    }
                     return Ok(answered);
                 }
-                Err(error) if effort::refused(&error) => {}
+                Err(error) if error.status() == Some(401) && !refreshed => {
+                    let Some(signed) = resolved.signed.clone() else {
+                        return Err(refusal.unwrap_or(error));
+                    };
+                    refreshed = true;
+                    let credential = self.after_rejection(&signed).await?;
+                    resolved.target.auth = AuthData::from_single(credential.token.clone());
+                    resolved.signed = Some(Signed {
+                        credential,
+                        ..signed
+                    });
+                }
+                Err(error) if error.status() == Some(401) && resolved.signed.is_some() => {
+                    return Err(error);
+                }
+                Err(error) if effort::refused(&error) => {
+                    let first = refusal.get_or_insert(error).clone();
+                    match send.after_refusal(room) {
+                        Some(next) => send = next,
+                        None => return Err(first),
+                    }
+                }
                 // Anything else (a rate limit, an outage) says nothing about the setting.
-                Err(_) => break,
+                Err(error) => return Err(refusal.unwrap_or(error)),
             }
         }
-        Err(refusal)
     }
 
     pub async fn chat(&self, reference: &str, prompt: &Prompt) -> Result<Reply, ModelError> {
@@ -627,13 +534,13 @@ impl Models {
             .ok_or_else(|| ModelError::UnknownModel(reference.to_owned()))?;
         let signed = match &endpoint.sign_in {
             Some(SignIn::ChatGpt { account_id }) => Some((
-                self.bearer(&endpoint).await?,
+                self.credential(&endpoint).await?,
                 chatgpt::headers(account_id, prompt.session.as_deref()),
             )),
             None => None,
         };
-        let auth = if let Some((token, _)) = &signed {
-            AuthData::from_single(token.clone())
+        let auth = if let Some((credential, _)) = &signed {
+            AuthData::from_single(credential.token.clone())
         } else if endpoint.needs_key {
             let key = self
                 .key_for_call(&endpoint)
@@ -662,9 +569,10 @@ impl Models {
             headers.push((name.clone(), session.clone()));
         }
         let streamed_only = signed.is_some();
-        let token = signed
-            .as_ref()
-            .map(|(token, _)| (endpoint.clone(), token.clone()));
+        let token = signed.as_ref().map(|(credential, _)| Signed {
+            endpoint: endpoint.clone(),
+            credential: credential.clone(),
+        });
         if let Some((_, extra)) = signed {
             headers.extend(extra);
         }

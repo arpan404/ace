@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 
 use spade_chatgpt::{BearerError, FlowView, Flows, Method, SignedIn};
-use spade_models::Bearers;
+use spade_models::{Bearers, Credential};
 use spade_store::{StoreError, StoredEndpoint, StoredModel, StoredSignIn};
 
 use super::{EndpointError, EndpointView, Engine};
@@ -37,8 +37,13 @@ impl Engine {
         let backend = accounts.config().backend.clone();
         // A refused refresh signs the account out, here as in Settings.
         let answer =
-            move |engine: Weak<Self>, id: String, got: Result<String, BearerError>| match got {
-                Ok(token) => Ok(token),
+            move |engine: Weak<Self>,
+                  id: String,
+                  got: Result<spade_chatgpt::Bearer, BearerError>| match got {
+                Ok(bearer) => Ok(Credential {
+                    token: bearer.token,
+                    generation: bearer.generation,
+                }),
                 Err(BearerError::SignedOut(line)) => {
                     if let Some(engine) = engine.upgrade() {
                         let _ = engine.mark_signed_in(&id, false);
@@ -48,22 +53,26 @@ impl Engine {
                 Err(BearerError::Failed(line)) => Err(line),
             };
         let (find_engine, find_accounts) = (engine.clone(), accounts.clone());
+        let current_accounts = accounts.clone();
         self.models.set_bearers(Bearers::new(
             backend,
             move |id| {
                 let (engine, accounts) = (find_engine.clone(), find_accounts.clone());
                 Box::pin(async move {
-                    let got = accounts.bearer(&id).await;
+                    let got = accounts.current_bearer(&id).await;
                     answer(engine, id, got)
                 })
             },
-            move |id, rejected| {
+            move |id, rejected: Credential| {
                 let (engine, accounts) = (engine.clone(), accounts.clone());
                 Box::pin(async move {
-                    let got = accounts.bearer_after_rejection(&id, &rejected).await;
+                    let got = accounts
+                        .bearer_after_rejection(&id, &rejected.token, rejected.generation)
+                        .await;
                     answer(engine, id, got)
                 })
             },
+            move |id, generation| current_accounts.is_current(id, generation),
         ));
     }
 
@@ -314,14 +323,12 @@ impl Engine {
             return Ok((row.id.clone(), false));
         }
         let id = self.free_sign_in_id(&endpoints);
-        let name: String = done
-            .account
-            .email
-            .clone()
-            .unwrap_or_else(|| "ChatGPT".to_owned())
-            .chars()
-            .take(60)
-            .collect();
+        // Named for the provider, never the email: the name shows to every caller, the email only
+        // to the person.
+        let name = match id.strip_prefix(CHATGPT).and_then(|n| n.strip_prefix('-')) {
+            Some(n) => format!("ChatGPT {n}"),
+            None => "ChatGPT".to_owned(),
+        };
         let row = StoredEndpoint {
             id: id.clone(),
             name,

@@ -47,7 +47,34 @@ struct Parts {
     http: reqwest::Client,
     config: Config,
     clock: Clock,
+    /// Each account's generation: changed whenever its credential stops being the one a call
+    /// may hold (a sign-in, a sign-out, a removal, a refused refresh). A call holds the token
+    /// with its generation and is sent only while that generation is current.
+    generations: Arc<Mutex<HashMap<String, u64>>>,
+    /// The last refresh that failed for each account: its generation, the token it was to
+    /// replace and why, shared with every call that reports the same token.
+    failed: Arc<Mutex<HashMap<String, FailedRefresh>>>,
 }
+
+/// A refresh that failed: the generation and token it was for, and why.
+type FailedRefresh = (u64, String, String);
+
+/// An access token with the generation of the credential it belongs to.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Bearer {
+    pub token: String,
+    pub generation: u64,
+}
+
+impl std::fmt::Debug for Bearer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Bearer(…, generation {})", self.generation)
+    }
+}
+
+/// Said when a call's credential changed under it.
+const CHANGED: &str = "This ChatGPT account was signed out or signed in again while the call \
+                       was under way; send it again.";
 
 /// The tokens of every signed-in account.
 pub struct Accounts {
@@ -63,6 +90,8 @@ impl Accounts {
                 http: oauth::client()?,
                 config,
                 clock,
+                generations: Arc::default(),
+                failed: Arc::default(),
             },
             held: Mutex::default(),
         })
@@ -76,9 +105,9 @@ impl Accounts {
         &self.parts.http
     }
 
-    /// Now, in Unix seconds.
-    pub(crate) fn now(&self) -> i64 {
-        (self.parts.clock)()
+    /// The clock tokens are checked against.
+    pub(crate) fn clock(&self) -> Clock {
+        self.parts.clock.clone()
     }
 
     /// Whether this machine has a keychain to keep sign-ins in.
@@ -108,26 +137,47 @@ impl Accounts {
 
     /// An access token for `account`, refreshed first when it is about to end.
     pub async fn bearer(&self, account: &str) -> Result<String, BearerError> {
+        self.current_bearer(account).await.map(|b| b.token)
+    }
+
+    /// [`Accounts::bearer`] with the generation of its credential, for a call that must check,
+    /// before each send, that the credential is still the account's ([`Accounts::is_current`]).
+    pub async fn current_bearer(&self, account: &str) -> Result<Bearer, BearerError> {
         match self.locked(account, Op::Bearer(None)).await? {
-            Done::Token(token) => Ok(token),
+            Done::Token(bearer) => Ok(bearer),
             Done::Forgot(_) | Done::Kept => Err(BearerError::Failed("no token".to_owned())),
         }
     }
 
-    /// A new access token for `account` after the backend refused `rejected`: refreshed now,
-    /// unless another call already replaced it, in which case that one is given.
+    /// A new access token for `account` after the backend refused `rejected`, a token of
+    /// `generation`: refreshed now, unless another call already replaced it (that one is given)
+    /// or a refresh for it already failed (that failure is given). Refused when the credential
+    /// changed since: a call never moves to another sign-in.
     pub async fn bearer_after_rejection(
         &self,
         account: &str,
         rejected: &str,
-    ) -> Result<String, BearerError> {
+        generation: u64,
+    ) -> Result<Bearer, BearerError> {
         match self
-            .locked(account, Op::Bearer(Some(rejected.to_owned())))
+            .locked(
+                account,
+                Op::Rejected {
+                    token: rejected.to_owned(),
+                    generation,
+                },
+            )
             .await?
         {
-            Done::Token(token) => Ok(token),
+            Done::Token(bearer) => Ok(bearer),
             Done::Forgot(_) | Done::Kept => Err(BearerError::Failed("no token".to_owned())),
         }
+    }
+
+    /// Whether `generation` is still `account`'s credential: no sign-in, sign-out, removal or
+    /// refused refresh since.
+    pub fn is_current(&self, account: &str, generation: u64) -> bool {
+        self.parts.generation(account) == generation
     }
 
     /// Keeps a sign-in's tokens for `account`, replacing any earlier ones.
@@ -152,6 +202,7 @@ impl Accounts {
         let slot = self.slot(account);
         let mut held = slot.blocking_lock();
         *held = None;
+        self.parts.bump(account);
         match &self.parts.keys {
             Some(keys) => keys
                 .delete_sign_in(account)
@@ -163,25 +214,85 @@ impl Accounts {
 
 /// What is done to one account's tokens under its lock.
 enum Op {
-    /// Its access token; refreshed when near its end, or when it is the one given (refused).
+    /// Its access token; refreshed when near its end.
     Bearer(Option<String>),
+    /// A new one after the backend refused `token`, of `generation`.
+    Rejected {
+        token: String,
+        generation: u64,
+    },
     Keep(Tokens),
     Forget,
 }
 
 enum Done {
-    Token(String),
+    Token(Bearer),
     Kept,
     Forgot(bool),
 }
 
 impl Parts {
+    fn generation(&self, account: &str) -> u64 {
+        self.generations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(account)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// A new generation for `account`: every token held under the old one stops being sent.
+    fn bump(&self, account: &str) {
+        *self
+            .generations
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(account.to_owned())
+            .or_insert(0) += 1;
+        self.failed
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(account);
+    }
+
     async fn run(&self, id: &str, held: &mut Option<Held>, op: Op) -> Result<Done, BearerError> {
         match op {
-            Op::Bearer(rejected) => self
-                .bearer(id, held, rejected.as_deref())
-                .await
-                .map(Done::Token),
+            Op::Bearer(rejected) => {
+                let token = self.bearer(id, held, rejected.as_deref()).await?;
+                Ok(Done::Token(Bearer {
+                    token,
+                    generation: self.generation(id),
+                }))
+            }
+            Op::Rejected { token, generation } => {
+                if self.generation(id) != generation {
+                    return Err(BearerError::Failed(CHANGED.to_owned()));
+                }
+                let shared = self
+                    .failed
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(id)
+                    .filter(|(g, t, _)| *g == generation && *t == token)
+                    .map(|(_, _, line)| line.clone());
+                if let Some(line) = shared {
+                    return Err(BearerError::Failed(line));
+                }
+                match self.bearer(id, held, Some(&token)).await {
+                    Ok(fresh) => Ok(Done::Token(Bearer {
+                        token: fresh,
+                        generation: self.generation(id),
+                    })),
+                    Err(BearerError::Failed(line)) => {
+                        self.failed
+                            .lock()
+                            .unwrap_or_else(|p| p.into_inner())
+                            .insert(id.to_owned(), (generation, token, line.clone()));
+                        Err(BearerError::Failed(line))
+                    }
+                    Err(other) => Err(other),
+                }
+            }
             Op::Keep(tokens) => {
                 self.write(id, &tokens.access_token, &tokens.refresh_token)
                     .await?;
@@ -190,10 +301,12 @@ impl Parts {
                     access: tokens.access_token,
                     refresh: tokens.refresh_token,
                 });
+                self.bump(id);
                 Ok(Done::Kept)
             }
             Op::Forget => {
                 *held = None;
+                self.bump(id);
                 self.erase(id).await.map(Done::Forgot)
             }
         }
@@ -233,6 +346,7 @@ impl Parts {
             Err(OauthError::Refused(line)) => {
                 // The tokens are no good: they go, and the person signs in again.
                 *held = None;
+                self.bump(account);
                 self.erase(account).await?;
                 Err(BearerError::SignedOut(line))
             }

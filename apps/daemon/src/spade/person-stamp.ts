@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { spadePersonOnlyRoute } from "@ace/client/spade-person-only";
 import { looseningWrite } from "./loosen-stamp.ts";
 
@@ -58,7 +58,7 @@ export function personOnlyWrite(
   if (target === undefined) return undefined;
   if (target.startsWith("move:")) return moveAcceptWrite(target, body);
   if (target === "main-host") return hostWrite(target, body);
-  const accounts = accountWrite(target, body);
+  const accounts = accountWrite(method, path, target, body);
   if (accounts !== null) return accounts;
   // Only Spade can tell whether these loosen anything (ADR 0171, amendment 7).
   const optional = (write: PersonOnlyWrite | undefined) =>
@@ -180,40 +180,35 @@ function neverAppsWrite(body: Buffer | undefined): PersonOnlyWrite | undefined {
 }
 
 /**
- * A change to Spade's provider accounts (ADR 0214): starting a ChatGPT sign-in (the method, and
- * the account signed back in, if any), signing an account out, removing one. Removing a key
- * account needs no stamp, so removal is stamped when the caller proved their standing and else
- * forwarded for Spade to decide. `null` for a route that isn't one of these; undefined for a
- * body Spade won't take.
+ * What only the person may do or see with Spade's provider accounts (ADR 0214), stamped over the
+ * whole request: `<METHOD> <path and query>:<SHA-256 of the body>`, so the stamp holds for this
+ * request and no other, whatever its body says. Starting, reading and cancelling a sign-in and
+ * signing out are refused unstamped; seeing the accounts' details, and changing or removing an
+ * account, go either way, and Spade decides (a key account needs no stamp). `null` for a route
+ * that isn't one of these; undefined for an account id Spade won't take.
  */
 function accountWrite(
+  method: string,
+  path: string,
   target: string,
   body: Buffer | undefined,
 ): PersonOnlyWrite | undefined | null {
-  if (target === "sign-in") {
-    const value = parsed(body);
-    if (value === null || typeof value !== "object") return undefined;
-    const method: unknown = Reflect.get(value, "method");
-    const account: unknown = Reflect.get(value, "account");
-    if (method !== "browser" && method !== "device") return undefined;
-    if (
-      account !== undefined &&
-      account !== null &&
-      (typeof account !== "string" || !plainId.test(account))
-    )
-      return undefined;
-    const named = typeof account === "string" ? account : "";
-    return { target: "accounts", value: `chatgpt_sign_in:${method}:${named}` };
-  }
-  for (const [prefix, value] of [
-    ["sign-out:", "sign_out"],
-    ["remove-account:", "remove"],
+  const request = `${method} ${path}:${createHash("sha256")
+    .update(body ?? Buffer.alloc(0))
+    .digest("hex")}`;
+  if (target === "sign-in" || target === "sign-in-flow")
+    return { target: "accounts", value: request };
+  if (target === "account-details") return { target: "accounts", value: request, optional: true };
+  for (const [prefix, optional] of [
+    ["sign-out:", false],
+    ["change-account:", true],
+    ["remove-account:", true],
   ] as const) {
     if (!target.startsWith(prefix)) continue;
     const id = target.slice(prefix.length);
     if (!plainId.test(id)) return undefined;
-    const write: PersonOnlyWrite = { target: `account:${id}`, value };
-    return value === "remove" ? { ...write, optional: true } : write;
+    const write: PersonOnlyWrite = { target: `account:${id}`, value: request };
+    return optional ? { ...write, optional: true } : write;
   }
   return null;
 }

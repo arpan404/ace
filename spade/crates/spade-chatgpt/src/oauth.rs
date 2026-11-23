@@ -231,7 +231,7 @@ pub async fn device_code(
             v.as_u64()
                 .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
         })
-        .filter(|s| *s > 0)
+        // Zero is a code already over, not "no limit".
         .map(Duration::from_secs);
     Ok(DeviceCode {
         device_auth_id,
@@ -271,10 +271,8 @@ pub async fn poll_device(
             ))
         })?;
     let (status, body) = read(response).await?;
-    // Not finished yet reads as 403 or 404, or as the device-grant codes (RFC 8628 §3.5).
-    if matches!(status.as_u16(), 403 | 404) {
-        return Ok(Poll::Waiting);
-    }
+    // The device-grant codes (RFC 8628 §3.5) are read first, whatever the status; without one,
+    // not finished yet reads as 403 or 404.
     if !status.is_success() {
         return match error_code(&body).as_deref() {
             Some("authorization_pending") => Ok(Poll::Waiting),
@@ -282,6 +280,10 @@ pub async fn poll_device(
             Some("expired_token") => Err(OauthError::Failed(
                 "the sign-in code expired; start the sign-in again".to_owned(),
             )),
+            Some("access_denied") => {
+                Err(OauthError::Failed("the sign-in was turned down".to_owned()))
+            }
+            _ if matches!(status.as_u16(), 403 | 404) => Ok(Poll::Waiting),
             _ => Err(OauthError::Failed(format!(
                 "OpenAI's sign-in refused the device code ({})",
                 status.as_u16()
@@ -337,23 +339,31 @@ fn error_code(body: &[u8]) -> Option<String> {
 }
 
 /// The OAuth error codes ever repeated to the person (RFC 6749 §5.2, RFC 8628 §3.5).
-const KNOWN_CODES: [&str; 9] = [
+const KNOWN_CODES: [&str; 11] = [
     "invalid_request",
     "invalid_client",
     "invalid_grant",
     "unauthorized_client",
     "unsupported_grant_type",
+    "unsupported_response_type",
     "invalid_scope",
     "access_denied",
     "expired_token",
     "server_error",
+    "temporarily_unavailable",
 ];
+
+/// `code` when it is a known OAuth error code (RFC 6749 §4.1.2.1, §5.2; RFC 8628 §3.5), else
+/// nothing: what else a server sends may echo a secret.
+pub(crate) fn known_code(code: &str) -> Option<&'static str> {
+    KNOWN_CODES.iter().find(|known| **known == code).copied()
+}
 
 /// The server's error code, as `: code`, only when it is a known OAuth code: anything else it
 /// sent may echo a secret.
 fn said(body: &[u8]) -> String {
     error_code(body)
-        .filter(|c| KNOWN_CODES.contains(&c.as_str()))
+        .and_then(|c| known_code(&c))
         .map(|c| format!(": {c}"))
         .unwrap_or_default()
 }

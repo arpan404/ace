@@ -105,7 +105,7 @@ pub use contracts_outside::{
     Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
 };
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel, Standing};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{

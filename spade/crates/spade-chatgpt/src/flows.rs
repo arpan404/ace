@@ -124,7 +124,7 @@ impl Flows {
         let id = pkce::random_value(self.random.as_ref())?;
         let config = self.accounts.config().clone();
         let http = self.accounts.http().clone();
-        let expect = (config.clone(), self.accounts.now());
+        let expect = (config.clone(), self.accounts.clock());
         let (view, work): (FlowView, BoxFuture<'static, Result<SignedIn, String>>) = match method {
             Method::Browser => {
                 let listener = loopback::bind(config.callback_port).await?;
@@ -318,16 +318,17 @@ fn waiting(id: &str, method: Method, url: String, user_code: Option<String>) -> 
     }
 }
 
-/// A sign-in's tokens, once its ID token is checked (`expect`: the config, and when it started).
-fn signed_in(tokens: Tokens, expect: &(crate::Config, i64)) -> Result<SignedIn, String> {
-    let (config, now) = expect;
+/// A sign-in's tokens, once its ID token is checked against the config, now that it arrived.
+fn signed_in(tokens: Tokens, expect: &(crate::Config, crate::Clock)) -> Result<SignedIn, String> {
+    let (config, clock) = expect;
+    let now = clock();
     let account = claims::account(
         tokens.id_token.as_deref(),
         &tokens.access_token,
         claims::Expect {
             issuer: &config.issuer,
             client_id: &config.client_id,
-            now: *now,
+            now,
         },
     )?;
     Ok(SignedIn { tokens, account })
@@ -340,7 +341,7 @@ async fn poll_until_approved(
     http: reqwest::Client,
     config: crate::Config,
     device: oauth::DeviceCode,
-    expect: (crate::Config, i64),
+    expect: (crate::Config, crate::Clock),
 ) -> Result<SignedIn, String> {
     let mut interval = device.interval;
     loop {

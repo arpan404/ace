@@ -43,6 +43,18 @@ struct Seen {
     slow_down: AtomicBool,
     /// The device code is never approved.
     never: AtomicBool,
+    /// Whether `device_lasts` is sent at all (zero included).
+    device_lasts_set: AtomicBool,
+    /// The next poll is answered `403` with `expired_token`.
+    expire_next: AtomicBool,
+    /// When each poll of the device code arrived.
+    poll_times: Mutex<Vec<std::time::Instant>>,
+    /// The ID token's `exp`.
+    id_exp: AtomicI64,
+    /// Refreshes are answered `503` (the server's own trouble).
+    refresh_down: AtomicBool,
+    /// Refresh requests received, answered or not.
+    refresh_attempts: AtomicUsize,
     /// `expires_in` sent with the device code, when set.
     device_lasts: AtomicU64,
     /// Sign-ins' access tokens name this account instead.
@@ -65,6 +77,7 @@ impl FakeSignIn {
     pub async fn start() -> std::io::Result<Self> {
         let seen = Arc::new(Seen::default());
         seen.exp.store(10_000, Ordering::SeqCst);
+        seen.id_exp.store(4_000_000_000, Ordering::SeqCst);
         *seen.account.lock().unwrap_or_else(|p| p.into_inner()) =
             ("acct-1".to_owned(), "sam@example.com".to_owned());
         let app = Router::new()
@@ -127,6 +140,36 @@ impl FakeSignIn {
         self.seen.refresh_hold_ms.store(ms, Ordering::SeqCst);
     }
 
+    /// Refreshes are answered `503` from now on.
+    pub fn refresh_down(&self) {
+        self.seen.refresh_down.store(true, Ordering::SeqCst);
+    }
+
+    /// Refresh requests received so far, answered or not.
+    pub fn refresh_attempts(&self) -> usize {
+        self.seen.refresh_attempts.load(Ordering::SeqCst)
+    }
+
+    /// ID tokens given from now on end at Unix second `at`.
+    pub fn id_expires_at(&self, at: i64) {
+        self.seen.id_exp.store(at, Ordering::SeqCst);
+    }
+
+    /// The device code's next poll is told, with a `403`, that the code expired.
+    pub fn expire_next_poll(&self) {
+        self.seen.expire_next.store(true, Ordering::SeqCst);
+    }
+
+    /// How long passed between each poll of the device code and the one before.
+    pub fn poll_gaps(&self) -> Vec<std::time::Duration> {
+        let times = self
+            .seen
+            .poll_times
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        times.windows(2).map(|w| w[1] - w[0]).collect()
+    }
+
     /// The device code's next poll is told to slow down.
     pub fn slow_down_once(&self) {
         self.seen.slow_down.store(true, Ordering::SeqCst);
@@ -136,6 +179,7 @@ impl FakeSignIn {
     pub fn device_never_approved(&self, seconds: u64) {
         self.seen.never.store(true, Ordering::SeqCst);
         self.seen.device_lasts.store(seconds, Ordering::SeqCst);
+        self.seen.device_lasts_set.store(true, Ordering::SeqCst);
     }
 
     /// Sign-ins' access tokens name `account` from now on, whatever the ID token says.
@@ -177,7 +221,7 @@ fn tokens(seen: &Seen, n: usize) -> Value {
         .unwrap_or_else(|| account.clone());
     json!({
         "id_token": unsigned(&json!({
-            "iss": issuer, "aud": "client-1", "exp": 4_000_000_000_i64,
+            "iss": issuer, "aud": "client-1", "exp": seen.id_exp.load(Ordering::SeqCst),
             "email": email,
             AUTH: { "chatgpt_account_id": account, "chatgpt_plan_type": "plus" }
         })),
@@ -214,6 +258,10 @@ async fn token(State(seen): State<Arc<Seen>>, headers: HeaderMap, body: String) 
         return StatusCode::BAD_REQUEST.into_response();
     };
     let refresh = asked["refresh_token"].as_str().unwrap_or("").to_owned();
+    seen.refresh_attempts.fetch_add(1, Ordering::SeqCst);
+    if seen.refresh_down.load(Ordering::SeqCst) {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
     if seen
         .dead
         .lock()
@@ -262,9 +310,8 @@ fn decode(text: &str) -> String {
 
 async fn usercode(State(seen): State<Arc<Seen>>) -> Json<Value> {
     let mut code = json!({ "device_auth_id": "dev-1", "user_code": "ABCD-1234", "interval": "1" });
-    let lasts = seen.device_lasts.load(Ordering::SeqCst);
-    if lasts > 0 {
-        code["expires_in"] = json!(lasts);
+    if seen.device_lasts_set.load(Ordering::SeqCst) {
+        code["expires_in"] = json!(seen.device_lasts.load(Ordering::SeqCst));
     }
     Json(code)
 }
@@ -273,16 +320,25 @@ async fn device_token(State(seen): State<Arc<Seen>>, Json(asked): Json<Value>) -
     if asked["device_auth_id"] != "dev-1" || asked["user_code"] != "ABCD-1234" {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    seen.poll_times
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(std::time::Instant::now());
+    // Codes come with a 403, as not-yet-finished does: only the body tells them apart.
+    if seen.expire_next.swap(false, Ordering::SeqCst) {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({ "error": "expired_token" })),
+        )
+            .into_response();
+    }
+    if seen.slow_down.swap(false, Ordering::SeqCst) {
+        seen.polls.fetch_add(1, Ordering::SeqCst);
+        return (StatusCode::FORBIDDEN, Json(json!({ "error": "slow_down" }))).into_response();
+    }
     // The first poll finds the person not done yet.
     if seen.polls.fetch_add(1, Ordering::SeqCst) == 0 || seen.never.load(Ordering::SeqCst) {
         return StatusCode::FORBIDDEN.into_response();
-    }
-    if seen.slow_down.swap(false, Ordering::SeqCst) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "slow_down" })),
-        )
-            .into_response();
     }
     Json(json!({
         "authorization_code": "device-code",

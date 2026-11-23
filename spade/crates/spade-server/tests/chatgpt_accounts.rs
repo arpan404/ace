@@ -100,7 +100,7 @@ async fn a_chatgpt_sign_in_becomes_an_openai_account_a_bot_runs_on() -> Result {
     assert_eq!(shown["id"], "chatgpt");
     assert_eq!(shown["provider"], "openai");
     assert_eq!(shown["auth"], "chatgpt");
-    assert_eq!(shown["name"], "sam@example.com");
+    assert_eq!(shown["name"], "ChatGPT");
     assert_eq!(
         shown["account"],
         json!({ "email": "sam@example.com", "plan": "plus", "signed_in": true })
@@ -253,7 +253,7 @@ async fn a_signed_in_accounts_address_and_settings_never_change_only_its_name() 
     }
     let shown = account(&spade, "chatgpt").await?;
     assert_eq!(shown["base_url"], spade.fake.root.as_str());
-    assert_eq!(shown["name"], "sam@example.com");
+    assert_eq!(shown["name"], "ChatGPT");
     let (status, _) = spade
         .patch("/v1/endpoints/chatgpt", json!({ "name": "Work" }))
         .await?;
@@ -344,5 +344,116 @@ async fn without_the_persons_stamp_no_sign_in_starts_and_no_signed_in_account_go
         .await?;
     assert_eq!(status, 201);
     assert_eq!(spade.delete_unstamped("/v1/endpoints/spare").await?.0, 204);
+    Ok(())
+}
+
+#[tokio::test]
+async fn removal_is_decided_on_the_row_it_removes_so_a_signed_in_account_never_goes_unconfirmed()
+-> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    let engine = spade.engine.clone();
+    let refused = tokio::task::spawn_blocking(move || {
+        engine.delete_endpoint("chatgpt", spade_server::engine::Standing::Unconfirmed)
+    })
+    .await?;
+    assert!(
+        matches!(refused, Err(spade_server::engine::EndpointError::Forbidden)),
+        "{refused:?}"
+    );
+    assert!(spade.keys.sign_in_secret("chatgpt", "refresh")?.is_some());
+    assert_eq!(
+        account(&spade, "chatgpt").await?["account"]["signed_in"],
+        true
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn another_holder_of_spades_token_sees_no_account_details_flows_or_renames() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    let (status, started) = spade
+        .post(
+            "/v1/accounts/chatgpt",
+            json!({ "method": "device", "terms_read": true }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{started}");
+    let flow = started["flow"]["id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+
+    // Unstamped: no email, plan or sign-in state; no link or code; no cancel; no rename.
+    let (_, models) = spade.get_unstamped("/v1/models").await?;
+    let shown = models["endpoints"]
+        .as_array()
+        .and_then(|all| all.iter().find(|e| e["id"] == "chatgpt").cloned())
+        .unwrap_or_default();
+    assert_eq!(shown["auth"], "chatgpt");
+    assert_eq!(shown["account"], serde_json::Value::Null);
+    assert!(!models.to_string().contains("sam@example.com"));
+    let path = format!("/v1/accounts/chatgpt/{flow}");
+    let (status, read) = spade.get_unstamped(&path).await?;
+    assert_eq!(status, 403);
+    assert!(!read.to_string().contains("ABCD-1234"));
+    assert_eq!(spade.delete_unstamped(&path).await?.0, 403);
+    let (status, _) = spade
+        .patch_unstamped("/v1/endpoints/chatgpt", json!({ "name": "Mine now" }))
+        .await?;
+    assert_eq!(status, 403);
+
+    // The person sees all of it.
+    assert_eq!(
+        account(&spade, "chatgpt").await?["account"]["email"],
+        "sam@example.com"
+    );
+    let (status, read) = spade.get(&path).await?;
+    assert_eq!(status, 200);
+    assert_eq!(read["flow"]["user_code"], "ABCD-1234");
+    assert_eq!(spade.delete(&path).await?.0, 204);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_stamp_holds_for_its_own_request_only() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    // Stamped over a body that had not read the terms, sent with one that says it had.
+    let stamped = serde_json::to_vec(&json!({ "method": "device", "terms_read": false }))?;
+    let digest = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(&stamped)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let stamp = spade.person_stamp("accounts", &format!("POST /v1/accounts/chatgpt:{digest}"))?;
+    let (status, _) = spade
+        .post_with(
+            "/v1/accounts/chatgpt",
+            json!({ "method": "device", "terms_read": true }),
+            &[(spade_server::security::attest::HEADER, stamp.as_str())],
+        )
+        .await?;
+    assert_eq!(status, 403);
+    // A stamp for one route is not one for another.
+    let empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    let stamp = spade.person_stamp("accounts", &format!("GET /v1/models:{empty}"))?;
+    let (status, _) = spade
+        .post_with(
+            "/v1/accounts/chatgpt",
+            json!({ "method": "device", "terms_read": true }),
+            &[(spade_server::security::attest::HEADER, stamp.as_str())],
+        )
+        .await?;
+    assert_eq!(status, 403);
+    assert_eq!(fake.polls(), 0, "no sign-in started");
     Ok(())
 }

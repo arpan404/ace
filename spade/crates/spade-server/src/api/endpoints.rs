@@ -5,7 +5,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::body::Bytes;
+use axum::extract::{OriginalUri, Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
@@ -13,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::body::{Body, present};
 use super::{AppState, off_thread, problem};
-use crate::engine::{EndpointError, EndpointInput, EndpointView, ModelInput};
+use crate::engine::{EndpointError, EndpointInput, EndpointView, ModelInput, Standing};
 
 #[derive(Deserialize)]
 pub(super) struct EndpointBody {
@@ -107,7 +108,14 @@ fn key_source(in_keychain: Option<bool>, env: Option<&str>) -> (Value, Value) {
     }
 }
 
-fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool>) -> Value {
+/// An endpoint as the API shows it. A signed-in account's email, plan and sign-in state are
+/// shown only to the person (`standing`), never to another holder of Spade's token.
+fn endpoint_json(
+    state: &AppState,
+    view: &EndpointView,
+    in_keychain: Option<bool>,
+    standing: Standing,
+) -> Value {
     let e = &view.stored;
     let (key_set, source) = key_source(in_keychain, e.key_env.as_deref());
     let local = spade_models::base_url::is_loopback(&e.base_url);
@@ -140,7 +148,7 @@ fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool
             None if e.needs_key => "key",
             None => "none",
         },
-        "account": e.sign_in.as_ref().map(|s| json!({
+        "account": e.sign_in.as_ref().filter(|_| standing == Standing::Person).map(|s| json!({
             "email": s.email, "plan": s.plan, "signed_in": s.signed_in,
         })),
         "used_by": engine.bots_on(&e.id),
@@ -158,10 +166,15 @@ fn endpoint_json(state: &AppState, view: &EndpointView, in_keychain: Option<bool
     })
 }
 
-/// One endpoint, as `/v1/models` lists it.
+/// One endpoint, as `/v1/models` lists it to a caller without the person's standing.
 pub(super) fn one_endpoint(state: &AppState, view: &EndpointView) -> Value {
+    one_endpoint_for(state, view, Standing::Unconfirmed)
+}
+
+/// One endpoint, as `/v1/models` lists it to a caller of `standing`.
+pub(super) fn one_endpoint_for(state: &AppState, view: &EndpointView, standing: Standing) -> Value {
     let known = in_keychain(state, std::slice::from_ref(view));
-    endpoint_json(state, view, known.first().copied().flatten())
+    endpoint_json(state, view, known.first().copied().flatten(), standing)
 }
 
 pub(super) fn endpoint_problem(error: &EndpointError) -> Response {
@@ -176,6 +189,9 @@ pub(super) fn endpoint_problem(error: &EndpointError) -> Response {
             problem(StatusCode::BAD_REQUEST, &error.to_string())
         }
         EndpointError::Conflict(_) => problem(StatusCode::CONFLICT, &error.to_string()),
+        EndpointError::Forbidden => {
+            problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM)
+        }
         EndpointError::Keychain(_) => problem(StatusCode::SERVICE_UNAVAILABLE, &error.to_string()),
         EndpointError::Listing(_) => problem(StatusCode::BAD_GATEWAY, &error.to_string()),
         EndpointError::Store(spade_store::StoreError::Exists(_)) => {
@@ -185,13 +201,24 @@ pub(super) fn endpoint_problem(error: &EndpointError) -> Response {
     }
 }
 
-pub(super) async fn models(State(state): State<AppState>) -> Response {
-    off_thread(move || models_now(&state)).await
+pub(super) async fn models(
+    State(state): State<AppState>,
+    method: axum::http::Method,
+    OriginalUri(uri): OriginalUri,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> Response {
+    // Signed-in accounts' details go only to the person (ADR 0214): stamped as theirs.
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|v| v.to_str().ok());
+    let standing = super::sign_in::standing(&state, stamp, "accounts", &method, &uri, &body);
+    off_thread(move || models_now(&state, standing)).await
 }
 
 /// Reads where each key comes from (waiting briefly on the keychain), so it runs off the async
 /// workers.
-fn models_now(state: &AppState) -> Response {
+fn models_now(state: &AppState, standing: Standing) -> Response {
     let engine = &state.engine;
     let (views, fast) = match (engine.endpoint_views(), engine.fast_model()) {
         (Ok(views), Ok(fast)) => (views, fast),
@@ -213,7 +240,7 @@ fn models_now(state: &AppState) -> Response {
         .collect();
     let known = in_keychain(state, &views);
     Json(json!({
-        "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(state, v, *k)).collect::<Vec<_>>(),
+        "endpoints": views.iter().zip(&known).map(|(v, k)| endpoint_json(state, v, *k, standing)).collect::<Vec<_>>(),
         // Some keys' keychain reads are still waiting (a prompt): asked again, they may be known.
         "character_avatars": true,
         "keys_pending": known.iter().any(Option::is_none),
@@ -248,8 +275,31 @@ pub(super) async fn create(
 pub(super) async fn update(
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Body(body): Body<EndpointBody>,
+    method: axum::http::Method,
+    OriginalUri(uri): OriginalUri,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Response {
+    // A signed-in account changes only on the person's say (ADR 0214); Spade decides on the row
+    // itself, so the stamp is read whenever one is sent.
+    let stamp = headers
+        .get(crate::security::attest::HEADER)
+        .and_then(|v| v.to_str().ok());
+    let standing = super::sign_in::standing(
+        &state,
+        stamp,
+        &format!("account:{id}"),
+        &method,
+        &uri,
+        &body,
+    );
+    let body: EndpointBody = match serde_json::from_slice(&body) {
+        Ok(body) => body,
+        Err(error) => {
+            let text: String = error.to_string().chars().take(300).collect();
+            return problem(StatusCode::UNPROCESSABLE_ENTITY, &text);
+        }
+    };
     if body.preset.is_some() {
         return problem(
             StatusCode::BAD_REQUEST,
@@ -257,8 +307,9 @@ pub(super) async fn update(
         );
     }
     off_thread(
-        move || match state.engine.update_endpoint(&id, body.input()) {
-            Ok(view) => Json(json!({ "endpoint": one_endpoint(&state, &view) })).into_response(),
+        move || match state.engine.update_endpoint(&id, body.input(), standing) {
+            Ok(view) => Json(json!({ "endpoint": one_endpoint_for(&state, &view, standing) }))
+                .into_response(),
             Err(error) => endpoint_problem(&error),
         },
     )
@@ -269,21 +320,26 @@ pub(super) async fn update(
 pub(super) async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    method: axum::http::Method,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Response {
     // Removing a signed-in account is the person's alone (ADR 0214): their stamp, as the daemon
-    // makes it for a window that proved it is theirs. A key account needs none.
+    // makes it for a window that proved it is theirs. Whether it is needed is decided on the row
+    // the delete removes, under its lock; a key account needs none.
     let stamp = headers
         .get(crate::security::attest::HEADER)
         .and_then(|v| v.to_str().ok());
-    if state.engine.signs_in(&id)
-        && !state
-            .engine
-            .person_says(stamp, &format!("account:{id}"), "remove")
-    {
-        return problem(StatusCode::FORBIDDEN, crate::security::attest::CONFIRM);
-    }
-    off_thread(move || match state.engine.delete_endpoint(&id) {
+    let standing = super::sign_in::standing(
+        &state,
+        stamp,
+        &format!("account:{id}"),
+        &method,
+        &uri,
+        &body,
+    );
+    off_thread(move || match state.engine.delete_endpoint(&id, standing) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => endpoint_problem(&error),
     })
@@ -456,15 +512,24 @@ pub(super) async fn probe(
 // `/endpoints/{id}`, so an endpoint whose id is `local` (one named "Local") is reached here.
 const LOCAL: &str = "local";
 
-pub(super) async fn update_local(state: State<AppState>, body: Body<EndpointBody>) -> Response {
-    update(state, Path(LOCAL.to_owned()), body).await
+pub(super) async fn update_local(
+    state: State<AppState>,
+    method: axum::http::Method,
+    uri: OriginalUri,
+    headers: axum::http::HeaderMap,
+    body: Bytes,
+) -> Response {
+    update(state, Path(LOCAL.to_owned()), method, uri, headers, body).await
 }
 
 pub(super) async fn delete_local(
     state: State<AppState>,
+    method: axum::http::Method,
+    uri: OriginalUri,
     headers: axum::http::HeaderMap,
+    body: Bytes,
 ) -> Response {
-    delete(state, Path(LOCAL.to_owned()), headers).await
+    delete(state, Path(LOCAL.to_owned()), method, uri, headers, body).await
 }
 
 pub(super) async fn live_local(state: State<AppState>) -> Response {

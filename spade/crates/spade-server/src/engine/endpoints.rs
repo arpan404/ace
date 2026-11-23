@@ -38,8 +38,19 @@ pub enum EndpointError {
     /// The endpoint's own model list could not be read.
     #[error("{0}")]
     Listing(String),
+    /// A change only the person may make, without their say.
+    #[error("Confirm your identity to continue.")]
+    Forbidden,
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Whether a change comes with the person's say (their stamp, ADR 0171 amendment 7), or from a
+/// caller that only holds Spade's token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standing {
+    Person,
+    Unconfirmed,
 }
 
 /// What adding or changing an endpoint takes. On change, `None` keeps the value.
@@ -401,11 +412,17 @@ impl Engine {
         &self,
         id: &str,
         input: EndpointInput,
+        standing: Standing,
     ) -> Result<EndpointView, EndpointError> {
         // Decided on a read without the lock (the host check reads the keychain, which can
         // block), then written under it only if the endpoint is still as read; else decided again.
         for _ in 0..5 {
             let before = self.endpoint_view(id)?.stored;
+            // A signed-in account changes only on the person's say; the row checked is the one
+            // written, or this is decided again.
+            if before.sign_in.is_some() && standing != Standing::Person {
+                return Err(EndpointError::Forbidden);
+            }
             // A sign-in account's address and settings are the sign-in's: only its name changes,
             // so its token never goes anywhere but where it was issued for.
             if before.sign_in.is_some() && !renames_only(&input) {
@@ -490,7 +507,7 @@ impl Engine {
 
     /// Deletes an endpoint no agent uses, its keychain key first. The fast model is cleared if it
     /// was on it.
-    pub fn delete_endpoint(&self, id: &str) -> Result<(), EndpointError> {
+    pub fn delete_endpoint(&self, id: &str, standing: Standing) -> Result<(), EndpointError> {
         let row = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.retiring(id) {
@@ -501,6 +518,11 @@ impl Engine {
             let Some(row) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
                 return Err(EndpointError::NotFound);
             };
+            // Decided on the very row this delete removes, under the lock that marks it: a
+            // signed-in account goes only on the person's say, whatever was there before.
+            if row.sign_in.is_some() && standing != Standing::Person {
+                return Err(EndpointError::Forbidden);
+            }
             let users = self.endpoint_users(id)?;
             if !users.is_empty() {
                 return Err(EndpointError::InUse(users));

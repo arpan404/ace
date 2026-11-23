@@ -43,12 +43,35 @@ impl Default for ListBounds {
 }
 
 /// Fetches the endpoint's model list with `key` (none for a keyless endpoint).
+/// Why a model list could not be read: one line that never holds the key, and the status the
+/// endpoint refused it with, when it answered with one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListFailure {
+    pub status: Option<u16>,
+    pub message: String,
+}
+
 pub(crate) async fn fetch(
     http: &reqwest::Client,
     endpoint: &Endpoint,
     key: Option<&str>,
     query: &[(&str, &str)],
     bounds: ListBounds,
+) -> Result<Vec<Listed>, ListFailure> {
+    let mut status = None;
+    fetch_noting(http, endpoint, key, query, bounds, &mut status)
+        .await
+        .map_err(|message| ListFailure { status, message })
+}
+
+/// [`fetch`], noting in `refused` the status the endpoint refused the list with.
+async fn fetch_noting(
+    http: &reqwest::Client,
+    endpoint: &Endpoint,
+    key: Option<&str>,
+    query: &[(&str, &str)],
+    bounds: ListBounds,
+    refused: &mut Option<u16>,
 ) -> Result<Vec<Listed>, String> {
     let url = format!("{}models", endpoint.base_url);
     let mut request = http.get(&url).timeout(bounds.timeout);
@@ -106,6 +129,7 @@ pub(crate) async fn fetch(
         }
     }
     if !status.is_success() {
+        *refused = Some(status.as_u16());
         let detail = message_in(&body).map_or_else(String::new, |m| format!(": {m}"));
         return Err(scrub(format!(
             "the endpoint answered {}{detail}",
