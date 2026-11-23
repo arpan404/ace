@@ -142,7 +142,9 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         (before > 0 && top < before) || (after > 0 && bottom < after)
     }
 
-    func edge(top: Double, bottom: Double, ahead: Double, direction: Int) -> Movement? {
+    func edge(top: Double, bottom: Double, viewport: Double, minimumAhead: Double, direction: Int) -> Movement? {
+        // The upstream read should be in flight before an upward fling reaches the first row.
+        let ahead = max(minimumAhead, viewport * (direction < 0 ? 2.5 : 1.5))
         if direction < 0, top - before < ahead { return .older }
         if direction > 0, bottom - after < ahead { return .newer }
         return nil

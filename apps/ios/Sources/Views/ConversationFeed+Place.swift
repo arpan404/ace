@@ -316,8 +316,9 @@ extension ConversationFeed {
             !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
         guard inRetainedSpace || (intent.active && !intent.consumed) else { return }
-        let ahead = max(AceDesign.Size.tap, intent.metrics.viewport * 1.5)
-        let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom, ahead: ahead, direction: viewport.direction)
+        let edge = extent.edge(top: intent.metrics.top, bottom: intent.metrics.bottom,
+                               viewport: intent.metrics.viewport, minimumAhead: AceDesign.Size.tap,
+                               direction: viewport.direction)
         if edge == .older, reading.thread == nil ? thread.screen.hasOlder : reading.hasOlder {
             intent.consumed = true
             reading.read("older", model: model, live: thread, anchorItemId: currentAnchorItemID())
