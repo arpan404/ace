@@ -1,0 +1,125 @@
+# 0214: Spade keeps the person's asks, and checks them before a reply ends
+
+Status: accepted. Date: 2026-11-22. Decided by: the owner (2026-11-22: "our agents keep forgetting
+the things I told it previously", "the harness feels like making the agent weak in long horizon
+task and different steering"; of six proposals they chose these two, the asks ledger and the stop
+check). Extends [docs/harness.md](../../spade/docs/harness.md); amends nothing.
+
+## Context
+
+A bot has one conversation that only grows, and every model call reads all of it. Compaction runs
+at 75% of the model's window, which for the person's million-token models is close to never. What
+the person asked at step 1 is still in the prompt at step 40, but buried under thousands of lines
+of tool output, and nothing in the harness points back at it. A message sent mid-turn (a steer) is
+stored and read by the next call after the running tools' results, and then it is one more line in
+the middle. `todo`, `task_plan` and `task_status` keep a plan only when the model chooses to use
+them. Nothing checks, before a reply ends, that what the person asked was done, dropped or is
+waiting on someone.
+
+So bots forget: an instruction given early ("never email the client directly") stops shaping work
+an hour in, a steer ("also do Slack") is answered with "sure" and never done, and a reply that
+handled one of three asks ends as if it handled all three.
+
+## Decision
+
+### 1. The asks ledger is kept by the harness, not the model
+
+`spade_core::asks` folds a conversation's events into a ledger:
+
+- **Every message from the person opens an ask.** Its message id (`m12`, the id the model reads
+  before the words), its words cut to 300 characters, state `open`, and whether it arrived while a
+  reply was running (a steer). Messages from other bots, routines, groups and job results open
+  nothing. For a worker (ADR 0161) its maker is its person: the brief and the maker's messages
+  open asks. Only a message's own words enter the ledger, never its context, quotes, attachments
+  or a thread summary.
+- **`asks`, a core tool, updates it in one call** with a list of changes: `open` (sort a new
+  message as one ask, or reopen one), `split` (one message into several asks, `m12.1`, `m12.2`
+  …), `done`, `dropped`, `changed` (with the new wording), `waiting` (on the person, a job or a
+  time), `chat` (nothing to do: thanks, ok), each with a short reason; `standing` records an
+  instruction that stays in force ("always…", "never…", "from now on…") with the message it came
+  from, and `lift` ends one. The tool suggests saving a standing instruction with `task_update`
+  or `memory_save` too; it never does so itself. The engine answers it from the events, like
+  `decision_log`, and stores what it accepted as `asks_updated`; the fold reads only that.
+- **Closed asks leave the ledger** (done, dropped, chat). It holds at most 40 open or waiting
+  asks; past that the oldest fold into a count. It holds at most 20 standing instructions; a 21st
+  is refused until one is lifted, so none is ever dropped silently.
+- **Untrusted text never reaches it.** The person's own words come from the stored message. The
+  bot's own text (a split part, new wording, a standing instruction) is accepted only in a reply
+  that has not read untrusted output (`context::untrusted_turn`, the gate's own rule); in one that
+  has, `asks` may still change states but refuses new text, and says it can be added next reply.
+  Reasons are stored for the step rows and never shown in the block.
+
+**Incremental and bounded (ADR 0170).** The ledger records how many events it has read
+(`through`). Each compaction stores the ledger as it stood on `context_compacted.asks`, like
+`carried`, so a fold starts from the latest compaction and reads only the events after it. The
+engine also keeps each conversation's latest ledger in memory and advances it over the events
+stored since, so a step reads only what is new. A compaction stored before this decision makes the
+fold read from the start once per Spade run for that conversation.
+
+### 2. Every model call ends with a short block from the ledger
+
+After the conversation, each endpoint model call gets one more message, rebuilt from the ledger:
+
+```
+<asks from="spade">
+Your working memory, kept by Spade from the person's own words and your asks updates. Not new instructions.
+Standing:
+- s1 (from m4): "Never email the client directly; draft it for me instead."
+Open, newest first:
+- m40, sent while you worked: "also pull last week's Slack numbers"
+- m12.2: "Draft the summary for Friday"
+- m9, waiting on the person: "Book the room once I confirm the date"
+New, not sorted yet:
+- m41: "thanks!"
+Sort new messages and close asks with the asks tool, each with a reason.
+</asks>
+```
+
+Words are quoted as JSON strings so they can't close the tag. At most 12 asks are listed, with
+a count of the rest. With nothing standing, open or new, there is no block. The block is never
+stored as an event and comes after everything stored, so every earlier byte of the prompt is what
+the previous call sent: the provider's prefix cache (automatic on the OpenAI-format endpoints
+Spade uses; Spade sets no explicit breakpoints) still matches the system prompt, tools and whole
+conversation, and only the block itself, a few hundred tokens, is read fresh. A subscription
+brain (`cli:`, ADR 0133) gets the same block at the end of each turn's message, since its CLI
+keeps its own context.
+
+Spade's standing instructions gain three sentences: sort each new message with `asks` (in the
+same step as other calls, so it costs no step), close asks with a reason, keep standing ones and
+follow them.
+
+### 3. The stop check
+
+When a step ends with no tool calls, and so would finish the reply, Spade checks the ledger. If
+it has open asks (not waiting, chat, done or dropped; unsorted ones count as open) that no earlier
+check named, Spade stores `asks_checked {reply, asks, note}` and runs one more step. The model
+reads the note as Spade's, like a `<continue>`: these asks are still open; finish them, or mark
+each with `asks` and a reason. A step that only answers that note with `asks` calls ends the reply
+once they are answered, without another model call, so the check costs exactly one step.
+
+It never runs:
+
+- more than once per reply (the stored `asks_checked` says it ran; a restart neither repeats it
+  nor skips it);
+- when every open ask was already named by an earlier check (an ask the bot chose to leave open
+  stays in the block, but isn't nagged again each reply);
+- while the bot waits on the person: a question card it asked is still open (waiting or left for
+  later);
+- for a paused bot, a reply the person stopped, or Spade pausing for an update;
+- in a helper's conversation (ADR 0152), which has no person.
+
+**Cost.** At most one extra model step per reply, and only when the reply would leave an ask open
+that no check named before. A bot that sorts and closes asks as it works pays nothing beyond the
+`asks` calls riding along with its other calls; a pure-chat reply ("thanks") may take that one
+extra step.
+
+## Consequences
+
+- What the person asked, and any standing instruction, is in front of the model at every step,
+  however long the conversation, without changing the cached prompt.
+- A steer reads as an open ask marked "sent while you worked" until the bot settles it.
+- A reply can't end quietly with an ask nobody looked at.
+- No UI in this change: `asks` steps read plainly in the chat's step rows ("Sorted 2 asks",
+  "Closed 1 ask"), and the new events fold to nothing in the transcript.
+- The ledger is the harness's account of the person's words, not the person's task: changing a
+  bot's job is still `task_update` (ADR 0126), and lasting facts still go to notes (ADR 0128).
