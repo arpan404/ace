@@ -122,6 +122,19 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
+    // The git implementation switch (ADR 0224, G0) and the gate's logs and
+    // verify mode: the git shells read them in workers, where every other
+    // ACE_* value stays scrubbed.
+    ...(ambient.ACE_GIT !== undefined ? { ACE_GIT: ambient.ACE_GIT } : {}),
+    ...(ambient.ACE_GIT_ADDON !== undefined ? { ACE_GIT_ADDON: ambient.ACE_GIT_ADDON } : {}),
+    ...(ambient.ACE_GIT_OP_LOG !== undefined ? { ACE_GIT_OP_LOG: ambient.ACE_GIT_OP_LOG } : {}),
+    ...(ambient.ACE_GIT_DIGEST_LOG !== undefined
+      ? { ACE_GIT_DIGEST_LOG: ambient.ACE_GIT_DIGEST_LOG }
+      : {}),
+    ...(ambient.ACE_GIT_VERIFY !== undefined ? { ACE_GIT_VERIFY: ambient.ACE_GIT_VERIFY } : {}),
+    ...(ambient.ACE_GIT_CROSS_START !== undefined
+      ? { ACE_GIT_CROSS_START: ambient.ACE_GIT_CROSS_START }
+      : {}),
     ...(ambient.ACE_NATIVE_CROSS !== undefined
       ? { ACE_NATIVE_CROSS: ambient.ACE_NATIVE_CROSS }
       : {}),
