@@ -276,12 +276,15 @@ export class NativePublish {
           },
           signal,
         );
-        return {
-          message: step.version
-            ? `${step.version} is withdrawn. Anyone who installed it sees that it was withdrawn.`
-            : "The listing is withdrawn. Anyone who installed it sees that it was withdrawn.",
-          ...(await this.#listing(step.type, step.name, signal)),
-        };
+        const message = step.version
+          ? `${step.version} is withdrawn. Anyone who installed it sees that it was withdrawn.`
+          : "The listing is withdrawn. Anyone who installed it sees that it was withdrawn.";
+        try {
+          return { message, ...(await this.#listing(step.type, step.name, signal)) };
+        } catch (error) {
+          if (!(error instanceof Refusal)) throw error;
+          return { message };
+        }
       }
       case "createProfile": {
         const { profile } = await this.#publish(

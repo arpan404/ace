@@ -1,6 +1,6 @@
 import "./test-host.ts";
 import { marketPickFixture, marketPublishFixture } from "@ace/fake-daemon";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { NativePublish, NativePublishRequest } from "./market-publishing.ts";
 import { sheetFixture, until } from "./sheet-fixture.ts";
 import type { SocketStanding } from "./market-person.ts";
@@ -338,6 +338,29 @@ test("a listing shows its versions and signals, and a withdrawn version reads as
         },
       ],
     },
+  });
+});
+
+test("a successful withdrawal stays successful when the listing read is refused", async () => {
+  const { ask, daemon } = await market();
+  const { publishing } = daemon.marketplace;
+  const publish = publishing.publish.bind(publishing);
+  vi.spyOn(publishing, "publish").mockImplementationOnce((action) => {
+    const result = publish(action);
+    daemon.marketplace.refusePublish = { op: "error", code: "not_found", message: "No listing" };
+    return result;
+  });
+
+  const withdrawn = await ask({
+    step: "withdraw",
+    type: "suit",
+    name: "harbour-dusk",
+    reason: "It has a contrast bug.",
+  });
+  expect(withdrawn).toEqual({
+    ok: true,
+    offline: false,
+    message: "The listing is withdrawn. Anyone who installed it sees that it was withdrawn.",
   });
 });
 
