@@ -94,13 +94,24 @@ port}` (`media-wire/src/control.rs:130`). The startup handshake keeps today's or
 2. **ace-media acknowledges `greeted` on the control wire right after the dummy byte**, before
    it reads anything else. Only the dummy byte arrives before control connects; the device name
    and codec follow once every socket is connected, so waiting for them first would deadlock.
-3. **The daemon connects control** (the second connection of the tunnel, `:191`–`:193`) and tells
-   ace-media `controlConnected`.
+3. **The daemon connects control** (the second connection of the tunnel, `:187`–`:189`) within
+   the same startup deadline as the other steps, and tells ace-media `controlConnected`. Today's
+   `open()` (`:68`–`:79`) has no timeout of its own; in Rust every step, the control connect
+   included, is bounded by the one deadline, and a refused, reset or timed-out control connect
+   fails the start with today's text and closes both sockets, the server and the forward
+   (`close`, `:123`–`:130`).
 4. **ace-media reads the rest**: the 64-byte device name (`deviceNameBytes`), then the u32 codec
    id and the 12-byte packet headers (`scrcpy-protocol.ts:217`), in a pure reader beside
    `serve_sim.rs`, and reports `ready {deviceName}` with the name as `JsString` (bytes up to the
    first NUL, decoded as UTF-8 like `toString("utf8")`), or a failure naming today's text
    ("scrcpy-server closed during startup", `:198`–`:203`).
+
+**Video off (control first).** With `profile.video === false` the server greets the control
+socket and there is no video socket (`scrcpy-server.ts:85`, `:187`–`:188`): D1 is not involved,
+the daemon reads the dummy byte and the device name on control itself, as today, and its failure
+cases (no greeting by the deadline, the server exiting, control closing during startup) keep
+today's errors. With video on, the server exiting during any step (`exited`, `:156`–`:162`) fails
+the start at once rather than at the deadline, on both sides.
 
 Cancellation and reconnect cross two socket owners, so both sides follow one rule: whoever sees
 an end first tells the other, and the capture ends once. A stop or abort in the daemon closes its
@@ -115,7 +126,8 @@ keyframe. A deadline that passes in step 1 or 4 fails the start with today's `De
   `platform.process`, `android-physical.process`, `emulator-window.process`; also with the switch
   on: `scrcpy-media-cleanup.process`, `scrcpy-host-capture.process`, `frame-encoder-media.process`.
 - Also, switch on: cancel during each handshake step (before the dummy byte, between `greeted`
-  and `controlConnected`, before `ready`), the video socket ending under a running capture, and a
+  and `controlConnected`, before `ready`), a control connect that is refused or never completes,
+  the server exiting mid-handshake, the video-off profile, the video socket ending under a running capture, and a
   server restart, through `scrcpy-capture.process`, `scrcpy-media.process` and
   `scrcpy-media-cleanup.process`; nothing of either socket outlives the capture.
 - (b) to move into ace-media: the video half of `scrcpy-protocol`, `scrcpy-video`.
@@ -145,6 +157,14 @@ silent one:
 - **While any source is unhealthy, its list falls back to today's 4 s read** (only while viewed),
   and returns to triggers once the source is healthy and reconciled. A watch that can't start at
   all is unhealthy from the outset. The inventory the view sees is the same in every state.
+- **A liveness reconcile, independent of watch health.** A watch can stay "healthy" and still go
+  silent (a missed FSEvents batch, a track socket that stays open while adb stops reporting), so
+  while a view holds the inventory one full reconcile read runs every 60 s whatever the sources
+  report, and any difference it finds marks the source that should have reported it unhealthy
+  (falling back to the 4 s read until it is restarted and reconciled). That is 3 SDK commands a
+  minute instead of 45, and no silent source can hide a change for longer than a minute.
+- **Bounded**: every read keeps its SDK byte cap and timeout; reconnects back off to 5 s and
+  never run concurrently with themselves; at most one read per list is in flight.
 - **Dropped triggers are harmless**: reads are debounced (250 ms) and coalesced, one read per list
   at a time, so a burst of events gives at most one extra read.
 

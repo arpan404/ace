@@ -44,8 +44,16 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
      per seal, the 16-byte GCM tag, AES-256-GCM (`aes-gcm`) over the secret's UTF-8 bytes.
    - **The automation id is the GCM associated data** (`setAAD(Buffer.from(automationId))`, its
      UTF-8 bytes), so a sealed secret moved to another automation's row doesn't open.
-   - **Opening fails closed and quietly**: a wrong tag, version, part count, key or id yields
-     undefined, never an error; a missing key leaves secrets unreadable and is never replaced on
+   - **Opening reads the envelope as the TypeScript does**: `sealed.split(".")` takes the first four
+     parts and **ignores any after them** (`webhook-secret-box.ts:42`); fewer than four, an empty
+     part or a version other than `v1` yields undefined. Base64 parts are decoded the way
+     `Buffer.from(…, "base64")` decodes: both the standard and URL-safe alphabets, padding
+     optional, decoding stopping at the first `=`, other characters skipped; a strict decoder
+     would refuse rows the TypeScript opens. The same lenient decoding applies to the signature
+     key (`key()`, `webhook-signature.ts:34`–`:39`) and each `v1,` entry (`:64`), where only a
+     decoded length equal to the HMAC's is compared.
+   - **Opening fails closed and quietly**: a wrong tag, key or id yields undefined, never an
+     error; a missing key leaves secrets unreadable and is never replaced on
      open (`load` only); sealing may create it.
    - **Signatures** (`webhook-signature.ts:42`): HMAC-SHA256 (`hmac`, `sha2`) keyed with the
      base64-decoded secret (the `whsec_` prefix stripped when present, `:10`), over the ASCII
