@@ -494,25 +494,19 @@ export async function scrcpyCapture(options: {
       new Promise((_, reject) => {
         runtime.after(remaining(), () => reject(error()));
       });
-    // A server exit fails the start at once, with today's text; a rejecting server is no
-    // exit, as today. Before its greeting that is "did not start"; after it, the server
-    // closed during startup, as the switch-off path names the same two cases.
+    // A server exit fails the start at once, with today's text, whether the exit promise
+    // resolves or rejects. Before its greeting that is "did not start"; after it, the
+    // server closed during startup, as the switch-off path names the same two cases.
     const serverExit = (error: () => unknown): Promise<never> =>
       tunnel.exited.then(
         () => {
           throw error();
         },
-        () => new Promise<never>(() => {}),
+        () => {
+          throw error();
+        },
       );
-    // A reader that ends while control is still dialling rejects the readiness waiter: the
-    // dial race settles on that rejection instead of waiting for the deadline.
     const attempt = armHandshake();
-    const readyEnded = attempt.ready.promise.then(
-      () => new Promise<never>(() => {}),
-      (error) => {
-        throw error;
-      },
-    );
     // A close before ready ends the handshake the way a reset would: today's text.
     const onHandshakeClose = () => {
       if (handshake === attempt) {
@@ -536,6 +530,15 @@ export async function scrcpyCapture(options: {
         options.signal,
       );
       options.signal?.throwIfAborted();
+      // A reader that ends while control is still dialling rejects the readiness waiter: the
+      // dial race settles on that rejection instead of waiting for the deadline. Built here,
+      // after the greeting, so a greeting failure never leaves it unhandled.
+      const readyEnded = attempt.ready.promise.then(
+        () => new Promise<never>(() => {}),
+        (error) => {
+          throw error;
+        },
+      );
       const socket = await abortRace(
         Promise.race([
           openScrcpySocket(port, runtime, deadline, options.signal).then((connected) => {
