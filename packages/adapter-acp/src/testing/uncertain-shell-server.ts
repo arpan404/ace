@@ -133,6 +133,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const toolId = heldTool;
     setTimeout(() => {
       update({ sessionUpdate: "tool_call_update", toolCallId: toolId, status: "cancelled" });
+      // Antigravity says it was cancelled in message text before answering.
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "\n\nThe request was cancelled by the client." },
+      });
       send({ id: promptId, result: { stopReason: "cancelled" } });
       if (heldPrompt === promptId) heldPrompt = undefined;
     }, 25);

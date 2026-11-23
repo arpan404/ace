@@ -130,6 +130,20 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
       endedBy: "steer",
     });
     expect(h.engine.queue(id)).toMatchObject({ pendingCount: 0, paused: false });
+    // The steer carries the turn on: its run is numbered as the same turn, and the agent's
+    // word that ace cancelled its prompt is not shown as its answer.
+    const runs = Object.values(h.store.snapshotThread(id).runs);
+    await expect.poll(() => Object.keys(h.store.snapshotThread(id).runs).length).toBe(2);
+    expect(Object.values(h.store.snapshotThread(id).runs).map((run) => run.turn)).toEqual([
+      runs[0]?.turn,
+      runs[0]?.turn,
+    ]);
+    const said = Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
+      item.type === "message" && item.role === "assistant"
+        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+        : [],
+    );
+    expect(said.join("")).not.toContain("cancelled by the client");
   } finally {
     if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
       h.command({ type: "thread.interrupt", threadId: id, cascade: true });

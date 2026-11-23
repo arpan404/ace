@@ -2,7 +2,7 @@ import { it, expect } from "vitest";
 import { apply, createThreadState } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
-import { harness, required, end } from "./test-helper.ts";
+import { chunk, harness, required, end } from "./test-helper.ts";
 import { antigravityQuirks, createAcpTranslator } from "./index.ts";
 
 function shell(h: ReturnType<typeof harness>, status: "pending" | "in_progress") {
@@ -169,4 +169,26 @@ it("a turn that ends normally carries no cut-off warning", () => {
   expect(
     Object.values(h.state.items).filter((i) => i.type === "notice" && i.level === "warning"),
   ).toEqual([]);
+});
+const answer = (h: ReturnType<typeof harness>) =>
+  Object.values(h.state.items).flatMap((item) =>
+    item.type === "message" && item.role === "assistant"
+      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+      : [],
+  );
+it("Antigravity's word that ace cancelled its prompt is never shown as its answer", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  chunk(h, "Looking into it.");
+  h.frame("send", { method: "session/cancel", params: { sessionId: "root-session" } });
+  chunk(h, "\n\nThe request was cancelled by the client.");
+  end(h, "cancelled");
+  expect(answer(h)).toEqual(["Looking into it."]);
+});
+it("the same words stay the agent's answer when ace cancelled nothing", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  chunk(h, "The request was cancelled by the client.");
+  end(h);
+  expect(answer(h)).toEqual(["The request was cancelled by the client."]);
 });

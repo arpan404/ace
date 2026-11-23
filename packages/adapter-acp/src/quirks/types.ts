@@ -9,6 +9,11 @@ export interface AcpQuirks {
   clientMeta: Data;
   toolKind(update: Data): ToolKind | undefined;
   classifyError(text: string): AgentError | undefined;
+  /**
+   * Whether an agent message is only the agent saying the client cancelled its prompt: after
+   * ace's own cancel, the thread already says the turn stopped (or went on into a steer).
+   */
+  cancelNotice(text: string): boolean;
   capabilities(version?: string): Capabilities;
 }
 export const baseCapabilities: Capabilities = {
