@@ -89,7 +89,10 @@ export function foldSpadeCapability(
       if (event.kind === "lane") {
         const said = laneReport[event.state];
         if (!said) return false;
-        place(laneQuiet(event.worker, event.name, said));
+        place({
+          ...laneQuiet(event.worker, event.name, said),
+          ...(said === "failed" && event.epoch ? { reply: event.epoch } : {}),
+        });
         return true;
       }
       // Stopping still counts as running: its stopped report follows. A worker started here

@@ -125,6 +125,9 @@ describe("main's quiet lines for its tasks", () => {
       "Book flights needs you",
       "Task done: Sort the photos",
     ]);
+    // Stopped early, it names the reply Try again answers again.
+    const failed = c.bubbles()[1];
+    expect(failed?.kind === "quiet" && failed.quiet).toMatchObject({ lane: "l2", reply: "e1" });
   });
 });
 

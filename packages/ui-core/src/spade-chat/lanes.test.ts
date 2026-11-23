@@ -1,5 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { parseSpadeLanes, spadeLaneLive } from "./index.ts";
+import {
+  parseSpadeLanes,
+  spadeLaneCost,
+  spadeLaneDetail,
+  spadeLaneLive,
+  spadeLaneRowState,
+  spadeLanesNeedYou,
+  spadeLanesPillWords,
+} from "./index.ts";
 
 describe("a bot's task lanes as Spade lists them", () => {
   test("read in Spade's order, with progress, cost and the moved mark", () => {
@@ -54,5 +62,52 @@ describe("a bot's task lanes as Spade lists them", () => {
   test("a row without an id is left out and a body that isn't a list reads empty", () => {
     expect(parseSpadeLanes(JSON.stringify({ tasks: [{ title: "no id" }] }))).toEqual([]);
     expect(parseSpadeLanes("not json")).toEqual([]);
+  });
+});
+
+describe("a bot's task lanes in words", () => {
+  const lane = (row: Record<string, unknown>) => {
+    const [read] = parseSpadeLanes(
+      JSON.stringify({ tasks: [{ task: "l", conversation: "l", ...row }] }),
+    );
+    if (!read) throw new Error("the row didn't parse");
+    return read;
+  };
+
+  test("the pill counts the tasks that haven't ended, and those waiting on the person", () => {
+    const lanes = [
+      lane({ state: "needs_you", needs_you: true }),
+      lane({ state: "working" }),
+      lane({ state: "queued" }),
+      lane({ state: "done" }),
+      lane({ state: "failed" }),
+    ];
+    expect(spadeLanesPillWords(lanes)).toBe("3 tasks · 1 needs you");
+    expect(spadeLanesNeedYou(lanes)).toBe(true);
+    expect(spadeLanesPillWords([lane({ state: "working" })])).toBe("1 task");
+    expect(spadeLanesPillWords([lane({ state: "done" })])).toBe("Tasks");
+  });
+
+  test("a row reads its step and count while it runs, Queued, then its report", () => {
+    const running = lane({
+      state: "working",
+      progress: { done: 2, total: 5, verified: 0 },
+      plan_step: "Drafting the email to Dana",
+    });
+    expect(spadeLaneDetail(running)).toBe("2 of 5 · Drafting the email to Dana");
+    expect(spadeLaneRowState(running)).toBe("working");
+    expect(spadeLaneDetail(lane({ state: "queued" }))).toBe("Queued");
+    const failed = lane({ state: "failed", report: "HubSpot's page wouldn't load" });
+    expect(spadeLaneDetail(failed)).toBe("Stopped early: HubSpot's page wouldn't load");
+    expect(spadeLaneRowState(failed)).toBe("failed");
+    expect(spadeLaneDetail(lane({ state: "done", report: "214 files moved" }))).toBe(
+      "214 files moved",
+    );
+    expect(spadeLaneRowState(lane({ state: "working", needs_you: true }))).toBe("human");
+  });
+
+  test("its cost reads in dollars, and nothing before it spent any", () => {
+    expect(spadeLaneCost(lane({ state: "working", cost_micros: 380_000 }))).toBe("$0.38");
+    expect(spadeLaneCost(lane({ state: "queued" }))).toBeUndefined();
   });
 });

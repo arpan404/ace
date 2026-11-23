@@ -18,7 +18,14 @@ export type SpadeQuiet =
   | { kind: "panel-action"; label: string; by: "page" | "person" }
   | { kind: "checked"; verdict: "done" | "not_yet" | "unchecked"; missing: readonly string[] }
   /** One of the bot's task lanes (ADR 0217 §7): started, moved to, sent a message, reporting. */
-  | { kind: "lane"; lane: string; title: string; event: SpadeLaneEvent }
+  | {
+      kind: "lane";
+      lane: string;
+      title: string;
+      event: SpadeLaneEvent;
+      /** The lane's reply that failed, which Try again answers again. */
+      reply?: string;
+    }
   | {
       kind: "worker-reported";
       worker: string;

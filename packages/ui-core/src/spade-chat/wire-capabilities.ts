@@ -73,6 +73,8 @@ export const spadeCapabilityEvents = [
     name: words,
     state: z.enum(spadeWorkerStates).catch("other"),
     summary: words,
+    /** The worker's reply it reports on: what a lane's Try again names (ADR 0217 §5). */
+    epoch: words,
   }),
   /** The bot will be woken: at `due_ms`, when `condition` happens, or both. */
   z.object({
