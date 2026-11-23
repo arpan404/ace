@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Observe stream revisions here so following the tail doesn't invalidate every transcript row.
 struct TranscriptTail: View {
-    /// The feed's last row: scrolling it to the bottom is scrolling to the end.
+    /// The first row in the inverted list marks the live end.
     static let id = "tail"
     let thread: ThreadModel
     let following: Bool

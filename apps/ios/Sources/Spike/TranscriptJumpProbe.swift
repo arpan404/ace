@@ -89,7 +89,7 @@ import UIKit
         }
         let frame = link?.duration ?? 1.0 / 60
         let seen = visible()
-        let offset = Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
+        let offset = -Double(scroller?.layer.presentation()?.bounds.minY ?? scroller?.contentOffset.y ?? 0)
         defer {
             self.run = run
             if now >= run.until { finish() }
@@ -164,9 +164,8 @@ import UIKit
             guard let window = view.window else { continue }
             if scroller == nil { scroller = Self.scrollView(above: view) }
             let layer = view.layer.presentation() ?? view.layer
-            let top = Double(layer.convert(CGPoint.zero, to: nil).y)
-            let bottom = top + Double(layer.bounds.height)
-            if bottom > 0, top < Double(window.bounds.height) { seen[id] = top }
+            let drawn = layer.convert(layer.bounds, to: nil)
+            if drawn.maxY > 0, drawn.minY < window.bounds.height { seen[id] = Double(drawn.minY) }
         }
         return seen
     }

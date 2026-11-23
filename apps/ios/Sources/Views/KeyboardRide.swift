@@ -178,7 +178,9 @@ struct KeyboardRideOffset: ViewModifier {
     let ride: KeyboardRide
     var base: CGFloat = 0
     var riding = true
+    var inverted = false
     func body(content: Content) -> some View {
-        content.offset(y: riding ? base - ride.lift : 0)
+        let distance = riding ? base - ride.lift : 0
+        content.offset(y: inverted ? -distance : distance)
     }
 }

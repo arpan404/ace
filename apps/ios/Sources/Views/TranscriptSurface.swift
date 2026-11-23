@@ -28,8 +28,8 @@ import UIKit
     private var runs: [Run: (settle: (CFTimeInterval) -> TranscriptSettle.Outcome, done: (TranscriptSettle.Outcome) -> Void)] = [:]
     private var frozen: UIView?
 
-    /// The scroll view's offset from its content's top, in points.
-    var offset: Double { Double(scroller?.contentOffset.y ?? 0) }
+    /// Scroll offset in chronological coordinates, measured from the live edge.
+    var offset: Double { -Double(scroller?.contentOffset.y ?? 0) }
     /// A frozen frame is laid over the feed (`freeze`).
     var isFrozen: Bool { frozen != nil }
     /// The scroll view under the rows has been found: `shift` moves it.
@@ -113,9 +113,10 @@ import UIKit
         let lowest = -scroller.adjustedContentInset.top
         let highest = max(lowest, scroller.contentSize.height + scroller.adjustedContentInset.bottom - scroller.bounds.height)
         let was = scroller.contentOffset.y
-        let target = min(max(was + CGFloat(delta), lowest), highest)
+        let target = min(max(was - CGFloat(delta), lowest), highest)
+        guard target != was, !scroller.isTracking, !scroller.isDragging, !scroller.isDecelerating else { return 0 }
         scroller.setContentOffset(CGPoint(x: scroller.contentOffset.x, y: target), animated: false)
-        return Double(target - was)
+        return Double(was - target)
     }
 }
 

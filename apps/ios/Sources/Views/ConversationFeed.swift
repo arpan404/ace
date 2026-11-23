@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One lazy reading column. Edge scrolling avoids List's stale collection-index scroll targets.
+/// Newest-first storage, drawn in chronological order. Older pages extend the far edge.
 ///
 /// Every scroll the feed makes is a one-shot `ScrollViewProxy` call. A `ScrollPosition` binding
 /// keeps its last target (an edge, an offset or a row) standing until the person scrolls; with an
@@ -89,7 +89,9 @@ struct ConversationFeed: View {
 
     var body: some View {
         // A passage opened in a row is one of the thread's folds: the feed holds the reader's place.
-        ScrollViewReader { proxy in feed(proxy) }
+        GeometryReader { viewport in
+            ScrollViewReader { proxy in feed(proxy, safeArea: viewport.safeAreaInsets) }
+        }
             .environment(\.expansions, shown.disclosures)
             .environment(\.transcriptShowingHistory, reading.shown != nil)
     }
@@ -99,7 +101,7 @@ struct ConversationFeed: View {
     /// The scrolling content: rows keep their frames in it while the feed scrolls.
     nonisolated static let contentSpace = "transcript.content"
 
-    func feed(_ proxy: ScrollViewProxy) -> some View {
+    func feed(_ proxy: ScrollViewProxy, safeArea: EdgeInsets) -> some View {
         // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
         // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
         let _ = stackSwitches
@@ -108,16 +110,49 @@ struct ConversationFeed: View {
         PerfCounters.bump("feed.body")
         let scroller = ScrollView {
             TranscriptRowsStack(stack: stack) {
-                if let problem = reading.problem {
-                    ServiceProblem(message: problem)
-                    Button("Retry loading messages") { reading.retry(model: model, live: thread) }
-                        .frame(minHeight: AceDesign.Size.tap)
+                Color.clear.frame(height: CGFloat(keyboardRoom.leaving)).accessibilityHidden(true)
+                TranscriptTail(thread: thread, following: pinned, barHeight: barHeight) {
+                    if !keyboardMoving && !intent.active { toEnd(proxy) }
+                }
+                Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
+                    .keyboardDriftMark(.line)
+                ReviewReadyLine(model: model)
+                    .scaleEffect(x: 1, y: -1)
+                    .accessibilitySortPriority(-1)
+                if reading.thread == nil || reading.joined {
+                    ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id > $1.id }) { row in
+                        PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
+                                       words: { await model.sendWords(row.id) },
+                                       saveWords: { await model.editFailedSend(row.id, text: $0) },
+                                       discard: { await model.dismissSend(row.id) })
+                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
+                            .scaleEffect(x: 1, y: -1)
+                    }
                 }
                 if ready {
+                    TranscriptSpacer(extent: extent, height: \.after)
+                    let rows = TranscriptFeedRow.rows(shown)
+                    ForEach(rows.reversed()) { row in
+                        TranscriptFeedRowView(row: row, thread: shown, links: links).equatable()
+                            .accessibilityElement(children: .contain)
+                            .accessibilitySortPriority(row.readingPriority)
+                            .scaleEffect(x: 1, y: -1)
+                            .id(row.id)
+                            .transcriptJumpMark(row.id)
+                            .disabled(historyStale)
+                            .onAppear {
+                                ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear")
+                                if !rowsPainted { rowsPainted = true }
+                            }
+                            .onGeometryChange(for: CGRect.self) {
+                                TranscriptScrollAxis.row($0.frame(in: .named(Self.contentSpace)))
+                            } action: { frame in
+                                rowLaidOut(row.id, frame: frame, proxy: proxy)
+                            }
+                            .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
+                    }
+                    TranscriptSpacer(extent: extent, height: \.before)
                     if historyStale {
-                        // Cached history is explicitly stale and read-only: a
-                        // visible indication with retry that never blocks scroll
-                        // or the composer. Rows below are disabled.
                         HStack(spacing: AceDesign.Space.related) {
                             Text(reading.isStale ? "Cached history" : "Offline — cached history")
                                 .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
@@ -133,52 +168,24 @@ struct ConversationFeed: View {
                         .padding(.vertical, AceDesign.Space.tight)
                         .accessibilityElement(children: .combine)
                         .accessibilityHint("Shows saved history until the thread reconnects")
+                        .accessibilitySortPriority(Double(rows.count + 1))
+                        .scaleEffect(x: 1, y: -1)
                     }
-                    TranscriptSpacer(extent: extent, height: \.before)
-                    ForEach(TranscriptFeedRow.rows(shown)) { row in
-                        TranscriptFeedRowView(row: row, thread: shown, links: links).equatable().id(row.id)
-                            .transcriptJumpMark(row.id)
-                            .disabled(historyStale)
-                            .onAppear {
-                                ThreadOpenTrace.shared.painted(thread.id); PerfProbe.add("rows.appeared", 1); PerfCounters.bump("row.appear")
-                                if !rowsPainted { rowsPainted = true }
-                            }
-                            // The row's frame in the content, not on screen: a scroll leaves it
-                            // alone, so this runs when rows change height, never per scroll frame.
-                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.contentSpace)) } action: { frame in
-                                rowLaidOut(row.id, frame: frame, proxy: proxy)
-                            }
-                            .onDisappear { keep(.gone(row.id), proxy: proxy); PerfCounters.bump("row.disappear") }
-                    }
-                    TranscriptSpacer(extent: extent, height: \.after)
-                } else { ConversationSkeleton(opening: opening, retry: retryOpening) }
-                if reading.thread == nil || reading.joined {
-                    ForEach(model.pending.values.filter { $0.threadId == thread.id && $0.state != "delivered" && thread.items["input:\($0.id)"] == nil }.sorted { $0.id < $1.id }) { row in
-                        PendingSendRow(row: row, canRetry: model.canOperate, retry: { await model.retrySend(row) },
-                                       words: { await model.sendWords(row.id) },
-                                       saveWords: { await model.editFailedSend(row.id, text: $0) },
-                                       discard: { await model.dismissSend(row.id) })
-                            .padding(.horizontal, AceDesign.Space.margin).padding(.vertical, AceDesign.Space.tight)
-                    }
-                    // A message that wasn't sent is the strip's above the composer (`NotSentStrip`).
+                } else {
+                    ConversationSkeleton(opening: opening, retry: retryOpening).scaleEffect(x: 1, y: -1)
                 }
-                // A finished turn with changes: one quiet line to review them (`ReviewReadyLine`).
-                ReviewReadyLine(model: model)
-                // Room for the composer, its strip and the keyboard, and under the last row so it
-                // clears the strip tucked above the composer. The feed itself never changes size or
-                // insets as they move: resizing a long lazy transcript re-estimates its height and
-                // throws the scroll offset, so only this row grows and shrinks.
-                Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
-                    .keyboardDriftMark(.line)
-                // The end of the feed: scrolling to it puts the room above at the bottom.
-                TranscriptTail(thread: thread, following: pinned, barHeight: barHeight) {
-                    if !keyboardMoving && !intent.active { toEnd(proxy) }
+                if let problem = reading.problem {
+                    VStack {
+                        ServiceProblem(message: problem)
+                        Button("Retry loading messages") { reading.retry(model: model, live: thread) }
+                            .frame(minHeight: AceDesign.Size.tap)
+                    }
+                    .accessibilitySortPriority(Double.greatestFiniteMagnitude)
+                    .scaleEffect(x: 1, y: -1)
                 }
-                // A closing keyboard's room, below the end until the rows have moved down to it.
-                Color.clear.frame(height: CGFloat(keyboardRoom.leaving)).accessibilityHidden(true)
             }
             .modifier(TranscriptTextSize())
-            .padding(.top, AceDesign.Space.related)
+            .padding(.bottom, AceDesign.Space.related)
             // A message that wasn't sent fades in and out where it was written.
             .animation(.default, value: thread.screen.queue?.notSent?.id)
             // A comfortable line on a wide window; the scroll itself stays full width.
@@ -189,20 +196,24 @@ struct ConversationFeed: View {
             // Hidden while a thread opens, then shown where it settled (`revealWhenSettled`).
             .opacity(ready && !revealed ? 0 : 1)
             // Outside the rows' space and inside the reader below, so neither sees it.
-            .modifier(KeyboardRideOffset(ride: keyboard, base: CGFloat(keyboardFollow.base), riding: keyboardFollow.riding))
+            .modifier(KeyboardRideOffset(ride: keyboard, base: CGFloat(keyboardFollow.base), riding: keyboardFollow.riding, inverted: true))
             // Where the content's top is on screen: the one number a scroll changes.
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named(Self.viewportSpace)).minY } action: { origin in
+            .onGeometryChange(for: CGFloat.self) { $0.bounds(of: .named(Self.viewportSpace))?.maxY ?? 0 } action: { origin in
                 contentScrolled(to: origin, proxy: proxy)
             }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0 }
         .coordinateSpace(name: Self.viewportSpace)
-        .defaultScrollAnchor(.bottom, for: .initialOffset)
+        .defaultScrollAnchor(.top, for: .initialOffset)
         // Rows measuring above the screen don't move it while a thread opens at its end
         // (`TranscriptGrowthAnchor`).
-        .defaultScrollAnchor(holdsEnd ? .bottom : nil, for: .sizeChanges)
+        .defaultScrollAnchor(holdsEnd ? .top : nil, for: .sizeChanges)
         // A short thread sits on the dock, not at the top with empty room under it.
-        .defaultScrollAnchor(.bottom, for: .alignment)
+        .defaultScrollAnchor(.top, for: .alignment)
+        .contentMargins(.top, safeArea.bottom, for: .scrollContent)
+        .contentMargins(.bottom, safeArea.top, for: .scrollContent)
+        .scaleEffect(x: 1, y: -1)
+        .ignoresSafeArea(.container, edges: .vertical)
         .background(AceTheme.Colours.background)
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {
@@ -294,11 +305,10 @@ struct ConversationFeed: View {
             // the home indicator, so its frame is the container with both insets around it.
             let insets = geometry.contentInsets
             let frame = geometry.containerSize.height + insets.top + insets.bottom
-            return TranscriptScrollIntent.Metrics(y: geometry.contentOffset.y,
-                top: geometry.contentOffset.y + insets.top,
-                bottom: CGFloat(ScrollEnd.fromEnd(contentHeight: geometry.contentSize.height, offsetY: geometry.contentOffset.y,
-                                                  containerHeight: geometry.containerSize.height, topInset: insets.top)),
-                viewport: frame, topInset: insets.top, bottomInset: insets.bottom, height: geometry.contentSize.height)
+            let distance = TranscriptScrollAxis.distances(offset: geometry.contentOffset.y, content: geometry.contentSize.height,
+                                                          viewport: geometry.containerSize.height, startInset: insets.top)
+            return TranscriptScrollIntent.Metrics(y: -geometry.contentOffset.y, top: distance.older, bottom: distance.live,
+                viewport: frame, topInset: insets.bottom, bottomInset: insets.top, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
             if new.height != old.height { PerfCounters.bump("content.height") }
@@ -320,7 +330,7 @@ struct ConversationFeed: View {
             // Content that shrank under a still feed left it past its end: back to the real end,
             // so the rows show instead of the dark below them.
             if thread.loaded, TranscriptScrollIntent.Metrics.strandedPastEnd(old: old, new: new, moving: intent.active || intent.animating) {
-                proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
+                proxy.scrollTo(TranscriptTail.id, anchor: .top)
             }
             // Scroll to end follows the end's distance as it changes, mid-drag included: it floats
             // over the composer, so showing it moves nothing under the rows.
@@ -331,6 +341,10 @@ struct ConversationFeed: View {
                 // write it only when it changes, or every frame of a scroll re-evaluates the
                 // whole feed.
                 if new.y < old.y - 1 {
+                    if intent.rearmAfterAppend {
+                        intent.rearmAfterAppend = false
+                        intent.consumed = false
+                    }
                     if viewport.direction != -1 { viewport.noteDirection(-1) }
                     if following { setFollowing(false) }
                 }

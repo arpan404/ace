@@ -7,12 +7,13 @@ struct TranscriptFeedRow: Identifiable {
     /// The room under it: the larger of its own `after` and the next block's `before`, as the
     /// web's feed lays the shared row-room values.
     let room: CGFloat
+    var readingPriority: Double = 0
     @MainActor static func rows(_ thread: ThreadModel) -> [TranscriptFeedRow] {
         let blocks = thread.screen.blockOrder.compactMap { id in thread.screen.blocks[id].map { (id, $0) } }
         return blocks.enumerated().map { index, entry in
             let after = entry.1.room?.after ?? 8
             let before = index + 1 < blocks.count ? blocks[index + 1].1.room?.before ?? 8 : 8
-            return TranscriptFeedRow(id: "block:\(entry.0)", block: entry.1, room: max(after, before))
+            return TranscriptFeedRow(id: "block:\(entry.0)", block: entry.1, room: max(after, before), readingPriority: Double(blocks.count - index))
         }
     }
 
