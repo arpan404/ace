@@ -326,6 +326,10 @@ export function bootFake(): {
   if (orgWorld) seedFakeSpade(daemon, server, (remote) => seedFakeOrgSpade(remote, Date.now()));
   // `?fakeWorld=mentions`: the Spade world, and a thread that asked its bots (ADR 0198).
   if (world === "mentions") seedFakeMentions(daemon, seedFakeSpade(daemon, server), server);
+  // Every other world starts with Spade off. Turning it on (Settings › Spade › Run Spade on this
+  // machine) starts the Spade world here, as the daemon starts Spade; off stops it again.
+  const seedsSpade = ["spade", "spade-empty", "mentions"].includes(world ?? "") || orgWorld;
+  if (!seedsSpade) startSpadeOnRequest(daemon, server);
   if (world === "cross-device") seedMachineChildren(daemon, server);
   // This Mac and the build server are linked both ways, as Settings › Fleet's Link leaves them,
   // so Continue on… and Open on… can send work either way. This Mac is also linked to a studio
@@ -398,4 +402,25 @@ export function fakeConnection(daemon: FakeDaemon): DaemonConnection {
       screen: () => daemon.screen.transport(),
     },
   };
+}
+
+/**
+ * Spade follows `spade.enabled` as the daemon's supervisor does: the first time it is turned on
+ * the fake's Spade world is seeded, and each change is pushed to the app as Spade's status.
+ */
+function startSpadeOnRequest(daemon: FakeDaemon, server: FakeDaemon): void {
+  let seeded = false;
+  const follow = () => {
+    const on = daemon.services.settings.get("spade.enabled") === true;
+    if (on && !seeded) {
+      seeded = true;
+      seedFakeSpade(daemon, server);
+    }
+    daemon.spade.setStatus(on ? { state: "ready", version: "0.6.0" } : { state: "off" });
+  };
+  daemon.services.settings.onChange((keys) => {
+    if (keys.includes("spade.enabled")) follow();
+  });
+  // A setting kept from before a reload starts Spade at once.
+  if (daemon.services.settings.get("spade.enabled") === true) follow();
 }
