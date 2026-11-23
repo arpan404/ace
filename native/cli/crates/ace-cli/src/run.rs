@@ -29,6 +29,9 @@ const NATIVE_IDS: &[&str] = &[
     "request.show",
 ];
 
+/// The spade-market commands this binary answers itself (ADR 0221 step 4).
+const SPADE_MARKET_IDS: &[&str] = crate::commands::spade_market::IDS;
+
 /// Runs one command line, returning the outcome whose exit code ends the process.
 ///
 /// The writers are made only when a command answers here: a hand-over never allocates them.
@@ -228,8 +231,16 @@ where
         return hand_over(os_args, &parsed.flags, make_out, make_err);
     }
     // Whoever runs it, the bundle decides what an unported command's missing arguments mean (a
-    // person-only action refuses before it ever asks for one).
-    if !NATIVE_IDS.contains(&parsed.command.id) {
+    // person-only action refuses before it ever asks for one). A ported spade-market id is
+    // refused first when the person owns it, exactly as the TypeScript dispatcher does.
+    if SPADE_MARKET_IDS.contains(&parsed.command.id)
+        && let Some(refusal) = crate::commands::spade_market::person_gate(parsed)
+    {
+        return with_writers(make_out, make_err, |out, err| {
+            fail(out, err, Some(&parsed.flags), &refusal)
+        });
+    }
+    if !NATIVE_IDS.contains(&parsed.command.id) && !SPADE_MARKET_IDS.contains(&parsed.command.id) {
         return hand_over(os_args, &parsed.flags, make_out, make_err);
     }
     if !parsed.missing.is_empty() {
@@ -273,6 +284,11 @@ where
         _ if crate::commands::work::IDS.contains(&parsed.command.id) => {
             with_writers(make_out, make_err, |out, err| {
                 crate::commands::work::dispatch(parsed, os_args, out, err)
+            })
+        }
+        _ if SPADE_MARKET_IDS.contains(&parsed.command.id) => {
+            with_writers(make_out, make_err, |out, err| {
+                crate::commands::spade_market::dispatch(parsed, os_args, out, err)
             })
         }
         _ => hand_over(os_args, &parsed.flags, make_out, make_err),
@@ -350,7 +366,10 @@ where
 mod tests {
     #[test]
     fn every_native_command_is_in_the_table() {
-        for id in super::NATIVE_IDS {
+        for id in super::NATIVE_IDS
+            .iter()
+            .chain(super::SPADE_MARKET_IDS.iter())
+        {
             assert!(
                 cli_table::by_id(id).is_some(),
                 "{id} is dispatched natively but is no longer in the CLI table"

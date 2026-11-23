@@ -6,7 +6,7 @@
 //! passes the daemon's value through as `RawValue`, and human text matches the TypeScript
 //! renderers exactly.
 
-mod common;
+pub(crate) mod common;
 mod lists;
 mod project_list;
 mod render;
@@ -56,7 +56,7 @@ pub fn dispatch<W: Write, E: Write>(
     }
 }
 
-fn handover_fallback<W: Write, E: Write>(
+pub(crate) fn handover_fallback<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     os_args: &[std::ffi::OsString],
     out: &mut Out<W>,
