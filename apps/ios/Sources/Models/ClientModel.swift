@@ -129,6 +129,10 @@ import QuartzCore
     @ObservationIgnored var reading: ThreadModel?
     /// Finished answers read ahead while the page waits to land.
     @ObservationIgnored var prepareReadingAnswers: (([String]) -> Void)?
+    @ObservationIgnored var admitsOlderAppend: ((TranscriptReadingReply, [BridgePatch]) -> Bool)?
+    @ObservationIgnored private(set) var publishingOlderAppend = false
+    @ObservationIgnored private var waitsForOlderReply = false
+    @ObservationIgnored private var olderReply: TranscriptReadingReply?
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
@@ -549,9 +553,21 @@ import QuartzCore
         return nil
     }
     /// A service reply can precede the page's row patches; do not request another page yet.
-    var readingSettled: Bool { !readingPageHeld && (readingHold?.isEmpty ?? true) }
-    /// Hold the reading rows from here until the page asked for settles.
-    func holdReading() { readingPageHeld = true; if readingHold == nil { readingHold = ReadingHold() } }
+    var readingSettled: Bool { !readingPageHeld && !waitsForOlderReply && (readingHold?.isEmpty ?? true) }
+
+    /// An older page also waits for the reply's eviction evidence before it may append in motion.
+    func holdReading(older: Bool = false) {
+        readingPageHeld = true
+        waitsForOlderReply = older
+        olderReply = nil
+        if readingHold == nil { readingHold = ReadingHold() }
+    }
+
+    func olderReadingReplied(_ reply: TranscriptReadingReply) {
+        waitsForOlderReply = false
+        olderReply = reply
+        flushReading()
+    }
     func beginReadingScroll() {
         readingScrolling = true
         if reading != nil, readingHold == nil { readingHold = ReadingHold() }
@@ -563,18 +579,25 @@ import QuartzCore
     /// Apply what was held now: the read failed or was cancelled, so no settle will come.
     func releaseReading() {
         readingPageHeld = false
+        waitsForOlderReply = false
+        olderReply = nil
         flushReading()
     }
     private func flushReading() {
-        guard !readingScrolling, !readingPageHeld else { return }
-        guard var hold = readingHold else { return }
+        guard !readingPageHeld, !waitsForOlderReply, var hold = readingHold else { return }
         let held = hold.take()
+        let append = olderReply.map { admitsOlderAppend?($0, held) == true } ?? false
+        guard !readingScrolling || append else { return }
+        olderReply = nil
         // Keep the hold only while it still signals work: awaiting fresh after an
         // overflow, or needsFresh with no fresh snapshot flushed yet.
         readingHold = (hold.awaitingFresh || hold.needsFresh) ? hold : nil
         if readingHold == nil { readingFreshNotified = false }
         if !held.isEmpty {
+            publishingOlderAppend = append
             apply(held)
+            publishingOlderAppend = false
+            if readingScrolling, readingHold == nil { readingHold = ReadingHold() }
             // A fresh snapshot flushed: recovery complete.
             if readingHold?.needsFresh == false { readingFreshNotified = false }
         } else if hold.needsFresh, !readingFreshNotified {
@@ -585,7 +608,15 @@ import QuartzCore
         }
     }
     /// The reading view ended: what it held goes with it.
-    func dropReading() { readingHold = nil; readingPageHeld = false; readingScrolling = false; reading = nil; readingFreshNotified = false }
+    func dropReading() {
+        readingHold = nil
+        readingPageHeld = false
+        waitsForOlderReply = false
+        olderReply = nil
+        readingScrolling = false
+        reading = nil
+        readingFreshNotified = false
+    }
     private func apply(_ patches: [BridgePatch]) {
         var reorder = false
         var added: [String] = []

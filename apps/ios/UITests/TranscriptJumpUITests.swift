@@ -34,8 +34,7 @@ import XCTest
     }
 
     /// Reading back, an older page lands above the rows on screen without moving them: it joins
-    /// once the fling has come to rest, and the line stays within a point while the offset takes
-    /// the page's height.
+    /// without moving the resting line. An append keeps the same content coordinates.
     func testAnOlderPageLandsWithoutMovingTheReadersLine() {
         let app = open("ios-reading")
         _ = jumpRun(app, "open")
@@ -44,12 +43,12 @@ import XCTest
             transcript.fling(older: true)
         }
         XCTAssertTrue(app.waitForProbe("jump.older.runs", atLeast: 2, timeout: 20), "two older pages loaded")
+        XCTAssertTrue(app.waitForProbe("pages.older", atLeast: 2, timeout: 20), "the bridge read two older pages")
         let pages = [jumpRun(app, "older.1"), jumpRun(app, "older.2")]
         for (n, page) in pages.enumerated() { print("jump older ios-reading page \(n + 1): \(page)") }
         for page in pages { XCTAssertGreaterThan(page.frames, 30, "frames were sampled: \(page)") }
         for page in pages {
             XCTAssertFalse(page.trace.contains("swap"), "no frame replaced the whole screen: \(page)")
-            XCTAssertTrue(page.atRest.contains { abs($0.inContent) >= 100 }, "the page joined while the feed was at rest: \(page)")
             let most = page.atRest.map { abs($0.onScreen) }.max() ?? 0
             XCTAssertLessThanOrEqual(most, 1, "the rows on screen stayed put while the page joined: \(page)")
         }

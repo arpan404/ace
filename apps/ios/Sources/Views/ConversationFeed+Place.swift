@@ -29,9 +29,9 @@ extension ConversationFeed {
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
             rowHeight: Double(frame.height)) {
-            proxy.scrollTo(session.rowID, anchor: UnitPoint(x: 0, y: fraction))
+            proxy.scrollTo(session.rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         } else {
-            proxy.scrollTo(session.rowID, anchor: .top)
+            proxy.scrollTo(session.rowID, anchor: .bottom)
         }
         viewport.noteCorrectionApplied()
     }
@@ -114,10 +114,10 @@ extension ConversationFeed {
                     : TranscriptFeedRow.block(id, in: shown)?.row.items.first
                 viewport.noteCaptured(rowID: id, itemID: item, top: top)
             case .place(let id, let top):
-                if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
+                if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .bottom) }
                 viewport.noteCorrectionApplied()
             case .aim(let id, let fraction):
-                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: $0) } ?? .center)
+                proxy.scrollTo(id, anchor: fraction.map { UnitPoint(x: 0, y: 1 - $0) } ?? .center)
             case .released: pageIfNeeded(proxy)
             }
         }
@@ -134,7 +134,7 @@ extension ConversationFeed {
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
-        proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: fraction))
+        proxy.scrollTo(rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         return true
     }
     /// Puts a measured `rowID` back `top` points below the header by moving the scroll its drift,

@@ -138,6 +138,10 @@ struct BlockSeqSpan: Decodable, Equatable, Sendable {
         recomputeTotals()
     }
 
+    func hasMeasuredNewerRows(_ rawIDs: Set<String>) -> Bool {
+        rawIDs.allSatisfy { heights["block:\($0)"] != nil }
+    }
+
     func needsContent(top: Double, bottom: Double) -> Bool {
         (before > 0 && top < before) || (after > 0 && bottom < after)
     }

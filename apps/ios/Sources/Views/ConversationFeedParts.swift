@@ -23,7 +23,7 @@ final class TranscriptScrollIntent {
         let y: CGFloat; let top: CGFloat; let bottom: CGFloat; let viewport: CGFloat; let topInset: CGFloat; let bottomInset: CGFloat; let height: CGFloat
         /// How far the end the feed can reach is below the bottom edge: negative only when the
         /// feed sits past it. A feed shorter than the screen starts at its top, which is its end.
-        var toEnd: CGFloat { max(height + bottomInset - viewport, -topInset) - y }
+        var toEnd: CGFloat { bottom }
         static func strandedPastEnd(old: Metrics, new: Metrics, moving: Bool) -> Bool {
             TranscriptEnd.stranded(oldHeight: Double(old.height), newHeight: Double(new.height), toEnd: Double(new.toEnd), moving: moving)
         }
@@ -32,7 +32,10 @@ final class TranscriptScrollIntent {
     var animating = false
     /// An older page was asked for and hasn't joined yet: its rows are held still as they land.
     var olderPage = false
-    func begin() { active = true; consumed = false }
+    var appendedRevision: Int?
+    /// A page can rearm the current gesture once scroll geometry reports further upward motion.
+    var rearmAfterAppend = false
+    func begin() { active = true; consumed = false; rearmAfterAppend = false }
 }
 
 /// While the keyboard is up, a tap on the conversation only puts it away: the tap takes priority

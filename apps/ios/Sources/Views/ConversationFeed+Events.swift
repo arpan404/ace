@@ -54,6 +54,7 @@ extension ConversationFeed {
     func readingRevised(proxy: ScrollViewProxy) {
         guard reading.thread != nil else { return }
         if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
+        if intent.appendedRevision == reading.revision { return }
         let rows = TranscriptFeedRow.rows(shown)
         updateExtent(rows: rows)
         if reading.landing.holdsPlace {
@@ -152,7 +153,7 @@ extension ConversationFeed {
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            if keyboardFollow.landed(lift: Double(keyboardLift)) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+            if keyboardFollow.landed(lift: Double(keyboardLift)) { proxy.scrollTo(TranscriptTail.id, anchor: .top) }
         }
         keyboardMoving = false
         // The scroll's target is above it, so it goes without moving the rows.
@@ -163,13 +164,49 @@ extension ConversationFeed {
     func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
         model.prepareReadingAnswers = transcriptMarkdown?.prepare
+        model.admitsOlderAppend = { reply, patches in
+            guard let base = reading.thread, anchor.stack.stack == .lazy, !reading.landing.holdsPlace,
+                  viewport.sessionAnchor == nil, reply.freshness != .cached,
+                  (reply.evictedLeading ?? []).isEmpty else { return false }
+            let shown = reading.shown ?? thread
+            let retainedNewer = Set(reply.evictedTrailing ?? [])
+            let metrics = intent.metrics
+            let bottom = metrics.viewport - metrics.bottomInset
+            guard extent.hasMeasuredNewerRows(retainedNewer),
+                  retainedNewer.allSatisfy({ id in
+                      guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return true }
+                      return frame.minY >= bottom
+                  }) else { return false }
+            // Protect the viewport and half a screen ahead. A turn cut by the previous page
+            // can regroup further ahead without changing the coordinates of these rows.
+            let ahead = metrics.topInset - metrics.viewport / 2
+            let oldestProtected = shown.screen.blockOrder.first { id in
+                guard let frame = anchor.keeper.frames.frame("block:\(id)") else { return false }
+                return frame.minY < bottom && frame.maxY > ahead
+            }
+            return TranscriptHistoryAppend.preservesRows(patches, replacing: base, shown: shown,
+                                                        oldestProtected: oldestProtected, retainedNewer: retainedNewer)
+        }
         model.readingWillMove = {
-            captureTop()
-            if reading.operation == "older" { holdOlderPage() }
+            if model.publishingOlderAppend {
+                intent.olderPage = false
+                TranscriptJumpHooks.note("older append")
+            } else {
+                captureTop()
+                if reading.operation == "older" { holdOlderPage() }
+            }
         }
         // The window the thread opened from (kept rows, a screenful) grows: held in place.
         model.liveWindowWillGrow = { liveWindowWillGrow() }
-        model.readingMoved = { reading.moved() }
+        model.readingMoved = {
+            reading.moved()
+            if model.publishingOlderAppend {
+                // Replacing newer rows with their spacer and appending older rows is one update.
+                updateExtent(rows: TranscriptFeedRow.rows(shown))
+                intent.appendedRevision = reading.revision
+                intent.rearmAfterAppend = true
+            }
+        }
         model.onReadingNeedsFresh = Self.rebuildOnOverflow(anchor: anchor, intent: intent, reading: reading, thread: thread, model: model)
         restoreSessionIfReady()
         applyLayoutRevision()
@@ -206,6 +243,7 @@ extension ConversationFeed {
         reading.cancel(model: model)
         transcriptMarkdown?.moving = false
         model.prepareReadingAnswers = nil
+        model.admitsOlderAppend = nil
         model.readingWillMove = nil
         model.readingMoved = nil
         model.liveWindowWillGrow = nil
@@ -326,7 +364,7 @@ extension ConversationFeed {
         // Before the rows land there is no end to reach: a settle started on the placeholder
         // would hold the budget the first real scroll to the end needs.
         guard ready, !settle.isRunning else { return }
-        proxy.scrollTo(TranscriptTail.id, anchor: .bottom)
+        proxy.scrollTo(TranscriptTail.id, anchor: .top)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
         // An animated scroll the settle waits on is one still moving the rows: a scroll with
@@ -337,7 +375,7 @@ extension ConversationFeed {
                        let moving = intent.animating && intent.metrics.y != lastY
                        lastY = intent.metrics.y
                        return moving
-                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .bottom) }
+                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .top) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
@@ -363,7 +401,7 @@ extension ConversationFeed {
     /// to where it lands (`TranscriptPlaceKeeper`).
     func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
         keep(.jumped(row.id), proxy: proxy)
-        withAnimation { proxy.scrollTo(row.id, anchor: .top) }
+        withAnimation { proxy.scrollTo(row.id, anchor: .bottom) }
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     func focusRequested() {
