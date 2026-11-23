@@ -133,15 +133,20 @@ is the page writes themselves, set by how many copies and indexes each event tou
   It is the daemon's Rust core: later crates join this workspace rather than starting their own
   (section "Path after the store").
 - Crates now: `ace-store` (the store), `ace-daemon-node` (the addon, `cdylib`).
-- Dependencies, chosen to avoid hand-written code:
-  - `rusqlite` 0.41 with `bundled` (the version `native/history` already ships and reviewed):
-    the addon's own SQLite, the only one touching the file once the switch is on. Its
-    `prepare_cached` replaces the TS statement LRU.
+- Dependencies, chosen to avoid hand-written code where a crate does the job:
+  - `libsqlite3-sys` 0.39 with `bundled`: the same SQLite `rusqlite` bundles, and the only
+    SQLite touching the file once the switch is on. `ace-store` wraps it directly in one small
+    module (`src/sqlite.rs`, the crate's only unsafe code, each block justified) instead of
+    through `rusqlite`, because a statement must outlive one call: a JavaScript iterator steps
+    it across calls and a JS object holds it, which `rusqlite`'s borrowed `Statement` and
+    `Rows` cannot express, and lazy stepping is required (open-time passes iterate whole
+    tables). Statements are owned by their connection and addressed by id, and closing a
+    connection finalizes them, as node:sqlite's `close` does. `rusqlite` can still be used
+    for Rust-internal reads on the same handle in phase 1b.
   - `napi` / `napi-derive` 3 for the binding (no `unsafe` in our code; napi-rs owns it).
-  - `serde_json` with `raw_value` for building wire JSON without an intermediate tree.
+  - `serde_json` with `raw_value` for building wire JSON without an intermediate tree (1b).
   - `zstd` 0.13 (libzstd 1.5.7, dictionary support) for the storage format in phase 4.
-  - `crossbeam-channel` for the writer and checkpoint threads' queues.
-  - `thiserror` for typed errors; `tempfile` for tests of the Rust crate.
+  - `crossbeam-channel` for the writer and checkpoint threads' queues (later phases).
 - Alternatives rejected: `sqlx` (async-first, no shared synchronous transaction); `libsql` (a
   fork, a second dialect to reason about); `duckdb`/`redb`/`sled` (a format migration of 46 GB,
   which ADR 0170 rules out at open and nothing measured asks for).
