@@ -1,73 +1,112 @@
-# Porting screen work to Rust
+# Porting screens and computer use to Rust
 
-For builders whose work touches `@ace/screen` while the daemon moves to Rust. Read
-[ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
-[behaviour.md](behaviour.md) first; behaviour.md §5 lists every test file by class. The engine's
-[porting guide](../engine/porting-guide.md) sets the rules for daemon crates.
+For the builders who move `@ace/screen` into `native/daemon` (`ace-screen`), one work item each.
+Read [ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
+[behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
+every test file by class. The [devices porting guide](../devices/porting-guide.md)'s rules for
+every item apply here unchanged (same interface, one switch, facades that grow method by method,
+no new tests, (b) cases move, `ace-json` and `JsString`, generated words, same numbers, every child
+through `ace-supervisor`, Rust rules, build and check, commit and push); this guide adds what is
+particular to screens.
 
-## What is ported: nothing in this plan
+Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one branch per item
+(`ace/rust-screen-<item>`).
 
-ADR 0225 keeps `@ace/screen` in TypeScript. The work is native already: capture, encoding,
-accessibility, UI settle and input run in the macOS (Swift), Linux and Windows (Rust) helpers,
-video goes to ace-media, and locked use is its own service. The TypeScript is orchestration:
-120 to 251 µs of daemon CPU per computer-use call against a helper that takes tens to hundreds
-of milliseconds, and its output (outlines, diffs, refusals, error text) is read by models and
-people byte for byte. There is no work item, no switch and no Rust crate for this package.
+## Rules particular to screens
 
-Don't:
+1. **The helpers stay native processes and their wires stay byte for byte.** The macOS helper is
+   Swift (AX, ScreenCaptureKit, SkyLight focus, its own TCC identity); the Linux and Windows
+   helpers are their own Rust binaries. You change the daemon's side only: `hello`, `apps`,
+   `resolve`, `state`, `act`, `cancel` JSON lines for computer use; the v1/v2 session wire and
+   frame packets (`frames.ts`) for sessions; the locked-use socket protocol. Don't link a helper
+   into the daemon.
+2. **Lenient wire decoding.** Replies decode into enums with an `Unknown` variant holding the raw
+   `ace_json::Raw`; unknown fields stay; a malformed or oversized reply fails its request, never
+   the session or the process (`output-limit`, `native-reply-budget` tests).
+3. **The person wins (priority 1).** An action refuses while the person uses the same app; Esc
+   stops agent activity; cowork makes the agent wait (`ScreenCowork.yield`, `cowork.ts:97`); a
+   takeover epoch is checked on the first action after it. Port these rule for rule and keep their
+   order.
+4. **Text the model reads**: outlines and diffs (exactly "No change since your last look."),
+   refusals (`blockedReason`, `computer/policy.ts:245`), the step results of `screen_act`, error
+   messages. Generated tables for ace's own words; helper messages pass through as `JsString`.
+   Outline lines are built with `JsString` and UTF-16 lengths, as `computer/outline.ts` does.
+5. **Never run a † file** (`*.native.process` gated on `ACE_SCREEN_INTEGRATION`/`ACE_COMPUTER_LIVE`,
+   the Linux and native media-ingest files) or the benches that operate apps
+   (`computer-actions.ts`, `computer-e2e.ts`, `computer-real-apps.ts`, `live-view.ts`,
+   `interaction.ts`, `identity.ts`, `search.ts`). Measure with `bench/computer-world.ts`,
+   `daemon-actions.ts`, `v2.ts`, `content.ts`, `control-output.ts`, `stream.ts`.
+6. **Windows**: named pipes through `tokio::net::windows::named_pipe` (`windowsEndpoint`,
+   `transport.ts`); S1 and S2 pass in the Windows VM before default-on.
 
-- port `computer/outline.ts`, `computer/policy.ts`, the wire decoders or the manager to Rust;
-- start a Rust screen process or merge the helpers;
-- change the helper wire (`hello`, `apps`, `resolve`, `state`, `act`, `cancel`) for a Rust caller.
+## Files per item
 
-## What builders of other phases do here
+| Item | Rust (yours)                                                 | Binding (yours)                            | TypeScript shell (yours)                                 | Switch                                 |
+| ---- | ------------------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------- | -------------------------------------- |
+| S1   | `ace-screen/src/computer/{client,connection,wire,timing}.rs` | `ace-daemon-node/src/screen/computer.rs`   | `packages/screen/src/native-computer-client.ts`          | `ACE_COMPUTER_CLIENT=native`           |
+| S2   | `ace-screen/src/session/<area>.rs`                           | `ace-daemon-node/src/screen/manager.rs`    | `packages/screen/src/native-manager.ts`                  | `ACE_SCREEN=native`                    |
+| S3   | `ace-screen/src/locked_use/*.rs`                             | `ace-daemon-node/src/screen/locked_use.rs` | `packages/screen/src/native-locked-use.ts`               | `ACE_LOCKED_USE=native`                |
+| S4   | `ace-screen/src/tools/{computer,session}.rs`                 | `ace-daemon-node/src/tools/screen.rs`      | the family line in `computerToolkit` and `screenToolkit` | `ACE_NATIVE_TOOLS=computer`, `=screen` |
 
-1. **ADR 0223 E2 (supervisor).** `ScreenManager`'s session helper and `Simulators` spawn through
-   `@ace/provider-kit/process` in part (`helper.ts`, `simulator.ts`), so run the (a) process files
-   with `ACE_SUPERVISOR=native` when E2 asks, one at a time:
+## S1: `ComputerClient` (needs E2)
 
-   ```sh
-   f=packages/screen/src/manager.process.test.ts
-   test -f "$f" && ACE_STORE=native ACE_SUPERVISOR=native bun --bun x vitest run "$f" --maxWorkers=4
-   ```
+The pool, one helper per target app (at most six, LRU idle eviction, five-minute idle exit,
+`computer/client.ts:221`–`:229`), the shared catalog helper, deadlines (`act` 85 s, `state` 40 s,
+others 15 s, `:80`), `cancel` with a 3 s grace then a kill of that app's helper only (`:183`),
+the 32 MiB reply cap (`:181`), restart after exit, timing spans. Helpers are spawned through
+`ace-supervisor` (today `node:child_process`, `:255`), so they join the process inventory and
+containment; `spawnHelper` stays an option, and a JavaScript one (the tests') is driven through a
+bridge.
 
-   `ComputerClient` spawns its helpers with `node:child_process` directly (`defaultSpawn`,
-   `computer/client.ts:255`), so E2 doesn't cover them; ADR 0225 question 8 asks whether they
-   should go through the supervisor.
+| TypeScript replaced (`packages/screen/src/`)                                                                                                       | Proof: (a) files                                                                                                                               | (b) cases to move                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `computer/client`, `computer/helper-connection`, `computer/reply-lines`, `computer/wire`, `computer/timing`, `computer/errors`, `computer/session` | `computer/client.process`, `computer/timing.process`, `computer/linux.process`, `computer/toolkit.process`, `computer/locked-use-gate.process` | `computer/helper-connection.process`, `computer/timing` |
 
-2. **ADR 0225 M1 (native tools).** Screen tools are not a native family: they stay TypeScript
-   handlers in the same registry. Run `mcp.process`, `tools.process` and
-   `computer/toolkit.process` with `ACE_NATIVE_TOOLS` on for the first family to prove the
-   registry still serves the screen tools unchanged.
-3. **Never run a † file.** `identity.native.process`, `measurement.native.process`,
-   `native.process`, `semantic.native.process`, `media-ingest.native.process`,
-   `media-ingest.linux.process`, `computer/front.native.process` and
-   `computer/background.native.process` drive the real helper against real windows or owned
-   fixture apps (`ACE_SCREEN_INTEGRATION=1`, `ACE_COMPUTER_LIVE=1`); the owner runs them. Never run
-   `bench/computer-actions.ts`, `computer-e2e.ts`, `computer-real-apps.ts`, `live-view.ts`,
-   `interaction.ts`, `identity.ts` or `search.ts`: they operate apps on the Mac. The synthetic
-   benches (`stream.ts`, `v2.ts`, `content.ts`, `control-output.ts`, `daemon-actions.ts`) and
-   `computer/testing/world.ts` are safe.
+## S2: sessions (needs E2)
 
-## If the owner reopens the question
+`ScreenManager` and what it owns, landing in this order under one switch:
 
-ADR 0225 reopens a port only on a measurement that shows a cost the language causes. If that
-happens, the order is the one the tests make cheap, each behind its own switch and the
-interface its (a) files already drive:
+| Item | TypeScript replaced (`packages/screen/src/`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Proof: (a) files                                                                                                                                                                                                                                                                                                                                                                                                                           | (b) cases to move                                                                                                                            |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| S2.1 | the helper and its wire: `helper`, `helper-host`, `helper-session`, `helper-codecs`, `host`, `install`, `transport`, `endpoint`, `linux`, `linux-session`, `frames`, `frame-hub`, `frame-picture`, `pixels`, `runtime`, `options`                                                                                                                                                                                                                                                                                     | `helper.process`, `helper-routing.process`, `frames.process`, `frame-picture`, `install.process`, `key-contract.process`, `linux-session`, `native-linux-wire.process`, `native-reply-budget.process`, `output-limit.process`, `output-review.process`, `lifecycle-review.process`, `windows.process`, `v2.process`                                                                                                                        | `linux.process`                                                                                                                              |
+| S2.2 | sessions and control: `manager`, `session`, `session-controllers`, `session-observations`, `target-sessions`, `target-busy`, `controller-binding`, `agent-binding`, `execution-slots`, `action-execution`, `legacy-input`, `app-launches`, `app-session`, `app-windows`, `semantic`, `ui-results`, `access`, `access-policy`, `policy`, `device-input-policy`, `permission-facts`, `permission-model`, `public-failure`, `stop-error`, `shutdown-failure`, `simulator`, `cowork`, `computer/physical-input`, `bridge` | `manager.process`, `controller-binding.process`, `background.process`, `behavior.process`, `audit.process`, `review-safety.process`, `shutdown.process`, `simulator.process`, `ui-results.process`, `bridge.process`, `device-stream-review.process`; daemon `screen.server.process`, `screen.remote.process`, `screen-linux.remote.process`, `screen-access.server.process`, `screen-unavailable.process`, `screen-queued-cancel.process` | `permission-model`, `policy`, `public-failure`, `shutdown-failure`, `computer/physical-input`, daemon `screen-helper-path`, `computer-using` |
+| S2.3 | video, stills and recordings over ace-media's wire: `media-source`, `picture-source`, `stream-owners`, `recording`, `session-recording`, `model-capture`, `measurement`                                                                                                                                                                                                                                                                                                                                               | `recording-media.process`, `video-status.process`, `stream-owners`, `measurement.process`; daemon `measurement-step.process`                                                                                                                                                                                                                                                                                                               | `media-backlog.process`, `media-recovery`, `media-source`, `picture-restart.process`, `picture-source`, `picture-view.process`               |
 
-| Item | TypeScript replaced                                             | Interface kept                                            | Proof: (a) files                                                                 | (b) cases to move                                                       |
-| ---- | --------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| S1   | `computer/outline.ts` (pure: outline lines, ids, diffs)         | `computerToolkit`'s results                               | `computer/toolkit.process`, `computer/linux.process`, `mcp.process`              | `computer/outline`                                                      |
-| S2   | `computer/wire.ts` decoding and `computer/helper-connection.ts` | `ComputerClient.request`                                  | `computer/client.process`, `computer/timing.process`, `computer/toolkit.process` | `computer/helper-connection.process`, `computer/timing`                 |
-| S3   | `policy.ts`, `computer/policy.ts`, `permission-model.ts`        | the refusals `computerToolkit` and `ScreenManager` return | `review-safety.process`, `manager.process`, `computer/toolkit.process`           | `policy`, `computer/policy-hosts`, `permission-model`, `public-failure` |
+With a built helper present, S2.1 also runs `capture-pacing.native.process` and `helper-identity.native.process`, and S1 runs `computer/uia-engine.native.process` in the Windows VM (each skips without its binary). The † files (`identity.native.process`, `measurement.native.process`, `native.process`, `semantic.native.process`, `media-ingest.native.process`, `media-ingest.linux.process`, `computer/front.native.process`, `computer/background.native.process`) are the owner's run before S1 and S2 go default-on. `index` is the shell.
 
-The rules of the engine's porting guide apply unchanged (one switch, one line; no new tests; no
-parity harness; strings through `ace-json`; text a model reads stays TypeScript unless the item
-proves it byte for byte).
+`ScreenMediaSource` (`media-source.ts:24`–`:32`) keeps its one ordered merge across ace-media
+paths and its two stream owners (legacy viewers and ace-media); the Rust side speaks ace-media's
+control wire through the `media-wire` crate. `Simulators` is also used by `@ace/devices` (D3.1):
+one implementation, in `ace-screen`, which `ace-devices` depends on.
+
+## S3: locked use (needs S1)
+
+| TypeScript replaced (`packages/screen/src/`)                                                                                                                                                                                                                 | Proof: (a) files                                                                                                                                                                                                    | (b) cases to move                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `locked-use`, `locked-use-connection`, `locked-use-handshake` (HMAC-SHA256 with `hmac`, `sha2`, `subtle`), `locked-use-attempt`, `locked-use-detect`, `locked-use-host`, `locked-use-mac`, `locked-use-plist`, `locked-use-wire`, `computer/locked-use-gate` | `locked-use-detect`, `locked-use-host`, `locked-use-mac`, `locked-use-wire`, `locked-use-connection.process`, `computer/locked-use-gate.process`; daemon `locked-use.server.process`, `computer-locked-use.process` | `locked-use-attempt.process`, `locked-use-handshake`, daemon `locked-use-runtime.process`, `locked-use-installer`, `locked-use-privileged` |
+
+Same timeouts (ready 15 s, relock 30 s, `locked-use-attempt.ts:236`, `:284`; status every 60 s,
+`locked-use-mac.ts:63`). The privileged install is the owner's to test on a real Mac.
+`locked-use-fake-mac` and `testing/` stay TypeScript test support.
+
+## S4: the tool families (needs S1, S2, MCP M2)
+
+| Family     | TypeScript replaced (`packages/screen/src/`)                                                                                                                                                                                        | Proof: (a) files                                                                                                                                                                                            | (b) cases to move                                               |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `computer` | `computer/toolkit`, `computer/actions`, `computer/act-log`, `computer/app-notes`, `computer/conditions`, `computer/cowork-steps`, `computer/displays`, `computer/memory`, `computer/outline`, `computer/policy`, `computer/schemas` | `computer/toolkit.process`, `computer/linux.process`; daemon `agent-computer-journey.process`, `screen-agent-access.process`, `acp-screen-bridge.process`, `spade-computer-screen.process`, `computer-name` | `computer/actions`, `computer/outline`, `computer/policy-hosts` |
+| `screen`   | `mcp` (`screenToolkit`), `tools`, `tool-schemas`                                                                                                                                                                                    | `mcp.process`, `tools.process`; daemon `screen-mcp.server.process`, `measurement-mcp.server.process`                                                                                                        | none                                                            |
+
+Descriptors come from MCP M1's generated table; input is decided by the Zod port until the
+family's typed decoding is pinned by its rejection cases (ADR 0225 §4.2). The 1,568 px and
+1.15 MP screenshot bounds and the 1 MiB model image go through ace-media's image process.
 
 ## When you are done
 
-- Report the screen (a) files you ran under your phase's switch, with their results, and
-  anything in behaviour.md that turned out wrong, with the code that shows it.
-- Commit and push as you go with `git push origin HEAD:refs/heads/<your-branch>`; never rebase or
-  force-push. Every commit ends with exactly `Co-Authored-By: spade <bot@acehq.dev>`.
+- Every (a) file of your item passes alone with the switch on and off (S1, S2 on macOS, Linux and
+  the Windows VM); your (b) cases pass in `cargo test -p ace-screen`; `check:daemon-native`
+  passes; S2's cross-mode list (the daemon files that restart, for the stored screen switch) passes
+  both ways.
+- Report: the files run and their results, `bench/computer-world.ts` and `daemon-actions.ts`
+  figures off and on, anything in behaviour.md that turned out wrong (with the code that shows
+  it), anything you kept TypeScript because it couldn't be reproduced exactly, and the one test
+  you added, if any.
