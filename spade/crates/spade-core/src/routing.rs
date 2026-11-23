@@ -124,6 +124,34 @@ pub struct Overrides {
         deserialize_with = "known_efforts"
     )]
     pub efforts: BTreeMap<Role, Effort>,
+    /// A lower cap on the prompt in tokens (ADR 0216): the bot compacts once its prompt reaches
+    /// it, or 90% of the window when that is smaller. None by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u32>,
+    /// Whether old tool results show as stubs in later prompts (ADR 0216): a cost choice, off
+    /// unless the person turns it on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_results: Option<bool>,
+}
+
+/// The smallest cap the person may set: below it a bot would compact nearly every
+/// step.
+pub const LEAST_CONTEXT_TOKENS: u32 = 16_000;
+
+/// The person's cap on the prompt (ADR 0216): the bot's, else the global one, else none.
+pub fn context_tokens(bot: &Overrides, global: &Overrides) -> (Option<u32>, Source) {
+    [(bot, Source::Bot), (global, Source::Global)]
+        .into_iter()
+        .find_map(|(overrides, source)| overrides.context_tokens.map(|t| (Some(t), source)))
+        .unwrap_or((None, Source::Default))
+}
+
+/// Whether old tool results age out (ADR 0216): the bot's choice, else the global one, else off.
+pub fn age_results(bot: &Overrides, global: &Overrides) -> (bool, Source) {
+    [(bot, Source::Bot), (global, Source::Global)]
+        .into_iter()
+        .find_map(|(overrides, source)| overrides.age_results.map(|on| (on, source)))
+        .unwrap_or((false, Source::Default))
 }
 
 /// The stored efforts this build knows; the rest (a newer build's word) are left out.

@@ -297,6 +297,7 @@ impl Transcript {
             | Known::KnowledgeIndexed { .. }
             | Known::EpisodeStored { .. }
             | Known::ContextCompacted { .. }
+            | Known::ResultsAged { .. }
             | Known::AgentConfigured { .. }
             | Known::NamingOpened {}
             | Known::BotMade { .. }

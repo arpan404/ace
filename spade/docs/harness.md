@@ -21,7 +21,8 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_requested`                         | `reply`, `call_id`, `name`, `arguments`                                                 | The gate is waiting on the person                                                                                                                                                                                                                                                                                                              |
 | `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                     |
 | `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                     |
-| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                                                                                        |
+| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list and the person's messages kept word for word (`said`, `said_earlier`), carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                                                                                        |
+| `results_aged`                               | `before`                                                                                | With aging turned on, tool results before index `before` that may age show as stubs from now on ([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)); stored in batches                                                                                                                                        |
 | `asks_updated`                               | `call_id`, `changes[]`                                                                  | What one `asks` call changed in the person's asks, as Spade accepted it; the ledger reads only this (ADR 0215)                                                                                                                                                                                                                                 |
 | `asks_checked`                               | `reply`, `asks[]`, `note`                                                               | The stop check ran in `reply`, naming those open asks; the model reads `note` as Spade's, and the reply takes one more step                                                                                                                                                                                                                    |
 | `asks_reminded`                              | `reply`, `steers[]`, `note`                                                             | The first step that read these steers made calls but didn't answer them; the model reads `note` as Spade's (ADR 0215 §4)                                                                                                                                                                                                                       |
@@ -117,7 +118,7 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
 - **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
   failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
   started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
-outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+  outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
   the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
   step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
   it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
@@ -189,13 +190,42 @@ meanwhile are found with `skill_search`, which ranks by text and then by the bot
 (workspace.md, "Ranking"). `skill_load` puts a skill's other files in
 the bot's workspace at `skills/<name>/`.
 
+## Old results age out
+
+Off by default: models see every tool result whole. A person who wants a long task's prompt smaller
+and cheaper turns on `age_results` for a bot or for every bot (model roles settings; ADR 0216), and
+old tool results then show as stubs. Before each model call, after the compaction check, the engine
+stores `results_aged { before }` when a batch is
+due: the boundary is the start of the 4th latest step, moved back until at least 8 results follow
+it, and a batch is due once the results between the previous boundary and it that may age add up to
+64,000 characters. A result before the boundary shows as one line: the tool, its arguments
+(shortened), its size, and `history_read {"from": <position>, "count": 1}`, `history_search` or
+calling the tool again to get it back. A conversation not offered `history_read` ages nothing.
+Never aged: errors, results of 2,000 characters or less,
+results with images, `ask_user`, `skill_load` and `tool_search` results; the person's and the
+bot's own words are not results and are always whole. Between two batches the prompt only grows at
+its end, so the provider's cache holds; a batch rewrites the cache from its first newly aged result,
+once (the ADR measures it). Deciding reads only the events since the latest boundary or compaction
+cut.
+
 ## Compaction
 
-Before each model call, if the endpoint's last reported prompt is at least 75% of the budget
-(the model's own context window, 200,000 tokens for a model that doesn't say, capped only by
-`SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158), the engine compacts: it cuts
+Before each model call, if the next request's prompt reaches 90% of the smallest context window
+among the models that may serve the step (the turn's model and its fallbacks; 200,000 tokens for a
+model that doesn't say, capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice),
+or the lower cap the person set as `context_tokens` for the bot or for every bot on the model roles
+settings (none by default, at least 16,000; ADR 0158, ADR 0216), the engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`): what the latest
+step since the last compaction reported, plus a token per 4 characters of everything stored after
+it; with no report since the last compaction, the shown span's text alone, so a size from before a
+compaction never counts. `tokens_before` stores that estimate. The cut is sized against the shown
+span only (the latest summary and the events from its cut), never the history before it. A step's
+own fresh results are never cut or aged, so when they overflow the window by themselves the request
+still goes out over it, as before ADR 0216; bounding them is
+[#2669](https://github.com/arpan404/ace/issues/2669). It cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
-35% are kept. It asks the conversation's own model for a JSON summary by appending the request to
+35% of the window are kept (the same share of a lower cap as 35% is of 90%). It asks the conversation's own model for
+a JSON summary (goal, decisions with who made them, open commitments, facts, open questions,
+references, notes) by appending the request to
 the current prompt with the same tools (no typed-output option, which would change the request and
 miss the cache), counts that call's cost like any other, appends the writes already carried out
 (from the events, never the summary), and stores `context_compacted`. The list stays bounded over
@@ -206,8 +236,19 @@ characters cut to 80 plus its length, lists cut to their first 8 items and the w
 characters. Writes since the previous summary and jobs still running are always listed; past
 16,000 characters the oldest carried lines fold into a count that points at `history_search`. A job
 listed as still running is looked at again at the next compaction (done, unknown, or dropped if it
-failed). A summary stored before `carried` existed makes the next compaction walk from the start,
-once. Compaction is the one place earlier prompt bytes change: the system prompt and
+failed). The person's own messages from the summarised span are kept word for word in the stored
+summary, under the model's summary, and carried forward the same way (`said` on `carried`). Only
+messages the person wrote count: here or in an ace thread (labelled so), never another bot's, a
+routine's or one that came through a group, and none in a helper's conversation, whose brief is
+the bot's. Each is quoted as its own block, every line starting `> `, under `[#position] The person
+wrote:`, so nothing inside one passes for another or for Spade's words. A message over 3,000
+characters keeps its start and its position; past 24,000 characters the newest message stays, then
+standing instructions (a message under 600 characters with "always", "never", "from now on", …),
+then the rest, newest first, and the oldest fold into a count that points at `history_search`. The
+list is worked out before the summary is asked for, and the request names the messages kept only in
+part and how many are not kept, so the summary holds their requirements. A compaction that cannot
+be stored is not reported as done, so the turn goes on rather than paying for the summary again. A summary stored
+before `carried` existed makes the next compaction walk from the start, once. Compaction is the one place earlier prompt bytes change: the system prompt and
 tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between
 turns (409 mid-reply).

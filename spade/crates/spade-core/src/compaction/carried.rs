@@ -115,7 +115,14 @@ pub fn ledger(events: &[Event], keep_from: usize, registry: &Registry) -> Carrie
             }
         }
     }
-    bound(carried, prior.earlier, fresh)
+    let mut ledger = bound(carried, prior.earlier, fresh);
+    (ledger.said, ledger.said_earlier) = super::said::keep(
+        &events[from..keep_from],
+        from,
+        prior.said,
+        prior.said_earlier,
+    );
+    ledger
 }
 
 /// Keeps the carried-forward part within [`CARRIED_CHARS`], newest first, folding the oldest into
@@ -142,11 +149,12 @@ fn bound(carried: Vec<CarriedWrite>, earlier: u64, fresh: Vec<CarriedWrite>) -> 
     CarriedLedger {
         writes,
         earlier: earlier + dropped,
+        ..CarriedLedger::default()
     }
 }
 
 /// A call's arguments on one line: long text and long lists shortened, the whole bounded.
-fn brief(arguments: &Value) -> String {
+pub fn brief(arguments: &Value) -> String {
     let text = shorten(arguments).to_string();
     if text.len() <= ARGUMENTS_CHARS {
         return text;
