@@ -278,7 +278,8 @@ This follows [the design language](../design/design-language.md): state, not chr
 chrome; one place per fact. It describes the design only, with no UI code.
 
 - **In main's transcript**, where main starts a lane, one quiet line in Spade's words: "Started a
-  task: *Fix the March invoice*". When the lane reports, the bot's own message says what happened,
+  task: *Fix the March invoice*". While the lane runs, that line carries its step and count
+  ("· 2 of 5 · Drafting the email to Dana"); once it ends, the line is the record. When the lane reports, the bot's own message says what happened,
   followed by one quiet line: "Task done: *Fix the March invoice*". It reads "Task stopped early"
   or "Task stopped" for the other endings. Either line opens the lane. A person's message routed
   by a reply carries "Sent to *Fix the March invoice*" under its bubble. There are no task cards
