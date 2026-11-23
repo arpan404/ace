@@ -752,3 +752,79 @@ async fn a_lanes_steps_run_on_the_task_roles_model_and_on_mains_when_unset() -> 
     assert_eq!(model_of(&lane("Sort the inbox")).as_deref(), Some("tasker"));
     Ok(())
 }
+
+/// Main's reply that reads a sheet eight times, moved to a lane whose title call takes `named`.
+async fn moved_lane(named: Script) -> Result<(Spade, String, String)> {
+    let read = FakeTool::new("read_sheet", Risk::Read, "Q3 revenue: 1.2M");
+    let mut main = warm_up();
+    for n in 0..8 {
+        main.push(Script::reply("").call(&format!("s{n}"), "read_sheet", json!({ "n": n })));
+    }
+    main.push(Script::reply("The note is drafted."));
+    let routes = vec![
+        Route::when("for a task the person asked for", vec![named]),
+        route(
+            "Draft the quarterly note from Q3",
+            vec![Script::reply("Drafted.").held(Duration::from_secs(1))],
+        ),
+    ];
+    let options = with(Limits {
+        move_long_work: true,
+        ..Default::default()
+    });
+    let spade = Spade::start_routed(routes, main, tools(vec![read]), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Draft the quarterly note from Q3.xlsx")
+        .await?;
+    let events = wait_count(&spade, &conversation, "reply_moved", 1).await?;
+    let lane_id = events
+        .iter()
+        .find(|e| e["type"] == "reply_moved")
+        .and_then(|e| e["lane"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    Ok((spade, conversation, lane_id))
+}
+
+#[tokio::test]
+async fn a_moved_lane_is_named_by_the_title_role_without_waiting_for_it() -> Result {
+    let named = Script::reply("")
+        .plain(r#"{"title":"Quarterly note"}"#)
+        .held(Duration::from_millis(500));
+    let (spade, conversation, lane_id) = moved_lane(named).await?;
+    // It runs under the person's first line while the title call is out.
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(found[0]["title"], "Draft the quarterly note from Q3.xlsx");
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.first().is_some_and(|t| t["title"] == "Quarterly note")
+    })
+    .await?;
+    assert_eq!(found[0]["task"], lane_id.as_str());
+    let events = spade.events(&conversation).await?;
+    let titled = events
+        .iter()
+        .find(|e| e["type"] == "lane_titled")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(titled["lane"], lane_id.as_str());
+    assert_eq!(titled["title"], "Quarterly note");
+    let report = wait_count(&spade, &conversation, "worker_reported", 1).await?;
+    let report = report
+        .iter()
+        .find(|e| e["type"] == "worker_reported")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(report["name"], "Quarterly note");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_moved_lane_keeps_the_persons_first_line_when_the_title_call_fails() -> Result {
+    let (spade, conversation, lane_id) = moved_lane(Script::failing(500)).await?;
+    wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    let found = tasks(&spade, &conversation).await?;
+    assert_eq!(found[0]["title"], "Draft the quarterly note from Q3.xlsx");
+    assert_eq!(count(&spade.events(&conversation).await?, "lane_titled"), 0);
+    Ok(())
+}

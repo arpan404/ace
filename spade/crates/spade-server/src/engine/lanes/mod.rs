@@ -53,7 +53,7 @@ impl Engine {
     pub(super) fn lane_title(&self, id: &str) -> String {
         self.load(id)
             .ok()
-            .and_then(|events| lane::link(&events).map(|link| link.title.clone()))
+            .and_then(|events| lane::title(&events))
             .unwrap_or_else(|| "A task".to_owned())
     }
 
@@ -193,7 +193,7 @@ impl Engine {
             }
             None => return,
         };
-        let title = lane::link(&events).map_or_else(|| "A task".to_owned(), |l| l.title.clone());
+        let title = lane::title(&events).unwrap_or_else(|| "A task".to_owned());
         let report = Event::Known(Known::WorkerReported(Report {
             worker: id.to_owned(),
             kind: Kind::Lane,

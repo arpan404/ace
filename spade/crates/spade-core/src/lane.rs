@@ -99,6 +99,13 @@ pub struct Routed {
     pub message: String,
 }
 
+/// `lane_titled`, in main and in the lane: the `title` role named the lane.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Titled {
+    pub lane: String,
+    pub title: String,
+}
+
 /// A lane's approval or question, asked in main as well (`approval_requested.lane`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ask {
@@ -203,14 +210,35 @@ fn ended(events: &[Event]) -> State {
 pub fn started(events: &[Event]) -> Vec<Started> {
     let mut lanes: Vec<Started> = Vec::new();
     for event in events {
-        if let Event::Known(Known::LaneStarted(started)) = event {
-            match lanes.iter_mut().find(|l| l.lane == started.lane) {
-                Some(known) => *known = started.clone(),
-                None => lanes.push(started.clone()),
+        match event {
+            Event::Known(Known::LaneStarted(started)) => {
+                match lanes.iter_mut().find(|l| l.lane == started.lane) {
+                    Some(known) => *known = started.clone(),
+                    None => lanes.push(started.clone()),
+                }
             }
+            Event::Known(Known::LaneTitled(titled)) => {
+                if let Some(known) = lanes.iter_mut().find(|l| l.lane == titled.lane) {
+                    known.title.clone_from(&titled.title);
+                }
+            }
+            _ => {}
         }
     }
     lanes
+}
+
+/// The lane's title now, from its own events: the `title` role's once it named it, else the one
+/// it started with.
+pub fn title(events: &[Event]) -> Option<String> {
+    events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            Event::Known(Known::LaneTitled(titled)) => Some(titled.title.clone()),
+            _ => None,
+        })
+        .or_else(|| link(events).map(|l| l.title.clone()))
 }
 
 /// The lane's link, from its first event.

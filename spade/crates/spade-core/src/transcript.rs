@@ -349,6 +349,7 @@ impl Transcript {
             | Known::LaneStarted(_)
             | Known::ReplyMoved(_)
             | Known::AskRouted(_)
+            | Known::LaneTitled(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)

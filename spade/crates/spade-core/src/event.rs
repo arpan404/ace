@@ -828,6 +828,9 @@ pub enum Known {
     /// The person's message just before this went to a lane by `reply_to` (ADR 0217 §2), with
     /// no model call: main keeps it as the person's bubble, the lane as the person's message.
     AskRouted(crate::lane::Routed),
+    /// A lane's title from the `title` role, stored in main and in the lane (ADR 0217 §2a); it
+    /// replaces the first line it started with.
+    LaneTitled(crate::lane::Titled),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),

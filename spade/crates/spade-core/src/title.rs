@@ -24,6 +24,19 @@ pub fn prompt(first_message: &str) -> Prompt {
         .max_tokens(60)
 }
 
+/// The prompt that names a task lane (ADR 0217 §2a) from the person's words for it.
+pub fn task_prompt(words: &str) -> Prompt {
+    let excerpt: String = words.chars().take(2_000).collect();
+    Prompt::default()
+        .system(
+            "Write a short title (three to six words) for a task the person asked for, in their \
+             own words, from the message below. Plain words: no quotes, no trailing period, no \
+             emoji.",
+        )
+        .person(excerpt)
+        .max_tokens(60)
+}
+
 /// The suggestion tidied, or `None` when nothing usable is left.
 pub fn clean(raw: &str) -> Option<String> {
     let trimmed = raw
