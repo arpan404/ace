@@ -282,7 +282,7 @@ async fn run() -> Result<(), Failure> {
         &config.data_dir,
         user_home.as_deref().map(std::path::Path::new),
     );
-    let keychain = match KeyStore::os(placement.service()) {
+    let keychain = match KeyStore::os(&placement.service()) {
         Ok(store) => {
             tracing::info!(service = store.service(), "keychain entries");
             Some(store)

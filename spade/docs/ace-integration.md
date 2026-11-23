@@ -95,7 +95,7 @@ first, then Spade:
   the grant ends it.
 - **Handed to Spade** over Spade's local API, authenticated with Spade's token file:
   `PUT /v1/ace` `{"grant":"<token>"}` → 204. Spade stores it in the OS keychain (service
-  `dev.acehq.spade` for the release Spade on the live home, `dev.acehq.spade.dev` for any other
+  `dev.acehq.spade` for the release Spade on the live home, `dev.acehq.spade.dev.<home slot>` for any other
   build or home, ADR 0119 amendment 1; account `ace:grant:<slot>`, where the slot is the first 16 hex characters of
   the SHA-256 of the canonical `SPADE_ACE_HOME`, so each ace home keeps its own grant), never in
   its database or logs, and starts using it. Spade reads the keychain after it is listening, never

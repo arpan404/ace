@@ -29,7 +29,7 @@ designated requirement, which must read the same after every rebuild.
   so the keychain's partition list may still ask once per rebuild (not verified).
 - **Not the Developer ID** unless you mean it. A Developer ID signed build satisfies the release
   requirement, so on the live home (`~/.ace/spade`) it uses the live entries
-  (`dev.acehq.spade`). Any other build, or any other home, uses `dev.acehq.spade.dev`, so dev
+  (`dev.acehq.spade`). Any other build, or any other home, uses `dev.acehq.spade.dev.<home slot>`, one per data folder, so dev
   Spade never prompts for or overwrites the live one's keys.
 
 ## Running it

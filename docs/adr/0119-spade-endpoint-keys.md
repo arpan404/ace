@@ -87,10 +87,11 @@ again for permission". Three causes of repeated macOS prompts are closed.
   the login keychain.
 - **Dev and live never share entries.** Only the release-signed Spade (it satisfies the release
   requirement above; off macOS, any build) running on the live home (`<user home>/.ace/spade`)
-  files under `dev.acehq.spade`. Any other build or home files under `dev.acehq.spade.dev`, so a
-  dev Spade never reads, prompts for, or overwrites the live one's items (issue #2651). A dev
-  home therefore starts without keys; add them again in its settings.
-- **Windows and Linux** change only by the in-memory reads and the dev/live service split: their
+  files under `dev.acehq.spade`. Any other build or home files under `dev.acehq.spade.dev.<home slot>` (the first 16 hex of the SHA-256 of its data folder's resolved path), so a
+  dev Spade never reads, prompts for, or overwrites the live one's items, and no two homes share
+  an entry (issue #2651). A home other than the live one therefore starts without keys; add them
+  again in its settings.
+- **Windows and Linux** change only by the in-memory reads and the per-home service split: their
   stores tie an entry to the signed-in user, not to a binary, and don't prompt per binary.
 - **Testing.** Tests never touch a real keychain; the macOS shell has one ignored test run by
   hand (`cargo test -p spade-keys --test keys -- --ignored`).

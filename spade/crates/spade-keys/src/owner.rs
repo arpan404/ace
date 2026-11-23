@@ -10,8 +10,9 @@ use std::path::Path;
 /// The keychain service a release Spade on the person's live home files its entries under.
 pub const SERVICE: &str = "dev.acehq.spade";
 
-/// The service every other Spade files under: a local build, or any home but the live one. Dev
-/// and live Spade never read or write each other's entries (issue #2651).
+/// The start of the service every other Spade files under (a local build, or any home but the
+/// live one), followed by `.` and that home's slot: dev and live Spade, and any two homes, never
+/// read or write each other's entries (issue #2651).
 pub const DEV_SERVICE: &str = "dev.acehq.spade.dev";
 
 /// The code-signing requirement of the released Spade: identifier `spade`, signed with ace's
@@ -27,13 +28,15 @@ pub const RELEASE_REQUIREMENT: &str = "identifier \"spade\" and anchor apple gen
 pub const OWNED_MARK: &str = "spade: access by code signature (1)";
 
 /// What decides which service this Spade files its entries under.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Placement {
     /// The binary is the released, Developer ID signed Spade (always true off macOS, where
     /// binaries aren't told apart).
     pub release_binary: bool,
     /// Spade's data folder is the live home's: `<user home>/.ace/spade`.
     pub live_home: bool,
+    /// The data folder's slot (see [`home_slot`]).
+    pub home_slot: String,
 }
 
 impl Placement {
@@ -43,18 +46,31 @@ impl Placement {
         Self {
             release_binary: release_binary(),
             live_home: user_home.is_some_and(|home| is_live_home(data_dir, home)),
+            home_slot: home_slot(data_dir),
         }
     }
 
-    /// The service this placement files entries under: only a release Spade on the live home
-    /// uses [`SERVICE`].
-    pub fn service(self) -> &'static str {
+    /// The service this placement files entries under: [`SERVICE`] for a release Spade on the
+    /// live home, `<DEV_SERVICE>.<home slot>` for anything else.
+    pub fn service(&self) -> String {
         if self.release_binary && self.live_home {
-            SERVICE
+            SERVICE.to_owned()
         } else {
-            DEV_SERVICE
+            format!("{DEV_SERVICE}.{}", self.home_slot)
         }
     }
+}
+
+/// A data folder's slot: the first 16 hex characters of the SHA-256 of its path, with links
+/// resolved where it exists. Two folders never share one; one folder reached through a link keeps
+/// its own.
+pub fn home_slot(data_dir: &Path) -> String {
+    use sha2::Digest;
+    let path = data_dir
+        .canonicalize()
+        .unwrap_or_else(|_| data_dir.to_path_buf());
+    let digest = sha2::Sha256::digest(path.to_string_lossy().as_bytes());
+    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
 }
 
 /// Whether `data_dir` is the live home's Spade folder, `<user_home>/.ace/spade`: compared after
@@ -129,21 +145,33 @@ mod tests {
             Placement {
                 release_binary,
                 live_home,
+                home_slot: "0123456789abcdef".to_owned(),
             }
             .service()
         };
+        let dev = "dev.acehq.spade.dev.0123456789abcdef";
         assert_eq!(at(true, true), SERVICE);
-        assert_eq!(
-            at(false, true),
-            DEV_SERVICE,
-            "a local build on the live home"
-        );
-        assert_eq!(
-            at(true, false),
-            DEV_SERVICE,
-            "the release binary on a dev home"
-        );
-        assert_eq!(at(false, false), DEV_SERVICE);
+        assert_eq!(at(false, true), dev, "a local build on the live home");
+        assert_eq!(at(true, false), dev, "the release binary on a dev home");
+        assert_eq!(at(false, false), dev);
+    }
+
+    #[test]
+    fn each_home_has_its_own_slot_and_a_link_to_one_shares_it() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let (a, b) = (root.path().join("a"), root.path().join("b"));
+        std::fs::create_dir_all(&a)?;
+        std::fs::create_dir_all(&b)?;
+        assert_ne!(home_slot(&a), home_slot(&b));
+        assert_eq!(home_slot(&a), home_slot(&root.path().join("./a")));
+        assert_eq!(home_slot(&a).len(), 16);
+        #[cfg(unix)]
+        {
+            let link = root.path().join("link");
+            std::os::unix::fs::symlink(&a, &link)?;
+            assert_eq!(home_slot(&a), home_slot(&link));
+        }
+        Ok(())
     }
 
     #[test]

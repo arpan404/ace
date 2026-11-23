@@ -88,9 +88,9 @@ clients do, rather than only through the Codex CLI.
    a home's folder holds the same account ids and sealed files, so it opens the same sign-ins,
    just as it already resumes the same work: a copy of a live home is never run (the project's
    standing rule). Nothing here guards against that. API keys stay filed by endpoint id as
-   before. Since ADR 0119 amendment 1 a dev build or dev home files every entry under its own
-   service (`dev.acehq.spade.dev`), so dev and live Spade never share an entry (issue #2651);
-   dev homes on one machine still share that one service.
+   before. Since ADR 0119 amendment 1 a dev build, and every home but the live one, files
+   every entry under a service of its own home (`dev.acehq.spade.dev.<home slot>`), so no two
+   homes share an entry (issue #2651).
 8. **A signed-in call's waits.** A call holds the account's dispatch gate until the backend's
    first frame (its headers and first event) arrives, at most two minutes, so a sign-out never
    overtakes a send and a backend that never answers can't hold one off for longer. After that

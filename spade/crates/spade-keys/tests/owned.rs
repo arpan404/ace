@@ -195,7 +195,8 @@ fn entries_under_another_service_are_never_touched() -> Result {
     let store = Counting::new()?;
     store.store_directly(SERVICE, "endpoint:openai", "sk-live")?;
     let owner = FakeOwner::new(&store, false);
-    let dev = KeyStore::with_store(store.clone(), spade_keys::DEV_SERVICE).owned_by(owner.clone());
+    let dev = KeyStore::with_store(store.clone(), "dev.acehq.spade.dev.0123456789abcdef")
+        .owned_by(owner.clone());
     assert_eq!(dev.get("openai")?, None, "dev never reads live's key");
     dev.set("openai", "sk-dev")?;
     std::thread::sleep(Duration::from_millis(50));
