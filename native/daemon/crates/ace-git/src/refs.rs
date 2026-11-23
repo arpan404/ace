@@ -16,6 +16,13 @@
 //! caller aborted it stops and answers `cancelled`. The shell then runs the same Git command
 //! in the same `serial` turn; the remaining reasons are the shell's: a held directory
 //! (`directory_fd`) and an injected `gitBinary` or `spawn` (`injected`).
+//!
+//! Abort latency: the core polls the caller's token before opening the repository, between
+//! phases, before every ref it inspects or prints, and inside ancestry walks, so a cancelled
+//! read stops within one ref. `gix::open`, one revision parse and the name sort of at most
+//! 100,000 refs cannot be interrupted; each is bounded by local I/O and that cap, and the
+//! shell's promise rejects the moment the caller aborts or the deadline passes, whatever the
+//! worker's current step.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -35,6 +42,8 @@ pub enum Fallback {
     Grafts,
     /// A shallow repository: Git bounds ancestry and `gix` does not.
     Shallow,
+    /// A repository with more refs than a listing reproduces natively in bounded time.
+    TooManyRefs,
     /// `core.warnAmbiguousRefs=false` shortens refs by other rules than Git's default.
     AmbiguousRefs,
     /// A prunable worktree, or a lock reason `gix` doesn't word as Git does.
@@ -61,6 +70,7 @@ impl Fallback {
             Self::Replace => "replace",
             Self::Grafts => "grafts",
             Self::Shallow => "shallow",
+            Self::TooManyRefs => "too_many_refs",
             Self::AmbiguousRefs => "ambiguous_refs",
             Self::WorktreeReason => "worktree_reason",
             Self::Unreadable => "unreadable",
@@ -170,7 +180,14 @@ pub fn resolve_commit(root: &str, reference: &str, cancel: &Cancel) -> Outcome<C
     if let Some(reason) = object_view(&repo, cancel) {
         return Outcome::fallback(reason);
     }
-    if let Some(id) = commit_spec(&repo, reference) {
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
+    let resolved = commit_spec(&repo, reference);
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
+    if let Some(id) = resolved {
         return Outcome::data(CommitResolution::commit(id));
     }
     // `HEAD` naming a branch with no commit yet is a new repository, not a bad ref. Git asks
@@ -198,11 +215,17 @@ pub fn branch_head(root: &str, reference: &str, cancel: &Cancel) -> Outcome<Opti
     if let Some(reason) = object_view(&repo, cancel) {
         return Outcome::fallback(reason);
     }
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
     let commit = repo
         .find_reference(reference)
         .ok()
         .and_then(|mut found| found.peel_to_kind(gix::object::Kind::Commit).ok())
         .map(|object| object.id);
+    if cancel.aborted() {
+        return Outcome::fallback(Fallback::Cancelled);
+    }
     Outcome::data(commit.map(|id| id.to_string()))
 }
 
@@ -226,9 +249,8 @@ pub fn branch_refs(
         return Outcome::fallback(reason);
     }
     match listing::branch_refs(&repo, patterns, count, cancel) {
-        Some(lines) => Outcome::data(lines),
-        None if cancel.aborted() => Outcome::fallback(Fallback::Cancelled),
-        None => Outcome::fallback(Fallback::Unreadable),
+        Ok(lines) => Outcome::data(lines),
+        Err(reason) => Outcome::fallback(reason),
     }
 }
 
@@ -249,9 +271,8 @@ pub fn branch_names(
         return Outcome::fallback(Fallback::AmbiguousRefs);
     }
     match listing::branch_names(&repo, patterns, count, cancel) {
-        Some(lines) => Outcome::data(lines),
-        None if cancel.aborted() => Outcome::fallback(Fallback::Cancelled),
-        None => Outcome::fallback(Fallback::Unreadable),
+        Ok(lines) => Outcome::data(lines),
+        Err(reason) => Outcome::fallback(reason),
     }
 }
 
@@ -379,13 +400,48 @@ fn root_ref_file(repo: &gix::Repository, name: &[u8]) -> bool {
     !name.is_empty() && reads_ref(&repo.git_dir().join(name))
 }
 
-/// Whether a file's bytes name a ref: an object id, or `ref: <name>`.
+/// The largest file a root ref can be: an object id or one `ref: <name>` line, far above any
+/// real ref and far below what could hold a worker.
+const ROOT_REF_MAX_BYTES: u64 = 64 * 1024;
+
+/// Whether a file's bytes name a ref: an object id, or `ref: <name>`. Anything else — a
+/// directory, a FIFO, a link loop, a file past the bound — is not a ref for Git either.
 fn reads_ref(path: &std::path::Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
+    let Ok(link) = std::fs::symlink_metadata(path) else {
         return false;
     };
+    // Git reads a symlinked root ref as a symbolic ref naming its target.
+    if link.file_type().is_symlink() {
+        return std::fs::read_link(path).is_ok_and(|target| !target.as_os_str().is_empty());
+    }
+    if !link.is_file() || link.len() > ROOT_REF_MAX_BYTES {
+        return false;
+    }
+    let Some(mut file) = open_ref_file(path) else {
+        return false;
+    };
+    // The opened file, not the path: it may have been swapped after the stat above.
+    let Ok(meta) = file.metadata() else {
+        return false;
+    };
+    if !meta.is_file() || meta.len() > ROOT_REF_MAX_BYTES {
+        return false;
+    }
+    let mut bytes = Vec::new();
+    {
+        use std::io::Read;
+        if file
+            .by_ref()
+            .take(ROOT_REF_MAX_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_err()
+            || bytes.len() as u64 > ROOT_REF_MAX_BYTES
+        {
+            return false;
+        }
+    }
     let first = bytes.split(|byte| *byte == b'\n').next().unwrap_or(&[]);
-    let text = first.trim_ascii();
+    let text = trim_ascii(first);
     if let Some(target) = text.strip_prefix(b"ref:") {
         return !trim_ascii(target).is_empty();
     }
@@ -394,6 +450,23 @@ fn reads_ref(path: &std::path::Path) -> bool {
         .next()
         .unwrap_or(&[]);
     (oid.len() == 40 || oid.len() == 64) && oid.iter().all(u8::is_ascii_hexdigit)
+}
+
+/// Open a root-ref candidate without ever blocking: a FIFO or device in the Git directory
+/// answers at once and fails the regular-file check instead of holding a worker.
+#[cfg(unix)]
+fn open_ref_file(path: &std::path::Path) -> Option<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .ok()
+}
+
+#[cfg(not(unix))]
+fn open_ref_file(path: &std::path::Path) -> Option<std::fs::File> {
+    std::fs::File::open(path).ok()
 }
 
 /// Trim ASCII whitespace, including the vertical tab C's `isspace` counts and
@@ -568,6 +641,37 @@ mod tests {
             super::branch_names(&root, &["refs/heads".to_owned()], 0, &Cancel::never()),
             Outcome::Fallback(Fallback::AmbiguousRefs)
         ));
+        Ok(())
+    }
+
+    /// A root ref is a small regular file (or a symlink naming one): a FIFO, a directory or a
+    /// file past the bound is not a ref, and probing one never blocks a worker.
+    #[test]
+    fn only_a_small_regular_file_or_symlink_is_a_root_ref() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let scratch = Scratch::new()?;
+        repository(&scratch)?;
+        let repo = super::open(&root(&scratch)).ok_or("repository opens")?;
+        let name = gix::bstr::BStr::new(b"ORIG_HEAD");
+        let fifo = scratch.git().join("ORIG_HEAD");
+        let made = std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .is_ok_and(|status| status.success());
+        if made {
+            assert!(!super::root_ref(&repo, name));
+            std::fs::remove_file(&fifo)?;
+        }
+        std::fs::write(&fifo, vec![b'a'; 70 * 1024])?;
+        assert!(!super::root_ref(&repo, name));
+        std::fs::write(&fifo, "1111111111111111111111111111111111111111\n")?;
+        assert!(super::root_ref(&repo, name));
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&fifo)?;
+            std::os::unix::fs::symlink("refs/heads/main", &fifo)?;
+            assert!(super::root_ref(&repo, name));
+        }
         Ok(())
     }
 

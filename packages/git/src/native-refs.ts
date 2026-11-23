@@ -22,9 +22,12 @@ import {
   type NativeBackend,
 } from "@ace/provider-kit/native-switches";
 import { textOutput } from "./cli.ts";
+import { windowsHooklessArgs } from "./disabled-hooks.ts";
 import {
   countGitFallback,
   gitAddon,
+  type NativeReply,
+  type NativeSettle,
   recordGitOp,
   reserveGitOpSeq,
   throwGitError,
@@ -69,40 +72,74 @@ function fallbackReason(seq: number, fallback: string, op: RefsOp, selected: Nat
   countGitFallback(fallback);
 }
 
+/** One read's promise, settled by the addon's callback on the JavaScript thread. */
+function settled(start: (settle: NativeSettle) => void): Promise<NativeReply> {
+  return new Promise<NativeReply>((resolve, reject) => {
+    start((error, reply) => {
+      if (error !== null && error !== undefined) {
+        try {
+          throwGitError(error);
+        } catch (mapped) {
+          reject(mapped);
+        }
+        return;
+      }
+      if (reply === undefined) {
+        reject(new GitError("git_failed", "ace-git refs reply is empty"));
+        return;
+      }
+      resolve(reply);
+    });
+  });
+}
+
 /**
- * Runs one native read off the JavaScript thread. The caller's signal aborts it and the
- * call's deadline stops it, both through the token the core polls; the promise then rejects
- * with the error `GitCli` would raise for the same process.
+ * Runs one native read on the binding's own worker pool. `GitCli` admits it like a process
+ * (the 64-call limit and the `close()` drain) and the caller's signal or the call's deadline
+ * stops it through the token the core polls; the promise then rejects with the error `GitCli`
+ * would raise for the same process. A task keeps its admission slot and token until it ends.
  */
 async function invoke(
+  repository: Repository,
   timeoutMs: number,
   args: readonly string[],
-  attempt: (token: number) => Promise<Buffer | string>,
+  read: (token: number, settle: NativeSettle) => void,
   signal?: AbortSignal,
-): Promise<Buffer | string> {
+): Promise<NativeReply> {
   const addon = gitAddon();
-  const token = addon.gitRefsAbortToken();
+  let token: number | undefined;
+  const native = repository.cli.nativeCall(() => {
+    token = addon.gitRefsAbortToken();
+    const started = token;
+    return settled((settle) => read(started, settle));
+  });
+  const stop = () => {
+    if (token !== undefined) addon.gitRefsAbort(token);
+  };
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   const stopped = new Promise<never>((_, reject) => {
     if (signal?.aborted) {
-      addon.gitRefsAbort(token);
+      stop();
       reject(new GitError("git_cancelled", "Git operation cancelled before dispatch"));
       return;
     }
     onAbort = () => {
-      addon.gitRefsAbort(token);
+      stop();
       reject(new GitError("git_cancelled", "Git operation cancelled"));
     };
     signal?.addEventListener("abort", onAbort, { once: true });
     timer = setTimeout(() => {
-      addon.gitRefsAbort(token);
-      reject(new GitError("git_timeout", `Git exceeded ${timeoutMs}ms`, { args: [...args] }));
+      stop();
+      // Windows runs Git with rewritten arguments; its deadline error names those.
+      const timed =
+        repository.cli.platform === "win32" ? windowsHooklessArgs([...args]) : [...args];
+      reject(new GitError("git_timeout", `Git exceeded ${timeoutMs}ms`, { args: timed }));
     }, timeoutMs);
     (timer as { unref?: () => void }).unref?.();
   });
   try {
-    return await Promise.race([attempt(token), stopped]);
+    return await Promise.race([native, stopped]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
@@ -119,9 +156,9 @@ async function run<T>(
   op: RefsOp,
   ineligible: string | undefined,
   args: readonly string[],
-  attempt: (token: number) => Promise<Buffer | string>,
+  attempt: (token: number, settle: NativeSettle) => void,
   typescript: () => Promise<T>,
-  accept: (reply: Buffer | string) => { data: T } | { fallback: string },
+  accept: (reply: NativeReply) => { data: T } | { fallback: string },
   signal?: AbortSignal,
 ): Promise<T> {
   // `GitCli` refuses an aborted call before dispatching; a cancelled call is no operation.
@@ -141,7 +178,7 @@ async function run<T>(
   }
   let accepted: { data: T } | { fallback: string };
   try {
-    accepted = accept(await invoke(repository.cli.timeoutMs, args, attempt, signal));
+    accepted = accept(await invoke(repository, repository.cli.timeoutMs, args, attempt, signal));
   } catch (error) {
     record({ seq, op, selected, completed: "native" });
     throwGitError(error);
@@ -172,7 +209,7 @@ function fallbackOf(parsed: unknown): string | undefined {
 }
 
 /** The bytes of a listing, or the reason the CLI has to print it. */
-function listingReply(reply: Buffer | string): { data: Buffer } | { fallback: string } {
+function listingReply(reply: NativeReply): { data: Buffer } | { fallback: string } {
   if (typeof reply === "string") {
     const fallback = fallbackOf(JSON.parse(reply));
     if (fallback === undefined)
@@ -183,7 +220,7 @@ function listingReply(reply: Buffer | string): { data: Buffer } | { fallback: st
 }
 
 /** One `ace-json` value, or the reason the CLI has to answer instead. */
-function valueReply<T>(reply: Buffer | string): { data: T } | { fallback: string } {
+function valueReply<T>(reply: NativeReply): { data: T } | { fallback: string } {
   if (typeof reply !== "string") throw new GitError("git_failed", "ace-git refs reply is not JSON");
   const parsed: unknown = JSON.parse(reply);
   const fallback = fallbackOf(parsed);
@@ -205,7 +242,7 @@ export async function worktreeRecords(
     "listWorktrees",
     injected(repository),
     args,
-    (token) => gitAddon().gitRefsWorktrees(token, repo),
+    (token, settle) => gitAddon().gitRefsWorktrees(token, repo, settle),
     typescript,
     listingReply,
     signal,
@@ -242,7 +279,7 @@ export async function branchRefLines(
     "branchRefs",
     injected(repository),
     args,
-    (token) => gitAddon().gitRefsBranchListing(token, root, [...patterns], count),
+    (token, settle) => gitAddon().gitRefsBranchListing(token, root, [...patterns], count, settle),
     typescript,
     (reply) => {
       const accepted = listingReply(reply);
@@ -265,7 +302,7 @@ export async function branchNameLines(repository: Repository, root: string): Pro
     "branches",
     injected(repository),
     args,
-    (token) => gitAddon().gitRefsBranchNames(token, root, [...patterns], 1001),
+    (token, settle) => gitAddon().gitRefsBranchNames(token, root, [...patterns], 1001, settle),
     typescript,
     (reply) => {
       const accepted = listingReply(reply);
@@ -309,7 +346,7 @@ export async function resolveCommitRef(
     "resolveCommit",
     ineligible,
     args,
-    (token) => gitAddon().gitRefsCommit(token, root, ref),
+    (token, settle) => gitAddon().gitRefsCommit(token, root, ref, settle),
     typescript,
     (reply) => valueReply<CommitKind>(reply),
     signal,
@@ -337,7 +374,7 @@ export async function branchCommit(
     "branchHead",
     injected(repository),
     args,
-    (token) => gitAddon().gitRefsBranchHead(token, root, ref),
+    (token, settle) => gitAddon().gitRefsBranchHead(token, root, ref, settle),
     typescript,
     (reply) => {
       const accepted = valueReply<string | null>(reply);

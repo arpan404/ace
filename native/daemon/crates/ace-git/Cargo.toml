@@ -23,6 +23,8 @@ thiserror = { version = "2" }
 serde = { version = "1", features = ["derive"] }
 # tokio: the I/O runtime for process pumps, timers and stop tasks (the workspace's version and features).
 tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
+# libc: O_NONBLOCK when probing a root ref, so a FIFO in the Git directory can never block a worker.
+libc = { version = "0.2" }
 # gix: ref, branch and worktree-list reads (G1) and display-only status (G7), behind each caller's
 # contract and decoder. default-features off with only the ADR's features; never
 # pack-cache-lru-static: it pulls uluru (MPL-2.0), which deny.toml bans.

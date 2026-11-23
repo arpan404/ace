@@ -17,7 +17,11 @@ use gix::config::AsKey;
 use gix::objs::Exists;
 use gix::refs::TargetRef;
 
-use super::{Cancel, root_ref, shorten};
+use super::{Cancel, Fallback, root_ref, shorten};
+
+/// The most listed refs a native listing sorts. Beyond it the CLI prints the listing: the
+/// sort is the one step cancellation cannot interrupt, so it stays bounded.
+const LISTED_REF_LIMIT: usize = 100_000;
 
 /// One ref of the repository: its name, symbolic target and referent object, without any
 /// object lookup so a listing only pays for the refs it prints.
@@ -39,7 +43,7 @@ pub(super) fn branch_refs(
     patterns: &[String],
     count: u32,
     cancel: &Cancel,
-) -> Option<Vec<u8>> {
+) -> Result<Vec<u8>, Fallback> {
     let entries = catalog(repo, cancel)?;
     let graph = repo.commit_graph_if_enabled().ok().flatten();
     let mut listed: Vec<(i64, &Entry, gix::hash::ObjectId)> = Vec::new();
@@ -49,13 +53,19 @@ pub(super) fn branch_refs(
         .filter_map(|entry| entry.target.map(|target| (entry, target)))
     {
         if cancel.aborted() {
-            return None;
+            return Err(Fallback::Cancelled);
         }
-        match commit_of(repo, graph.as_ref(), target)? {
-            Some((commit, time)) => listed.push((time, entry, commit)),
+        match commit_of(repo, graph.as_ref(), target) {
+            Some(Some((commit, time))) => listed.push((time, entry, commit)),
             // Not a commit: the atom has no date, and Git sorts it with the empty ones.
-            None => listed.push((0, entry, target)),
+            Some(None) => listed.push((0, entry, target)),
+            None if cancel.aborted() => return Err(Fallback::Cancelled),
+            // Missing object or unreadable store: Git both words and sorts that itself.
+            None => return Err(Fallback::Unreadable),
         }
+    }
+    if listed.len() > LISTED_REF_LIMIT {
+        return Err(Fallback::TooManyRefs);
     }
     listed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
     if count > 0 {
@@ -64,7 +74,7 @@ pub(super) fn branch_refs(
     let mut out = Vec::new();
     for (_, entry, commit) in listed {
         if cancel.aborted() {
-            return None;
+            return Err(Fallback::Cancelled);
         }
         out.extend_from_slice(&entry.name);
         out.push(0);
@@ -72,13 +82,17 @@ pub(super) fn branch_refs(
             out.extend_from_slice(symbolic);
         }
         out.push(0);
-        let upstream = upstream(repo, &entries, entry, commit, cancel)?;
+        let upstream = match upstream(repo, &entries, entry, commit, cancel) {
+            Some(upstream) => upstream,
+            None if cancel.aborted() => return Err(Fallback::Cancelled),
+            None => return Err(Fallback::Unreadable),
+        };
         out.extend_from_slice(&upstream.short);
         out.push(0);
         out.extend_from_slice(&upstream.track);
         out.push(b'\n');
     }
-    Some(out)
+    Ok(out)
 }
 
 /// `for-each-ref --format=%(refname:short)`, in ref name order (Git's default sort).
@@ -87,7 +101,7 @@ pub(super) fn branch_names(
     patterns: &[String],
     count: u32,
     cancel: &Cancel,
-) -> Option<Vec<u8>> {
+) -> Result<Vec<u8>, Fallback> {
     let entries = catalog(repo, cancel)?;
     // Git skips a dangling symbolic ref while collecting, so it never uses a `--count` slot.
     let mut listed: Vec<(&Entry, gix::hash::ObjectId)> = entries
@@ -95,6 +109,9 @@ pub(super) fn branch_names(
         .filter(|entry| matches(entry.name.as_bytes(), patterns))
         .filter_map(|entry| entry.target.map(|target| (entry, target)))
         .collect();
+    if listed.len() > LISTED_REF_LIMIT {
+        return Err(Fallback::TooManyRefs);
+    }
     if count > 0 {
         listed.truncate(count as usize);
     }
@@ -103,25 +120,30 @@ pub(super) fn branch_names(
     let mut out = Vec::new();
     for (entry, target) in listed {
         if cancel.aborted() {
-            return None;
+            return Err(Fallback::Cancelled);
         }
         // A ref whose object is gone is skipped or fatal depending on Git's hash and reader,
         // so Git decides by running the command.
         if !present(repo, graph.as_ref(), target) {
-            return None;
+            return Err(Fallback::Unreadable);
         }
         out.extend_from_slice(&shorten(entry.name.as_bstr(), &exists));
         out.push(b'\n');
     }
-    Some(out)
+    Ok(out)
 }
 
 /// Every ref of the repository, name-sorted, with the ref-store facts each atom needs.
-fn catalog(repo: &gix::Repository, cancel: &Cancel) -> Option<Vec<Entry>> {
+fn catalog(repo: &gix::Repository, cancel: &Cancel) -> Result<Vec<Entry>, Fallback> {
     let mut entries = Vec::new();
-    for item in repo.references().ok()?.all().ok()? {
+    let list = repo.references().map_err(|_| Fallback::Unreadable)?;
+    let items = list.all().map_err(|_| Fallback::Unreadable)?;
+    for item in items {
         if cancel.aborted() {
-            return None;
+            return Err(Fallback::Cancelled);
+        }
+        if entries.len() > LISTED_REF_LIMIT {
+            return Err(Fallback::TooManyRefs);
         }
         // Git warns about and skips a ref it cannot parse; so does the listing.
         let Ok(reference) = item else {
@@ -140,7 +162,7 @@ fn catalog(repo: &gix::Repository, cancel: &Cancel) -> Option<Vec<Entry>> {
         });
     }
     entries.sort_by(|a, b| a.name.cmp(&b.name));
-    Some(entries)
+    Ok(entries)
 }
 
 /// A ref's commit and committer time, or `None` for an object that isn't a commit; the outer

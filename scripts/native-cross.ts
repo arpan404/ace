@@ -13,7 +13,8 @@
  * instances boot no root: `ACE_GIT=<parts> bun scripts/native-cross.ts
  * ACE_GIT <file>`. A fallback the owning work item didn't list fails the run:
  * G0's `unimplemented` stub and G1's reasons (`reftable`, `replace`, `grafts`,
- * `shallow`, `ambiguous_refs`, `worktree_reason`, `unreadable`, `cancelled`,
+ * `shallow`, `too_many_refs`, `ambiguous_refs`, `worktree_reason`, `unreadable`,
+ * `cancelled`,
  * `directory_fd`, `injected`). Each item adds the reasons it may produce.
  *
  * The switch's starting-on value comes from this environment (set
@@ -122,6 +123,7 @@ const listedFallbacks = new Set([
   "replace",
   "grafts",
   "shallow",
+  "too_many_refs",
   "ambiguous_refs",
   "worktree_reason",
   "unreadable",

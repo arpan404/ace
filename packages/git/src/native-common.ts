@@ -42,24 +42,35 @@ export interface GitDigestEntry {
   summary: string;
 }
 
+/** A ref read's answer: the bytes Git would print, or its `ace-json` text. */
+export type NativeReply = Uint8Array | string;
+
+/**
+ * The addon callback that settles one ref read, on the JavaScript thread: `error` is the
+ * addon's `git_failed` error and `reply` its answer.
+ */
+export type NativeSettle = (error: unknown, reply?: NativeReply) => void;
+
 interface GitAddon {
   gitRefsAbortToken(): number;
   gitRefsAbort(token: number): void;
-  gitRefsWorktrees(token: number, root: string): Promise<Buffer | string>;
+  gitRefsWorktrees(token: number, root: string, settle: NativeSettle): void;
   gitRefsBranchListing(
     token: number,
     root: string,
     patterns: string[],
     count: number,
-  ): Promise<Buffer | string>;
+    settle: NativeSettle,
+  ): void;
   gitRefsBranchNames(
     token: number,
     root: string,
     patterns: string[],
     count: number,
-  ): Promise<Buffer | string>;
-  gitRefsCommit(token: number, root: string, reference: string): Promise<string>;
-  gitRefsBranchHead(token: number, root: string, reference: string): Promise<string>;
+    settle: NativeSettle,
+  ): void;
+  gitRefsCommit(token: number, root: string, reference: string, settle: NativeSettle): void;
+  gitRefsBranchHead(token: number, root: string, reference: string, settle: NativeSettle): void;
   gitCoreProbe(op: string): string;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;
