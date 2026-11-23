@@ -69,6 +69,28 @@ pub enum EncodeEffect {
         token: u64,
         url: String,
     },
+    /// Start reading a scrcpy source's video socket itself (D1) under `token`: the reader
+    /// dials the adb-forwarded `host:port` within `deadline_ms`, greets the daemon (which
+    /// connects control), then reads the name and codec and streams units. Its units come
+    /// back as encoded units, its end as a drain or a failure.
+    Scrcpy {
+        source: String,
+        token: u64,
+        host: String,
+        port: u32,
+        deadline_ms: u64,
+    },
+    /// Re-dial a scrcpy source's video handshake at this tunnel (a restart under the same
+    /// source, or a reopen after ace-media restarted).
+    ScrcpyDial {
+        source: String,
+        token: u64,
+        host: String,
+        port: u32,
+    },
+    /// The daemon connected a scrcpy source's control socket: its reader may read the device
+    /// name and codec id now.
+    ScrcpyControl { source: String, token: u64 },
     Configure {
         source: String,
         /// The encoder this is for (`Sources` gives each encoder one).
@@ -116,6 +138,9 @@ impl std::fmt::Debug for EncodeEffect {
             Self::Key { source, encode, .. } => write!(f, "Key({source}, {encode})"),
             Self::Drain { source, .. } => write!(f, "Drain({source})"),
             Self::Read { source, .. } => write!(f, "Read({source})"),
+            Self::Scrcpy { source, .. } => write!(f, "Scrcpy({source})"),
+            Self::ScrcpyDial { source, .. } => write!(f, "ScrcpyDial({source})"),
+            Self::ScrcpyControl { source, .. } => write!(f, "ScrcpyControl({source})"),
             Self::Close { source, .. } => write!(f, "Close({source})"),
         }
     }
@@ -307,6 +332,7 @@ impl Engine {
                 epoch,
                 private,
                 origin,
+                deadline_ms,
                 ..
             } => {
                 self.sources.open(
@@ -314,6 +340,7 @@ impl Engine {
                     handle,
                     epoch,
                     &origin,
+                    deadline_ms.map(u64::from),
                     &payload,
                     vault,
                     now.mono_ms,
@@ -394,6 +421,12 @@ impl Engine {
                 );
                 self.stills.close(source.get(), out);
                 self.delivery.source_closed(source.get());
+            }
+            ToMedia::SourceDial { source, host, port } => {
+                self.sources.dial(&source, &host, port, out)
+            }
+            ToMedia::SourceControlConnected { source } => {
+                self.sources.control_connected(&source, out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::SourceEncodes { source, encodes } => {
@@ -853,6 +886,33 @@ impl Engine {
     pub fn encoder_drained(&mut self, source: &str, token: u64) {
         self.sources
             .encoder_drained(source, token, self.egress.as_mut(), &mut self.out);
+    }
+
+    /// A scrcpy reader saw the dummy byte: the daemon connects control now. Late greetings
+    /// (the source moved on) say nothing.
+    pub fn scrcpy_greeted(&mut self, source: &str, token: u64) {
+        if self.sources.encoder_is(source, token) {
+            normal(
+                &mut self.out,
+                FromMedia::SourceGreeted {
+                    source: id_of(source),
+                },
+            );
+        }
+    }
+
+    /// A scrcpy reader finished the handshake: video follows on egress. A late device name
+    /// (the source moved on) says nothing.
+    pub fn scrcpy_ready(&mut self, source: &str, token: u64, device_name: String) {
+        if self.sources.encoder_is(source, token) {
+            normal(
+                &mut self.out,
+                FromMedia::SourceReady {
+                    source: id_of(source),
+                    device_name,
+                },
+            );
+        }
     }
 
     /// The shell's count of picture encoder threads still alive past their deadline. They hold
