@@ -37,7 +37,13 @@ import {
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
-import { recoveryDelay } from "@ace/service";
+import {
+  daemonLaunches,
+  launchEnvironment,
+  recoveryDelay,
+  spawnDaemonRuntime,
+  startableDaemonRuntime,
+} from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 import { updateArguments } from "./update-arguments.ts";
@@ -275,15 +281,33 @@ export async function supervise() {
           process.removeListener("SIGINT", stop);
         };
       },
-      spawnDaemon: () =>
-        spawn(process.execPath, [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "start"], {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: {
+      // The daemon runs as `ace Service` (`ace-service` on Linux), a link to this runtime, and
+      // on the runtime itself if that cannot start.
+      spawnDaemon: () => {
+        const launches = daemonLaunches(
+          process.execPath,
+          startableDaemonRuntime(process.execPath, process.platform),
+          fileURLToPath(new URL("./ace.mjs", import.meta.url)),
+          ["start"],
+        );
+        // Bun starts in the daemon's own folder, so the service's working directory (a home with
+        // a bunfig.toml or .env) never applies; the daemon then returns to it itself.
+        const env = launchEnvironment(
+          {
             ...process.env,
             ACE_VERSION: manifest.version,
             ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
           },
-        }),
+          process.cwd(),
+        );
+        return spawnDaemonRuntime(launches, (launch) =>
+          spawn(launch.command, launch.args, {
+            cwd: launch.cwd,
+            stdio: ["ignore", "pipe", "pipe"],
+            env,
+          }),
+        );
+      },
       launchUpdate(command) {
         const launch = planUpdateLaunch({
           platform: process.platform,
