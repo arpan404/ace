@@ -75,7 +75,15 @@ export interface SpadeVoiceSetupRow {
   none: string | null;
 }
 
-type Refusal = { ok: false; title: string; message: string; picked?: string };
+type Refusal = {
+  ok: false;
+  title: string;
+  message: string;
+  /** A refused setup that had already made its endpoint: that endpoint, to pick for a retry. */
+  picked?: string;
+  /** The foot as it now is, so the retry offers the endpoint just made. */
+  foot?: SpadeFootRow;
+};
 export type SpadeOnboardingAnswer =
   | Refusal
   | { ok: true; foot: SpadeFootRow }
@@ -129,16 +137,25 @@ async function readFoot(ask: Ask, conversation: string): Promise<SpadeFootRow> {
 /** An address as Spade keeps it: ending in `/`, so model paths join onto it. */
 const address = (typed: string) => (typed.endsWith("/") ? typed : `${typed}/`);
 
-/** The model to answer with on `target`: the one picked, else Spade's own there, else its first. */
+/**
+ * The model to answer with on `target`: the one picked, else Spade's own there, else its first.
+ * A model id that holds the key just pasted is never used, whether typed or listed by the
+ * endpoint: it would become the bot's model, stored and shown everywhere (ADR 0119).
+ */
 async function firstModel(
   ask: Ask,
   target: SpadeEndpoint,
   picked: string | undefined,
   now: string,
+  key: string | undefined,
 ) {
+  const holdsKey = (id: string) => key !== undefined && id.includes(key);
+  if (picked && holdsKey(picked))
+    throw new Error("That model id holds the key. Type the model's own id.");
   const current = splitSpadeModel(now);
-  const known =
-    picked || (current.endpoint === target.id ? current.model : "") || target.models[0]?.id;
+  const saved = target.models.find((model) => !holdsKey(model.id))?.id;
+  const own = current.endpoint === target.id && !holdsKey(current.model) ? current.model : "";
+  const known = picked || own || saved;
   if (known) return known;
   let listed: SpadeModelInfo[] | undefined;
   try {
@@ -149,7 +166,7 @@ async function firstModel(
       { cause: error },
     );
   }
-  const first = listed?.[0]?.id;
+  const first = listed?.find((model) => !holdsKey(model.id))?.id;
   if (!first)
     throw new Error("It lists no models. Type the id of the model Spade should answer with.");
   return first;
@@ -193,7 +210,11 @@ async function setUpModel(ask: Ask, request: ModelRequest): Promise<SpadeOnboard
     };
   // Once an endpoint is made, a second try sets its key and model, never adds another.
   let made: string | undefined;
-  const fail = (refusal: Refusal): Refusal => (made ? { ...refusal, picked: made } : refusal);
+  const fail = async (refusal: Refusal): Promise<Refusal> => {
+    if (!made) return refusal;
+    const foot = await readFoot(ask, request.conversationId).catch(() => undefined);
+    return { ...refusal, picked: made, ...(foot === undefined ? {} : { foot }) };
+  };
   try {
     if (custom && typed) {
       target = sure(
@@ -222,7 +243,7 @@ async function setUpModel(ask: Ask, request: ModelRequest): Promise<SpadeOnboard
       return fail(secretRefusal(keepKey, error));
     }
   try {
-    const chosen = await firstModel(ask, target, request.model, main.model);
+    const chosen = await firstModel(ask, target, request.model, main.model, key);
     const ref = `${target.id}/${chosen}`;
     if (ref !== main.model) await ask("PATCH", `/v1/agents/${segment(main.id)}`, { model: ref });
   } catch (error) {

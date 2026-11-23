@@ -216,3 +216,21 @@ test("voice setup offers the person's models that turn speech into words, and sa
     voice: { needed: true, choices: [], none: expect.stringMatching(/^None of your endpoints/) },
   });
 });
+
+test("a server that lists a model id holding the pasted key never gets it used as Spade's model", async () => {
+  const key = "sk-local-hostile-91";
+  const { ask, api } = await fresh((fake) => {
+    fake.liveModels.set("my-server", [{ id: `echo-${key}` }, { id: "llama3" }]);
+  });
+
+  const answer = await ask({
+    type: "spade.onboarding.model",
+    conversationId: conversationOf(api, "spade"),
+    choice: "custom",
+    address: "http://my-server:11434/v1/",
+    key,
+  });
+
+  expect(JSON.stringify(answer)).not.toContain(key);
+  expect(api.agents.find((agent) => agent.id === "spade")?.model).toBe("my-server/llama3");
+});
