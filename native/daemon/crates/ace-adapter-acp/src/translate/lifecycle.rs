@@ -32,13 +32,7 @@ pub fn end_prompt(
     facts: &mut Vec<Value>,
 ) {
     state.prompt_open = false;
-    if agent_key == state.root.key {
-        state.root.suspended = false;
-    } else if let Some(agent) = state
-        .agents
-        .values_mut()
-        .find(|agent| agent.key == *agent_key)
-    {
+    if let Some(agent) = state.agent_by_key_mut(agent_key) {
         agent.suspended = false;
     }
     let cancelled = reason == "cancelled";
@@ -148,7 +142,7 @@ pub fn end_prompt(
                 let is_placeholder = state.tools.get(&tool_key).is_some_and(|_| {
                     child_native
                         .as_ref()
-                        .and_then(|id| state.agents.get(id))
+                        .and_then(|id| state.agents.get(&ace_json::JsString::from(id.as_str())))
                         .is_some_and(|child| child.placeholder)
                 });
                 if is_placeholder {
@@ -158,7 +152,7 @@ pub fn end_prompt(
                 let _ = child_key;
                 child_native
                     .as_ref()
-                    .and_then(|id| state.agents.get(id))
+                    .and_then(|id| state.agents.get(&ace_json::JsString::from(id.as_str())))
                     .is_some_and(|child| !child.terminal)
             });
         if !cancelled && has_terminal_child {
@@ -217,7 +211,11 @@ pub fn end_prompt(
             .tools
             .get(&tool_key)
             .and_then(|tool| tool.child_native_id.clone())
-            .and_then(|native_id| state.agents.get(&native_id))
+            .and_then(|native_id| {
+                state
+                    .agents
+                    .get(&ace_json::JsString::from(native_id.as_str()))
+            })
             .is_some_and(|child| child.placeholder);
         if has_placeholder_child {
             placeholder_child(state, &tool_key, facts);
@@ -226,7 +224,7 @@ pub fn end_prompt(
     }
     // Stray sessions end with the root's prompt.
     if agent_key == state.root.key {
-        let stray_keys: Vec<String> = state
+        let stray_keys: Vec<ace_json::JsString> = state
             .agents
             .values()
             .filter(|child| {
@@ -299,16 +297,10 @@ pub fn end_prompt(
             facts.push(Value::Object(closed));
         }
     }
-    let segment = if agent_key == state.root.key {
-        state.root.segment.clone()
-    } else {
-        state
-            .agents
-            .values()
-            .find(|agent| agent.key == *agent_key)
-            .map(|agent| agent.segment.clone())
-            .unwrap_or_default()
-    };
+    let segment = state
+        .agent_by_key(agent_key)
+        .map(|agent| agent.segment.clone())
+        .unwrap_or_default();
     let classified = state.quirks.classify_error(&segment).or_else(|| {
         if reason == "refusal" {
             let mut error = Map::with_capacity(3);

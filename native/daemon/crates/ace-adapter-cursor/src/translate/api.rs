@@ -4,7 +4,7 @@
 //! Behaviour lives in the translator; this only translates values.
 
 use super::text::parse_json;
-use super::text::{JsString, Value, write_json};
+use super::text::{JsString, Value, units_eq, write_json};
 use super::translator::CursorTranslator;
 
 /// Fold one frame's JSON into its facts' JSON array.
@@ -25,6 +25,11 @@ pub fn translate_json(translator: &mut CursorTranslator, frame_json: &str, now_m
         Some(Value::String(dir)) => dir,
         _ => JsString::empty(),
     };
+    // TypeScript checks the channel (and the fenced flag) before admitting
+    // the payload: a non-SDK frame never fences, however large.
+    if !units_eq(channel, "sdk") {
+        return join_values(&[]);
+    }
     if !checked && admission_exceeded(data) {
         return join_values(&translator.overflowed());
     }
@@ -62,22 +67,28 @@ fn join_values(values: &[Value]) -> String {
 
 /// Mirrors the shell's admission budgets on unadmitted frames: 1 MiB,
 /// 32,768 nodes, 64 levels. Past any of them the turn fences, as the
-/// TypeScript's throw does.
+/// TypeScript's throw does. Iterative, so deep nesting cannot overflow.
 fn admission_exceeded(value: &Value) -> bool {
-    fn walk(value: &Value, depth: usize, nodes: &mut usize) -> bool {
-        *nodes += 1;
-        if *nodes > 32_768 || depth > 64 {
+    let mut nodes = 0usize;
+    let mut stack: Vec<(&Value, usize)> = vec![(value, 0)];
+    while let Some((current, depth)) = stack.pop() {
+        nodes += 1;
+        if nodes > 32_768 || depth > 64 {
             return true;
         }
-        match value {
-            Value::Array(items) => items.iter().any(|item| walk(item, depth + 1, nodes)),
-            Value::Object(entries) => entries.iter().any(|(_, item)| walk(item, depth + 1, nodes)),
-            _ => false,
+        match current {
+            Value::Array(items) => {
+                for item in items.iter() {
+                    stack.push((item, depth + 1));
+                }
+            }
+            Value::Object(entries) => {
+                for (_, item) in entries.iter() {
+                    stack.push((item, depth + 1));
+                }
+            }
+            _ => {}
         }
-    }
-    let mut nodes = 0;
-    if walk(value, 0, &mut nodes) {
-        return true;
     }
     let mut text = String::new();
     write_json(&mut text, value);

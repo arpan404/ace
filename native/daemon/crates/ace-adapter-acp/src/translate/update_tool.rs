@@ -83,14 +83,17 @@ pub fn handle_tool_call(
     if let Some(child_native) = pending_child.clone() {
         let child_key = state
             .agents
-            .get(&child_native)
+            .get(&ace_json::JsString::from(child_native.as_str()))
             .map(|agent| agent.key.clone())
             .unwrap_or_default();
         if let Some(tool) = state.tools.get_mut(&tool_key) {
             tool.child_key = Some(child_key.clone());
             tool.child_native_id = Some(child_native.clone());
         }
-        if let Some(child) = state.agents.get_mut(&child_native) {
+        if let Some(child) = state
+            .agents
+            .get_mut(&ace_json::JsString::from(child_native.as_str()))
+        {
             child.spawn = Some(
                 state
                     .tools
@@ -280,15 +283,9 @@ pub fn handle_tool_call(
                 .get(&tool_key)
                 .and_then(|tool| tool.task.clone())
                 .is_some(),
-            if agent_key == state.root.key {
-                state.root.active
-            } else {
-                state
-                    .agents
-                    .values()
-                    .find(|agent| agent.key == *agent_key)
-                    .is_some_and(|agent| agent.active)
-            },
+            state
+                .agent_by_key(agent_key)
+                .is_some_and(|agent| agent.active),
         );
         if !has_task
             && (live || agent_active)
@@ -311,13 +308,7 @@ pub fn handle_tool_call(
         }
     }
     state.finish_stream(agent_key, facts);
-    if agent_key == state.root.key {
-        state.root.segment.clear();
-    } else if let Some(agent) = state
-        .agents
-        .values_mut()
-        .find(|agent| agent.key == *agent_key)
-    {
+    if let Some(agent) = state.agent_by_key_mut(agent_key) {
         agent.segment.clear();
     }
     let (detail, live_snapshot) = {

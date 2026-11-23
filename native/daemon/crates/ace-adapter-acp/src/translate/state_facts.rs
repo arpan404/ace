@@ -4,7 +4,7 @@
 use crate::translate::data::raw;
 use crate::translate::keys::native_agent_key;
 use crate::translate::state::{AgentState, TranslationState};
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 impl TranslationState {
     pub fn ensure_root(&mut self, facts: &mut Vec<Value>) {
@@ -33,10 +33,10 @@ impl TranslationState {
         facts.push(Value::Object(fact));
     }
 
-    pub fn bind_root(&mut self, id: &str, facts: &mut Vec<Value>) {
-        self.root.native_id = id.to_owned();
+    pub fn bind_root(&mut self, id: &JsString, facts: &mut Vec<Value>) {
+        self.root.native_id = id.clone();
         let root_snapshot = self.root.clone();
-        self.agents.insert(id.to_owned(), root_snapshot);
+        self.agents.insert(id.clone(), root_snapshot);
         let mut native = Map::with_capacity(2);
         native.insert(
             "provider".to_owned(),
@@ -61,8 +61,8 @@ impl TranslationState {
 
     /// The agent for a native session id, creating a child when unknown.
     /// Returns the agent's key and whether it was newly created (for fact order).
-    pub fn agent_key(&mut self, id: &str, facts: &mut Vec<Value>) -> String {
-        if id.is_empty() || id == self.root.native_id {
+    pub fn agent_key(&mut self, id: &JsString, facts: &mut Vec<Value>) -> String {
+        if id.is_empty() || id == &self.root.native_id {
             return self.root.key.clone();
         }
         if self.agents.contains_key(id) {
@@ -79,7 +79,7 @@ impl TranslationState {
         let key = native_agent_key(&self.thread_id, id);
         let agent = AgentState {
             key: key.clone(),
-            native_id: id.to_owned(),
+            native_id: id.clone(),
             parent: Some(self.root.key.clone()),
             spawn: None,
             active: false,
@@ -97,7 +97,8 @@ impl TranslationState {
             implicit_turn: false,
             plan_state: None,
         };
-        self.agents.insert(id.to_owned(), agent);
+        self.agents.insert(id.clone(), agent);
+        self.index_agent(&key, id);
         let mut native = Map::with_capacity(2);
         native.insert(
             "provider".to_owned(),
@@ -128,26 +129,13 @@ impl TranslationState {
         );
         reconnected.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
         facts.push(Value::Object(reconnected));
-        let already_active = if agent_key == self.root.key {
-            self.root.active
-        } else {
-            self.agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .is_some_and(|agent| agent.active)
-        };
+        let already_active = self
+            .agent_by_key(agent_key)
+            .is_some_and(|agent| agent.active);
         if already_active {
             return;
         }
-        if agent_key == self.root.key {
-            self.root.active = true;
-            self.root.terminal = false;
-            self.root.segment.clear();
-        } else if let Some(agent) = self
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = self.agent_by_key_mut(agent_key) {
             agent.active = true;
             agent.terminal = false;
             agent.segment.clear();
@@ -173,13 +161,7 @@ impl TranslationState {
         error: Option<Value>,
     ) {
         self.finish_stream(agent_key, facts);
-        if agent_key == self.root.key {
-            self.root.active = false;
-        } else if let Some(agent) = self
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = self.agent_by_key_mut(agent_key) {
             agent.active = false;
         }
         let mut ended = Map::with_capacity(4);
@@ -193,14 +175,9 @@ impl TranslationState {
     }
 
     pub fn finish_stream(&mut self, agent_key: &str, facts: &mut Vec<Value>) {
-        let stream = if agent_key == self.root.key {
-            self.root.stream.clone()
-        } else {
-            self.agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .and_then(|agent| agent.stream.clone())
-        };
+        let stream = self
+            .agent_by_key(agent_key)
+            .and_then(|agent| agent.stream.clone());
         let Some(stream) = stream else {
             return;
         };
@@ -218,13 +195,7 @@ impl TranslationState {
         fact.insert("item".to_owned(), Value::from(stream.key));
         fact.insert("draft".to_owned(), Value::Object(draft));
         facts.push(Value::Object(fact));
-        if agent_key == self.root.key {
-            self.root.stream = None;
-        } else if let Some(agent) = self
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = self.agent_by_key_mut(agent_key) {
             agent.stream = None;
         }
     }

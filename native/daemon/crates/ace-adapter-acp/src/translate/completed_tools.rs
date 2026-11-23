@@ -27,7 +27,7 @@ pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
         Some(tool) => match tool.child_native_id.as_deref() {
             Some(child_id) => state
                 .agents
-                .get(child_id)
+                .get(&ace_json::JsString::from(child_id))
                 .is_some_and(|child| !child.terminal),
             None => false,
         },

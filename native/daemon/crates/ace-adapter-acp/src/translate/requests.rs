@@ -2,7 +2,7 @@
 //! Incoming permission requests (`requests.ts`).
 
 use crate::translate::approval::interaction_key;
-use crate::translate::data::{object, raw, string};
+use crate::translate::data::{js_string, object, raw, string};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
 use ace_json::{Map, Value};
@@ -43,7 +43,7 @@ pub fn open_request(
         let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
         if !session_id.is_empty() {
             // Ensure the agent exists (may push agent.seen facts).
-            let agent_key = state.agent_key(&session_id, facts);
+            let agent_key = state.agent_key(&ace_json::JsString::from(session_id.as_str()), facts);
             let found = state.tool_mut(&agent_key, &session_id, &native_tool);
             match found {
                 Some(key) => (Some(key), agent_key),
@@ -146,7 +146,9 @@ pub fn open_request(
             facts,
         );
         // Re-resolve after the update created it.
-        let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+        let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+            .cloned()
+            .unwrap_or_default();
         if !session_id.is_empty() {
             // agent already ensured; look up tool again.
             if let Some(agent_key) = state

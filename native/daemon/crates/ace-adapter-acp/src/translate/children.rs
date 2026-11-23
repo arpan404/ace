@@ -32,7 +32,7 @@ pub fn child_update(
     let meta = object(update_map.get("_meta").unwrap_or(&Value::Null));
     let cursor_meta = object(meta.get("cursor").unwrap_or(&Value::Null));
     let native_tool = string(cursor_meta.get("toolCallId").unwrap_or(&Value::Null)).to_owned();
-    let previous_tool = state.child_tools.get(&association.id).cloned();
+    let previous_tool = state.child_tools.get(association.id.as_str()).cloned();
     // Resolve the tool without holding borrows.
     let tool_key = if !native_tool.is_empty() {
         state.tool_mut(parent_key, parent_native_id, &native_tool)
@@ -59,7 +59,7 @@ pub fn child_update(
         if let Some(child) = state.agents.get_mut(&association.id) {
             child.spawn = None;
         }
-        state.child_tools.shift_remove(&association.id);
+        state.child_tools.shift_remove(association.id.as_str());
     }
     // Pending spawn tracking.
     let pending_key = if !native_tool.is_empty() && tool_key.is_none() {
@@ -79,7 +79,7 @@ pub fn child_update(
         }
         state
             .pending_children
-            .insert(pending, association.id.clone());
+            .insert(pending, association.id.as_str().to_owned());
     }
     let input = object(
         state
@@ -97,14 +97,14 @@ pub fn child_update(
         let child_key_clone = child_key.clone();
         if let Some(tool) = state.tools.get_mut(&tool_key) {
             tool.child_key = Some(child_key_clone.clone());
-            tool.child_native_id = Some(association.id.clone());
+            tool.child_native_id = Some(association.id.as_str().to_owned());
         }
         if let Some(child) = state.agents.get_mut(&association.id) {
             child.spawn = state.tools.get(&tool_key).map(|tool| tool.key.clone());
         }
         state
             .child_tools
-            .insert(association.id.clone(), tool_key.clone());
+            .insert(association.id.as_str().to_owned(), tool_key.clone());
     }
     // agent.seen for the child.
     {
@@ -254,23 +254,11 @@ pub fn child_update(
                 state.background_tools.shift_remove(&tool_key);
             }
             state.disarm_cancel(&child_key);
-            let parent_suspended = if parent_key == state.root.key {
-                state.root.suspended
-            } else {
-                state
-                    .agents
-                    .values()
-                    .find(|agent| agent.key == *parent_key)
-                    .is_some_and(|agent| agent.suspended)
-            };
+            let parent_suspended = state
+                .agent_by_key(parent_key)
+                .is_some_and(|agent| agent.suspended);
             if parent_suspended {
-                if parent_key == state.root.key {
-                    state.root.suspended = false;
-                } else if let Some(parent) = state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *parent_key)
-                {
+                if let Some(parent) = state.agent_by_key_mut(parent_key) {
                     parent.suspended = false;
                 }
                 state.start(parent_key, facts, "subagent_result");

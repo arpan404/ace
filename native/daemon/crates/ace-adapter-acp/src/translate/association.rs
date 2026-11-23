@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Child associations (`association.ts`).
 
-use crate::translate::data::{object, string};
-use ace_json::Value;
+use crate::translate::data::{js_string, object, string};
+use ace_json::{JsString, Value};
 
 pub struct ChildAssociation {
-    pub id: String,
+    pub id: JsString,
     pub update_type: String,
     pub status: String,
     pub terminal: bool,
@@ -27,11 +27,14 @@ pub fn child_association(update: &Value) -> Option<ChildAssociation> {
     // TypeScript reads `update["subagentSessionId"] ?? update["sessionId"]`,
     // so the subagent id wins when both are present.
     let id = {
-        let sub = string(update_map.get("subagentSessionId").unwrap_or(&Value::Null));
-        if !sub.is_empty() {
-            sub.to_owned()
+        let sub = js_string(update_map.get("subagentSessionId").unwrap_or(&Value::Null));
+        if let Some(sub) = sub
+            && !sub.is_empty()
+        {
+            sub.clone()
         } else {
-            string(update_map.get("sessionId").unwrap_or(&Value::Null)).to_owned()
+            let session = js_string(update_map.get("sessionId").unwrap_or(&Value::Null))?;
+            session.clone()
         }
     };
     if id.is_empty() {

@@ -30,16 +30,10 @@ pub fn plan_update(
     let turn = agent_input_key.unwrap_or_default();
     // The plan entry lives on the agent, like the WeakMap in TypeScript.
     let needs_new = {
-        let plan_turn = if agent_key == state.root.key {
-            state.root.plan_state.as_ref().map(|plan| plan.turn.clone())
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .and_then(|agent| agent.plan_state.clone())
-                .map(|plan| plan.turn)
-        };
+        let plan_turn = state
+            .agent_by_key(agent_key)
+            .and_then(|agent| agent.plan_state.clone())
+            .map(|plan| plan.turn);
         plan_turn.as_deref() != Some(turn.as_str())
     };
     if needs_new {
@@ -49,32 +43,15 @@ pub fn plan_update(
             turn: turn.clone(),
             key: key.clone(),
         };
-        if agent_key == state.root.key {
-            state.root.plan_state = Some(entry);
-        } else if let Some(agent) = state
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = state.agent_by_key_mut(agent_key) {
             agent.plan_state = Some(entry);
         }
     }
-    let plan_key = if agent_key == state.root.key {
-        state
-            .root
-            .plan_state
-            .as_ref()
-            .map(|plan| plan.key.clone())
-            .unwrap_or_default()
-    } else {
-        state
-            .agents
-            .values()
-            .find(|agent| agent.key == *agent_key)
-            .and_then(|agent| agent.plan_state.clone())
-            .map(|plan| plan.key)
-            .unwrap_or_default()
-    };
+    let plan_key = state
+        .agent_by_key(agent_key)
+        .and_then(|agent| agent.plan_state.clone())
+        .map(|plan| plan.key)
+        .unwrap_or_default();
     let mut detail = Map::with_capacity(2);
     detail.insert("kind".to_owned(), Value::from("todo".to_owned()));
     detail.insert(
@@ -136,7 +113,9 @@ pub fn waits_on_background_child(state: &TranslationState, agent_key: &str) -> b
         if let Some(tool) = state.tools.get(tool_key)
             && tool.owner_key == *agent_key
             && let Some(child_native) = tool.child_native_id.clone()
-            && let Some(child) = state.agents.get(&child_native)
+            && let Some(child) = state
+                .agents
+                .get(&ace_json::JsString::from(child_native.as_str()))
             && child.background
             && !child.terminal
         {

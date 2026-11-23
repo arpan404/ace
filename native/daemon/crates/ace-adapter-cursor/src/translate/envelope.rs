@@ -126,15 +126,13 @@ pub fn parse_envelope(value: &Value) -> Option<Envelope<'_>> {
         Some(Value::String(kind)) if !kind.is_empty() && kind.len_utf16() <= 128 => kind,
         _ => return None,
     };
-    let segment = match value.get("segment") {
-        Some(value) => {
-            let segment = value.as_i64()?;
-            if segment < 0 {
-                return None;
-            }
-            segment
+    let segment = {
+        let value = value.get("segment")?;
+        let segment = value.as_i64()?;
+        if segment < 0 {
+            return None;
         }
-        None => return None,
+        segment
     };
     for key in ["commandId", "agentId", "runId"] {
         if let Some(value) = value.get(key)
