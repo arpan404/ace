@@ -4,7 +4,7 @@
 //! the spawn options of `process.ts`, `process-bytes.ts` and
 //! `process-interactive.ts`; the running child lives in `child.rs`.
 
-use crate::errors::SupervisorError;
+use crate::errors::{NodeIoError, SupervisorError};
 use crate::pump::Flow;
 use std::sync::Arc;
 
@@ -199,8 +199,9 @@ pub trait EventSink: Send + Sync + 'static {
     fn close(&self, exit: RawExit);
     /// One stdin write reached the pipe; the shell's write callback runs.
     fn stdin_written(&self);
-    /// A stdin write failed; no later write reaches the child.
-    fn stdin_error(&self, message: String);
+    /// A stdin write failed; no later write reaches the child. The shell
+    /// rejects the write with node's `code` and message (`write EPIPE`).
+    fn stdin_error(&self, error: NodeIoError);
     /// The shell gave the group up and it outlived the hold limit: the
     /// shell kills it through its guard (the group is still held).
     fn hold_limit(&self);
