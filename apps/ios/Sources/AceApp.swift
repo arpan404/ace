@@ -52,8 +52,12 @@ import QuartzCore
             .overlay(alignment: .topLeading) { LaunchProbeView() }
         }
         .commands {
-            ThreadCommands()
-            PanelMenuCommands()
+            // The iPhone binds these in its views. Registering scene commands there
+            // lets UIKit rebuild SwiftUI's command environment during a view update.
+            if UIDevice.current.userInterfaceIdiom == .pad {
+                ThreadCommands()
+                PanelMenuCommands()
+            }
         }
     }
     @ViewBuilder private var renderFixture: some View {
