@@ -216,3 +216,126 @@ impl Engine {
         ToolOutput::ok(json!({ "tasks": shown }).to_string())
     }
 }
+
+impl Engine {
+    /// After lane `id` stored `asked` (an `ask_user` card, and its deferral when it waits on
+    /// nothing): the same card in main, naming the lane, where the person answers it (ADR 0217
+    /// §4). Its call id there is `<lane>.<call>`.
+    pub(in super::super) fn ask_in_main(&self, id: &str, asked: &[Event]) {
+        let Some(row) = self.lane_row(id) else { return };
+        let title = self.lane_title(id);
+        let mirrored: Vec<Event> = asked
+            .iter()
+            .filter_map(|event| match event {
+                Event::Known(Known::QuestionAsked {
+                    call_id,
+                    question,
+                    questions,
+                    later,
+                    ..
+                }) => Some(Event::Known(Known::QuestionAsked {
+                    reply: row.reply.clone(),
+                    call_id: format!("{id}.{call_id}"),
+                    question: question.clone(),
+                    questions: questions.clone(),
+                    later: *later,
+                    lane: Some(Box::new(lane::Ask {
+                        task: id.to_owned(),
+                        conversation: id.to_owned(),
+                        call_id: call_id.clone(),
+                        title: title.clone(),
+                    })),
+                })),
+                Event::Known(Known::QuestionDeferred { call_id, by_bot }) => {
+                    Some(Event::Known(Known::QuestionDeferred {
+                        call_id: format!("{id}.{call_id}"),
+                        by_bot: *by_bot,
+                    }))
+                }
+                _ => None,
+            })
+            .collect();
+        if mirrored.is_empty() {
+            return;
+        }
+        let stored = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            self.append_events(&row.parent, &mirrored)
+        };
+        match stored {
+            Ok(_) => self.announce(&row.parent),
+            Err(error) => tracing::error!(%error, "could not ask a task lane's question in main"),
+        }
+    }
+
+    /// The lane and its own call id when `call_id` in `main` is a lane's card asked there.
+    pub(in super::super) fn lane_question(
+        &self,
+        main: &str,
+        call_id: &str,
+    ) -> Option<(String, String)> {
+        let events = self.load(main).ok()?;
+        events.iter().rev().find_map(|event| match event {
+            Event::Known(Known::QuestionAsked {
+                call_id: c,
+                lane: Some(lane),
+                ..
+            }) if c == call_id => Some((lane.conversation.clone(), lane.call_id.clone())),
+            _ => None,
+        })
+    }
+
+    /// The lane's card `call_id` was answered (`answered`, as stored in the lane): main's copy
+    /// closes the same way, stored there without opening a reply.
+    pub(in super::super) fn close_in_main(&self, lane_id: &str, call_id: &str, answered: &Event) {
+        let Some(row) = self.lane_row(lane_id) else {
+            return;
+        };
+        let mirrored = format!("{lane_id}.{call_id}");
+        let closed = match answered {
+            Event::Known(Known::QuestionAnswered {
+                answers,
+                late,
+                typed,
+                ..
+            }) => Known::QuestionAnswered {
+                call_id: mirrored.clone(),
+                answers: answers.clone(),
+                late: *late,
+                typed: *typed,
+            },
+            Event::Known(Known::QuestionDeferred { by_bot, .. }) => Known::QuestionDeferred {
+                call_id: mirrored.clone(),
+                by_bot: *by_bot,
+            },
+            Event::Known(Known::QuestionDismissed { late, .. }) => Known::QuestionDismissed {
+                call_id: mirrored.clone(),
+                late: *late,
+            },
+            _ => return,
+        };
+        let stored = {
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let Ok(events) = self.load(&row.parent) else {
+                return;
+            };
+            let open = spade_core::question::standing(events.iter(), &mirrored);
+            let still = matches!(
+                (open, &closed),
+                (Some(spade_core::question::Standing::Waiting), _)
+                    | (
+                        Some(spade_core::question::Standing::Deferred),
+                        Known::QuestionAnswered { .. } | Known::QuestionDismissed { .. }
+                    )
+            );
+            if !still {
+                return;
+            }
+            self.append(&row.parent, &Event::Known(closed))
+        };
+        match stored {
+            Ok(_) => self.announce(&row.parent),
+            Err(error) => tracing::error!(%error, "could not close a task lane's question in main"),
+        }
+    }
+}

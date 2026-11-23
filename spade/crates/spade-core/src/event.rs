@@ -174,6 +174,9 @@ pub enum Known {
         /// escalation level is `ask`, not `block` (ADR 0165). Its `question_deferred` follows.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         later: bool,
+        /// Set when a task lane (ADR 0217 §4) asked: asked in main too, answered there.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lane: Option<Box<crate::lane::Ask>>,
     },
     /// The question is left for later (ADR 0154): by the person (**Answer later**), or by the
     /// bot asking with `wait: false` (`by_bot`). The call is answered at once and the turn goes

@@ -626,6 +626,13 @@ pub fn block(lanes: &[(Started, State)]) -> Option<String> {
     ))
 }
 
+/// Whether the card `call_id` in these events is a lane's, asked here for the person.
+pub fn asked_for_lane(events: &[Event], call_id: &str) -> bool {
+    events.iter().any(|e| {
+        matches!(e, Event::Known(Known::QuestionAsked { call_id: c, lane: Some(_), .. }) if c == call_id)
+    })
+}
+
 /// What main's model reads for a moved reply or a routed message (ADR 0217 §2, §2a).
 pub fn note(event: &Known) -> String {
     match event {

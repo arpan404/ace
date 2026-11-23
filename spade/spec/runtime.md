@@ -234,5 +234,5 @@ None. `spade.v1` is the first version.
 ## Not part of the API
 
 <!-- spec:begin internal -->
-These names are a runtime's own and outside `spade.v1`; a package MUST NOT rely on them: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`.
+These names are a runtime's own and outside `spade.v1`; a package MUST NOT rely on them: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`, `task_start`, `task_message`, `task_stop`, `tasks`.
 <!-- spec:end internal -->

@@ -45,12 +45,38 @@ impl Engine {
         call_id: &str,
         reply: QuestionReply,
     ) -> Result<(), QuestionError> {
+        // A lane's card asked in main goes to the lane, then main's copy closes (ADR 0217 §4).
+        if let Some((lane, inner)) = self.lane_question(id, call_id) {
+            let answered = self.answer_card(&lane, &inner, reply)?;
+            if let Some(answered) = answered {
+                self.close_in_main(&lane, &inner, &answered);
+            }
+            return Ok(());
+        }
+        let answered = self.answer_card(id, call_id, reply)?;
+        // Answered in the lane itself: main's copy closes too.
+        if let Some(answered) = answered
+            && self.is_lane(id)
+        {
+            self.close_in_main(id, call_id, &answered);
+        }
+        Ok(())
+    }
+
+    /// Answers the card `call_id` of `id` and says what was stored (nothing for an app's form,
+    /// which is never asked in main).
+    fn answer_card(
+        self: &Arc<Self>,
+        id: &str,
+        call_id: &str,
+        reply: QuestionReply,
+    ) -> Result<Option<Event>, QuestionError> {
         if !self.reachable(id)? {
             return Err(QuestionError::NotFound);
         }
         // An app's form goes back to the call waiting on it (ADR 0202 §2).
         if question::elicit::call_of(call_id).is_some() {
-            return self.answer_form(id, call_id, reply);
+            return self.answer_form(id, call_id, reply).map(|()| None);
         }
         let waiting = {
             // Checked and stored under one lock, so two answers to one card cannot both land.
@@ -99,23 +125,23 @@ impl Engine {
             let event = Event::Known(event);
             if card.standing == Standing::Waiting {
                 self.append(id, &event)?;
-                None
+                Ok(event)
             } else {
-                Some(event)
+                Err(event)
             }
         };
         match waiting {
             // The waiting turn reads it now.
-            None => {
+            Ok(event) => {
                 self.live(id).wake.notify_one();
                 self.announce(id);
-                Ok(())
+                Ok(Some(event))
             }
             // Delivered under its own lock, which finds a card answered meanwhile.
-            Some(late) => match self.deliver_as(id, &late, None)? {
+            Err(late) => match self.deliver_as(id, &late, None)? {
                 spade_store::Delivered::Stored(_) => {
                     self.announce(id);
-                    Ok(())
+                    Ok(Some(late))
                 }
                 _ => Err(QuestionError::NotOpen),
             },

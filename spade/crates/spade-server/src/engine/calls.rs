@@ -125,6 +125,7 @@ pub(super) async fn handle_calls(
                 }
                 Ok(ask) => {
                     let mut asked = vec![Event::Known(Known::QuestionAsked {
+                        lane: None,
                         reply: reply.to_owned(),
                         call_id: pending.call.id.clone(),
                         question: ask.summary(),
@@ -142,6 +143,9 @@ pub(super) async fn handle_calls(
                         Ok(false) => return Handled::Stopped,
                         Err(error) => return Handled::Failed(error.to_string()),
                     }
+                    // A lane's question is asked in main too, where the person answers it
+                    // (ADR 0217 §4).
+                    engine.ask_in_main(id, &asked);
                     if ask.wait {
                         waiting = true;
                     } else {

@@ -909,3 +909,89 @@ async fn a_lane_writing_a_file_another_working_lane_wrote_gets_a_note_and_main_a
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_lanes_question_shows_in_main_as_the_lanes_and_its_answer_goes_back_to_the_lane() -> Result
+{
+    let routes = vec![route(
+        "Book flights to Lisbon",
+        vec![
+            Script::reply("").call("q1", "ask_user", json!({ "question": "Window or aisle?" })),
+            Script::reply("Booked a window seat."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Book flights to Lisbon"),
+        Script::reply("Started a task for the flights."),
+        Script::reply("The flights are booked."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Book flights to Lisbon.").await?;
+    let events = wait_count(&spade, &conversation, "question_asked", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "question_asked")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(asked["question"], "Window or aisle?");
+    assert_eq!(asked["lane"]["title"], "Book flights to Lisbon");
+    assert_eq!(asked["lane"]["call_id"], "q1");
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    assert_eq!(asked["call_id"], format!("{lane_id}.q1").as_str());
+    // The bot needs the person; main's own reply has ended and doesn't wait on the card.
+    wait_count(&spade, &conversation, "reply_finished", 2).await?;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let row = roster_state(&spade, &agent).await?;
+        if row["state"] == "waiting" {
+            assert_eq!(row["waiting_for"], "task", "{row}");
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err(format!("never needed the person: {row}").into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (_, cards) = spade
+        .get(&format!("/v1/conversations/{conversation}/questions"))
+        .await?;
+    assert!(cards.to_string().contains("Window or aisle?"), "{cards}");
+
+    // Answered from main, the answer reaches the lane, which carries on.
+    let call = asked["call_id"].as_str().unwrap_or_default();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/questions/{call}"),
+            json!({ "answers": ["Window"] }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+    let answered = lane_events
+        .iter()
+        .find(|e| e["type"] == "question_answered")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(answered["call_id"], "q1");
+    assert_eq!(answered["answers"], json!(["Window"]));
+    let main_events = spade.events(&conversation).await?;
+    assert!(
+        main_events
+            .iter()
+            .any(|e| e["type"] == "question_answered" && e["call_id"] == call),
+        "main's copy closed"
+    );
+    let lane_asked = spade
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.body.to_string().contains(&lane("Book flights to Lisbon")))
+        .count();
+    assert_eq!(lane_asked, 2, "the lane's next step read the answer");
+    Ok(())
+}

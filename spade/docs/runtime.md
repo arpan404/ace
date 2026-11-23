@@ -179,4 +179,4 @@ None. `spade.v1` is the first version.
 
 ## Not part of the API
 
-Harness internals (compaction, titles, the check of done) and these tools, which may change in any build: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`.
+Harness internals (compaction, titles, the check of done) and these tools, which may change in any build: `decision_log`, `skill_search`, `skill_load`, `skill_propose`, `skill_feedback`, `task_start`, `task_message`, `task_stop`, `tasks`.

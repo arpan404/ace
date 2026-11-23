@@ -730,9 +730,18 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             }
             // A late answer (ADR 0154) reads like a job's result; its questions are looked up
             // in every event, since they may sit before the compaction's cut.
-            Known::QuestionAnswered { late: true, .. }
-            | Known::QuestionDismissed { late: true, .. } => {
-                if let Some(text) = crate::question::late_text(all, event) {
+            Known::QuestionAnswered {
+                late: true,
+                call_id,
+                ..
+            }
+            | Known::QuestionDismissed {
+                late: true,
+                call_id,
+            } => {
+                // A lane's card (ADR 0217 §4) is the lane's to read, never main's.
+                let lanes = crate::lane::asked_for_lane(all, call_id);
+                if let Some(text) = crate::question::late_text(all, event).filter(|_| !lanes) {
                     if pending.is_empty() {
                         push_person(&mut out, text, Vec::new());
                     } else {
