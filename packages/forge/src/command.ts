@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { win32 } from "node:path";
 import type { WindowsJob } from "@ace/provider-kit/process-containment";
 import { ForgeError } from "./errors.ts";
-import { redact } from "./redact.ts";
 import { LogTail } from "./tail.ts";
 
 export type CommandRequest = {
@@ -135,8 +134,8 @@ export function createCommandRunner(options: {
       }
       chunks.push(chunk);
     });
-    // The first 4 KiB of stderr, as bytes: decoded once, so a character or a secret split
-    // across chunks is read whole.
+    // The first 4 KiB of stderr, as bytes: decoded once, so a character split across chunks
+    // is read whole.
     const stderrHead: Buffer[] = [];
     let stderrBytes = 0;
     child.stderr.on("data", (chunk: Buffer) => {
@@ -159,7 +158,9 @@ export function createCommandRunner(options: {
         child.stdin.end(request.input);
       });
       if (failure) throw failure;
-      const diagnostics = stderrText(stderrHead, stderrBytes);
+      // Classified as the CLI wrote it: this text never leaves the runner, so it is neither
+      // redacted (a token's redaction can swallow a marker after it) nor cut to whole lines.
+      const diagnostics = Buffer.concat(stderrHead, stderrBytes).toString("utf8");
       const output =
         request.mode === "tail"
           ? tail.finish()
@@ -222,15 +223,6 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
 }
 
 const stderrHeadBytes = 4_096;
-
-/**
- * The kept head of stderr, decoded once and redacted as a whole. A line the head's cut split
- * is dropped, so no part of a secret it held is read.
- */
-function stderrText(head: Buffer[], bytes: number): string {
-  const text = Buffer.concat(head, bytes).toString("utf8");
-  return redact(bytes >= stderrHeadBytes ? text.slice(0, text.lastIndexOf("\n") + 1) : text);
-}
 
 /** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
 function teaHttp(stderr: string): CommandResult["http"] {
