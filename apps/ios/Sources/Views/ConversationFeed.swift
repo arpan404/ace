@@ -103,7 +103,7 @@ struct ConversationFeed: View {
         // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
         // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
         let _ = stackSwitches
-        let rowCount = TranscriptFeedRow.rows(shown).count
+        let rowCount = shown.screen.blockOrder.count
         let stack: TranscriptStackChoice.Stack = ready && rowCount > 0 ? anchor.stack.opened(rows: rowCount) : .lazy
         PerfCounters.bump("feed.body")
         let scroller = ScrollView {
@@ -271,7 +271,7 @@ struct ConversationFeed: View {
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
                 keep(.phase(.idle), proxy: proxy)
-                restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
+                restack(rows: shown.screen.blockOrder.count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
             case .animating:
@@ -389,7 +389,7 @@ struct ConversationFeed: View {
                 }
                 if !loading { pageIfNeeded(proxy) }
             }
-            .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
+            .onChange(of: shown.screen.blockOrder.count) { _, count in
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
             }
             .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
