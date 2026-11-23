@@ -58,7 +58,10 @@ function FreshPathAce {
   return $found
 }
 
-function WaitForDaemon($installDir) {
+# $executable, when given, is the one program the daemon must run (after the update: the runtime
+# under the daemon's own name); otherwise any program in the install folder will do, as a first
+# install may be a release from before the rename that runs the daemon on node.exe.
+function WaitForDaemon($installDir, $executable = "") {
   $deadline = (Get-Date).AddMinutes(4)
   while ((Get-Date) -lt $deadline) {
     $lock = Join-Path $homeDir "daemon-lock"
@@ -70,6 +73,9 @@ function WaitForDaemon($installDir) {
         if (-not $daemon) { Fail "daemon pid $daemonPid from the lock is not running" }
         if (-not $daemon.ExecutablePath.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase)) {
           Fail "the daemon runs $($daemon.ExecutablePath), not the app's bundled runtime"
+        }
+        if ($executable -and -not [string]::Equals($daemon.ExecutablePath, $executable, [StringComparison]::OrdinalIgnoreCase)) {
+          Fail "the daemon runs $($daemon.ExecutablePath), not $executable"
         }
         Write-Host "daemon ready (pid $daemonPid, $($daemon.ExecutablePath)): $output"
         return $daemonPid
@@ -109,10 +115,10 @@ function StopApp($daemonPid) {
   if (Get-Process -Id $daemonPid -ErrorAction SilentlyContinue) { Fail "the daemon did not stop on request" }
 }
 
-function LaunchApp($installDir) {
+function LaunchApp($installDir, $executable = "") {
   $app = Start-Process -FilePath (Join-Path $installDir "ace.exe") -PassThru
   Write-Host "launched ace.exe pid $($app.Id)"
-  return WaitForDaemon $installDir
+  return WaitForDaemon $installDir $executable
 }
 
 if (Test-Path $homeDir) { Fail "the runner already has $homeDir; the smoke needs a clean account" }
@@ -140,8 +146,6 @@ $machine = [BitConverter]::ToUInt16($exe, [BitConverter]::ToInt32($exe, 0x3c) + 
 $appArch = switch ($machine) { 0xaa64 { "arm64" } 0x8664 { "x64" } default { Fail "ace.exe has unknown machine type $machine" } }
 foreach ($file in @(
     "ace.exe", "resources\runtime\node.exe", "resources\daemon\ace.mjs", "resources\daemon\descriptor.node",
-    "resources\runtime\ace Service.exe", "resources\media\ace Media Service.exe",
-    "resources\files\ace Files Service.exe", "resources\history\ace History Service.exe",
     "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs",
     "resources\node_modules\koffi\package.json",
     "resources\node_modules\@koromix\koffi-win32-$appArch\win32_$appArch\koffi.node")) {
@@ -173,7 +177,14 @@ RunSetup $Second "/S --updated"
 $entry = InstallEntry
 if ($entry.DisplayVersion -ne $SecondVersion) { Fail "installed version is $($entry.DisplayVersion), want $SecondVersion" }
 if (Get-Process -Id $firstDaemon -ErrorAction SilentlyContinue) { Fail "the old daemon still runs after the update" }
-$secondDaemon = LaunchApp $installDir
+# The updated app ships its background processes under their service names (ADR 0214).
+foreach ($file in @(
+    "resources\runtime\ace Service.exe", "resources\media\ace Media Service.exe",
+    "resources\files\ace Files Service.exe", "resources\history\ace History Service.exe")) {
+  if (-not (Test-Path -LiteralPath (Join-Path $installDir $file))) { Fail "the update left no $file" }
+}
+$daemonExe = Join-Path $installDir "resources\runtime\ace Service.exe"
+$secondDaemon = LaunchApp $installDir $daemonExe
 Write-Host "daemon after update: pid $secondDaemon"
 if ($ShotDir -or $env:ACE_SMOKE_SCREENSHOTS) { Start-Sleep -Seconds 45 }
 Shot "after-update"
@@ -183,7 +194,7 @@ Step "Start at login: the login item's command starts the app in the background 
 StopApp $secondDaemon
 $login = [string](Get-Item $runKey).GetValue("dev.ace.app")
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "start", '""', $login -WindowStyle Hidden
-$loginDaemon = WaitForDaemon $installDir
+$loginDaemon = WaitForDaemon $installDir $daemonExe
 Write-Host "daemon from the login item: pid $loginDaemon"
 Shot "login-item"
 Done
