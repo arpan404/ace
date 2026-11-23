@@ -83,7 +83,11 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
             for (index, (key, value)) in map.iter().enumerate() {
                 let next = redact_value_depth(value, secrets, depth.saturating_add(1));
                 if next != *value && value_changed.is_none() {
-                    value_changed = Some(map.iter().map(|(k, v)| (k.to_string(), v.clone())).collect());
+                    value_changed = Some(
+                        map.iter()
+                            .map(|(k, v)| (k.to_string(), v.clone()))
+                            .collect(),
+                    );
                 }
                 if let Some(out) = value_changed.as_mut()
                     && let Some(entry) = out.get_mut(index)
@@ -96,7 +100,8 @@ fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
                 return data.clone();
             }
             // Reserve original keys so redacted keys cannot overwrite a field.
-            let used: std::collections::HashSet<String> = map.keys().map(|key| key.to_string()).collect();
+            let used: std::collections::HashSet<String> =
+                map.keys().map(|key| key.to_string()).collect();
             let mut suffixes: std::collections::HashMap<String, usize> =
                 std::collections::HashMap::new();
             let mut copy = ace_json::Map::with_capacity(map.len());

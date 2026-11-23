@@ -4,7 +4,8 @@
 use ace_json::{Map, Value};
 
 pub(crate) fn mcp_envelope(input: &Map) -> Option<Map> {
-    let mut keys: Vec<&ace_json::JsString> = input.keys().filter(|key| *key != "_toolName").collect();
+    let mut keys: Vec<&ace_json::JsString> =
+        input.keys().filter(|key| *key != "_toolName").collect();
     keys.sort();
     if keys.is_empty() {
         return None;

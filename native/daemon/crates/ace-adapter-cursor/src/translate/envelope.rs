@@ -145,7 +145,8 @@ pub fn parse_envelope(value: &Value) -> Option<Envelope<'_>> {
     }
     if let Some(value) = value.get("eventSeq")
         && !(value
-            .as_i64().is_some_and(|seq| (0..=100_000_000).contains(&seq)))
+            .as_i64()
+            .is_some_and(|seq| (0..=100_000_000).contains(&seq)))
     {
         return None;
     }

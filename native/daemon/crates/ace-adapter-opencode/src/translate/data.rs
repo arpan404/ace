@@ -5,8 +5,8 @@
 //! else reads as the shared empty value. Nothing here copies.
 
 use ace_adapter_api::util::record::{NativeRecord, native_record};
-use serde::Serializer;
 use ace_json::{Map, Value};
+use serde::Serializer;
 
 /// The shared empty value non-values read as; returned by borrow, never copied.
 pub static NULL: Value = Value::Null;
@@ -115,12 +115,10 @@ pub enum Datum<'a> {
 impl serde::Serialize for Datum<'_> {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            Datum::Verbatim(text) => {
-                match ace_json::Raw::from_json(text) {
-                    Ok(raw) => raw.serialize(serializer),
-                    Err(_) => serializer.serialize_none(),
-                }
-            }
+            Datum::Verbatim(text) => match ace_json::Raw::from_json(text) {
+                Ok(raw) => raw.serialize(serializer),
+                Err(_) => serializer.serialize_none(),
+            },
             Datum::Owned(value) => value.serialize(serializer),
         }
     }

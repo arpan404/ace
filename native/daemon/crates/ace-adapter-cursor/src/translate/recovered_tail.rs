@@ -60,7 +60,10 @@ pub fn stored_update(message: &Value) -> Option<Value> {
             return None;
         }
         return Some(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("text-delta"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("text-delta")),
+            ),
             (JsString::from("text"), Value::String(text)),
         ]));
     }
@@ -74,13 +77,21 @@ pub fn stored_update(message: &Value) -> Option<Value> {
                 JsString::from("type"),
                 Value::String(JsString::from("thinking-completed")),
             )];
-            if let Value::Number(duration) = body.get("thinking_duration_ms").unwrap_or(&Value::Null) {
-                update.push((JsString::from("thinkingDurationMs"), Value::Number(duration.clone())));
+            if let Value::Number(duration) =
+                body.get("thinking_duration_ms").unwrap_or(&Value::Null)
+            {
+                update.push((
+                    JsString::from("thinkingDurationMs"),
+                    Value::Number(*duration),
+                ));
             }
             return Some(Value::from(update));
         }
         return Some(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("thinking-delta"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("thinking-delta")),
+            ),
             (JsString::from("text"), Value::String(text.clone())),
         ]));
     }
@@ -90,7 +101,10 @@ pub fn stored_update(message: &Value) -> Option<Value> {
     if units_eq(kind, "task") {
         let text = string(body.get("text")?)?;
         return Some(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("summary"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("summary")),
+            ),
             (JsString::from("summary"), Value::String(text.clone())),
         ]));
     }

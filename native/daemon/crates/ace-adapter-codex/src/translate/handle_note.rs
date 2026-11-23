@@ -74,7 +74,11 @@ pub fn handle_note(
     }
     if event == "async-question-answered"
         && translator.async_owners.len() == 1
-        && let Some(key) = translator.async_owners.keys().next().map(|key| key.to_string())
+        && let Some(key) = translator
+            .async_owners
+            .keys()
+            .next()
+            .map(|key| key.to_string())
     {
         translator.recorded_answer = Some(key);
     }
@@ -84,10 +88,7 @@ pub fn handle_note(
             _ => "codex:discovery".to_owned(),
         };
         let mut body = Map::with_capacity(7);
-        body.insert(
-            "agent".to_owned(),
-            Value::from(translator.root_key.clone()),
-        );
+        body.insert("agent".to_owned(), Value::from(translator.root_key.clone()));
         body.insert("task".to_owned(), Value::from(task));
         body.insert("kind".to_owned(), Value::from("other".to_owned()));
         body.insert(
@@ -131,7 +132,7 @@ pub fn handle_note(
         && let Some(Value::Number(count)) = message.get("count")
     {
         let mut queue_body = Map::with_capacity(1);
-        queue_body.insert("count".to_owned(), Value::Number(count.clone()));
+        queue_body.insert("count".to_owned(), Value::Number(*count));
         facts.push(fact("queue.changed", queue_body));
         if count.as_i64() == Some(0) {
             for agent in translator.agents.values_mut() {

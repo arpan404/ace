@@ -196,10 +196,7 @@ pub fn handle_update(
         let mut fact = Map::with_capacity(4);
         fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
         fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
-        fact.insert(
-            "item".to_owned(),
-            Value::from("provider:title".to_owned()),
-        );
+        fact.insert("item".to_owned(), Value::from("provider:title".to_owned()));
         fact.insert("draft".to_owned(), Value::Object(ordered));
         facts.push(Value::Object(fact));
         let _ = draft;

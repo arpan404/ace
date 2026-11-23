@@ -216,11 +216,11 @@ pub fn handle_status(
         {
             let mut body = Map::with_capacity(5);
             body.insert("agent".to_owned(), Value::from(agent_key.clone()));
-            body.insert("usedTokens".to_owned(), Value::Number(total.clone()));
+            body.insert("usedTokens".to_owned(), Value::Number(*total));
             if let Some(Value::Number(window)) = token_usage.get("modelContextWindow")
                 && window.as_i64().is_some_and(|v| v > 0)
             {
-                body.insert("windowTokens".to_owned(), Value::Number(window.clone()));
+                body.insert("windowTokens".to_owned(), Value::Number(*window));
             }
             body.insert("sessionId".to_owned(), Value::from(native.to_owned()));
             if let Some(model) = agent_model.clone() {
@@ -246,8 +246,8 @@ pub fn handle_status(
             if let Some(model) = agent_model {
                 body.insert("model".to_owned(), Value::from(model));
             }
-            body.insert("inputTokens".to_owned(), Value::Number(input.clone()));
-            body.insert("outputTokens".to_owned(), Value::Number(output.clone()));
+            body.insert("inputTokens".to_owned(), Value::Number(*input));
+            body.insert("outputTokens".to_owned(), Value::Number(*output));
             if use_total {
                 body.insert(
                     "counterMode".to_owned(),
@@ -266,13 +266,13 @@ pub fn handle_status(
             if let Some(Value::Number(reasoning)) = counts.get("reasoningOutputTokens") {
                 body.insert(
                     "reasoningTokens".to_owned(),
-                    Value::Number(reasoning.clone()),
+                    Value::Number(*reasoning),
                 );
             }
             if let Some(Value::Number(cached)) = counts.get("cachedInputTokens") {
                 body.insert(
                     "cachedInputTokens".to_owned(),
-                    Value::Number(cached.clone()),
+                    Value::Number(*cached),
                 );
             }
             facts.push(fact("usage", body));

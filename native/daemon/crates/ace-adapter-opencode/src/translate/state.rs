@@ -4,9 +4,9 @@
 //! namespaced per provider process; facts carry those keys, never ace ids.
 
 use crate::translate::cache::{RecentMap, RecentSet};
+use ace_json::Raw;
 use indexmap::IndexMap;
 use serde::Serialize;
-use ace_json::Raw;
 use std::collections::HashSet;
 use thiserror::Error;
 

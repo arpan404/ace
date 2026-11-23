@@ -346,11 +346,7 @@ impl PiTranslator {
         out.extend(self.finish());
     }
 
-    fn on_message_update(
-        &mut self,
-        map: &native::Fields,
-        out: &mut Vec<Fact>,
-    ) {
+    fn on_message_update(&mut self, map: &native::Fields, out: &mut Vec<Fact>) {
         let delta_map = match field(map, "assistantMessageEvent") {
             Some(raw) => parse_object(raw).unwrap_or_default(),
             None => return,

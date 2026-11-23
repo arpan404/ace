@@ -4,8 +4,8 @@
 use super::dialogs::DialogRequest;
 use super::tools::ToolDetail;
 use ace_core::Fact;
-use serde::Serialize;
 use ace_json::Raw;
+use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct RawPayload<'a> {

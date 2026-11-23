@@ -71,12 +71,7 @@ impl TranslationState {
         }
     }
 
-    pub fn request(
-        &mut self,
-        id: &crate::translate::data::RpcId,
-        method: &str,
-        params: &Map,
-    ) {
+    pub fn request(&mut self, id: &crate::translate::data::RpcId, method: &str, params: &Map) {
         let key = rpc_key(id);
         self.sent.insert(
             key.clone(),

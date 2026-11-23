@@ -7,8 +7,8 @@
 use crate::translate::data::Num;
 use crate::translate::data::{fields, s_in};
 use crate::translate::state::{NativeState, Out, StateError};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 use std::collections::HashSet;
 
 pub(crate) const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
@@ -29,12 +29,10 @@ pub(crate) enum OwnedDatum {
 impl Serialize for OwnedDatum {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
-            OwnedDatum::Verbatim(text) => {
-                match ace_json::Raw::from_json(text) {
-                    Ok(raw) => raw.serialize(serializer),
-                    Err(_) => serializer.serialize_none(),
-                }
-            }
+            OwnedDatum::Verbatim(text) => match ace_json::Raw::from_json(text) {
+                Ok(raw) => raw.serialize(serializer),
+                Err(_) => serializer.serialize_none(),
+            },
             OwnedDatum::Owned(value) => value.serialize(serializer),
         }
     }

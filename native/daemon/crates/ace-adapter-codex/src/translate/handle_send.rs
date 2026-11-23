@@ -45,7 +45,7 @@ pub fn handle_send(translator: &mut CodexTranslator, frame: &ParsedFrame, _facts
             if method == "turn/start" {
                 translator.completions.open(
                     key,
-                    String::from(native_param.clone()),
+                    native_param.clone(),
                     translator
                         .agents
                         .get(&lookup)

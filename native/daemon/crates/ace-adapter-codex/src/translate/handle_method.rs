@@ -100,7 +100,7 @@ pub fn handle_method(
         facts.push(translator.note_signal(&root, &raw_type, &data, true));
         translator
             .buffers
-            .push(String::from(native.clone()), frame_to_value(frame));
+            .push(native.clone(), frame_to_value(frame));
         if !translator.unknown_guard {
             translator.unknown_guard = true;
             let mut body = Map::with_capacity(7);

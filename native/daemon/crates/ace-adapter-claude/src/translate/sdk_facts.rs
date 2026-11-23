@@ -37,10 +37,7 @@ pub(crate) fn title_upsert(root: &str, summary: &str) -> Value {
     let mut map = Map::with_capacity(4);
     map.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
     map.insert("agent".to_owned(), Value::from(root.to_owned()));
-    map.insert(
-        "item".to_owned(),
-        Value::from("provider:title".to_owned()),
-    );
+    map.insert("item".to_owned(), Value::from("provider:title".to_owned()));
     map.insert("draft".to_owned(), Value::Object(draft));
     Value::Object(map)
 }
@@ -82,10 +79,7 @@ pub(crate) fn retry_cleared(root: &str) -> Value {
 
 pub(crate) fn process_exited(deliberate: bool, message: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert(
-        "type".to_owned(),
-        Value::from("process.exited".to_owned()),
-    );
+    map.insert("type".to_owned(), Value::from("process.exited".to_owned()));
     map.insert("deliberate".to_owned(), Value::Bool(deliberate));
     map.insert("message".to_owned(), Value::from(message.to_owned()));
     Value::Object(map)

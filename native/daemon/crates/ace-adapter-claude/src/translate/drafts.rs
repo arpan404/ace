@@ -129,12 +129,7 @@ pub(crate) fn user_text_upsert(
     upsert(agent, item, Value::Object(ordered))
 }
 
-pub(crate) fn error_upsert(
-    agent: &str,
-    item: &str,
-    err: &Map,
-    data: &Value,
-) -> Value {
+pub(crate) fn error_upsert(agent: &str, item: &str, err: &Map, data: &Value) -> Value {
     let mut draft = Map::with_capacity(9);
     draft.insert("type".to_owned(), Value::from("notice".to_owned()));
     draft.insert("level".to_owned(), Value::from("error".to_owned()));

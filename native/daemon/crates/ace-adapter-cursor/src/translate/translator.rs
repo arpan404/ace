@@ -7,8 +7,8 @@
 use super::children::Children;
 use super::delta::{DeltaFlow, translate_delta};
 use super::envelope::{Envelope, num_units, parse_envelope, string};
-use super::text::{JsString, Value, units_eq};
 use super::streamed_answer::StreamedAnswer;
+use super::text::{JsString, Value, units_eq};
 use super::tool_events::ToolEvents;
 use super::transcript::Transcript;
 use super::{BudgetError, BudgetResult};
@@ -120,7 +120,10 @@ impl CursorTranslator {
             return Vec::new();
         }
         self.diagnostics.push(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("cursor.sdk.v1"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("cursor.sdk.v1")),
+            ),
             (JsString::from("data"), payload_data.clone()),
         ]));
         match self.translate_guarded(payload_data, seq, dir) {
@@ -147,7 +150,10 @@ impl CursorTranslator {
             &JsString::from("cursor.diagnostic"),
         ));
         facts.push(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("process.exited"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("process.exited")),
+            ),
             (JsString::from("deliberate"), Value::Bool(false)),
             (
                 JsString::from("message"),
@@ -294,10 +300,10 @@ impl<'a> Step<'a> {
         if depth == 0 && agent == self.root {
             if kind.is_some_and(|kind| units_eq(kind, "text-delta")) {
                 *self.saw_text = true;
-                self.answer
-                    .add(string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty()));
-            } else if kind.is_some_and(|kind| kind.starts_with_js(&JsString::from("tool-call")))
-            {
+                self.answer.add(
+                    string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty()),
+                );
+            } else if kind.is_some_and(|kind| kind.starts_with_js(&JsString::from("tool-call"))) {
                 self.answer.reset();
             }
         }

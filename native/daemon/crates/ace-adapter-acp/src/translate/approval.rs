@@ -8,11 +8,7 @@ use crate::translate::quirks::QuirksKind;
 use crate::translate::tools::tool_detail;
 use ace_json::{Map, Value};
 
-pub(crate) fn approval_request(
-    call: &Value,
-    options: &[Map],
-    quirks: QuirksKind,
-) -> Value {
+pub(crate) fn approval_request(call: &Value, options: &[Map], quirks: QuirksKind) -> Value {
     let detail = tool_detail(call, quirks);
     let input = object(object(call).get("rawInput").unwrap_or(&Value::Null)).clone();
     let paths: Vec<Value> = list(object(call).get("locations").unwrap_or(&Value::Null))
@@ -100,10 +96,7 @@ pub(crate) fn approval_request(
         if let Some(command) = detail_map.get("command").and_then(Value::as_str)
             && !command.is_empty()
         {
-            target.insert(
-                "command".to_owned(),
-                Value::from(bounded_command(command)),
-            );
+            target.insert("command".to_owned(), Value::from(bounded_command(command)));
         }
         if let Some(cwd) = detail_map.get("cwd").and_then(Value::as_str)
             && !cwd.is_empty()
@@ -143,10 +136,7 @@ pub(crate) fn approval_request(
         .enumerate()
         .map(|(index, option)| {
             let mut entry = Map::with_capacity(3);
-            entry.insert(
-                "id".to_owned(),
-                Value::from(local_option_id(option, index)),
-            );
+            entry.insert("id".to_owned(), Value::from(local_option_id(option, index)));
             entry.insert(
                 "label".to_owned(),
                 Value::from(string(option.get("name").unwrap_or(&Value::Null)).to_owned()),
@@ -186,11 +176,7 @@ pub(crate) fn local_option_id(option: &Map, index: usize) -> String {
     }
 }
 
-pub(crate) fn native_option_id(
-    published: &[Map],
-    native: &[Map],
-    local: &str,
-) -> Option<String> {
+pub(crate) fn native_option_id(published: &[Map], native: &[Map], local: &str) -> Option<String> {
     let index = published
         .iter()
         .enumerate()

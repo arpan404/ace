@@ -161,9 +161,7 @@ pub fn native_resolution(choice: &Value, pending: &Pending) -> Result<NativeReso
                 if s_in(f, "type") == "multiselect" {
                     Value::from(raw)
                 } else {
-                    raw.into_iter()
-                        .next()
-                        .unwrap_or(Value::from(String::new()))
+                    raw.into_iter().next().unwrap_or(Value::from(String::new()))
                 },
             );
         }

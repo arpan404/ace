@@ -252,7 +252,7 @@ impl ResultUsage {
                 output_tokens,
                 cached,
                 written,
-                &Value::Number(n.clone()),
+                &Value::Number(*n),
             ));
         }
         facts

@@ -10,8 +10,8 @@ use crate::translate::requests::{
 };
 use crate::translate::resolve::validate_resolution;
 use crate::translate::state::{NativeState, Out, Pending, StateError};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// An approval, question, or elicitation the person must answer.
@@ -339,9 +339,7 @@ pub fn store_resolution(
     let stored = ace_json::ser::to_string(resolution)?;
     match state.pending.get_mut(key) {
         Some(pending) => {
-            pending.resolution = Some(ace_json::Raw::from_json(
-                &stored,
-            )?);
+            pending.resolution = Some(ace_json::Raw::from_json(&stored)?);
             Ok(())
         }
         None => Ok(()),

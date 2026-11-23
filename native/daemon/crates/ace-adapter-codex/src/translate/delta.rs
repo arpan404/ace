@@ -120,10 +120,7 @@ pub fn translate_delta(
             );
             body.insert("item".to_owned(), Value::from(item.clone()));
             body.insert("kind".to_owned(), Value::from("shell".to_owned()));
-            body.insert(
-                "title".to_owned(),
-                Value::from("Command output".to_owned()),
-            );
+            body.insert("title".to_owned(), Value::from("Command output".to_owned()));
             body.insert("stoppable".to_owned(), Value::Bool(true));
             facts.push(fact("background.started", body));
             return;
@@ -148,7 +145,10 @@ pub fn translate_delta(
                     ),
                 );
                 data.insert("command".to_owned(), Value::from(String::new()));
-                data.insert("commandActions".to_owned(), Value::Array(ace_json::Array::new()));
+                data.insert(
+                    "commandActions".to_owned(),
+                    Value::Array(ace_json::Array::new()),
+                );
                 data.insert("text".to_owned(), Value::from(String::new()));
                 let draft = item_draft(&data, false, &Value::Object(data.clone()));
                 if let Some(agent) = translator.agents.get_mut(agent_native) {

@@ -165,7 +165,7 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             {
                 // Preserve the provider's encoding: integers stay integers.
                 if let Some(Value::Number(original)) = output.get("exitCode") {
-                    map.insert("exitCode".to_owned(), Value::Number(original.clone()));
+                    map.insert("exitCode".to_owned(), Value::Number(*original));
                 }
             }
             Value::Object(map)
@@ -220,7 +220,7 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
             if let Some(Value::Number(total)) = output.get("totalFiles")
                 && total.as_f64().is_some_and(|f| f.fract() == 0.0)
             {
-                map.insert("matches".to_owned(), Value::Number(total.clone()));
+                map.insert("matches".to_owned(), Value::Number(*total));
             }
             Value::Object(map)
         }
@@ -303,7 +303,11 @@ pub fn tool_detail(update: &Value, quirks: QuirksKind) -> Value {
                 Value::from(string(input.get("prompt").unwrap_or(&Value::Null)).to_owned()),
             );
             let subagent = object(input.get("subagentType").unwrap_or(&Value::Null));
-            let agent_type = subagent.keys().next().map(|key| key.to_string()).unwrap_or_default();
+            let agent_type = subagent
+                .keys()
+                .next()
+                .map(|key| key.to_string())
+                .unwrap_or_default();
             map.insert("agentType".to_owned(), Value::from(agent_type));
             Value::Object(map)
         }

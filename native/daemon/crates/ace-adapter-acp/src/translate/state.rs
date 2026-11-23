@@ -2,8 +2,8 @@
 //! Translation state (`state.ts`): agents, tools, requests and the root.
 
 use crate::translate::quirks::QuirksKind;
-use indexmap::{IndexMap, IndexSet};
 use ace_json::{Map, Value};
+use indexmap::{IndexMap, IndexSet};
 
 #[derive(Debug, Clone)]
 pub struct StreamState {
@@ -187,8 +187,8 @@ impl TranslationState {
 
     pub fn key(&mut self, kind: &str) -> String {
         self.identity.cursor = self.identity.cursor.saturating_add(1);
-        let generation =
-            ace_json::ser::to_string(&self.identity.generation).unwrap_or_else(|_| "\"\"".to_owned());
+        let generation = ace_json::ser::to_string(&self.identity.generation)
+            .unwrap_or_else(|_| "\"\"".to_owned());
         format!(
             "{}:{}:{}:{}",
             self.root.key, generation, kind, self.identity.cursor

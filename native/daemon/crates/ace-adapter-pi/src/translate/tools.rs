@@ -6,8 +6,8 @@ use super::native::{
     bare_tool_name, field, parse_array, parse_object, str_field, utf16_len, utf16_slice,
     utf16_to_byte_index,
 };
-use serde::Serialize;
 use ace_json::Raw;
+use serde::Serialize;
 use std::collections::HashMap;
 
 const MAX_PATCH: usize = 1 << 20;
@@ -120,7 +120,7 @@ pub fn replacements(args: &super::native::Fields) -> Vec<FileChange> {
     if let Some(edits_raw) = field(args, "edits") {
         let items = parse_array(edits_raw).unwrap_or_default();
         for item in &items {
-            let pair = parse_object(item.as_ref()).unwrap_or_default();
+            let pair = parse_object(item).unwrap_or_default();
             push_replacement(&mut changes, &path, &pair);
         }
     }
@@ -220,7 +220,7 @@ pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (String, usize) {
             length += 1;
         }
         first = false;
-        let text = block_text(item.as_ref());
+        let text = block_text(item);
         let text_units = utf16_len(&text);
         let end = length + text_units;
         if end > seen {
@@ -304,7 +304,7 @@ pub fn result_text(value: Option<&Raw>) -> String {
     };
     let mut parts = Vec::new();
     for item in &items {
-        parts.push(block_text(item.as_ref()));
+        parts.push(block_text(item));
     }
     parts.join("\n")
 }

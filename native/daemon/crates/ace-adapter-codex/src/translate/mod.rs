@@ -64,10 +64,7 @@ impl CodexTranslator {
         inner.insert("event".to_owned(), Value::from(event.to_owned()));
         inner.insert("detail".to_owned(), Value::from(detail.to_owned()));
         let mut diag = Map::with_capacity(2);
-        diag.insert(
-            "type".to_owned(),
-            Value::from("adapter.warning".to_owned()),
-        );
+        diag.insert("type".to_owned(), Value::from("adapter.warning".to_owned()));
         diag.insert("data".to_owned(), Value::Object(inner));
         self.diagnostics.push(Value::Object(diag));
         super::translate::facts::signal_fact(Some(agent))

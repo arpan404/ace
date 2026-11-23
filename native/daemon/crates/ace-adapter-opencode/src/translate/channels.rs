@@ -10,8 +10,8 @@ use crate::translate::translator::{
     AgentBack, AgentGone, Diagnostic, ItemUpsert, NoticeDraft, OwnedDatum, ProcessExited,
     ProcessStarted, Signal, Translator,
 };
-use indexmap::IndexMap;
 use ace_json::{Map, Value};
+use indexmap::IndexMap;
 
 impl Translator {
     pub(crate) fn frame(
@@ -139,11 +139,7 @@ impl Translator {
         self.event(envelope, now, out)
     }
 
-    pub(crate) fn lifecycle(
-        &mut self,
-        data: &Map,
-        out: &mut Out<'_>,
-    ) -> Result<(), StateError> {
+    pub(crate) fn lifecycle(&mut self, data: &Map, out: &mut Out<'_>) -> Result<(), StateError> {
         let state = &mut self.state;
         match s_in(data, "type") {
             "ancestry.pending" => {

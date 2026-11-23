@@ -41,7 +41,10 @@ impl Children {
                 let surviving = child.surviving(&parent);
                 let key = child.key.clone();
                 facts.push(Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("agent.linked"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("agent.linked")),
+                    ),
                     (JsString::from("agent"), Value::String(key)),
                     (JsString::from("background"), Value::Bool(true)),
                 ]));
@@ -63,7 +66,10 @@ impl Children {
                 }
             }
             facts.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("turn.ended"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("turn.ended")),
+                ),
                 (JsString::from("agent"), Value::String(key)),
                 (JsString::from("nativeTurnId"), Value::String(turn)),
                 (
@@ -101,7 +107,10 @@ impl Children {
             return Vec::new();
         }
         child.summary = true;
-        let mut native_ref = vec![(JsString::from("provider"), Value::String(JsString::from("cursor")))];
+        let mut native_ref = vec![(
+            JsString::from("provider"),
+            Value::String(JsString::from("cursor")),
+        )];
         if let Some(native) = child.native.clone() {
             native_ref.push((JsString::from("nativeId"), Value::String(native)));
         }
@@ -112,7 +121,10 @@ impl Children {
             cwd.clone(),
         );
         vec![Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("agent.seen"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("agent.seen")),
+            ),
             (JsString::from("agent"), Value::String(key)),
             (JsString::from("parent"), Value::String(parent)),
             (JsString::from("spawnedBy"), Value::String(spawned)),
@@ -120,7 +132,10 @@ impl Children {
                 JsString::from("origin"),
                 Value::String(JsString::from("provider_subagent")),
             ),
-            (JsString::from("fidelity"), Value::String(JsString::from("summary"))),
+            (
+                JsString::from("fidelity"),
+                Value::String(JsString::from("summary")),
+            ),
             (JsString::from("cwd"), Value::String(cwd_units)),
             (JsString::from("native"), Value::from(native_ref)),
         ])]
@@ -171,7 +186,10 @@ impl Children {
                         JsString::from("task"),
                         Value::String(cat(&[&JsString::from("background:"), &call])),
                     ),
-                    (JsString::from("status"), Value::String(JsString::from("unknown"))),
+                    (
+                        JsString::from("status"),
+                        Value::String(JsString::from("unknown")),
+                    ),
                     (JsString::from("uncertain"), Value::Bool(true)),
                 ]));
                 if let Some(set) = self.pending_by_parent.get_mut(&key) {

@@ -145,7 +145,10 @@ impl ToolEvents {
             tool.args = Some(args.clone());
         }
         let result = native.get("result").unwrap_or(&Value::Null);
-        let status_word = if is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed") {
+        let status_word = if is(
+            body.get("type").unwrap_or(&Value::Null),
+            "tool-call-completed",
+        ) {
             JsString::from("completed")
         } else {
             JsString::from("running")
@@ -154,7 +157,12 @@ impl ToolEvents {
         let tool = self.calls.get_mut(&call).ok_or(BudgetError::Exceeded)?;
         tool.name = name.clone();
         tool.failed = tool.failed || status == "failed";
-        if tool.terminal && !is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed") {
+        if tool.terminal
+            && !is(
+                body.get("type").unwrap_or(&Value::Null),
+                "tool-call-completed",
+            )
+        {
             return Ok(Vec::new());
         }
         tool.terminal = tool.terminal || status != "running";
@@ -223,7 +231,8 @@ impl ToolEvents {
             Some(Value::Array(content)) => {
                 let mut joined = JsString::new();
                 for block in content {
-                    let text = string(block.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
+                    let text = string(block.get("text").unwrap_or(&Value::Null))
+                        .unwrap_or(JsString::empty());
                     if text.is_empty() {
                         continue;
                     }
@@ -239,7 +248,10 @@ impl ToolEvents {
                 .clone(),
         };
         let mut call_view = vec![
-            (JsString::from("kind"), Value::String(JsString::from(tool_kind(&name)))),
+            (
+                JsString::from("kind"),
+                Value::String(JsString::from(tool_kind(&name))),
+            ),
             (JsString::from("title"), Value::String(name.clone())),
             (
                 JsString::from("status"),
@@ -276,13 +288,19 @@ impl ToolEvents {
             ));
         }
         facts.push(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("item.upsert")),
+            ),
             (JsString::from("agent"), Value::String(agent.clone())),
             (JsString::from("item"), Value::String(call.clone())),
             (
                 JsString::from("draft"),
                 Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("tool_call"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("tool_call")),
+                    ),
                     (JsString::from("complete"), Value::Bool(terminal)),
                     (JsString::from("call"), Value::from(call_view)),
                 ]),
@@ -317,14 +335,21 @@ impl ToolEvents {
                 .unwrap_or(JsString::empty())
                 .clone();
             output.push_js(
-                string(result_value.get("stderr").unwrap_or(&Value::Null)).unwrap_or(JsString::empty()),
+                string(result_value.get("stderr").unwrap_or(&Value::Null))
+                    .unwrap_or(JsString::empty()),
             );
             if !output.is_empty() {
                 facts.push(Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("item.delta"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("item.delta")),
+                    ),
                     (JsString::from("agent"), Value::String(agent.clone())),
                     (JsString::from("item"), Value::String(call.clone())),
-                    (JsString::from("field"), Value::String(JsString::from("output"))),
+                    (
+                        JsString::from("field"),
+                        Value::String(JsString::from("output")),
+                    ),
                     (JsString::from("append"), Value::String(output)),
                 ]));
                 self.calls

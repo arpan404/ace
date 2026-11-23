@@ -2,7 +2,6 @@
 //! Context-usage sampling, mirroring `context-usage.ts`. The message is a
 //! JSON string; it decodes through raw maps, never `Value` trees.
 
-
 /// A validated Pi context sample.
 #[derive(Debug, Clone)]
 pub struct ContextSample {

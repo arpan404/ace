@@ -141,10 +141,7 @@ pub fn handle_live(
         draft.insert("text".to_owned(), Value::from(message.clone()));
         draft.insert("complete".to_owned(), Value::Bool(true));
         if will_retry {
-            draft.insert(
-                "code".to_owned(),
-                Value::from("provider.retry".to_owned()),
-            );
+            draft.insert("code".to_owned(), Value::from("provider.retry".to_owned()));
         }
         draft.insert(
             "raw".to_owned(),
@@ -162,10 +159,7 @@ pub fn handle_live(
             Value::from(vec![raw_payload(method, &frame.data, None)]),
         );
         if will_retry {
-            ordered_draft.insert(
-                "code".to_owned(),
-                Value::from("provider.retry".to_owned()),
-            );
+            ordered_draft.insert("code".to_owned(), Value::from("provider.retry".to_owned()));
         }
         let _ = draft;
         let mut body = Map::with_capacity(3);

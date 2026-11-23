@@ -45,10 +45,7 @@ pub fn handle_stream(
                 Value::from(vec![raw(frame, "session/update", None)]),
             );
             let mut fact = Map::with_capacity(4);
-            fact.insert(
-                "type".to_owned(),
-                Value::from("item.reconciled".to_owned()),
-            );
+            fact.insert("type".to_owned(), Value::from("item.reconciled".to_owned()));
             fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
             fact.insert(
                 "item".to_owned(),

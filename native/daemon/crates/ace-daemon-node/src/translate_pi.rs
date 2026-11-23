@@ -144,8 +144,9 @@ fn to_millis(now: f64) -> i64 {
 }
 
 fn parse_frame(json: &str) -> Result<ace_adapter_api::Frame, PiBindError> {
-    let input: FrameInput =
-        serde_json::from_str(json).map_err(|error| PiBindError::InvalidFrame(error.to_string()))?;
+    let root =
+        ace_json::parse_raw(json).map_err(|error| PiBindError::InvalidFrame(error.to_string()))?;
+    let input = FrameInput::read(root)?;
     let dir = match input.dir.as_str() {
         "send" => ace_adapter_api::FrameDirection::Send,
         "recv" => ace_adapter_api::FrameDirection::Recv,
@@ -164,13 +165,36 @@ fn parse_frame(json: &str) -> Result<ace_adapter_api::Frame, PiBindError> {
     })
 }
 
-#[derive(Debug, serde::Deserialize)]
+/// The frame's fields, as the shell sends them: `seq`, `dir` and `data` required.
 struct FrameInput {
     seq: u64,
-    #[serde(default)]
     t: Option<i64>,
     dir: String,
-    #[serde(default)]
     channel: Option<String>,
-    data: Box<serde_json::value::RawValue>,
+    data: ace_json::Raw,
+}
+
+impl FrameInput {
+    fn read(root: ace_json::RawRef<'_>) -> Result<FrameInput, PiBindError> {
+        let missing =
+            |field: &str| PiBindError::InvalidFrame(format!("missing or invalid {field}"));
+        let text = |key: &str| {
+            root.get(key)
+                .and_then(|v| v.as_str())
+                .map(|v| v.into_owned())
+        };
+        Ok(FrameInput {
+            seq: root
+                .get("seq")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| missing("seq"))?,
+            t: root.get("t").and_then(|v| v.as_i64()),
+            dir: text("dir").ok_or_else(|| missing("dir"))?,
+            channel: text("channel"),
+            data: root
+                .get("data")
+                .map(|v| v.to_raw())
+                .ok_or_else(|| missing("data"))?,
+        })
+    }
 }

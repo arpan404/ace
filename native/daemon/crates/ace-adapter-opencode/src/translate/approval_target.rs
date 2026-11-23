@@ -4,8 +4,8 @@
 //! native inputs and edit file metadata are.
 
 use crate::translate::data::{arr, fields, get, utf16_len};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 /// The exact input an approval decides on: a value, or a whole metadata map.
 pub enum ApprovalInput<'a> {

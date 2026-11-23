@@ -130,7 +130,10 @@ fn decisions(value: Option<&Value>) -> Value {
         let id = if let Value::String(s) = &entry {
             s.to_string()
         } else if let Value::Object(map) = &entry {
-            map.keys().next().map(|key| key.to_string()).unwrap_or("cancel".to_owned())
+            map.keys()
+                .next()
+                .map(|key| key.to_string())
+                .unwrap_or("cancel".to_owned())
         } else {
             "cancel".to_owned()
         };
@@ -351,7 +354,11 @@ pub fn turn_error(value: &Value) -> (String, String) {
     let codex_info = map.get("codexErrorInfo");
     let info = match codex_info {
         Some(Value::String(s)) => s.to_string(),
-        Some(Value::Object(m)) => m.keys().next().map(|key| key.to_string()).unwrap_or_default(),
+        Some(Value::Object(m)) => m
+            .keys()
+            .next()
+            .map(|key| key.to_string())
+            .unwrap_or_default(),
         _ => String::new(),
     };
     let message = match map.get("message") {
@@ -359,5 +366,5 @@ pub fn turn_error(value: &Value) -> (String, String) {
         _ => "Codex turn failed".to_owned(),
     };
     let kind = super::helpers::turn_error_kind(&info, &message).to_owned();
-    (kind, String::from(message))
+    (kind, message)
 }

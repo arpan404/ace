@@ -3,8 +3,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use indexmap::{IndexMap, IndexSet};
 use ace_json::Value;
+use indexmap::{IndexMap, IndexSet};
 
 use super::answer_echo::AnswerEchoes;
 use super::history::HistoryAssembly;

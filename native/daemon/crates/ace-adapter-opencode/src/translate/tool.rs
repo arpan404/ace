@@ -8,9 +8,9 @@ use crate::translate::data::{
 };
 use crate::translate::detail::{Detail, detail};
 use crate::translate::state::{FileChange, NativeState, Out, StateError, Tool};
-use serde::Serialize;
 use ace_json::Raw;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 /// The exact command, path, and display fields a tool ran with.
 #[derive(Serialize)]

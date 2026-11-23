@@ -4,8 +4,8 @@
 
 use crate::translate::approval_target::ApprovalTarget;
 use crate::translate::data::{Num, arr_in, fields, get, s_in};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 use std::collections::BTreeMap;
 
 /// A question option the person can pick.

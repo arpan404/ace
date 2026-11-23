@@ -77,6 +77,12 @@ impl<T: ToValue> ToValue for [T] {
     }
 }
 
+impl<T: ToValue, const N: usize> ToValue for [T; N] {
+    fn to_value(&self) -> Value {
+        self.as_slice().to_value()
+    }
+}
+
 impl<T: ToValue> ToValue for Vec<T> {
     fn to_value(&self) -> Value {
         self.as_slice().to_value()

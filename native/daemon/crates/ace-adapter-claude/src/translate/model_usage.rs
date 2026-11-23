@@ -72,7 +72,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
                     return None;
                 }
 
-                Value::Number(n.clone())
+                Value::Number(*n)
             }
 
             _ => return None,
@@ -101,7 +101,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
         // contextWindow is passthrough in the TypeScript schema: validated
         // above, then read back for the agent-scope usage fact.
         if let Some(Value::Number(n)) = eobj.get("contextWindow") {
-            kept.insert("contextWindow".to_owned(), Value::Number(n.clone()));
+            kept.insert("contextWindow".to_owned(), Value::Number(*n));
         }
 
         kept.insert("inputTokens".to_owned(), Value::Number(input_tokens.into()));
@@ -161,10 +161,7 @@ pub(crate) fn model_session_fact(
         Value::from("cumulative".to_owned()),
     );
 
-    map.insert(
-        "counterKey".to_owned(),
-        Value::from(counter_key.to_owned()),
-    );
+    map.insert("counterKey".to_owned(), Value::from(counter_key.to_owned()));
 
     map.insert("inputTokens".to_owned(), Value::Number(counts.input.into()));
 
@@ -219,10 +216,7 @@ pub(crate) fn provider_session_fact(
         Value::from("cumulative".to_owned()),
     );
 
-    map.insert(
-        "counterKey".to_owned(),
-        Value::from(counter_key.to_owned()),
-    );
+    map.insert("counterKey".to_owned(), Value::from(counter_key.to_owned()));
 
     map.insert("inputTokens".to_owned(), Value::Number(input.into()));
 

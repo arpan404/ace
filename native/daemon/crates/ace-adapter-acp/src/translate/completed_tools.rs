@@ -44,10 +44,7 @@ pub fn retire_tool(state: &mut TranslationState, tool_key: &str) {
         let mut input_entries: Vec<Value> = Vec::new();
         if let Some(parts) = tool.input_parts.as_ref() {
             for (key, value) in parts.iter() {
-                input_entries.push(Value::from(vec![
-                    Value::from(key.clone()),
-                    value.clone(),
-                ]));
+                input_entries.push(Value::from(vec![Value::from(key.clone()), value.clone()]));
             }
         }
         let mut payload = Map::with_capacity(2);

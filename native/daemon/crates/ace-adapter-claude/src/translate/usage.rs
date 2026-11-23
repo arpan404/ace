@@ -42,10 +42,7 @@ pub fn child_usage(state: &mut ClaudeState, agent: &str, id: &str, message: &Val
     let root = state.root.clone();
     if input_tokens >= 0 && occupied_safe {
         let mut map = Map::with_capacity(3);
-        map.insert(
-            "type".to_owned(),
-            Value::from("context.sample".to_owned()),
-        );
+        map.insert("type".to_owned(), Value::from("context.sample".to_owned()));
         map.insert("agent".to_owned(), Value::from(agent.to_owned()));
         map.insert("usedTokens".to_owned(), Value::Number(occupied.into()));
         if let Some(Value::String(model)) = object(message).get("model") {

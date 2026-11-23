@@ -76,9 +76,7 @@ pub fn retain_tool_raw(
 }
 
 /// Terminal snapshots retain all partial input fields.
-pub fn complete_tool_raw(
-    tool: &mut crate::translate::state::ToolState,
-) -> Option<Map> {
+pub fn complete_tool_raw(tool: &mut crate::translate::state::ToolState) -> Option<Map> {
     let input_raw = tool.input_raw.clone()?;
     let completed = if let Some(done) = tool.completed_input.clone() {
         done

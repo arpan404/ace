@@ -22,10 +22,7 @@ pub fn handle_note(
         state.stopped = false;
         state.process_dead = false;
         let mut fact = Map::with_capacity(1);
-        fact.insert(
-            "type".to_owned(),
-            Value::from("process.started".to_owned()),
-        );
+        fact.insert("type".to_owned(), Value::from("process.started".to_owned()));
         facts.push(Value::Object(fact));
     }
     if data_map.get("event").and_then(Value::as_str) == Some("process-exit") {
@@ -35,10 +32,7 @@ pub fn handle_note(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
         let mut fact = Map::with_capacity(2);
-        fact.insert(
-            "type".to_owned(),
-            Value::from("process.exited".to_owned()),
-        );
+        fact.insert("type".to_owned(), Value::from("process.exited".to_owned()));
         fact.insert("deliberate".to_owned(), Value::Bool(deliberate));
         facts.push(Value::Object(fact));
         state.reset_process();

@@ -6,8 +6,8 @@ use crate::translate::content::ItemReconciled;
 use crate::translate::data::{RawPayload, arr_in, fields, get, n_in, num_str, raw, s_in};
 use crate::translate::state::{NativeState, Out, StateError};
 use crate::translate::tool::tool;
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 /// Where a text or reasoning block lives: its session and message.
 pub struct TextLoc<'a> {

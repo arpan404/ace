@@ -57,9 +57,14 @@ fn is_content_part(value: &Value) -> bool {
             }
         }
         Some(kind) if units_eq(kind, "mention") => {
-            let entry = string(value.get("entryId").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
-            let name = string(value.get("name").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
-            !entry.is_empty() && entry.len_utf16() <= 256 && !name.is_empty() && name.len_utf16() <= 256
+            let entry =
+                string(value.get("entryId").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
+            let name =
+                string(value.get("name").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
+            !entry.is_empty()
+                && entry.len_utf16() <= 256
+                && !name.is_empty()
+                && name.len_utf16() <= 256
         }
         _ => false,
     }
@@ -88,7 +93,10 @@ impl Step<'_> {
             *self.operation = Some(attempt.operation_id.clone());
             *self.active = true;
             facts.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("turn.started"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("turn.started")),
+                ),
                 (JsString::from("agent"), Value::String(self.root.clone())),
                 (
                     JsString::from("nativeTurnId"),
@@ -97,7 +105,10 @@ impl Step<'_> {
                         &attempt.operation_id,
                     ])),
                 ),
-                (JsString::from("trigger"), Value::String(JsString::from("user"))),
+                (
+                    JsString::from("trigger"),
+                    Value::String(JsString::from("user")),
+                ),
             ]));
         }
         facts.extend(self.transcript.end());
@@ -111,18 +122,30 @@ impl Step<'_> {
                 None => super::envelope::num_units(attempt.segment),
             };
             let mut draft = vec![
-                (JsString::from("type"), Value::String(JsString::from("message"))),
-                (JsString::from("role"), Value::String(JsString::from("user"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("message")),
+                ),
+                (
+                    JsString::from("role"),
+                    Value::String(JsString::from("user")),
+                ),
                 (JsString::from("parts"), Value::Array(input.clone())),
                 (JsString::from("complete"), Value::Bool(true)),
             ];
             if let Some(command_id) = &attempt.command_id
                 && command_id.len_utf16() <= 256
             {
-                draft.push((JsString::from("nativeId"), Value::String(command_id.clone())));
+                draft.push((
+                    JsString::from("nativeId"),
+                    Value::String(command_id.clone()),
+                ));
             }
             facts.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("item.upsert")),
+                ),
                 (JsString::from("agent"), Value::String(self.root.clone())),
                 (
                     JsString::from("item"),
@@ -159,12 +182,14 @@ impl Step<'_> {
         envelope: &Value,
         body: &Value,
     ) -> BudgetResult<Vec<Value>> {
-        let status = string(body.get("nativeStatus").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
-        let result: Option<JsString> = if matches!(body.get("resultParts"), Some(Value::Number(_))) {
+        let status =
+            string(body.get("nativeStatus").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
+        let result: Option<JsString> = if matches!(body.get("resultParts"), Some(Value::Number(_)))
+        {
             Some(std::mem::take(self.saved))
         } else {
             *self.saved = JsString::new();
-            string(body.get("result").unwrap_or(&Value::Null)).map(|result| result.clone())
+            string(body.get("result").unwrap_or(&Value::Null)).cloned()
         };
         let result_cut = matches!(body.get("resultCut"), Some(Value::Bool(true)));
         // The stored result is the turn's final answer: whatever of it was
@@ -183,7 +208,10 @@ impl Step<'_> {
             }
             let namespace = self.turn_namespace.clone();
             let update = Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("text-delta"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("text-delta")),
+                ),
                 (JsString::from("text"), Value::String(missing.text)),
             ]);
             answer.extend(self.delta(&update, self.root, &namespace, envelope, Some(event), 0)?);
@@ -232,7 +260,12 @@ impl Step<'_> {
         } else {
             "info"
         };
-        facts.push(self.notice(&noticed, envelope, level, &JsString::from("cursor.recovered")));
+        facts.push(self.notice(
+            &noticed,
+            envelope,
+            level,
+            &JsString::from("cursor.recovered"),
+        ));
         facts.extend(from_result);
         if result_cut {
             facts.push(self.notice(
@@ -272,17 +305,22 @@ impl Step<'_> {
         };
         let operation = self.operation.clone().ok_or(BudgetError::Exceeded)?;
         let mut ended = Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("turn.ended"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("turn.ended")),
+            ),
             (JsString::from("agent"), Value::String(self.root.clone())),
             (
                 JsString::from("nativeTurnId"),
                 Value::String(super::envelope::cat(&[&JsString::from("sdk:"), &operation])),
             ),
-            (JsString::from("outcome"), Value::String(JsString::from(outcome))),
+            (
+                JsString::from("outcome"),
+                Value::String(JsString::from(outcome)),
+            ),
         ]);
         if outcome == "failed" {
-            let message = string(body.get("error").unwrap_or(&Value::Null))
-                .map(|message| message.clone())
+            let message = string(body.get("error").unwrap_or(&Value::Null)).cloned()
                 .unwrap_or_else(|| {
                     if is_truthy(body.get("interrupted").unwrap_or(&Value::Null)) {
                         JsString::from(
@@ -292,7 +330,11 @@ impl Step<'_> {
                         JsString::from("Cursor SDK run failed")
                     }
                 });
-            super::text::set(&mut ended, "error", failed_run(&Value::Null, &message, &Value::Null));
+            super::text::set(
+                &mut ended,
+                "error",
+                failed_run(&Value::Null, &message, &Value::Null),
+            );
         }
         facts.push(ended);
         Ok(facts)

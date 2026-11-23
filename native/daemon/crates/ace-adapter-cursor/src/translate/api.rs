@@ -3,8 +3,8 @@
 //! JSON in, its facts' JSON out, through one preallocated output buffer.
 //! Behaviour lives in the translator; this only translates values.
 
-use super::text::{JsString, Value, write_json};
 use super::text::parse_json;
+use super::text::{JsString, Value, write_json};
 use super::translator::CursorTranslator;
 
 /// Fold one frame's JSON into its facts' JSON array.
@@ -16,10 +16,7 @@ pub fn translate_json(translator: &mut CursorTranslator, frame_json: &str, now_m
     };
     let data = frame.get("data").unwrap_or(&Value::Null);
     let checked = matches!(frame.get("checked"), Some(Value::Bool(true)));
-    let seq = frame
-        .get("seq")
-        .and_then(|seq| seq.as_i64())
-        .unwrap_or(0);
+    let seq = frame.get("seq").and_then(|seq| seq.as_i64()).unwrap_or(0);
     let channel = match frame.get("channel") {
         Some(Value::String(channel)) => channel,
         _ => JsString::empty(),

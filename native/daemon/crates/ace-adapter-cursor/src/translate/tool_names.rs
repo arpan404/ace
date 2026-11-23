@@ -111,7 +111,7 @@ fn ace_tool_name(name: &JsString) -> Option<&str> {
     }
     for (prefix, names) in [("browser_", BROWSER), ("screen_", SCREEN), ("sim_", SIM)] {
         if let Some(rest) = bare.strip_prefix(prefix)
-            && names.iter().any(|member| rest == *member)
+            && names.contains(&rest)
         {
             return Some(bare);
         }

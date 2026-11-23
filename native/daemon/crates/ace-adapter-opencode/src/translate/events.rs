@@ -229,11 +229,7 @@ impl Translator {
         Ok(())
     }
 
-    pub(crate) fn shell_created(
-        &mut self,
-        p: &Map,
-        out: &mut Out<'_>,
-    ) -> Result<(), StateError> {
+    pub(crate) fn shell_created(&mut self, p: &Map, out: &mut Out<'_>) -> Result<(), StateError> {
         let info = fields(get(p, "info"));
         let id = s_in(info, "id").to_owned();
         let session = s_in(fields(get(info, "metadata")), "sessionID").to_owned();

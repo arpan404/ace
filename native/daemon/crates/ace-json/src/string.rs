@@ -23,7 +23,10 @@ enum Repr {
     Utf8(String),
     /// Holds at least one lone surrogate; never a well-formed string. `text` is the display
     /// form, each lone surrogate replaced by U+FFFD.
-    Units { units: Box<[u16]>, text: String },
+    Units {
+        units: Box<[u16]>,
+        text: String,
+    },
 }
 
 impl Default for Repr {

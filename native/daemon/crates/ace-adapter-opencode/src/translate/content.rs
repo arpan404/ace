@@ -5,8 +5,8 @@
 
 use crate::translate::data::{arr_in, fields, get, n_in, num_str, s_in, utf16_len};
 use crate::translate::state::{ChangeKind, FileChange};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 /// The native key of a tool call: its session, message, and native id.
 pub fn tool_key(session: &str, message: &str, id: &str) -> String {

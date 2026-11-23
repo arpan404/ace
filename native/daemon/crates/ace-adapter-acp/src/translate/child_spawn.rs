@@ -149,10 +149,7 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
             "origin".to_owned(),
             Value::from("provider_subagent".to_owned()),
         );
-        seen.insert(
-            "fidelity".to_owned(),
-            Value::from("placeholder".to_owned()),
-        );
+        seen.insert("fidelity".to_owned(), Value::from("placeholder".to_owned()));
         seen.insert("native".to_owned(), Value::Object(native));
         seen.insert("cwd".to_owned(), Value::from(state.cwd.clone()));
         seen.insert("name".to_owned(), Value::from(title));

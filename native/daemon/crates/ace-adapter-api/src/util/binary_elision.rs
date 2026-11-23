@@ -215,8 +215,8 @@ pub fn elided_digest(value: &str) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::{BINARY_ELISION_CHARS, elided_digest, elided_json};
-    use base64::Engine as _;
     use ace_json::{Value, json};
+    use base64::Engine as _;
     use sha2::Digest as _;
 
     fn screenshot() -> (Vec<u8>, String) {

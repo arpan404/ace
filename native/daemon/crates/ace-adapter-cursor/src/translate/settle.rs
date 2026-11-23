@@ -27,7 +27,10 @@ impl Step<'_> {
             kind if units_eq(kind, "message") => {
                 // Frames from an earlier build: the stream's copy of onDelta, never shown twice.
                 Ok(vec![Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("signal"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("signal")),
+                    ),
                     (JsString::from("agent"), Value::String(self.root.clone())),
                 ])])
             }
@@ -67,8 +70,7 @@ impl Step<'_> {
                     let error = body.get("error").unwrap_or(&Value::Null);
                     facts.push(
                         self.notice(
-                            &string(error.get("message").unwrap_or(&Value::Null))
-                                .map(|message| message.clone())
+                            &string(error.get("message").unwrap_or(&Value::Null)).cloned()
                                 .unwrap_or_else(|| JsString::from("Cursor SDK run failed")),
                             envelope,
                             "error",
@@ -90,7 +92,10 @@ impl Step<'_> {
                     "failed"
                 };
                 let mut ended = Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("turn.ended"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("turn.ended")),
+                    ),
                     (JsString::from("agent"), Value::String(self.root.clone())),
                     (
                         JsString::from("nativeTurnId"),
@@ -99,16 +104,19 @@ impl Step<'_> {
                             event.operation_id,
                         ])),
                     ),
-                    (JsString::from("outcome"), Value::String(JsString::from(outcome))),
+                    (
+                        JsString::from("outcome"),
+                        Value::String(JsString::from(outcome)),
+                    ),
                 ]);
                 if outcome == "failed" {
                     let error = body.get("error").unwrap_or(&Value::Null);
-                    super::text::set(&mut ended, 
+                    super::text::set(
+                        &mut ended,
                         "error",
                         failed_run(
                             error.get("code").unwrap_or(&Value::Null),
-                            &string(error.get("message").unwrap_or(&Value::Null))
-                                .map(|message| message.clone())
+                            &string(error.get("message").unwrap_or(&Value::Null)).cloned()
                                 .unwrap_or_else(|| JsString::from("Cursor SDK run failed")),
                             error.get("retryable").unwrap_or(&Value::Null),
                         ),
@@ -127,7 +135,10 @@ impl Step<'_> {
                 {
                     *self.attempt = None;
                     facts.push(Value::from(vec![
-                        (JsString::from("type"), Value::String(JsString::from("wake.expected"))),
+                        (
+                            JsString::from("type"),
+                            Value::String(JsString::from("wake.expected")),
+                        ),
                         (JsString::from("agent"), Value::String(self.root.clone())),
                         (JsString::from("until"), Value::from(self.now)),
                     ]));
@@ -135,10 +146,19 @@ impl Step<'_> {
                 if !*self.root_seen {
                     *self.root_seen = true;
                     facts.push(Value::from(vec![
-                        (JsString::from("type"), Value::String(JsString::from("agent.seen"))),
+                        (
+                            JsString::from("type"),
+                            Value::String(JsString::from("agent.seen")),
+                        ),
                         (JsString::from("agent"), Value::String(self.root.clone())),
-                        (JsString::from("origin"), Value::String(JsString::from("root"))),
-                        (JsString::from("fidelity"), Value::String(JsString::from("full"))),
+                        (
+                            JsString::from("origin"),
+                            Value::String(JsString::from("root")),
+                        ),
+                        (
+                            JsString::from("fidelity"),
+                            Value::String(JsString::from("full")),
+                        ),
                         (
                             JsString::from("native"),
                             Value::from(vec![(
@@ -149,8 +169,7 @@ impl Step<'_> {
                         (JsString::from("cwd"), Value::String(self.cwd.clone())),
                     ]));
                 }
-                let text = string(body.get("message").unwrap_or(&Value::Null))
-                    .map(|text| text.clone())
+                let text = string(body.get("message").unwrap_or(&Value::Null)).cloned()
                     .unwrap_or_else(|| {
                         JsString::from("SDK failure; delivery or execution is uncertain")
                     });
@@ -174,11 +193,13 @@ impl Step<'_> {
                     && matches!(body.get("settled"), Some(Value::Bool(true)))
                 {
                     *self.active = false;
-                    let message = string(body.get("message").unwrap_or(&Value::Null))
-                        .map(|message| message.clone())
+                    let message = string(body.get("message").unwrap_or(&Value::Null)).cloned()
                         .unwrap_or_else(|| JsString::from("SDK run failed"));
                     facts.push(Value::from(vec![
-                        (JsString::from("type"), Value::String(JsString::from("turn.ended"))),
+                        (
+                            JsString::from("type"),
+                            Value::String(JsString::from("turn.ended")),
+                        ),
                         (JsString::from("agent"), Value::String(self.root.clone())),
                         (
                             JsString::from("nativeTurnId"),
@@ -187,7 +208,10 @@ impl Step<'_> {
                                 event.operation_id,
                             ])),
                         ),
-                        (JsString::from("outcome"), Value::String(JsString::from("failed"))),
+                        (
+                            JsString::from("outcome"),
+                            Value::String(JsString::from("failed")),
+                        ),
                         (
                             JsString::from("error"),
                             failed_run(

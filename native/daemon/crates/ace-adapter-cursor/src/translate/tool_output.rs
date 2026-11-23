@@ -70,10 +70,16 @@ impl ToolEvents {
         tool.output = true;
         let owner = tool.agent.clone();
         facts.push(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("item.delta"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("item.delta")),
+            ),
             (JsString::from("agent"), Value::String(owner)),
             (JsString::from("item"), Value::String(key)),
-            (JsString::from("field"), Value::String(JsString::from("output"))),
+            (
+                JsString::from("field"),
+                Value::String(JsString::from("output")),
+            ),
             (JsString::from("append"), Value::String(text.clone())),
         ]));
         Ok(facts)
@@ -139,7 +145,10 @@ impl ToolEvents {
                         JsString::from("task"),
                         Value::String(cat(&[&JsString::from("surviving:"), &item])),
                     ),
-                    (JsString::from("status"), Value::String(JsString::from("unknown"))),
+                    (
+                        JsString::from("status"),
+                        Value::String(JsString::from("unknown")),
+                    ),
                     (JsString::from("uncertain"), Value::Bool(true)),
                 ]));
             }

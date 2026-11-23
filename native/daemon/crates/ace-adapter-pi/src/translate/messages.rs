@@ -3,8 +3,8 @@
 
 use super::native::{field, parse_array, parse_object, raw_as_str, str_field};
 use ace_core::Fact;
-use serde::Serialize;
 use ace_json::Raw;
+use serde::Serialize;
 
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
 
@@ -153,7 +153,7 @@ fn assistant_facts(
         None => Vec::new(),
     };
     for block_raw in &content_items {
-        let block = parse_object(block_raw.as_ref()).unwrap_or_default();
+        let block = parse_object(block_raw).unwrap_or_default();
         let block_type = str_field(&block, "type");
         if block_type != "text" && block_type != "thinking" {
             continue;
@@ -161,7 +161,7 @@ fn assistant_facts(
         let index = order;
         order += 1;
         let raw_data: &Raw = if retained {
-            block_raw.as_ref()
+            block_raw
         } else {
             frame_data
         };
@@ -371,7 +371,7 @@ fn user_parts(parsed: &super::native::Fields) -> Vec<TextPart> {
     let items = parse_array(content_raw).unwrap_or_default();
     let mut parts = Vec::new();
     for item in &items {
-        let block = parse_object(item.as_ref()).unwrap_or_default();
+        let block = parse_object(item).unwrap_or_default();
         if str_field(&block, "type") != "text" {
             continue;
         }

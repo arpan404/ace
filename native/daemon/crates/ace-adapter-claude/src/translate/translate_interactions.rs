@@ -223,10 +223,7 @@ fn opened(
     raw_item.insert("type".to_owned(), Value::from("can_use_tool".to_owned()));
     raw_item.insert("name".to_owned(), Value::from(name.to_owned()));
     raw_item.insert("data".to_owned(), data.clone());
-    map.insert(
-        "raw".to_owned(),
-        Value::from(vec![Value::Object(raw_item)]),
-    );
+    map.insert("raw".to_owned(), Value::from(vec![Value::Object(raw_item)]));
     Value::Object(map)
 }
 

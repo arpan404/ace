@@ -53,7 +53,10 @@ pub fn translate_delta(
     }
     if is(body.get("type").unwrap_or(&Value::Null), "step-started")
         || is(body.get("type").unwrap_or(&Value::Null), "step-completed")
-        || is(body.get("type").unwrap_or(&Value::Null), "thinking-completed")
+        || is(
+            body.get("type").unwrap_or(&Value::Null),
+            "thinking-completed",
+        )
     {
         return Ok(flow.transcript.boundary(agent));
     }
@@ -77,7 +80,8 @@ pub fn translate_delta(
                 "warning",
             )]);
         }
-        let call_id = native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default();
+        let call_id =
+            native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default();
         let call = super::envelope::cat(&[namespace, &JsString::from(":call:"), &call_id]);
         if !flow.children.calls.contains_key(&call) {
             let notice = &mut *flow.notice;
@@ -127,10 +131,16 @@ pub fn translate_delta(
         }
         return Ok(facts);
     }
-    if is(body.get("type").unwrap_or(&Value::Null), "tool-call-started")
-        || is(body.get("type").unwrap_or(&Value::Null), "partial-tool-call")
-        || is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed")
-    {
+    if is(
+        body.get("type").unwrap_or(&Value::Null),
+        "tool-call-started",
+    ) || is(
+        body.get("type").unwrap_or(&Value::Null),
+        "partial-tool-call",
+    ) || is(
+        body.get("type").unwrap_or(&Value::Null),
+        "tool-call-completed",
+    ) {
         let flow = &mut *flow;
         return flow.tools.translate(
             body,
@@ -147,12 +157,17 @@ pub fn translate_delta(
         );
     }
     // Shell output events are opaque records; keep them rather than inventing call association.
-    if is(body.get("type").unwrap_or(&Value::Null), "shell-output-delta")
-        && matches!(body.get("aceOutputStream"), Some(Value::Bool(true)))
+    if is(
+        body.get("type").unwrap_or(&Value::Null),
+        "shell-output-delta",
+    ) && matches!(body.get("aceOutputStream"), Some(Value::Bool(true)))
     {
         return Ok(Vec::new());
     }
-    if is(body.get("type").unwrap_or(&Value::Null), "shell-output-delta") {
+    if is(
+        body.get("type").unwrap_or(&Value::Null),
+        "shell-output-delta",
+    ) {
         let notice = &mut *flow.notice;
         let envelope = flow.envelope;
         return Ok(vec![notice(

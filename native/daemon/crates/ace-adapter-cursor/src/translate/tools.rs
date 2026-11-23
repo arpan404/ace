@@ -99,7 +99,10 @@ fn todo_entry(value: &Value) -> Option<Value> {
     };
     let mut entry = vec![
         (JsString::from("content"), Value::String(content.clone())),
-        (JsString::from("status"), Value::String(JsString::from(status))),
+        (
+            JsString::from("status"),
+            Value::String(JsString::from(status)),
+        ),
     ];
     if let Some(id) = string(value.get("id").unwrap_or(&Value::Null)) {
         entry.push((JsString::from("id"), Value::String(id.clone())));
@@ -174,7 +177,10 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
             };
             let mut change = vec![
                 (JsString::from("path"), Value::String(path.clone())),
-                (JsString::from("kind"), Value::String(JsString::from(change_kind))),
+                (
+                    JsString::from("kind"),
+                    Value::String(JsString::from(change_kind)),
+                ),
             ];
             if let Some(old) = string(args.get("oldString").unwrap_or(&Value::Null)) {
                 change.push((JsString::from("oldText"), Value::String(old.clone())));
@@ -191,7 +197,10 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
             }
             Value::from(vec![
                 (JsString::from("kind"), Value::String(JsString::from(kind))),
-                (JsString::from("changes"), Value::from(vec![Value::from(change)])),
+                (
+                    JsString::from("changes"),
+                    Value::from(vec![Value::from(change)]),
+                ),
             ])
         }
         "search" => {
@@ -205,8 +214,7 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
         }
         "mcp" => {
             let server = string(args.get("providerIdentifier").unwrap_or(&Value::Null))
-                .or_else(|| string(args.get("server").unwrap_or(&Value::Null)))
-                .map(|server| server.clone())
+                .or_else(|| string(args.get("server").unwrap_or(&Value::Null))).cloned()
                 .unwrap_or_else(|| JsString::from("unknown"));
             let tool = string(args.get("tool").unwrap_or(&Value::Null))
                 .or_else(|| string(args.get("toolName").unwrap_or(&Value::Null)))
@@ -226,10 +234,13 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
             if let Some(description) = string(args.get("description").unwrap_or(&Value::Null))
                 .filter(|description| !description.is_empty())
             {
-                detail.push((JsString::from("description"), Value::String(description.clone())));
+                detail.push((
+                    JsString::from("description"),
+                    Value::String(description.clone()),
+                ));
             }
-            if let Some(prompt) =
-                string(args.get("prompt").unwrap_or(&Value::Null)).filter(|prompt| !prompt.is_empty())
+            if let Some(prompt) = string(args.get("prompt").unwrap_or(&Value::Null))
+                .filter(|prompt| !prompt.is_empty())
             {
                 detail.push((JsString::from("prompt"), Value::String(prompt.clone())));
             }
@@ -248,9 +259,13 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
             }
             Value::from(detail)
         }
-        "ask_user" | "image" | "browser" => {
-            Value::from(vec![(JsString::from("kind"), Value::String(JsString::from(kind)))])
-        }
-        _ => Value::from(vec![(JsString::from("kind"), Value::String(JsString::from("custom")))]),
+        "ask_user" | "image" | "browser" => Value::from(vec![(
+            JsString::from("kind"),
+            Value::String(JsString::from(kind)),
+        )]),
+        _ => Value::from(vec![(
+            JsString::from("kind"),
+            Value::String(JsString::from("custom")),
+        )]),
     }
 }

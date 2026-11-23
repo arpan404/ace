@@ -6,7 +6,13 @@ use super::text::{JsString, Map, Value};
 use super::translator::Step;
 
 impl<'a> Step<'a> {
-    pub(crate) fn notice(&mut self, text: &JsString, data: &Value, level: &str, code: &JsString) -> Value {
+    pub(crate) fn notice(
+        &mut self,
+        text: &JsString,
+        data: &Value,
+        level: &str,
+        code: &JsString,
+    ) -> Value {
         let generation = self
             .generation
             .clone()
@@ -19,7 +25,10 @@ impl<'a> Step<'a> {
         item.push_js(&super::envelope::num_units(*self.notice_index as i64));
         *self.notice_index += 1;
         let mut raw = vec![self.current_raw.clone().unwrap_or(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("cursor.sdk.v1"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("cursor.sdk.v1")),
+            ),
             (JsString::from("data"), data.clone()),
         ]))];
         if [
@@ -35,22 +44,34 @@ impl<'a> Step<'a> {
             text.starts_with_js(&prefix)
         }) {
             raw.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("native-notice"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("native-notice")),
+                ),
                 (JsString::from("data"), Value::Object(Map::new())),
             ]));
         }
         Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+            (
+                JsString::from("type"),
+                Value::String(JsString::from("item.upsert")),
+            ),
             (JsString::from("agent"), Value::String(self.root.clone())),
             (JsString::from("item"), Value::String(item)),
             (
                 JsString::from("draft"),
                 Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("notice"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("notice")),
+                    ),
                     (JsString::from("diagnostic"), Value::Bool(true)),
                     (JsString::from("code"), Value::String(code.clone())),
                     (JsString::from("text"), Value::String(text.clone())),
-                    (JsString::from("level"), Value::String(JsString::from(level))),
+                    (
+                        JsString::from("level"),
+                        Value::String(JsString::from(level)),
+                    ),
                     (JsString::from("complete"), Value::Bool(true)),
                     (JsString::from("raw"), Value::from(raw)),
                 ]),
@@ -77,7 +98,10 @@ impl<'a> Step<'a> {
             item.push_js(&super::envelope::num_units(*index as i64));
             *index += 1;
             let mut raw = vec![current_raw.clone().unwrap_or(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("cursor.sdk.v1"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("cursor.sdk.v1")),
+                ),
                 (JsString::from("data"), data.clone()),
             ]))];
             if [
@@ -93,26 +117,38 @@ impl<'a> Step<'a> {
                 text.starts_with_js(&prefix)
             }) {
                 raw.push(Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("native-notice"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("native-notice")),
+                    ),
                     (JsString::from("data"), Value::Object(Map::new())),
                 ]));
             }
             let _ = diagnostics;
             Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("item.upsert")),
+                ),
                 (JsString::from("agent"), Value::String(root.clone())),
                 (JsString::from("item"), Value::String(item)),
                 (
                     JsString::from("draft"),
                     Value::from(vec![
-                        (JsString::from("type"), Value::String(JsString::from("notice"))),
+                        (
+                            JsString::from("type"),
+                            Value::String(JsString::from("notice")),
+                        ),
                         (JsString::from("diagnostic"), Value::Bool(true)),
                         (
                             JsString::from("code"),
                             Value::String(JsString::from("cursor.diagnostic")),
                         ),
                         (JsString::from("text"), Value::String(text.clone())),
-                        (JsString::from("level"), Value::String(JsString::from(level))),
+                        (
+                            JsString::from("level"),
+                            Value::String(JsString::from(level)),
+                        ),
                         (JsString::from("complete"), Value::Bool(true)),
                         (JsString::from("raw"), Value::from(raw)),
                     ]),

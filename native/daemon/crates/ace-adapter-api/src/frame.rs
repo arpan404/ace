@@ -3,8 +3,8 @@
 //! redacted encoding, kept as received; a typed view decodes from it by
 //! matching the method or type string first.
 
-use serde::{Deserialize, Serialize};
 use ace_json::Raw;
+use serde::{Deserialize, Serialize};
 
 /// Direction from ace's point of view; notes include process exits and interrupts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

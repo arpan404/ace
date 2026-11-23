@@ -71,12 +71,6 @@ impl Raw {
     }
 }
 
-impl AsRef<Raw> for Raw {
-    fn as_ref(&self) -> &Raw {
-        self
-    }
-}
-
 impl Default for Raw {
     fn default() -> Raw {
         Raw::null()
@@ -215,7 +209,8 @@ impl<'a> RawRef<'a> {
         if !inner.contains('\\') {
             return Some(Cow::Borrowed(inner));
         }
-        self.as_js_string().map(|text| Cow::Owned(String::from(text)))
+        self.as_js_string()
+            .map(|text| Cow::Owned(String::from(text)))
     }
 
     pub fn as_js_string(&self) -> Option<JsString> {

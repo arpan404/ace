@@ -5,8 +5,8 @@
 use crate::translate::data::{fields, get, n_in, s_in, truthy};
 use crate::translate::state::{AgentMeta, NativeState, Out, StateError};
 use crate::translate::usage::{Model, linked_model};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 #[derive(Serialize)]
 struct AgentSeen<'a> {

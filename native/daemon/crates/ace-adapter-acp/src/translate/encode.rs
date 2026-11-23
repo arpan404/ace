@@ -21,12 +21,11 @@ pub fn encode_resolution(
     .map(object)
     .cloned()
     .collect();
-    let native: Vec<Map> =
-        list(object(native_params).get("options").unwrap_or(&Value::Null))
-            .iter()
-            .map(object)
-            .cloned()
-            .collect();
+    let native: Vec<Map> = list(object(native_params).get("options").unwrap_or(&Value::Null))
+        .iter()
+        .map(object)
+        .cloned()
+        .collect();
     let native_for = |local: &str| {
         native_option_id(&published, &native, local).unwrap_or_else(|| local.to_owned())
     };

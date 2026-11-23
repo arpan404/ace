@@ -44,44 +44,44 @@ pub fn turn_usage(value: &Value, agent: &JsString, counter_key: &JsString) -> Ve
     let mut facts = Vec::new();
     if occupied <= SAFE as i128 {
         facts.push(Value::from(vec![
-            (JsString::from("type"), Value::String(JsString::from("context.sample"))),
-            (JsString::from("agent"), Value::String(agent.clone())),
             (
-                JsString::from("usedTokens"),
-                Value::from(occupied as i64),
+                JsString::from("type"),
+                Value::String(JsString::from("context.sample")),
             ),
+            (JsString::from("agent"), Value::String(agent.clone())),
+            (JsString::from("usedTokens"), Value::from(occupied as i64)),
         ]));
     }
     let mut usage = vec![
-        (JsString::from("type"), Value::String(JsString::from("usage"))),
+        (
+            JsString::from("type"),
+            Value::String(JsString::from("usage")),
+        ),
         (JsString::from("agent"), Value::String(agent.clone())),
         (JsString::from("inputTokens"), Value::from(input)),
         (JsString::from("outputTokens"), Value::from(output)),
     ];
     if let Some(cached) = cache_read {
-        usage.push((
-            JsString::from("cachedInputTokens"),
-            Value::from(cached),
-        ));
+        usage.push((JsString::from("cachedInputTokens"), Value::from(cached)));
     }
     if let Some(written) = cache_write {
-        usage.push((
-            JsString::from("cacheWriteTokens"),
-            Value::from(written),
-        ));
+        usage.push((JsString::from("cacheWriteTokens"), Value::from(written)));
     }
     if let Some(reasoning) = reasoning {
-        usage.push((
-            JsString::from("reasoningTokens"),
-            Value::from(reasoning),
-        ));
+        usage.push((JsString::from("reasoningTokens"), Value::from(reasoning)));
     }
     usage.push((
         JsString::from("counterMode"),
         Value::String(JsString::from("cumulative")),
     ));
-    usage.push((JsString::from("counterKey"), Value::String(counter_key.clone())));
-    usage.push((JsString::from("billingMode"), Value::String(JsString::from("unknown"))));
+    usage.push((
+        JsString::from("counterKey"),
+        Value::String(counter_key.clone()),
+    ));
+    usage.push((
+        JsString::from("billingMode"),
+        Value::String(JsString::from("unknown")),
+    ));
     facts.push(Value::from(usage));
     facts
 }

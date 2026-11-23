@@ -88,11 +88,7 @@ impl PiTranslator {
         out
     }
 
-    pub(super) fn unanswerable(
-        &mut self,
-        seq: u64,
-        data: &ace_json::Raw,
-    ) -> Vec<Fact> {
+    pub(super) fn unanswerable(&mut self, seq: u64, data: &ace_json::Raw) -> Vec<Fact> {
         self.poisoned = true;
         let mut out = Vec::new();
         if let Some(fact) = self.notice(

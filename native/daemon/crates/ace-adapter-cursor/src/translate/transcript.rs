@@ -36,7 +36,12 @@ impl Transcript {
         }
     }
 
-    pub fn append(&mut self, agent: &JsString, field: &str, text: &JsString) -> BudgetResult<Vec<Value>> {
+    pub fn append(
+        &mut self,
+        agent: &JsString,
+        field: &str,
+        text: &JsString,
+    ) -> BudgetResult<Vec<Value>> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
@@ -85,15 +90,27 @@ impl Transcript {
                 position.text = Some(item.clone());
                 position.field = Some(Field::Text);
                 facts.push(Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("item.upsert")),
+                    ),
                     (JsString::from("agent"), Value::String(agent.clone())),
                     (JsString::from("item"), Value::String(item)),
                     (
                         JsString::from("draft"),
                         Value::from(vec![
-                            (JsString::from("type"), Value::String(JsString::from("message"))),
-                            (JsString::from("role"), Value::String(JsString::from("assistant"))),
-                            (JsString::from("parts"), Value::Array(ace_json::Array::new())),
+                            (
+                                JsString::from("type"),
+                                Value::String(JsString::from("message")),
+                            ),
+                            (
+                                JsString::from("role"),
+                                Value::String(JsString::from("assistant")),
+                            ),
+                            (
+                                JsString::from("parts"),
+                                Value::Array(ace_json::Array::new()),
+                            ),
                             (JsString::from("complete"), Value::Bool(false)),
                         ]),
                     ),
@@ -102,13 +119,19 @@ impl Transcript {
                 position.thinking = Some(item.clone());
                 position.field = Some(Field::Thinking);
                 facts.push(Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("item.upsert")),
+                    ),
                     (JsString::from("agent"), Value::String(agent.clone())),
                     (JsString::from("item"), Value::String(item)),
                     (
                         JsString::from("draft"),
                         Value::from(vec![
-                            (JsString::from("type"), Value::String(JsString::from("reasoning"))),
+                            (
+                                JsString::from("type"),
+                                Value::String(JsString::from("reasoning")),
+                            ),
                             (JsString::from("text"), Value::String(JsString::new())),
                             (JsString::from("complete"), Value::Bool(false)),
                         ]),
@@ -124,7 +147,10 @@ impl Transcript {
         };
         if let Some(item) = item {
             facts.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("item.delta"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("item.delta")),
+                ),
                 (JsString::from("agent"), Value::String(agent.clone())),
                 (JsString::from("item"), Value::String(item)),
                 (
@@ -154,7 +180,10 @@ impl Transcript {
         position.field = None;
         match item {
             Some(item) => vec![Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("item.upsert")),
+                ),
                 (JsString::from("agent"), Value::String(agent.clone())),
                 (JsString::from("item"), Value::String(item)),
                 (

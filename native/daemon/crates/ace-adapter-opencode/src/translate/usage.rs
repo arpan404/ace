@@ -3,8 +3,8 @@
 //! Session billing is cumulative; step occupancy replaces the last sampling.
 
 use crate::translate::data::{Num, fields, get, utf16_len};
-use serde::Serialize;
 use ace_json::{Map, Value};
+use serde::Serialize;
 
 /// A model name either borrowed from translator state or freshly parsed.
 pub enum Model<'a> {

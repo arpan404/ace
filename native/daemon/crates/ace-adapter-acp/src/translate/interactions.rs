@@ -43,9 +43,7 @@ pub fn interaction_request(method: &str, params: &Value, quirks: QuirksKind) -> 
                 );
                 map.insert(
                     "text".to_owned(),
-                    Value::from(
-                        string(question.get("prompt").unwrap_or(&Value::Null)).to_owned(),
-                    ),
+                    Value::from(string(question.get("prompt").unwrap_or(&Value::Null)).to_owned()),
                 );
                 map.insert(
                     "options".to_owned(),
@@ -69,12 +67,11 @@ pub fn interaction_request(method: &str, params: &Value, quirks: QuirksKind) -> 
         map.insert("questions".to_owned(), Value::from(questions));
         request = Some(Value::Object(map));
     } else if method == "session/request_permission" {
-        let options: Vec<Map> =
-            list(params_map.get("options").unwrap_or(&Value::Null))
-                .iter()
-                .map(object)
-                .cloned()
-                .collect();
+        let options: Vec<Map> = list(params_map.get("options").unwrap_or(&Value::Null))
+            .iter()
+            .map(object)
+            .cloned()
+            .collect();
         let antigravity = quirks == QuirksKind::Antigravity;
         if antigravity
             && string(call.get("toolCallId").unwrap_or(&Value::Null)).starts_with("interaction_")
@@ -84,15 +81,10 @@ pub fn interaction_request(method: &str, params: &Value, quirks: QuirksKind) -> 
                 .enumerate()
                 .map(|(index, option)| {
                     let mut map = Map::with_capacity(2);
-                    map.insert(
-                        "id".to_owned(),
-                        Value::from(local_option_id(option, index)),
-                    );
+                    map.insert("id".to_owned(), Value::from(local_option_id(option, index)));
                     map.insert(
                         "label".to_owned(),
-                        Value::from(
-                            string(option.get("name").unwrap_or(&Value::Null)).to_owned(),
-                        ),
+                        Value::from(string(option.get("name").unwrap_or(&Value::Null)).to_owned()),
                     );
                     Value::Object(map)
                 })

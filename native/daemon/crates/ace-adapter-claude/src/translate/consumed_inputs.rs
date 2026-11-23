@@ -90,10 +90,7 @@ impl Default for ConsumedInputs {
 
 fn consumed_fact(root: &str, ids: &[String]) -> Value {
     let mut map = ace_json::Map::with_capacity(3);
-    map.insert(
-        "type".to_owned(),
-        Value::from("input.consumed".to_owned()),
-    );
+    map.insert("type".to_owned(), Value::from("input.consumed".to_owned()));
     map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert(
         "nativeInputIds".to_owned(),

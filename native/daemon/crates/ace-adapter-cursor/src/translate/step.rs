@@ -2,8 +2,8 @@
 //! The frame dispatch: envelope kinds into facts (`translator.ts` step).
 
 use super::envelope::{Envelope, cat, is, native_identity, string};
-use super::text::{JsString, Value, units_eq};
 use super::recovered_tail::{store_gap, stored_update};
+use super::text::{JsString, Value, units_eq};
 use super::translator::Step;
 use super::{BudgetError, BudgetResult};
 
@@ -24,15 +24,27 @@ impl Step<'_> {
                     .unwrap_or(JsString::empty())
                     .clone();
                 let model = string(body.get("model").unwrap_or(&Value::Null));
-                let mut native = vec![(JsString::from("provider"), Value::String(JsString::from("cursor")))];
+                let mut native = vec![(
+                    JsString::from("provider"),
+                    Value::String(JsString::from("cursor")),
+                )];
                 if let Some(agent_id) = event.agent_id {
                     native.push((JsString::from("nativeId"), Value::String(agent_id.clone())));
                 }
                 let mut seen = vec![
-                    (JsString::from("type"), Value::String(JsString::from("agent.seen"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("agent.seen")),
+                    ),
                     (JsString::from("agent"), Value::String(self.root.clone())),
-                    (JsString::from("origin"), Value::String(JsString::from("root"))),
-                    (JsString::from("fidelity"), Value::String(JsString::from("full"))),
+                    (
+                        JsString::from("origin"),
+                        Value::String(JsString::from("root")),
+                    ),
+                    (
+                        JsString::from("fidelity"),
+                        Value::String(JsString::from("full")),
+                    ),
                     (JsString::from("cwd"), Value::String(self.cwd.clone())),
                 ];
                 if let Some(model) = model.filter(|model| !model.is_empty()) {
@@ -45,7 +57,7 @@ impl Step<'_> {
                 *self.attempt = Some(super::translator::Attempt {
                     generation: event.generation.clone(),
                     operation_id: event.operation_id.clone(),
-                    command_id: event.command_id.map(|command| command.clone()),
+                    command_id: event.command_id.cloned(),
                     segment: event.segment,
                     body: event.body.clone(),
                 });
@@ -55,12 +67,12 @@ impl Step<'_> {
                     return Ok(Vec::new());
                 }
                 return Ok(vec![Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("wake.expected"))),
-                    (JsString::from("agent"), Value::String(self.root.clone())),
                     (
-                        JsString::from("until"),
-                        Value::from(self.now + 600_000),
+                        JsString::from("type"),
+                        Value::String(JsString::from("wake.expected")),
                     ),
+                    (JsString::from("agent"), Value::String(self.root.clone())),
+                    (JsString::from("until"), Value::from(self.now + 600_000)),
                 ])]);
             }
             kind if units_eq(kind, "segment") => {
@@ -76,11 +88,10 @@ impl Step<'_> {
             kind if units_eq(kind, "admission") => {
                 let admitted = self.attempt.as_ref().is_some_and(|attempt| {
                     attempt.operation_id
-                        == string(body.get("operationId").unwrap_or(&Value::Null)).unwrap_or(JsString::empty())
+                        == string(body.get("operationId").unwrap_or(&Value::Null))
+                            .unwrap_or(JsString::empty())
                         && Some(attempt.segment)
-                            == body
-                                .get("segment")
-                                .and_then(|segment| segment.as_i64())
+                            == body.get("segment").and_then(|segment| segment.as_i64())
                 });
                 if !admitted {
                     return Ok(Vec::new());
@@ -94,7 +105,10 @@ impl Step<'_> {
                 // daemon's to say: only it knows whether the last run's
                 // processes were proven gone before that read.
                 return Ok(vec![Value::from(vec![
-                    (JsString::from("type"), Value::String(JsString::from("wake.expected"))),
+                    (
+                        JsString::from("type"),
+                        Value::String(JsString::from("wake.expected")),
+                    ),
                     (JsString::from("agent"), Value::String(self.root.clone())),
                     (JsString::from("until"), Value::from(self.now)),
                 ])]);
@@ -121,7 +135,8 @@ impl Step<'_> {
             kind if units_eq(kind, "recovered-result") => {
                 if self.saved.len_utf16() < 4 * 1024 * 1024 {
                     self.saved.push_js(
-                        string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty()),
+                        string(body.get("text").unwrap_or(&Value::Null))
+                            .unwrap_or(JsString::empty()),
                     );
                 }
                 return Ok(Vec::new());
@@ -150,8 +165,7 @@ impl Step<'_> {
             facts.extend(self.children.preserve());
             facts.push(
                 self.notice(
-                    &string(body.get("message").unwrap_or(&Value::Null))
-                        .map(|message| message.clone())
+                    &string(body.get("message").unwrap_or(&Value::Null)).cloned()
                         .unwrap_or_else(|| {
                             JsString::from("SDK host resource budget failed; checkpoint retained")
                         }),
@@ -161,13 +175,15 @@ impl Step<'_> {
                 ),
             );
             facts.push(Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("process.exited"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("process.exited")),
+                ),
                 (JsString::from("deliberate"), Value::Bool(false)),
                 (
                     JsString::from("message"),
                     Value::String(super::turns::utf16_head(
-                        &string(body.get("message").unwrap_or(&Value::Null))
-                            .map(|message| message.clone())
+                        &string(body.get("message").unwrap_or(&Value::Null)).cloned()
                             .unwrap_or_else(|| JsString::from("Cursor's turn was fenced")),
                         512,
                     )),
@@ -177,7 +193,10 @@ impl Step<'_> {
         }
         if units_eq(event.kind, "blob") {
             return Ok(vec![Value::from(vec![
-                (JsString::from("type"), Value::String(JsString::from("signal"))),
+                (
+                    JsString::from("type"),
+                    Value::String(JsString::from("signal")),
+                ),
                 (JsString::from("agent"), Value::String(self.root.clone())),
             ])]);
         }
@@ -235,7 +254,9 @@ impl Step<'_> {
             }
             let mut facts = preserved;
             facts.push(self.notice(
-                &JsString::from("Cursor stopped unexpectedly. Unfinished work needs your attention."),
+                &JsString::from(
+                    "Cursor stopped unexpectedly. Unfinished work needs your attention.",
+                ),
                 envelope,
                 "warning",
                 &JsString::from("cursor.work-stopped"),
@@ -256,12 +277,16 @@ impl Step<'_> {
         {
             // Surviving child facts belong to their original call namespace, never the replacement root.
             if units_eq(event.kind, "delta")
-                && is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed")
+                && is(
+                    body.get("type").unwrap_or(&Value::Null),
+                    "tool-call-completed",
+                )
             {
                 let call = cat(&[
                     namespace,
                     &JsString::from(":call:"),
-                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default(),
+                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?
+                        .unwrap_or_default(),
                 ]);
                 if self.tools.calls.contains_key(&call) || self.children.calls.contains_key(&call) {
                     let agent = self.tools.agent_of(&call).unwrap_or(self.root).clone();
@@ -274,7 +299,8 @@ impl Step<'_> {
                 let call = cat(&[
                     namespace,
                     &JsString::from(":call:"),
-                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default(),
+                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?
+                        .unwrap_or_default(),
                 ]);
                 let child = self
                     .children
