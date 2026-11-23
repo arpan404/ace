@@ -19,6 +19,8 @@ ace-json = { path = "../ace-json" }
 ace-supervisor = { path = "../ace-supervisor" }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }
+# serde: the ref results are structs in the TypeScript's field order, serialized by ace-json.
+serde = { version = "1", features = ["derive"] }
 # tokio: the I/O runtime for process pumps, timers and stop tasks (the workspace's version and features).
 tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
 # gix: ref, branch and worktree-list reads (G1) and display-only status (G7), behind each caller's

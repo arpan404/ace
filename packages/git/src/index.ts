@@ -56,7 +56,6 @@ import { GitCli, textOutput } from "./cli.ts";
 import { gitParts, type GitPart } from "@ace/provider-kit/native-switches";
 import { appendDigest, digestLogOn, ensureGitAddon, gitFallbackCounts } from "./native-common.ts";
 import { runNativeCore, runNativeCoreSync } from "./native-core.ts";
-import { runNativeRefs } from "./native-refs.ts";
 import { runNativeReads } from "./native-reads.ts";
 import { runNativeWrites } from "./native-writes.ts";
 import { runNativeCheckpoints } from "./native-checkpoints.ts";
@@ -150,7 +149,11 @@ export class GitService {
       new GitCli(options),
       options.now ?? (() => new Date()),
       options.tempDirectory ?? tmpdir(),
-      options.checkpointCounterCacheSize,
+      {
+        checkpointCounterCacheSize: options.checkpointCounterCacheSize,
+        nativeRefsAllowed:
+          options.gitBinary === undefined && options.processRuntime?.spawn === undefined,
+      },
     );
     this.maxPatchBytes = options.maxPatchBytes ?? 1024 * 1024;
     this.transfer = new GitTransfer(this.repository, this.gitNative);
@@ -580,14 +583,10 @@ export class GitService {
     return switchBranch(this.repository, options);
   }
   branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
-    if (this.gitNative.has("refs"))
-      return runNativeRefs("branches", () => listBranches(this.repository, worktree));
     return listBranches(this.repository, worktree);
   }
   /** Local branches with their upstreams, and remotes' branches; no network. */
   branchRefs(worktree: string): Promise<BranchRefs> {
-    if (this.gitNative.has("refs"))
-      return runNativeRefs("branchRefs", () => branchRefs(this.repository, worktree));
     return branchRefs(this.repository, worktree);
   }
   /** A local (or, with `remote`, remote-tracking) branch's commit; undefined when missing. */
@@ -597,8 +596,6 @@ export class GitService {
     remote?: string | undefined;
     signal?: AbortSignal | undefined;
   }): Promise<string | undefined> {
-    if (this.gitNative.has("refs"))
-      return runNativeRefs("branchHead", () => branchHead(this.repository, options));
     return branchHead(this.repository, options);
   }
   /** Fetch one branch into its remote-tracking ref only, bounded by `timeoutMs`. */
@@ -715,7 +712,6 @@ export class GitService {
       const root = await this.repository.root(repo, signal);
       return this.repository.serial(root, () => this.repository.worktrees(root, signal), signal);
     };
-    if (this.gitNative.has("refs")) return runNativeRefs("listWorktrees", run);
     return run();
   }
 
@@ -897,7 +893,6 @@ export class GitService {
         signal,
       );
     };
-    if (this.gitNative.has("refs")) return runNativeRefs("resolveCommit", run);
     return run();
   }
 

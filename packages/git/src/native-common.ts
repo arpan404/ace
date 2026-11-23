@@ -43,7 +43,11 @@ export interface GitDigestEntry {
 }
 
 interface GitAddon {
-  gitRefsProbe(op: string): string;
+  gitRefsWorktrees(root: string): Buffer | string;
+  gitRefsBranchListing(root: string, patterns: string[], count: number): Buffer | string;
+  gitRefsBranchNames(root: string, patterns: string[], count: number): Buffer | string;
+  gitRefsCommit(root: string, reference: string): string;
+  gitRefsBranchHead(root: string, reference: string): string;
   gitCoreProbe(op: string): string;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;
@@ -181,6 +185,16 @@ export function digestLogOn(): boolean {
   return log !== undefined && log !== "";
 }
 
+/** Records one operation a part shell ran, for the cross gate (`ACE_GIT_OP_LOG`). */
+export function recordGitOp(record: Omit<GitOpRecord, "seq" | "pid">): void {
+  appendOp(record);
+}
+
+/** Counts one fallback reason for `resourceUsage().nativeFallbacks`. */
+export function countGitFallback(reason: string): void {
+  countFallback(reason);
+}
+
 /** Fallback reasons counted for `resourceUsage().nativeFallbacks`. */
 const fallbackReasons = new Map<string, number>();
 
@@ -203,12 +217,14 @@ export function gitVerify(): GitVerify {
   throw new Error(`ACE_GIT_VERIFY takes strict or shadow, not ${mode}`);
 }
 
-/** Calls the part's probe: in G0 it throws the stub deferral; G1+ replaces the probe. */
+/** Calls the probe of a part whose every operation still defers; each item replaces its probe. */
 function attemptNative(part: GitPart, op: string): string {
   const addon = gitAddon();
   switch (part) {
     case "refs":
-      return addon.gitRefsProbe(op);
+      // `refs` replaces single processes inside the service (`native-refs.ts`), never a whole
+      // operation: a whole-operation dispatch for it is a programming error.
+      throw new Error("refs dispatches per process, not per operation");
     case "core":
       return addon.gitCoreProbe(op);
     case "reads":
