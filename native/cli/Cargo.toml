@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+# ace-cli: the ace command-line tool for managing ace (ADR 0221).
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+perf = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+# Doc sections every public fn would otherwise need; the README and ADR 0221 carry these.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Crate-prefixed names (`cli_parse::ParseError`) read better at call sites than they cost.
+module_name_repetitions = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
