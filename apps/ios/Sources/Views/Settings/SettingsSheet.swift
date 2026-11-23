@@ -24,6 +24,7 @@ struct MorePlaces {
     let startThread: () -> Void
     /// A thread its machine's list doesn't hold yet (an older settled one History found).
     var openUnlisted: (InboxKey) -> Void = { _ in }
+    var showMachineThreads: (String) -> Void = { _ in }
 }
 
 /// More, opened from the inbox header: the app's secondary places as a grouped list. Settings
@@ -38,6 +39,10 @@ struct SettingsSheet: View {
     var lock: AppLock?
     /// The page the sheet opens on in place of More's list, such as Pull requests.
     var root: SettingsRoute?
+    private let machineFilter: String
+    @State private var accountHeight: CGFloat = 0
+    @State private var fullHeight: CGFloat = 0
+    @State private var accountExpanded = false
     @Environment(NotificationCoordinator.self) private var notifications: NotificationCoordinator?
     @Environment(\.dismiss) private var dismiss
     @AppStorage("ace.appearance") private var appearance = "system"
@@ -61,10 +66,11 @@ struct SettingsSheet: View {
 
     /// `forgeStart` is the list Pull requests opens on: Pull requests, Issues or Notifications.
     init(inbox: MachineInbox, places: MorePlaces? = nil, machines: MachinesModel? = nil, lock: AppLock? = nil,
-         root: SettingsRoute? = nil, start: [SettingsRoute] = [], forgeStart: ForgeKind = .pulls) {
+         root: SettingsRoute? = nil, start: [SettingsRoute] = [], forgeStart: ForgeKind = .pulls, machineFilter: String) {
         self.inbox = inbox
         _forgeKind = State(initialValue: forgeStart)
         self.root = root
+        self.machineFilter = machineFilter
         self.places = places
         self.machines = machines
         self.lock = lock
@@ -98,9 +104,37 @@ struct SettingsSheet: View {
         .escapeCloses { dismiss() }
         .tint(AceDesign.Ink.action)
         .toggleStyle(.systemSwitch)
-        .presentationDetents(root == .accountHome ? [.medium, .large] : [.large]).presentationDragIndicator(.visible)
+        .presentationDetents(sheetDetents, selection: sheetSelection)
+        .presentationDragIndicator(.visible)
         .onChange(of: path) { old, new in navigated(from: old, to: new) }
         .onDisappear { closeMachineViews() }
+    }
+
+    private var fittedDetent: PresentationDetent? {
+        guard root == .accountHome, path.isEmpty, accountHeight > 0, accountHeight < fullHeight else { return nil }
+        return .height(accountHeight)
+    }
+
+    private var sheetDetents: Set<PresentationDetent> {
+        if let fittedDetent { return [fittedDetent, .large] }
+        return [.large]
+    }
+
+    private var sheetSelection: Binding<PresentationDetent> {
+        Binding(
+            get: { accountExpanded ? .large : fittedDetent ?? .large },
+            set: { selected in
+                if fittedDetent != nil { accountExpanded = selected == .large }
+            }
+        )
+    }
+
+    private func measureAccount(_ size: AccountSheetMeasurement) {
+        guard path.isEmpty, size.content > 0, size.viewport > 0 else { return }
+        // Measure the available height at the large detent. The fitted viewport
+        // must not become the ceiling for the next content change.
+        if sheetSelection.wrappedValue == .large { fullHeight = size.viewport }
+        accountHeight = size.content
     }
 
     /// More's own list, as the approved mockup: the machine's tools, then the paired devices,
@@ -221,7 +255,11 @@ struct SettingsSheet: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
-        case .accountHome: AccountSheet()
+        case .accountHome:
+            AccountSheet(inbox: inbox, machines: machines, machineFilter: machineFilter, showThreads: { host in
+                dismiss()
+                places?.showMachineThreads(host)
+            }, measure: measureAccount)
         case .account: AceAccountView(machines: machines, inbox: inbox)
         case .settings: settingsList
         case .pulls: pullRequests

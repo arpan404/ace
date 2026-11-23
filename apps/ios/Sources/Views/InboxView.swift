@@ -313,9 +313,10 @@ struct InboxView: View {
 
     private var sheets: some View {
         tabs
-            .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
+            .placeSheet($place, inbox: inbox, machines: machines, lock: lock, machineFilter: machineFilter,
                         places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
-                                           openUnlisted: { openThread($0, listed: false) }))
+                                           openUnlisted: { openThread($0, listed: false) },
+                                           showMachineThreads: { selectMachine($0) }))
             // A phone's Code review, over Projects: a thread or New thread asked from it opens
             // on the home screen as it closes.
             .sheet(isPresented: $reviewing) {
@@ -514,6 +515,12 @@ struct InboxView: View {
                       place: open,
                       pull: { route in present(PlaceSheet(id: nextSerial(), root: .forge(route))) })
     }
+    private func selectMachine(_ machine: String) {
+        machineFilter = machine
+        projectFilter = ""
+        tab = .threads
+    }
+
     /// A command id from the shared catalog (`bridge/palette.ts`).
     private func runCommand(_ id: String) {
         switch HomeCommand(id: id) {
@@ -524,10 +531,7 @@ struct InboxView: View {
             tab = .threads
             selectAsks += 1
         case .place(let place): open(place)
-        case .machine(let machine):
-            machineFilter = machine
-            projectFilter = ""
-            tab = .threads
+        case .machine(let machine): selectMachine(machine)
         case .thread(let destination): openOnThread(destination)
         case .settings(let id): present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
         }
