@@ -130,8 +130,15 @@ function differs(
   const left = canonical(first);
   const right = canonical(second);
   if (left === null || right === null) return "their schemas could not be compared";
-  const leftSet = new Set(left);
-  if (right.length === leftSet.size && right.every((json) => leftSet.has(json))) return null;
+  // Multisets, sorted and compared element by element with their counts: two variants that
+  // serialize alike can't stand in for two different ones.
+  const sortedLeft = left.toSorted();
+  const sortedRight = right.toSorted();
+  if (
+    sortedLeft.length === sortedRight.length &&
+    sortedLeft.every((json, index) => json === sortedRight[index])
+  )
+    return null;
   return "their schemas differ";
 }
 
