@@ -81,7 +81,7 @@ test("turning a permission on without the person's standing is refused in words,
   expect(now?.rows.find((row) => row.key === off.key)).toMatchObject({ on: false, own: false });
 
   const retry = {
-    type: "spade.permission",
+    type: "spade.permission" as const,
     agentId: "writer",
     key: off.key,
     on: true,
