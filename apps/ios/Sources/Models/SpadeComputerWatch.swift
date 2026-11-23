@@ -45,6 +45,12 @@ import Observation
         readEpoch == model.connectionEpoch && mayAct(connected: model.connection == "ready" && model.canOperate)
     }
 
+    /// The person holds the computer on Spade's fresh word (exclusive, they drive). Only then
+    /// does the bot's screen take their touches and keys; cowork leaves it to watch.
+    func holds(connected: Bool) -> Bool { state?.driving == true && mayAct(connected: connected) }
+
+    func holds(_ model: ClientModel) -> Bool { state?.driving == true && mayAct(model) }
+
     func expire(_ stamp: ContinuousClock.Instant) async {
         do { try await sleep(max(.zero, Self.lapse - (now() - stamp))) } catch { return }
         guard !Task.isCancelled, readAt == stamp else { return }

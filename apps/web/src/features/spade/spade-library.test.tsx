@@ -142,6 +142,29 @@ test("Stop ends a running service in place, and a service that ended offers no S
   expect(spade.services.byAgent.get("flights")?.[0]?.state).toBe("stopped");
 });
 
+test("Start runs an ended service again in place, and none is offered while one of its name runs", async () => {
+  const { spade } = await spadeApp("/spade/flights?profile=computer&computer=services", (api) => {
+    withFlights(api);
+    api.services.start("flights", {
+      name: "alerts tail",
+      command: "ssh fares tail -f alerts.log",
+      state: "exited",
+      exit_code: 255,
+    });
+    api.services.start("flights", { name: "web", command: "bun run dev", state: "stopped" });
+    api.services.start("flights", { name: "web", command: "bun run dev" });
+  });
+  const list = within(await (await profile()).findByRole("list", { name: "Flights's services" }));
+  const rows = () => list.getAllByRole("listitem").map((item) => within(item));
+  await waitFor(() => expect(rows()).toHaveLength(3));
+  const [tail, oldWeb] = rows();
+  expect(oldWeb?.queryByRole("button", { name: "Start" })).toBeNull();
+  await userEvent.click(tail!.getByRole("button", { name: "Start" }));
+  await waitFor(() => expect(tail!.getByText("Running")).toBeTruthy());
+  expect(spade.sent("POST", "/v1/agents/flights/services/svc_1/start")).toHaveLength(1);
+  expect(tail!.getByRole("button", { name: "Stop" })).toBeTruthy();
+});
+
 test("a role following Settings says so until the person picks its model on the bot", async () => {
   const { spade } = await spadeApp("/spade/flights?profile=details", (api) => {
     withFlights(api);

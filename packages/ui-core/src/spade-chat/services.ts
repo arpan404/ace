@@ -17,6 +17,7 @@ export interface SpadeService {
   command: string;
   state: SpadeServiceState;
   exitCode: number | undefined;
+  restarts: number;
 }
 
 const serviceShape = z.object({
@@ -27,6 +28,7 @@ const serviceShape = z.object({
     .enum(["running", "exited", "stopped", "lost", "failed", "ended"])
     .catch("ended")
     .default("ended"),
+  restarts: z.number().int().nonnegative().catch(0).default(0),
   exit_code: z.number().int().nullish().catch(undefined),
 });
 
@@ -47,6 +49,7 @@ export function parseSpadeServices(body: string): SpadeService[] | undefined {
         command: data.command,
         state: data.state,
         exitCode: data.exit_code ?? undefined,
+        restarts: data.restarts,
       },
     ];
   });

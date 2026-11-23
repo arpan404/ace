@@ -63,6 +63,27 @@ struct MarketSearchResults: View {
     var reviewedOnly = false
     /// Bumped by pull to refresh: reads again past the phone's kept answer.
     var refreshes = 0
+    private struct Scope: Hashable {
+        let query: String
+        let type: String?
+        let category: String?
+        let reviewedOnly: Bool
+    }
+
+    var body: some View {
+        MarketSearchPages(model: model, query: query, filter: filter, category: category,
+                          reviewedOnly: reviewedOnly, refreshes: refreshes)
+            .id(Scope(query: query, type: filter.type, category: category, reviewedOnly: reviewedOnly))
+    }
+}
+
+private struct MarketSearchPages: View {
+    let model: ClientModel
+    let query: String
+    let filter: MarketTypeFilter
+    let category: String?
+    let reviewedOnly: Bool
+    let refreshes: Int
     @State private var page: MarketSearchPage?
     /// The rows of the pages read past the first, and where the page after them starts.
     @State private var more: [MarketListing] = []
@@ -126,6 +147,7 @@ struct MarketSearchResults: View {
             let fresh = refreshes != answered
             let read = try await model.marketSearch(query: query, type: filter.type, category: category,
                                                     reviewedOnly: reviewedOnly, fresh: fresh)
+            guard !Task.isCancelled else { return }
             page = read
             more = []
             next = read.offline ? nil : read.next
@@ -146,7 +168,7 @@ struct MarketSearchResults: View {
         do {
             let read = try await model.marketSearch(query: query, type: filter.type, category: category,
                                                     offset: offset, reviewedOnly: reviewedOnly)
-            guard next == offset else { return }
+            guard !Task.isCancelled, next == offset else { return }
             more += read.rows
             next = read.offline ? nil : read.next
         } catch is CancellationError {
