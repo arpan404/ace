@@ -51,10 +51,12 @@ enum SpadeProfileAccess {
         let accept: Accept?
     }
     struct Delete: Decodable, Equatable, Sendable {
-        /// It made workers: stop them, or keep them going.
+        /// It made other bots: stop them, or keep them going.
         let asks: Bool
         let stop: String
         let keep: String
+        /// It started ace threads: deleting it stops them, whichever way its workers go.
+        let aceStops: Bool
     }
 
     /// A new move's id, as Spade takes them: one plain lowercase name.

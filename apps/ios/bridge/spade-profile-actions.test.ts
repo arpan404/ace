@@ -165,6 +165,7 @@ test("deleting a bot that made workers asks first, and its workers stay as the p
     asks: true,
     stop: "Notes stays as your bot, stopped.",
     keep: "They carry on as your own bots.",
+    aceStops: false,
   });
 
   expect(await ask({ type: "spade.delete", agentId: "writer", workers: "stop" })).toEqual({
@@ -172,6 +173,28 @@ test("deleting a bot that made workers asks first, and its workers stay as the p
   });
   expect(api.agents.map((agent) => agent.id)).toEqual(["notes"]);
   expect(api.agents[0]).toMatchObject({ parent: null, state: "idle" });
+});
+
+test("deleting a bot stops its ace threads whichever way its workers go, and says so", async () => {
+  const { ask, api } = await listed((fake) => {
+    fake.addAgent({ id: "writer", name: "Writer" });
+    fake.addAgent({ id: "notes", name: "Notes", parent: { id: "writer", name: "Writer" } });
+    fake.addAgent({ id: "coder", name: "Coder" });
+  });
+  api.work.addAce("writer", { id: "t1", name: "Fix the build", state: "working" });
+  api.work.addAce("coder", { id: "t2", name: "Tidy", state: "working" });
+
+  const both = partOf<SpadeDeleteRow>(await ask({ type: "spade.delete.ask", agentId: "writer" }));
+  expect(both).toEqual({
+    asks: true,
+    stop: "Notes stays as your bot, stopped. Its ace threads stop.",
+    keep: "They carry on as your own bots. Its ace threads stop.",
+    aceStops: true,
+  });
+  // Only ace threads: there is nothing to choose, and the plain confirm says they stop.
+  const aceOnly = partOf<SpadeDeleteRow>(await ask({ type: "spade.delete.ask", agentId: "coder" }));
+  expect(aceOnly).toMatchObject({ asks: false, aceStops: true });
+  expect(await ask({ type: "spade.delete", agentId: "coder" })).toEqual({ ok: true });
 });
 
 test("deleting a bot with no workers asks nothing, and Spade itself can't be deleted", async () => {

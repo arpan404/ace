@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Delete bot…, as web's: always behind a confirm. A bot that made other bots or started ace
-/// agents asks the one question web asks: stop its workers, or keep them going. Either way its
-/// bots stay as the person's own. A refusal says why in an alert; Spade itself can't be deleted.
+/// Delete bot…, as web's: always behind a confirm. A bot that made other bots asks the one question
+/// web asks: stop its workers, or keep them going. Either way its bots stay as the person's own,
+/// and the ace threads it started stop, which both answers say. A refusal says why in an alert;
+/// Spade itself can't be deleted.
 struct SpadeBotDelete: ViewModifier {
     let client: ClientModel
     let agent: String
@@ -31,7 +32,8 @@ struct SpadeBotDelete: ViewModifier {
                 Button("Delete bot", role: .destructive) { remove(nil) }
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("This deletes \(name) and its whole conversation.")
+                Text("This deletes \(name) and its whole conversation."
+                    + (question?.aceStops == true ? " Its ace threads stop." : ""))
             }
             .confirmationDialog("Delete \(name)?", isPresented: $workers, titleVisibility: .visible) {
                 Button("Stop its workers", role: .destructive) { remove("stop") }

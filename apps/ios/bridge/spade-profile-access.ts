@@ -160,12 +160,20 @@ const listed = (names: readonly string[]) =>
     : `${names.slice(0, -1).join(", ")} and ${names.at(-1) ?? ""}`;
 
 export interface SpadeDeleteRow {
-  /** The bot made workers: delete asks whether to stop them or keep them going. */
+  /** The bot made other bots: delete asks whether to stop them or keep them going. */
   asks: boolean;
-  /** What Stop its workers means: they stay as the person's own, stopped, and its ace threads. */
+  /** What Stop its workers means: they stay as the person's own, stopped. */
   stop: string;
+  /** What Keep its workers going means: they carry on as the person's own. */
   keep: string;
+  /**
+   * It started ace threads. Spade stops the bot it deletes, and that cancels them whichever way
+   * its workers go (ADR 0161), so both answers and the plain confirm say so.
+   */
+  aceStops: boolean;
 }
+
+const aceStopLine = "Its ace threads stop.";
 
 /** The one question a delete asks, from the bot's tree read fresh; none when it made no bots. */
 export function spadeDeleteRow(tree: SpadeWorkerNode | undefined): SpadeDeleteRow {
@@ -175,9 +183,11 @@ export function spadeDeleteRow(tree: SpadeWorkerNode | undefined): SpadeDeleteRo
   const bots = workers.length
     ? `${listed(workers.map((worker) => worker.name))} ${own}, stopped.`
     : "";
+  const withAce = (line: string) => [line, ace ? aceStopLine : ""].filter(Boolean).join(" ");
   return {
-    asks: workers.length > 0 || ace,
-    stop: [bots, ace ? "Its ace threads stop." : ""].filter(Boolean).join(" "),
-    keep: workers.length ? "They carry on as your own bots." : "Its ace threads carry on.",
+    asks: workers.length > 0,
+    stop: withAce(bots),
+    keep: withAce(workers.length ? "They carry on as your own bots." : ""),
+    aceStops: ace,
   };
 }
