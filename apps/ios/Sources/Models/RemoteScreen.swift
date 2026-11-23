@@ -119,6 +119,7 @@ enum RemoteScreenPage: Equatable {
     private(set) var readProblem: String?
     private(set) var busy = false
     private var owned: Set<String> = []
+    @ObservationIgnored private var subscription: UUID?
     private var previous: [String: RemoteScreenState.Holder] = [:]
     let live = ScreenLiveModel()
     func state(_ id: String) -> RemoteScreenState? { states.first { $0.id == id } }
@@ -231,22 +232,33 @@ enum RemoteScreenPage: Equatable {
     }
     func watch(_ model: ClientModel, id: String) async {
         guard model.connection == "ready", let session = model.browserSession else { return }
+        let opened = UUID()
+        subscription = opened
         live.open(sessionId: id, session: session)
         do {
             let _: ServiceValue = try await request(model, ["op": "subscribe", "sessionId": id])
+            guard subscription == opened else { return }
+            try Task.checkCancellation()
             // Until a viewer asks for video the Mac sends only stills, and a live view draws none:
             // without this the picture stays black. The daemon holds the bit rate to the link.
             let _: ServiceValue = try await request(model, ["op": "stream.configure", "sessionId": id,
                 "settings": ["codec": "h264", "maxWidth": 2560, "maxHeight": 2560, "fps": 60, "bitrate": 6_000_000]])
-        } catch { live.close(); if !Task.isCancelled { problem = error.localizedDescription } }
+            try Task.checkCancellation()
+        } catch {
+            guard subscription == opened else { return }
+            unwatch(model, id: id)
+            if !Task.isCancelled { problem = error.localizedDescription }
+        }
     }
     func unwatch(_ model: ClientModel, id: String) {
+        subscription = nil
         live.close()
         model.action(["type": "native.screen.unwatch", "sessionId": id])
         if owned.remove(id) != nil { model.action(["type": "native.screen.release", "sessionId": id]) }
     }
     /// The machine went away: nothing is read until it is back.
     func disconnected() {
+        subscription = nil
         live.close(); owned.removeAll()
         generation += 1
         reading = false
