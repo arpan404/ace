@@ -156,6 +156,40 @@ export interface RailUsage {
   accounts: AccountLimits[];
   /** Whether they are the person's pins, rather than the accounts used most this week. */
   pinned: boolean;
+  /** Every account with a reading: the ones drawn first, in their order, then the rest. */
+  choices: RailChoice[];
+}
+
+/** An account the person can put in the rail's bars, or leave out. */
+export interface RailChoice extends Omit<HeadroomBar, "key"> {
+  /** The account's id, as a pin names it. */
+  id: string;
+  /** Whether the rail draws it now. */
+  shown: boolean;
+}
+
+/**
+ * Which readable accounts the rail draws, and in what order: the person's pins that still read,
+ * in the order pinned (ids that no longer read are skipped, repeats count once); with none left,
+ * the accounts used most in the last seven days, ties and the unused in the page's order. At
+ * most `railBars`. `used` is tokens by account id.
+ */
+export function pickRail<T extends { id: string }>(
+  readable: readonly T[],
+  used: ReadonlyMap<string, number> | undefined,
+  pins: readonly string[] = [],
+): { shown: T[]; pinned: boolean } {
+  const pinnedHere = [...new Set(pins)].flatMap(
+    (id) => readable.find((each) => each.id === id) ?? [],
+  );
+  if (pinnedHere.length) return { shown: pinnedHere.slice(0, railBars), pinned: true };
+  const tokens = (each: T) => used?.get(each.id) ?? 0;
+  const shown = readable
+    .map((each, index) => ({ each, index }))
+    .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
+    .slice(0, railBars)
+    .map(({ each }) => each);
+  return { shown, pinned: false };
 }
 
 /** The most accounts the rail shows, so the most that can be pinned to it. */
@@ -225,28 +259,25 @@ export function railUsage(
         span: room.span,
         tone: headroomTone(room.left),
       };
-      return [{ entry, bar }];
+      return [{ id: entry.account.id, entry, bar }];
     }),
   );
-  const pinnedHere = pins.flatMap(
-    (id) => readable.find((each) => each.entry.account.id === id) ?? [],
-  );
-  // Pins, in the order pinned; with none here, the accounts used most this week, the rest in the
-  // page's order, up to four.
-  const tokens = (each: { entry: AccountLimits }) => used?.get(each.entry.account.id) ?? 0;
-  const shown = pinnedHere.length
-    ? pinnedHere
-    : readable
-        .map((each, index) => ({ each, index }))
-        .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
-        .slice(0, railBars)
-        .map(({ each }) => each);
+  const { shown, pinned } = pickRail(readable, used, pins);
   const bars = shown.map((each) => each.bar);
+  const choices = [...shown, ...readable.filter((each) => !shown.includes(each))].map((each) => ({
+    id: each.id,
+    label: each.bar.label,
+    left: each.bar.left,
+    tone: each.bar.tone,
+    span: each.bar.span,
+    shown: shown.includes(each),
+  }));
   return {
     bars,
     label: railLabel(bars),
     accounts: shown.map((each) => each.entry),
-    pinned: pinnedHere.length > 0,
+    pinned,
+    choices,
   };
 }
 

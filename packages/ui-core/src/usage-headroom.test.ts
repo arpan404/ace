@@ -1,7 +1,7 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView } from "./accounts.ts";
-import { railUsage, usageHeadroom } from "./usage-headroom.ts";
+import { pickRail, railUsage, usageHeadroom } from "./usage-headroom.ts";
 import { usageLimits } from "./usage-limits.ts";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -224,4 +224,45 @@ test("pinned accounts are the rail's, in the order pinned; with none here, the m
   const elsewhere = railUsage(list, used, "week", ["claude-elsewhere"]);
   expect(elsewhere.pinned).toBe(false);
   expect(elsewhere.accounts[0]?.account.id).toBe("codex-ci");
+});
+
+const ids = (list: { id: string }[]) => list.map((each) => each.id);
+const six = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id }));
+
+test.each([
+  { name: "no pins: the page's order, four at most", pins: [], used: undefined, want: "abcd" },
+  { name: "no pins: most used first", pins: [], used: { e: 9, c: 5 }, want: "ecab" },
+  { name: "pins draw in the order pinned", pins: ["c", "a"], used: { e: 9 }, want: "ca" },
+  { name: "pins that no longer read are skipped", pins: ["x", "b"], used: undefined, want: "b" },
+  {
+    name: "only unreadable pins fall back to the default",
+    pins: ["x"],
+    used: undefined,
+    want: "abcd",
+  },
+  { name: "a repeated pin counts once", pins: ["b", "b", "a"], used: undefined, want: "ba" },
+  {
+    name: "pins past four are cut",
+    pins: ["f", "e", "d", "c", "b"],
+    used: undefined,
+    want: "fedc",
+  },
+])("pickRail: $name", ({ pins, used, want }) => {
+  const picked = pickRail(six, used ? new Map(Object.entries(used)) : undefined, pins);
+  expect(ids(picked.shown).join("")).toBe(want);
+  expect(picked.pinned).toBe(pins.some((id) => id !== "x") && pins.length > 0);
+});
+
+test("the rail lists every readable account, the drawn ones first in their order", () => {
+  const list = limits(claudePersonal, codexPersonal);
+  const [first, second] = railUsage(list, undefined).choices;
+  const pick = (id: string) => railUsage(list, undefined, "week", [id]);
+  expect(first?.shown && second?.shown).toBe(true);
+  const only = pick(second?.id ?? "");
+  expect(only.choices.map((choice) => [choice.id, choice.shown])).toEqual([
+    [second?.id, true],
+    [first?.id, false],
+  ]);
+  expect(only.bars).toHaveLength(1);
+  expect(only.pinned).toBe(true);
 });
