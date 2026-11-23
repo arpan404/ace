@@ -1,6 +1,6 @@
 # Moving Git snapshots and reads into the addon
 
-For the builders of [ADR 0224](../adr/0224-git-reads-move-in-process-git-writes-and-forge-stay.md),
+For the builders of [ADR 0224](../adr/0224-git-and-forge-move-to-rust-behind-the-same-interfaces.md),
 one work item each. Read the ADR and [behaviour.md](behaviour.md) first: the contract there is
 what you keep, and behaviour.md §12 lists every test file by class. Where this guide is silent,
 follow [the engine's porting guide](../engine/porting-guide.md); its rules 6, 7, 9, 11, 12 and 13

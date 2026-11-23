@@ -1,7 +1,7 @@
 # The forge under ADR 0224: no port, and what follows the owner's answer
 
 For builders asked to work on `@ace/forge` after
-[ADR 0224](../adr/0224-git-reads-move-in-process-git-writes-and-forge-stay.md). Read the ADR and
+[ADR 0224](../adr/0224-git-and-forge-move-to-rust-behind-the-same-interfaces.md). Read the ADR and
 [behaviour.md](behaviour.md) first. The ADR decides that the forge stays TypeScript: the daemon
 spends 1–3 ms of a host request, the person's CLI about 31 ms of CPU and a fresh TLS connection,
 and the host the rest (behaviour.md §7). There is no Rust work item. The items below open only if

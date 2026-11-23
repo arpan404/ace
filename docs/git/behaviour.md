@@ -5,7 +5,7 @@ as of `ace/rust-git-forge` 15ccf65108 (2026-11-23). It covers the package's two 
 (`.` and `./remote-url`, `packages/git/package.json:6`), the daemon code that calls them, and the
 rules each method holds today. Each rule cites the code that holds it. The last section says which
 tests guard it and which must pass unchanged on a second implementation.
-[ADR 0224](../adr/0224-git-reads-move-in-process-git-writes-and-forge-stay.md) decides what moves;
+[ADR 0224](../adr/0224-git-and-forge-move-to-rust-behind-the-same-interfaces.md) decides what moves;
 [porting-guide.md](porting-guide.md) is for the builders.
 
 Terms:

@@ -4,7 +4,7 @@ The contract any implementation of `packages/forge` must keep, as of `ace/rust-g
 e344219b2b (2026-11-23): the package's 15 entry points (`packages/forge/package.json:6`), the
 daemon and client code that call them, and the rules they hold. Each rule cites the code that
 holds it. The last section classes every test file.
-[ADR 0224](../adr/0224-git-reads-move-in-process-git-writes-and-forge-stay.md) decides that this
+[ADR 0224](../adr/0224-git-and-forge-move-to-rust-behind-the-same-interfaces.md) decides that this
 package stays TypeScript; this document is the contract any later change, in either language,
 keeps. [porting-guide.md](porting-guide.md) lists the work that would follow the owner's answers.
 
