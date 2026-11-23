@@ -184,12 +184,12 @@ pub fn change_agent(
     let agent = &mut record.agent;
     let mut out = AgentChange::default();
     let mut any = false;
-    if let Some(value) = change.child_thread_id {
-        if agent.child_thread_id != value {
-            agent.child_thread_id = value.clone();
-            out.child_thread_id = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.child_thread_id
+        && agent.child_thread_id != value
+    {
+        agent.child_thread_id = value.clone();
+        out.child_thread_id = Some(value);
+        any = true;
     }
     if let Some(value) = change.machine {
         let same = agent.machine.as_ref().is_some_and(|current| {
@@ -204,19 +204,19 @@ pub fn change_agent(
             any = true;
         }
     }
-    if let Some(value) = change.parent_id {
-        if agent.parent_id != value {
-            agent.parent_id = value.clone();
-            out.parent_id = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.parent_id
+        && agent.parent_id != value
+    {
+        agent.parent_id = value.clone();
+        out.parent_id = Some(value);
+        any = true;
     }
-    if let Some(value) = change.origin {
-        if agent.origin != value {
-            agent.origin = value.clone();
-            out.origin = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.origin
+        && agent.origin != value
+    {
+        agent.origin = value.clone();
+        out.origin = Some(value);
+        any = true;
     }
     if let Some(value) = change.lineage {
         let same = agent.lineage.as_ref().is_some_and(|current| {
@@ -231,12 +231,12 @@ pub fn change_agent(
             any = true;
         }
     }
-    if let Some(value) = change.fidelity {
-        if agent.fidelity != value {
-            agent.fidelity = value.clone();
-            out.fidelity = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.fidelity
+        && agent.fidelity != value
+    {
+        agent.fidelity = value.clone();
+        out.fidelity = Some(value);
+        any = true;
     }
     if let Some(value) = change.native {
         let same = same_json(
@@ -249,33 +249,33 @@ pub fn change_agent(
             any = true;
         }
     }
-    if let Some(value) = change.cwd {
-        if agent.cwd != value {
-            agent.cwd = value.clone();
-            out.cwd = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.cwd
+        && agent.cwd != value
+    {
+        agent.cwd = value.clone();
+        out.cwd = Some(value);
+        any = true;
     }
-    if let Some(value) = change.name {
-        if agent.name.as_deref() != Some(value.as_str()) {
-            agent.name = Some(value.clone());
-            out.name = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.name
+        && agent.name.as_deref() != Some(value.as_str())
+    {
+        agent.name = Some(value.clone());
+        out.name = Some(value);
+        any = true;
     }
-    if let Some(value) = change.role {
-        if agent.role.as_deref() != Some(value.as_str()) {
-            agent.role = Some(value.clone());
-            out.role = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.role
+        && agent.role.as_deref() != Some(value.as_str())
+    {
+        agent.role = Some(value.clone());
+        out.role = Some(value);
+        any = true;
     }
-    if let Some(value) = change.model {
-        if agent.model.as_deref() != Some(value.as_str()) {
-            agent.model = Some(value.clone());
-            out.model = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.model
+        && agent.model.as_deref() != Some(value.as_str())
+    {
+        agent.model = Some(value.clone());
+        out.model = Some(value);
+        any = true;
     }
     if let Some(value) = change.spawned_by {
         let current = match &agent.spawned_by {
@@ -292,12 +292,12 @@ pub fn change_agent(
             any = true;
         }
     }
-    if let Some(value) = change.background {
-        if agent.background != value {
-            agent.background = value;
-            out.background = Some(value);
-            any = true;
-        }
+    if let Some(value) = change.background
+        && agent.background != value
+    {
+        agent.background = value;
+        out.background = Some(value);
+        any = true;
     }
     if !any {
         return Some(());
@@ -360,10 +360,8 @@ pub fn set_parent(
     }
     let record = get(&state.agents, key)?;
     let previous_parent_id = record.agent.parent_id.clone();
-    if clears_spawn {
-        if let Some(record) = state.agents.get_mut(key) {
-            record.spawned_by_key = None;
-        }
+    if clears_spawn && let Some(record) = state.agents.get_mut(key) {
+        record.spawned_by_key = None;
     }
     let parent_agent_id = parent_key.and_then(|parent| {
         ensure_agent(state, parent, ctx, events)?;
@@ -411,23 +409,23 @@ fn adopt_root(
         },
         events,
     )?;
-    if let Some(old) = old_root_key {
-        if old != key {
-            let reparent = get(&state.agents, &old).is_some_and(|record| {
-                record.agent.fidelity == "placeholder" || record.agent.origin != "root"
-            });
-            if reparent {
-                set_parent(state, &old, Some(key), ctx, events)?;
-                change_agent(
-                    state,
-                    &old,
-                    AgentChange {
-                        origin: Some("provider_subagent".to_owned()),
-                        ..Default::default()
-                    },
-                    events,
-                )?;
-            }
+    if let Some(old) = old_root_key
+        && old != key
+    {
+        let reparent = get(&state.agents, &old).is_some_and(|record| {
+            record.agent.fidelity == "placeholder" || record.agent.origin != "root"
+        });
+        if reparent {
+            set_parent(state, &old, Some(key), ctx, events)?;
+            change_agent(
+                state,
+                &old,
+                AgentChange {
+                    origin: Some("provider_subagent".to_owned()),
+                    ..Default::default()
+                },
+                events,
+            )?;
         }
     }
     Some(())
@@ -682,13 +680,10 @@ pub fn reconcile_links(
                 if current.as_deref() != Some(linked_id.as_str()) {
                     if let Some(crate::items::Item::ToolCall { call, .. }) =
                         state.items.get_mut(&key)
+                        && let crate::item_model::ToolDetail::AgentSpawn { child_agent_id, .. } =
+                            &mut call.detail
                     {
-                        if let crate::item_model::ToolDetail::AgentSpawn {
-                            child_agent_id, ..
-                        } = &mut call.detail
-                        {
-                            *child_agent_id = Some(linked_id.clone());
-                        }
+                        *child_agent_id = Some(linked_id.clone());
                     }
                     if let Some(record) = state.agents.get_mut(&linked_key) {
                         record.spawned_by_key = Some(key.clone());
@@ -722,13 +717,11 @@ pub fn reconcile_links(
                 if current.as_deref() != Some(linked_id.as_str()) {
                     if let Some(crate::items::Item::ToolCall { call, .. }) =
                         state.items.get_mut(&key)
-                    {
-                        if let crate::item_model::ToolDetail::AgentMessage {
+                        && let crate::item_model::ToolDetail::AgentMessage {
                             target_agent_id, ..
                         } = &mut call.detail
-                        {
-                            *target_agent_id = Some(linked_id.clone());
-                        }
+                    {
+                        *target_agent_id = Some(linked_id.clone());
                     }
                     if let Some(item) = get(&state.items, &key) {
                         emit(events, Event::ItemUpdated { item: item.clone() });

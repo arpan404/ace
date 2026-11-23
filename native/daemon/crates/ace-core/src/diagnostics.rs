@@ -13,6 +13,7 @@ use crate::state::{ApplyContext, ThreadState};
 const REPEAT_RAW_LIMIT: usize = 10;
 
 /// Publish one deferred or immediate warning notice for `owner`.
+#[allow(clippy::too_many_arguments)]
 fn publish_notice(
     state: &mut ThreadState,
     owner_key: &str,
@@ -111,15 +112,12 @@ pub fn reject_fact(
         .and_then(|notices| notices.notices.get(&signature))
         .map(|notice| (notice.item.clone(), notice.count));
     if let Some((item_key, count)) = repeated {
-        let update = match get(&state.items, &item_key) {
-            Some(Item::Notice { .. }) => true,
-            _ => false,
-        };
+        let update = matches!(get(&state.items, &item_key), Some(Item::Notice { .. }));
         if update {
-            if let Some(notices) = state.rejection_notices.as_mut() {
-                if let Some(notice) = notices.notices.get_mut(&signature) {
-                    notice.count = count + 1;
-                }
+            if let Some(notices) = state.rejection_notices.as_mut()
+                && let Some(notice) = notices.notices.get_mut(&signature)
+            {
+                notice.count = count + 1;
             }
             if let Some(Item::Notice {
                 base: _,

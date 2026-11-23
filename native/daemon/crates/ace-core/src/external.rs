@@ -13,7 +13,7 @@ use crate::status_inputs::task_holds_thread;
 /// parent's process.
 pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentStatus {
     match status {
-        ThreadStatus::NeedsYou { interactions } => AgentStatus::Blocked {
+        ThreadStatus::NeedsYou { interactions: _ } => AgentStatus::Blocked {
             on: "human".to_owned(),
             refs: vec![thread_id.to_owned()],
             until: None,

@@ -12,8 +12,7 @@ use crate::output_snapshot::extends_output;
 use crate::state::{AgentRecord, ThreadState};
 use crate::validate::relation_error;
 use crate::validate_shapes::{
-    valid_agent_error, valid_agent_machine, valid_interaction_request, valid_native_ref,
-    valid_provider_kind, valid_timestamp, valid_todo_entry,
+    valid_agent_machine, valid_provider_kind, valid_timestamp, valid_todo_entry,
 };
 
 pub const SCREEN_KEYS: &[&str] = &[
@@ -211,7 +210,7 @@ pub enum ItemCheck {
     UnknownFields,
 }
 
-fn as_map<'a>(value: &'a Json) -> Option<&'a Map> {
+fn as_map(value: &Json) -> Option<&Map> {
     match value {
         Json::Object(map) => Some(map),
         _ => None,
@@ -257,10 +256,10 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
     let item_key = get_str(fact, "item").unwrap_or("");
     let previous = get(&state.items, item_key);
     let owner = get(&state.agents, agent_key);
-    if let Some(previous) = previous {
-        if Some(previous.agent_id()) != owner.map(|record| record.agent.id.as_str()) {
-            return Some("item key has a different owner".to_owned());
-        }
+    if let Some(previous) = previous
+        && Some(previous.agent_id()) != owner.map(|record| record.agent.id.as_str())
+    {
+        return Some("item key has a different owner".to_owned());
     }
     let draft_type = draft.get("type").and_then(|kind| kind.as_str());
     let draft_call = draft.get("call").and_then(as_map);
@@ -271,13 +270,12 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
         {
             return Some("tool draft must be an object".to_owned());
         }
-        if let Some(call) = draft_call {
-            if ["id", "agentId", "backgroundTaskId"]
+        if let Some(call) = draft_call
+            && ["id", "agentId", "backgroundTaskId"]
                 .iter()
                 .any(|field| call.contains_key(*field))
-            {
-                return Some("tool identities belong to core".to_owned());
-            }
+        {
+            return Some("tool identities belong to core".to_owned());
         }
     }
     let detail = draft_call.and_then(|call| call.get("detail"));
@@ -401,10 +399,9 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
             .unwrap_or_default();
         if let Some(linked) =
             get(&state.item_links, item_key).and_then(|links| links.child_agent.clone())
+            && !children.contains(&linked)
         {
-            if !children.contains(&linked) {
-                children.push(linked);
-            }
+            children.push(linked);
         }
         for child in children {
             if let Some(error) = relation_error(state, &child, agent_key) {
@@ -419,21 +416,21 @@ fn valid_base(candidate: &Map) -> bool {
         && is_string(candidate.get("agentId"))
         && candidate
             .get("runId")
-            .map_or(true, |run| is_string(Some(run)))
+            .is_none_or(|run| is_string(Some(run)))
         && valid_timestamp(candidate.get("createdAt"))
         && candidate
             .get("nativeId")
-            .map_or(true, |id| matches!(id, Json::String(id) if id.len() <= 256))
+            .is_none_or(|id| matches!(id, Json::String(id) if id.len() <= 256))
         && candidate
             .get("executionSource")
-            .map_or(true, valid_execution_source)
+            .is_none_or(valid_execution_source)
         && candidate
             .get("complete")
-            .map_or(true, |complete| matches!(complete, Json::Bool(_)))
-        && candidate.get("inherited").map_or(true, valid_inherited)
+            .is_none_or(|complete| matches!(complete, Json::Bool(_)))
+        && candidate.get("inherited").is_none_or(valid_inherited)
         && candidate
             .get("rawOmitted")
-            .map_or(true, |raw| matches!(raw, Json::Bool(true)))
+            .is_none_or(|raw| matches!(raw, Json::Bool(true)))
 }
 
 fn valid_execution_source(value: &Json) -> bool {
@@ -461,19 +458,17 @@ fn valid_execution_source(value: &Json) -> bool {
     if !valid_provider_kind(selection.get("provider")) {
         return false;
     }
-    if let Some(model) = selection.get("model") {
-        if matches!(model, Json::Null)
-            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
-        {
-            return false;
-        }
+    if let Some(model) = selection.get("model")
+        && (matches!(model, Json::Null)
+            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256))
+    {
+        return false;
     }
-    if let Some(instance) = selection.get("instanceId") {
-        if matches!(instance, Json::Null)
-            || !matches!(instance, Json::String(instance) if !instance.is_empty() && instance.len() <= 256)
-        {
-            return false;
-        }
+    if let Some(instance) = selection.get("instanceId")
+        && (matches!(instance, Json::Null)
+            || !matches!(instance, Json::String(instance) if !instance.is_empty() && instance.len() <= 256))
+    {
+        return false;
     }
     match selection.get("options") {
         None => true,
@@ -492,7 +487,7 @@ fn valid_inherited(value: &Json) -> bool {
         && optional_string(map.get("itemId"))
         && match map.get("at") {
             None => true,
-            at => matches!(as_count(at), Some(_)),
+            at => as_count(at).is_some(),
         }
 }
 
@@ -503,11 +498,11 @@ fn valid_text_source(value: &Json) -> bool {
     map.keys()
         .all(|key| ["streamId", "bytes", "encoding", "offset"].contains(&key.as_str()))
         && matches!(map.get("streamId"), Some(Json::String(id)) if !id.is_empty())
-        && matches!(as_count(map.get("bytes")), Some(_))
+        && as_count(map.get("bytes")).is_some()
         && matches!(map.get("encoding"), Some(Json::String(encoding)) if encoding == "utf-16le")
         && match map.get("offset") {
             None => true,
-            offset => matches!(as_count(offset), Some(_)),
+            offset => as_count(offset).is_some(),
         }
 }
 
@@ -556,14 +551,13 @@ pub(crate) fn valid_attachment(value: &Json) -> bool {
     if !matches!(map.get("name"), Some(Json::String(name)) if name.len() <= 255) {
         return false;
     }
-    if let Some(kind) = map.get("kind") {
-        if !matches!(kind, Json::String(kind) if ["image", "pdf", "text", "binary"].contains(&kind.as_str()))
-        {
-            return false;
-        }
+    if let Some(kind) = map.get("kind")
+        && !matches!(kind, Json::String(kind) if ["image", "pdf", "text", "binary"].contains(&kind.as_str()))
+    {
+        return false;
     }
-    if let Some(delivery) = map.get("delivery") {
-        if !matches!(delivery, Json::String(delivery)
+    if let Some(delivery) = map.get("delivery")
+        && !matches!(delivery, Json::String(delivery)
                 if [
                     "native_image",
                     "native_pdf",
@@ -573,15 +567,14 @@ pub(crate) fn valid_attachment(value: &Json) -> bool {
                     "file_path"
                 ]
                 .contains(&delivery.as_str()))
-        {
-            return false;
-        }
+    {
+        return false;
     }
     for key in ["width", "height"] {
-        if let Some(size) = map.get(key) {
-            if !matches!(as_count(Some(size)), Some(size) if size > 0) {
-                return false;
-            }
+        if let Some(size) = map.get(key)
+            && !matches!(as_count(Some(size)), Some(size) if size > 0)
+        {
+            return false;
         }
     }
     matches!(map.get("thumbnailAvailable"), None | Some(Json::Bool(_)))
@@ -615,9 +608,7 @@ fn valid_content_part(value: &Json) -> bool {
             map.keys()
                 .all(|key| ["type", "text", "source"].contains(&key.as_str()))
                 && is_string(map.get("text"))
-                && map
-                    .get("source")
-                    .map_or(true, |source| valid_text_source(source))
+                && map.get("source").is_none_or(valid_text_source)
         }
         Some("image") => {
             map.keys()
@@ -630,13 +621,10 @@ fn valid_content_part(value: &Json) -> bool {
                 .all(|key| ["type", "path", "mimeType", "name", "content"].contains(&key.as_str()))
                 && is_string(map.get("path"))
                 && optional_string(map.get("mimeType"))
-                && map.get("name").map_or(
-                    true,
-                    |name| matches!(name, Json::String(name) if name.len() <= 255),
-                )
                 && map
-                    .get("content")
-                    .map_or(true, |content| valid_file_content(content))
+                    .get("name")
+                    .is_none_or(|name| matches!(name, Json::String(name) if name.len() <= 255))
+                && map.get("content").is_none_or(valid_file_content)
         }
         Some("mention") => valid_mention(map),
         _ => false,
@@ -667,10 +655,10 @@ fn valid_mention(map: &Map) -> bool {
     {
         return false;
     }
-    if let Some(title) = map.get("title") {
-        if !matches!(title, Json::String(title) if !title.is_empty() && title.len() <= 256) {
-            return false;
-        }
+    if let Some(title) = map.get("title")
+        && !matches!(title, Json::String(title) if !title.is_empty() && title.len() <= 256)
+    {
+        return false;
     }
     if !matches!(
         map.get("kind"),
@@ -688,25 +676,25 @@ fn valid_mention(map: &Map) -> bool {
     ) {
         return false;
     }
-    if let Some(icon) = map.get("icon") {
-        if !matches!(icon, Json::String(icon) if icon.len() <= 4096) {
-            return false;
-        }
+    if let Some(icon) = map.get("icon")
+        && !matches!(icon, Json::String(icon) if icon.len() <= 4096)
+    {
+        return false;
     }
     if !matches!(map.get("arguments"), None | Some(Json::String(_)))
         || matches!(map.get("arguments"), Some(Json::String(args)) if args.len() > 16384)
     {
         return false;
     }
-    if let Some(values) = map.get("values") {
-        if !valid_prompt_arguments(values) {
-            return false;
-        }
+    if let Some(values) = map.get("values")
+        && !valid_prompt_arguments(values)
+    {
+        return false;
     }
-    if let Some(invocation) = map.get("invocation") {
-        if !valid_catalog_invocation(invocation) {
-            return false;
-        }
+    if let Some(invocation) = map.get("invocation")
+        && !valid_catalog_invocation(invocation)
+    {
+        return false;
     }
     true
 }
@@ -753,18 +741,18 @@ fn valid_prompt_argument(value: &Json) -> bool {
         )
         && map
             .get("required")
-            .map_or(true, |required| matches!(required, Json::Bool(_)))
-        && map.get("default").map_or(true, valid_prompt_value)
-        && match (
-            map.get("type").and_then(|kind| kind.as_str()),
-            map.get("default"),
-        ) {
+            .is_none_or(|required| matches!(required, Json::Bool(_)))
+        && map.get("default").is_none_or(valid_prompt_value)
+        && matches!(
+            (
+                map.get("type").and_then(|kind| kind.as_str()),
+                map.get("default"),
+            ),
             (Some("string"), Some(Json::String(_)))
-            | (Some("number"), Some(Json::Number(_)))
-            | (Some("boolean"), Some(Json::Bool(_)))
-            | (_, None) => true,
-            _ => false,
-        }
+                | (Some("number"), Some(Json::Number(_)))
+                | (Some("boolean"), Some(Json::Bool(_)))
+                | (_, None)
+        )
 }
 
 fn valid_catalog_invocation(value: &Json) -> bool {
@@ -798,7 +786,7 @@ fn valid_catalog_invocation(value: &Json) -> bool {
             map.keys()
                 .all(|key| ["type", "commandId", "parameters"].contains(&key.as_str()))
                 && matches!(map.get("commandId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
-                && map.get("parameters").map_or(true, |parameters| {
+                && map.get("parameters").is_none_or(|parameters| {
                     matches!(parameters, Json::Object(parameters)
                     if parameters.len() <= 64
                         && parameters.iter().all(|(key, value)| {
@@ -833,9 +821,9 @@ fn valid_file_change(value: &Json) -> bool {
         )
         && optional_string(map.get("movePath"))
         && optional_string(map.get("diff"))
-        && map.get("oldText").map_or(true, |old| {
-            matches!(old, Json::Null) | matches!(old, Json::String(_))
-        })
+        && map
+            .get("oldText")
+            .is_none_or(|old| matches!(old, Json::Null) | matches!(old, Json::String(_)))
         && optional_string(map.get("newText"))
 }
 
@@ -849,17 +837,17 @@ fn valid_tool_detail(detail: &Map) -> bool {
             }) && is_string(detail.get("command"))
                 && optional_string(detail.get("rawCommand"))
                 && optional_string(detail.get("cwd"))
-                && detail.get("exitCode").map_or(true, |code| {
+                && detail.get("exitCode").is_none_or(|code| {
                     matches!(code, Json::Null) || as_integer(Some(code)).is_some()
                 })
-                && detail.get("output").map_or(true, valid_output_summary)
+                && detail.get("output").is_none_or(valid_output_summary)
         }
         Some("file.read") => {
             detail
                 .keys()
                 .all(|key| ["kind", "path", "range"].contains(&key.as_str()))
                 && is_string(detail.get("path"))
-                && detail.get("range").map_or(true, |range| {
+                && detail.get("range").is_none_or(|range| {
                     matches!(as_map(range), Some(range)
                             if range.keys().all(|key| ["start", "end"].contains(&key.as_str()))
                                 && as_integer(range.get("start")).is_some()
@@ -883,11 +871,10 @@ fn valid_tool_detail(detail: &Map) -> bool {
                 && optional_string(detail.get("path"))
                 && detail
                     .get("matches")
-                    .map_or(true, |matches| as_integer(Some(matches)).is_some())
-                && detail.get("scope").map_or(
-                    true,
-                    |scope| matches!(scope, Json::String(scope) if scope == "tools"),
-                )
+                    .is_none_or(|matches| as_integer(Some(matches)).is_some())
+                && detail
+                    .get("scope")
+                    .is_none_or(|scope| matches!(scope, Json::String(scope) if scope == "tools"))
         }
         Some("web.search") => {
             detail
@@ -937,21 +924,20 @@ fn valid_tool_detail(detail: &Map) -> bool {
             .keys()
             .all(|key| ["kind", "markdown", "todos"].contains(&key.as_str()))
             && optional_string(detail.get("markdown"))
-            && detail.get("todos").map_or(
-                true,
+            && detail.get("todos").is_none_or(
                 |todos| matches!(todos, Json::Array(todos) if todos.iter().all(valid_todo_entry)),
             ),
         Some("ask_user") => detail.keys().all(|key| key == "kind"),
         Some("image") => {
             detail.keys().all(|key| {
                 ["kind", "path", "sourcePath", "attachment", "unavailable"].contains(&key.as_str())
-            }) && detail.get("path").map_or(
-                true,
-                |path| matches!(path, Json::String(path) if path.len() <= 4096),
-            ) && detail.get("sourcePath").map_or(
-                true,
-                |path| matches!(path, Json::String(path) if path.len() <= 4096),
-            ) && detail.get("attachment").map_or(true, valid_attachment)
+            }) && detail
+                .get("path")
+                .is_none_or(|path| matches!(path, Json::String(path) if path.len() <= 4096))
+                && detail
+                    .get("sourcePath")
+                    .is_none_or(|path| matches!(path, Json::String(path) if path.len() <= 4096))
+                && detail.get("attachment").is_none_or(valid_attachment)
                 && optional_string(detail.get("unavailable"))
         }
         Some("browser" | "notebook" | "custom") => detail.keys().all(|key| key == "kind"),
@@ -1006,7 +992,7 @@ fn valid_tool_result(value: &Json) -> bool {
     if !content_valid {
         return false;
     }
-    if !map.get("durationMs").map_or(true, |duration| {
+    if !map.get("durationMs").is_none_or(|duration| {
         matches!(duration, Json::Number(duration) if duration.as_f64().is_some_and(|duration| duration.is_finite() && duration >= 0.0))
     }) {
         return false;
@@ -1027,34 +1013,30 @@ fn valid_tool_result(value: &Json) -> bool {
         if !matches!(target.get("bundleId"), Some(Json::String(id)) if id.len() <= 256) {
             return false;
         }
-        if let Some(window) = target.get("windowId") {
-            if matches!(window, Json::Null)
-                || !matches!(as_integer(Some(window)), Some(window) if window >= 0)
-            {
-                return false;
-            }
+        if let Some(window) = target.get("windowId")
+            && (matches!(window, Json::Null)
+                || !matches!(as_integer(Some(window)), Some(window) if window >= 0))
+        {
+            return false;
         }
-        if let Some(name) = target.get("displayName") {
-            if matches!(name, Json::Null)
-                || !matches!(name, Json::String(name) if name.len() <= 256)
-            {
-                return false;
-            }
-        }
-    }
-    if let Some(mode) = map.get("mode") {
-        if matches!(mode, Json::Null)
-            || !matches!(mode, Json::String(mode) if mode == "background" || mode == "foreground")
+        if let Some(name) = target.get("displayName")
+            && (matches!(name, Json::Null)
+                || !matches!(name, Json::String(name) if name.len() <= 256))
         {
             return false;
         }
     }
-    if let Some(scale) = map.get("scale") {
-        if matches!(scale, Json::Null)
-            || !matches!(scale, Json::Number(scale) if scale.as_f64().is_some_and(|scale| scale.is_finite() && scale > 0.0))
-        {
-            return false;
-        }
+    if let Some(mode) = map.get("mode")
+        && (matches!(mode, Json::Null)
+            || !matches!(mode, Json::String(mode) if mode == "background" || mode == "foreground"))
+    {
+        return false;
+    }
+    if let Some(scale) = map.get("scale")
+        && (matches!(scale, Json::Null)
+            || !matches!(scale, Json::Number(scale) if scale.as_f64().is_some_and(|scale| scale.is_finite() && scale > 0.0)))
+    {
+        return false;
     }
     if let Some(size) = map.get("size") {
         if matches!(size, Json::Null) {
@@ -1169,18 +1151,18 @@ fn valid_tool_call(call: &Map) -> bool {
     if !optional_string(call.get("error")) {
         return false;
     }
-    if let Some(result) = call.get("result") {
-        if matches!(result, Json::Null) || !valid_tool_result(result) {
-            return false;
-        }
+    if let Some(result) = call.get("result")
+        && (matches!(result, Json::Null) || !valid_tool_result(result))
+    {
+        return false;
     }
     if as_count(call.get("startedAt")).is_none() {
         return false;
     }
-    if let Some(ended) = call.get("endedAt") {
-        if matches!(ended, Json::Null) || as_count(Some(ended)).is_none() {
-            return false;
-        }
+    if let Some(ended) = call.get("endedAt")
+        && (matches!(ended, Json::Null) || as_count(Some(ended)).is_none())
+    {
+        return false;
     }
     if !call
         .get("raw")
@@ -1261,18 +1243,17 @@ fn valid_message_origin(value: &Json) -> bool {
         }
     }
     for key in ["commandId", "interactionId"] {
-        if let Some(id) = map.get(key) {
-            if matches!(id, Json::Null) || !is_string(Some(id)) {
-                return false;
-            }
-        }
-    }
-    if let Some(threads) = map.get("threadIds") {
-        if matches!(threads, Json::Null)
-            || !matches!(threads, Json::Array(threads) if threads.iter().all(|id| is_string(Some(id))))
+        if let Some(id) = map.get(key)
+            && (matches!(id, Json::Null) || !is_string(Some(id)))
         {
             return false;
         }
+    }
+    if let Some(threads) = map.get("threadIds")
+        && (matches!(threads, Json::Null)
+            || !matches!(threads, Json::Array(threads) if threads.iter().all(|id| is_string(Some(id)))))
+    {
+        return false;
     }
     if !optional_string(map.get("role")) {
         return false;
@@ -1291,10 +1272,10 @@ fn valid_message_origin(value: &Json) -> bool {
             if !valid_provider_kind(endpoint.get("provider")) {
                 return false;
             }
-            if let Some(model) = endpoint.get("model") {
-                if !matches!(model, Json::String(model) if !model.is_empty()) {
-                    return false;
-                }
+            if let Some(model) = endpoint.get("model")
+                && !matches!(model, Json::String(model) if !model.is_empty())
+            {
+                return false;
             }
         }
     }
@@ -1311,7 +1292,7 @@ fn valid_message_origin(value: &Json) -> bool {
                         };
                         source.keys().all(|key| ["provider", "model"].contains(&key.as_str()))
                             && valid_provider_kind(source.get("provider"))
-                            && source.get("model").map_or(true, |model| {
+                            && source.get("model").is_none_or(|model| {
                                 matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
                             })
                     })
@@ -1343,10 +1324,10 @@ fn valid_message_origin(value: &Json) -> bool {
         if !is_string(via.get("threadId")) {
             return false;
         }
-        if let Some(title) = via.get("title") {
-            if !matches!(title, Json::String(title) if title.len() <= 256) {
-                return false;
-            }
+        if let Some(title) = via.get("title")
+            && !matches!(title, Json::String(title) if title.len() <= 256)
+        {
+            return false;
         }
     }
     true
@@ -1377,8 +1358,8 @@ fn valid_addressee(value: &Json) -> bool {
             map.keys().all(|key| ["kind", "id", "name", "avatar", "machine"].contains(&key.as_str()))
                 && matches!(map.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 120)
-                && map.get("avatar").map_or(true, valid_spade_face)
-                && map.get("machine").map_or(true, |machine| {
+                && map.get("avatar").is_none_or(valid_spade_face)
+                && map.get("machine").is_none_or(|machine| {
                     matches!(as_map(machine), Some(machine)
                             if machine.keys().all(|key| ["id", "name"].contains(&key.as_str()))
                                 && is_string(machine.get("id"))
@@ -1389,17 +1370,17 @@ fn valid_addressee(value: &Json) -> bool {
             map.keys().all(|key| ["kind", "id", "name", "faces", "machine"].contains(&key.as_str()))
                 && matches!(map.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 120)
-                && map.get("faces").map_or(true, |faces| {
+                && map.get("faces").is_none_or(|faces| {
                     matches!(faces, Json::Array(faces) if faces.len() <= 3 && faces.iter().all(|face| {
                             let Some(face) = as_map(face) else {
                                 return false;
                             };
                             face.keys().all(|key| ["id", "avatar"].contains(&key.as_str()))
                                 && matches!(face.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
-                                && face.get("avatar").map_or(true, valid_spade_face)
+                                && face.get("avatar").is_none_or(valid_spade_face)
                         }))
                 })
-                && map.get("machine").map_or(true, |machine| {
+                && map.get("machine").is_none_or(|machine| {
                     matches!(as_map(machine), Some(machine)
                             if machine.keys().all(|key| ["id", "name"].contains(&key.as_str()))
                                 && is_string(machine.get("id"))
@@ -1410,7 +1391,7 @@ fn valid_addressee(value: &Json) -> bool {
             map.keys().all(|key| ["kind", "threadId", "title", "provider"].contains(&key.as_str()))
                 && is_string(map.get("threadId"))
                 && matches!(map.get("title"), Some(Json::String(title)) if title.len() <= 256)
-                && map.get("provider").map_or(true, |provider| {
+                && map.get("provider").is_none_or(|provider| {
                     valid_provider_kind(Some(provider))
                 })
         }
@@ -1444,7 +1425,7 @@ fn valid_asked_line(value: &Json) -> bool {
                                 ]
                                 .contains(&state.as_str())
                         )
-                        && entry.get("detail").map_or(true, |detail| {
+                        && entry.get("detail").is_none_or(|detail| {
                             matches!(detail, Json::Null)
                                 | matches!(detail, Json::String(detail) if detail.len() <= 512)
                         })
@@ -1494,10 +1475,10 @@ fn valid_device_context_item(value: &Json) -> bool {
                 && matches!(machine.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
                 && matches!(machine.get("here"), Some(Json::Bool(_)))
         })
-        && map.get("os").map_or(true, |os| {
+        && map.get("os").is_none_or(|os| {
             matches!(os, Json::Null) | matches!(os, Json::String(os) if os.len() <= 64)
         })
-        && map.get("model").map_or(true, |model| {
+        && map.get("model").is_none_or(|model| {
             matches!(model, Json::Null) | matches!(model, Json::String(model) if model.len() <= 256)
         })
         && matches!(map.get("online"), Some(Json::Bool(_)))
@@ -1512,21 +1493,21 @@ fn valid_speaker(value: &Json) -> bool {
     }) && matches!(map.get("kind"), Some(Json::String(kind)) if kind == "bot")
         && matches!(map.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
         && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 120)
-        && map.get("avatar").map_or(true, valid_spade_face)
-        && map.get("club").map_or(true, |club| {
+        && map.get("avatar").is_none_or(valid_spade_face)
+        && map.get("club").is_none_or(|club| {
             matches!(as_map(club), Some(club)
                     if club.keys().all(|key| ["id", "name"].contains(&key.as_str()))
                         && matches!(club.get("id"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
                         && matches!(club.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 120))
         })
-        && map.get("machine").map_or(true, |machine| {
+        && map.get("machine").is_none_or(|machine| {
             matches!(as_map(machine), Some(machine)
                     if machine.keys().all(|key| ["id", "name"].contains(&key.as_str()))
                         && is_string(machine.get("id"))
                         && is_string(machine.get("name")))
         })
         && matches!(map.get("about"), Some(Json::String(about)) if !about.is_empty() && about.len() <= 256)
-        && map.get("ask").map_or(true, |ask| {
+        && map.get("ask").is_none_or(|ask| {
             matches!(ask, Json::String(ask) if ask.len() <= 160)
         })
 }
@@ -1597,21 +1578,20 @@ fn valid_delegation_outcome(value: &Json) -> bool {
         {
             return false;
         }
-        if let Some(account) = failure.get("accountId") {
-            if !matches!(account, Json::String(account) if account.len() <= 256) {
-                return false;
-            }
+        if let Some(account) = failure.get("accountId")
+            && !matches!(account, Json::String(account) if account.len() <= 256)
+        {
+            return false;
         }
-        if let Some(label) = failure.get("accountLabel") {
-            if !matches!(label, Json::String(label) if label.len() <= 256) {
-                return false;
-            }
+        if let Some(label) = failure.get("accountLabel")
+            && !matches!(label, Json::String(label) if label.len() <= 256)
+        {
+            return false;
         }
-        if let Some(resets) = failure.get("resetsAt") {
-            if !matches!(resets, Json::Number(resets) if resets.as_f64().is_some_and(|resets| resets.is_finite() && resets >= 0.0))
-            {
-                return false;
-            }
+        if let Some(resets) = failure.get("resetsAt")
+            && !matches!(resets, Json::Number(resets) if resets.as_f64().is_some_and(|resets| resets.is_finite() && resets >= 0.0))
+        {
+            return false;
         }
     }
     if !is_string(map.get("threadId")) {
@@ -1760,12 +1740,10 @@ fn valid_item_shape(candidate: &Map) -> bool {
                 ]
                 .contains(&key.as_str())
             }) && is_string(candidate.get("text"))
+                && candidate.get("source").is_none_or(valid_text_source)
                 && candidate
-                    .get("source")
-                    .map_or(true, |source| valid_text_source(source))
-                && candidate.get("summary").map_or(true, |summary| {
-                    matches!(summary, Json::Null | Json::Bool(_))
-                })
+                    .get("summary")
+                    .is_none_or(|summary| matches!(summary, Json::Null | Json::Bool(_)))
                 && valid_raw_array(candidate.get("raw"))
         }
         Some("tool_call") => {
@@ -1789,7 +1767,7 @@ fn valid_item_shape(candidate: &Map) -> bool {
                 .get("call")
                 .and_then(as_map)
                 .is_some_and(valid_tool_call)
-                && candidate.get("measurement").map_or(true, |measurement| {
+                && candidate.get("measurement").is_none_or(|measurement| {
                     crate::validate_shapes::valid_step_measurement(measurement)
                 })
         }
@@ -1815,10 +1793,10 @@ fn valid_item_shape(candidate: &Map) -> bool {
                 .contains(&key.as_str())
             }) && candidate
                 .get("tokensBefore")
-                .map_or(true, |value| as_integer(Some(value)).is_some())
+                .is_none_or(|value| as_integer(Some(value)).is_some())
                 && candidate
                     .get("tokensAfter")
-                    .map_or(true, |value| as_integer(Some(value)).is_some())
+                    .is_none_or(|value| as_integer(Some(value)).is_some())
                 && optional_string(candidate.get("summary"))
                 && valid_raw_array(candidate.get("raw"))
         }
@@ -1864,14 +1842,13 @@ fn valid_item_shape(candidate: &Map) -> bool {
             ]
             .contains(&key.as_str())
         }) && optional_string(candidate.get("filename"))
-            && candidate.get("flags").map_or(true, |flags| {
+            && candidate.get("flags").is_none_or(|flags| {
                 matches!(flags, Json::Array(flags) if flags.iter().all(|flag| {
                     matches!(flag, Json::String(flag) if flag == "executable" || flag == "archive")
                 }))
             })
             && matches!(candidate.get("source"), Some(Json::String(source)) if source == "browser" || source == "device")
-            && candidate.get("artifactId").map_or(
-                true,
+            && candidate.get("artifactId").is_none_or(
                 |id| matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 256),
             )
             && is_string(candidate.get("path"))
@@ -1958,32 +1935,32 @@ fn valid_message_shape(candidate: &Map) -> bool {
             return false;
         }
     }
-    if !candidate.get("synthetic").map_or(true, |synthetic| {
-        matches!(synthetic, Json::Null | Json::Bool(_))
-    }) {
+    if !candidate
+        .get("synthetic")
+        .is_none_or(|synthetic| matches!(synthetic, Json::Null | Json::Bool(_)))
+    {
         return false;
     }
-    if let Some(origin) = candidate.get("origin") {
-        if matches!(origin, Json::Null) || !valid_message_origin(origin) {
-            return false;
-        }
+    if let Some(origin) = candidate.get("origin")
+        && (matches!(origin, Json::Null) || !valid_message_origin(origin))
+    {
+        return false;
     }
-    if let Some(not_answered) = candidate.get("notAnswered") {
-        if matches!(not_answered, Json::Null)
-            || !matches!(not_answered, Json::String(state) if state == "stopped")
-        {
-            return false;
-        }
+    if let Some(not_answered) = candidate.get("notAnswered")
+        && (matches!(not_answered, Json::Null)
+            || !matches!(not_answered, Json::String(state) if state == "stopped"))
+    {
+        return false;
     }
-    if let Some(merged) = candidate.get("mergedContext") {
-        if matches!(merged, Json::Null) || !valid_merged_fork(merged) {
-            return false;
-        }
+    if let Some(merged) = candidate.get("mergedContext")
+        && (matches!(merged, Json::Null) || !valid_merged_fork(merged))
+    {
+        return false;
     }
-    if let Some(speaker) = candidate.get("speaker") {
-        if matches!(speaker, Json::Null) || !valid_speaker(speaker) {
-            return false;
-        }
+    if let Some(speaker) = candidate.get("speaker")
+        && (matches!(speaker, Json::Null) || !valid_speaker(speaker))
+    {
+        return false;
     }
     valid_raw_array(candidate.get("raw"))
 }
@@ -2034,39 +2011,39 @@ fn valid_notice_shape(candidate: &Map) -> bool {
         "detail",
         "toolCallId",
     ] {
-        if let Some(value) = candidate.get(key) {
-            if matches!(value, Json::Null) || !is_string(Some(value)) {
-                return false;
-            }
-        }
-    }
-    if let Some(diagnostic) = candidate.get("diagnostic") {
-        if matches!(diagnostic, Json::Null) || !matches!(diagnostic, Json::Bool(_)) {
+        if let Some(value) = candidate.get(key)
+            && (matches!(value, Json::Null) || !is_string(Some(value)))
+        {
             return false;
         }
     }
-    if let Some(details) = candidate.get("details") {
-        if matches!(details, Json::Null) || !valid_provider_error_details(details) {
-            return false;
-        }
+    if let Some(diagnostic) = candidate.get("diagnostic")
+        && (matches!(diagnostic, Json::Null) || !matches!(diagnostic, Json::Bool(_)))
+    {
+        return false;
     }
-    if let Some(measurement) = candidate.get("measurement") {
-        if !crate::validate_shapes::valid_step_measurement(measurement) {
-            return false;
-        }
+    if let Some(details) = candidate.get("details")
+        && (matches!(details, Json::Null) || !valid_provider_error_details(details))
+    {
+        return false;
     }
-    if let Some(asked) = candidate.get("asked") {
-        if !valid_asked_line(asked) {
-            return false;
-        }
+    if let Some(measurement) = candidate.get("measurement")
+        && !crate::validate_shapes::valid_step_measurement(measurement)
+    {
+        return false;
+    }
+    if let Some(asked) = candidate.get("asked")
+        && !valid_asked_line(asked)
+    {
+        return false;
     }
     if !is_string(candidate.get("text")) {
         return false;
     }
-    if let Some(source) = candidate.get("source") {
-        if !valid_text_source(source) {
-            return false;
-        }
+    if let Some(source) = candidate.get("source")
+        && !valid_text_source(source)
+    {
+        return false;
     }
     valid_raw_array(candidate.get("raw"))
 }
@@ -2079,14 +2056,14 @@ fn valid_provider_error_details(value: &Json) -> bool {
         .all(|key| ["code", "provider", "title", "detail", "model"].contains(&key.as_str()))
         && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 256)
         && valid_provider_kind(map.get("provider"))
-        && map.get("title").map_or(true, |title| {
+        && map.get("title").is_none_or(|title| {
             matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len() <= 256)
         })
-        && map.get("detail").map_or(true, |detail| {
+        && map.get("detail").is_none_or(|detail| {
             matches!(detail, Json::Null)
                 | matches!(detail, Json::String(detail) if detail.len() <= 2048)
         })
-        && map.get("model").map_or(true, |model| {
+        && map.get("model").is_none_or(|model| {
             matches!(model, Json::Null)
                 | matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
         })
@@ -2133,19 +2110,17 @@ fn valid_delegation_started(candidate: &Map) -> bool {
     if !valid_provider_kind(candidate.get("provider")) {
         return false;
     }
-    if let Some(model) = candidate.get("model") {
-        if matches!(model, Json::Null)
-            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256)
-        {
-            return false;
-        }
+    if let Some(model) = candidate.get("model")
+        && (matches!(model, Json::Null)
+            || !matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256))
+    {
+        return false;
     }
-    if let Some(account) = candidate.get("accountId") {
-        if matches!(account, Json::Null)
-            || !matches!(account, Json::String(account) if !account.is_empty() && account.len() <= 256)
-        {
-            return false;
-        }
+    if let Some(account) = candidate.get("accountId")
+        && (matches!(account, Json::Null)
+            || !matches!(account, Json::String(account) if !account.is_empty() && account.len() <= 256))
+    {
+        return false;
     }
     if !matches!(candidate.get("title"), Some(Json::String(title)) if title.len() <= 256) {
         return false;
@@ -2176,10 +2151,10 @@ fn valid_delegation_started(candidate: &Map) -> bool {
             return false;
         }
     }
-    if let Some(machine) = candidate.get("machine") {
-        if matches!(machine, Json::Null) || !valid_agent_machine(Some(machine)) {
-            return false;
-        }
+    if let Some(machine) = candidate.get("machine")
+        && (matches!(machine, Json::Null) || !valid_agent_machine(Some(machine)))
+    {
+        return false;
     }
     valid_raw_array(candidate.get("raw"))
 }

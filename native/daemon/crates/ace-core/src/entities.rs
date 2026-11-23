@@ -3,16 +3,14 @@
 //! closing interactions, starting and ending background work, with the refine
 //! path for work announced before its spawn is known.
 
-use serde::{Deserialize, Serialize};
-
 use crate::emit::{Event, emit, get, put};
 use crate::entity_model::{BackgroundTask, Interaction, InteractionRequest, InteractionResolution};
-use crate::item_model::{RawPayload, ToolCall, Vetted, vet_json, vetted_json};
+use crate::item_model::RawPayload;
 use crate::items::Item;
-use crate::json_io::de_i64;
 use crate::state::{ApplyContext, ThreadState};
 
 /// Open one interaction.
+#[allow(clippy::too_many_arguments)]
 pub fn open_interaction(
     state: &mut ThreadState,
     agent_key: &str,
@@ -119,6 +117,7 @@ pub fn open_interaction(
 }
 
 /// Close one interaction.
+#[allow(clippy::too_many_arguments)]
 pub fn close_interaction(
     state: &mut ThreadState,
     interaction_key: &str,
@@ -190,17 +189,16 @@ pub fn start_background(
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
-    if let Some(previous) = get(&state.tasks, fact.task) {
-        if previous.status == "running" {
-            return refine_background(state, fact, ctx, events);
-        }
+    if let Some(previous) = get(&state.tasks, fact.task)
+        && previous.status == "running"
+    {
+        return refine_background(state, fact, ctx, events);
     }
-    if fact.kind == "shell" {
-        if let Some(item_key) = fact.item {
-            if get(&state.items, item_key).is_some_and(|item| item.complete()) {
-                return Some(());
-            }
-        }
+    if fact.kind == "shell"
+        && let Some(item_key) = fact.item
+        && get(&state.items, item_key).is_some_and(|item| item.complete())
+    {
+        return Some(());
     }
     if let Some(previous) = get(&state.tasks, fact.task).cloned() {
         put(&mut state.task_history, previous.id.clone(), previous);
@@ -258,18 +256,17 @@ pub fn start_background(
     put(&mut state.tasks, fact.task.to_owned(), task.clone());
     crate::indexes::refresh_task_index(state, fact.task);
     emit(events, Event::BackgroundTaskStarted { task: task.clone() });
-    if let Some(tool_call_id) = tool_call_id {
-        if let Some(item) = state
+    if let Some(tool_call_id) = tool_call_id
+        && let Some(item) = state
             .items
             .values_mut()
             .find(|item| item.id() == tool_call_id)
-        {
-            if let Item::ToolCall { call, .. } = item {
-                call.background_task_id = Some(id);
-            }
-            let updated = item.clone();
-            emit(events, Event::ItemUpdated { item: updated });
+    {
+        if let Item::ToolCall { call, .. } = item {
+            call.background_task_id = Some(id);
         }
+        let updated = item.clone();
+        emit(events, Event::ItemUpdated { item: updated });
     }
     if let Some(child) = fact.child_agent {
         crate::tree::link_agent(
@@ -337,48 +334,46 @@ fn refine_background(
         record.agent.id.clone()
     };
     let mut changed = false;
-    if let Some(task) = state.tasks.get_mut(fact.task) {
-        if task.agent_id != record_id {
-            task.agent_id = record_id;
-            changed = true;
-        }
+    if let Some(task) = state.tasks.get_mut(fact.task)
+        && task.agent_id != record_id
+    {
+        task.agent_id = record_id;
+        changed = true;
     }
     if let Some(child) = fact.child_agent {
         let child_id = {
             let record = crate::tree::ensure_agent(state, child, ctx, events)?;
             record.agent.id.clone()
         };
-        if let Some(task) = state.tasks.get_mut(fact.task) {
-            if task.child_agent_id.is_none() {
-                task.child_agent_id = Some(child_id);
-                changed = true;
-            }
+        if let Some(task) = state.tasks.get_mut(fact.task)
+            && task.child_agent_id.is_none()
+        {
+            task.child_agent_id = Some(child_id);
+            changed = true;
         }
     }
-    if let Some(item_key) = fact.item {
-        if let Some(item) = get(&state.items, item_key) {
-            let item_id = item.id().to_owned();
-            let is_tool = matches!(item, Item::ToolCall { .. });
-            if is_tool {
-                let needs_link = get(&state.tasks, fact.task)
-                    .and_then(|task| task.tool_call_id.clone())
-                    .is_none();
-                if needs_link {
-                    if let Some(task) = state.tasks.get_mut(fact.task) {
-                        task.tool_call_id = Some(item_id.clone());
-                    }
-                    if let Some(Item::ToolCall { call, .. }) = state.items.get_mut(item_key) {
-                        if let Some(task_id) =
-                            get(&state.tasks, fact.task).map(|task| task.id.clone())
-                        {
-                            call.background_task_id = Some(task_id);
-                        }
-                    }
-                    if let Some(item) = get(&state.items, item_key) {
-                        emit(events, Event::ItemUpdated { item: item.clone() });
-                    }
-                    changed = true;
+    if let Some(item_key) = fact.item
+        && let Some(item) = get(&state.items, item_key)
+    {
+        let item_id = item.id().to_owned();
+        let is_tool = matches!(item, Item::ToolCall { .. });
+        if is_tool {
+            let needs_link = get(&state.tasks, fact.task)
+                .and_then(|task| task.tool_call_id.clone())
+                .is_none();
+            if needs_link {
+                if let Some(task) = state.tasks.get_mut(fact.task) {
+                    task.tool_call_id = Some(item_id.clone());
                 }
+                if let Some(Item::ToolCall { call, .. }) = state.items.get_mut(item_key)
+                    && let Some(task_id) = get(&state.tasks, fact.task).map(|task| task.id.clone())
+                {
+                    call.background_task_id = Some(task_id);
+                }
+                if let Some(item) = get(&state.items, item_key) {
+                    emit(events, Event::ItemUpdated { item: item.clone() });
+                }
+                changed = true;
             }
         }
     }

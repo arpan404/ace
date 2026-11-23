@@ -182,8 +182,7 @@ pub fn core_next_deadline(
             Some(deadline)
                 if deadline.is_finite()
                     && deadline.fract() == 0.0
-                    && deadline >= 0.0
-                    && deadline <= 9_007_199_254_740_991.0 =>
+                    && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
             {
                 Some(deadline as i64)
             }
@@ -264,8 +263,7 @@ impl WasmDeadlineIndex {
                 Some(deadline)
                     if deadline.is_finite()
                         && deadline.fract() == 0.0
-                        && deadline >= 0.0
-                        && deadline <= 9_007_199_254_740_991.0 =>
+                        && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
                 {
                     Some(deadline as i64)
                 }

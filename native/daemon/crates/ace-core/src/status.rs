@@ -8,7 +8,7 @@
 //! stripped, never fatal. (Items are the opposite: unknown fields reject the
 //! fact. That lives in `validate`.)
 
-use crate::json_io::{Json, json_equal};
+use crate::json_io::json_equal;
 use serde::{Deserialize, Serialize};
 
 /// What the agent is doing right now while `working`.
@@ -199,9 +199,9 @@ pub fn thread_status_equal(left: &ThreadStatus, right: &ThreadStatus) -> bool {
 }
 
 use crate::emit::{Event, emit, get};
-use crate::indexes::{live_tool_keys, pending_interaction_keys, running_task_keys};
+use crate::indexes::{pending_interaction_keys, running_task_keys};
 use crate::state::{AgentRecord, ThreadState};
-use crate::status_inputs::{StatusInputs, status_inputs, task_holds_thread};
+use crate::status_inputs::{status_inputs, task_holds_thread};
 
 /// Derive one agent's status for the current fact, descendants first.
 pub fn derive_agent_status(state: &ThreadState, key: &str, now: i64) -> AgentStatus {
@@ -286,10 +286,9 @@ pub fn derive_thread_status(state: &ThreadState) -> ThreadStatus {
                 status,
                 ThreadStatus::Done | ThreadStatus::New | ThreadStatus::Failed
             ))
+        && let Some(to) = state.moved_to.clone()
     {
-        if let Some(to) = state.moved_to.clone() {
-            return ThreadStatus::Moved { to };
-        }
+        return ThreadStatus::Moved { to };
     }
     status
 }

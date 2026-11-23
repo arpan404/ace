@@ -6,8 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::emit::{Event, emit, get, put};
-use crate::entity_model::BackgroundTask;
-use crate::item_meta::{DelegationOutcome, DelegationSettled, DelegationStarted};
+use crate::item_meta::{DelegationSettled, DelegationStarted};
 use crate::item_model::{
     Attachment, ContentPart, OutputSummary, RawPayload, TextSource, ToolCall, ToolDetail, Vetted,
 };
@@ -372,10 +371,10 @@ pub fn upsert_item(
         record.agent.id.clone()
     };
     let previous = get(&state.items, key).cloned();
-    if let Some(previous) = &previous {
-        if previous.agent_id() != record_id {
-            return None;
-        }
+    if let Some(previous) = &previous
+        && previous.agent_id() != record_id
+    {
+        return None;
     }
     let base = ItemIdentity {
         id: previous
@@ -416,20 +415,19 @@ pub fn upsert_item(
     // Legacy output strings become suffix deltas: restore the verified stream
     // first, then append only the new aggregate bytes.
     let legacy = legacy_aggregate(previous.as_ref(), draft, &item);
-    if let Some(aggregate) = &legacy {
-        if let Item::ToolCall { call, .. } = &mut item {
-            if matches!(&call.detail, ToolDetail::Shell { .. }) {
-                let prior = match &previous {
-                    Some(Item::ToolCall { call, .. }) => match &call.detail {
-                        ToolDetail::Shell { output, .. } => output.clone(),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                if let ToolDetail::Shell { output, .. } = &mut call.detail {
-                    *output = prior;
-                }
-            }
+    if let Some(_aggregate) = &legacy
+        && let Item::ToolCall { call, .. } = &mut item
+        && matches!(&call.detail, ToolDetail::Shell { .. })
+    {
+        let prior = match &previous {
+            Some(Item::ToolCall { call, .. }) => match &call.detail {
+                ToolDetail::Shell { output, .. } => output.clone(),
+                _ => None,
+            },
+            _ => None,
+        };
+        if let ToolDetail::Shell { output, .. } = &mut call.detail {
+            *output = prior;
         }
     }
     let created = previous.is_none();
@@ -464,37 +462,37 @@ pub fn upsert_item(
             .into_owned();
         append_stored_delta(state, key, "output", &suffix, events)?;
     }
-    if let Some(Item::ToolCall { call, .. }) = get(&state.items, key) {
-        if matches!(&call.detail, ToolDetail::AgentSpawn { .. }) {
-            let child = get(&state.item_links, key).and_then(|links| links.child_agent.clone());
-            let child_record = child.as_ref().and_then(|child| get(&state.agents, child));
-            let explicit_spawn = draft_detail.is_some_and(|detail| {
-                detail.get("kind").and_then(|kind| kind.as_str()) == Some("agent.spawn")
-                    && detail.get("childAgent").is_some()
-            });
-            // A refresh of a historical spawning item cannot undo an
-            // authoritative reparenting.
-            if child.is_some()
-                && (previous.is_none()
-                    || explicit_spawn
-                    || child_record
-                        .is_some_and(|record| record.parent_key.as_deref() == Some(agent_key)))
-            {
-                let child = child.unwrap_or_default();
-                crate::tree::link_agent(
-                    state,
-                    &crate::facts::Fact::AgentLinked {
-                        agent: child,
-                        parent: Some(agent_key.to_owned()),
-                        spawned_by: Some(key.to_owned()),
-                        background: None,
-                        name: None,
-                        model: None,
-                    },
-                    ctx,
-                    events,
-                )?;
-            }
+    if let Some(Item::ToolCall { call, .. }) = get(&state.items, key)
+        && matches!(&call.detail, ToolDetail::AgentSpawn { .. })
+    {
+        let child = get(&state.item_links, key).and_then(|links| links.child_agent.clone());
+        let child_record = child.as_ref().and_then(|child| get(&state.agents, child));
+        let explicit_spawn = draft_detail.is_some_and(|detail| {
+            detail.get("kind").and_then(|kind| kind.as_str()) == Some("agent.spawn")
+                && detail.get("childAgent").is_some()
+        });
+        // A refresh of a historical spawning item cannot undo an
+        // authoritative reparenting.
+        if child.is_some()
+            && (previous.is_none()
+                || explicit_spawn
+                || child_record
+                    .is_some_and(|record| record.parent_key.as_deref() == Some(agent_key)))
+        {
+            let child = child.unwrap_or_default();
+            crate::tree::link_agent(
+                state,
+                &crate::facts::Fact::AgentLinked {
+                    agent: child,
+                    parent: Some(agent_key.to_owned()),
+                    spawned_by: Some(key.to_owned()),
+                    background: None,
+                    name: None,
+                    model: None,
+                },
+                ctx,
+                events,
+            )?;
         }
     }
     get(&state.items, key).cloned()
@@ -642,7 +640,7 @@ fn apply_delta_to_stored(
                 });
                 return Some(());
             }
-            return None;
+            None
         }
         Item::Reasoning { text, source, .. } if field != "output" => {
             let mut source_data = source
@@ -661,7 +659,7 @@ fn apply_delta_to_stored(
                 encoding: "utf-16le".to_owned(),
                 offset: data.offset,
             });
-            return Some(());
+            Some(())
         }
         Item::Notice { text, source, .. } if field != "output" => {
             let mut source_data = source
@@ -680,7 +678,7 @@ fn apply_delta_to_stored(
                 encoding: "utf-16le".to_owned(),
                 offset: data.offset,
             });
-            return Some(());
+            Some(())
         }
         Item::Message { parts, .. } if field == "text" => {
             match parts.last_mut() {
@@ -708,7 +706,7 @@ fn apply_delta_to_stored(
                     source: None,
                 }),
             }
-            return Some(());
+            Some(())
         }
         _ => None,
     }
@@ -778,11 +776,9 @@ pub fn append_item(
                 == record.active_run.as_deref()
             && activity.is_some_and(|activity| record.activity != activity)
     });
-    if changed {
-        if let Some(record) = state.agents.get_mut(agent_key) {
-            record.activity = activity.unwrap_or_default().to_owned();
-            record.detail = None;
-        }
+    if changed && let Some(record) = state.agents.get_mut(agent_key) {
+        record.activity = activity.unwrap_or_default().to_owned();
+        record.detail = None;
     }
     let unresponsive = get(&state.agents, agent_key)
         .map(|record| record.agent.status.state() == "unresponsive")

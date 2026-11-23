@@ -199,7 +199,7 @@ fn strip_object(value: &Json, allowed: &[&str], removed: &mut bool) -> Json {
     }
 }
 
-fn as_map<'a>(value: &'a Json) -> Option<&'a Map> {
+fn as_map(value: &Json) -> Option<&Map> {
     match value {
         Json::Object(map) => Some(map),
         _ => None,
@@ -281,10 +281,10 @@ fn strip_part(value: &Json, removed: &mut bool) -> Json {
     match map.get("type").and_then(|kind| kind.as_str()) {
         Some("text") => {
             let mut stripped = strip_object(value, &["type", "text", "source"], removed);
-            if let Json::Object(stripped) = &mut stripped {
-                if let Some(source) = stripped.get("source").cloned() {
-                    stripped.insert("source".to_owned(), strip_text_source(&source, removed));
-                }
+            if let Json::Object(stripped) = &mut stripped
+                && let Some(source) = stripped.get("source").cloned()
+            {
+                stripped.insert("source".to_owned(), strip_text_source(&source, removed));
             }
             stripped
         }
@@ -295,10 +295,10 @@ fn strip_part(value: &Json, removed: &mut bool) -> Json {
                 &["type", "path", "mimeType", "name", "content"],
                 removed,
             );
-            if let Json::Object(stripped) = &mut stripped {
-                if let Some(content) = stripped.get("content").cloned() {
-                    stripped.insert("content".to_owned(), strip_file_content(&content, removed));
-                }
+            if let Json::Object(stripped) = &mut stripped
+                && let Some(content) = stripped.get("content").cloned()
+            {
+                stripped.insert("content".to_owned(), strip_file_content(&content, removed));
             }
             stripped
         }
@@ -388,43 +388,43 @@ fn strip_tool_detail(value: &Json, removed: &mut bool) -> Json {
         _ => return value.clone(),
     };
     let mut stripped = strip_object(value, allowed, removed);
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(range) = stripped.get("range").cloned() {
-            stripped.insert(
-                "range".to_owned(),
-                strip_object(&range, &["start", "end"], removed),
-            );
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(range) = stripped.get("range").cloned()
+    {
+        stripped.insert(
+            "range".to_owned(),
+            strip_object(&range, &["start", "end"], removed),
+        );
     }
     if let Json::Object(stripped) = &mut stripped {
         if let Some(output) = stripped.get("output").cloned() {
             stripped.insert("output".to_owned(), strip_output_summary(&output, removed));
         }
-        if let Some(changes) = stripped.get("changes").cloned() {
-            if let Json::Array(changes) = &changes {
-                stripped.insert(
-                    "changes".to_owned(),
-                    Json::Array(
-                        changes
-                            .iter()
-                            .map(|change| strip_file_change(change, removed))
-                            .collect(),
-                    ),
-                );
-            }
+        if let Some(changes) = stripped.get("changes").cloned()
+            && let Json::Array(changes) = &changes
+        {
+            stripped.insert(
+                "changes".to_owned(),
+                Json::Array(
+                    changes
+                        .iter()
+                        .map(|change| strip_file_change(change, removed))
+                        .collect(),
+                ),
+            );
         }
-        if let Some(todos) = stripped.get("todos").cloned() {
-            if let Json::Array(todos) = &todos {
-                stripped.insert(
-                    "todos".to_owned(),
-                    Json::Array(
-                        todos
-                            .iter()
-                            .map(|todo| strip_todo_entry(todo, removed))
-                            .collect(),
-                    ),
-                );
-            }
+        if let Some(todos) = stripped.get("todos").cloned()
+            && let Json::Array(todos) = &todos
+        {
+            stripped.insert(
+                "todos".to_owned(),
+                Json::Array(
+                    todos
+                        .iter()
+                        .map(|todo| strip_todo_entry(todo, removed))
+                        .collect(),
+                ),
+            );
         }
         if let Some(attachment) = stripped.get("attachment").cloned() {
             stripped.insert(
@@ -506,13 +506,13 @@ fn strip_result_content(value: &Json, removed: &mut bool) -> Json {
         Some("text") => strip_object(value, &["type", "text"], removed),
         Some("image") => {
             let mut stripped = strip_object(value, &["type", "attachment"], removed);
-            if let Json::Object(stripped) = &mut stripped {
-                if let Some(attachment) = stripped.get("attachment").cloned() {
-                    stripped.insert(
-                        "attachment".to_owned(),
-                        strip_attachment(&attachment, removed),
-                    );
-                }
+            if let Json::Object(stripped) = &mut stripped
+                && let Some(attachment) = stripped.get("attachment").cloned()
+            {
+                stripped.insert(
+                    "attachment".to_owned(),
+                    strip_attachment(&attachment, removed),
+                );
             }
             stripped
         }
@@ -580,18 +580,18 @@ fn strip_merged_fork(value: &Json, removed: &mut bool) -> Json {
         &["sourceThreadId", "summary", "citations", "patchApplied"],
         removed,
     );
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(Json::Array(citations)) = stripped.get("citations").cloned() {
-            stripped.insert(
-                "citations".to_owned(),
-                Json::Array(
-                    citations
-                        .iter()
-                        .map(|citation| strip_object(citation, &["threadId", "itemId"], removed))
-                        .collect(),
-                ),
-            );
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(Json::Array(citations)) = stripped.get("citations").cloned()
+    {
+        stripped.insert(
+            "citations".to_owned(),
+            Json::Array(
+                citations
+                    .iter()
+                    .map(|citation| strip_object(citation, &["threadId", "itemId"], removed))
+                    .collect(),
+            ),
+        );
     }
     stripped
 }
@@ -608,17 +608,17 @@ fn strip_speaker(value: &Json, removed: &mut bool) -> Json {
 
 fn strip_execution_source(value: &Json, removed: &mut bool) -> Json {
     let mut stripped = strip_object(value, &["nativeSessionId", "selection"], removed);
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(selection) = stripped.get("selection").cloned() {
-            stripped.insert(
-                "selection".to_owned(),
-                strip_object(
-                    &selection,
-                    &["provider", "model", "instanceId", "options"],
-                    removed,
-                ),
-            );
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(selection) = stripped.get("selection").cloned()
+    {
+        stripped.insert(
+            "selection".to_owned(),
+            strip_object(
+                &selection,
+                &["provider", "model", "instanceId", "options"],
+                removed,
+            ),
+        );
     }
     stripped
 }
@@ -661,10 +661,10 @@ fn strip_asked(value: &Json, removed: &mut bool) -> Json {
 
 fn strip_addressed_to(value: &Json, removed: &mut bool) -> Json {
     let mut stripped = strip_object(value, &["to", "state", "detail"], removed);
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(to) = stripped.get("to").cloned() {
-            stripped.insert("to".to_owned(), strip_addressee(&to, removed));
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(to) = stripped.get("to").cloned()
+    {
+        stripped.insert("to".to_owned(), strip_addressee(&to, removed));
     }
     stripped
 }
@@ -706,7 +706,7 @@ fn strip_addressee(value: &Json, removed: &mut bool) -> Json {
     }
 }
 
-fn strip_device_item(value: &Json, removed: &mut bool) -> Json {
+fn strip_device_item(value: &Json, _removed: &mut bool) -> Json {
     // `strictObject`: never strip; the TypeScript throws on unknowns.
     value.clone()
 }
@@ -739,13 +739,13 @@ fn strip_thread_status(value: &Json, removed: &mut bool) -> Json {
         Some("failed" | "unresponsive" | "done" | "new") => &["state"],
         Some("moved") => {
             let mut stripped = strip_object(value, &["state", "to"], removed);
-            if let Json::Object(stripped) = &mut stripped {
-                if let Some(to) = stripped.get("to").cloned() {
-                    stripped.insert(
-                        "to".to_owned(),
-                        strip_object(&to, &["hostId", "name", "threadId"], removed),
-                    );
-                }
+            if let Json::Object(stripped) = &mut stripped
+                && let Some(to) = stripped.get("to").cloned()
+            {
+                stripped.insert(
+                    "to".to_owned(),
+                    strip_object(&to, &["hostId", "name", "threadId"], removed),
+                );
             }
             return stripped;
         }
@@ -780,17 +780,17 @@ fn strip_outcome(value: &Json, removed: &mut bool) -> Json {
         ],
         removed,
     );
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(failure) = stripped.get("failure").cloned() {
-            stripped.insert(
-                "failure".to_owned(),
-                strip_object(
-                    &failure,
-                    &["code", "message", "accountId", "accountLabel", "resetsAt"],
-                    removed,
-                ),
-            );
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(failure) = stripped.get("failure").cloned()
+    {
+        stripped.insert(
+            "failure".to_owned(),
+            strip_object(
+                &failure,
+                &["code", "message", "accountId", "accountLabel", "resetsAt"],
+                removed,
+            ),
+        );
     }
     stripped
 }
@@ -805,10 +805,10 @@ fn strip_html_visualization(value: &Json, removed: &mut bool) -> Json {
         &["title", "document", "height", "mode", "kit"],
         removed,
     );
-    if let Json::Object(stripped) = &mut stripped {
-        if let Some(document) = stripped.get("document").cloned() {
-            stripped.insert("document".to_owned(), strip_attachment(&document, removed));
-        }
+    if let Json::Object(stripped) = &mut stripped
+        && let Some(document) = stripped.get("document").cloned()
+    {
+        stripped.insert("document".to_owned(), strip_attachment(&document, removed));
     }
     stripped
 }
@@ -832,7 +832,7 @@ fn strip_screen_input(value: &Json, removed: &mut bool) -> Json {
     strip_object(value, allowed, removed)
 }
 
-fn strip_browser_action(value: &Json, removed: &mut bool) -> Json {
+fn strip_browser_action(value: &Json, _removed: &mut bool) -> Json {
     // `strictObject` variants: never strip; the TypeScript throws instead.
     value.clone()
 }

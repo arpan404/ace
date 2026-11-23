@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 
 use crate::emit::get;
-use crate::facts::{Fact, Key};
+use crate::facts::Fact;
 use crate::json_io::{Json, Map, as_count, as_integer};
 use crate::state::ThreadState;
 
@@ -184,7 +184,7 @@ fn descends_from(state: &ThreadState, agent: &str, ancestor_id: &str) -> bool {
     false
 }
 
-fn as_object_map<'a>(value: &'a Json) -> Option<&'a Map> {
+fn as_object_map(value: &Json) -> Option<&Map> {
     match value {
         Json::Object(map) => Some(map),
         _ => None,
@@ -285,10 +285,10 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
         {
             return Err("a root cannot have a parent".to_owned());
         }
-        if let Some(parent) = get_str(map, "parent") {
-            if let Some(error) = relation_error(state, agent, parent) {
-                return Err(error);
-            }
+        if let Some(parent) = get_str(map, "parent")
+            && let Some(error) = relation_error(state, agent, parent)
+        {
+            return Err(error);
         }
         if map.get("spawnedBy").and_then(|key| key.as_str()).is_some() {
             let item = map
@@ -316,10 +316,10 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
             .and_then(|key| key.as_str())
             .and_then(|key| get(&state.agents, key))
             .map(|record| record.agent.id.clone());
-        if let Some(item) = item {
-            if Some(item.agent_id()) != owner_id.as_deref() {
-                return Err("item key has a different owner".to_owned());
-            }
+        if let Some(item) = item
+            && Some(item.agent_id()) != owner_id.as_deref()
+        {
+            return Err("item key has a different owner".to_owned());
         }
         if let Some(item) = item {
             let field = map
@@ -406,55 +406,48 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
             }
         }
     }
-    if fact_type == "interaction.closed" {
-        if let Some(resolution) = map.get("resolution") {
-            if let Some(object) = as_object_map(resolution) {
-                let current = map
-                    .get("interaction")
-                    .and_then(|key| key.as_str())
-                    .and_then(|key| get(&state.interactions, key));
-                if let Some(current) = current {
-                    let kinds_match = match (
-                        &current.request,
-                        object.get("kind").and_then(|kind| kind.as_str()),
-                    ) {
-                        (
-                            crate::entity_model::InteractionRequest::Approval { .. },
-                            Some("approval"),
-                        )
-                        | (
-                            crate::entity_model::InteractionRequest::Question { .. },
-                            Some("question"),
-                        )
-                        | (
-                            crate::entity_model::InteractionRequest::PlanReview { .. },
-                            Some("plan_review"),
-                        )
-                        | (
-                            crate::entity_model::InteractionRequest::Elicitation { .. },
-                            Some("elicitation"),
-                        )
-                        | (
-                            crate::entity_model::InteractionRequest::BrowserHelp { .. },
-                            Some("browser_help"),
-                        ) => true,
-                        _ => false,
-                    };
-                    if !kinds_match {
-                        return Err("resolution contradicts its request".to_owned());
-                    }
-                }
+    if fact_type == "interaction.closed"
+        && let Some(resolution) = map.get("resolution")
+        && let Some(object) = as_object_map(resolution)
+    {
+        let current = map
+            .get("interaction")
+            .and_then(|key| key.as_str())
+            .and_then(|key| get(&state.interactions, key));
+        if let Some(current) = current {
+            let kinds_match = matches!(
+                (
+                    &current.request,
+                    object.get("kind").and_then(|kind| kind.as_str()),
+                ),
+                (
+                    crate::entity_model::InteractionRequest::Approval { .. },
+                    Some("approval"),
+                ) | (
+                    crate::entity_model::InteractionRequest::Question { .. },
+                    Some("question"),
+                ) | (
+                    crate::entity_model::InteractionRequest::PlanReview { .. },
+                    Some("plan_review"),
+                ) | (
+                    crate::entity_model::InteractionRequest::Elicitation { .. },
+                    Some("elicitation"),
+                ) | (
+                    crate::entity_model::InteractionRequest::BrowserHelp { .. },
+                    Some("browser_help"),
+                )
+            );
+            if !kinds_match {
+                return Err("resolution contradicts its request".to_owned());
             }
         }
     }
-    if fact_type == "background.started" {
-        if let Some(child) = get_str(map, "childAgent") {
-            if let Some(agent) = get_str(map, "agent") {
-                if let Some(error) = relation_error(state, child, agent) {
-                    return Err(error);
-                }
-            }
-        }
+    if fact_type == "background.started"
+        && let Some(child) = get_str(map, "childAgent")
+        && let Some(agent) = get_str(map, "agent")
+        && let Some(error) = relation_error(state, child, agent)
+    {
+        return Err(error);
     }
     match shape_valid(state, map, fact_type, now) {
         Ok(true) => {}
@@ -465,9 +458,8 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
 }
 
 use crate::validate_shapes::{
-    valid_agent_machine, valid_context_sample, valid_goal, valid_interaction_request,
-    valid_interaction_resolution, valid_native_ref, valid_provider_kind, valid_raw_list,
-    valid_thread_id, valid_thread_lineage, valid_timestamp, valid_usage_like,
+    valid_agent_machine, valid_goal, valid_interaction_request, valid_interaction_resolution,
+    valid_native_ref, valid_raw_list, valid_thread_id, valid_thread_lineage, valid_timestamp,
 };
 
 fn valid_agent_seen(_state: &ThreadState, map: &Map) -> bool {
@@ -504,21 +496,24 @@ fn valid_agent_seen(_state: &ThreadState, map: &Map) -> bool {
     ) {
         return false;
     }
-    if let Some(machine) = map.get("machine") {
-        if !matches!(machine, Json::Null) && !valid_agent_machine(Some(machine)) {
-            return false;
-        }
+    if let Some(machine) = map.get("machine")
+        && !matches!(machine, Json::Null)
+        && !valid_agent_machine(Some(machine))
+    {
+        return false;
     }
-    if let Some(lineage) = map.get("lineage") {
-        if !matches!(lineage, Json::Null) && !valid_thread_lineage(Some(lineage)) {
-            return false;
-        }
+    if let Some(lineage) = map.get("lineage")
+        && !matches!(lineage, Json::Null)
+        && !valid_thread_lineage(Some(lineage))
+    {
+        return false;
     }
     true
 }
 
 /// The shape half of preflight: every field has the right JSON shape.
 /// Returns `Ok(false)` for a shape mismatch and `Err` for unreadable data.
+#[allow(clippy::result_unit_err)]
 pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -> Result<bool, ()> {
     let valid = match fact_type {
         "agent.external" => {
@@ -633,14 +628,11 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             ) && match fact.get("resolution") {
                 None | Some(Json::Null) => true,
                 resolution => valid_interaction_resolution(resolution),
-            } && match fact.get("resolvedBy") {
-                None => true,
-                Some(Json::String(_)) => true,
-                _ => false,
-            } && matches!(
-                fact.get("autoReviewed"),
-                None | Some(Json::Null) | Some(Json::Bool(_))
-            )
+            } && matches!(fact.get("resolvedBy"), None | Some(Json::String(_)))
+                && matches!(
+                    fact.get("autoReviewed"),
+                    None | Some(Json::Null) | Some(Json::Bool(_))
+                )
         }
         "background.started" => {
             matches!(
@@ -659,21 +651,12 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
                     _ => false,
                 }
                 && optional_string(fact.get("outputPath"))
-                && match fact.get("wakesAgent") {
-                    None => true,
-                    Some(Json::Bool(false)) => true,
-                    _ => false,
-                }
-                && match fact.get("blocksPrompts") {
-                    None => true,
-                    Some(Json::Bool(true)) => true,
-                    _ => false,
-                }
-                && match fact.get("endsWithSession") {
-                    None => true,
-                    Some(Json::Bool(true)) => true,
-                    _ => false,
-                }
+                && matches!(fact.get("wakesAgent"), None | Some(Json::Bool(false)))
+                && matches!(fact.get("blocksPrompts"), None | Some(Json::Bool(true)))
+                && matches!(
+                    fact.get("endsWithSession"),
+                    None | Some(Json::Bool(true))
+                )
                 && match fact.get("raw") {
                     None => true,
                     Some(Json::Array(raw)) => {
@@ -686,7 +669,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             Some(Json::Array(ports)) => {
                 ports.len() <= 16
                     && ports.iter().all(|port| {
-                        matches!(as_integer(Some(port)), Some(port) if port >= 1 && port <= 65_535)
+                        matches!(as_integer(Some(port)), Some(port) if (1..=65_535).contains(&port))
                     })
             }
             _ => false,
@@ -720,7 +703,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
             };
             let until = match fact.get("until") {
                 None => true,
-                Some(until) => matches!(as_count(Some(until)), Some(_)),
+                Some(until) => as_count(Some(until)).is_some(),
             };
             let message = optional_string(fact.get("message"));
             on && attempt && until && message
@@ -733,7 +716,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         },
         "context.sample" => {
             ensure_sample_keys(fact)
-                && matches!(as_count(fact.get("usedTokens")), Some(_))
+                && as_count(fact.get("usedTokens")).is_some()
                 && match fact.get("windowTokens") {
                     None => true,
                     Some(window) => matches!(as_count(Some(window)), Some(window) if window > 0),
@@ -744,8 +727,8 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         "usage" => {
             // The usage fact is validated as a whole, like the spread the
             // TypeScript parses: counts plus metadata, nothing else.
-            matches!(as_count(fact.get("inputTokens")), Some(_))
-                && matches!(as_count(fact.get("outputTokens")), Some(_))
+            as_count(fact.get("inputTokens")).is_some()
+                && as_count(fact.get("outputTokens")).is_some()
                 && valid_usage_facts(fact)
         }
         "process.exited" => {
@@ -757,7 +740,7 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
                 )
         }
         "queue.changed" => {
-            matches!(as_count(fact.get("count")), Some(_))
+            as_count(fact.get("count")).is_some()
                 && match fact.get("source") {
                     None => true,
                     Some(Json::String(source)) => {

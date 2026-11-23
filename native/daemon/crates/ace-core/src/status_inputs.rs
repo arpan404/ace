@@ -129,24 +129,24 @@ pub fn status_inputs(state: &ThreadState) -> StatusInputs<'_> {
     }
     let mut tasks_by_agent: HashMap<String, Vec<_>> = HashMap::new();
     for key in running_task_keys(state, None) {
-        if let Some(task) = get(&state.tasks, &key) {
-            if task_holds_thread(state, task) {
-                tasks_by_agent
-                    .entry(task.agent_id.clone())
-                    .or_default()
-                    .push(task);
-            }
+        if let Some(task) = get(&state.tasks, &key)
+            && task_holds_thread(state, task)
+        {
+            tasks_by_agent
+                .entry(task.agent_id.clone())
+                .or_default()
+                .push(task);
         }
     }
     let mut tools_by_agent: HashMap<String, Vec<&Item>> = HashMap::new();
     for key in live_tool_keys(state, None) {
-        if let Some(item) = get(&state.items, &key) {
-            if is_live_tool(item) {
-                tools_by_agent
-                    .entry(item.agent_id().to_owned())
-                    .or_default()
-                    .push(item);
-            }
+        if let Some(item) = get(&state.items, &key)
+            && is_live_tool(item)
+        {
+            tools_by_agent
+                .entry(item.agent_id().to_owned())
+                .or_default()
+                .push(item);
         }
     }
     let mut waits_by_agent: HashMap<String, Vec<WaitEntry>> = HashMap::new();

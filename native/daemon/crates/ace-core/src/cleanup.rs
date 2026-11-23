@@ -68,10 +68,11 @@ fn set_complete(item: &mut Item) {
 pub fn outliving_turn(state: &ThreadState, resolving: &HashSet<String>) -> HashSet<String> {
     let mut kept: HashSet<String> = resolving.clone();
     for key in pending_interaction_keys(state, None) {
-        if let Some(interaction) = get(&state.interactions, &key) {
-            if interaction.state == "pending" && is_browser_help(interaction) {
-                kept.insert(interaction.id.clone());
-            }
+        if let Some(interaction) = get(&state.interactions, &key)
+            && interaction.state == "pending"
+            && is_browser_help(interaction)
+        {
+            kept.insert(interaction.id.clone());
         }
     }
     kept
@@ -160,10 +161,8 @@ pub fn exit_process(
 ) -> Option<()> {
     if state.process_exit.is_some() {
         // Already ended; a close that went unconfirmed still says its process may run.
-        if unconfirmed {
-            if let Some(exit) = state.process_exit.as_mut() {
-                exit.unconfirmed = Some(true);
-            }
+        if unconfirmed && let Some(exit) = state.process_exit.as_mut() {
+            exit.unconfirmed = Some(true);
         }
         return Some(());
     }

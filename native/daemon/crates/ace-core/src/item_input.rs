@@ -4,7 +4,7 @@
 //! Transient maps only; the fold converts validated candidates to `Item`.
 
 use crate::delta_text::{OutputSummaryData, summarize_output};
-use crate::item_model::{OutputSummary, ToolCall, ToolDetail};
+use crate::item_model::{OutputSummary, ToolDetail};
 use crate::items::Item;
 use crate::json_io::{Json, Map};
 
@@ -83,15 +83,15 @@ pub fn tool_detail_kind(detail: &ToolDetail) -> &str {
 /// Rename native agent references to ace ids for validation, without state.
 pub fn detail_candidate(detail: &Map) -> Map {
     let mut candidate = detail.clone();
-    if candidate.get("kind").and_then(|kind| kind.as_str()) == Some("agent.spawn") {
-        if let Some(child) = candidate.remove("childAgent") {
-            candidate.insert("childAgentId".to_owned(), child);
-        }
+    if candidate.get("kind").and_then(|kind| kind.as_str()) == Some("agent.spawn")
+        && let Some(child) = candidate.remove("childAgent")
+    {
+        candidate.insert("childAgentId".to_owned(), child);
     }
-    if candidate.get("kind").and_then(|kind| kind.as_str()) == Some("agent.message") {
-        if let Some(target) = candidate.remove("targetAgent") {
-            candidate.insert("targetAgentId".to_owned(), target);
-        }
+    if candidate.get("kind").and_then(|kind| kind.as_str()) == Some("agent.message")
+        && let Some(target) = candidate.remove("targetAgent")
+    {
+        candidate.insert("targetAgentId".to_owned(), target);
     }
     candidate
 }
@@ -124,10 +124,10 @@ pub fn merge_candidate(
         }
         _ => {}
     }
-    if let Some(previous) = previous {
-        if previous.item_type() == patch_type.unwrap_or("") {
-            overlay_value(&mut candidate, &to_map(previous));
-        }
+    if let Some(previous) = previous
+        && previous.item_type() == patch_type.unwrap_or("")
+    {
+        overlay_value(&mut candidate, &to_map(previous));
     }
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));
@@ -153,16 +153,15 @@ fn merge_tool_candidate(
     let empty = Map::new();
     let patch_call = draft_call(patch).unwrap_or(&empty);
     let normalized = crate::ace_tools::normalize_ace_call(patch_call, previous_call);
-    let mut call_map = normalized;
+    let call_map = normalized;
     let mut detail_patch = detail_patch.cloned().unwrap_or_default();
     if call_map.get("detail").and_then(|detail| match detail {
         Json::Object(map) => str_field(map, "kind"),
         _ => None,
     }) == Some("mcp")
+        && let Some(Json::Object(detail)) = call_map.get("detail")
     {
-        if let Some(Json::Object(detail)) = call_map.get("detail") {
-            detail_patch = detail.clone();
-        }
+        detail_patch = detail.clone();
     }
     let prior_call_value = previous_call
         .and_then(|call| {
@@ -200,10 +199,10 @@ fn merge_tool_candidate(
     }
     let mut candidate = Map::new();
     candidate.insert("complete".to_owned(), Json::Bool(false));
-    if let Some(previous) = previous {
-        if previous.item_type() == "tool_call" {
-            overlay_value(&mut candidate, &to_map(previous));
-        }
+    if let Some(previous) = previous
+        && previous.item_type() == "tool_call"
+    {
+        overlay_value(&mut candidate, &to_map(previous));
     }
     overlay(&mut candidate, patch);
     candidate.insert("id".to_owned(), Json::from(base.id.clone()));

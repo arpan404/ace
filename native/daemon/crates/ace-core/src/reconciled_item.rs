@@ -3,7 +3,7 @@
 //! reconcile against canonical state, never against evictable adapter hints.
 
 use crate::emit::Event;
-use crate::item_input::{detail_candidate, merge_candidate};
+use crate::item_input::detail_candidate;
 use crate::item_model::ToolDetail;
 use crate::items::Item;
 use crate::json_io::{Json, Map};
@@ -20,12 +20,11 @@ pub fn reconcile_item(
     events: &mut Vec<Event>,
 ) -> Option<Item> {
     let previous = crate::emit::get(&state.items, key).cloned();
-    if let Some(previous) = &previous {
-        if previous.complete()
-            && draft.get("complete").and_then(|value| value.as_bool()) == Some(false)
-        {
-            return Some(previous.clone());
-        }
+    if let Some(previous) = &previous
+        && previous.complete()
+        && draft.get("complete").and_then(|value| value.as_bool()) == Some(false)
+    {
+        return Some(previous.clone());
     }
     if draft.get("type").and_then(|kind| kind.as_str()) != Some("tool_call") {
         return super::items::upsert_item(state, agent_key, key, draft, ctx, events);
@@ -47,35 +46,35 @@ pub fn reconcile_item(
             .ok()
             .and_then(|text| ace_json::parse(&text).ok())
     });
-    if let (Some(first), Some(Json::Array(raw))) = (first_raw, call.get("raw")) {
-        if !raw.is_empty() {
-            let mut kept = vec![first];
-            if let Some(last) = raw.last() {
-                kept.push(last.clone());
-            }
-            call.insert("raw".to_owned(), Json::from(kept));
+    if let (Some(first), Some(Json::Array(raw))) = (first_raw, call.get("raw"))
+        && !raw.is_empty()
+    {
+        let mut kept = vec![first];
+        if let Some(last) = raw.last() {
+            kept.push(last.clone());
         }
+        call.insert("raw".to_owned(), Json::from(kept));
     }
-    if let Some(Json::Object(detail)) = call.get("detail").cloned() {
-        if detail.get("kind").and_then(|kind| kind.as_str()) == Some("shell") {
-            let prior_output = match &previous_call.detail {
-                ToolDetail::Shell { output, .. } => output.clone(),
-                _ => None,
-            };
-            let aggregate = detail
-                .get("output")
-                .and_then(|output| output.as_str())
-                .map(str::to_owned);
-            if let Some(aggregate) = aggregate {
-                if !extends_output(prior_output.as_ref(), &aggregate) {
-                    // Missing native chunks cannot be inserted into an
-                    // append-only stream. Keep the complete aggregate in raw
-                    // while preserving verified output.
-                    let mut metadata = detail;
-                    metadata.remove("output");
-                    call.insert("detail".to_owned(), Json::Object(metadata));
-                }
-            }
+    if let Some(Json::Object(detail)) = call.get("detail").cloned()
+        && detail.get("kind").and_then(|kind| kind.as_str()) == Some("shell")
+    {
+        let prior_output = match &previous_call.detail {
+            ToolDetail::Shell { output, .. } => output.clone(),
+            _ => None,
+        };
+        let aggregate = detail
+            .get("output")
+            .and_then(|output| output.as_str())
+            .map(str::to_owned);
+        if let Some(aggregate) = aggregate
+            && !extends_output(prior_output.as_ref(), &aggregate)
+        {
+            // Missing native chunks cannot be inserted into an
+            // append-only stream. Keep the complete aggregate in raw
+            // while preserving verified output.
+            let mut metadata = detail;
+            metadata.remove("output");
+            call.insert("detail".to_owned(), Json::Object(metadata));
         }
     }
     let mut reconciled = draft.clone();

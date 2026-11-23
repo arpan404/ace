@@ -5,7 +5,6 @@
 use crate::emit::{get, put, remove};
 use crate::items::Item;
 use crate::state::ThreadState;
-use indexmap::IndexMap;
 
 /// Text the provider is still streaming: a turn's end closes it.
 fn is_open_text(item: Option<&Item>) -> bool {
@@ -88,12 +87,12 @@ pub fn refresh_agent_index(state: &mut ThreadState, key: &str, previous_parent_i
         agent_id.clone(),
         key.to_owned(),
     );
-    if let Some(previous) = previous_parent_id {
-        if !previous.is_empty() && Some(previous) != parent_id.as_deref() {
-            if let Some(previous_children) = state.indexes.children_by_parent.get_mut(previous) {
-                previous_children.shift_remove(key);
-            }
-        }
+    if let Some(previous) = previous_parent_id
+        && !previous.is_empty()
+        && Some(previous) != parent_id.as_deref()
+        && let Some(previous_children) = state.indexes.children_by_parent.get_mut(previous)
+    {
+        previous_children.shift_remove(key);
     }
     let Some(parent_id) = parent_id else {
         return;
@@ -102,7 +101,7 @@ pub fn refresh_agent_index(state: &mut ThreadState, key: &str, previous_parent_i
         .indexes
         .children_by_parent
         .entry(parent_id.clone())
-        .or_insert_with(IndexMap::new);
+        .or_default();
     put(children, key.to_owned(), true);
 }
 
@@ -112,7 +111,7 @@ pub fn register_spawn_link(state: &mut ThreadState, agent_key: &str, item_key: &
         .indexes
         .pending_spawn_links
         .entry(item_key.to_owned())
-        .or_insert_with(IndexMap::new);
+        .or_default();
     put(agents, agent_key.to_owned(), true);
 }
 

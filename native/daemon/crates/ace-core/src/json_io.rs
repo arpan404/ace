@@ -145,9 +145,10 @@ pub use de::{i64 as de_i64, opt_i64 as de_opt_i64, vec_i64 as de_vec_i64};
 /// A field that distinguishes missing from explicit `null`, like
 /// `PermissionMode.nullable().optional()`: missing reads `Missing` (the key
 /// stays omitted), explicit `null` reads `Null` (the key serializes null).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum Maybe<T> {
     /// The key was absent.
+    #[default]
     Missing,
     /// The key was explicitly `null`.
     Null,
@@ -167,12 +168,6 @@ impl<T> Maybe<T> {
             Self::Value(value) => Some(value),
             _ => None,
         }
-    }
-}
-
-impl<T> Default for Maybe<T> {
-    fn default() -> Self {
-        Self::Missing
     }
 }
 
@@ -435,7 +430,7 @@ pub fn diagnostic_data(value: &Json) -> Json {
                     }
                 }
                 taken.reverse();
-                for (key, item) in keys.into_iter().zip(taken.into_iter()) {
+                for (key, item) in keys.into_iter().zip(taken) {
                     out.insert(key, item);
                 }
                 values.push(Json::Object(out));

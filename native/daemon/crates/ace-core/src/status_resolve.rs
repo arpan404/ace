@@ -7,14 +7,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::emit::{Event, get};
-use crate::entity_model::BackgroundTask;
+use crate::emit::get;
 use crate::items::Item;
-use crate::json_io::Json;
 use crate::state::{AgentRecord, ThreadState};
 use crate::status::{AgentStatus, is_settled};
 use crate::status_inputs::{
-    StatusInputs, is_live_tool, status_inputs, suppresses_active_silence, task_holds_thread,
+    StatusInputs, status_inputs, suppresses_active_silence, task_holds_thread,
 };
 
 /// Depth bound for resolver recursion over agent links.
@@ -40,10 +38,10 @@ impl<'a> StatusResolver<'a> {
     pub fn new(state: &'a ThreadState, now: i64) -> Self {
         let mut waiting = HashSet::new();
         for item_key in crate::indexes::live_tool_keys(state, None) {
-            if let Some(item) = get(&state.items, &item_key) {
-                if let Item::ToolCall { call, .. } = item {
-                    waiting.insert(call.agent_id.clone());
-                }
+            if let Some(item) = get(&state.items, &item_key)
+                && let Item::ToolCall { call, .. } = item
+            {
+                waiting.insert(call.agent_id.clone());
             }
         }
         for pending_key in crate::indexes::pending_interaction_keys(state, None) {
@@ -52,10 +50,10 @@ impl<'a> StatusResolver<'a> {
             }
         }
         for task_key in crate::indexes::running_task_keys(state, None) {
-            if let Some(task) = get(&state.tasks, &task_key) {
-                if task_holds_thread(state, task) {
-                    waiting.insert(task.agent_id.clone());
-                }
+            if let Some(task) = get(&state.tasks, &task_key)
+                && task_holds_thread(state, task)
+            {
+                waiting.insert(task.agent_id.clone());
             }
         }
         Self {
@@ -122,10 +120,10 @@ impl<'a> StatusResolver<'a> {
 
     fn derive(&mut self, record: &AgentRecord, key: &str, depth: usize) -> AgentStatus {
         let agent = &record.agent;
-        if let Some(external) = &record.external_status {
-            if let Some(child_thread) = &agent.child_thread_id {
-                return crate::external::external_agent_status(external, child_thread);
-            }
+        if let Some(external) = &record.external_status
+            && let Some(child_thread) = &agent.child_thread_id
+        {
+            return crate::external::external_agent_status(external, child_thread);
         }
         let exit = self.state.process_exit.clone();
         if let Some(limited) = &record.limited {
@@ -307,10 +305,8 @@ impl<'a> StatusResolver<'a> {
                 let awaited = waits.iter().any(|wait| {
                     wait.targets.is_empty() || wait.targets.iter().any(|target| target == child)
                 });
-                if awaited {
-                    if let Some(child_record) = get(&self.state.agents, child) {
-                        refs.push(child_record.agent.id.clone());
-                    }
+                if awaited && let Some(child_record) = get(&self.state.agents, child) {
+                    refs.push(child_record.agent.id.clone());
                 }
             }
             return AgentStatus::Blocked {
@@ -345,7 +341,7 @@ impl<'a> StatusResolver<'a> {
                 let Some(child_id) = child_id else {
                     continue;
                 };
-                let child_key = match get(&self.inputs.by_id, &child_id) {
+                let child_key = match get(self.inputs.by_id, &child_id) {
                     Some(key) => key.clone(),
                     None => continue,
                 };
@@ -441,10 +437,8 @@ impl<'a> StatusResolver<'a> {
                         .unwrap_or(false)
                 })
             });
-            if !covered {
-                if let Some(record) = get(&self.state.agents, child) {
-                    refs.push(record.agent.id.clone());
-                }
+            if !covered && let Some(record) = get(&self.state.agents, child) {
+                refs.push(record.agent.id.clone());
             }
         }
         refs

@@ -273,7 +273,7 @@ pub fn summarize_output(
         encoded_tail(append)
     } else {
         let head = utf8_slice_head(append, 4096);
-        let mut joined = Vec::with_capacity(previous_tail.as_bytes().len() + head.len());
+        let mut joined = Vec::with_capacity(previous_tail.len() + head.len());
         joined.extend_from_slice(previous_tail.as_bytes());
         joined.extend_from_slice(&head);
         encoded_tail(&decode_valid(&joined))

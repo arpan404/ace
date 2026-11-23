@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::json_io::{Maybe, de_i64, de_opt_i64, de_vec_i64};
+use crate::json_io::Maybe;
 
 use crate::entity_model::{InteractionRequest, InteractionResolution};
 use crate::item_meta::AgentMachine;

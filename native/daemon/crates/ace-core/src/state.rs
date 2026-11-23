@@ -358,12 +358,13 @@ pub fn create_thread_state(
     if !valid_provider(&config.provider) {
         return Err(crate::error::CoreError::contract("unknown provider"));
     }
-    if let Some(liveness) = &config.liveness {
-        if liveness != "agent" && liveness != "transport" {
-            return Err(crate::error::CoreError::contract(
-                "liveness must be agent or transport",
-            ));
-        }
+    if let Some(liveness) = &config.liveness
+        && liveness != "agent"
+        && liveness != "transport"
+    {
+        return Err(crate::error::CoreError::contract(
+            "liveness must be agent or transport",
+        ));
     }
     Ok(ThreadState {
         thread_id,

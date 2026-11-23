@@ -115,10 +115,7 @@ pub fn start_turn(
             events,
         );
     }
-    let run_id = match ctx.ids.next("run") {
-        Some(id) => id,
-        None => return None,
-    };
+    let run_id = ctx.ids.next("run")?;
     let seq = next_run_seq(state);
     let run = Run {
         provider: match &permission_mode {
@@ -142,11 +139,11 @@ pub fn start_turn(
         ended_at: None,
         error: None,
     };
-    if let Some(native_id) = run.native_id.clone() {
-        if let Some(record) = state.agents.get_mut(agent_key) {
-            let native_runs = record.native_runs.get_or_insert_with(Default::default);
-            put(native_runs, native_id, run.id.clone());
-        }
+    if let Some(native_id) = run.native_id.clone()
+        && let Some(record) = state.agents.get_mut(agent_key)
+    {
+        let native_runs = record.native_runs.get_or_insert_with(Default::default);
+        put(native_runs, native_id, run.id.clone());
     }
     put(&mut state.runs, run.id.clone(), run.clone());
     if let Some(record) = state.agents.get_mut(agent_key) {
@@ -230,27 +227,27 @@ fn end_turn_inner(
             .runs
             .get(&id)
             .map(|run| (run.state.clone(), run.trigger.clone(), run.ended_at));
-        if let Some((state_name, run_trigger, run_ended_at)) = settled {
-            if state_name != "active" {
-                if let Some(next_trigger) = trigger.clone() {
-                    if run_trigger != next_trigger {
-                        if let Some(run) = state.runs.get_mut(&id) {
-                            run.trigger.clone_from(&next_trigger);
-                        }
-                        emit(
-                            events,
-                            Event::RunEnded {
-                                run_id: id,
-                                state: state_name,
-                                ended_by: None,
-                                ended_at: run_ended_at.unwrap_or(now),
-                                trigger: Some(next_trigger),
-                            },
-                        );
-                    }
+        if let Some((state_name, run_trigger, run_ended_at)) = settled
+            && state_name != "active"
+        {
+            if let Some(next_trigger) = trigger.clone()
+                && run_trigger != next_trigger
+            {
+                if let Some(run) = state.runs.get_mut(&id) {
+                    run.trigger.clone_from(&next_trigger);
                 }
-                return Some(());
+                emit(
+                    events,
+                    Event::RunEnded {
+                        run_id: id,
+                        state: state_name,
+                        ended_by: None,
+                        ended_at: run_ended_at.unwrap_or(now),
+                        trigger: Some(next_trigger),
+                    },
+                );
             }
+            return Some(());
         }
     }
     let mut run_id = run_id;
@@ -259,10 +256,7 @@ fn end_turn_inner(
             return Some(());
         }
         // A partial stream can contain the end boundary without the start.
-        let new_id = match ctx.ids.next("run") {
-            Some(id) => id,
-            None => return None,
-        };
+        let new_id = ctx.ids.next("run")?;
         let seq = next_run_seq(state);
         let run = Run {
             provider: None,
@@ -283,11 +277,11 @@ fn end_turn_inner(
             ended_at: None,
             error: None,
         };
-        if let Some(native_id) = run.native_id.clone() {
-            if let Some(record) = state.agents.get_mut(agent_key) {
-                let native_runs = record.native_runs.get_or_insert_with(Default::default);
-                put(native_runs, native_id, run.id.clone());
-            }
+        if let Some(native_id) = run.native_id.clone()
+            && let Some(record) = state.agents.get_mut(agent_key)
+        {
+            let native_runs = record.native_runs.get_or_insert_with(Default::default);
+            put(native_runs, native_id, run.id.clone());
         }
         let emitted = run.clone();
         put(&mut state.runs, run.id.clone(), run);
@@ -295,10 +289,7 @@ fn end_turn_inner(
         emit(events, Event::RunStarted { run: emitted });
         run_id = Some(new_id);
     }
-    let run_id = match run_id {
-        Some(id) => id,
-        None => return None,
-    };
+    let run_id = run_id?;
     if let Some(run) = state.runs.get_mut(&run_id) {
         run.state.clone_from(&outcome);
         run.ended_at = Some(now);
@@ -323,21 +314,21 @@ fn end_turn_inner(
     if recovered_past {
         return Some(());
     }
-    if let Some(active) = active_id {
-        if active != run_id {
-            return Some(());
-        }
+    if let Some(active) = active_id
+        && active != run_id
+    {
+        return Some(());
     }
     if !historical {
         if let Some(err) = error.clone() {
-            if err.kind == "quota" {
-                if let Some(record) = state.agents.get_mut(agent_key) {
-                    let until = record.limited.as_ref().and_then(|limited| limited.until);
-                    record.limited = Some(crate::state::LimitedInfo {
-                        until,
-                        message: Some(err.message.clone()),
-                    });
-                }
+            if err.kind == "quota"
+                && let Some(record) = state.agents.get_mut(agent_key)
+            {
+                let until = record.limited.as_ref().and_then(|limited| limited.until);
+                record.limited = Some(crate::state::LimitedInfo {
+                    until,
+                    message: Some(err.message.clone()),
+                });
             }
         } else if outcome == "completed" {
             // A turn the provider completed is proof the account could work.

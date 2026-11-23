@@ -10,7 +10,7 @@ pub fn extends_output(prior: Option<&OutputSummary>, aggregate: &str) -> bool {
     let bytes = aggregate.as_bytes();
     let size = prior.map_or(0, |summary| summary.bytes.max(0) as usize);
     let tail = prior.map_or("", |summary| summary.tail.as_str());
-    let tail_size = tail.as_bytes().len();
+    let tail_size = tail.len();
     if bytes.len() < size {
         return false;
     }

@@ -46,7 +46,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
             .unwrap_or("")
             .to_owned();
         if !KNOWN_THREAD_STATES.contains(&state.as_str()) {
-            if state.len() < 1 || state.len() > 64 {
+            if state.is_empty() || state.len() > 64 {
                 return Err(D::Error::custom("invalid thread status"));
             }
             let raw = ace_json::Raw::from_value(&Json::Object(map));
@@ -166,7 +166,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                     .get("name")
                     .and_then(|value| value.as_str())
                     .unwrap_or("");
-                if host_id.is_empty() || name.len() < 1 || name.len() > 256 {
+                if host_id.is_empty() || name.is_empty() || name.len() > 256 {
                     return Err(D::Error::custom("invalid thread status"));
                 }
                 let thread_id = to

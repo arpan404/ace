@@ -163,7 +163,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
         return None;
     }
     let title = get_str(call, "title").unwrap_or("");
-    let mut pending: Vec<(Json, usize, bool)> = call
+    let mut pending: std::collections::VecDeque<(Json, usize, bool)> = call
         .get("raw")
         .and_then(|raw| raw.as_array())
         .map(|raw| {
@@ -176,7 +176,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
     let mut visited = 0;
     while !pending.is_empty() && visited < 64 {
         visited += 1;
-        let Some((entry, depth, input_json)) = pending.pop() else {
+        let Some((entry, depth, input_json)) = pending.pop_front() else {
             break;
         };
         let Some(data) = as_object(&entry) else {
@@ -187,7 +187,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
             .filter_map(|key| get_str(data, key))
             .find(|label| ace_tool_name(label).is_some());
         let name = label
-            .and_then(|label| ace_tool_name(label))
+            .and_then(ace_tool_name)
             .or_else(|| ace_tool_name(title));
         let mut input = data
             .get("arguments")
@@ -235,7 +235,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
                         .get("type")
                         .and_then(|kind| kind.as_str())
                         .is_some_and(|kind| kind == "session.tool.input.ended");
-                    pending.push((nested.clone(), depth + 1, nested_input_json));
+                    pending.push_front((nested.clone(), depth + 1, nested_input_json));
                 }
             }
         }

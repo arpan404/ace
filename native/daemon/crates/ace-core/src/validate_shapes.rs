@@ -3,15 +3,13 @@
 //! schemas (unknown fields reject the fact, except the `passthrough` extras
 //! and `z.unknown()` leaves), checked in the same order.
 
-use crate::emit::get;
 use crate::json_io::{Json, Map, as_count, as_integer};
-use crate::state::ThreadState;
 
 fn get_str<'a>(map: &'a Map, key: &str) -> Option<&'a str> {
     map.get(key).and_then(|value| value.as_str())
 }
 
-fn as_map<'a>(value: &'a Json) -> Option<&'a Map> {
+fn as_map(value: &Json) -> Option<&Map> {
     match value {
         Json::Object(map) => Some(map),
         _ => None,
@@ -117,7 +115,7 @@ pub fn valid_agent_machine(value: Option<&Json>) -> bool {
         && matches!(map.get("machine"), Some(Json::String(machine)) if !machine.is_empty() && machine.len() <= 64)
         && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
         && optional_string(map.get("hostId"))
-        && map.get("contact").map_or(true, |contact| {
+        && map.get("contact").is_none_or(|contact| {
             matches!(contact, Json::Null)
                 || matches!(contact, Json::String(where_) if where_ == "lost" || where_ == "unconfirmed")
         })
@@ -187,15 +185,14 @@ fn valid_error_details(value: Option<&Json>) -> bool {
             map.get("title"),
             None | Some(Json::Null) | Some(Json::String(_))
         )
-        && map.get("title").map_or(true, |title| {
+        && map.get("title").is_none_or(|title| {
             matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len() <= 256)
         })
-        && map.get("detail").map_or(true, |detail| {
+        && map.get("detail").is_none_or(|detail| {
             matches!(detail, Json::Null)
                 | matches!(detail, Json::String(detail) if detail.len() <= 2048)
         })
-        && map.get("model").map_or(
-            true,
+        && map.get("model").is_none_or(
             |model| matches!(model, Json::String(model) if !model.is_empty() && model.len() <= 256),
         )
 }
@@ -227,15 +224,15 @@ pub fn valid_agent_error(value: Option<&Json>) -> bool {
             return false;
         }
     }
-    if let Some(title) = map.get("title") {
-        if !matches!(title, Json::String(title) if title.len() <= 256) {
-            return false;
-        }
+    if let Some(title) = map.get("title")
+        && !matches!(title, Json::String(title) if title.len() <= 256)
+    {
+        return false;
     }
-    if let Some(detail) = map.get("detail") {
-        if !matches!(detail, Json::String(detail) if detail.len() <= 2048) {
-            return false;
-        }
+    if let Some(detail) = map.get("detail")
+        && !matches!(detail, Json::String(detail) if detail.len() <= 2048)
+    {
+        return false;
     }
     match map.get("details") {
         None | Some(Json::Null) => true,
@@ -270,38 +267,37 @@ fn valid_approval_target(value: Option<&Json>) -> bool {
     ) {
         return false;
     }
-    if !map.get("origin").map_or(
-        true,
-        |origin| matches!(origin, Json::String(origin) if origin == "ace"),
-    ) {
+    if !map
+        .get("origin")
+        .is_none_or(|origin| matches!(origin, Json::String(origin) if origin == "ace"))
+    {
         return false;
     }
-    if !map.get("description").map_or(
-        true,
+    if !map.get("description").is_none_or(
         |description| matches!(description, Json::String(description) if description.len() <= 2048),
     ) {
         return false;
     }
-    if !map.get("riskClass").map_or(true, |class| {
+    if !map.get("riskClass").is_none_or(|class| {
         matches!(class, Json::String(class)
                 if ["read-only", "thread-write", "agent-execution", "external-effect"]
                     .contains(&class.as_str()))
     }) {
         return false;
     }
-    if !map.get("command").map_or(
-        true,
-        |command| matches!(command, Json::String(command) if command.len() <= 32768),
-    ) {
+    if !map
+        .get("command")
+        .is_none_or(|command| matches!(command, Json::String(command) if command.len() <= 32768))
+    {
         return false;
     }
-    if !map.get("cwd").map_or(
-        true,
-        |cwd| matches!(cwd, Json::String(cwd) if cwd.len() <= 4096),
-    ) {
+    if !map
+        .get("cwd")
+        .is_none_or(|cwd| matches!(cwd, Json::String(cwd) if cwd.len() <= 4096))
+    {
         return false;
     }
-    if !map.get("paths").map_or(true, |paths| {
+    if !map.get("paths").is_none_or(|paths| {
         matches!(paths, Json::Array(paths)
         if paths.len() <= 128
             && paths.iter().all(
@@ -326,7 +322,7 @@ fn valid_approval_option(value: &Json) -> bool {
     ensure_only(map, &["id", "label", "kind"])
         && is_string(map.get("id"))
         && is_string(map.get("label"))
-        && map.get("kind").map_or(true, |kind| {
+        && map.get("kind").is_none_or(|kind| {
             matches!(kind, Json::Null)
                 | matches!(kind, Json::String(kind)
                     if [
@@ -376,13 +372,13 @@ fn valid_question(value: &Json) -> bool {
             .is_some_and(|options| options.iter().all(valid_question_option))
         && map
             .get("multiSelect")
-            .map_or(true, |value| matches!(value, Json::Bool(_)))
+            .is_none_or(|value| matches!(value, Json::Bool(_)))
         && map
             .get("allowOther")
-            .map_or(true, |value| matches!(value, Json::Bool(_)))
+            .is_none_or(|value| matches!(value, Json::Bool(_)))
         && map
             .get("secret")
-            .map_or(true, |value| matches!(value, Json::Bool(_)))
+            .is_none_or(|value| matches!(value, Json::Bool(_)))
 }
 
 pub(crate) fn valid_todo_entry(value: &Json) -> bool {
@@ -419,7 +415,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                     "mcpServer",
                     "permissionUpdates",
                 ],
-            ) && map.get("target").map_or(true, |target| {
+            ) && map.get("target").is_none_or(|target| {
                 matches!(target, Json::Null) || valid_approval_target(Some(target))
             }) && is_string(map.get("title"))
                 && optional_string(map.get("description"))
@@ -429,9 +425,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                     .is_some_and(|options| options.iter().all(valid_approval_option))
                 && optional_bool(map.get("defaultToNo"))
                 && optional_bool(map.get("suppressAlwaysAllowRule"))
-                && map
-                    .get("mcpServer")
-                    .map_or(true, |server| valid_mcp_server(server))
+                && map.get("mcpServer").is_none_or(valid_mcp_server)
                 && matches!(
                     map.get("permissionUpdates"),
                     None | Some(Json::Null) | Some(Json::Array(_))
@@ -445,7 +439,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                     .is_some_and(|questions| questions.iter().all(valid_question))
                 && map
                     .get("target")
-                    .map_or(true, |target| valid_approval_target(Some(target)))
+                    .is_none_or(|target| valid_approval_target(Some(target)))
         }
         Some("plan_review") => {
             ensure_only(
@@ -455,7 +449,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                 && optional_string(map.get("summary"))
                 && is_string(map.get("markdown"))
                 && optional_string(map.get("planPath"))
-                && map.get("todos").map_or(true, |todos| {
+                && map.get("todos").is_none_or(|todos| {
                     matches!(todos, Json::Null)
                         || matches!(todos, Json::Array(todos) if todos.iter().all(valid_todo_entry))
                 })
@@ -480,8 +474,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                 && optional_string(map.get("nativeId"))
                 && optional_string(map.get("title"))
                 && optional_string(map.get("description"))
-                && map.get("mode").map_or(
-                    true,
+                && map.get("mode").is_none_or(
                     |mode| matches!(mode, Json::String(mode) if mode == "form" || mode == "url"),
                 )
         }
@@ -493,7 +486,7 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                 ],
             ) && map
                 .get("target")
-                .map_or(true, |target| valid_approval_target(Some(target)))
+                .is_none_or(|target| valid_approval_target(Some(target)))
                 && matches!(map.get("tabId"), Some(Json::String(tab)) if !tab.is_empty() && tab.len() <= 256)
                 && matches!(
                     map.get("reason"),
@@ -502,14 +495,12 @@ pub fn valid_interaction_request(value: Option<&Json>) -> bool {
                             .contains(&reason.as_str())
                 )
                 && matches!(map.get("message"), Some(Json::String(message)) if message.len() <= 1000)
-                && map.get("url").map_or(
-                    true,
-                    |url| matches!(url, Json::String(url) if url.len() <= 8192),
-                )
-                && map.get("title").map_or(
-                    true,
-                    |title| matches!(title, Json::String(title) if title.len() <= 1024),
-                )
+                && map
+                    .get("url")
+                    .is_none_or(|url| matches!(url, Json::String(url) if url.len() <= 8192))
+                && map
+                    .get("title")
+                    .is_none_or(|title| matches!(title, Json::String(title) if title.len() <= 1024))
         }
         _ => false,
     }
@@ -546,8 +537,7 @@ pub fn valid_interaction_resolution(value: Option<&Json>) -> bool {
             };
             answers_valid
                 && optional_bool(map.get("dismissed"))
-                && map.get("feedback").map_or(
-                    true,
+                && map.get("feedback").is_none_or(
                     |feedback| matches!(feedback, Json::String(feedback) if feedback.len() <= 8192),
                 )
         }
@@ -600,10 +590,10 @@ pub fn valid_raw_payload(value: &Json) -> bool {
         if as_count(map.get("size")).is_none() {
             return false;
         }
-        if !map.get("preview").map_or(
-            true,
-            |preview| matches!(preview, Json::String(preview) if preview.as_bytes().len() <= 2048),
-        ) {
+        if !map
+            .get("preview")
+            .is_none_or(|preview| matches!(preview, Json::String(preview) if preview.len() <= 2048))
+        {
             return false;
         }
         return true;
@@ -632,26 +622,26 @@ fn valid_usage_metadata(map: &Map, allowed: &[&str]) -> bool {
         "cacheWriteTokens",
         "cacheWrite1hTokens",
     ] {
-        if let Some(value) = map.get(key) {
-            if as_count(Some(value)).is_none() {
-                return false;
-            }
-        }
-    }
-    if let Some(value) = map.get("contextSessionId") {
-        if !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512) {
+        if let Some(value) = map.get(key)
+            && as_count(Some(value)).is_none()
+        {
             return false;
         }
     }
-    if let Some(value) = map.get("model") {
-        if !matches!(value, Json::String(model) if !model.is_empty()) {
-            return false;
-        }
+    if let Some(value) = map.get("contextSessionId")
+        && !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512)
+    {
+        return false;
     }
-    if let Some(value) = map.get("accountId") {
-        if !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512) {
-            return false;
-        }
+    if let Some(value) = map.get("model")
+        && !matches!(value, Json::String(model) if !model.is_empty())
+    {
+        return false;
+    }
+    if let Some(value) = map.get("accountId")
+        && !matches!(value, Json::String(id) if !id.is_empty() && id.len() <= 512)
+    {
+        return false;
     }
     for (key, values) in [
         (
@@ -664,16 +654,16 @@ fn valid_usage_metadata(map: &Map, allowed: &[&str]) -> bool {
             &["agent", "provider_session", "model_session"],
         ),
     ] {
-        if let Some(value) = map.get(key) {
-            if !matches!(value, Json::String(mode) if values.contains(&mode.as_str())) {
-                return false;
-            }
-        }
-    }
-    if let Some(value) = map.get("counterKey") {
-        if !matches!(value, Json::String(key) if !key.is_empty() && key.len() <= 512) {
+        if let Some(value) = map.get(key)
+            && !matches!(value, Json::String(mode) if values.contains(&mode.as_str()))
+        {
             return false;
         }
+    }
+    if let Some(value) = map.get("counterKey")
+        && !matches!(value, Json::String(key) if !key.is_empty() && key.len() <= 512)
+    {
+        return false;
     }
     let scoped = map
         .get("usageScope")
@@ -709,13 +699,13 @@ pub fn valid_usage_like(map: &Map, extra: &[&str]) -> bool {
     allowed.extend_from_slice(extra);
     as_count(map.get("inputTokens")).is_some()
         && as_count(map.get("outputTokens")).is_some()
-        && map.get("cachedInputTokens").map_or(true, |value| {
-            !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-        })
-        && map.get("contextWindow").map_or(true, |value| {
+        && map
+            .get("cachedInputTokens")
+            .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
+        && map.get("contextWindow").is_none_or(|value| {
             !matches!(value, Json::Null)
                 && matches!(as_count(Some(value)), Some(window) if window > 0)
-        }) && map.get("costUsd").map_or(true, |value| {
+        }) && map.get("costUsd").is_none_or(|value| {
         !matches!(value, Json::Null)
             && matches!(value, Json::Number(cost) if cost.as_f64().is_some_and(|cost| cost >= 0.0))
     }) && valid_usage_metadata(map, &allowed)
@@ -724,10 +714,9 @@ pub fn valid_usage_like(map: &Map, extra: &[&str]) -> bool {
 /// A context sample carries the latest occupied context.
 pub fn valid_context_sample(map: &Map) -> bool {
     as_count(map.get("usedTokens")).is_some()
-        && map.get("windowTokens").map_or(
-            true,
-            |value| matches!(as_count(Some(value)), Some(window) if window > 0),
-        )
+        && map
+            .get("windowTokens")
+            .is_none_or(|value| matches!(as_count(Some(value)), Some(window) if window > 0))
         && optional_string(map.get("sessionId"))
         && optional_string(map.get("model"))
         && ensure_only(
@@ -772,20 +761,25 @@ pub fn valid_goal(map: &Map) -> bool {
                 "complete"
             ]
             .contains(&status.as_str())
-    ) && map.get("tokensUsed").map_or(true, |value| {
-        !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-    }) && map.get("tokenBudget").map_or(true, |value| {
-        !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-    }) && map.get("timeUsedSeconds").map_or(true, |value| {
-        !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-    }) && map.get("checks").map_or(true, |value| {
-        !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-    }) && map.get("lastReason").map_or(true, |reason| {
-        matches!(reason, Json::Null)
-            | matches!(reason, Json::String(reason) if reason.len() <= 4000)
-    }) && map.get("setAt").map_or(true, |value| {
-        !matches!(value, Json::Null) && as_count(Some(value)).is_some()
-    })
+    ) && map
+        .get("tokensUsed")
+        .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
+        && map
+            .get("tokenBudget")
+            .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
+        && map
+            .get("timeUsedSeconds")
+            .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
+        && map
+            .get("checks")
+            .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
+        && map.get("lastReason").is_none_or(|reason| {
+            matches!(reason, Json::Null)
+                | matches!(reason, Json::String(reason) if reason.len() <= 4000)
+        })
+        && map
+            .get("setAt")
+            .is_none_or(|value| !matches!(value, Json::Null) && as_count(Some(value)).is_some())
 }
 
 fn valid_screen_key(value: &Json) -> bool {
@@ -809,7 +803,7 @@ pub fn valid_screen_input(value: &Json) -> bool {
             map.keys().all(|key| ["kind", "x", "y", "button"].contains(&key.as_str()))
                 && nonneg_finite(map.get("x"))
                 && nonneg_finite(map.get("y"))
-                && map.get("button").map_or(true, |button| {
+                && map.get("button").is_none_or(|button| {
                     matches!(button, Json::Null)
                         | matches!(button, Json::String(button) if button == "left" || button == "right")
                 })
@@ -817,13 +811,13 @@ pub fn valid_screen_input(value: &Json) -> bool {
         Some("pointer.drag") => {
             map.keys().all(|key| {
                 ["kind", "durationMs", "x", "y", "toX", "toY", "button"].contains(&key.as_str())
-            }) && map.get("durationMs").map_or(true, |duration| {
-                matches!(as_integer(Some(duration)), Some(duration) if duration >= 1 && duration <= 10000)
+            }) && map.get("durationMs").is_none_or(|duration| {
+                matches!(as_integer(Some(duration)), Some(duration) if (1..=10000).contains(&duration))
             }) && nonneg_finite(map.get("x"))
                 && nonneg_finite(map.get("y"))
                 && nonneg_finite(map.get("toX"))
                 && nonneg_finite(map.get("toY"))
-                && map.get("button").map_or(true, |button| {
+                && map.get("button").is_none_or(|button| {
                     matches!(button, Json::Null)
                         | matches!(button, Json::String(button) if button == "left" || button == "right")
                 })
@@ -845,10 +839,10 @@ pub fn valid_screen_input(value: &Json) -> bool {
         }
         Some("scroll") => {
             map.keys().all(|key| ["kind", "x", "y", "dx", "dy"].contains(&key.as_str()))
-                && map.get("x").map_or(true, |x| matches!(x, Json::Null) || finite(Some(x)))
-                && map.get("y").map_or(true, |y| matches!(y, Json::Null) || finite(Some(y)))
-                && matches!(as_integer(map.get("dx")), Some(dx) if dx >= -1000 && dx <= 1000)
-                && matches!(as_integer(map.get("dy")), Some(dy) if dy >= -1000 && dy <= 1000)
+                && map.get("x").is_none_or(|x| matches!(x, Json::Null) || finite(Some(x)))
+                && map.get("y").is_none_or(|y| matches!(y, Json::Null) || finite(Some(y)))
+                && matches!(as_integer(map.get("dx")), Some(dx) if (-1000..=1000).contains(&dx))
+                && matches!(as_integer(map.get("dy")), Some(dy) if (-1000..=1000).contains(&dy))
         }
         Some("text.paste") => {
             map.keys().all(|key| ["kind", "text"].contains(&key.as_str()))
@@ -890,13 +884,13 @@ pub fn valid_browser_action(value: &Json) -> bool {
                 && reference(map.get("key"))
                 && map
                     .get("ref")
-                    .map_or(true, |optional| reference(Some(optional)))
+                    .is_none_or(|optional| reference(Some(optional)))
         }
         Some("scroll") => {
             map.keys()
                 .all(|key| ["action", "x", "y"].contains(&key.as_str()))
-                && matches!(map.get("x"), Some(Json::Number(x)) if x.as_f64().is_some_and(|x| x.is_finite() && x >= -100_000.0 && x <= 100_000.0))
-                && matches!(map.get("y"), Some(Json::Number(y)) if y.as_f64().is_some_and(|y| y.is_finite() && y >= -100_000.0 && y <= 100_000.0))
+                && matches!(map.get("x"), Some(Json::Number(x)) if x.as_f64().is_some_and(|x| x.is_finite() && (-100_000.0..=100_000.0).contains(&x)))
+                && matches!(map.get("y"), Some(Json::Number(y)) if y.as_f64().is_some_and(|y| y.is_finite() && (-100_000.0..=100_000.0).contains(&y)))
         }
         Some("drag") => {
             map.keys()
@@ -923,7 +917,7 @@ fn valid_interaction_target(value: &Json) -> bool {
             map.keys()
                 .all(|key| ["kind", "threadId", "tabId"].contains(&key.as_str()))
                 && matches!(map.get("threadId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
-                && map.get("tabId").map_or(true, |tab| {
+                && map.get("tabId").is_none_or(|tab| {
                     matches!(tab, Json::Null)
                         | matches!(tab, Json::String(tab) if !tab.is_empty() && tab.len() <= 256)
                 })
@@ -995,18 +989,17 @@ pub fn valid_step_measurement(value: &Json) -> bool {
     if !valid_interaction_target(map.get("target").unwrap_or(&Json::Null)) {
         return false;
     }
-    if let Some(action) = map.get("action") {
-        if matches!(action, Json::Null)
-            || !(valid_screen_input(action) || valid_browser_action(action))
-        {
-            return false;
-        }
+    if let Some(action) = map.get("action")
+        && (matches!(action, Json::Null)
+            || !(valid_screen_input(action) || valid_browser_action(action)))
+    {
+        return false;
     }
     if !matches!(map.get("refreshHz"), Some(Json::Number(hz)) if hz.as_f64().is_some_and(|hz| hz.is_finite() && hz > 0.0 && hz <= 240.0))
     {
         return false;
     }
-    if !matches!(map.get("windowMs"), Some(Json::Number(ms)) if ms.as_f64().is_some_and(|ms| ms.is_finite() && ms >= 0.0 && ms <= 10_000.0))
+    if !matches!(map.get("windowMs"), Some(Json::Number(ms)) if ms.as_f64().is_some_and(|ms| ms.is_finite() && (0.0..=10_000.0).contains(&ms)))
     {
         return false;
     }
@@ -1020,21 +1013,20 @@ pub fn valid_step_measurement(value: &Json) -> bool {
         "hostLoad",
         "captureOverheadPct",
     ] {
-        if let Some(value) = map.get(key) {
-            if matches!(value, Json::Null)
-                || !matches!(value, Json::Number(n) if n.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0))
-            {
-                return false;
-            }
-        }
-    }
-    if !matches!(as_integer(map.get("frames")), Some(frames) if frames >= 0 && frames <= 2400) {
-        return false;
-    }
-    if let Some(dropped) = map.get("droppedFrames") {
-        if matches!(dropped, Json::Null) || as_integer(Some(dropped)).is_none() {
+        if let Some(value) = map.get(key)
+            && (matches!(value, Json::Null)
+                || !matches!(value, Json::Number(n) if n.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)))
+        {
             return false;
         }
+    }
+    if !matches!(as_integer(map.get("frames")), Some(frames) if (0..=2400).contains(&frames)) {
+        return false;
+    }
+    if let Some(dropped) = map.get("droppedFrames")
+        && (matches!(dropped, Json::Null) || as_integer(Some(dropped)).is_none())
+    {
+        return false;
     }
     if !map
         .get("hitches")
@@ -1043,12 +1035,11 @@ pub fn valid_step_measurement(value: &Json) -> bool {
     {
         return false;
     }
-    if let Some(tasks) = map.get("longTasks") {
-        if matches!(tasks, Json::Null)
-            || !matches!(tasks, Json::Array(tasks) if tasks.len() <= 100 && tasks.iter().all(valid_interaction_gap))
-        {
-            return false;
-        }
+    if let Some(tasks) = map.get("longTasks")
+        && (matches!(tasks, Json::Null)
+            || !matches!(tasks, Json::Array(tasks) if tasks.len() <= 100 && tasks.iter().all(valid_interaction_gap)))
+    {
+        return false;
     }
     if !matches!(
         map.get("verdict"),
@@ -1064,10 +1055,10 @@ pub fn valid_step_measurement(value: &Json) -> bool {
     ) {
         return false;
     }
-    if let Some(filmstrip) = map.get("filmstrip") {
-        if matches!(filmstrip, Json::Null) || !super::validate_items::valid_attachment(filmstrip) {
-            return false;
-        }
+    if let Some(filmstrip) = map.get("filmstrip")
+        && (matches!(filmstrip, Json::Null) || !super::validate_items::valid_attachment(filmstrip))
+    {
+        return false;
     }
     if !map
         .get("notes")
@@ -1151,7 +1142,7 @@ pub fn valid_step_measurement(value: &Json) -> bool {
                     ]
                     .iter()
                     .all(|key| {
-                        metrics.get(*key).map_or(true, |value| {
+                        metrics.get(*key).is_none_or(|value| {
                             matches!(value, Json::Null) || valid_metric_summary(value)
                         })
                     })

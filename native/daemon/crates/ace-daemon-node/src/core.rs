@@ -67,7 +67,7 @@ fn to_millis(now: f64) -> Result<i64, CoreBindError> {
             "now must be a nonnegative integer".to_owned(),
         ));
     }
-    if now < 0.0 || now > 9_007_199_254_740_991.0 {
+    if !(0.0..=9_007_199_254_740_991.0).contains(&now) {
         return Err(CoreBindError::InvalidContext(
             "now must be a nonnegative integer".to_owned(),
         ));
@@ -339,8 +339,7 @@ pub fn core_next_deadline(
             Some(deadline)
                 if deadline.is_finite()
                     && deadline.fract() == 0.0
-                    && deadline >= 0.0
-                    && deadline <= 9_007_199_254_740_991.0 =>
+                    && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
             {
                 Some(deadline as i64)
             }
@@ -417,8 +416,7 @@ impl DeadlineIndexNative {
                 Some(deadline)
                     if deadline.is_finite()
                         && deadline.fract() == 0.0
-                        && deadline >= 0.0
-                        && deadline <= 9_007_199_254_740_991.0 =>
+                        && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
                 {
                     Some(deadline as i64)
                 }

@@ -4,7 +4,7 @@
 //! with one status derivation for consecutive batchable facts, while every
 //! turn or control boundary still observes all preceding facts.
 
-use crate::diagnostics::{flush_notices, reject_fact};
+use crate::diagnostics::reject_fact;
 use crate::emit::{Event, get};
 use crate::facts::Fact;
 use crate::items::Item;
@@ -18,7 +18,7 @@ const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
 
 /// Whether `ctx.now` is a non-negative safe integer, like the TypeScript.
 fn valid_now(now: i64) -> bool {
-    now >= 0 && now <= MAX_SAFE_INTEGER
+    (0..=MAX_SAFE_INTEGER).contains(&now)
 }
 
 /// Fold one adapter fact and recompute statuses.
@@ -108,7 +108,7 @@ impl FactBatch {
             && state.status_observed_at.is_some()
             && now >= state.status_observed_at.unwrap_or(0)
             && now >= state.last_transport_signal_at.unwrap_or(now)
-            && self.signal_deadline.map_or(true, |deadline| now < deadline)
+            && self.signal_deadline.is_none_or(|deadline| now < deadline)
             && !transport_silenced(state, now)
             && match &fact {
                 Fact::Signal { agent: Some(agent) } => {
