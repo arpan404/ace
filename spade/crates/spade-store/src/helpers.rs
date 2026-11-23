@@ -36,6 +36,16 @@ pub(crate) const LANES_LIVE: &str = "
     CREATE INDEX lanes_live_by_parent ON lanes_live (parent_id);
 ";
 
+/// The schema step that lists the task lanes whose approvals or questions were copied into their
+/// bot's conversation: a lane is listed in the write that copies one, and taken off once nothing
+/// of it is left open there.
+pub(crate) const LANE_COPIES: &str = "
+    CREATE TABLE lane_copies (
+        conversation_id TEXT PRIMARY KEY REFERENCES conversations (id),
+        parent_id TEXT NOT NULL
+    );
+";
+
 /// A helper as stored. The profile is kept as it was when the helper started, so its prompt
 /// rebuilds to the same bytes after a restart even if the profile changed or went away.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,25 +221,25 @@ impl Store {
         )
     }
 
-    /// Task lanes off the live list whose last event may leave them working (anything but a
-    /// reply's end or a report), for putting back after a crash. One lookup per such lane by the
-    /// events' key, never a read of their history.
-    pub fn lanes_maybe_working(&self) -> Result<Vec<StoredHelper>> {
+    /// The task lanes with copies of their requests in their bot's conversation, to reconcile.
+    pub fn lanes_with_copies(&self) -> Result<Vec<(String, String)>> {
         let connection = self.lock()?;
         let mut statement = connection.prepare(&format!(
-            "SELECT {} FROM helpers h
-             WHERE h.profile = 'lane'
-               AND h.conversation_id NOT IN (SELECT conversation_id FROM lanes_live)
-               AND h.parent_id NOT IN {ARRIVING_CONVERSATIONS}
-               AND COALESCE((SELECT json_extract(e.body, '$.type') FROM events e
-                    WHERE e.conversation_id = h.conversation_id
-                    ORDER BY e.seq DESC LIMIT 1), '') NOT IN
-                   ('reply_finished', 'reply_stopped', 'reply_failed', 'reply_interrupted',
-                    'stop_requested', 'lane_titled', 'lanes_overlapped')",
-            prefixed("h")
+            "SELECT conversation_id, parent_id FROM lane_copies
+             WHERE parent_id NOT IN {ARRIVING_CONVERSATIONS} ORDER BY conversation_id"
         ))?;
-        let rows = statement.query_map([], helper)?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Takes task lane `lane` off the list of lanes with copies: nothing of it is open there.
+    pub fn copies_settled(&self, lane: &str) -> Result<()> {
+        let connection = self.lock()?;
+        connection.execute(
+            "DELETE FROM lane_copies WHERE conversation_id = ?1",
+            params![lane],
+        )?;
+        Ok(())
     }
 
     /// Marks task lane `lane` (of `parent`) as not ended, or ended.
@@ -356,6 +366,10 @@ pub(crate) fn delete_of(tx: &rusqlite::Transaction<'_>, parent: &str) -> rusqlit
     };
     tx.execute(
         "DELETE FROM lanes_live WHERE parent_id = ?1",
+        params![parent],
+    )?;
+    tx.execute(
+        "DELETE FROM lane_copies WHERE parent_id = ?1",
         params![parent],
     )?;
     tx.execute("DELETE FROM helpers WHERE parent_id = ?1", params![parent])?;

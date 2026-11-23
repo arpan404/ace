@@ -4,6 +4,7 @@
 
 mod support;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -111,7 +112,10 @@ async fn a_lanes_question_shows_in_main_as_the_lanes_and_its_answer_goes_back_to
         .as_str()
         .unwrap_or_default()
         .to_owned();
-    assert_eq!(asked["call_id"], format!("{lane_id}.q1").as_str());
+    // Named by the lane's run, so a later run's `q1` is a new card here.
+    let epoch = asked["lane"]["epoch"].as_str().unwrap_or_default();
+    assert!(!epoch.is_empty(), "{asked}");
+    assert_eq!(asked["call_id"], format!("{lane_id}.{epoch}.q1").as_str());
     // The bot needs the person; main's own reply has ended and doesn't wait on the card.
     wait_count(&spade, &conversation, "reply_finished", 2).await?;
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -610,8 +614,7 @@ async fn stopping_a_lane_closes_mains_copies_of_its_requests_in_the_reports_writ
         .or_else(|| cards["questions"].as_array())
         .and_then(|list| list.iter().find(|c| c["call_id"] == call.as_str()).cloned())
         .unwrap_or_default();
-    assert_ne!(card["state"], "waiting", "{cards}");
-    assert_ne!(card["state"], "deferred", "{cards}");
+    assert_eq!(card["standing"], "closed", "{cards}");
     assert_ne!(roster_state(&spade, &agent).await?["state"], "waiting");
     Ok(())
 }
@@ -723,5 +726,156 @@ async fn a_lane_that_ended_without_closing_its_copies_has_them_closed_when_spade
         .await?;
     let events = wait_count(&spade, &conversation, "lane_requests_closed", 1).await?;
     assert_eq!(closed_calls(&events), [call]);
+    // Reconciled, it leaves the small set Spade reads at open: nothing of it is left open.
+    let connection = spade_store::Store::connect(spade.database())?;
+    let listed: i64 =
+        connection.query_row("SELECT COUNT(*) FROM lane_copies", [], |row| row.get(0))?;
+    assert_eq!(listed, 0);
+    Ok(())
+}
+
+/// The lane's events the database holds, by type, read on its own connection.
+fn stored_count(spade: &Spade, conversation: &str, kind: &str) -> usize {
+    let Ok(connection) = spade_store::Store::connect(spade.database()) else {
+        return 0;
+    };
+    connection
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE conversation_id = ?1
+               AND json_extract(body, '$.type') = ?2",
+            [conversation, kind],
+            |row| row.get::<_, i64>(0),
+        )
+        .map_or(0, |n| usize::try_from(n).unwrap_or(0))
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stale_ending_report_never_closes_a_reopened_lanes_new_question() -> Result {
+    let routes = vec![route(
+        "File the receipts",
+        vec![
+            Script::reply("").call(
+                "q1",
+                "ask_user",
+                json!({ "question": "Which folder?", "wait": false }),
+            ),
+            Script::reply("Filing them meanwhile."),
+            // Taken up again by the late answer, it asks again, under the same call id.
+            Script::reply("").call("q1", "ask_user", json!({ "question": "Which year?" })),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "File the receipts"),
+        Script::reply("Started."),
+        Script::reply("ok"),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    // As the first run's end is read and before its report goes out: the person answers the
+    // card left for later, the lane runs again and asks a new question. Then the report goes on.
+    let engine = spade.engine.clone();
+    let database = spade.database();
+    let main_id = conversation.clone();
+    let fired = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let once = fired.clone();
+    // The new question was asked while the first run's report was held back.
+    let asked_while_held = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let saw = asked_while_held.clone();
+    let asked_again = move |database: &std::path::Path, main: &str| {
+        spade_store::Store::connect(database)
+            .ok()
+            .and_then(|connection| {
+                connection
+                    .query_row(
+                        "SELECT COUNT(*) FROM events WHERE conversation_id = ?1
+                           AND json_extract(body, '$.type') = 'question_asked'",
+                        [main],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .ok()
+            })
+            .unwrap_or(0)
+            >= 2
+    };
+    spade
+        .engine
+        .hold_registrations(Arc::new(move |what, _lane| {
+            if what != "lane_settled" || asked_again(&database, &main_id) {
+                return;
+            }
+            // The first look answers the card left for later; every look at the first run's end
+            // (there may be more than one) waits until the new run has asked.
+            if !once.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                let copy = spade_store::Store::connect(&database)
+                    .ok()
+                    .and_then(|connection| {
+                        connection
+                            .query_row(
+                                "SELECT json_extract(body, '$.call_id') FROM events
+                             WHERE conversation_id = ?1
+                               AND json_extract(body, '$.type') = 'question_asked'
+                             ORDER BY seq LIMIT 1",
+                                [&main_id],
+                                |row| row.get::<_, String>(0),
+                            )
+                            .ok()
+                    })
+                    .unwrap_or_default();
+                let reply = spade_server::engine::QuestionReply::Answers(vec![json!("Archive")]);
+                let _ = engine.answer_question(&main_id, &copy, reply);
+            }
+            // Waiting here hands this worker's queue to the others, so the lane's new run goes on.
+            tokio::task::block_in_place(|| {
+                let deadline = Instant::now() + Duration::from_secs(10);
+                while Instant::now() < deadline {
+                    if asked_again(&database, &main_id) {
+                        saw.store(true, std::sync::atomic::Ordering::SeqCst);
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+            });
+        }));
+    spade.say(&conversation, "File the receipts.").await?;
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while stored_count(&spade, &conversation, "question_asked") < 2 {
+        if Instant::now() > deadline {
+            return Err("the lane never asked again".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        asked_while_held.load(std::sync::atomic::Ordering::SeqCst),
+        "the new question must come before the stale report goes out"
+    );
+    let events = spade.events(&conversation).await?;
+    let second = events
+        .iter()
+        .filter(|e| e["type"] == "question_asked")
+        .nth(1)
+        .cloned()
+        .unwrap_or_default();
+    let new_copy = second["call_id"].as_str().unwrap_or_default().to_owned();
+    assert!(
+        !closed_calls(&events).contains(&new_copy),
+        "the stale end closed the new run's question: {:?}",
+        types(&events)
+    );
+    let (_, cards) = spade
+        .get(&format!("/v1/conversations/{conversation}/questions"))
+        .await?;
+    let card = cards
+        .as_array()
+        .or_else(|| cards["questions"].as_array())
+        .and_then(|list| {
+            list.iter()
+                .find(|c| c["call_id"] == new_copy.as_str())
+                .cloned()
+        })
+        .unwrap_or_default();
+    assert_eq!(card["standing"], "waiting", "{cards}");
+    assert_eq!(roster_state(&spade, &agent).await?["state"], "waiting");
     Ok(())
 }

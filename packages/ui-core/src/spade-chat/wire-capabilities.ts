@@ -140,6 +140,8 @@ export const spadeCapabilityEvents = [
   z.object({
     type: z.literal("lane_requests_closed"),
     lane: z.string(),
+    /** The lane's run (reply) that ended; only its requests are listed. */
+    epoch: words,
     calls: z.array(z.string()).catch([]).default([]),
   }),
   /** The `title` role named a moved lane: its title from now on. */

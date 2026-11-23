@@ -206,6 +206,15 @@ pub const MOVE_TABLES: &[MoveTable] = &[
         unique: false,
     },
     MoveTable {
+        name: "lane_copies",
+        filter: IN_CONVERSATIONS,
+        columns: &[text("conversation_id"), text("parent_id")],
+        owner: Owner::Derived,
+        key: "conversation_id",
+        pk: "conversation_id",
+        unique: true,
+    },
+    MoveTable {
         name: "lanes_live",
         filter: IN_CONVERSATIONS,
         columns: &[text("conversation_id"), text("parent_id")],

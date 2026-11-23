@@ -9,6 +9,7 @@ use spade_core::Event;
 use spade_core::event::Known;
 use spade_core::helper::{self, Stage};
 use spade_core::lane::{self, Routed};
+use spade_core::tree;
 use spade_store::{StoreError, StoredHelper};
 
 use super::super::Engine;
@@ -267,7 +268,7 @@ impl Engine {
         reply: &str,
         asked: &[Event],
     ) -> Result<bool, StoreError> {
-        let mirror = self.question_mirror(id, asked);
+        let mirror = self.question_mirror(id, reply, asked);
         {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if spade_core::turn::stop_requested(&self.load(id)?, reply) {
@@ -275,7 +276,10 @@ impl Engine {
             }
             match &mirror {
                 Some((main, mirrored)) => {
-                    self.append_across(&[(id, asked), (main.as_str(), mirrored.as_slice())], &[])?;
+                    self.append_across_copied(
+                        &[(id, asked), (main.as_str(), mirrored.as_slice())],
+                        (id, main.as_str()),
+                    )?;
                 }
                 None => {
                     self.append_events(id, asked)?;
@@ -289,7 +293,12 @@ impl Engine {
     }
 
     /// Main and the copy of `asked` it shows, when `id` is a lane.
-    fn question_mirror(&self, id: &str, asked: &[Event]) -> Option<(String, Vec<Event>)> {
+    fn question_mirror(
+        &self,
+        id: &str,
+        reply: &str,
+        asked: &[Event],
+    ) -> Option<(String, Vec<Event>)> {
         let row = self.lane_row(id)?;
         let title = self.lane_title(id);
         let mirrored: Vec<Event> = asked
@@ -303,7 +312,7 @@ impl Engine {
                     ..
                 }) => Some(Event::Known(Known::QuestionAsked {
                     reply: row.reply.clone(),
-                    call_id: format!("{id}.{call_id}"),
+                    call_id: lane::copy_id(id, reply, call_id),
                     question: question.clone(),
                     questions: questions.clone(),
                     later: *later,
@@ -312,11 +321,12 @@ impl Engine {
                         conversation: id.to_owned(),
                         call_id: call_id.clone(),
                         title: title.clone(),
+                        epoch: Some(reply.to_owned()),
                     })),
                 })),
                 Event::Known(Known::QuestionDeferred { call_id, by_bot }) => {
                     Some(Event::Known(Known::QuestionDeferred {
-                        call_id: format!("{id}.{call_id}"),
+                        call_id: lane::copy_id(id, reply, call_id),
                         by_bot: *by_bot,
                     }))
                 }
@@ -352,7 +362,8 @@ impl Engine {
         answered: &Event,
     ) -> Option<(String, Event)> {
         let row = self.lane_row(lane_id)?;
-        let mirrored = format!("{lane_id}.{call_id}");
+        let main_events = self.load(&row.parent).ok()?;
+        let mirrored = lane::copy_in(&main_events, lane_id, call_id)?;
         let closed = match answered {
             Event::Known(Known::QuestionAnswered {
                 answers,
@@ -375,8 +386,7 @@ impl Engine {
             },
             _ => return None,
         };
-        let events = self.load(&row.parent).ok()?;
-        spade_core::question::standing(events.iter(), &mirrored)?;
+        spade_core::question::standing(main_events.iter(), &mirrored)?;
         Some((row.parent, Event::Known(closed)))
     }
 
@@ -386,7 +396,13 @@ impl Engine {
         let Some(row) = self.lane_row(lane_id) else {
             return;
         };
-        let mirrored = format!("{lane_id}.{call_id}");
+        let Some(mirrored) = self
+            .load(&row.parent)
+            .ok()
+            .and_then(|events| lane::copy_in(&events, lane_id, call_id))
+        else {
+            return;
+        };
         let closed = match answered {
             Event::Known(Known::QuestionAnswered {
                 answers,
@@ -448,82 +464,100 @@ impl Engine {
         })
     }
 
-    /// When Spade opens: every copy in `main` of a lane's card that the lane answered but main
-    /// never closed (a crash between the two writes of a late answer) closes now (ADR 0217 §4).
-    /// Reads only the lanes of cards still open in main.
-    pub(crate) fn reconcile_lane_cards(&self, events: &[Event]) {
-        let open: Vec<(String, String)> = events
+    /// When Spade opens: the copies in main of each lane listed with copies (`lane_copies`, a
+    /// small set, never the history) are reconciled (ADR 0217 §4). A card the lane answered whose
+    /// copy never closed closes as the lane's did; when the lane has ended, the copies nothing
+    /// can answer any more close; a lane with nothing of it left open is taken off the list.
+    pub(in super::super) fn reconcile_lane_copies(&self) {
+        let listed = match self.store.lanes_with_copies() {
+            Ok(listed) => listed,
+            Err(error) => {
+                tracing::error!(%error, "could not list task lanes with copies in main");
+                return;
+            }
+        };
+        for (lane_id, main) in listed {
+            if self.lane_row(&lane_id).is_some() {
+                self.reconcile_lane(&lane_id, &main);
+            }
+            let open = self
+                .load(&main)
+                .map(|events| {
+                    lane::requests_closing(&events, &lane_id, None, tree::ReportState::Stopped)
+                })
+                .unwrap_or_default();
+            if (open.is_empty() || self.lane_row(&lane_id).is_none())
+                && let Err(error) = self.store.copies_settled(&lane_id)
+            {
+                tracing::error!(%error, "could not settle a task lane's copies");
+            }
+        }
+    }
+
+    /// Reconciles lane `lane_id`'s copies in `main`.
+    fn reconcile_lane(&self, lane_id: &str, main: &str) {
+        let Ok(events) = self.load(main) else { return };
+        // Answered in the lane, still open here: closes as the lane's did.
+        let open: Vec<String> = events
             .iter()
             .filter_map(|event| match event {
                 Event::Known(Known::QuestionAsked {
                     call_id,
-                    lane: Some(lane),
+                    lane: Some(l),
                     ..
-                }) if matches!(
-                    spade_core::question::standing(events.iter(), call_id),
-                    Some(
-                        spade_core::question::Standing::Waiting
-                            | spade_core::question::Standing::Deferred
-                    )
-                ) =>
+                }) if l.task == lane_id
+                    && matches!(
+                        spade_core::question::standing(events.iter(), call_id),
+                        Some(
+                            spade_core::question::Standing::Waiting
+                                | spade_core::question::Standing::Deferred
+                        )
+                    ) =>
                 {
-                    Some((lane.conversation.clone(), lane.call_id.clone()))
+                    Some(l.call_id.clone())
                 }
                 _ => None,
             })
             .collect();
-        for (lane, call_id) in open {
-            if let Some(closed) = self.lane_card_closed(&lane, &call_id) {
-                self.close_in_main(&lane, &call_id, &closed);
+        for call_id in open {
+            if let Some(closed) = self.lane_card_closed(lane_id, &call_id) {
+                self.close_in_main(lane_id, &call_id, &closed);
             }
         }
-        self.close_ended_lanes_requests(events);
-    }
-
-    /// Main's copies of requests of lanes that have ended (a crash before the report that
-    /// closes them, or a build before it) close now, so no card stays answerable for work that
-    /// stopped (ADR 0217 §4).
-    fn close_ended_lanes_requests(&self, events: &[Event]) {
-        let mut lanes: Vec<String> = Vec::new();
-        for event in events {
-            if let Event::Known(
-                Known::QuestionAsked { lane: Some(l), .. }
-                | Known::ApprovalRequested { lane: Some(l), .. },
-            ) = event
-                && !lanes.contains(&l.task)
-            {
-                lanes.push(l.task.clone());
-            }
+        // An ended lane's copies nothing can answer any more close.
+        let state = self.lane_state(lane_id);
+        if state.live() {
+            return;
         }
-        for lane_id in lanes {
-            let Some(row) = self.lane_row(&lane_id) else {
-                continue;
-            };
-            let state = self.lane_state(&lane_id);
-            if state.live() {
-                continue;
-            }
-            let ended = match state {
-                lane::State::Stopped => spade_core::tree::ReportState::Stopped,
-                lane::State::Failed => spade_core::tree::ReportState::Failed,
-                lane::State::Done => spade_core::tree::ReportState::Done,
-                _ => spade_core::tree::ReportState::Finished,
-            };
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let Ok(now) = self.load(&row.parent) else {
-                continue;
-            };
-            let calls = lane::requests_closing(&now, &lane_id, ended);
-            if calls.is_empty() {
-                continue;
-            }
-            let closed = Event::Known(Known::LaneRequestsClosed(lane::RequestsClosed {
-                lane: lane_id.clone(),
-                calls,
-            }));
-            if let Err(error) = self.append(&row.parent, &closed) {
-                tracing::error!(%error, "could not close an ended task lane's requests");
-            }
+        let ended = match state {
+            lane::State::Stopped => tree::ReportState::Stopped,
+            lane::State::Failed => tree::ReportState::Failed,
+            lane::State::Done => tree::ReportState::Done,
+            _ => tree::ReportState::Finished,
+        };
+        let epoch = self
+            .load(lane_id)
+            .ok()
+            .and_then(|lane_events| {
+                lane_events.iter().rev().find_map(|e| match e {
+                    Event::Known(Known::ReplyStarted { reply, .. }) => Some(reply.clone()),
+                    _ => None,
+                })
+            })
+            .unwrap_or_default();
+        let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let Ok(now) = self.load(main) else { return };
+        let calls = lane::requests_closing(&now, lane_id, None, ended);
+        if calls.is_empty() {
+            return;
+        }
+        let closed = Event::Known(Known::LaneRequestsClosed(lane::RequestsClosed {
+            lane: lane_id.to_owned(),
+            epoch,
+            calls,
+        }));
+        if let Err(error) = self.append(main, &closed) {
+            tracing::error!(%error, "could not close an ended task lane's requests");
         }
     }
 }

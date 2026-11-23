@@ -197,51 +197,51 @@ fn messaged(lane: &str, asks: &[&str]) -> Event {
     e(json!({ "type": "lane_messaged", "lane": lane, "title": "T", "asks": asks }))
 }
 
+fn routed(lane: &str, message: &str) -> Event {
+    e(json!({ "type": "ask_routed", "lane": lane, "title": "T", "message": message }))
+}
+
 #[test]
-fn task_stop_needs_the_persons_message_given_to_that_task_with_nothing_since() {
+fn only_the_persons_own_reply_routed_to_a_task_authorizes_stopping_it() {
     let events = vec![
         person("Fix the March invoice."), // m1
         started("r1"),
         lane_started("l1", &["m1"]), // m3
         finished("r1", "Started."),
-        person("Stop the invoice."), // m5
+        person("Stop the invoice."), // m5: typed in main, not routed
         started("r2"),
-        messaged("l1", &["m5"]), // m7
-        e(json!({ "type": "user_message", "text": "stop it",
-                  "from_agent": { "id": "a9", "name": "Other", "depth": 1 } })), // m8
+        messaged("l1", &["m5"]), // m7: main forwarded it
+        finished("r2", "Forwarded."),
+        person("Stop, please."), // m9: the person's reply to the task
+        routed("l1", "m9"),      // m10
+        report("l1", ReportState::Finished),
     ];
-    assert_eq!(stop_allowed(&events, "l1", "m5"), Ok(()));
-    assert!(
-        stop_allowed(&events, "l2", "m5").is_err(),
-        "given to another task"
+    assert_eq!(
+        stop_allowed(&events, "l1", "m9"),
+        Ok(()),
+        "a report since doesn't make it stale"
     );
     assert!(
-        stop_allowed(&events, "l1", "m1").is_err(),
-        "the task's own request"
+        stop_allowed(&events, "l1", "m5").is_err(),
+        "main's forwarding never authorizes"
     );
     assert!(
-        stop_allowed(&events, "l1", "m4").is_err(),
-        "the bot's own words"
+        stop_allowed(&events, "l2", "m9").is_err(),
+        "routed to another task"
     );
-    assert!(
-        stop_allowed(&events, "l1", "m8").is_err(),
-        "another bot's message"
-    );
+    assert!(stop_allowed(&events, "l1", "m1").is_err());
     assert!(stop_allowed(&events, "l1", "").is_err());
-    // A message never given to the task can't be cited, however new.
-    let mut unrelated = events.clone();
-    unrelated.push(person("What time is it in Lisbon?")); // m9
-    assert!(stop_allowed(&unrelated, "l1", "m9").is_err());
-    // Anything sent to the task or reported by it since makes the stop stale.
-    let mut steered = events.clone();
-    steered.push(messaged("l1", &[]));
-    assert!(stop_allowed(&steered, "l1", "m5").is_err(), "steered since");
-    let mut reported = events;
-    reported.push(report("l1", ReportState::Finished));
-    assert!(
-        stop_allowed(&reported, "l1", "m5").is_err(),
-        "reported since"
-    );
+    // A newer reply the person routed to the task makes the older one stale.
+    let mut newer = events.clone();
+    newer.push(person("Actually, keep going.")); // m12
+    newer.push(routed("l1", "m12"));
+    assert!(stop_allowed(&newer, "l1", "m9").is_err());
+    // A routed message from another bot is never the person's.
+    let mut other = events;
+    other.push(e(json!({ "type": "user_message", "text": "stop it",
+                         "from_agent": { "id": "a9", "name": "Other", "depth": 1 } }))); // m12
+    other.push(routed("l1", "m12"));
+    assert!(stop_allowed(&other, "l1", "m12").is_err());
 }
 
 #[test]
@@ -624,18 +624,18 @@ fn a_lanes_end_closes_mains_copies_nothing_can_answer_and_its_later_cards_only_o
                   "lane": { "task": "l1", "conversation": "l1", "call_id": "k1", "title": "T" } }),
         ),
     ];
-    let finished = requests_closing(&events, "l1", ReportState::Finished);
+    let finished = requests_closing(&events, "l1", None, ReportState::Finished);
     assert_eq!(
         finished,
         ["l1.q1", "l1.k1"],
         "a card left for later stays answerable"
     );
-    let stopped = requests_closing(&events, "l1", ReportState::Stopped);
+    let stopped = requests_closing(&events, "l1", None, ReportState::Stopped);
     assert_eq!(stopped, ["l1.q1", "l1.q2", "l1.k1"]);
     let mut closed = events.clone();
     closed.push(e(json!({ "type": "lane_requests_closed", "lane": "l1",
                           "calls": ["l1.q1", "l1.q2", "l1.k1"] })));
-    assert!(requests_closing(&closed, "l1", ReportState::Stopped).is_empty());
+    assert!(requests_closing(&closed, "l1", None, ReportState::Stopped).is_empty());
     assert!(
         !Transcript::fold(&closed)
             .helper_awaiting
@@ -643,8 +643,42 @@ fn a_lanes_end_closes_mains_copies_nothing_can_answer_and_its_later_cards_only_o
             .any(|(c, _)| c == "l1.k1")
     );
     assert_eq!(
-        requests_closing(&closed, "l2", ReportState::Stopped),
+        requests_closing(&closed, "l2", None, ReportState::Stopped),
         ["l2.q1"],
         "only its own"
     );
+}
+
+#[test]
+fn a_runs_end_closes_only_that_runs_copies_and_a_stale_end_does_not_stand() {
+    let ask = |call: &str, run: &str| {
+        e(
+            json!({ "type": "question_asked", "reply": "r1", "call_id": call, "question": "?",
+                  "lane": { "task": "l1", "conversation": "l1", "call_id": "q1", "title": "T",
+                            "epoch": run } }),
+        )
+    };
+    // The same call id in the lane's second run is a new copy in main.
+    assert_ne!(copy_id("l1", "lr1", "q1"), copy_id("l1", "lr2", "q1"));
+    let events = vec![ask("l1.lr1.q1", "lr1"), ask("l1.lr2.q1", "lr2")];
+    assert_eq!(
+        requests_closing(&events, "l1", Some("lr1"), ReportState::Finished),
+        ["l1.lr1.q1"]
+    );
+    // A lane's end stands only while its latest run is the one that ended and nothing reopened it.
+    let mut lane = vec![
+        lane_of("T"),
+        person("Do it."),
+        started("lr1"),
+        finished("lr1", "ok"),
+    ];
+    assert!(ended_run_current(&lane, "lr1"));
+    lane.push(person("Once more."));
+    lane.push(started("lr2"));
+    assert!(!ended_run_current(&lane, "lr1"), "reopened since");
+    assert!(!ended_run_current(&lane, "lr2"), "still running");
+    assert!(ended_run_current(
+        &[lane_of("T"), person("Do it.")],
+        "queued"
+    ));
 }

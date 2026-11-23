@@ -165,8 +165,9 @@ check of done and asks, takes the person's messages, and reports back to main.
 
   `task` is a lane's id or its title. `asks` names main's asks (`m12`) the lane takes; with none,
   `task_start` takes the newest open one. `task_stop` is refused unless `because` names the
-  person's message that was given to that task (routed to it, or handed to it with
-  `task_message`), with nothing sent to the task, started or reported since. `task_message`
+  person's own reply to that task (routed to it by their `reply_to`, `ask_routed`) with no newer
+  reply of theirs to it and no restart of it since; main forwarding a message never authorizes a
+  stop. `task_message`
   stores main's words as `lane_message {text, untrusted}` in the lane (the bot's, never the
   person's, tainting when main wrote them with untrusted content in view) and `lane_messaged
 {lane, title, asks}` in main every time; the person's own words for the asks it names go
@@ -198,14 +199,15 @@ message}` together and opens no reply; the lane gets the person's words (trusted
 - **Slots.** At most `SPADE_TASKS_AT_ONCE` (16) lanes of a bot have a reply open. One more is
   stored queued (`lane_started.queued`) and starts, oldest first, when one ends.
 - **Requests.** A lane's approval is stored in the lane and in main in the same write
-  (`approval_requested.lane {task, conversation, call_id, title}`, call id `<lane>.<call>`) and
-  answered in main; the answer reaches the lane, and "always" lands in main. Main reads waiting
+  (`approval_requested.lane {task, conversation, call_id, title}`, call id `<lane>.<run>.<call>`, the
+  run being the lane's reply that asked, `lane.epoch`) and answered in main; the answer reaches the lane, and "always" lands in main. Main reads waiting
   until it is answered or the lane reports something other than `needs_you`. A lane's `ask_user`
-  card is asked the same way (`question_asked.lane`, call id `<lane>.<call>`, answered at main's
+  card is asked the same way (`question_asked.lane`, call id `<lane>.<run>.<call>`, answered at main's
   `/questions/{call}` and sent on to the lane); answered in the lane, main's copy closes. A
   helper that moved with main's work asks in main as the lane's. When the lane ends, main's copies
   of what nothing can answer any more close in the same write as its report
-  (`lane_requests_closed {lane, calls}`): its approvals and cards waiting on the person, and when
+  (`lane_requests_closed {lane, epoch, calls}`, listing only that run's copies; an ending report
+  read before the lane was taken up again is never stored): its approvals and cards waiting on the person, and when
   it was stopped its cards left for later too. After any other end such a card stays answerable,
   and its answer takes the task up again. Copies an earlier crash or build left open close when
   Spade opens.
@@ -235,8 +237,11 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   untrusted content in view asks where main would.
 - **Writes in pairs.** A lane's request and its copy in main, an answer and every copy it closes
   (with its audit entry), a routed reply on both sides: each is one write (`Store::append_across`).
-- **What is read.** `lanes_live` lists the lanes that haven't ended (a lane leaves it with its last
-  report and comes back when it opens a reply). Slots, roll-up, Stop, the tasks block, the tree,
+- **What is read.** `lanes_live` lists the lanes that haven't ended (a lane goes on it before any
+  write that opens a reply of it), and `lane_copies` the lanes whose requests have copies in main
+  (listed in the write that copies one, cleared at open once nothing of it is left open there);
+  Spade reconciles only those at open. A lane leaves `lanes_live` with its last report and comes
+  back when it opens a reply. Slots, roll-up, Stop, the tasks block, the tree,
   resuming and startup read only those, never every lane a bot ran (ADR 0170).
 - **Spend.** Each lane's steps are recorded under its bot as the `task` role; a row's
   `cost_micros` is what its steps cost. Nothing stops on it (ADR 0166).

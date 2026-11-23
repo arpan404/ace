@@ -267,6 +267,9 @@ pub struct Messaged {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestsClosed {
     pub lane: String,
+    /// The lane's run (reply) that ended; only its requests are listed.
+    #[serde(default)]
+    pub epoch: String,
     pub calls: Vec<String>,
 }
 
@@ -278,9 +281,19 @@ pub struct RequestsClosed {
 pub fn requests_closing(
     events: &[Event],
     lane: &str,
+    epoch: Option<&str>,
     state: crate::tree::ReportState,
 ) -> Vec<String> {
     let stopped = state == crate::tree::ReportState::Stopped;
+    // Asked by that run of the lane (with no run named: by any of its runs, all of which ended;
+    // a copy from before runs were named counts as any run's).
+    let of_run = |asked: &Ask| {
+        asked.task == lane
+            && match (epoch, asked.epoch.as_deref()) {
+                (Some(epoch), Some(asked)) => asked == epoch,
+                _ => true,
+            }
+    };
     let mut calls: Vec<String> = crate::question::views(events)
         .into_iter()
         .filter(|card| match card.standing {
@@ -291,17 +304,46 @@ pub fn requests_closing(
         .filter(|card| {
             events.iter().any(|e| {
                 matches!(e, Event::Known(Known::QuestionAsked { call_id, lane: Some(l), .. })
-                    if call_id == &card.call_id && l.task == lane)
+                    if call_id == &card.call_id && of_run(l))
             })
         })
         .map(|card| card.call_id)
         .collect();
     for (call, owner) in Transcript::fold(events).helper_awaiting {
-        if owner == lane && !calls.contains(&call) {
+        // An approval asked as the lane's names its run; one a moved helper asked before the
+        // move belongs to the lane's first run.
+        let run = events.iter().rev().find_map(|e| match e {
+            Event::Known(Known::ApprovalRequested {
+                call_id,
+                lane: Some(l),
+                ..
+            }) if call_id == &call => Some(of_run(l)),
+            _ => None,
+        });
+        // A question's copy waits here too; its run was read with the cards above.
+        let question = events.iter().any(
+            |e| matches!(e, Event::Known(Known::QuestionAsked { call_id, .. }) if call_id == &call),
+        );
+        if owner == lane && !question && run.unwrap_or(true) && !calls.contains(&call) {
             calls.push(call);
         }
     }
     calls
+}
+
+/// Whether a report of lane `events` ending in `epoch` still stands: the lane's latest run is
+/// that one and nothing reopened it since. A report read before the person took the task up
+/// again is stale and is never stored (ADR 0217 §4).
+pub fn ended_run_current(events: &[Event], epoch: &str) -> bool {
+    let latest = events.iter().rev().find_map(|e| match e {
+        Event::Known(Known::ReplyStarted { reply, .. }) => Some(reply.as_str()),
+        _ => None,
+    });
+    let open = Transcript::fold(events).open_reply().is_some();
+    match latest {
+        None => epoch == "queued",
+        Some(latest) => latest == epoch && !open,
+    }
 }
 
 /// `lane_message`, in a lane: main's words to it (`task_message`). `untrusted` when main had
@@ -332,6 +374,28 @@ pub struct Ask {
     /// The call's id in the lane's conversation.
     pub call_id: String,
     pub title: String,
+    /// The lane's reply (its run) that asked: its copy in main closes only with that run's end.
+    /// Its id in main is `<lane>.<epoch>.<call>`, unique across runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch: Option<String>,
+}
+
+/// The id in main of the latest copy of lane `lane`'s card `call_id` (its id in the lane).
+pub fn copy_in(events: &[Event], lane: &str, call_id: &str) -> Option<String> {
+    events.iter().rev().find_map(|e| match e {
+        Event::Known(Known::QuestionAsked {
+            call_id: copy,
+            lane: Some(l),
+            ..
+        }) if l.task == lane && l.call_id == call_id => Some(copy.clone()),
+        _ => None,
+    })
+}
+
+/// The id main shows a lane's request under: unique across the lane's runs, so a call id a later
+/// run uses again is never the earlier run's.
+pub fn copy_id(lane: &str, epoch: &str, call_id: &str) -> String {
+    format!("{lane}.{epoch}.{call_id}")
 }
 
 /// Where a lane stands, as the task list shows it.
@@ -586,10 +650,10 @@ fn is_input(event: &Known) -> bool {
 pub fn stop_allowed(events: &[Event], lane: &str, because: &str) -> Result<(), String> {
     let refused = || {
         Err(
-            "task_stop needs `because`: the id of the person's message asking to stop this task, \
-             sent to the task first (task_message with that message in asks) with nothing sent \
-             to it or reported since. Only the person stops a task; if one is stuck, tell them \
-             and let them decide, or tell them they can press Stop on it."
+            "task_stop needs `because`: the id of the person's own reply to this task asking to \
+             stop it (it shows as sent to the task), with no newer reply of theirs to it. Only the \
+             person stops a task: if they asked here instead, tell them to press Stop on the \
+             task or reply to it."
                 .to_owned(),
         )
     };
@@ -606,23 +670,17 @@ pub fn stop_allowed(events: &[Event], lane: &str, because: &str) -> Result<(), S
     if !crate::asks::is_persons(event, crate::asks::maker_of(events)) {
         return refused();
     }
-    // The message was given to this task (routed to it, or handed to it with task_message),
-    // and that is the latest thing that happened to the task: a later start, report or message
-    // makes it stale. An unrelated message the model cites was never given to the task.
+    // Only the person's own action gives a stop: their message routed to this task by their
+    // reply to it (`ask_routed`, written only for the person's `reply_to`). Main forwarding a
+    // message (`task_message`) never does. A newer message the person routed to the task, or the
+    // task starting again, makes it stale.
     let given = |e: &Event| match e {
         Event::Known(Known::AskRouted(routed)) => routed.lane == lane && routed.message == because,
-        Event::Known(Known::LaneMessaged(messaged)) => {
-            messaged.lane == lane && messaged.asks.iter().any(|a| a == because)
-        }
         _ => false,
     };
     let touches = |e: &Event| match e {
         Event::Known(Known::LaneStarted(started)) => started.lane == lane,
-        Event::Known(Known::WorkerReported(report)) => {
-            report.kind == crate::tree::Kind::Lane && report.worker == lane
-        }
         Event::Known(Known::AskRouted(routed)) => routed.lane == lane,
-        Event::Known(Known::LaneMessaged(messaged)) => messaged.lane == lane,
         _ => false,
     };
     let Some(given_at) = events.iter().rposition(given) else {
