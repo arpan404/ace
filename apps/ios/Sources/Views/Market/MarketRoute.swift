@@ -1,12 +1,16 @@
 import SwiftUI
 
-/// Where the Marketplace goes from its home: an entry's page, Installed, or one of Browse's
-/// pages. Each market screen holds its own `route` and pushes with `marketRoutes`, so the pages
+/// Where the Marketplace goes from its home: an entry's page, Installed, one of Browse's
+/// pages, or the publisher's own listings. Each market screen holds its own `route` and pushes with `marketRoutes`, so the pages
 /// stack inside whichever navigation stack shows the Marketplace (Search's, or Settings' sheet).
 enum MarketRoute: Hashable, Identifiable {
     case entry(MarketEntryKey)
     case installed
     case browse(MarketBrowsePage)
+    /// The signed-in publisher's own listings, drafts and profile (#2554).
+    case yours
+    /// One of the publisher's own listings, to manage.
+    case manage(type: String, name: String)
     var id: Self { self }
 }
 
@@ -39,6 +43,8 @@ struct MarketRouteView: View {
         case .entry(let key): MarketEntryView(model: model, entry: key, machineName: machineName)
         case .installed: MarketInstalledView(model: model, machineName: machineName)
         case .browse(let page): MarketBrowseView(model: model, page: page, machineName: machineName)
+        case .yours: MarketManageView(model: model, machineName: machineName)
+        case .manage(let type, let name): MarketManageListing(model: model, type: type, name: name)
         }
     }
 }
