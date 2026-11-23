@@ -40,9 +40,9 @@ fn subscription_name(model: &str) -> &'static str {
 
 impl Engine {
     /// The model a bot whose own model is a subscription thinks with: the first of its `main`
-    /// route, the global `main` route and `fallback` that is on the person's endpoints; `""` when
-    /// none is.
-    pub(crate) fn replacement_model(&self, agent: &str, fallback: String) -> String {
+    /// route, the global `main` route, the person's model for new bots and `fallbacks` that is on
+    /// their endpoints and can run a bot (it calls tools, ADR 0205 §3); `""` when none is.
+    pub(crate) fn replacement_model(&self, agent: &str, fallbacks: &[String]) -> String {
         let mut choices: Vec<String> = Vec::new();
         for key in [roles_key(agent), MODEL_ROLES.to_owned()] {
             let overrides: Overrides = self
@@ -56,10 +56,18 @@ impl Engine {
                 choices.extend(route.0.iter().cloned());
             }
         }
-        choices.push(fallback);
+        if let Ok(Some(model)) = self.new_bot_model() {
+            choices.push(model);
+        }
+        choices.extend_from_slice(fallbacks);
         choices
             .into_iter()
-            .find(|model| !model.is_empty() && !is_retired(model) && self.configured(model))
+            .find(|model| {
+                !model.is_empty()
+                    && !is_retired(model)
+                    && self.configured(model)
+                    && self.check_runs_bots(model).is_ok()
+            })
             .unwrap_or_default()
     }
 
@@ -75,8 +83,13 @@ impl Engine {
     }
 
     fn retire_one(&self, agent: &Agent) -> Result<(), StoreError> {
-        // Read without any lock: it may wait on the keychain.
-        let to = self.replacement_model(&agent.id, self.default_model());
+        // Read without any lock: it may wait on the keychain. A model whose key isn't known to be
+        // there still beats none while the person has endpoints: its first turn says what's
+        // missing, where "Pick a model" would be wrong.
+        let to = self.replacement_model(
+            &agent.id,
+            &[self.default_model(), self.keyless_default_model()],
+        );
         let _settings = self.agent_lock.lock().unwrap_or_else(|p| p.into_inner());
         // The person may have picked a model meanwhile.
         let Some(agent) = self.store.agent(&agent.id)? else {
@@ -100,23 +113,24 @@ impl Engine {
             )
         };
         let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-        let now = self.now_ms();
-        let configured = self
-            .store
-            .configure_agent(&agent.id, &agent.task, &to, None, now);
-        self.forget_activity(&agent.conversation);
-        let configured = configured?;
         let replaced = Event::Known(Known::ModelReplaced {
             from: agent.model.clone(),
-            to,
+            to: to.clone(),
             line,
         });
-        let replaced = self.store.append(&agent.conversation, &replaced, now);
+        // The change and its line in one write: a crash keeps both or neither.
+        let stored = self.store.configure_agent_then(
+            &agent.id,
+            &agent.task,
+            &to,
+            std::slice::from_ref(&replaced),
+            self.now_ms(),
+        );
         self.forget_activity(&agent.conversation);
-        let replaced = replaced?;
         let frames = &self.live(&agent.conversation).frames;
-        let _ = frames.send(super::Frame::Stored(configured));
-        let _ = frames.send(super::Frame::Stored(replaced));
+        for event in stored? {
+            let _ = frames.send(super::Frame::Stored(event));
+        }
         Ok(())
     }
 }

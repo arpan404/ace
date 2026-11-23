@@ -37,15 +37,18 @@ other, not a CLI.
    coding subscriptions" group. ace's coding-agent CLIs are untouched for projects, threads and
    chat.
 3. **An existing bot on a subscription keeps working on an endpoint.** At setup, once its keys
-   can be read, Spade moves each bot whose stored model is a `cli:` reference to the person's
-   default model by ADR 0205's rule: the bot's `main` route, else the global one, then the first
-   usable model. The bot keeps its conversation, its task, its memory and its settings. Its chat
-   shows one plain line, stored as a `model_replaced` event (`from`, `to`, `line`): "Spade bots no
-   longer think with coding subscriptions, so this bot moved from its Codex model to <model>."
-   With no model to move to, the bot's model becomes none (`""`) and the line asks the person to
-   pick one; the bot then waits for them as a new bot with no model does. A turn that starts
-   before setup has moved it (or a reply an older build left open on a subscription) runs on the
-   same replacement, chosen without reading keys.
+   can be read, Spade moves each bot whose stored model is a `cli:` reference to the first of:
+   the bot's `main` route, the global `main` route, the person's model for new bots, then the
+   first usable model (ADR 0205 §1), and while no key is known yet, the first model on their
+   endpoints. Only a model that can run a bot counts: on the person's endpoints and calling tools
+   (ADR 0205 §3). The bot keeps its conversation, its task, its memory and its settings. Its
+   model change and one plain line in its chat are stored together in one write, the line as a
+   `model_replaced` event (`from`, `to`, `line`): "Spade bots no longer think with coding
+   subscriptions, so this bot moved from its Codex model to <model>." With no model that can run
+   it, the bot's model becomes none (`""`) and the line asks the person to pick one; the bot then
+   waits for them as a new bot with no model does. A turn that starts before setup has moved it
+   (or a reply an older build left paused on a subscription) runs on the same replacement, chosen
+   without reading keys.
 4. **Old references read leniently, forever.** Events in history keep their `cli:` references
    (`reply_started`, `agent_configured`) and read as before; nothing rewrites history. A route an
    older build stored with a subscription in it skips that entry, as it skips any model no
@@ -75,7 +78,10 @@ other, not a CLI.
 
 - A bot an older build left on `cli:codex@work/…` moves at setup to the default model, keeps its
   conversation, answers its next message on the new model, and shows one `model_replaced` line;
-  a later start moves nothing.
+  a later start moves nothing. A route model that can't call tools is passed over, the person's
+  model for new bots is taken before the first usable model, and with no model that can run it
+  the bot moves to none, says so and asks no model anything. A reply left paused on a
+  subscription finishes on the new model.
 - `POST /v1/agents` and `PATCH /v1/agents/{id}` with a `cli:` model answer 400; a route with one
   is refused, and one stored by an older build is skipped.
 - A command on a `spade-bot` thread is refused, whoever sends it.

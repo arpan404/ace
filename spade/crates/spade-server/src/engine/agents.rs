@@ -597,7 +597,7 @@ impl Engine {
             // A bot not yet moved off a coding subscription thinks with its replacement
             // (ADR 0219), chosen without reading keys.
             Ok(Some(agent)) if super::retired_models::is_retired(&agent.model) => {
-                self.replacement_model(&agent.id, self.keyless_default_model())
+                self.replacement_model(&agent.id, &[self.keyless_default_model()])
             }
             Ok(Some(agent)) if !agent.model.is_empty() => agent.model,
             // Without reading keys: this runs while closing replies at start, before Spade

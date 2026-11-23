@@ -313,7 +313,7 @@ only when it has a key. Either way it is moved to
 A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). A
 coding subscription's `cli:<provider>[@<account>]/<model>` is refused (`400`): bots no longer
 think with one (ADR 0219). A bot an older build left on one moves at setup to its default model
-(its `main` route, else the global one, then the first usable model), keeping its conversation;
+(its `main` route, else the global one, then the model for new bots, then the first usable model, each only if it can run a bot), keeping its conversation;
 its chat gets one `model_replaced` event, `{from, to, line}`, whose `line` says what changed.
 With no model to move to, its model becomes `""` and it waits for the person, as a new bot with no
 model does. Old references in history read as before. Any
