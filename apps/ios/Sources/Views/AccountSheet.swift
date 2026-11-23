@@ -23,17 +23,19 @@ struct AccountSheet: View {
                 profile
             }
             .insetRowBackground()
-            if let spaces, let listed = spaces.spaces, !listed.isEmpty {
+            if let spaces, spaces.signedIn {
+                SpacesSection(spaces: spaces)
+            } else {
                 Section {
-                    Picker("Space", selection: Binding(
-                        get: { spaces.shown?.id ?? spaces.chosen },
-                        set: { spaces.choose($0) }
-                    )) {
-                        Text("Personal").tag(Spaces.personal)
-                        ForEach(listed) { org in Text(org.name).tag(org.id) }
+                    InsetRow(icon: .user, title: "Personal", subtitle: "Your own machines") {
+                        AceIcon(.check, size: AceDesign.Size.icon, relativeTo: .subheadline)
+                            .foregroundStyle(AceDesign.Ink.action)
                     }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("account.menu.spaces")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityAddTraits(.isSelected)
+                    .accessibilityIdentifier("account.space.personal")
+                } header: {
+                    InsetHeader("Spaces")
                 }
                 .insetRowBackground()
             }
@@ -50,6 +52,8 @@ struct AccountSheet: View {
                 if !showsConnection { versionFooter }
             }
             .insetRowBackground()
+            AccountUpdatesSection(computerName: updateHost(listed).map { machines?.entry($0)?.displayName ?? inbox.name($0) },
+                                  computer: updateHost(listed).flatMap { inbox.client($0)?.appUpdate })
             if showsConnection { connection(listed) }
         }
         .insetGroupedList()
@@ -75,6 +79,13 @@ struct AccountSheet: View {
         let live = inbox.sessions.map(\.hostId)
         let saved = machines?.machines.map(\.hostId) ?? []
         return live + saved.filter { !live.contains($0) && (inbox.inSpace?($0) ?? true) }
+    }
+
+    /// The computer the Updates section describes: the chosen, connected one.
+    private func updateHost(_ listed: [String]) -> String? {
+        let chosen = listed.contains(machineFilter) ? machineFilter
+            : inbox.sessions.first { $0.client.canOperate }?.hostId ?? listed.first
+        return chosen
     }
 
     private var canPair: Bool {
