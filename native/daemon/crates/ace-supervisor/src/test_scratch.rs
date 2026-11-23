@@ -57,8 +57,6 @@ pub struct Fake {
     pub occupied: Vec<u32>,
     /// The daemon's own pid: the owner recorded rows name.
     pub owner: u32,
-    /// Injected clock for the two-scan rule.
-    pub now: u64,
 }
 
 impl Fake {
@@ -73,7 +71,6 @@ impl Fake {
                 unreadable: Vec::new(),
                 occupied: Vec::new(),
                 owner,
-                now: 0,
             },
             killed,
         )
@@ -135,7 +132,7 @@ impl InventoryRuntime for Fake {
     }
 
     fn now_ms(&self) -> u64 {
-        self.now
+        0
     }
 }
 

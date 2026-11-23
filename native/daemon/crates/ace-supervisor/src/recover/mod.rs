@@ -136,9 +136,13 @@ impl<R: InventoryRuntime> Inventory<R> {
     fn posix_recover(&mut self) -> Result<Recovered, SupervisorError> {
         let now_ms = self.runtime.now_ms();
         let mut recovered = Recovered::default();
-        // One process-table snapshot for the call; every row's group question
-        // is answered from it, never re-listed per row.
-        let snapshot = self.runtime.group_snapshot();
+        // Two process-table snapshots for the call, back to back; every
+        // row's group question is answered from them, never re-listed per
+        // row.
+        let first = self.runtime.group_snapshot();
+        // Rows whose leader is gone and whose group the first snapshot
+        // finds empty; the second snapshot re-checks them after the pass.
+        let mut candidates: Vec<(u32, u32)> = Vec::new();
         for entry in self.list()? {
             let owner = self.runtime.identity(entry.owner_pid)?;
             if owner.as_ref().is_some_and(|owned| {
@@ -157,43 +161,25 @@ impl<R: InventoryRuntime> Inventory<R> {
                 Err(ProbeRefused::Failed(message)) => {
                     return Err(SupervisorError::Operation(message));
                 }
-                // The leader is gone. The row is forgotten only after two
-                // empty scans at least a second apart: one scan can miss a
-                // member that forks after the process list is read and exits
-                // before its own check, so the child was never listed. A
-                // member that forks and hands off between enumeration and
-                // check on every scan can still be missed; that is inherent
-                // to userspace enumeration, and the group number is never
-                // signalled either way. The first empty scan only marks the
-                // row (kept as unresolved); the retry pass takes the second
-                // scan and forgets it. A non-empty scan clears the mark.
-                Ok(false) => match crate::system::group_empty_state(&snapshot, entry.group) {
-                    Some(true) => {
-                        self.empty_since
-                            .entry(entry.pid)
-                            .or_insert((entry.group, now_ms));
-                        let due = self
-                            .empty_since
-                            .get(&entry.pid)
-                            .map(|(_, first)| first.saturating_add(1_000))
-                            .unwrap_or(now_ms.saturating_add(1_000));
-                        self.retry_at_ms = Some(match self.retry_at_ms {
-                            Some(at) => at.min(due),
-                            None => due,
-                        });
-                        recovered.unresolved += 1;
-                        continue;
+                // The leader is gone. The row is forgotten only when two
+                // back-to-back snapshots both find the group empty and
+                // complete: one scan can miss a member that forks after the
+                // process list is read and exits before its own check, so
+                // the child was never listed. A member that forks and hands
+                // off between enumeration and check on every scan can still
+                // be missed; that is inherent to userspace enumeration,
+                // and the group number is never signalled either way.
+                Ok(false) => {
+                    match crate::system::group_empty_state(&first, entry.group) {
+                        Some(true) => {
+                            candidates.push((entry.pid, entry.group));
+                        }
+                        Some(false) | None => {
+                            recovered.unresolved += 1;
+                        }
                     }
-                    Some(false) => {
-                        self.empty_since.remove(&entry.pid);
-                        recovered.unresolved += 1;
-                        continue;
-                    }
-                    None => {
-                        recovered.unresolved += 1;
-                        continue;
-                    }
-                },
+                    continue;
+                }
                 Ok(true) => {}
             }
             // The leader runs as itself, but its owner or group changed:
@@ -212,7 +198,25 @@ impl<R: InventoryRuntime> Inventory<R> {
             // Kept as evidence until a later recovery proves the group gone.
             recovered.killed += 1;
         }
+        if !candidates.is_empty() {
+            let second = self.runtime.group_snapshot();
+            for (pid, group) in candidates {
+                if crate::system::group_empty_state(&second, group) == Some(true) {
+                    self.remove_inner(pid, now_ms);
+                    recovered.removed += 1;
+                } else {
+                    recovered.unresolved += 1;
+                }
+            }
+        }
         Ok(recovered)
+    }
+
+    #[cfg(not(windows))]
+    fn remove_inner(&mut self, pid: u32, now_ms: u64) {
+        // Mirrors `remove` without re-reading the clock.
+        self.unremoved.insert(pid);
+        self.retry_removals(now_ms);
     }
 }
 
