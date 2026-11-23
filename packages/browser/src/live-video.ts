@@ -343,6 +343,8 @@ export class LiveVideo {
     this.close();
     const generation = this.generation;
     let played = false;
+    /** The encoder ended the capture, perhaps before its open finished. */
+    let ended = false;
     const playing = () => {
       if (played || generation !== this.generation) return;
       played = true;
@@ -375,7 +377,10 @@ export class LiveVideo {
             if (generation === this.generation) this.stall(reason?.slice(0, 2048));
           },
           ended: (reason) => {
-            if (generation !== this.generation) return;
+            if (ended || generation !== this.generation) return;
+            ended = true;
+            // What the capture holds (its ace-media source, its reports) goes with it.
+            this.capture?.handle.close();
             this.capture = undefined;
             this.encodes = "";
             this.mediaWanted = undefined;
@@ -388,7 +393,7 @@ export class LiveVideo {
       )
       .then(
         (handle) => {
-          if (generation !== this.generation) return handle.close();
+          if (ended || generation !== this.generation) return handle.close();
           this.capture = { handle, ...size, announced: privacy.epoch };
           this.announce();
           this.encodes = "";

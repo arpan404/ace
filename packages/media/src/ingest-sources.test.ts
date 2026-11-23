@@ -3,6 +3,7 @@ import { EgressRouter, type EgressUnit } from "./egress.ts";
 import { encodeEgress, encodeEgressEnd, type MediaFrame } from "./frame.ts";
 import {
   pictureIngestMissing,
+  admitMs,
   drainMs,
   failedReason,
   failedRetryMs,
@@ -302,6 +303,40 @@ describe("IngestSources", () => {
     expect(l.ended).toEqual([["s1", true]]);
     w.status("s2", "starting");
     expect(l.points.at(-1)).toMatchObject({ path: "s2" });
+  });
+
+  it("a producer ace-media never admits is pointed again at a fresh open with a new token", () => {
+    const w = world();
+    const l = producer();
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    // The producer's socket died before ace-media took its hello: ace-media says nothing.
+    w.advance(admitMs - 1);
+    expect(w.opened().map((o) => o.source)).toEqual(["s1"]);
+    w.advance(1);
+    expect(w.opened().map((o) => o.source)).toEqual(["s1", "s2"]);
+    w.status("s2", "starting");
+    expect(l.points.at(-1)).toMatchObject({ path: "s2" });
+    expect(l.points.at(-1)?.token).not.toEqual(l.points[0]?.token);
+  });
+
+  it("a producer ace-media admitted keeps its open past the admission deadline", () => {
+    const w = world();
+    const source = w.sources.add(producer().p);
+    w.status("s1", "starting");
+    w.sources.message({ type: "source.ingest", source: "s1" });
+    w.advance(admitMs * 3);
+    expect(w.opened().map((o) => o.source)).toEqual(["s1"]);
+    expect(source.streaming()).toBe(true);
+  });
+
+  it("an ace-media that never reports admission leaves a pointed producer where it is", () => {
+    const w = world();
+    w.state.features = ["source.sync", "picture-ingest", "privacy-open"];
+    w.sources.add(producer().p);
+    w.status("s1", "starting");
+    w.advance(admitMs * 3);
+    expect(w.opened().map((o) => o.source)).toEqual(["s1"]);
   });
 
   it("stops after a few reconnects in a row, saying so, until its retry or a route change", () => {

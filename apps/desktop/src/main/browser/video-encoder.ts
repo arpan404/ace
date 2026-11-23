@@ -38,7 +38,7 @@ const defaultIdleMs = 30_000;
 
 /** What the encoder reports; the daemon parses the full event, this reads what routing needs. */
 export const EncoderEvent = z.looseObject({
-  t: z.enum(["failed", "ended"]),
+  t: z.enum(["failed", "ended", "ingest-lost"]),
   capture: z.string().min(1).max(256),
   encode: z.string().max(256).optional(),
 });

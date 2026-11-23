@@ -65,6 +65,8 @@ const IngestTarget = z.object({
   url: z.string().regex(/^ws:\/\/127\.0\.0\.1:\d{1,5}\/ingest$/),
   token: z.base64().length(44),
   epoch: z.number().int().min(0).max(0xffffffff),
+  /** The ace-media path, which the encoder names when the socket is lost. */
+  path: z.string().min(1).max(256).optional(),
 });
 export type IngestTarget = z.infer<typeof IngestTarget>;
 const Ingest = z.object({ capture: id, target: IngestTarget.optional() });

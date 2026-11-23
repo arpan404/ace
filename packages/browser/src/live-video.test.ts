@@ -227,6 +227,34 @@ describe("a tab whose capture keeps ending before its first picture", () => {
     expect(t.video.status()?.attempts).toBe(1);
   });
 
+  it("closes a capture its encoder ended, so nothing it held stays behind", async () => {
+    const t = watched();
+    t.video.add("viewer", delivered());
+    await t.run();
+    t.encoder.opened.at(-1)?.ended(noPicture);
+    expect(t.encoder.closed()).toBe(1);
+  });
+
+  it("never keeps a capture that ended before its open finished, and opens another", async () => {
+    const t = watched();
+    const open = t.encoder.host.open;
+    let early = true;
+    t.encoder.host.open = async (cdp, width, height, events, privacy) => {
+      const handle = await open(cdp, width, height, events, privacy);
+      if (early) {
+        early = false;
+        events.ended(noPicture);
+      }
+      return handle;
+    };
+    t.video.add("viewer", delivered());
+    await t.run();
+    expect(t.encoder.closed()).toBe(1);
+    expect(t.video.status()?.attempts).toBe(1);
+    while (t.encoder.opened.length === 1) await t.run(50);
+    expect(t.video.watched()).toBe(true);
+  });
+
   it("starts afresh, without waiting, when the person shows another tab", async () => {
     const t = watched();
     t.video.add("viewer", delivered());

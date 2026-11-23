@@ -16,6 +16,12 @@ export const VideoEncoderEvent = z.discriminatedUnion("t", [
     capture: z.string().max(256),
     reason: z.string().max(2048).optional(),
   }),
+  // The capture's ingest socket for ace-media path `path` closed (ADR 0088): it opens again.
+  z.object({
+    t: z.literal("ingest-lost"),
+    capture: z.string().max(256),
+    path: z.string().max(256),
+  }),
 ]);
 export type VideoEncoderEvent = z.infer<typeof VideoEncoderEvent>;
 
@@ -34,5 +40,6 @@ export function deliverVideoEvent(
     events.ended(event.reason);
     return;
   }
+  if (event.t === "ingest-lost") return events.ingestLost?.(event.path);
   events.failed(event.encode);
 }

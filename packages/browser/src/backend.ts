@@ -73,6 +73,11 @@ export interface CaptureEvents {
   want?(encodes: VideoEncode[] | undefined): void;
   /** What the capture runs on in ace-media changed (`VideoCaptureHandle.acceleration`). */
   accelerated?(): void;
+  /**
+   * The encoder's ingest socket for `path` (`VideoIngestTarget.path`) closed: ace-media refused
+   * its hello, or the socket died before or after it was admitted. The source opens again.
+   */
+  ingestLost?(path: string): void;
 }
 /** What ace-media calls a host's sources (docs/media/plan.md, "Routes"). */
 export type VideoMediaKind = "tab" | "tab-pictures" | "user-tab" | "embedded";
@@ -82,6 +87,8 @@ export interface VideoIngestTarget {
   /** Base64 of the single-use token. */
   token: string;
   epoch: number;
+  /** The ace-media path this target streams to, for the encoder's report of its loss. */
+  path?: string;
 }
 /** One tab capture feeding the encodes it is told to run. */
 export interface VideoCaptureHandle {

@@ -22,3 +22,24 @@ test("why the encoder ended a capture reaches the capture's listener", () => {
   ended({ t: "ended", capture: "capture-1", reason: "again" });
   expect(reasons).toHaveLength(2);
 });
+
+test("an encoder's lost ingest socket reaches its capture with the path it streamed to", () => {
+  const lost: string[] = [];
+  const events: CaptureEvents = {
+    chunk: () => {},
+    failed: () => {},
+    ended: () => {},
+    ingestLost: (path) => void lost.push(path),
+  };
+  const captures = new Map([["capture-1", events]]);
+  deliverVideoEvent(
+    captures,
+    VideoEncoderEvent.parse({ t: "ingest-lost", capture: "capture-1", path: "m4" }),
+  );
+  // A capture closed meanwhile hears nothing.
+  deliverVideoEvent(
+    captures,
+    VideoEncoderEvent.parse({ t: "ingest-lost", capture: "capture-9", path: "m4" }),
+  );
+  expect(lost).toEqual(["m4"]);
+});

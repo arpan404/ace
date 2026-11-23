@@ -14,6 +14,8 @@ export interface IngestTarget {
   /** The source's single-use token. The sink owns these bytes and zeroes them on every end. */
   token: Uint8Array;
   epoch: number;
+  /** The ace-media path it streams to, named in the encoder's report when its socket is lost. */
+  path?: string;
 }
 
 /** The part of a WebSocket the sink uses; a test passes its own. */
