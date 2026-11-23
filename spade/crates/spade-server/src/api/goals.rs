@@ -41,6 +41,15 @@ pub(super) async fn read(State(state): State<AppState>, Path(id): Path<String>) 
     }
 }
 
+/// `GET /v1/conversations/{lane}/task`: a task lane's `{task}` (ADR 0217), as a bot's reads; 404
+/// for a conversation that is no lane.
+pub(super) async fn read_lane(State(state): State<AppState>, Path(id): Path<String>) -> Response {
+    match state.engine.lane_task_view(&id) {
+        Ok(task) => Json(json!({ "task": task })).into_response(),
+        Err(error) => goal_problem(&error),
+    }
+}
+
 /// `PUT /v1/agents/{id}/task/goal`: sets the goal, or changes the open one.
 pub(super) async fn set(
     State(state): State<AppState>,

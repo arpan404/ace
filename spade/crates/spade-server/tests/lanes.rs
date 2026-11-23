@@ -200,6 +200,16 @@ async fn two_independent_requests_run_as_two_lanes_while_main_answers_a_quick_qu
     let row = roster_state(&spade, &agent).await?;
     assert_eq!(row["state"], "working", "{row}");
     assert_eq!(row["tasks"], 2, "{row}");
+    // A lane's goal reads like a bot's; main is no lane.
+    let lane_id = running[0]["conversation"].as_str().unwrap_or_default();
+    let (status, body) = spade
+        .get(&format!("/v1/conversations/{lane_id}/task"))
+        .await?;
+    assert_eq!((status, body["task"].clone()), (200, Value::Null), "{body}");
+    let (status, _) = spade
+        .get(&format!("/v1/conversations/{conversation}/task"))
+        .await?;
+    assert_eq!(status, 404);
 
     // Each lane hears only its own ask, never the quick question or the other task.
     for task in &running {
