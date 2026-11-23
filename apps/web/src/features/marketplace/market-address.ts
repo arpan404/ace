@@ -1,5 +1,5 @@
 /*
- * Where the Marketplace modal is, as one `?market=` value, pure. The modal reads it on open and
+ * Where the Store modal is, as one `?market=` value, pure. The modal reads it on open and
  * writes it back as the person moves, so any link into it works and a reload lands where they
  * were: `?market=looks`, `?market=bot/inbox`, `?market=suit/mizzle/review`, `?market=@mira`.
  */
@@ -88,7 +88,7 @@ const view = (place: MarketPlace, pages: MarketPage[] = []): MarketView => ({
 
 /**
  * The view a `?market=` value opens, or undefined when the modal is closed. Anything it can't
- * read opens Discover: a link that went stale still opens the Marketplace.
+ * read opens Discover: a link that went stale still opens the Store.
  */
 export function parseMarket(value: unknown): MarketView | undefined {
   if (value === undefined || value === null || value === false) return undefined;
