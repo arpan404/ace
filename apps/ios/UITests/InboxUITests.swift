@@ -10,20 +10,21 @@ import XCTest
         app.revealRow("thread.ios-tree")
         screenshot("inbox")
         // Snoozed threads wait on the Snoozed tab, out of the Inbox.
-        XCTAssertFalse(app.buttons["thread.ios-snoozed"].exists)
-        let inboxTab = app.buttons["threads.tab.inbox"].firstMatch
-        let snoozedTab = app.buttons["threads.tab.snoozed"].firstMatch
-        let settledTab = app.buttons["threads.tab.settled"].firstMatch
+        let snoozed = app.descendants(matching: .any)["thread.ios-snoozed"].firstMatch
+        XCTAssertFalse(snoozed.exists)
+        let inboxTab = app.inboxReady
+        let snoozedTab = app.descendants(matching: .any)["threads.tab.snoozed"].firstMatch
+        let settledTab = app.descendants(matching: .any)["threads.tab.settled"].firstMatch
         app.tapThreadsTab(snoozedTab)
-        XCTAssertTrue(app.buttons["thread.ios-snoozed"].waitForExistence(timeout: 10))
+        XCTAssertTrue(snoozed.waitForExistence(timeout: 10), "the seeded snoozed thread is on the Snoozed tab")
+        app.bringToMiddle(snoozed)
+        XCTAssertTrue(snoozed.isHittable, "the seeded snoozed thread is on the Snoozed tab")
         screenshot("inbox-snoozed")
         app.tapThreadsTab(inboxTab)
 
         // Trailing swipe: Snooze asks until when; a snoozed row offers Wake instead.
-        let tree = app.buttons["thread.ios-tree"]
-        app.bringToMiddle(tree)
-        tree.swipeLeft()
-        XCTAssertTrue(app.buttons["Snooze"].waitForExistence(timeout: 5))
+        let tree = app.descendants(matching: .any)["thread.ios-tree"].firstMatch
+        XCTAssertTrue(app.swipeFor("Snooze", on: tree).waitForExistence(timeout: 5))
         app.buttons["Snooze"].tap()
         XCTAssertTrue(app.buttons["1 hour"].waitForExistence(timeout: 5))
         screenshot("inbox-snooze")
@@ -32,23 +33,19 @@ import XCTest
         // the lazy list unloaded also "leaves", so the proof is finding it on the Snoozed tab.
         XCTAssertTrue(tree.waitForNonExistence(timeout: 15))
         app.tapThreadsTab(snoozedTab)
-        app.bringToMiddle(tree)
         XCTAssertTrue(tree.waitForExistence(timeout: 15), "the snoozed thread is on the Snoozed tab")
+        app.bringToMiddle(tree)
         XCTAssertTrue(tree.label.contains("Until"), tree.label)
         // The Snoozed list is short and its rows sit right under the tabs: dragging it would only
         // pull to refresh.
-        if !tree.isHittable { app.bringToMiddle(tree) }
-        tree.swipeLeft()
-        XCTAssertTrue(app.buttons["Wake"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.swipeFor("Wake", on: tree).waitForExistence(timeout: 5))
         app.buttons["Wake"].tap()
         XCTAssertTrue(tree.waitForNonExistence(timeout: 10), "awake, it leaves Snoozed")
         app.tapThreadsTab(inboxTab)
 
         // Settle moves a finished thread off the list; Undo, inside its five seconds, brings it back.
-        let done = app.buttons["thread.ios-done"]
-        app.bringToMiddle(done)
-        done.swipeLeft()
-        XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
+        let done = app.descendants(matching: .any)["thread.ios-done"].firstMatch
+        XCTAssertTrue(app.swipeFor("Settle", on: done).waitForExistence(timeout: 5))
         app.buttons["Settle"].tap()
         let undoSettle = app.buttons["inbox.undoSettle"]
         XCTAssertTrue(undoSettle.waitForExistence(timeout: 10))
@@ -57,27 +54,25 @@ import XCTest
         XCTAssertTrue(done.waitForExistence(timeout: 10))
 
         // Left alone, the toast goes and the thread waits on the Settled tab, which unsettles it.
-        app.bringToMiddle(done)
-        done.swipeLeft()
-        XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.swipeFor("Settle", on: done).waitForExistence(timeout: 5))
         app.buttons["Settle"].tap()
         XCTAssertTrue(undoSettle.waitForExistence(timeout: 10))
         XCTAssertTrue(undoSettle.waitForNonExistence(timeout: 10), "the Undo toast goes by itself")
         app.tapThreadsTab(settledTab)
         screenshot("inbox-settled")
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "the settled thread is on the Settled tab")
         app.bringToMiddle(done)
         XCTAssertTrue(done.isHittable, "the settled thread is on the Settled tab")
-        done.swipeLeft()
-        XCTAssertTrue(app.buttons["Unsettle"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.swipeFor("Unsettle", on: done).waitForExistence(timeout: 5))
         app.buttons["Unsettle"].tap()
         XCTAssertTrue(done.waitForNonExistence(timeout: 10), "unsettled, it leaves Settled")
         app.tapThreadsTab(inboxTab)
-        XCTAssertTrue(done.waitForExistence(timeout: 10))
+        // Back in the Inbox the list keeps its place, so the row is scrolled to rather than
+        // assumed loaded: the fixture lists more threads than one screen holds.
+        app.revealRow("thread.ios-done")
 
         // The leading swipe pins; Archive lives in the long-press menu, with its own Undo.
-        app.bringToMiddle(done)
-        done.swipeRight()
-        XCTAssertTrue(app.buttons["Pin"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.swipeFor("Pin", on: done, left: false).waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["Archive"].exists, "the leading swipe only pins")
         done.swipeLeft()
         done.press(forDuration: 1.0)
