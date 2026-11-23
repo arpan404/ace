@@ -39,9 +39,9 @@ extension ConversationFeed {
         }
         // Laying the rows out again in the other stack redraws every one of them. A reader away
         // from the end never sees it: what is drawn stays frozen while the top row is put back
-        // where it was (`holdOlderPage`), then the feed thaws. This runs once a page that landed
-        // mid-fling has come to rest, so the page's own hold is long over.
-        if !following, revealed {
+        // where it was (`holdOlderPage`), then the feed thaws. If the page already holds the
+        // frame, it also covers the rebuild.
+        if !following, revealed, !surface.running(.page) {
             intent.olderPage = true
             captureTop()
             holdOlderPage()
@@ -163,7 +163,10 @@ extension ConversationFeed {
     func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
         model.prepareReadingAnswers = transcriptMarkdown?.prepare
-        model.readingWillMove = { captureTop(); holdOlderPage() }
+        model.readingWillMove = {
+            captureTop()
+            if reading.operation == "older" { holdOlderPage() }
+        }
         // The window the thread opened from (kept rows, a screenful) grows: held in place.
         model.liveWindowWillGrow = { liveWindowWillGrow() }
         model.readingMoved = { reading.moved() }
@@ -201,6 +204,7 @@ extension ConversationFeed {
         surface.thaw()
         saveSession()
         reading.cancel(model: model)
+        transcriptMarkdown?.moving = false
         model.prepareReadingAnswers = nil
         model.readingWillMove = nil
         model.readingMoved = nil
