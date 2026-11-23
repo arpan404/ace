@@ -5,10 +5,11 @@
     "source": "source-1",
     "handle": 1,
     "epoch": 1,
+    "deadlineMs": 10000,
     "origin": {
       "kind": "scrcpy",
-      "host": "value",
-      "port": 1
+      "host": "127.0.0.1",
+      "port": 1234
     }
   }
 }

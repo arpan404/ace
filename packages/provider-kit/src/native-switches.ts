@@ -296,6 +296,18 @@ export function storeBackend(): NativeBackend {
   return currentScalar("ACE_STORE", store ? "native" : "typescript");
 }
 
+/**
+ * Whether Android video's scrcpy socket is read by ace-media itself (D1, `ACE_SCRCPY_VIDEO=media`)
+ * or by the daemon's JavaScript (unset, today's path). Read once per capture; with the switch on
+ * and no ace-media build with the scrcpy reader, the capture fails rather than falling back.
+ */
+export function scrcpyVideoBackend(): NativeBackend {
+  const value = process.env.ACE_SCRCPY_VIDEO;
+  if (value === undefined) return "typescript";
+  if (value === "media") return "native";
+  throw new Error("ACE_SCRCPY_VIDEO takes media");
+}
+
 export function crossLogPath(): string | undefined {
   return crossLog;
 }

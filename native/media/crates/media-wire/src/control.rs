@@ -379,6 +379,15 @@ pub enum ToMedia {
             skip_serializing_if = "Option::is_none"
         )]
         private: Option<bool>,
+        /// D1: longest ace-media spends bringing this source's own picture (a scrcpy
+        /// device it reads itself); absent for a producer that streams into ingest.
+        #[serde(
+            rename = "deadlineMs",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        deadline_ms: Option<u32>,
         #[serde(rename = "origin")]
         origin: Origin,
     },
@@ -429,6 +438,25 @@ pub enum ToMedia {
     },
     #[serde(rename = "source.close")]
     SourceClose {
+        #[serde(rename = "source")]
+        source: Id,
+    },
+    /// D1: (re)dial a scrcpy source's video handshake at `host:port` (an adb forward).
+    /// The first handshake's endpoint comes in the open's origin; a restart passes a new
+    /// one here, under the same source.
+    #[serde(rename = "source.dial")]
+    SourceDial {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "host")]
+        host: String,
+        #[serde(rename = "port")]
+        port: u32,
+    },
+    /// D1: the daemon connected scrcpy's control socket; the reader may now read the
+    /// device name and codec id.
+    #[serde(rename = "source.controlConnected")]
+    SourceControlConnected {
         #[serde(rename = "source")]
         source: Id,
     },
@@ -805,6 +833,22 @@ pub enum FromMedia {
         #[serde(rename = "source")]
         source: Id,
     },
+    /// D1: ace-media saw scrcpy's dummy byte on the video socket; the daemon connects
+    /// control now.
+    #[serde(rename = "source.greeted")]
+    SourceGreeted {
+        #[serde(rename = "source")]
+        source: Id,
+    },
+    /// D1: the scrcpy handshake finished and video follows on egress. The device name up
+    /// to its first NUL, decoded as UTF-8 like `toString("utf8")`.
+    #[serde(rename = "source.ready")]
+    SourceReady {
+        #[serde(rename = "source")]
+        source: Id,
+        #[serde(rename = "deviceName")]
+        device_name: String,
+    },
     /// The barrier `source.sync` asked for holds.
     #[serde(rename = "source.synced")]
     SourceSynced {
@@ -1031,14 +1075,17 @@ pub struct InvalidControl;
 /// daemon sends them there only to a build that says so; `privacy-open` reads
 /// `source.open.private` and `still.take.minEpoch` (M8), which a stricter build would refuse;
 /// `still-fresh` reads `still.take.fresh`; `sync-drain`: a `source.sync` on a picture source
-/// drains its encoder before it holds, so a daemon need not wait for the encode itself.
-pub const FEATURES: [&str; 6] = [
+/// drains its encoder before it holds, so a daemon need not wait for the encode itself;
+/// `scrcpy-video` reads a scrcpy source's video socket itself (D1): `source.open.deadlineMs`,
+/// `source.dial`, `source.controlConnected`, `source.greeted` and `source.ready`.
+pub const FEATURES: [&str; 7] = [
     "source.ingest",
     "source.sync",
     "picture-ingest",
     "privacy-open",
     "still-fresh",
     "sync-drain",
+    "scrcpy-video",
 ];
 
 /// The offered features (`ACE_MEDIA_FEATURES`, comma separated) this build speaks, in its own
