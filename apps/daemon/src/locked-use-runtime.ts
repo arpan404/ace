@@ -91,6 +91,8 @@ export class LockedUseRuntime {
    */
   #heldOnDrop = false;
   #recovering: Promise<void> | undefined;
+  /** Bumped each time locked use is turned off, before the runs then active are cancelled. */
+  #revocation = 0;
 
   constructor(options: LockedUseRuntimeOptions) {
     this.#options = options;
@@ -130,8 +132,20 @@ export class LockedUseRuntime {
     return this.#unprotected.track(send);
   }
 
-  /** Stops every queued or running protected attempt; each relocks and reports cancelled. */
+  /**
+   * The revocation generation. A call reads it before deciding and passes it to
+   * `runProtected`, which refuses the run if it changed meanwhile.
+   */
+  get revocation(): number {
+    return this.#revocation;
+  }
+
+  /**
+   * Stops every queued or running protected attempt; each relocks and reports cancelled. A
+   * call still deciding (it read the generation before this) is refused when it enqueues.
+   */
   cancelActive(): void {
+    this.#revocation++;
     for (const run of this.#runs) run.abort();
   }
 
@@ -172,7 +186,8 @@ export class LockedUseRuntime {
   /**
    * Runs `work` inside one protected interval for the approved turn `scope`. Attempts run one
    * at a time; each gets a fresh attempt id. Rejects, without running `work`, unless the
-   * service reaches `working` for this attempt.
+   * service reaches `working` for this attempt. `revocation` is the generation the call read
+   * before deciding: if locked use was turned off since, the run is refused as cancelled.
    */
   runProtected<T>(
     scope: LockedUseTurnScope,
@@ -180,12 +195,17 @@ export class LockedUseRuntime {
     work: (signal: AbortSignal) => Promise<T>,
     signal: AbortSignal | undefined,
     optIn: boolean,
+    revocation: number,
   ): Promise<T> {
+    if (revocation !== this.#revocation)
+      return Promise.reject(new LockedUseAttemptError("cancelled", `Cancelled. ${notRun}`));
     const stop = new AbortController();
     this.#runs.add(stop);
     const stopped = signal ? AbortSignal.any([signal, stop.signal]) : stop.signal;
     const run = this.#tail
       .then(async () => {
+        if (revocation !== this.#revocation)
+          throw new LockedUseAttemptError("cancelled", `Cancelled. ${notRun}`);
         // A request sent before this run was queued may still be acting on the desktop: the
         // Mac is never unlocked under it.
         const drained = await this.#unprotected.drained(

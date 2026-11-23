@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, it } from "vitest";
+import { computerLockedUseGate } from "./computer-locked-use.ts";
 import { LockedUseRuntime } from "./locked-use-runtime.ts";
 
 const fakeService = fileURLToPath(import.meta.resolve("@ace/screen/testing/locked-use-service"));
@@ -83,6 +84,7 @@ it("a protected run returns the work's result after the service relocks", async 
     async (signal) => (signal.aborted ? "aborted" : "done"),
     undefined,
     true,
+    owner.revocation,
   );
   expect(result).toBe("done");
   // The relock is confirmed; the service's own `ready` report may follow a moment later.
@@ -106,6 +108,7 @@ it("the service dying mid-work stops the attempt, and the next use starts a new 
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "locked_use_connection_lost" });
@@ -128,6 +131,7 @@ it("an interval counts as active from the protected run's start until it relocks
     },
     undefined,
     true,
+    owner.revocation,
   );
   expect(owner.intervalActive()).toBe(true);
   await expect(run).resolves.toBe("done");
@@ -151,6 +155,7 @@ it("cancelling active runs stops the work, and the interval ends only once the M
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(await failed).toMatchObject({ code: "cancelled" });
@@ -175,6 +180,7 @@ function dieMidWork(owner: LockedUseRuntime, started: { child: ChildProcess }[])
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
 }
@@ -200,6 +206,7 @@ it("a protected run never begins while an unprotected computer request is still 
     },
     undefined,
     true,
+    owner.revocation,
   );
   await wait(150);
   // Nothing was asked of the service yet, so the Mac was never unlocked under the request.
@@ -228,6 +235,7 @@ it("a protected run is refused, and the service never asked, when an unprotected
       },
       undefined,
       true,
+      owner.revocation,
     )
     .catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "locked_use_busy" });
@@ -256,4 +264,44 @@ it("after the service dies mid-work, a fresh status from an unlocked Mac keeps t
   expect(await dieMidWork(owner, started)).toMatchObject({ code: "locked_use_connection_lost" });
   await expect(owner.refresh()).resolves.toMatchObject({ phase: "disabled", session: "unlocked" });
   expect(owner.intervalActive()).toBe(true);
+});
+
+it("turning locked use off while a call is still deciding keeps that call out of the protected interval", async () => {
+  const { owner } = await runtime();
+  const pid = Promise.withResolvers<number>();
+  let asked = false;
+  const gate = computerLockedUseGate({
+    lockedUseRuntime: owner,
+    settings: { get: async () => ({ value: true }) } as never,
+    engine: { activeRun: () => "run-1" } as never,
+    computer: {
+      helperProcessId: () => {
+        asked = true;
+        return pid.promise;
+      },
+    } as never,
+  });
+  if (!gate) throw new Error("No gate");
+  const sent: string[] = [];
+  const call = gate(
+    {
+      threadId: "thread-1",
+      agentId: "agent-1",
+      app: "com.apple.Notes",
+      signal: new AbortController().signal,
+    },
+    async () => {
+      sent.push("work");
+      return "done";
+    },
+  ).catch((error: unknown) => error);
+  // The call read the setting and a verified, locked status, and now waits on the helper.
+  await until(() => asked);
+  owner.cancelActive();
+  pid.resolve(process.pid);
+  expect(await call).toMatchObject({ code: "cancelled" });
+  expect(sent).toEqual([]);
+  // The service was never asked to begin: it never left its idle phase.
+  expect(owner.intervalActive()).toBe(false);
+  expect(owner.status).toMatchObject({ phase: "disabled", session: "locked" });
 });
