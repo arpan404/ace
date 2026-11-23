@@ -233,9 +233,10 @@ message}` together and opens no reply; the lane gets the person's words (trusted
 
 ### API added
 
-- `GET /v1/conversations/{id}/tasks` → `{"tasks": [{task, conversation, title, state, needs_you,
-progress: {done, total, verified} | null, plan_step, started_ms, ended_ms, cost_micros, asks,
-moved, model, report}]}`, ordered needs you, running, ended, queued (oldest first in each).
+- `GET /v1/conversations/{id}/tasks[?ended=N]` → `{"tasks": [{task, conversation, title, state,
+needs_you, progress: {done, total, verified} | null, plan_step, started_ms, ended_ms,
+cost_micros, asks, moved, model, report}]}`, ordered needs you, running, ended, queued (oldest
+  first in each): every lane that hasn't ended, and the N (20 by default) that ended last.
 - A lane's conversation is read with `/events` and `/live`, written to with `/messages`, stopped
   with `/stop` and tried again with `/retry`, like any.
 - `GET /v1/conversations/{lane}/task` → the lane's `{task}`, as `GET /v1/agents/{id}/task`

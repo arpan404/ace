@@ -496,5 +496,12 @@ moved}`), and a running job's live handle moves to the lane under the lock a job
   kept files. A shell command's writes are not seen.
 - **A lane's goal** reads at `GET /v1/conversations/{lane}/task`, the body `GET
 /v1/agents/{id}/task` answers.
+- **After review (#2672):** a lane's state, slot and report come from one fold that sees its own
+  jobs and waits, its continuation and its workers; Stop on the bot reaches every lane before
+  anything else and admits none meanwhile; request, answer and routing pairs are one write each;
+  `lane_of.untrusted` feeds the trust fold and main's steering is `lane_message`, the bot's words;
+  `task_stop` needs the person's message from since the task last started or reported; lanes
+  resume at open like conversations; `lanes_live` keeps hot paths and startup off ended lanes;
+  `?ended=N` pages the task list.
 - **Not built here:** the UI (a separate thread builds the popover, the lines and the pill against
   `GET /v1/conversations/{id}/tasks` and the events).
