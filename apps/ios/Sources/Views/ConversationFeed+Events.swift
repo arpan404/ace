@@ -162,6 +162,7 @@ extension ConversationFeed {
     }
     func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
+        model.prepareReadingAnswers = transcriptMarkdown?.prepare
         model.readingWillMove = { captureTop(); holdOlderPage() }
         // The window the thread opened from (kept rows, a screenful) grows: held in place.
         model.liveWindowWillGrow = { liveWindowWillGrow() }
@@ -200,6 +201,7 @@ extension ConversationFeed {
         surface.thaw()
         saveSession()
         reading.cancel(model: model)
+        model.prepareReadingAnswers = nil
         model.readingWillMove = nil
         model.readingMoved = nil
         model.liveWindowWillGrow = nil

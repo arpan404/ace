@@ -5,14 +5,17 @@ import UIKit
 extension EnvironmentValues {
     /// The open thread's rendered Markdown, kept while its rows scroll off screen.
     @Entry var markdownShelf: ViewShelf<MarkitInlineView>? = nil
+    @Entry var transcriptMarkdown: TranscriptMarkdownPrefetch? = nil
     @Entry var markdownOwner: String? = nil
 }
 
 /// The shelf is available on first layout, so finished messages mount their renderer once.
 private struct MarkdownShelfScope: ViewModifier {
     @State private var shelf = ViewShelf<MarkitInlineView>(maxKept: 40)
+    @State private var prefetch = TranscriptMarkdownPrefetch()
     func body(content: Content) -> some View {
         content.environment(\.markdownShelf, shelf)
+            .environment(\.transcriptMarkdown, prefetch)
     }
 }
 
@@ -38,15 +41,15 @@ struct ShelvedMarkdown: View {
     let renderDiagram: (@MainActor (_ language: String, _ source: String) async -> UIView?)?
     let shelf: ViewShelf<MarkitInlineView>
     @Environment(\.markdownOwner) var owner
+    @Environment(\.transcriptMarkdown) var preparation
+    @Environment(\.transcriptScale) var scale
+    @Environment(\.dynamicTypeSize) var typeSize
     /// Only a changed size that SwiftUI has yet to measure asks for layout again.
     @State private var sizeRevision = 0
 
     var body: some View {
         ShelvedMarkdownHost(markdown: self, sizeRevision: sizeRevision) { sizeRevision &+= 1 }
     }
-
-    /// What identifies this rendering on the shelf: the text and the dialect it is read in.
-    var key: String { "\(flavor.rawValue):" + contentKey(text) }
 }
 
 private struct ShelvedMarkdownHost: UIViewRepresentable {
@@ -62,21 +65,25 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
 
     func updateUIView(_ container: UIView, context: Context) {
         let coordinator = context.coordinator
-        let key = markdown.key
-        if coordinator.key != key || coordinator.owner != markdown.owner {
+        let remount = coordinator.text != markdown.text || coordinator.flavor != markdown.flavor
+            || coordinator.owner != markdown.owner
+        var initial = false
+        if remount {
             coordinator.release()
+            let key = TranscriptMarkdownDocuments.key(markdown.text, flavor: markdown.flavor)
             let view: MarkitInlineView
             if let kept = markdown.shelf.take(key) {
                 view = kept
                 PerfProbe.add("markdown.reused", 1)
             } else {
                 view = MarkitInlineView(theme: markdown.theme, flavor: markdown.flavor)
+                initial = true
                 PerfProbe.add("markdown.built", 1)
             }
             view.frame = container.bounds
             view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             container.addSubview(view)
-            coordinator.show(view, key: key, owner: markdown.owner, shelf: markdown.shelf)
+            coordinator.show(view, key: key, text: markdown.text, owner: markdown.owner, shelf: markdown.shelf)
         }
         guard let view = coordinator.view else { return }
         view.theme = markdown.theme
@@ -92,7 +99,13 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             guard let view, let coordinator, coordinator.measurement.needsLayout(height: height, at: view.bounds.width) else { return }
             onSizeChanged()
         }
-        view.render(markdown.text, finalized: true)
+        if initial {
+            if markdown.flavor == .agent, let documents = markdown.preparation?.documents {
+                coordinator.renderAnswer(documents)
+            } else {
+                view.render(markdown.text, finalized: true)
+            }
+        }
     }
 
     static func dismantleUIView(_ container: UIView, coordinator: Coordinator) { coordinator.release() }
@@ -100,8 +113,19 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
         let offered = proposal.width ?? 0
         let width = offered > 0 && offered.isFinite ? offered : (uiView.bounds.width > 0 ? uiView.bounds.width : 320)
-        let height = context.coordinator.view?.height(for: width) ?? 0
-        context.coordinator.measurement.measured(height: height, at: width)
+        let coordinator = context.coordinator
+        var height = coordinator.view?.height(for: width) ?? 0
+        if markdown.flavor == .agent, let key = coordinator.key {
+            let measurementKey = "\(key):\(width):\(markdown.scale):\(markdown.typeSize)"
+            if height > 0 {
+                markdown.shelf.remember(height: height, for: measurementKey)
+            } else if coordinator.preparing {
+                let kept = markdown.shelf.height(measurementKey)
+                PerfProbe.add(kept == nil ? "markdown.heightMiss" : "markdown.heightHit", 1)
+                height = kept ?? 0
+            }
+        }
+        coordinator.measurement.measured(height: height, at: width)
         return CGSize(width: width, height: height)
     }
 
@@ -111,15 +135,40 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
         private(set) var view: MarkitInlineView?
         private(set) var key: String?
         private(set) var owner: String?
+        private(set) var text: String?
+        var flavor: MarkitFlavor? { view?.flavor }
         var measurement = MarkdownMeasurement()
+        private var pending: Task<Void, Never>?
+        var preparing: Bool { pending != nil }
         private weak var shelf: ViewShelf<MarkitInlineView>?
-        func show(_ view: MarkitInlineView, key: String, owner: String?, shelf: ViewShelf<MarkitInlineView>) {
+        func show(_ view: MarkitInlineView, key: String, text: String, owner: String?, shelf: ViewShelf<MarkitInlineView>) {
             self.view = view
             self.key = key
+            self.text = text
             self.owner = owner
             measurement = MarkdownMeasurement()
             self.shelf = shelf
             MarkdownGates.gate(for: view).open()
+        }
+        func renderAnswer(_ documents: TranscriptMarkdownDocuments) {
+            guard let view, let key, let text else { return }
+            if let cached = documents.cached(key) {
+                PerfProbe.add("markdown.parseHit", 1)
+                view.setDocument(cached)
+                return
+            }
+            PerfProbe.add("markdown.parseMiss", 1)
+            pending = Task { [weak self, weak view] in
+                let document = await documents.document(text, flavor: .agent, key: key)
+                guard !Task.isCancelled, let self, let view else { return }
+                self.pending = nil
+                if let document {
+                    view.setDocument(document)
+                } else {
+                    view.synchronousRenderLimit = -1
+                    view.render(text, finalized: true)
+                }
+            }
         }
         /// The row went off screen (or shows other text): its view goes back on the shelf, and
         /// its diagrams still waiting to be drawn step out of the queue until it shows again.
@@ -131,9 +180,12 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             view.onLink = nil
             view.onReference = nil
             view.resolveImage = nil
-            shelf?.put(view, for: key, owner: owner)
+            if !preparing { shelf?.put(view, for: key, owner: owner) }
+            pending?.cancel()
+            pending = nil
             self.view = nil
             self.key = nil
+            self.text = nil
         }
     }
 }

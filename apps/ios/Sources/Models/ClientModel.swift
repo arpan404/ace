@@ -127,6 +127,8 @@ import QuartzCore
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
     /// the reading view's negative epoch.
     @ObservationIgnored var reading: ThreadModel?
+    /// Finished answers read ahead while the page waits to land.
+    @ObservationIgnored var prepareReadingAnswers: (([String]) -> Void)?
     /// Around each frame that moves the reading rows, so the feed keeps the reader's place.
     @ObservationIgnored var readingWillMove: (() -> Void)?
     @ObservationIgnored var readingMoved: (() -> Void)?
@@ -595,6 +597,7 @@ import QuartzCore
         }
         var activityChanged = false
         var becameReady = false
+        var readingAnswers: [String] = []
         for patch in patches {
             patchCount += 1
             if readingHold != nil, let reading, let scope = patch.threadScope, scope.thread == reading.id, scope.epoch == reading.epoch {
@@ -603,6 +606,11 @@ import QuartzCore
                     flushReading()
                 } else {
                     readingHold?.append(patch)
+                    if prepareReadingAnswers != nil, readingAnswers.count < 32,
+                       case .item(_, _, _, let row?, _) = patch, row.type == "message",
+                       row.role != "user", row.complete, !row.text.isEmpty, row.text.utf8.count <= 64 * 1024 {
+                        readingAnswers.append(row.text)
+                    }
                 }
                 continue
             }
@@ -938,6 +946,7 @@ import QuartzCore
             readingMoved?()
             ThreadOpenTrace.readingFrame(started: readingMoving)
         }
+        if !readingAnswers.isEmpty { prepareReadingAnswers?(Array(readingAnswers.reversed())) }
         if activityChanged, let hostId { liveActivity.update(row: { self.inbox[$0] }, hostId: hostId, online: connection == "ready") }
         if let thread = thread?.refresh ?? thread {
             if reorder { thread.reorder() } else if !added.isEmpty { thread.place(added) }

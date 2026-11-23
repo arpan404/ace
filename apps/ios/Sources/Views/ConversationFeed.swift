@@ -10,6 +10,7 @@ struct ConversationFeed: View {
     @Environment(\.aceReduceMotion) var reduceMotion
     @Environment(\.dynamicTypeSize) var typeSize
     @Environment(\.markdownShelf) var markdownShelf
+    @Environment(\.transcriptMarkdown) var transcriptMarkdown
     @Environment(\.aceDensityId) var densityId
     let model: ClientModel
     let thread: ThreadModel
