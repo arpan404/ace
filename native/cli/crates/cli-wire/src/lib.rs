@@ -2,6 +2,7 @@
 //! Blocking connection layer between the Rust `ace` CLI and an ace daemon (ADR 0221).
 
 pub mod error;
+mod fragments;
 pub mod home;
 pub mod http;
 pub mod origin;
@@ -10,6 +11,7 @@ pub mod protocol;
 pub mod stream;
 pub mod tls;
 pub mod types;
+mod ureq_tls;
 pub mod ws;
 mod ws_io;
 pub mod x509;
@@ -29,11 +31,11 @@ pub use http::{
 pub use origin::{LocalOrigin, RemoteOrigin, is_tailnet_name};
 pub use profile::{DirectRemote, ProfileName, ProfileRelay, RemoteProfile, SocketTicket};
 pub use protocol::{
-    Credential, DEFAULT_COLD_START_TIMEOUT, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    MAX_FRAME_BYTES, MAX_SEND_BYTES, PROTOCOL_VERSION, Reply, Welcome,
+    Credential, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, MAX_FRAME_BYTES,
+    MAX_SEND_BYTES, PROTOCOL_VERSION, Reply, Welcome, expected_reply_types,
 };
 pub use tls::{Clock, SystemClock, TlsPinConfig};
-pub use types::{DeviceId, Fingerprint, HostId, RequestId, Ticket, Token, is_hex64};
+pub use types::{DeviceId, Fingerprint, HostId, LocalIdentity, RequestId, Ticket, Token, is_hex64};
 pub use ws::{ConnectConfig, Connection};
 pub use x509::{
     CertificateInfo, parse_leaf_certificate, sha256_fingerprint, spki_sha256_fingerprint,

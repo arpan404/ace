@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Pinned TLS verification and connectors over `rustls` (`ring` provider).
+//! Pinned TLS verification and WSS dialer over `rustls` (`ring` provider).
 //!
-//! Matches `pinnedConnector` in `apps/daemon/src/client-access.ts`:
+//! Matches `pinnedConnector` in `apps/daemon/src/client-access.ts` and ADR 0097:
 //! - Verifies the leaf certificate's SPKI SHA-256 fingerprint in constant time before any HTTP
 //!   headers or credentials are transmitted.
-//! - Allows a Tailscale `.ts.net` `MagicDNS` host to fall back to OS CA roots (loaded lazily via
-//!   `rustls-native-certs` only on pin mismatch, or an explicit `tailnet_roots` override in tests)
-//!   when its certificate rotates on renewal (ADR 0097).
+//! - Allows a Tailscale `*.ts.net` `MagicDNS` host to fall back to OS system CA roots when its
+//!   certificate rotates on renewal (ADR 0097), without reading `SSL_CERT_FILE` / `SSL_CERT_DIR`
+//!   environment overrides (matching Node's default `tls.connect` trust).
 //! - Rejects certificates outside `[notBefore, notAfter)` using an injected [`Clock`].
-//! - Provides both a direct [`connect_pinned_tls`] stream for `tungstenite` `WebSockets` and a
-//!   [`PinnedTlsConnector`] implementing `ureq`'s `Connector` trait for `/v1/*` HTTPS calls.
 
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io;
 use std::sync::{Arc, OnceLock};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -23,10 +21,6 @@ use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{
     CertificateError, ClientConfig, ClientConnection, DigitallySignedStruct, Error as RustlsError,
     OtherError, RootCertStore, SignatureScheme, StreamOwned,
-};
-use ureq::unversioned::transport::{
-    Buffers, ConnectionDetails, Connector, Either, LazyBuffers, NextTimeout, Transport,
-    TransportAdapter,
 };
 
 use crate::error::WireError;
@@ -61,14 +55,14 @@ pub struct TlsPinConfig {
     pub fingerprint: Fingerprint,
     /// Clock used to validate `[notBefore, notAfter)`.
     pub clock: Arc<dyn Clock>,
-    /// Optional CA root store override for the `.ts.net` renewal fallback (for tests).
-    /// When `None`, OS native CA roots are loaded lazily via `rustls-native-certs` only if a
-    /// `.ts.net` host's leaf key does not match the pin.
+    /// Optional CA root store override for the `.ts.net` renewal fallback (for tests only).
+    /// When `None`, OS system CA roots are loaded lazily only if a `*.ts.net` host's leaf key
+    /// does not match the pin, never honoring `SSL_CERT_FILE` / `SSL_CERT_DIR`.
     pub tailnet_roots: Option<Arc<RootCertStore>>,
 }
 
 impl TlsPinConfig {
-    /// Creates a standard pinned TLS config using [`SystemClock`] and lazy native OS roots for
+    /// Creates a standard pinned TLS config using [`SystemClock`] and lazy OS system roots for
     /// `.ts.net` key-rotation fallback.
     #[must_use]
     pub fn new(fingerprint: Fingerprint) -> Self {
@@ -77,6 +71,12 @@ impl TlsPinConfig {
             clock: Arc::new(SystemClock),
             tailnet_roots: None,
         }
+    }
+
+    /// Builds a `rustls::ClientConfig` enforcing this pin, `[notBefore, notAfter)`, and `.ts.net`
+    /// renewal fallback rules.
+    pub fn build_client_config(&self) -> Result<Arc<ClientConfig>, WireError> {
+        build_pinned_rustls_config(self)
     }
 }
 
@@ -117,7 +117,7 @@ impl PinnedCertVerifier {
             .get_or_init(|| {
                 let roots = match &self.custom_roots {
                     Some(custom) => Arc::clone(custom),
-                    None => load_native_roots(),
+                    None => load_system_roots(),
                 };
                 if roots.is_empty() {
                     return None;
@@ -138,11 +138,13 @@ impl ServerCertVerifier for PinnedCertVerifier {
         intermediates: &[CertificateDer<'_>],
         server_name: &ServerName<'_>,
         ocsp_response: &[u8],
-        now: UnixTime,
+        _now: UnixTime,
     ) -> Result<ServerCertVerified, RustlsError> {
         let info = parse_leaf_certificate(end_entity.as_ref())
             .map_err(|_| RustlsError::InvalidCertificate(CertificateError::BadEncoding))?;
         let actual = sha256_fingerprint(info.spki_der);
+        let at_ms = self.clock.now_millis();
+        let verify_now = UnixTime::since_unix_epoch(Duration::from_millis(at_ms));
 
         if !actual.ct_eq_bytes(self.fingerprint.as_bytes()) {
             let trusted_tailnet = match server_name {
@@ -154,7 +156,7 @@ impl ServerCertVerifier for PinnedCertVerifier {
                                 intermediates,
                                 server_name,
                                 ocsp_response,
-                                now,
+                                verify_now,
                             )
                             .is_ok()
                     })
@@ -168,13 +170,12 @@ impl ServerCertVerifier for PinnedCertVerifier {
             }
         }
 
-        let at = self.clock.now_millis();
-        if at < info.not_before_ms {
+        if at_ms < info.not_before_ms {
             return Err(RustlsError::InvalidCertificate(
                 CertificateError::NotValidYet,
             ));
         }
-        if at >= info.not_after_ms {
+        if at_ms >= info.not_after_ms {
             return Err(RustlsError::InvalidCertificate(CertificateError::Expired));
         }
 
@@ -204,13 +205,74 @@ impl ServerCertVerifier for PinnedCertVerifier {
     }
 }
 
-fn load_native_roots() -> Arc<RootCertStore> {
+/// Loads OS system root CAs without consulting `SSL_CERT_FILE` or `SSL_CERT_DIR`.
+fn load_system_roots() -> Arc<RootCertStore> {
     let mut store = RootCertStore::empty();
-    let result = rustls_native_certs::load_native_certs();
-    for cert in result.certs {
-        let _ = store.add(cert);
-    }
+    load_platform_system_roots(&mut store);
     Arc::new(store)
+}
+
+#[cfg(target_os = "macos")]
+fn load_platform_system_roots(store: &mut RootCertStore) {
+    use security_framework::trust_settings::{Domain, TrustSettings, TrustSettingsForCertificate};
+
+    // Query only the immutable System domain (Apple's shipped public CAs), matching Node's
+    // bundled public CA store and ignoring SSL_CERT_* and per-user overrides.
+    let ts = TrustSettings::new(Domain::System);
+    let Ok(iter) = ts.iter() else {
+        return;
+    };
+    for cert in iter {
+        let trusted = match ts.tls_trust_settings_for_certificate(&cert) {
+            Ok(Some(setting)) => setting,
+            Ok(None) => TrustSettingsForCertificate::TrustRoot,
+            Err(_) => continue,
+        };
+        if matches!(
+            trusted,
+            TrustSettingsForCertificate::TrustRoot | TrustSettingsForCertificate::TrustAsRoot
+        ) {
+            let _ = store.add(CertificateDer::from(cert.to_der()));
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn load_platform_system_roots(store: &mut RootCertStore) {
+    use rustls::pki_types::pem::PemObject;
+
+    // Standard Linux/BSD system CA bundle locations; never reads SSL_CERT_FILE / SSL_CERT_DIR.
+    const SYSTEM_BUNDLES: &[&str] = &[
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/ca-bundle.pem",
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+        "/etc/ssl/cert.pem",
+    ];
+    for path in SYSTEM_BUNDLES {
+        let Ok(iter) = CertificateDer::pem_file_iter(path) else {
+            continue;
+        };
+        let mut added = 0usize;
+        for cert in iter.flatten() {
+            if store.add(cert).is_ok() {
+                added += 1;
+            }
+        }
+        if added > 0 {
+            break;
+        }
+    }
+}
+
+#[cfg(windows)]
+fn load_platform_system_roots(store: &mut RootCertStore) {
+    let Ok(cert_store) = schannel::cert_store::CertStore::open_local_machine("ROOT") else {
+        return;
+    };
+    for cert in cert_store.certs() {
+        let _ = store.add(CertificateDer::from(cert.to_der().to_vec()));
+    }
 }
 
 /// Builds a `rustls::ClientConfig` enforcing SPKI pinning and `[notBefore, notAfter)`.
@@ -230,131 +292,7 @@ pub(crate) fn build_pinned_rustls_config(
     Ok(Arc::new(client_config))
 }
 
-/// `ureq` v3 [`Connector`] wrapping a chained TCP transport with our pinned `rustls::ClientConfig`.
-pub(crate) struct PinnedTlsConnector {
-    rustls_config: Arc<ClientConfig>,
-}
-
-impl PinnedTlsConnector {
-    pub(crate) const fn new(rustls_config: Arc<ClientConfig>) -> Self {
-        Self { rustls_config }
-    }
-}
-
-impl fmt::Debug for PinnedTlsConnector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PinnedTlsConnector").finish()
-    }
-}
-
-impl<In: Transport> Connector<In> for PinnedTlsConnector {
-    type Out = Either<In, PinnedTlsTransport>;
-
-    fn connect(
-        &self,
-        details: &ConnectionDetails<'_>,
-        chained: Option<In>,
-    ) -> Result<Option<Self::Out>, ureq::Error> {
-        let Some(transport) = chained else {
-            return Err(ureq::Error::Tls(
-                "PinnedTlsConnector requires a chained TCP transport",
-            ));
-        };
-        if !details.needs_tls() || transport.is_tls() {
-            return Ok(Some(Either::A(transport)));
-        }
-
-        let host = details
-            .uri
-            .host()
-            .ok_or(ureq::Error::Tls("Missing host for TLS"))?;
-        let bare_host = host
-            .strip_prefix('[')
-            .and_then(|s| s.strip_suffix(']'))
-            .unwrap_or(host);
-        let server_name = ServerName::try_from(bare_host.to_owned())
-            .map_err(|_| ureq::Error::Tls("Invalid TLS server name"))?;
-
-        let mut conn = ClientConnection::new(Arc::clone(&self.rustls_config), server_name)?;
-        let mut sock = TransportAdapter::new(transport.boxed(), Arc::clone(&details.current_time));
-        sock.set_timeout(details.timeout);
-        while conn.is_handshaking() {
-            match conn.complete_io(&mut sock) {
-                Ok((0, 0)) if conn.is_handshaking() => {
-                    return Err(ureq::Error::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "TLS peer closed during handshake",
-                    )));
-                }
-                Ok(_) => {}
-                Err(io_err) => return Err(extract_ureq_tls_error(io_err)),
-            }
-        }
-
-        let buffers = LazyBuffers::new(
-            details.config.input_buffer_size(),
-            details.config.output_buffer_size(),
-        );
-        Ok(Some(Either::B(PinnedTlsTransport {
-            buffers,
-            stream: StreamOwned::new(conn, sock),
-        })))
-    }
-}
-
-/// Active pinned-TLS transport for `ureq`.
-pub(crate) struct PinnedTlsTransport {
-    buffers: LazyBuffers,
-    stream: StreamOwned<ClientConnection, TransportAdapter>,
-}
-
-impl fmt::Debug for PinnedTlsTransport {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PinnedTlsTransport").finish()
-    }
-}
-
-impl Transport for PinnedTlsTransport {
-    fn buffers(&mut self) -> &mut dyn Buffers {
-        &mut self.buffers
-    }
-
-    fn transmit_output(&mut self, amount: usize, timeout: NextTimeout) -> Result<(), ureq::Error> {
-        self.stream.get_mut().set_timeout(timeout);
-        let output = &self.buffers.output()[..amount];
-        self.stream
-            .write_all(output)
-            .map_err(extract_ureq_tls_error)
-    }
-
-    fn await_input(&mut self, timeout: NextTimeout) -> Result<bool, ureq::Error> {
-        self.stream.get_mut().set_timeout(timeout);
-        let input = self.buffers.input_append_buf();
-        let amount = self.stream.read(input).map_err(extract_ureq_tls_error)?;
-        self.buffers.input_appended(amount);
-        Ok(amount > 0)
-    }
-
-    fn is_open(&mut self) -> bool {
-        self.stream.get_mut().get_mut().is_open()
-    }
-
-    fn is_tls(&self) -> bool {
-        true
-    }
-}
-
-fn extract_ureq_tls_error(err: io::Error) -> ureq::Error {
-    match err.downcast::<ureq::Error>() {
-        Ok(ureq_err) => ureq_err,
-        Err(err) => match err.downcast::<RustlsError>() {
-            Ok(tls_err) => ureq::Error::Rustls(tls_err),
-            Err(io_err) => ureq::Error::Io(io_err),
-        },
-    }
-}
-
-/// Dials TCP + completes a pinned TLS handshake before returning the stream (used by `ws.rs`).
+/// Dials TCP + completes a pinned TLS handshake under an absolute per-syscall `deadline`.
 pub(crate) fn connect_pinned_tls(
     origin: &RemoteOrigin,
     config: &TlsPinConfig,
@@ -373,25 +311,18 @@ pub(crate) fn connect_pinned_tls(
         })?;
 
     while conn.is_handshaking() {
-        apply_tcp_deadline(&tcp, deadline)?;
-        if let Err(err) = conn.complete_io(&mut tcp) {
-            return Err(classify_tls_io_error(&err));
+        match conn.complete_io(&mut tcp) {
+            Ok((0, 0)) if conn.is_handshaking() => {
+                return Err(WireError::Offline {
+                    detail: "TLS peer closed during handshake".into(),
+                });
+            }
+            Ok(_) => {}
+            Err(err) => return Err(classify_tls_io_error(&err)),
         }
     }
 
     Ok(TransportStream::Tls(Box::new(StreamOwned::new(conn, tcp))))
-}
-
-fn apply_tcp_deadline(tcp: &std::net::TcpStream, deadline: Instant) -> Result<(), WireError> {
-    let remaining = deadline
-        .checked_duration_since(Instant::now())
-        .filter(|d| !d.is_zero())
-        .ok_or(WireError::Timeout {
-            context: "TLS handshake",
-        })?;
-    tcp.set_read_timeout(Some(remaining))
-        .and_then(|()| tcp.set_write_timeout(Some(remaining)))
-        .map_err(|err| classify_io_error(&err, "TLS handshake"))
 }
 
 fn classify_tls_io_error(err: &io::Error) -> WireError {

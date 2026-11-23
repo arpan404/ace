@@ -28,7 +28,7 @@ HTTP/1.1, local WS, remote profiles, pinned HTTPS/WSS) is `1.90 MiB` (`1,947.5 K
 | `ureq` | `rustls-no-provider` (no defaults) | Blocking HTTP/1.1 client for local and pinned-HTTPS `/v1/*` calls (`rustls-no-provider` avoids `webpki-roots`'s unapproved license) | `+243.4 KiB` |
 | `url` | (no defaults) | WHATWG URL parsing and validation for local, remote, and relay origins | `+209.8 KiB` |
 | `x509-parser` | (no defaults) | Leaf X.509 DER parsing for SPKI extraction and `[notBefore, notAfter)` validity checks | `+80.8 KiB` |
-| `rustls-native-certs` | default | Lazy OS CA root loading for `.ts.net` certificate renewal fallback (ADR 0097) | `+17.8 KiB` |
+| `security-framework` / `schannel` | target-gated (`macos` / `windows`) | Lazy OS system CA roots for `.ts.net` renewal fallback (ADR 0097) without reading `SSL_CERT_FILE` / `SSL_CERT_DIR` (Linux reads fixed `/etc/ssl/...` bundle paths via `rustls` PEM parser) | `+17.8 KiB` (macOS `Security.framework` bindings; `0` on Linux) |
 
 ## Budgets
 

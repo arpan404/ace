@@ -134,6 +134,58 @@ impl fmt::Display for Fingerprint {
     }
 }
 
+/// Who is calling the local daemon (`person-gate.ts`: `localDevice(agentShell(env))`).
+///
+/// Required by [`crate::Connection::open_local`] so an agent shell (`ACE_THREAD_ID` or
+/// `ACE_NO_INPUT`) can never silently connect as `"ace-cli"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LocalIdentity {
+    /// The person at their own terminal (`deviceId: "ace-cli"`).
+    Person,
+    /// An agent shell (`ACE_THREAD_ID` non-empty or `ACE_NO_INPUT` enabled; `deviceId: "ace-agent"`).
+    Agent,
+}
+
+impl LocalIdentity {
+    /// Selects [`Self::Agent`] when `ACE_THREAD_ID` is non-empty or `ACE_NO_INPUT` is enabled in
+    /// the current process environment, otherwise [`Self::Person`].
+    #[must_use]
+    pub fn from_env() -> Self {
+        let thread_id = std::env::var("ACE_THREAD_ID").ok();
+        let no_input = std::env::var("ACE_NO_INPUT").ok();
+        Self::from_vars(thread_id.as_deref(), no_input.as_deref())
+    }
+
+    /// Pure identity check matching `agentShell(env)` in `apps/daemon/src/cli/person-gate.ts`.
+    #[must_use]
+    pub fn from_vars(ace_thread_id: Option<&str>, ace_no_input: Option<&str>) -> Self {
+        let in_thread = ace_thread_id.is_some_and(|v| !v.trim().is_empty());
+        if in_thread || env_on(ace_no_input) {
+            Self::Agent
+        } else {
+            Self::Person
+        }
+    }
+
+    /// Wire `deviceId` string (`"ace-cli"` or `"ace-agent"`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Person => "ace-cli",
+            Self::Agent => "ace-agent",
+        }
+    }
+
+    /// Corresponding [`DeviceId`].
+    #[must_use]
+    pub fn device_id(self) -> DeviceId {
+        match self {
+            Self::Person => DeviceId::local_cli(),
+            Self::Agent => DeviceId::local_agent(),
+        }
+    }
+}
+
 /// Non-empty device identifier (`DeviceId` in `@ace/protocol`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DeviceId(String);
@@ -166,13 +218,7 @@ impl DeviceId {
     /// `ACE_NO_INPUT` enabled), otherwise `"ace-cli"`, matching `person-gate.ts`.
     #[must_use]
     pub fn local_for_env(ace_thread_id: Option<&str>, ace_no_input: Option<&str>) -> Self {
-        let in_thread = ace_thread_id.is_some_and(|v| !v.trim().is_empty());
-        let no_input = env_on(ace_no_input);
-        if in_thread || no_input {
-            Self::local_agent()
-        } else {
-            Self::local_cli()
-        }
+        LocalIdentity::from_vars(ace_thread_id, ace_no_input).device_id()
     }
 
     /// Underlying string slice.

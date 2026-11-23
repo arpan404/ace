@@ -20,13 +20,14 @@ pub struct LocalOrigin {
 impl LocalOrigin {
     /// Validates a local daemon endpoint string as written in `daemon-endpoint`.
     pub fn parse(raw: &str) -> Result<Self, WireError> {
-        if raw.bytes().any(|b| b.is_ascii_control() || b == b' ') {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.bytes().any(|b| b.is_ascii_control() || b == b' ') {
             return Err(WireError::InvalidTarget {
                 detail: "Local daemon origin must not contain whitespace or control characters"
                     .into(),
             });
         }
-        let parsed = Url::parse(raw).map_err(|_| WireError::InvalidTarget {
+        let parsed = Url::parse(trimmed).map_err(|_| WireError::InvalidTarget {
             detail: "Local daemon origin must be http://127.0.0.1[:PORT][/]".into(),
         })?;
         if parsed.scheme() != "http"
@@ -49,7 +50,7 @@ impl LocalOrigin {
         }
 
         Ok(Self {
-            raw: raw.to_owned(),
+            raw: trimmed.to_owned(),
             port,
         })
     }
@@ -112,12 +113,13 @@ pub struct RemoteOrigin {
 impl RemoteOrigin {
     /// Parses a remote HTTPS origin without credentials, path, query, or fragment.
     pub fn parse(raw: &str) -> Result<Self, WireError> {
-        if raw.bytes().any(|b| b.is_ascii_control() || b == b' ') {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() || trimmed.bytes().any(|b| b.is_ascii_control() || b == b' ') {
             return Err(WireError::InvalidTarget {
                 detail: "Remote origin must not contain whitespace or control characters".into(),
             });
         }
-        let parsed = Url::parse(raw).map_err(|_| WireError::InvalidTarget {
+        let parsed = Url::parse(trimmed).map_err(|_| WireError::InvalidTarget {
             detail: "Remote origin must be a valid https://HOST[:PORT][/] URL".into(),
         })?;
         if parsed.scheme() != "https" {
@@ -154,7 +156,7 @@ impl RemoteOrigin {
         };
 
         Ok(Self {
-            raw: raw.to_owned(),
+            raw: trimmed.to_owned(),
             host,
             port,
             is_ipv6_literal,

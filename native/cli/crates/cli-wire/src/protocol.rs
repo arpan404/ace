@@ -23,10 +23,10 @@ pub const MAX_FRAME_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_SEND_BYTES: usize = 1024 * 1024;
 
 /// Default WebSocket open + welcome handshake timeout (15 s, matching `connection.ts`).
+///
+/// Matches the CLI's outer `AbortSignal.timeout(15000)` cap in `apps/daemon/src/cli/connection.ts`:
+/// even when the daemon sends `{"type":"starting"}`, readiness never exceeds this outer cap.
 pub const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Extended handshake deadline when a daemon replies `{"type":"starting"}` (120 s).
-pub const DEFAULT_COLD_START_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Default per-request deadline (15 s, matching `defaultLimits.requestMs`).
 pub const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -129,6 +129,199 @@ pub fn parse_server_envelope(text: &str) -> Result<ServerEnvelope<'_>, WireError
     serde_json::from_str(text).map_err(|err| WireError::Protocol {
         detail: format!("Malformed server frame: {err}"),
     })
+}
+
+/// Borrowed metadata from an outgoing request JSON object used to match its expected reply type
+/// and verify `entities.page` ownership.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct OutgoingRequestMeta<'a> {
+    #[serde(rename = "type", borrow)]
+    pub msg_type: Cow<'a, str>,
+    #[serde(default, borrow)]
+    pub thread_id: Option<Cow<'a, str>>,
+    #[serde(default, borrow)]
+    pub collection: Option<Cow<'a, str>>,
+}
+
+pub(crate) fn parse_outgoing_request_meta(
+    json_object: &str,
+) -> Result<OutgoingRequestMeta<'_>, WireError> {
+    serde_json::from_str(json_object).map_err(|err| WireError::Protocol {
+        detail: format!("Request object must include a string \"type\" field: {err}"),
+    })
+}
+
+/// Verifies that an `entities.page` reply belongs to the requested `threadId` and `collection`,
+/// matching `decodeServiceResponse` in `packages/client/src/service-requests.ts`.
+pub(crate) fn verify_entities_page_owner(
+    reply_json: &str,
+    expected_thread_id: Option<&str>,
+    expected_collection: Option<&str>,
+) -> Result<(), WireError> {
+    #[derive(Deserialize)]
+    struct Wrapper<'a> {
+        #[serde(borrow)]
+        page: PageOwner<'a>,
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct PageOwner<'a> {
+        #[serde(borrow)]
+        thread_id: Cow<'a, str>,
+        #[serde(borrow)]
+        collection: Cow<'a, str>,
+    }
+
+    let (Some(exp_thread), Some(exp_collection)) = (expected_thread_id, expected_collection) else {
+        return Ok(());
+    };
+    let parsed: Wrapper<'_> =
+        serde_json::from_str(reply_json).map_err(|err| WireError::Protocol {
+            detail: format!("Malformed entities.page reply: {err}"),
+        })?;
+    if parsed.page.thread_id != exp_thread || parsed.page.collection != exp_collection {
+        return Err(WireError::Protocol {
+            detail: "Unexpected entity page owner".into(),
+        });
+    }
+    Ok(())
+}
+
+/// Expected server reply `"type"` values for a given client request `"type"`, matching
+/// `replyTypes` + prefix rules in `packages/client/src/service-requests.ts`.
+#[must_use]
+#[expect(
+    clippy::too_many_lines,
+    reason = "1:1 lookup table of protocol request->reply types"
+)]
+pub fn expected_reply_types(request_type: &str) -> Option<&'static [&'static str]> {
+    match request_type {
+        "cli.request" => Some(&["cli.result"]),
+        "entities.page" => Some(&["entities.page"]),
+        "items.page" => Some(&["items.page"]),
+        "turns.page" => Some(&["turns.page"]),
+        "items.window" => Some(&["items.window"]),
+        "turn.steps" => Some(&["turn.steps"]),
+        "item.raw" => Some(&["item.raw"]),
+        "output.read" => Some(&["output.data"]),
+        "interaction.read" => Some(&["interaction.data"]),
+        "media.connect" => Some(&["media.connect.result"]),
+        "notification.config" => Some(&["notification.config.result"]),
+        "notification.register" => Some(&["notification.register.result"]),
+        "notification.unregister" => Some(&["notification.unregister.result"]),
+        "notification.feed" => Some(&["notification.feed.result"]),
+        "prompts.request" => Some(&["prompts.result"]),
+        "skills.request" => Some(&["skills.result"]),
+        "spade.status" => Some(&["spade.status.result"]),
+        "spade.grant.revoke" => Some(&["spade.grant.revoke.result"]),
+        "spade.http" => Some(&["spade.http.result", "spade.http.open"]),
+        "spade.http.read" => Some(&["spade.http.chunk"]),
+        "host.identity" => Some(&["host.identity.result"]),
+        "machine.code.status" | "machine.code.set" | "machine.code.clear" => {
+            Some(&["machine.code.result"])
+        }
+        "lockedUse.subscribe" => Some(&["lockedUse.status"]),
+        "lockedUse.unsubscribe" | "lockedUse.install" | "lockedUse.remove" | "lockedUse.repair" => {
+            Some(&["lockedUse.result"])
+        }
+        "activity.reads" | "activity.markRead" => Some(&["activity.reads.result"]),
+        "verify.request" => Some(&["verify.result"]),
+        "icons.resolve" => Some(&["icons.resolve"]),
+        "icons.read" => Some(&["icons.read"]),
+        "avatars.resolve" => Some(&["avatars.resolve"]),
+        "thread.search" => Some(&["thread.search"]),
+        "thread.catchUp" => Some(&["thread.catchUp"]),
+        "thread.readState" => Some(&["thread.readState"]),
+        "permissions.capabilities" => Some(&["permissions.capabilities.result"]),
+        "machines.request" => Some(&["machines.result"]),
+        "fleet.request" => Some(&["fleet.result"]),
+        "transfers.request" => Some(&["transfers.result"]),
+        "pi.control" => Some(&["pi.result"]),
+        "history.list" => Some(&["history.list"]),
+        "history.release" => Some(&["history.release"]),
+        "history.import" => Some(&["history.import"]),
+        "history.continue" => Some(&["history.continue"]),
+        "devices.request" => Some(&["devices.result"]),
+        "preview.request" => Some(&["preview.result"]),
+        "storage.request" => Some(&["storage.result"]),
+        "admission.request" => Some(&["admission.result"]),
+        "outside.request" => Some(&["outside.result"]),
+        "appUpdate.request" => Some(&["appUpdate.result"]),
+        "machineUpdate.request" => Some(&["machineUpdate.result"]),
+        "user_browser.settings" => Some(&["user_browser.settings.result"]),
+        "terminal.request" => Some(&["terminal.result"]),
+        "workspace.request" => Some(&["workspace.result"]),
+        "projects.request" => Some(&["projects.result"]),
+        "source-control.request" => Some(&["source-control.result"]),
+        "repositories.request" => Some(&["repositories.result"]),
+        "providers.request" => Some(&["providers.result"]),
+        "provider.accounts.list"
+        | "provider.accounts.add"
+        | "provider.accounts.rename"
+        | "provider.accounts.setDefault"
+        | "provider.accounts.remove"
+        | "provider.accounts.reauth" => Some(&["provider.accounts.result"]),
+        "provider.install.plan"
+        | "provider.install.run"
+        | "provider.install.poll"
+        | "provider.install.active"
+        | "provider.install.cancel" => Some(&["provider.install.result"]),
+        "provider.login.apiKey"
+        | "provider.login.start"
+        | "provider.login.poll"
+        | "provider.login.input"
+        | "provider.login.cancel"
+        | "provider.login.terminal"
+        | "provider.logout" => Some(&["provider.login.result"]),
+        "onboarding.query" | "onboarding.dismiss" => Some(&["onboarding.result"]),
+        "worktree.creation.request" => Some(&["worktree.creation.result"]),
+        "context.request" => Some(&["context.result"]),
+        "models.list" | "models.refresh" | "models.load" | "models.resolve" => {
+            Some(&["models.result"])
+        }
+        "settings.get"
+        | "settings.set"
+        | "settings.setMany"
+        | "settings.reset"
+        | "settings.subscribe"
+        | "settings.unsubscribe" => Some(&["settings.result"]),
+        "usage.summary" | "usage.series" => Some(&["usage.result"]),
+        "usage.session_totals" => Some(&["usage.session_totals.result"]),
+        "search.query" => Some(&["search.results", "search.error"]),
+        "search.status" => Some(&["search.progress", "search.error"]),
+        "accounts.add" | "accounts.rename" | "accounts.remove" | "accounts.setDefault" => {
+            Some(&["accounts.changed"])
+        }
+        "accounts.login" | "accounts.logout" => Some(&["accounts.auth"]),
+        "accounts.list" | "accounts.refreshLimits" => Some(&["accounts.list"]),
+        "accounts.consumeReset" => Some(&["accounts.consumeReset"]),
+        "accounts.status" => Some(&["accounts.status"]),
+        "accounts.migrate" => Some(&["accounts.migrate"]),
+        "files.pull" => Some(&["files.data", "files.error"]),
+        "files.chunk" => Some(&["files.upload", "files.error"]),
+        "files.request" => Some(&["files.result", "files.ready", "files.error", "files.upload"]),
+        "catalog.list" => Some(&["catalog.list.result"]),
+        "commands.list" => Some(&["commands.list.result"]),
+        "commands.resolve" => Some(&["commands.resolve.result"]),
+        "pluginRequest" => Some(&["pluginResult"]),
+        "suitRequest" => Some(&["suitResult"]),
+        "marketplace.request" => Some(&["marketplace.result"]),
+        "account.standing" | "device.standing" => Some(&["account.standing.result"]),
+        "account.owner.release" => Some(&["account.owner.release.result"]),
+        "account.owner.enroll" => Some(&["account.owner.enroll.result"]),
+        "account.owner.enroll.confirm" => Some(&["account.owner.enroll.confirm.result"]),
+        "diagnostics.health" => Some(&["diagnostics.health.result"]),
+        "diagnostics.request" => Some(&["diagnostics.result"]),
+        "screen.request" => Some(&["screen.result"]),
+        "automation.webhook" => Some(&["automation.webhookResult"]),
+        other if other.starts_with("automation.") => Some(&["automation.result"]),
+        other if other.starts_with("queue.") => Some(&["queue.result"]),
+        other if other.starts_with("registry.") => Some(&["registry.result"]),
+        other if other.starts_with("mcp.") => Some(&["mcp.result"]),
+        other if other.starts_with("browser.") => Some(&["browser.result"]),
+        _ => None,
+    }
 }
 
 #[derive(Deserialize)]
@@ -282,14 +475,17 @@ pub fn is_machine_code_refusal(code: &str) -> bool {
     )
 }
 
+/// True for `CredentialReplacedClose` (`4001 "Credential replaced"`, ADR 0115).
+#[must_use]
+pub fn is_credential_replaced_close(code: u16, reason: &str) -> bool {
+    code == 4001 && reason == "Credential replaced"
+}
+
 /// Maps a WebSocket close code and reason to [`WireError`], matching `disconnectDecision` and
 /// `Connection.#lost` in `packages/client/src/lifecycle.ts` and `connection.ts`.
 #[must_use]
 pub fn classify_close_code(code: u16, reason: &str) -> WireError {
     match code {
-        4001 if reason == "Credential replaced" => WireError::Offline {
-            detail: "Credential replaced".into(),
-        },
         4001 => WireError::Auth {
             detail: if reason.is_empty() {
                 "Unauthorized".into()

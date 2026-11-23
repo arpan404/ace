@@ -18,11 +18,9 @@ use ureq::{Agent, Error as UreqError};
 use crate::error::WireError;
 use crate::home::Local;
 use crate::profile::{DirectRemote, SocketTicket};
-use crate::stream::classify_io_error;
-use crate::tls::{
-    PinnedTlsConnector, TlsPinConfig, build_pinned_rustls_config, classify_rustls_error,
-};
+use crate::tls::{TlsPinConfig, build_pinned_rustls_config, classify_rustls_error};
 use crate::types::Token;
+use crate::ureq_tls::PinnedTlsConnector;
 
 /// Maximum response body accepted from `/v1/*` endpoints (1 MiB, matching `client-access.ts`).
 pub const MAX_HTTP_RESPONSE_BYTES: usize = 1_048_576;
@@ -296,9 +294,16 @@ fn map_http_status_error(status: u16, body: &str) -> WireError {
     }
 }
 
+/// Maps `ureq` transport errors matching `accessRequest` in `apps/daemon/src/client-access.ts`:
+/// HTTP timeouts and transport errors become `offline` (`uncertain`, exit 5), while local
+/// `ConnectionRefused` maps to `daemon_down` (exit 4).
 fn classify_ureq_error(err: UreqError, is_local: bool) -> WireError {
     match err {
-        UreqError::Timeout(_) | UreqError::BodyStalled => WireError::Timeout { context: "Request" },
+        UreqError::Timeout(_) | UreqError::BodyStalled | UreqError::HostNotFound => {
+            WireError::Offline {
+                detail: "Access transport unavailable".into(),
+            }
+        }
         UreqError::Rustls(tls_err) => classify_rustls_error(&tls_err),
         UreqError::Tls(msg) => WireError::Auth {
             detail: msg.into(),
@@ -313,13 +318,10 @@ fn classify_ureq_error(err: UreqError, is_local: bool) -> WireError {
                 WireError::DaemonDown
             } else {
                 WireError::Offline {
-                    detail: "Connection failed".into(),
+                    detail: "Access transport unavailable".into(),
                 }
             }
         }
-        UreqError::HostNotFound => WireError::Offline {
-            detail: "Remote host not found".into(),
-        },
         other => WireError::Protocol {
             detail: other.to_string(),
         },
@@ -336,5 +338,7 @@ fn classify_ureq_io_error(err: &io::Error, is_local: bool) -> WireError {
     if is_local && err.kind() == io::ErrorKind::ConnectionRefused {
         return WireError::DaemonDown;
     }
-    classify_io_error(err, "Request")
+    WireError::Offline {
+        detail: "Access transport unavailable".into(),
+    }
 }

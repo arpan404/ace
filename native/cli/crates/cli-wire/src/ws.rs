@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Blocking WebSocket request client over `tungstenite` (no default features) and `std::net`.
 //!
-//! One reusable read buffer and one reusable write buffer live on [`Connection`], avoiding
-//! per-frame reallocations. Replies retain their raw JSON as `Box<serde_json::value::RawValue>`
-//! so `--json` prints them untouched and human output decodes borrowed fields on demand.
+//! Uses a zero-copy [`FrameBuffer`] over `tungstenite::Utf8Bytes` so incoming text frames and
+//! `\n`-packed lines avoid intermediate copies and per-line allocations. Replies retain their raw
+//! JSON as `Box<serde_json::value::RawValue>` so `--json` prints them untouched and human output
+//! decodes borrowed fields on demand.
 
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -15,30 +15,35 @@ use tungstenite::client::client_with_config;
 use tungstenite::protocol::WebSocketConfig;
 
 use crate::error::WireError;
+use crate::fragments::FragmentAssembler;
 use crate::home::Local;
 use crate::http::exchange_ticket_with_tls;
 use crate::profile::DirectRemote;
 use crate::protocol::{
-    Credential, DEFAULT_COLD_START_TIMEOUT, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    MAX_FRAME_BYTES, Reply, Welcome, decode_welcome, encode_hello, encode_request_into,
-    inject_request_id, parse_server_envelope,
+    Credential, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, MAX_FRAME_BYTES, Reply,
+    Welcome, decode_welcome, encode_hello, encode_request_into, expected_reply_types,
+    inject_request_id, parse_outgoing_request_meta, parse_server_envelope,
+    verify_entities_page_owner,
 };
 use crate::stream::{TransportStream, connect_local_tcp, remaining_until};
 use crate::tls::{TlsPinConfig, connect_pinned_tls};
-use crate::types::{DeviceId, HostId, RequestId};
-use crate::ws_io::{classify_handshake_error, handshake_error_frame, read_text_frame, send_text};
+use crate::types::{DeviceId, HostId, LocalIdentity, RequestId};
+use crate::ws_io::{
+    FrameBuffer, ReadError, classify_handshake_error, handshake_error_frame, read_next_line,
+    send_text,
+};
 
-/// Options controlling how [`Connection`] identifies itself and enforces deadlines.
+/// Options controlling how [`Connection`] verifies daemon identity and enforces deadlines.
+///
+/// Local identity (`"ace-cli"` vs `"ace-agent"`) is intentionally NOT defaulted here: callers must
+/// pass [`LocalIdentity`] to [`Connection::open_local`] (matching `person-gate.ts`).
 #[derive(Debug, Clone)]
 pub struct ConnectConfig {
-    /// Device identity sent in `hello` (`"ace-cli"`, `"ace-agent"`, or a paired remote device id).
-    pub device_id: DeviceId,
     /// Optional expected daemon `hostId`; mismatches fail with [`WireError::Identity`].
     pub expected_host_id: Option<HostId>,
-    /// Deadline for TCP connect, WebSocket upgrade, and `welcome` reply.
+    /// Outer deadline for TCP connect, TLS/WS upgrade, `starting` wait, and `welcome` reply
+    /// (default 15 s, matching `AbortSignal.timeout(15000)` in `apps/daemon/src/cli/connection.ts`).
     pub handshake_timeout: Duration,
-    /// Extended deadline used when the daemon sends `{"type":"starting"}` during cold start.
-    pub cold_start_timeout: Duration,
     /// Default deadline for [`Connection::request`].
     pub request_timeout: Duration,
 }
@@ -46,10 +51,8 @@ pub struct ConnectConfig {
 impl Default for ConnectConfig {
     fn default() -> Self {
         Self {
-            device_id: DeviceId::local_cli(),
             expected_host_id: None,
             handshake_timeout: DEFAULT_HANDSHAKE_TIMEOUT,
-            cold_start_timeout: DEFAULT_COLD_START_TIMEOUT,
             request_timeout: DEFAULT_REQUEST_TIMEOUT,
         }
     }
@@ -61,34 +64,45 @@ pub struct Connection {
     welcome: Welcome,
     next_seq: u64,
     request_timeout: Duration,
-    read_buf: String,
+    frame_buf: FrameBuffer,
     send_buf: String,
     scratch_buf: Vec<u8>,
-    queued_lines: VecDeque<String>,
+    fragments: FragmentAssembler,
 }
 
 impl Connection {
     /// Opens a blocking WebSocket connection to the local loopback daemon and completes the
     /// `hello` / `welcome` handshake.
-    pub fn open_local(local: &Local, config: &ConnectConfig) -> Result<Self, WireError> {
+    ///
+    /// Callers must pass [`LocalIdentity`] (typically [`LocalIdentity::from_env`]) so an agent
+    /// shell (`ACE_THREAD_ID` / `ACE_NO_INPUT`) never connects as `"ace-cli"`.
+    pub fn open_local(
+        local: &Local,
+        identity: LocalIdentity,
+        config: &ConnectConfig,
+    ) -> Result<Self, WireError> {
         let deadline = Instant::now() + config.handshake_timeout;
         let tcp = connect_local_tcp(local.origin().socket_addr(), deadline)?;
         let ws_url = local.origin().ws_url();
+        let device_id = identity.device_id();
         Self::open_stream(
             &ws_url,
             TransportStream::Plain(tcp),
             Credential::Token(local.token()),
-            &config.device_id,
+            &device_id,
             config.expected_host_id.as_ref(),
             config,
             deadline,
         )
+        .map_err(read_error_to_wire)
     }
 
     /// Opens a blocking pinned-TLS WebSocket connection to a direct remote machine.
     ///
     /// Exchanges a fresh single-use ticket via `POST /v1/tickets` over pinned HTTPS, then upgrades
-    /// a pinned WSS connection and authenticates with `ticket` and `direct.device_id`.
+    /// a pinned WSS connection and authenticates with `ticket` and `direct.device_id`. If the
+    /// daemon closes the handshake with `4001 Credential replaced`, retries once with a fresh ticket
+    /// within the same outer deadline before failing with [`WireError::Auth`] (`refused`, exit 4).
     pub fn open_remote(
         direct: &DirectRemote<'_>,
         config: &ConnectConfig,
@@ -105,73 +119,72 @@ impl Connection {
         config: &ConnectConfig,
     ) -> Result<Self, WireError> {
         let deadline = Instant::now() + config.handshake_timeout;
-        let ticket_budget = remaining_until(deadline, "Handshake")?;
-        let socket_ticket = exchange_ticket_with_tls(direct, tls, ticket_budget)?;
-        let stream = connect_pinned_tls(direct.origin, tls, deadline)?;
         let ws_url = direct.origin.wss_url();
         let expected_host_id = config.expected_host_id.as_ref().or(direct.host_id);
-        Self::open_stream(
-            &ws_url,
-            stream,
-            Credential::Ticket(&socket_ticket.ticket),
-            direct.device_id,
-            expected_host_id,
-            config,
-            deadline,
-        )
+
+        for attempt in 0..2 {
+            let ticket_budget = remaining_until(deadline, "Handshake")?;
+            let socket_ticket = exchange_ticket_with_tls(direct, tls, ticket_budget)?;
+            let stream = connect_pinned_tls(direct.origin, tls, deadline)?;
+            match Self::open_stream(
+                &ws_url,
+                stream,
+                Credential::Ticket(&socket_ticket.ticket),
+                direct.device_id,
+                expected_host_id,
+                config,
+                deadline,
+            ) {
+                Ok(conn) => return Ok(conn),
+                Err(ReadError::CredentialReplaced) if attempt == 0 => {}
+                Err(err) => return Err(read_error_to_wire(err)),
+            }
+        }
+
+        Err(WireError::Auth {
+            detail: "Credential replaced".into(),
+            revoked: false,
+        })
     }
 
     /// Completes the WebSocket upgrade and `hello` / `welcome` handshake over an already-connected
     /// plain or pinned-TLS [`TransportStream`].
-    pub(crate) fn open_stream(
+    fn open_stream(
         ws_url: &str,
-        stream: TransportStream,
+        mut stream: TransportStream,
         credential: Credential<'_>,
         device_id: &DeviceId,
         expected_host_id: Option<&HostId>,
         config: &ConnectConfig,
-        mut deadline: Instant,
-    ) -> Result<Self, WireError> {
-        stream.apply_deadline(deadline, "Handshake")?;
+        deadline: Instant,
+    ) -> Result<Self, ReadError> {
+        stream.set_deadline(deadline, "Handshake")?;
         let ws_config = WebSocketConfig::default()
             .max_message_size(Some(MAX_FRAME_BYTES))
             .max_frame_size(Some(MAX_FRAME_BYTES));
 
         let (mut ws, _response) = client_with_config(ws_url, stream, Some(ws_config))
-            .map_err(|err| classify_handshake_error(err, "Handshake"))?;
+            .map_err(|err| ReadError::Wire(classify_handshake_error(err, "Handshake")))?;
 
-        let mut read_buf = String::with_capacity(4096);
+        let mut frame_buf = FrameBuffer::new();
         let mut send_buf = String::with_capacity(512);
-        let mut queued_lines = VecDeque::new();
 
         encode_hello(device_id, credential, &mut send_buf)?;
         send_text(&mut ws, &send_buf, deadline, "Handshake")?;
 
-        let cold_start_deadline = Instant::now() + config.cold_start_timeout;
         let welcome = loop {
-            read_text_frame(
-                &mut ws,
-                &mut read_buf,
-                &mut queued_lines,
-                deadline,
-                "Handshake",
-                false,
-            )?;
-            let envelope = parse_server_envelope(&read_buf)?;
+            let line = read_next_line(&mut ws, &mut frame_buf, deadline, "Handshake", false)?;
+            let envelope = parse_server_envelope(line)?;
             match envelope.msg_type.as_ref() {
-                "starting" => {
-                    if cold_start_deadline > deadline {
-                        deadline = cold_start_deadline;
-                    }
-                }
-                "welcome" => {
-                    break decode_welcome(&read_buf, expected_host_id)?;
-                }
-                "error" => return Err(handshake_error_frame(&envelope)),
+                // `starting` signals a cold start; keep waiting strictly under the outer
+                // `handshake_timeout` cap (15 s in CLI, matching `connection.ts:149`).
+                "starting" => {}
+                "welcome" => break decode_welcome(line, expected_host_id)?,
+                "error" => return Err(ReadError::Wire(handshake_error_frame(&envelope))),
                 other => {
-                    return Err(WireError::Protocol {
+                    return Err(ReadError::Wire(WireError::Protocol {
                         detail: format!("Unexpected {other} before welcome"),
-                    });
+                    }));
                 }
             }
         };
@@ -181,10 +194,10 @@ impl Connection {
             welcome,
             next_seq: 0,
             request_timeout: config.request_timeout,
-            read_buf,
+            frame_buf,
             send_buf,
             scratch_buf: Vec::with_capacity(512),
-            queued_lines,
+            fragments: FragmentAssembler::default(),
         })
     }
 
@@ -208,7 +221,21 @@ impl Connection {
     ) -> Result<Reply, WireError> {
         let req_id = self.next_request_id()?;
         encode_request_into(op, &req_id, &mut self.scratch_buf, &mut self.send_buf)?;
-        self.send_and_await_reply(req_id, timeout)
+        let expectations = extract_expectations(&self.send_buf, None)?;
+        self.send_and_await_reply(req_id, &expectations, timeout)
+    }
+
+    /// Sends a correlated request and waits specifically for one of `expected_types`.
+    pub fn request_expecting<T: Serialize>(
+        &mut self,
+        op: &T,
+        expected_types: &[&str],
+        timeout: Duration,
+    ) -> Result<Reply, WireError> {
+        let req_id = self.next_request_id()?;
+        encode_request_into(op, &req_id, &mut self.scratch_buf, &mut self.send_buf)?;
+        let expectations = extract_expectations(&self.send_buf, Some(expected_types))?;
+        self.send_and_await_reply(req_id, &expectations, timeout)
     }
 
     /// Sends a raw JSON object request string (without `requestId`) and waits for its reply.
@@ -219,15 +246,30 @@ impl Connection {
     ) -> Result<Reply, WireError> {
         let req_id = self.next_request_id()?;
         inject_request_id(json_object, &req_id, &mut self.send_buf)?;
-        self.send_and_await_reply(req_id, timeout)
+        let expectations = extract_expectations(&self.send_buf, None)?;
+        self.send_and_await_reply(req_id, &expectations, timeout)
     }
 
-    /// Convenience wrapper for `{"type":"cli.request","operation":operation}`.
+    /// Sends a raw JSON object request string and waits specifically for one of `expected_types`.
+    pub fn request_raw_expecting(
+        &mut self,
+        json_object: &str,
+        expected_types: &[&str],
+        timeout: Duration,
+    ) -> Result<Reply, WireError> {
+        let req_id = self.next_request_id()?;
+        inject_request_id(json_object, &req_id, &mut self.send_buf)?;
+        let expectations = extract_expectations(&self.send_buf, Some(expected_types))?;
+        self.send_and_await_reply(req_id, &expectations, timeout)
+    }
+
+    /// Convenience wrapper for `{"type":"cli.request","operation":operation}` expecting `"cli.result"`.
     pub fn cli_request<T: Serialize>(&mut self, operation: &T) -> Result<Reply, WireError> {
         self.cli_request_with_timeout(operation, self.request_timeout)
     }
 
-    /// Convenience wrapper for `{"type":"cli.request","operation":operation}` with explicit timeout.
+    /// Convenience wrapper for `{"type":"cli.request","operation":operation}` expecting `"cli.result"`
+    /// within an explicit `timeout`.
     pub fn cli_request_with_timeout<T: Serialize>(
         &mut self,
         operation: &T,
@@ -239,11 +281,12 @@ impl Connection {
             msg_type: &'static str,
             operation: &'a T,
         }
-        self.request_with_timeout(
+        self.request_expecting(
             &CliRequestFrame {
                 msg_type: "cli.request",
                 operation,
             },
+            &["cli.result"],
             timeout,
         )
     }
@@ -255,15 +298,9 @@ impl Connection {
         self.send_buf.push_str(r#"{"type":"ping"}"#);
         send_text(&mut self.ws, &self.send_buf, deadline, "Ping")?;
         loop {
-            read_text_frame(
-                &mut self.ws,
-                &mut self.read_buf,
-                &mut self.queued_lines,
-                deadline,
-                "Ping",
-                true,
-            )?;
-            let envelope = parse_server_envelope(&self.read_buf)?;
+            let line = read_next_line(&mut self.ws, &mut self.frame_buf, deadline, "Ping", true)
+                .map_err(read_error_to_wire)?;
+            let envelope = parse_server_envelope(line)?;
             if envelope.msg_type == "pong" {
                 return Ok(());
             }
@@ -280,6 +317,7 @@ impl Connection {
 
     /// Gracefully closes the WebSocket connection (best effort).
     pub fn close(mut self) {
+        self.fragments.clear();
         let _ = self.ws.close(None);
         self.ws.get_ref().shutdown_both();
     }
@@ -292,23 +330,55 @@ impl Connection {
     fn send_and_await_reply(
         &mut self,
         request_id: RequestId,
+        expectations: &ReplyExpectations<'_>,
         timeout: Duration,
     ) -> Result<Reply, WireError> {
-        let deadline = Instant::now() + timeout;
-        send_text(&mut self.ws, &self.send_buf, deadline, "Request")?;
+        let request_deadline = Instant::now() + timeout;
+        send_text(&mut self.ws, &self.send_buf, request_deadline, "Request")?;
 
         loop {
-            read_text_frame(
+            let effective_deadline = self
+                .fragments
+                .earliest_deadline()
+                .map_or(request_deadline, |frag| frag.min(request_deadline));
+            let line = read_next_line(
                 &mut self.ws,
-                &mut self.read_buf,
-                &mut self.queued_lines,
-                deadline,
+                &mut self.frame_buf,
+                effective_deadline,
                 "Request",
                 true,
-            )?;
-            let envelope = parse_server_envelope(&self.read_buf)?;
+            )
+            .map_err(|err| match err {
+                ReadError::Wire(WireError::Timeout { .. })
+                    if self.fragments.check_expired(Instant::now()).is_err()
+                        && Instant::now() < request_deadline =>
+                {
+                    WireError::Offline {
+                        detail: "Fragments timed out".into(),
+                    }
+                }
+                other => read_error_to_wire(other),
+            })?;
 
-            if envelope.msg_type == "error" {
+            let envelope = parse_server_envelope(line)?;
+            let msg_type = envelope.msg_type.as_ref();
+
+            if msg_type == "snapshot.part" {
+                continue;
+            }
+            if msg_type == "entities.page.part" {
+                if let Some(complete_json) = self
+                    .fragments
+                    .add_entities_page_part(line, Instant::now())?
+                    && let Some(reply) =
+                        match_owned_reply(complete_json, &request_id, expectations)?
+                {
+                    return Ok(reply);
+                }
+                continue;
+            }
+
+            if msg_type == "error" {
                 if envelope.code.as_deref() == Some("unauthorized") {
                     return Err(WireError::Auth {
                         detail: envelope
@@ -330,25 +400,109 @@ impl Connection {
                 continue;
             }
 
-            if envelope.msg_type == "welcome" {
+            if msg_type == "welcome" {
                 return Err(WireError::Protocol {
                     detail: "Second welcome".into(),
                 });
             }
 
-            if envelope.msg_type == "history.operation.progress" {
-                continue;
-            }
-
-            if envelope.request_id.as_deref() == Some(request_id.as_str()) {
-                let msg_type = envelope.msg_type.into_owned();
-                let raw = RawValue::from_string(self.read_buf.clone()).map_err(|err| {
-                    WireError::Protocol {
+            if envelope.request_id.as_deref() == Some(request_id.as_str())
+                && reply_type_matches(msg_type, expectations.expected_types)
+            {
+                if msg_type == "entities.page"
+                    && let Some((exp_thread, exp_collection)) = expectations.entity_owner.as_ref()
+                {
+                    verify_entities_page_owner(
+                        line,
+                        Some(exp_thread.as_str()),
+                        Some(exp_collection.as_str()),
+                    )?;
+                }
+                let msg_type_owned = envelope.msg_type.into_owned();
+                let raw =
+                    RawValue::from_string(line.to_owned()).map_err(|err| WireError::Protocol {
                         detail: format!("Malformed JSON reply: {err}"),
-                    }
-                })?;
-                return Ok(Reply::new(request_id, msg_type, raw));
+                    })?;
+                return Ok(Reply::new(request_id, msg_type_owned, raw));
             }
         }
+    }
+}
+
+struct ReplyExpectations<'a> {
+    expected_types: Option<&'a [&'a str]>,
+    entity_owner: Option<(String, String)>,
+}
+
+fn reply_type_matches(msg_type: &str, expected_types: Option<&[&str]>) -> bool {
+    match expected_types {
+        Some(allowed) => allowed.contains(&msg_type),
+        None => !matches!(
+            msg_type,
+            "history.operation.progress" | "threads.patch" | "entities.page.part" | "snapshot.part"
+        ),
+    }
+}
+
+fn match_owned_reply(
+    complete_json: String,
+    request_id: &RequestId,
+    expectations: &ReplyExpectations<'_>,
+) -> Result<Option<Reply>, WireError> {
+    let msg_type_owned = {
+        let envelope = parse_server_envelope(&complete_json)?;
+        if envelope.request_id.as_deref() != Some(request_id.as_str()) {
+            return Ok(None);
+        }
+        let msg_type = envelope.msg_type.as_ref();
+        if !reply_type_matches(msg_type, expectations.expected_types) {
+            return Ok(None);
+        }
+        if msg_type == "entities.page"
+            && let Some((exp_thread, exp_collection)) = expectations.entity_owner.as_ref()
+        {
+            verify_entities_page_owner(
+                &complete_json,
+                Some(exp_thread.as_str()),
+                Some(exp_collection.as_str()),
+            )?;
+        }
+        envelope.msg_type.into_owned()
+    };
+    let raw = RawValue::from_string(complete_json).map_err(|err| WireError::Protocol {
+        detail: format!("Malformed JSON reply: {err}"),
+    })?;
+    Ok(Some(Reply::new(request_id.clone(), msg_type_owned, raw)))
+}
+
+fn extract_expectations<'a>(
+    json_object: &str,
+    explicit_types: Option<&'a [&'a str]>,
+) -> Result<ReplyExpectations<'a>, WireError> {
+    let meta = parse_outgoing_request_meta(json_object)?;
+    let expected_types = explicit_types.or_else(|| expected_reply_types(meta.msg_type.as_ref()));
+    let entity_owner = if meta.msg_type == "entities.page" {
+        match (meta.thread_id, meta.collection) {
+            (Some(thread_id), Some(collection)) => {
+                Some((thread_id.into_owned(), collection.into_owned()))
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
+    Ok(ReplyExpectations {
+        expected_types,
+        entity_owner,
+    })
+}
+
+fn read_error_to_wire(err: ReadError) -> WireError {
+    match err {
+        ReadError::CredentialReplaced => WireError::Auth {
+            detail: "Credential replaced".into(),
+            revoked: false,
+        },
+        ReadError::Wire(wire) => wire,
     }
 }
