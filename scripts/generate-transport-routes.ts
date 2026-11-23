@@ -13,8 +13,10 @@
  * Each root below is a schema the daemon's sockets accept. The walk recurses into a union's
  * options; an object contributes its `type` field's literal (or every value of a literal union
  * or an enum). Anything else fails, naming the schema, so a new shape is never silently left
- * without an owner. A type two roots both define is a failure; one root's several shapes for a
- * type (a reply's ok and error variants) are one message.
+ * without an owner. Every definition of a type is compared: one root may define a type with
+ * several shapes (a reply's ok and error variants), but two roots may share a type only when
+ * they share its schema objects (or, failing identity, its JSON Schema); a type they define
+ * differently fails, naming both.
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -49,9 +51,9 @@ const messageSchemas: readonly { name: string; schema: z.core.$ZodType }[] = [
   { name: "MarketClientMessage", schema: MarketClientMessage },
 ];
 
-interface FoundType {
-  readonly schema: string;
-  readonly object: z.core.$ZodType;
+/** Every distinct schema object seen for one `type` value, with the roots that define it. */
+interface FoundTag {
+  readonly schemas: Map<z.core.$ZodType, Set<string>>;
 }
 
 /** Every `type` value the field allows, or `null` when it isn't a literal or an enum of them. */
@@ -87,29 +89,83 @@ function typeValues(field: z.core.$ZodType): readonly string[] | null {
 
 function record(
   type: string,
-  schema: string,
+  rootName: string,
   object: z.core.$ZodType,
-  found: Map<string, FoundType>,
-  problems: string[],
+  found: Map<string, FoundTag>,
 ): void {
-  const previous = found.get(type);
-  if (previous === undefined) {
-    found.set(type, { schema, object });
-    return;
+  let tag = found.get(type);
+  if (tag === undefined) {
+    tag = { schemas: new Map() };
+    found.set(type, tag);
   }
-  // The same schema reached through another root (`BrowserClientMessage`'s options are also
-  // spread into `ClientMessage`) is the same definition.
-  if (previous.object === object) return;
-  // One message may have several shapes inside one root: `UserBrowserReply` answers ok or an
-  // error under the same `user_browser.reply`. Two roots defining one type is a real conflict.
-  if (previous.schema === schema) return;
-  problems.push(`${type} is defined by two schemas, ${previous.schema} and ${schema}`);
+  let roots = tag.schemas.get(object);
+  if (roots === undefined) {
+    roots = new Set();
+    tag.schemas.set(object, roots);
+  }
+  roots.add(rootName);
+}
+
+/** A root's definitions as JSON Schema strings, or `null` when one can't be written out. */
+function canonical(schemas: readonly z.core.$ZodType[]): string[] | null {
+  try {
+    return schemas.map((schema) =>
+      JSON.stringify(z.toJSONSchema(schema, { unrepresentable: "any" })),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** Why two roots define one type differently, or `null` when they define it the same way. */
+function differs(
+  first: readonly z.core.$ZodType[],
+  second: readonly z.core.$ZodType[],
+): string | null {
+  // The same schema objects reached through several roots, the usual spread.
+  if (first.length === second.length) {
+    const shared = new Set(first);
+    if (second.every((schema) => shared.has(schema))) return null;
+  }
+  const left = canonical(first);
+  const right = canonical(second);
+  if (left === null || right === null) return "their schemas could not be compared";
+  const leftSet = new Set(left);
+  if (right.length === leftSet.size && right.every((json) => leftSet.has(json))) return null;
+  return "their schemas differ";
+}
+
+/**
+ * A type's several shapes may live in one root (the reply's ok and error variants); a type
+ * more than one root defines must be the same definition in each.
+ */
+function conflicts(found: Map<string, FoundTag>): string[] {
+  const problems: string[] = [];
+  for (const [type, tag] of found) {
+    const byRoot = new Map<string, z.core.$ZodType[]>();
+    for (const [schema, roots] of tag.schemas) {
+      for (const rootName of roots) {
+        const schemas = byRoot.get(rootName);
+        if (schemas === undefined) byRoot.set(rootName, [schema]);
+        else schemas.push(schema);
+      }
+    }
+    const [first, ...rest] = [...byRoot];
+    if (first === undefined) continue;
+    const [firstRoot, firstSchemas] = first;
+    for (const [rootName, schemas] of rest) {
+      const reason = differs(firstSchemas, schemas);
+      if (reason !== null)
+        problems.push(`${type} is defined differently by ${firstRoot} and ${rootName}: ${reason}`);
+    }
+  }
+  return problems;
 }
 
 function walk(
   schema: z.core.$ZodType,
   rootName: string,
-  found: Map<string, FoundType>,
+  found: Map<string, FoundTag>,
   problems: string[],
 ): void {
   if (schema instanceof z.ZodUnion) {
@@ -129,16 +185,23 @@ function walk(
       );
       return;
     }
-    for (const value of values) record(value, rootName, schema, found, problems);
+    for (const value of values) record(value, rootName, schema, found);
     return;
   }
   problems.push(`${rootName}: ${schema.constructor.name} is neither a union nor an object`);
 }
 
+/** A declared override, or `js:main`; `Object.hasOwn`, so no prototype key answers for a tag. */
+function ownerOf(type: string): Owner {
+  if (Object.hasOwn(messageOwners, type)) return messageOwners[type] ?? "js:main";
+  return "js:main";
+}
+
 function generate(): string {
-  const found = new Map<string, FoundType>();
+  const found = new Map<string, FoundTag>();
   const problems: string[] = [];
   for (const { name, schema } of messageSchemas) walk(schema, name, found, problems);
+  problems.push(...conflicts(found));
   for (const type of Object.keys(messageOwners).toSorted()) {
     if (!found.has(type))
       problems.push(`scripts/transport-owners.ts names ${type}, which no schema defines`);
@@ -146,9 +209,10 @@ function generate(): string {
   if (problems.length > 0)
     throw new Error(`the transport route table cannot be generated:\n  ${problems.join("\n  ")}`);
 
-  const messages: Record<string, Owner> = {};
-  for (const type of [...found.keys()].toSorted())
-    messages[type] = messageOwners[type] ?? "js:main";
+  // Entries through `Object.fromEntries`, so a tag such as `__proto__` is an ordinary own key.
+  const messages: Record<string, Owner> = Object.fromEntries(
+    [...found.keys()].toSorted().map((type): [string, Owner] => [type, ownerOf(type)]),
+  );
   const http = httpStages.map(({ listener, stage, owner }) => ({ listener, stage, owner }));
   return `${JSON.stringify({ messages, http }, null, 2)}\n`;
 }
