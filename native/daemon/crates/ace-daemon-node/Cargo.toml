@@ -16,7 +16,13 @@ workspace = true
 crate-type = ["cdylib"]
 
 [dependencies]
+# ace-store: the event database and process journal the addon serves.
 ace-store = { path = "../ace-store" }
+# ace-adapter-acp: the ACP translator behind ACE_TRANSLATORS=acp (E1); the binding only translates.
+ace-adapter-acp = { path = "../ace-adapter-acp" }
+# serde_json: frames cross N-API as JSON; facts return as one JSON array in one buffer.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# napi: the one addon; every export catches panics and only translates values.
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 

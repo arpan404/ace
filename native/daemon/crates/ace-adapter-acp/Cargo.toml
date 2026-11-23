@@ -19,3 +19,15 @@ ace-adapter-api = { path = "../ace-adapter-api" }
 ace-supervisor = { path = "../ace-supervisor" }
 # agent-client-protocol: the ACP schema and bidirectional JSON-RPC connection (Apache-2.0, the protocol's official Rust crate, the counterpart of the TypeScript adapter's SDK).
 agent-client-protocol = "5"
+# ace-core: translators return its facts; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# serde: translator state and quirks serialize for tests and diagnostics.
+serde = { version = "1", features = ["derive"] }
+# serde_json: frames keep each message's encoding as Box<RawValue>; facts are built as JSON matching TypeScript field for field.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# sha2: error and shell-output digests are SHA-256 hex, the same digest TypeScript records.
+sha2 = { version = "0.11" }
+# indexmap: translator maps and sets keep TypeScript insertion order so fact order matches.
+indexmap = { version = "2" }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
