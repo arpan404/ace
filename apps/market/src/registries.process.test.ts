@@ -576,6 +576,7 @@ describe("the registry as its admins see it", () => {
 
   it("withdraws a version only with the person's own grant naming that request, queued for the registry's signer", async () => {
     const body = JSON.stringify({ reason: "Leaks a token" });
+    const path = withdrawPath("acme-triage");
     // An admin's ordinary grant, read on the way, withdraws nothing.
     const plain = await market.fetch(withdrawPath("acme-triage"), {
       method: "POST",
@@ -591,14 +592,17 @@ describe("the registry as its admins see it", () => {
       (await asOwner(acme, withdrawPath("other-secret", other), body, "user_admin", "admin")).answer
         .status,
     ).toBe(404);
-    const { answer } = await asOwner(
-      acme,
-      withdrawPath("acme-triage"),
-      body,
-      "user_admin",
-      "admin",
-    );
-    expect(answer.status).toBe(202);
+    const action = await intentOf("POST", path, new TextEncoder().encode(body));
+    const grant = grantFor("user_admin", { action, org: acme, orgRole: "admin" });
+    const withdraw = (requestBody: string) =>
+      market.fetch(path, {
+        method: "POST",
+        headers: { authorization: `Bearer ${grant}` },
+        body: requestBody,
+      });
+    expect((await withdraw(JSON.stringify({ reason: "Changed reason" }))).status).toBe(401);
+    expect((await withdraw(body)).status).toBe(202);
+    expect((await withdraw(body)).status).toBe(401);
     expect(await versionsOf("acme-triage")).toEqual([
       expect.objectContaining({ withdrawal: expect.objectContaining({ reason: "Leaks a token" }) }),
     ]);
