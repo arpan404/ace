@@ -15,5 +15,11 @@ workspace = true
 [dependencies]
 # ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
 ace-adapter-api = { path = "../ace-adapter-api" }
+# serde: typed views of provider frames decode from the redacted capture (lenient, never fatal).
+serde = { version = "1", features = ["derive"] }
+# serde_json: frames keep provider data as JSON; facts serialize field-for-field like TypeScript.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# thiserror: the translator's typed errors, mapped to diagnostics (never thrown on provider data).
+thiserror = { version = "2" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }

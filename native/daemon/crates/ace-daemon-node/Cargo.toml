@@ -23,10 +23,30 @@ ace-store = { path = "../ace-store" }
 ace-adapter-codex = { path = "../ace-adapter-codex" }
 # ace-core: facts cross the binding as JSON; the type names the spliced body.
 ace-core = { path = "../ace-core" }
-# serde_json: the binding splices fact bodies as RawValue without re-parsing them.
-serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# serde_json: the binding splices fact bodies as RawValue without re-parsing them;
+# float_roundtrip parses numbers exactly as JavaScript does (no 1-ulp drift).
+serde_json = { version = "1", features = ["raw_value", "preserve_order", "float_roundtrip"] }
+# ace-adapter-claude: the claude translator this binding drives (E1); behaviour lives there.
+ace-adapter-claude = { path = "../ace-adapter-claude" }
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
+# serde_json: the binding moves frames and facts across N-API as JSON strings.
+# `unbounded_depth` lets the parser accept the deeply nested native fields
+# the engine later bounds via capFact; recursion itself stays safe through
+# serde_stacker below. `float_roundtrip` parses floats exactly like the
+# TypeScript (correctly rounded), so cost figures keep their provenance.
+serde_json = { version = "1", features = ["unbounded_depth", "float_roundtrip"] }
+# serde: the Deserialize trait for limit-free frame parsing (deeply nested
+# native fields are bounded later by the engine, not refused here).
+serde = { version = "1" }
+# serde_stacker: limit-free JSON parsing for deeply nested provider data
+# (the unbounded_depth parser above still recurses, so the stacker below
+# grows the stack around each call).
+serde_stacker = "0.1"
+# stacker: grows the stack around each translate call, so parsing, folding
+# and serializing deeply nested provider data fails as a diagnostic
+# downstream, never aborts the daemon.
+stacker = "0.1"
 
 [build-dependencies]
 napi-build = "2"
