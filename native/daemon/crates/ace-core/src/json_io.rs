@@ -38,7 +38,7 @@ pub mod de {
         D: Deserializer<'de>,
     {
         let value = serde_json::Value::deserialize(deserializer)?;
-        super::as_integer(&value).ok_or_else(|| serde::de::Error::custom("expected an integer"))
+        super::as_integer(Some(&value)).ok_or_else(|| serde::de::Error::custom("expected an integer"))
     }
 
     /// An optional integer field: missing and `null` both read absent.
@@ -49,15 +49,30 @@ pub mod de {
         let value = Option::<serde_json::Value>::deserialize(deserializer)?;
         match value {
             None | Some(serde_json::Value::Null) => Ok(None),
-            Some(value) => super::as_integer(&value)
+            Some(value) => super::as_integer(Some(&value))
                 .map(Some)
                 .ok_or_else(|| serde::de::Error::custom("expected an integer")),
         }
     }
+
+    /// An integer array whose elements read like `z.number().int()`.
+    pub fn vec_i64<'de, D>(deserializer: D) -> Result<Vec<i64>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+        values
+            .iter()
+            .map(|value| {
+                crate::json_io::as_integer(Some(&value))
+                    .ok_or_else(|| serde::de::Error::custom("expected an integer"))
+            })
+            .collect()
+    }
 }
 
 /// Re-exported for field attributes across the crate.
-pub use de::{i64 as de_i64, opt_i64 as de_opt_i64};
+pub use de::{i64 as de_i64, opt_i64 as de_opt_i64, vec_i64 as de_vec_i64};
 
 /// A field that distinguishes missing from explicit `null`, like
 /// `PermissionMode.nullable().optional()`: missing reads `Missing` (the key
@@ -119,7 +134,7 @@ impl<T> Maybe<T> {
         match value {
             None => Ok(Maybe::Missing),
             Some(serde_json::Value::Null) => Ok(Maybe::Null),
-            Some(value) => crate::json_io::as_integer(&value)
+            Some(value) => crate::json_io::as_integer(Some(&value))
                 .map(Maybe::Value)
                 .ok_or_else(|| serde::de::Error::custom("expected an integer")),
         }
@@ -140,9 +155,10 @@ impl<T> Maybe<T> {
 }
 
 /// A JSON number the TypeScript reads as an integer (`z.number().int()`:
-// any finite value with no fractional part counts).
-pub fn as_integer(value: &Json) -> Option<i64> {
-    match value {
+// any finite value with no fractional part counts). Missing and `null`
+// never count.
+pub fn as_integer(value: Option<&Json>) -> Option<i64> {
+    match value? {
         Json::Number(number) => {
             if let Some(int) = number.as_i64() {
                 return Some(int);
@@ -160,7 +176,7 @@ pub fn as_integer(value: &Json) -> Option<i64> {
 }
 
 /// A non-negative safe integer, the shape of every timestamp and count.
-pub fn as_count(value: &Json) -> Option<i64> {
+pub fn as_count(value: Option<&Json>) -> Option<i64> {
     as_integer(value).filter(|int| *int >= 0)
 }
 

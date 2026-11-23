@@ -499,7 +499,7 @@ pub fn upsert_item(
 }
 
 /// The created time of a stored item.
-fn item_created_at(item: &Item) -> i64 {
+pub(crate) fn item_created_at(item: &Item) -> i64 {
     match item {
         Item::Html { base, .. } => base.created_at,
         Item::Image { base, .. } => base.created_at,

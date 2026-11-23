@@ -37,6 +37,9 @@ pub mod status_resolve;
 pub mod thread_status;
 pub mod tree;
 pub mod validate;
+pub mod validate_items;
+pub mod validate_shapes;
+pub mod validate_unknown;
 
 pub use error::CoreError;
 pub use facts::{Fact, Key};

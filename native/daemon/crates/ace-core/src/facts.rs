@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::json_io::Maybe;
+use crate::json_io::{Maybe, de_i64, de_opt_i64, de_vec_i64};
 use serde_json::value::RawValue;
 
 use crate::entity_model::{InteractionRequest, InteractionResolution};
@@ -221,6 +221,7 @@ pub enum Fact {
     #[serde(rename = "background.listening")]
     BackgroundListening {
         task: String,
+        #[serde(deserialize_with = "crate::json_io::de_vec_i64")]
         ports: Vec<i64>,
     },
     /// ace's own task waits on the person elsewhere, or no longer does.
@@ -243,9 +244,9 @@ pub enum Fact {
     Retry {
         agent: String,
         on: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         attempt: Option<i64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         until: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
@@ -274,6 +275,7 @@ pub enum Fact {
     #[serde(rename = "wake.expected")]
     WakeExpected {
         agent: String,
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         until: i64,
     },
     /// The provider's native goal changed.
@@ -287,24 +289,26 @@ pub enum Fact {
     Usage {
         agent: String,
         #[serde(rename = "inputTokens")]
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         input_tokens: i64,
         #[serde(rename = "outputTokens")]
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         output_tokens: i64,
-        #[serde(rename = "cachedInputTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "cachedInputTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         cached_input_tokens: Option<i64>,
-        #[serde(rename = "contextWindow", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "contextWindow", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         context_window: Option<i64>,
         #[serde(rename = "costUsd", skip_serializing_if = "Option::is_none")]
         cost_usd: Option<f64>,
-        #[serde(rename = "contextTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "contextTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         context_tokens: Option<i64>,
         #[serde(rename = "contextSessionId", skip_serializing_if = "Option::is_none")]
         context_session_id: Option<String>,
-        #[serde(rename = "reasoningTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "reasoningTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         reasoning_tokens: Option<i64>,
-        #[serde(rename = "cacheWriteTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "cacheWriteTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         cache_write_tokens: Option<i64>,
-        #[serde(rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "cacheWrite1hTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         cache_write_1h_tokens: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
@@ -324,8 +328,9 @@ pub enum Fact {
     ContextSample {
         agent: String,
         #[serde(rename = "usedTokens")]
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         used_tokens: i64,
-        #[serde(rename = "windowTokens", skip_serializing_if = "Option::is_none")]
+        #[serde(rename = "windowTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
         window_tokens: Option<i64>,
         #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
@@ -353,6 +358,7 @@ pub enum Fact {
     /// The queue changed size or hold.
     #[serde(rename = "queue.changed")]
     QueueChanged {
+        #[serde(deserialize_with = "crate::json_io::de_i64")]
         count: i64,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<String>,
@@ -397,4 +403,12 @@ pub struct UnknownFact {
     pub fact_type: String,
     /// The fact's body as JSON, kept verbatim.
     pub data: Box<RawValue>,
+}
+
+/// Convert a validated fact value into the typed fold input. Validation has
+/// already established every shape, so a failure here is a caller-contract
+/// violation, never provider data.
+pub fn convert(value: &crate::json_io::Map, fact_type: &str) -> Option<Fact> {
+    let _ = fact_type;
+    serde_json::from_value(crate::json_io::Json::Object(value.clone())).ok()
 }

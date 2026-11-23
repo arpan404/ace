@@ -7,6 +7,11 @@
 use crate::json_io::{Json, Map};
 use crate::status::{MovedTo, ThreadStatus};
 
+/// A status with only these keys is a known protocol state.
+fn ensure_only(map: &Map, allowed: &[&str]) -> bool {
+    map.keys().all(|key| allowed.contains(&key.as_str()))
+}
+
 const KNOWN_THREAD_STATES: &[&str] = &[
     "needs_you",
     "working",
@@ -44,16 +49,44 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
         if state.is_empty() {
             return Err(D::Error::custom("thread status needs a state"));
         }
+        // Known states strip nothing: unknown fields reject the status, like
+        // `preservesFields` does for the Zod parse.
+        let known_fields: &[&str] = match state.as_str() {
+            "needs_you" => &["state", "interactions"],
+            "working" => &["state", "agents"],
+            "waiting" => &[
+                "state",
+                "on",
+                "slotLimit",
+                "slotsInUse",
+                "queuePosition",
+                "waitingFor",
+            ],
+            "limited" => &["state", "until"],
+            "failed" | "unresponsive" | "done" | "new" => &["state"],
+            "moved" => &["state", "to"],
+            "unknown" => &[],
+            _ => &[],
+        };
+        if state.as_str() != "unknown" {
+            let map = match &value {
+                Json::Object(map) => map,
+                _ => return Err(D::Error::custom("invalid thread status")),
+            };
+            if !ensure_only(map, known_fields) {
+                return Err(D::Error::custom("invalid thread status"));
+            }
+        }
         match state.as_str() {
             "needs_you" => Ok(Self::NeedsYou {
-                interactions: crate::json_io::as_count(
+                interactions: crate::json_io::as_count(Some(
                     value.get("interactions").unwrap_or(&Json::Null),
-                )
+                ))
                 .filter(|count| *count > 0)
                 .ok_or_else(|| D::Error::custom("invalid thread status"))?,
             }),
             "working" => Ok(Self::Working {
-                agents: crate::json_io::as_count(value.get("agents").unwrap_or(&Json::Null))
+                agents: crate::json_io::as_count(Some(value.get("agents").unwrap_or(&Json::Null)))
                     .filter(|count| *count > 0)
                     .ok_or_else(|| D::Error::custom("invalid thread status"))?,
             }),
@@ -65,13 +98,22 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                 ) {
                     return Err(D::Error::custom("invalid thread status"));
                 }
+                if is_null(value.get("slotLimit"))
+                    || is_null(value.get("slotsInUse"))
+                    || is_null(value.get("queuePosition"))
+                {
+                    return Err(D::Error::custom("invalid thread status"));
+                }
                 Ok(Self::Waiting {
                     on: on.to_owned(),
                     slot_limit: valid_queue_number(value.get("slotLimit"), 1, 64),
                     slots_in_use: valid_queue_number(value.get("slotsInUse"), 0, i64::MAX),
                     queue_position: valid_queue_number(value.get("queuePosition"), 1, i64::MAX),
                     waiting_for: match value.get("waitingFor") {
-                        None | Some(Json::Null) => None,
+                        None => None,
+                        Some(Json::Null) => {
+                            return Err(D::Error::custom("invalid thread status"));
+                        }
                         Some(Json::String(waiting)) if waiting == "storage" => {
                             Some(waiting.clone())
                         }
@@ -79,18 +121,30 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                     },
                 })
             }
-            "limited" => Ok(Self::Limited {
-                until: match value.get("until") {
-                    None | Some(Json::Null) => None,
-                    Some(until) => Some(crate::json_io::as_count(until).ok_or_else(|| {
-                        D::Error::custom("invalid thread status")
-                    })?),
-                },
-            }),
+            "limited" => {
+                if matches!(value.get("until"), Some(Json::Null)) {
+                    return Err(D::Error::custom("invalid thread status"));
+                }
+                Ok(Self::Limited {
+                    until: match value.get("until") {
+                        None => None,
+                        Some(until) => Some(crate::json_io::as_count(Some(until)).ok_or_else(|| {
+                            D::Error::custom("invalid thread status")
+                        })?),
+                    },
+                })
+            }
             "failed" => Ok(Self::Failed),
             "unresponsive" => Ok(Self::Unresponsive),
             "moved" => {
                 let to = value.get("to").ok_or_else(|| D::Error::custom("invalid thread status"))?;
+                let to_map = match to {
+                    Json::Object(map) => map,
+                    _ => return Err(D::Error::custom("invalid thread status")),
+                };
+                if !ensure_only(to_map, &["hostId", "name", "threadId"]) {
+                    return Err(D::Error::custom("invalid thread status"));
+                }
                 let host_id = to.get("hostId").and_then(|value| value.as_str()).unwrap_or("");
                 let name = to.get("name").and_then(|value| value.as_str()).unwrap_or("");
                 if host_id.is_empty() || name.len() < 1 || name.len() > 256 {
@@ -111,7 +165,18 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
             "done" => Ok(Self::Done),
             "new" => Ok(Self::New),
             "unknown" => {
-                let raw = serde_json::to_string(&value).map_err(D::Error::custom)?;
+                let map = match &value {
+                    Json::Object(map) => map,
+                    _ => return Err(D::Error::custom("invalid thread status")),
+                };
+                if !ensure_only(map, &["state", "raw"]) {
+                    return Err(D::Error::custom("invalid thread status"));
+                }
+                let raw = match map.get("raw") {
+                    Some(Json::Object(_)) => map.get("raw").unwrap_or(&Json::Null).clone(),
+                    _ => return Err(D::Error::custom("invalid thread status")),
+                };
+                let raw = serde_json::to_string(&raw).map_err(D::Error::custom)?;
                 let raw = serde_json::from_str(&raw).map_err(D::Error::custom)?;
                 Ok(Self::Unknown { raw })
             }
@@ -122,9 +187,22 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
 
 fn valid_queue_number(value: Option<&Json>, min: i64, max: i64) -> Option<i64> {
     match value {
-        None | Some(Json::Null) => None,
-        Some(number) => crate::json_io::as_integer(number).filter(|int| *int >= min && *int <= max),
+        None => None,
+        // `null` is not an omitted queue fact; it rejects the status.
+        Some(Json::Null) => None,
+        Some(number) => {
+            let int = crate::json_io::as_integer(Some(number))?;
+            if int < min || int > max {
+                return None;
+            }
+            Some(int)
+        }
     }
+}
+
+/// Whether the value is an explicit `null`, which optional queue facts reject.
+pub fn is_null(value: Option<&Json>) -> bool {
+    matches!(value, Some(Json::Null))
 }
 
 impl serde::Serialize for ThreadStatus {
