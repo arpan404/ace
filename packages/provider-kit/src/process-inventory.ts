@@ -284,8 +284,8 @@ export class ProcessInventory implements ProcessJournal {
         groups: { pid: number; start: string }[];
       };
       this.drainNativeReports();
-      // Recovery only marks first-empty rows; the retry pass takes the second
-      // scan a second later. Schedule it from the native retry hint.
+      // Both scans run inside recover(); the timer only retries deletes
+      // still pending. Schedule it from the native retry hint.
       const at = native.handle.retryAtMs();
       if (typeof at === "number" && Number.isFinite(at))
         this.scheduleNativeRetry(native, Math.max(0, at - this.runtime.now()));

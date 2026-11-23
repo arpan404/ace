@@ -59,6 +59,12 @@ pub enum RetryPlan {
     RetryIn(u64),
 }
 
+/// Recheck delay while a release is still confirming its group empty: the
+/// check wakes its release loop to scan now, so confirmation is near;
+/// until then the row stays for crash recovery to find.
+#[cfg(not(windows))]
+const GATE_RECHECK_MS: u64 = 250;
+
 /// The process inventory over `path`, opened through the store's connection
 /// so one SQLite library touches the file.
 pub struct Inventory<R> {
@@ -234,20 +240,115 @@ impl<R: InventoryRuntime> Inventory<R> {
     }
 
     /// Forgets an exited process. Never throws: a delete that fails is kept
-    /// and retried; a row left by a crash is harmless.
+    /// and retried; a row left by a crash is harmless. The row stays until
+    /// its group is confirmed empty (the release loop's own report, or two
+    /// snapshots); a later retry re-checks.
     pub fn remove(&mut self, pid: u32) {
         let now_ms = self.runtime.now_ms();
+        #[cfg(not(windows))]
+        if let Some(entry) = self.recorded(pid) {
+            let mut snapshots = None;
+            if !self.release_empty(&mut snapshots, &entry) {
+                self.unremoved.insert(pid);
+                let at = now_ms.saturating_add(GATE_RECHECK_MS);
+                self.retry_at_ms = Some(match self.retry_at_ms {
+                    Some(earlier) => earlier.min(at),
+                    None => at,
+                });
+                return;
+            }
+        }
         self.unremoved.insert(pid);
         self.retry_removals(now_ms);
     }
 
+    /// The recorded row for `pid`, if it parses; a missing or corrupt row
+    /// needs no keeping.
+    #[cfg(not(windows))]
+    fn recorded(&self, pid: u32) -> Option<ProcessEntry> {
+        let statement = self
+            .db
+            .prepare("SELECT entry FROM processes WHERE pid=?")
+            .ok()?;
+        statement.bind(&[Some(Value::Integer(pid as i64))]).ok()?;
+        let row = statement.step().ok().flatten()?;
+        let Value::Text(text) = &row[0] else {
+            return None;
+        };
+        parse_entry(text).ok()
+    }
+
+    /// Whether the row for a recorded group may be forgotten: its group is
+    /// confirmed empty. A leader this supervisor holds reports its own
+    /// release (two empty scans while held); otherwise two back-to-back
+    /// snapshots must both find the group empty and complete. `false`
+    /// proves nothing either way: the row stays for a later retry. One
+    /// snapshot pair answers every such row in the pass.
+    #[cfg(not(windows))]
+    fn release_empty(
+        &self,
+        snapshots: &mut Option<(
+            crate::system::GroupSnapshot,
+            Option<crate::system::GroupSnapshot>,
+        )>,
+        entry: &ProcessEntry,
+    ) -> bool {
+        // The check wakes the release loop to scan now when unconfirmed.
+        if let Some(leader) = crate::leader::group_leader(entry.pid, &entry.start) {
+            return leader.group_gone();
+        }
+        if snapshots.is_none() {
+            *snapshots = Some((self.runtime.group_snapshot(), None));
+        }
+        let first_empty = snapshots.as_ref().is_some_and(|(first, _)| {
+            crate::system::group_empty_state(first, entry.group) == Some(true)
+        });
+        if !first_empty {
+            return false;
+        }
+        if snapshots
+            .as_ref()
+            .is_some_and(|(_, second)| second.is_none())
+        {
+            let second = self.runtime.group_snapshot();
+            if let Some((_, slot)) = snapshots.as_mut() {
+                *slot = Some(second);
+            }
+        }
+        snapshots.as_ref().is_some_and(|(_, second)| {
+            second.as_ref().is_some_and(|snapshot| {
+                crate::system::group_empty_state(snapshot, entry.group) == Some(true)
+            })
+        })
+    }
+
     /// Retries the deletes that failed earlier. While any is left, the
-    /// caller schedules another attempt on a bounded backoff.
+    /// caller schedules another attempt on a bounded backoff. A pending
+    /// delete is retried only once its group is still empty: a group that
+    /// gained (or may hold) members keeps its row for a later retry.
     pub fn retry_removals(&mut self, now_ms: u64) -> RetryPlan {
         if self.closed {
             return RetryPlan::Done;
         }
+        // One snapshot pair answers every row that needs one in the pass.
+        #[cfg(not(windows))]
+        let mut snapshots: Option<(
+            crate::system::GroupSnapshot,
+            Option<crate::system::GroupSnapshot>,
+        )> = None;
+        #[cfg(not(windows))]
+        let mut wait_until: Option<u64> = None;
         for pid in self.unremoved.clone() {
+            #[cfg(not(windows))]
+            if let Some(entry) = self.recorded(pid)
+                && !self.release_empty(&mut snapshots, &entry)
+            {
+                // Still occupied, or nothing proves it gone: keep the
+                // row and look again soon.
+                let at = now_ms.saturating_add(GATE_RECHECK_MS);
+                wait_until = Some(wait_until.map_or(at, |due| due.min(at)));
+                continue;
+            }
             let statement = match self.db.prepare("DELETE FROM processes WHERE pid=?") {
                 Ok(statement) => statement,
                 Err(error) => {
@@ -275,6 +376,14 @@ impl<R: InventoryRuntime> Inventory<R> {
                 return self.plan(now_ms);
             }
             self.unremoved.remove(&pid);
+        }
+        #[cfg(not(windows))]
+        if let Some(due) = wait_until {
+            self.retry_at_ms = Some(match self.retry_at_ms {
+                Some(at) => at.min(due),
+                None => due,
+            });
+            return self.plan(now_ms);
         }
         self.tick.settled();
         self.retry_at_ms = None;

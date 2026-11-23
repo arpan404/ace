@@ -152,6 +152,10 @@ impl TreeIo for SystemTree {
 pub struct SystemInventoryRuntime {
     owner: u32,
     kills: Mutex<Vec<(u32, String)>>,
+    /// Whether /proc hides processes (hidepid), read once from its mount
+    /// options and cached: every snapshot on such a system is incomplete.
+    #[cfg(target_os = "linux")]
+    proc_hidden: std::sync::OnceLock<bool>,
 }
 
 impl SystemInventoryRuntime {
@@ -159,6 +163,8 @@ impl SystemInventoryRuntime {
         Self {
             owner,
             kills: Mutex::new(Vec::new()),
+            #[cfg(target_os = "linux")]
+            proc_hidden: std::sync::OnceLock::new(),
         }
     }
 
@@ -190,6 +196,17 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
     }
 
     fn group_snapshot(&self) -> GroupSnapshot {
+        // A /proc that hides processes can never prove a group empty: every
+        // snapshot stays incomplete, so recovery never removes a row here.
+        #[cfg(target_os = "linux")]
+        {
+            if *self.proc_hidden.get_or_init(proc_hides_pids) {
+                return GroupSnapshot {
+                    groups: HashMap::new(),
+                    complete: false,
+                };
+            }
+        }
         take_group_snapshot(0)
     }
 
@@ -219,12 +236,47 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
     }
 }
 
+/// Whether /proc is mounted with a hiding hidepid option (1, 2, 4,
+/// invisible, noaccess or ptraceable), read from /proc/self/mountinfo. Such
+/// a mount hides live members from every /proc walk, so no scan on this
+/// system can prove a group empty. Read once and cached by the runtime.
+#[cfg(target_os = "linux")]
+fn proc_hides_pids() -> bool {
+    let Ok(text) = std::fs::read_to_string("/proc/self/mountinfo") else {
+        return false;
+    };
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split(' ').collect();
+        if fields.get(4) != Some(&"/proc") {
+            continue;
+        }
+        // Mount options ride on field 5; the super options are last, past
+        // the "-" separator. Either may carry hidepid.
+        let options = fields.get(5).copied().unwrap_or("");
+        let super_options = fields.last().copied().unwrap_or("");
+        for set in [options, super_options] {
+            for option in set.split(',') {
+                if let Some(value) = option.strip_prefix("hidepid=")
+                    && matches!(
+                        value,
+                        "1" | "2" | "4" | "invisible" | "noaccess" | "ptraceable"
+                    )
+                {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 /// One process-table snapshot for a recovery or retry pass: the live
 /// (non-zombie) members by group id, and whether every candidate was read.
 /// A snapshot is answered per row, never re-listed per row, so a recover()
-/// or retryRemovals pass costs one table walk. An unreadable pid, or a
-/// getpgid permission error on macOS, makes the snapshot incomplete, and no
-/// row is removed from an incomplete snapshot.
+/// or retryRemovals pass costs table walks, not one per row. An unreadable
+/// pid, a getpgid permission error on macOS, or a hiding /proc mount on
+/// Linux, makes the snapshot incomplete, and no row is removed from an
+/// incomplete snapshot.
 #[derive(Debug, Clone, Default)]
 pub struct GroupSnapshot {
     pub groups: HashMap<u32, BTreeSet<(u32, String)>>,
@@ -244,6 +296,46 @@ pub fn group_empty_state(snapshot: &GroupSnapshot, group: u32) -> Option<bool> {
             .map(|members| members.is_empty())
             .unwrap_or(true),
     )
+}
+
+/// Every pid with room to spare: `proc_listallpids` sizes its answer,
+/// then fills it, so a table that grows in between silently truncates to
+/// the sized buffer. Size with headroom, and if the fill reaches the
+/// buffer, grow and retry at most 3 times; a still-full buffer proves
+/// nothing, so the caller marks its snapshot incomplete.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+fn all_pids_with_headroom() -> Option<Vec<u32>> {
+    unsafe extern "C" {
+        fn proc_listallpids(buffer: *mut u32, buffersize: i32) -> i32;
+    }
+    let mut capacity = {
+        // SAFETY: a null buffer only asks for the byte size.
+        let sized = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+        let Ok(bytes) = u32::try_from(sized) else {
+            return None;
+        };
+        bytes as usize / 4 + 64
+    };
+    for _ in 0..4 {
+        let mut pids = vec![0u32; capacity];
+        let Ok(wide) = i32::try_from(capacity.checked_mul(4)?) else {
+            return None;
+        };
+        // SAFETY: `pids` holds `capacity` u32s; the kernel fills at most
+        // `wide` bytes of it, or returns an error.
+        let filled = unsafe { proc_listallpids(pids.as_mut_ptr(), wide) };
+        let Ok(bytes) = u32::try_from(filled) else {
+            return None;
+        };
+        let count = bytes as usize / 4;
+        if count < capacity {
+            pids.truncate(count);
+            return Some(pids);
+        }
+        capacity *= 2;
+    }
+    None
 }
 
 /// One system-wide walk answering every recorded group at once.
@@ -323,10 +415,9 @@ pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
     }
     #[cfg(target_os = "macos")]
     {
-        use libproc::processes::{ProcFilter, pids_by_type};
-        let candidates = match pids_by_type(ProcFilter::All) {
-            Ok(pids) => pids,
-            Err(_) => {
+        let candidates = match all_pids_with_headroom() {
+            Some(pids) => pids,
+            None => {
                 return GroupSnapshot {
                     groups,
                     complete: false,
