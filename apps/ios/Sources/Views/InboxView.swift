@@ -179,9 +179,10 @@ struct InboxView: View {
         }
     }
 
-    private var tabs: some View {
-        // Built from small parts: one builder with every tab and condition takes Xcode 26's
-        // type checker longer than it allows.
+    /// The tabs and what they hand down. The chain is cut in three (`tabBar`, `tabsFollowing`,
+    /// `tabs`) because Xcode 26's type checker gives up on it whole.
+    private var tabBar: some View {
+        // Built from small parts: one builder with every tab and condition takes too long too.
         TabView(selection: tabChoice) {
             placeTabs
             spadeTab
@@ -194,6 +195,11 @@ struct InboxView: View {
         .environment(\.spadeWorking, inbox.spadeWorking)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
+    }
+
+    /// The tab bar following the places it shows: Spade turning off, a narrowed window, paths.
+    private var tabsFollowing: some View {
+        tabBar
         // Spade turned off on the machine while its tab showed: back to Threads.
         .onChange(of: showsSpade) { _, shown in if !shown && tab == .spade { tab = .threads } }
         .sensoryFeedback(AceDesign.Haptic.tab, trigger: tab)
@@ -218,6 +224,10 @@ struct InboxView: View {
             lastPlace = ""
             if threadsPath.isEmpty && chatsPath.isEmpty { openThread(key) }
         }
+    }
+
+    private var tabs: some View {
+        tabsFollowing
         .environment(\.otherMachines, otherMachines)
         // The machine's list caught up with the thread Open waited for: it opens now.
         .onChange(of: awaitedListed) { _, listed in
