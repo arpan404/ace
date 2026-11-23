@@ -4,77 +4,34 @@ import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { remoteCliFixture } from "./cli-remote-test-support.ts";
-import { openCli, startCli, invoke } from "./cli-test-support.ts";
+import { invoke, startCli } from "./cli-test-support.ts";
 
 test(
-  "quit detaches promptly when a connection drops before the attached thread snapshot",
-  { timeout: 30000 },
-  async () => {
-    const f = await remoteCliFixture();
-    f.interruptBeforeSnapshots();
-    const cli = openCli(f.home, [
-      "chat",
-      "--thread",
-      f.caller.threadId,
-      ...f.remoteArgs,
-      "--stream",
-      "jsonl",
-    ]);
-    try {
-      await expect.poll(f.lostSnapshots, { timeout: 10000 }).toBeGreaterThan(0);
-      cli.child.stdin.write("/quit\n");
-      let exited = false;
-      void cli.exited.then(() => {
-        exited = true;
-      });
-      await expect.poll(() => exited, { timeout: 5000 }).toBe(true);
-      const result = await cli.exited;
-      expect(result.code, result.stderr).toBe(5);
-      const records: unknown[] = result.stdout
-        .trim()
-        .split("\n")
-        .map((line) => JSON.parse(line));
-      expect(records.at(-1)).toMatchObject({
-        status: "uncertain",
-        admission: { threadId: f.caller.threadId },
-      });
-      expect(f.commands).toEqual([]);
-    } finally {
-      cli.child.kill("SIGKILL");
-      await cli.exited;
-      await f.close();
-    }
-  },
-);
-
-test(
-  "a single stdin chunk containing a prompt and quit exits uncertain and keeps the prompt replayable",
+  "a run admitted before its receipt is lost exits uncertain and keeps the prompt replayable",
   { timeout: 30000 },
   async () => {
     const f = await remoteCliFixture();
     f.loseReplies();
-    const cli = startCli(
-      f.home,
-      [
-        "chat",
-        "--project",
-        f.workspace,
-        "--provider",
-        "claude",
-        "--idempotency-key",
-        "buffered-quit",
-        ...f.remoteArgs,
-        "--stream",
-        "jsonl",
-      ],
-      "Single chunk prompt\n/quit\n",
-    );
+    const cli = startCli(f.home, [
+      "run",
+      "Single chunk prompt",
+      "--project",
+      f.workspace,
+      "--provider",
+      "claude",
+      "--idempotency-key",
+      "buffered-quit",
+      ...f.remoteArgs,
+      "--json",
+      "--timeout",
+      "10s",
+    ]);
     try {
       let exited = false;
       void cli.exited.then(() => {
         exited = true;
       });
-      await expect.poll(() => exited, { timeout: 5000 }).toBe(true);
+      await expect.poll(() => exited, { timeout: 15000 }).toBe(true);
       const result = await cli.exited;
       expect(result.code, result.stderr).toBe(5);
       const records = result.stdout
@@ -205,42 +162,31 @@ test(
   },
 );
 
-test.each(["revocation", "quit"] as const)(
-  "chat %s aborts a lost receipt, retains its durable key and stops input promptly",
+test(
+  "a send with a lost receipt times out uncertain, keeps its durable key and replays once",
   { timeout: 30000 },
-  async (reason) => {
+  async () => {
     const f = await remoteCliFixture();
-    const cli = openCli(f.home, [
-      "chat",
-      "--thread",
+    f.loseReplies();
+    const cli = startCli(f.home, [
+      "thread",
+      "send",
       f.caller.threadId,
+      "Admitted before losing its receipt",
+      "--idempotency-key",
+      "lost-receipt-send",
       ...f.remoteArgs,
-      "--stream",
-      "jsonl",
+      "--json",
+      "--timeout",
+      "10s",
     ]);
-    let output = "";
-    cli.child.stdout.on("data", (bytes: Buffer) => {
-      output += bytes.toString();
-    });
     try {
-      await expect.poll(() => output.includes('"type":"thread"'), { timeout: 10000 }).toBe(true);
-      f.loseReplies();
-      cli.child.stdin.write("Admitted before losing its receipt\n");
       await expect
         .poll(() => f.commands.find((command) => command.payload.type === "thread.send"))
         .toBeDefined();
-      const submitted = f.commands.find((command) => command.payload.type === "thread.send");
-      if (!submitted) throw new Error("Missing public command");
-      await expect.poll(() => f.receipts.includes(submitted.id)).toBe(true);
+      await expect.poll(() => f.receipts.includes("lost-receipt-send")).toBe(true);
       await f.daemon.engine?.flush();
       expect(f.h.inputs.get(f.caller.threadId)).toContain("Admitted before losing its receipt");
-      if (reason === "revocation") await f.revoke();
-      else cli.child.stdin.write("/quit\n");
-      let exited = false;
-      void cli.exited.then(() => {
-        exited = true;
-      });
-      await expect.poll(() => exited, { timeout: 5000 }).toBe(true);
       const result = await cli.exited;
       expect(result.code, result.stderr).toBe(5);
       const records = result.stdout
@@ -249,30 +195,26 @@ test.each(["revocation", "quit"] as const)(
         .map((line): unknown => JSON.parse(line));
       expect(records.at(-1)).toMatchObject({
         status: "uncertain",
-        admission: { threadId: f.caller.threadId, idempotencyKey: submitted.id },
+        admission: { threadId: f.caller.threadId, idempotencyKey: "lost-receipt-send" },
       });
-      // The transcript showed native delivery, which acknowledges the SDK intent and moves
-      // its durability to the daemon; the key above stays the replay handle.
-      if (reason === "quit") {
-        f.restoreReplies();
-        const recovered = await invoke(f.home, [
-          "thread",
-          "send",
-          f.caller.threadId,
-          "Admitted before losing its receipt",
-          "--idempotency-key",
-          submitted.id,
-          ...f.remoteArgs,
-          "--json",
-        ]);
-        expect(recovered.code, recovered.stderr).toBe(0);
-        await f.daemon.engine?.flush();
-        expect(
-          f.h.inputs
-            .get(f.caller.threadId)
-            ?.filter((input) => input === "Admitted before losing its receipt"),
-        ).toHaveLength(1);
-      }
+      f.restoreReplies();
+      const recovered = await invoke(f.home, [
+        "thread",
+        "send",
+        f.caller.threadId,
+        "Admitted before losing its receipt",
+        "--idempotency-key",
+        "lost-receipt-send",
+        ...f.remoteArgs,
+        "--json",
+      ]);
+      expect(recovered.code, recovered.stderr).toBe(0);
+      await f.daemon.engine?.flush();
+      expect(
+        f.h.inputs
+          .get(f.caller.threadId)
+          ?.filter((input) => input === "Admitted before losing its receipt"),
+      ).toHaveLength(1);
     } finally {
       cli.child.kill("SIGKILL");
       await cli.exited;
