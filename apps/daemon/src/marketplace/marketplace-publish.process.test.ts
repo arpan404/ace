@@ -94,6 +94,31 @@ const heldScan: MarketScanReport = {
   read: { files: 0, textBytes: 0 },
 };
 
+const acme = "org_01ACME";
+/** The registry as the Worker answers its admins: one entry, a held version the scan warned on. */
+const registryBody = {
+  org: acme,
+  publisher: { id: "pub_acme", name: "acme" },
+  entries: [
+    {
+      type: "spade-skill",
+      name: "acme-triage",
+      title: "Acme triage",
+      versions: [
+        {
+          version: "1.0.0",
+          hash: "a".repeat(64),
+          size: 120,
+          published: 3,
+          status: "waiting",
+          held: true,
+          scan: { verdict: "warn", scanner: 1 },
+        },
+      ],
+    },
+  ],
+};
+
 beforeEach(async () => {
   market = await fakeMarket();
   spade = await fakeSpade();
@@ -130,6 +155,8 @@ beforeEach(async () => {
       answer(202, { status: "pending", versions: ["1.0.0"] });
     else if (seen.method === "POST" && seen.path.endsWith("/transfer"))
       answer(201, { id: "trf_abcdefgh12", type: "spade-skill", name: "triage-mail", to: "other" });
+    else if (seen.method === "GET" && seen.path === `/v1/orgs/${acme}/registry`)
+      answer(200, registryBody);
     else if (seen.path === "/v1/discover") answer(200, discoverBody);
     else return false;
     return true;
@@ -221,6 +248,64 @@ describe("the market's answers", () => {
       op: "publish",
       answer: { kind: "done" },
     });
+  });
+});
+
+describe("an organization's registry", () => {
+  const personGrant = "person-grant-acme-0123456789abcdef";
+  /** The machine's own grant: a registry's reads and withdrawals never use it. */
+  let machineAsked = 0;
+  const machine = () => {
+    machineAsked += 1;
+    return grant();
+  };
+  const asPerson = (request: MarketPublishAction, person?: string) =>
+    harness.service.request(
+      { op: "publish", request },
+      { grant: machine, ...(person ? { personGrant: person } : {}) },
+    );
+  beforeEach(() => {
+    machineAsked = 0;
+  });
+
+  it("is read for its admins with the person's grant, every version with its scan verdict", async () => {
+    expect(await asPerson({ action: "registry", org: acme }, personGrant)).toEqual({
+      op: "publish",
+      answer: { kind: "registry", registry: registryBody },
+    });
+    const asked = market.seen.find((seen) => seen.path === `/v1/orgs/${acme}/registry`);
+    expect(asked?.authorization).toBe(`Bearer ${personGrant}`);
+    expect(machineAsked).toBe(0);
+  });
+
+  it("asks for the person's grant, never the machine's, and the market nothing until it has one", async () => {
+    expect(await asPerson({ action: "registry", org: acme })).toMatchObject({
+      op: "error",
+      code: "person_grant",
+      action: `GET /v1/orgs/${acme}/registry`,
+    });
+    const withdraw = {
+      action: "registryWithdraw" as const,
+      org: acme,
+      type: "spade-skill" as const,
+      name: "acme-triage",
+      version: "1.0.0",
+      reason: "Leaks a token",
+    };
+    expect(await asPerson(withdraw)).toMatchObject({
+      code: "person_grant",
+      action: `POST /v1/orgs/${acme}/entries/spade-skill/acme-triage/1.0.0/withdraw`,
+    });
+    expect(market.seen.filter((seen) => seen.path.startsWith("/v1/orgs/"))).toEqual([]);
+    expect(machineAsked).toBe(0);
+    // With it, the withdrawal is the request the grant names, and waits for the registry's signer.
+    expect(await asPerson(withdraw, personGrant)).toEqual({
+      op: "publish",
+      answer: { kind: "pending", what: "withdrawal" },
+    });
+    const sent = market.seen.find((seen) => seen.path.endsWith("/1.0.0/withdraw"));
+    expect(sent?.body.toString()).toBe(JSON.stringify({ reason: "Leaks a token" }));
+    expect(sent?.authorization).toBe(`Bearer ${personGrant}`);
   });
 });
 

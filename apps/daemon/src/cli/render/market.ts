@@ -185,6 +185,15 @@ export function publishLines(answer: MarketPublishAnswer): string[] {
             `  ${challenge.kind} ${challenge.subject}: ${challenge.state}${challenge.problem ? `: ${challenge.problem}` : ""}`,
         ),
       ];
+    case "registry": {
+      const lines = [`${answer.registry.publisher.name}'s registry (${answer.registry.org})`];
+      for (const entry of answer.registry.entries)
+        for (const version of entry.versions)
+          lines.push(
+            `${ref(entry)} ${version.version}  ${version.status}${version.scan ? `, scan ${version.scan.verdict}` : ""}${version.withdrawal ? ", withdrawal waiting" : ""}`,
+          );
+      return lines;
+    }
     case "done":
       return ["Done."];
   }

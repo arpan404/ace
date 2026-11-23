@@ -7,7 +7,7 @@ import type { MarketPublishAction } from "@ace/protocol/marketplace";
  */
 
 export interface PersonMarketCall {
-  method: "POST" | "PUT" | "DELETE";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   path: string;
   /** The JSON body, sent as `JSON.stringify(json)`; absent for a request with none. */
   json?: unknown;
@@ -21,8 +21,9 @@ const versionPath = (action: { type: string; name: string; version: string }) =>
 
 /**
  * The market request of an action the market takes only from the person: withdrawals,
- * transfers and answering one, handle changes, deleting an entry, verification and a profile's
- * edits. Undefined for any other action.
+ * transfers and answering one, handle changes, deleting an entry, verification, a profile's
+ * edits, and an organization's registry as its admins read it and withdraw from it (ADR 0206
+ * amendment 5). Undefined for any other action.
  */
 export function personMarketCall(action: MarketPublishAction): PersonMarketCall | undefined {
   switch (action.action) {
@@ -43,6 +44,14 @@ export function personMarketCall(action: MarketPublishAction): PersonMarketCall 
       };
     case "deleteEntry":
       return { method: "DELETE", path: entryPath(action) };
+    case "registry":
+      return { method: "GET", path: `/v1/orgs/${segment(action.org)}/registry` };
+    case "registryWithdraw":
+      return {
+        method: "POST",
+        path: `/v1/orgs/${segment(action.org)}/entries/${segment(action.type)}/${segment(action.name)}/${segment(action.version)}/withdraw`,
+        json: { reason: action.reason },
+      };
     case "transfer":
       return { method: "POST", path: `${entryPath(action)}/transfer`, json: { to: action.to } };
     case "transferAnswer":
@@ -84,4 +93,14 @@ export async function marketIntent(input: {
   for (const byte of digest) binary += String.fromCharCode(byte);
   const hash = btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
   return `${input.method} ${input.path} ${hash}`;
+}
+
+/**
+ * The organization a person's grant for `action` must act in (its `org` claim): a registry's
+ * reads and withdrawals are the organization's, not the person's own publisher's.
+ */
+export function marketActionOrg(action: MarketPublishAction): string | undefined {
+  return action.action === "registry" || action.action === "registryWithdraw"
+    ? action.org
+    : undefined;
 }

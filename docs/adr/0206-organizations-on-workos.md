@@ -801,3 +801,41 @@ Decided by: the owner (2026-11-22), bringing §1.5's iPhone admin pages forward 
 - **Still not on the phone:** giving the phone's paired machine to the organization (it needs the
   machine's owner at the machine, §2.1), and publishing to or withdrawing from the registry,
   which no client does yet (§5); the Registry page says where those happen.
+
+## Amendment 5 (2026-11-22): the registry's versions and withdrawals, for admins
+
+Decided by: the owner (2026-11-22, issue #2630), narrowing amendment 4's "withdrawing from the
+registry, which no client does yet".
+
+- **Admins read every version of the registry, with its scan result:** `GET
+/v1/orgs/{org}/registry` answers `RegistryAdmin`: each entry with its newest 20 versions, each
+  version's state (waiting, held, live, blocked, withdrawn), the scan's verdict and scanner
+  version, the block or withdrawal reason, and a withdrawal still waiting for the signer. It
+  needs a market grant acting in the organization whose role holds `registry:publish`, or an
+  account an owner named a publisher (the same test as publishing). A member without it gets 403;
+  anyone else 404, as for every registry route. The verdict comes from the version row, not the
+  R2 report, so the page costs one query per catalogue whatever the registry holds; the findings
+  stay on the publisher's own entry page.
+- **Withdraw is a request, signed later:** `POST /v1/orgs/{org}/entries/{type}/{name}/{version}/withdraw
+{reason}`, by the same people, is sensitive (ADR 0174 §2): only with the person's own grant
+  naming that very request (ADR 0190), carrying the `org` claim. It queues the withdrawal in the
+  catalogue's `pending_withdrawals`, as a public publisher's does, and answers 202. Until the
+  registry's signer signs it (§5.2), the version is still offered and installed copies keep
+  running; the page says "Withdrawal waiting for the registry's signer". The public signer never
+  sees it: its feed reads public entries' withdrawals only. Signing an organization's withdrawn
+  list, serving it and turning installed copies off on members' devices is the follow-up named in
+  the PR; this amendment doesn't decide its format.
+- **Clients go through the machine's daemon, as for every market call:** both are `publish`
+  actions (`registry`, `registryWithdraw`), sent with a `personGrant` the client minted from the
+  person's own session (`POST /v1/grants {purpose: "market-publish", org, action}`) for that one
+  call, never with the machine's grant. On an org host, `marketplace.request` is `host.admin`
+  (ADR 0209), so a member who isn't an admin of the host is refused before the market is asked.
+  The phone mints the grant itself (it already calls the account backend, amendment 4) and its
+  bridge builds the request the grant names, with `@ace/client/market-intent`, the builder web and
+  the daemon use, so all three name the same bytes. Withdraw asks first, with the reason.
+
+Options considered: a new daemon op with the message's `orgGrant` (the install path's grant is
+bound to one machine's host id, which clients don't know for a space's host, and isn't
+request-bound); reading the full scan report for each version (an R2 read per version, up to
+thousands per page); withdrawing at once on the market without the signer (devices couldn't
+verify it, against §5.2).
