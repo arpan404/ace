@@ -4,11 +4,9 @@ import {
   parseSpadeModels,
   parseSpadeSearchUsage,
   parseSpadeSkillStore,
-  parseSpadeSubscriptions,
   spadePresetChoices,
   spadeSearchUsageLine,
   spadeSetupSentence,
-  spadeSubscriptionSources,
   type SpadeModelSources,
   type SpadeModels,
 } from "@ace/ui-core/spade-chat";
@@ -117,17 +115,9 @@ function sure<T>(value: T | undefined, what: string): T {
 export async function readModelSources(
   ask: Ask,
 ): Promise<{ models: SpadeModels; sources: SpadeModelSources }> {
-  const [models, subscriptions] = await Promise.all([
-    ask("GET", "/v1/models").then((body) => sure(parseSpadeModels(body), "models")),
-    // Subscriptions are ace's to list; while ace can't say, the endpoints still show.
-    ask("GET", "/v1/subscriptions").then(
-      (body) => parseSpadeSubscriptions(body)?.providers ?? [],
-      () => [],
-    ),
-  ]);
+  const models = sure(parseSpadeModels(await ask("GET", "/v1/models")), "models");
   const sources = {
     endpoints: models.endpoints.map((endpoint) => ({ endpoint, models: endpoint.models })),
-    subscriptions: spadeSubscriptionSources(subscriptions),
   };
   return { models, sources };
 }
