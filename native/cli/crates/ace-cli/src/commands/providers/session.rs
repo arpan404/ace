@@ -28,6 +28,23 @@ pub fn usage(
         .with_command(command)
 }
 
+/// What the TypeScript CLI reports when a schema rejects a value: a usage failure naming
+/// the schema's complaint, hinting at the command's help.
+pub fn schema_error(message: impl Into<String>, command: &'static str) -> Failure<'static> {
+    let message = message.into();
+    let sentence = if message.ends_with(['.', '!', '?']) {
+        message
+    } else {
+        format!("{message}.")
+    };
+    Failure::usage(format!(
+        "An argument isn't in the form ace expects: {sentence}"
+    ))
+    .with_code(ErrorCode::BadArgument)
+    .with_hint(format!("See ace help {}.", command.replace('.', " ")))
+    .with_command(command)
+}
+
 /// `--timeout`: how long one daemon request may take (the CLI's lifetime for it).
 pub fn request_timeout(flags: &Flags<'_>, command: &'static str) -> CommandResult<Duration> {
     let Some(value) = flags.value("timeout") else {

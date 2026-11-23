@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::io::Write;
 
 use super::render::mcp_added_lines;
-use super::session::{CommandResult, answer_shaped, cli_once, usage};
+use super::session::{CommandResult, answer_shaped, cli_once, schema_error, usage};
 
 const COMMAND_LIST: &str = "mcp.list";
 const COMMAND_ADD: &str = "mcp.add";
@@ -153,6 +153,8 @@ fn daemon_refused(reply: &Value, command: &'static str) -> Failure<'static> {
 }
 
 /// The enroll operation its flags describe, or what is wrong with them.
+/// The checks run where the TypeScript CLI's do: missing and clashing flags, then the
+/// time-to-live's own grammar, then `CliOperation`'s schema in field order.
 fn enroll_validated(
     parsed: &cli_parse::Parsed<'_>,
 ) -> super::session::CommandResult<McpEnrollOperation> {
@@ -177,35 +179,65 @@ fn enroll_validated(
             .with_argument("--allow"),
         ));
     }
-    let allow = list_flag(parsed, "allow");
     let ttl = grant_lifetime_ms(parsed.flags.value("ttl").unwrap_or("1h"), COMMAND_ADD)?;
-    if let Some(scopes) = &allow
-        && !scopes
+    let allow = list_flag(parsed, "allow");
+    if let Some(scopes) = &allow {
+        if scopes.is_empty() {
+            return Err(Box::new(schema_error(
+                "Too small: expected array to have >=1 items",
+                COMMAND_ADD,
+            )));
+        }
+        if !scopes
             .iter()
             .all(|scope| OUTSIDE_SCOPES.contains(&scope.as_str()))
-    {
-        return Err(Box::new(
-            usage(
+        {
+            return Err(Box::new(schema_error(
                 format!(
-                    "An argument isn't in the form ace expects: Invalid option: expected one of {}.",
+                    "Invalid option: expected one of {}.",
                     OUTSIDE_SCOPES
                         .iter()
                         .map(|scope| format!("\"{scope}\""))
                         .collect::<Vec<_>>()
                         .join("|"),
                 ),
-                ErrorCode::BadArgument,
                 COMMAND_ADD,
-            )
-            .with_hint("See ace help mcp add."),
-        ));
+            )));
+        }
+    }
+    if ttl.is_some_and(|ttl| ttl > 366 * 86_400_000) {
+        return Err(Box::new(schema_error(
+            "Too big: expected number to be <=31622400000",
+            COMMAND_ADD,
+        )));
+    }
+    let projects = list_flag(parsed, "project");
+    if projects.as_ref().is_some_and(Vec::is_empty) {
+        return Err(Box::new(schema_error(
+            "Too small: expected array to have >=1 items",
+            COMMAND_ADD,
+        )));
+    }
+    if let Some(name) = parsed.flags.value("name") {
+        if name.is_empty() {
+            return Err(Box::new(schema_error(
+                "Too small: expected string to have >=1 characters",
+                COMMAND_ADD,
+            )));
+        }
+        if name.encode_utf16().count() > 256 {
+            return Err(Box::new(schema_error(
+                "Too big: expected string to have <=256 characters",
+                COMMAND_ADD,
+            )));
+        }
     }
     Ok(McpEnrollOperation {
         op: "mcp.enroll",
         scope: parsed.flags.value("scope").map(str::to_owned),
         allow,
         ttl_ms: ttl,
-        projects: list_flag(parsed, "project"),
+        projects,
         name: parsed.flags.value("name").map(str::to_owned),
     })
 }
@@ -273,8 +305,37 @@ pub fn revoke<W: Write, E: Write>(
     err: &mut Out<E>,
 ) -> Outcome {
     let id = parsed.words.first().copied().unwrap_or("");
-    let reply = match cli_once(
-        &parsed.flags,
+    // The session opens first: a missing daemon refuses before the argument is checked.
+    let mut conn = match super::session::connect(&parsed.flags, COMMAND_REVOKE) {
+        Ok(conn) => conn,
+        Err(failure) => return crate::run::fail(out, err, Some(&parsed.flags), &failure),
+    };
+    if id.is_empty() {
+        conn.close();
+        return crate::run::fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &schema_error(
+                "Too small: expected string to have >=1 characters",
+                COMMAND_REVOKE,
+            ),
+        );
+    }
+    if id.encode_utf16().count() > 128 {
+        conn.close();
+        return crate::run::fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &schema_error(
+                "Too big: expected string to have <=128 characters",
+                COMMAND_REVOKE,
+            ),
+        );
+    }
+    let reply = match super::session::cli_send(
+        &mut conn,
         COMMAND_REVOKE,
         &McpRevokeOperation {
             op: "mcp.revoke",
@@ -282,8 +343,12 @@ pub fn revoke<W: Write, E: Write>(
         },
     ) {
         Ok(reply) => reply,
-        Err(failure) => return crate::run::fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            conn.close();
+            return crate::run::fail(out, err, Some(&parsed.flags), &failure);
+        }
     };
+    conn.close();
     if is_daemon_refusal(&reply) {
         let code = reply
             .get("result")
