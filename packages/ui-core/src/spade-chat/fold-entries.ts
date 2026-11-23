@@ -380,18 +380,27 @@ export function closeOpen(
 }
 
 /**
- * A task lane that ended (stopped, failed or done) no longer waits on what it asked here: its
- * approvals leave, and its question cards still open close, since neither can be answered now.
+ * A task lane ended and Spade closed its requests here (`lane_requests_closed`, ADR 0217 §4):
+ * exactly the calls it lists, approvals and question cards alike, no more. A deferred card it
+ * doesn't list stays answerable (after done, finished or failed its answer reopens the task).
  */
-export function settleLaneAsks(state: SpadeConversationState, lane: string): void {
-  state.approvals = state.approvals.filter((approval) => approval.lane?.task !== lane);
-  for (const callId of state.laneCards.get(lane) ?? []) {
+export function closeLaneRequests(
+  state: SpadeConversationState,
+  calls: readonly string[],
+): boolean {
+  const closing = new Set(calls);
+  const before = state.approvals.length;
+  state.approvals = state.approvals.filter((approval) => !closing.has(approval.callId));
+  let changed = state.approvals.length !== before;
+  for (const callId of closing) {
     state.forLater.delete(callId);
-    updateQuestion(state, callId, (card) =>
-      card.standing === "waiting" || card.standing === "deferred"
-        ? { ...card, standing: "closed" }
-        : undefined,
-    );
+    if (state.question?.callId === callId) state.question = undefined;
+    changed =
+      updateQuestion(state, callId, (card) =>
+        card.standing === "waiting" || card.standing === "deferred"
+          ? { ...card, standing: "closed" }
+          : undefined,
+      ) || changed;
   }
-  state.laneCards.delete(lane);
+  return changed;
 }

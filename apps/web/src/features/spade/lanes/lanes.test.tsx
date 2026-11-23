@@ -293,6 +293,17 @@ test("the bot's Stop shows while only its tasks run, and stops every one of them
     ),
   );
   await waitFor(() => expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull());
+  // Spade closed what the stopped tasks asked in main: the card takes no answer, the request left.
+  const chat = within(screen.getByRole("feed", { name: "Conversation with Errands" }));
+  const card = chat.getByRole("group", {
+    name: "Draft the quarterly note asks: Should the revenue section compare against Q2 or against Q3 last year?",
+  });
+  expect(within(card).queryByRole("button", { name: /^Send/ })).toBeNull();
+  expect(
+    chat.queryByRole("group", {
+      name: "Book flights to Lisbon wants to pay €412 to TAP Air Portugal",
+    }),
+  ).toBeNull();
 });
 
 test("the bot's own words sent to a task read as sent to it beside a routed reply, and open the task", async () => {

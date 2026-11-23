@@ -164,4 +164,23 @@ describe("a bot's task lanes in the fake API", () => {
     expect(states).not.toContain("working");
     expect(states).not.toContain("queued");
   });
+
+  test("a lane's end closes its open requests in main, a deferred card only when stopped", async () => {
+    const { api, bot } = staged();
+    const flights = `${bot.conversation}-lane-flights`;
+    const quarterly = `${bot.conversation}-lane-quarterly`;
+    await api.answer({
+      method: "POST",
+      path: `/v1/conversations/${bot.conversation}/questions/${quarterly}.q1`,
+      body: JSON.stringify({ defer: true }),
+    });
+    api.lanes.settle(quarterly, "failed", "The sheet wouldn't open");
+    api.lanes.settle(flights, "stopped", "");
+    const closed = api
+      .eventsOf(bot.conversation)
+      .filter((event) => event.type === "lane_requests_closed")
+      .map((event) => [event.lane, event.calls]);
+    // The failed lane's deferred card stays answerable; the stopped lane's approval closes.
+    expect(closed).toEqual([[flights, [`${flights}.k1`]]]);
+  });
 });

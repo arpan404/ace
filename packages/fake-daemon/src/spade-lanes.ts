@@ -176,6 +176,36 @@ export class FakeSpadeLanes {
       ...(state === "stopped" ? {} : { words }),
       // A failure's error is the endpoint's or a tool's, quoted as untrusted: never Spade's.
       ...(state === "failed" ? { error: words, untrusted: true } : {}),
+    }); // Its requests still open in main close with it, listed by main's ids (ADR 0217 §4).
+    const calls = this.#openRequests(lane, state === "stopped");
+    if (calls.length) host.store(lane.main, { type: "lane_requests_closed", lane: task, calls });
+  }
+
+  /**
+   * Main's ids of `lane`'s requests still open there: approvals not answered and cards waiting on
+   * the person, and its deferred cards too when it was stopped (otherwise a deferred card stays
+   * answerable, and its answer reopens the task).
+   */
+  #openRequests(lane: FakeLane, withDeferred: boolean): string[] {
+    const events = this.#host.events(lane.main);
+    const settled = (call: unknown) =>
+      events.some(
+        (event) =>
+          event.call_id === call &&
+          (event.type === "approval_answered" ||
+            event.type === "question_answered" ||
+            event.type === "question_dismissed"),
+      );
+    const deferred = (call: unknown) =>
+      events.some((event) => event.call_id === call && event.type === "question_deferred");
+    return events.flatMap((event) => {
+      const of = event.lane as { task?: unknown } | undefined;
+      if (of?.task !== lane.task) return [];
+      if (event.type !== "approval_requested" && event.type !== "question_asked") return [];
+      const call = event.call_id;
+      if (typeof call !== "string" || settled(call)) return [];
+      if (event.type === "question_asked" && deferred(call) && !withDeferred) return [];
+      return [call];
     });
   }
 

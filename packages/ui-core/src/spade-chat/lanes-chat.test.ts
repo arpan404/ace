@@ -231,7 +231,7 @@ describe("a task's question, rename and overlap in main", () => {
   });
 });
 
-test("a task that stops leaves no request of its waiting in main", () => {
+test("a listed approval of a task's closes in main; the task's report alone closes nothing", () => {
   const c = main();
   c.stored({
     type: "approval_requested",
@@ -241,11 +241,13 @@ test("a task that stops leaves no request of its waiting in main", () => {
     arguments: { to: "dana@northwind.co" },
     lane: { task: "l1", conversation: "l1", call_id: "k1", title: "Fix the March invoice" },
   });
-  c.stored(report("l1", "Fix the March invoice", "needs_you"));
-  expect(c.view().approvals).toHaveLength(1);
   c.stored(report("l1", "Fix the March invoice", "stopped"));
+  // Spade says which requests close, in the same write as the report.
+  expect(c.view().approvals).toHaveLength(1);
+  c.stored({ type: "lane_requests_closed", lane: "l1", calls: ["l1.k1"] });
   expect(c.view().approvals).toEqual([]);
   expect(c.view().busy).toBe(false);
+  expect(c.bubbles().some((bubble) => bubble.kind === "ask")).toBe(false);
 });
 
 describe("in a task's own transcript", () => {
@@ -308,7 +310,7 @@ describe("after the closing checks", () => {
     expect(line?.kind === "quiet" && line.quiet).toMatchObject({ lane: "l1", event: "routed" });
   });
 
-  test("a task that stops or fails closes its question card in main, answered ones untouched", () => {
+  test("Spade closes exactly the cards it lists: a stopped task's waiting and deferred ones, a failed task's waiting one only", () => {
     const c = main();
     const ask = (lane: string, call: string) =>
       c.stored({
@@ -318,17 +320,30 @@ describe("after the closing checks", () => {
         question: "Which folder?",
         lane: { task: lane, conversation: lane, call_id: call, title: lane },
       });
-    ask("l1", "q1");
-    ask("l2", "q1");
-    c.stored({ type: "question_answered", call_id: "l2.q1", answers: ["Inbox"] });
-    c.stored(report("l1", "l1", "stopped"));
-    c.stored(report("l2", "l2", "failed"));
+    ask("stopped", "q1");
+    ask("stopped", "q2");
+    c.stored({ type: "question_deferred", call_id: "stopped.q2" });
+    ask("failed", "q1");
+    ask("failed", "q2");
+    c.stored({ type: "question_deferred", call_id: "failed.q2" });
+    c.stored(report("stopped", "stopped", "stopped"));
+    c.stored({
+      type: "lane_requests_closed",
+      lane: "stopped",
+      calls: ["stopped.q1", "stopped.q2"],
+    });
+    c.stored(report("failed", "failed", "failed"));
+    // After failed (or done, finished) a deferred card stays answerable: its answer reopens it.
+    c.stored({ type: "lane_requests_closed", lane: "failed", calls: ["failed.q1"] });
     const standing = c
       .bubbles()
       .flatMap((bubble) => (bubble.kind === "question" ? [[bubble.callId, bubble.standing]] : []));
     expect(standing).toEqual([
-      ["l1.q1", "closed"],
-      ["l2.q1", "answered"],
+      ["stopped.q1", "closed"],
+      ["stopped.q2", "closed"],
+      ["failed.q1", "closed"],
+      ["failed.q2", "deferred"],
     ]);
+    expect(c.view().forLater).toEqual(["failed.q2"]);
   });
 });
