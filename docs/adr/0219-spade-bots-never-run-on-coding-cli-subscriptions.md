@@ -66,8 +66,8 @@ other, not a CLI.
   local model. The line in each bot's chat says what changed, once.
 - Spade's paid plan and its tests were already independent of subscriptions (ADR 0205 §5); they
   stay so.
-- The market keeps serving its signed notices list until its Worker is next deployed without it;
-  no build reads it.
+- The market Worker's signed terms notices (`GET /v1/notices`, the signer's `notices` list) are
+  left in place for now: no build reads them any more, and removing them waits for a Worker deploy.
 - An organization policy's `models.subscriptions` flag no longer has anything to allow; shared
   bots were already refused subscriptions.
 
