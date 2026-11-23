@@ -179,13 +179,15 @@ pub fn core_next_deadline(
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(state_json)?;
         let provider = match provider_deadline {
-            None => None,
-            Some(deadline) => {
-                if !deadline.is_finite() || deadline.fract() != 0.0 || deadline < 0.0 {
-                    return Err("provider deadline must be a nonnegative integer".to_owned());
-                }
+            Some(deadline)
+                if deadline.is_finite()
+                    && deadline.fract() == 0.0
+                    && deadline >= 0.0
+                    && deadline <= 9_007_199_254_740_991.0 =>
+            {
                 Some(deadline as i64)
             }
+            _ => None,
         };
         Ok::<Option<i64>, String>(ace_core::deadlines::next_deadline(&state, provider))
     }));
@@ -259,13 +261,15 @@ impl WasmDeadlineIndex {
     pub fn next(&mut self, provider_deadline: Option<f64>) -> Result<JsValue, JsValue> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let provider = match provider_deadline {
-                None => None,
-                Some(deadline) => {
-                    if !deadline.is_finite() || deadline.fract() != 0.0 || deadline < 0.0 {
-                        return Err("provider deadline must be a nonnegative integer".to_owned());
-                    }
+                Some(deadline)
+                    if deadline.is_finite()
+                        && deadline.fract() == 0.0
+                        && deadline >= 0.0
+                        && deadline <= 9_007_199_254_740_991.0 =>
+                {
                     Some(deadline as i64)
                 }
+                _ => None,
             };
             Ok::<Option<i64>, String>(self.inner.next(provider))
         }));

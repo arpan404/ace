@@ -268,7 +268,8 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
 /** The earliest injected instant at which a tick can change a status. */
 export function nextDeadline(state: ThreadState, providerDeadline?: number): number | undefined {
   const backend = coreBackend();
-  if (backend === "native") return addon().coreNextDeadline(JSON.stringify(state), providerDeadline);
+  if (backend === "native")
+    return (addon().coreNextDeadline(JSON.stringify(state), providerDeadline) as number | null | undefined) ?? undefined;
   return wasmAny().core_next_deadline(JSON.stringify(state), providerDeadline);
 }
 
@@ -322,7 +323,7 @@ export class DeadlineIndex {
     else this.wasmHandle?.signal(agent, at, silenceMs);
   }
   next(providerDeadline?: number): number | undefined {
-    if (this.handle) return this.handle.next(providerDeadline);
+    if (this.handle) return (this.handle.next(providerDeadline) as number | null | undefined) ?? undefined;
     return this.wasmHandle?.next(providerDeadline);
   }
 }

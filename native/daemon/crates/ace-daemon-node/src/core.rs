@@ -333,16 +333,18 @@ pub fn core_next_deadline(
 ) -> napi::Result<Option<f64>> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(&state_json)?;
+        // Invalid provider deadlines are ignored, like TypeScript's
+        // `earliest` (safe integer >= 0), not rejected.
         let provider = match provider_deadline {
-            None => None,
-            Some(deadline) => {
-                if !deadline.is_finite() || deadline.fract() != 0.0 || deadline < 0.0 {
-                    return Err(CoreBindError::InvalidContext(
-                        "provider deadline must be a nonnegative integer".to_owned(),
-                    ));
-                }
+            Some(deadline)
+                if deadline.is_finite()
+                    && deadline.fract() == 0.0
+                    && deadline >= 0.0
+                    && deadline <= 9_007_199_254_740_991.0 =>
+            {
                 Some(deadline as i64)
             }
+            _ => None,
         };
         Ok::<Option<i64>, CoreBindError>(ace_core::deadlines::next_deadline(&state, provider))
     }));
@@ -412,15 +414,15 @@ impl DeadlineIndexNative {
     pub fn next(&mut self, provider_deadline: Option<f64>) -> napi::Result<Option<f64>> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let provider = match provider_deadline {
-                None => None,
-                Some(deadline) => {
-                    if !deadline.is_finite() || deadline.fract() != 0.0 || deadline < 0.0 {
-                        return Err(CoreBindError::InvalidContext(
-                            "provider deadline must be a nonnegative integer".to_owned(),
-                        ));
-                    }
+                Some(deadline)
+                    if deadline.is_finite()
+                        && deadline.fract() == 0.0
+                        && deadline >= 0.0
+                        && deadline <= 9_007_199_254_740_991.0 =>
+                {
                     Some(deadline as i64)
                 }
+                _ => None,
             };
             Ok::<Option<i64>, CoreBindError>(self.inner.next(provider))
         }));
