@@ -26,8 +26,8 @@ Counted on `ace/rust-store` b359519ad3:
 | `@ace/engine-api` (the adapter interface)                     | 333                                            | 1                            | 0                           |
 | adapters: Codex, Cursor, OpenCode, Claude, ACP, Pi            | 10,356 / 7,251 / 7,039 / 6,054 / 6,011 / 3,438 | 156 / 62 / 61 / 54 / 44 / 29 | 61 / 48 / 41 / 50 / 35 / 20 |
 
-Of the 555 test files, 426 test behaviour through a public interface (class a), 72 test TypeScript
-internals (b), one is structural (c), and 56 cover code that stays TypeScript (behaviour.md §19).
+Of the 555 test files, 426 test behaviour through a public interface (class a), 70 test TypeScript
+internals (b), one is structural (c), and 58 cover code that stays TypeScript (behaviour.md §19).
 
 ### Facts the design must respect
 
@@ -256,14 +256,15 @@ Crates and why:
 | E0    | Crate skeletons, `ace-protocol` generation and its check, switch parsing; no behaviour | none                                                                                                                  | ADR 0222 phase 1a                                        | `check:daemon-native`                                                                                                                                                                                       |
 | E1    | Translators, one provider at a time                                                    | `ACE_TRANSLATORS`                                                                                                     | E0                                                       | That provider's translator and fixture (a) files (behaviour.md §19), and the engine files that use real translators: `adapter-echo`, `attachment-echo`, `recorded-ask`, `protocol-noise`, `history-replies` |
 | E2    | The supervisor behind `@ace/provider-kit`'s process exports                            | `ACE_SUPERVISOR=native`                                                                                               | E0, `ACE_STORE=native` (the inventory journal is SQLite) | The 28 process-layer (a) files, then every adapter's session (a) files with the switch on                                                                                                                   |
-| E3    | Sessions, one provider at a time                                                       | `ACE_SESSIONS`                                                                                                        | E1 and E2 for that provider                              | That provider's session (a) files; the engine's process tests that use the provider's fake CLI                                                                                                              |
+| E3    | Sessions, one provider at a time                                                       | `ACE_SESSIONS`                                                                                                        | E2                                                       | That provider's session (a) files; the engine's process tests that use the provider's fake CLI                                                                                                              |
 | E4    | The core                                                                               | `ACE_CORE=native` (tests and tools; the daemon's TypeScript engine never uses it, as it reads `ThreadState` directly) | E0                                                       | The 39 core (a) files and the 5 test-kit files through the `@ace/core` facade                                                                                                                               |
-| E5    | The engine, on the native core                                                         | `ACE_ENGINE=native`                                                                                                   | E4, ADR 0222 phase 5                                     | All 148 engine (a) files, the 56 other files that build an `Engine`, with translators and sessions in every combination of their switches                                                                   |
+| E5    | The engine, on the native core                                                         | `ACE_ENGINE=native`                                                                                                   | E4, ADR 0222 phase 5                                     | All 148 engine (a) files, the 56 other files that build an `Engine`, once with every provider's translator and session switched off and once with them on                                                   |
 
-- E1, E2, E3 and E4 can be built in parallel; E5's modules are built in parallel too (the porting
-  guide's work items) but ship under one switch: the engine's modules share actor state, and two
-  engines owning different threads of one tree would make settle, delegation and liveness cross
-  between them, which priority 1 does not allow.
+- E1, E2, E3 and E4 can be built in parallel (E3 lands after E2). A native session works with
+  either translator, since translation runs wherever the engine runs. E5's modules are built in
+  parallel too (the porting guide's work items) but ship under one switch: the engine's modules
+  share actor state, and two engines owning different threads of one tree would make settle,
+  delegation and liveness cross between them, which priority 1 does not allow.
 - **The core facade.** With `ACE_CORE=native`, `createThreadState` returns an object holding a
   native `CoreThread`; `apply` and `FactBatch` fold on it and return events; the facade refreshes
   the object's `ThreadState` fields from the native state after each call, so tests that read
