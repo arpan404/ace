@@ -94,6 +94,18 @@ const isNode =
 function nodeRequire(id: string): unknown {
   const viaMeta = (import.meta as unknown as { require?: (id: string) => unknown }).require;
   if (typeof viaMeta === "function") return viaMeta(id);
+  // Vitest workers lack `import.meta.require`; use Node's synchronous
+  // built-in loader instead (resolves relative to this file).
+  const proc = globalThis as unknown as {
+    process?: { getBuiltinModule?: (id: string) => unknown };
+  };
+  const getBuiltin = proc.process?.getBuiltinModule;
+  if (typeof getBuiltin === "function") {
+    const mod = getBuiltin.call(proc.process, "module") as {
+      createRequire: (url: string) => (id: string) => unknown;
+    };
+    return mod.createRequire(import.meta.url)(id);
+  }
   throw new Error(`wasm core needs its nodejs build at ${id}`);
 }
 
@@ -101,7 +113,7 @@ let wasmNode: WasmExports | undefined;
 function wasm(): WasmExports {
   if (wasmNode) return wasmNode;
   if (coreBackend() !== "wasm") throw new Error("wasm core is off");
-  wasmNode = nodeRequire("../../native/daemon/wasm-pkg-nodejs/ace_core_wasm.js") as WasmExports;
+  wasmNode = nodeRequire("../../../native/daemon/wasm-pkg-nodejs/ace_core_wasm.js") as WasmExports;
   return wasmNode;
 }
 
