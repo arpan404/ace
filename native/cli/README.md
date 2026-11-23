@@ -105,6 +105,8 @@ metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size
 | `serde` 1.0 (`serde_core`) | `Serialize` for `help --json` and `help COMMAND --json`; `Deserialize` for the desktop app's version marker | 3.4 KiB, plus `serde_derive` at build time |
 | `serde_json` 1.0 (`itoa`, `memchr`, `zmij`) | Compact and two-space JSON output; reading `desktop-app.json` | 24.6 KiB (+1.1 KiB `zmij`) |
 | `strsim` 0.11 | Optimal string alignment distance for typo suggestions (`thraed` → `thread`) | 2.2 KiB |
+| `rusqlite` 0.37 (`bundled`) | Durable CLI outbox (`cli-outbox.sqlite`) with the TypeScript busy-timeout/WAL discipline, so Rust and TS CLIs share one file | 103.8 KiB (`libsqlite3_sys` 94.5 KiB + `rusqlite` 9.3 KiB) |
+| `uuid` 1.0 (`v4`) | Random `--idempotency-key` generation (`Uuid::new_v4`), matching `randomUUID()` | under 1 KiB (`getrandom` 232 B, `rand` 32 B) |
 | `ctrlc` 3.5 | Ctrl+C handling in the Windows hand-over only | 0 bytes on macOS and Linux; Windows only |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
