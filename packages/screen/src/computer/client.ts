@@ -45,6 +45,8 @@ export interface ComputerClientOptions {
    * and release held keys. Unset elsewhere, where SIGTERM lets it do that.
    */
   stopGraceMs?: number;
+  /** How long a stopping helper may take to exit before it is force-killed. */
+  forceKillMs?: number;
   /** How long an app's helper may sit idle before it exits. */
   idleMs?: number;
   /** App helpers kept alive at once. */
@@ -90,6 +92,8 @@ interface Entry {
 export class ComputerClient {
   private readonly options: ComputerClientOptions;
   private readonly entries = new Map<string, Entry>();
+  /** Dropped connections whose helper has not exited yet; the app's next helper waits. */
+  private readonly retiring = new Map<string, Promise<void>>();
   private readonly scheduler: Scheduler;
   private uses = 0;
   private closed = false;
@@ -143,6 +147,7 @@ export class ComputerClient {
     const entry: Entry = {
       connection: new HelperConnection({
         start: async () => {
+          await this.retiring.get(key);
           const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
           return (this.options.spawnHelper ?? defaultSpawn)(
@@ -157,6 +162,9 @@ export class ComputerClient {
         graceMs: this.options.graceMs ?? 3_000,
         ...(this.options.stopGraceMs !== undefined
           ? { stopGraceMs: this.options.stopGraceMs }
+          : {}),
+        ...(this.options.forceKillMs !== undefined
+          ? { forceKillMs: this.options.forceKillMs }
           : {}),
         idle: (idle) => this.idleChanged(key, entry, idle),
         ...(this.options.timing
@@ -211,6 +219,10 @@ export class ComputerClient {
     entry.stopIdle();
     this.entries.delete(key);
     entry.connection.close();
+    const stopped = entry.connection.stopped().finally(() => {
+      if (this.retiring.get(key) === stopped) this.retiring.delete(key);
+    });
+    this.retiring.set(key, stopped);
   }
 }
 

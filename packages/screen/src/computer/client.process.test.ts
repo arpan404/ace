@@ -188,6 +188,24 @@ it("helpers left idle exit, and the next call starts fresh ones", async () => {
   expect(children.length).toBe(started + 1);
 });
 
+it("an idle helper slow to exit is force-killed before the same app gets a new one", async () => {
+  const { client, children, startedAlone, logged } = await world({
+    env: { FAKE_IGNORE_STOP: "1" },
+    client: { idleMs: 50, forceKillMs: 300 },
+  });
+  // These helpers outlive SIGTERM; make sure none outlives the test.
+  cleanups.unshift(() => {
+    for (const child of children) child.kill("SIGKILL");
+  });
+  await client.request("state", { app: "com.apple.calculator" });
+  // Left idle, the helper is asked to stop and ignores it.
+  await logged("sigterm");
+  await client.request("state", { app: "com.apple.calculator" });
+  expect(children).toHaveLength(2);
+  expect(children[0]?.signalCode).toBe("SIGKILL");
+  expect(startedAlone).toEqual([true, true]);
+});
+
 it("beyond the helper limit, the least recently used idle app's helper exits", async () => {
   const { call, children, exited } = await world({ client: { maxHelpers: 2 } });
   await call("screen_state", { app: "Calculator" });

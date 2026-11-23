@@ -2,7 +2,9 @@
  * One `ace-screen-helper --computer` process and its queue. Requests run one at a time, as the
  * helper runs them; `cancel` goes straight to the helper. A cancelled or overdue request is
  * given a grace period to reply (an act replies with the steps it finished); a helper that
- * does not reply in time is killed, and the next request starts a fresh one.
+ * does not reply in time is stopped, and the next request starts a fresh one once it has exited:
+ * two helpers for one app never run at once, so a stopping helper's input or clipboard clean-up
+ * can't land on top of its replacement's work.
  */
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Scheduler } from "../runtime.ts";
@@ -21,6 +23,11 @@ export interface HelperConnectionOptions {
   graceMs: number;
   /** Windows: how long a helper may take to exit after stdin closes before it is killed. */
   stopGraceMs?: number;
+  /**
+   * How long a stopping helper may take to exit after it is asked to (SIGTERM) before it is
+   * force-killed. A helper whose own main queue is blocked can't run its clean-up at all.
+   */
+  forceKillMs?: number;
   /** Called when nothing is queued or running any more, and when work arrives again. */
   idle: (idle: boolean) => void;
   timing?: { now: () => number; report: (timing: ComputerRequestTiming) => void };
@@ -68,6 +75,8 @@ export class HelperConnection {
   private readonly parked = new Set<Job>();
   private child: ChildProcessWithoutNullStreams | undefined;
   private starting: Promise<ChildProcessWithoutNullStreams> | undefined;
+  /** A killed helper until it has exited; its successor waits for it. */
+  private stopping: Promise<void> | undefined;
   private closed = false;
 
   constructor(options: HelperConnectionOptions) {
@@ -77,6 +86,11 @@ export class HelperConnection {
   /** Running or waiting requests. */
   busy(): boolean {
     return this.current !== undefined || this.queue.length > 0 || this.parked.size > 0;
+  }
+
+  /** Resolves once no helper this connection started is still running or stopping. */
+  async stopped(): Promise<void> {
+    while (this.stopping) await this.stopping;
   }
 
   /** The helper's process id, starting the helper if none is running. */
@@ -254,8 +268,8 @@ export class HelperConnection {
   private process(): Promise<ChildProcessWithoutNullStreams> {
     const child = this.child;
     if (child && child.exitCode === null && !child.killed) return Promise.resolve(child);
-    this.starting ??= this.options
-      .start()
+    this.starting ??= this.afterStopped()
+      .then(() => this.options.start())
       .then((started) => {
         this.attach(started);
         this.child = started;
@@ -267,6 +281,11 @@ export class HelperConnection {
         this.starting = undefined;
       });
     return this.starting;
+  }
+
+  private async afterStopped(): Promise<void> {
+    await this.stopped();
+    if (this.closed) throw new ComputerError("closed", "Computer use stopped.");
   }
 
   private attach(child: ChildProcessWithoutNullStreams): void {
@@ -353,21 +372,49 @@ export class HelperConnection {
     }
   }
 
+  /** Takes the helper out of service; it stays owned (see `stopping`) until it has exited. */
   private kill(): void {
     const child = this.child;
     this.child = undefined;
     if (!child) return;
-    child.stdin.end();
-    // Windows: a kill can't be caught, so the helper first gets to stop on its own (it puts
-    // back a borrowed clipboard and releases held keys when stdin closes).
-    const stopGraceMs = this.options.stopGraceMs;
-    if (stopGraceMs !== undefined) {
-      this.options.scheduler.after(stopGraceMs, () => {
-        if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
-      });
-      return;
-    }
-    // SIGTERM lets the helper put back the clipboard it borrowed for a paste.
-    child.kill("SIGTERM");
+    const stopped = this.stop(child).finally(() => {
+      if (this.stopping === stopped) this.stopping = undefined;
+    });
+    this.stopping = stopped;
+  }
+
+  /** Closes stdin, asks the helper to stop, force-kills it if it doesn't, and waits for its exit. */
+  private stop(child: ChildProcessWithoutNullStreams): Promise<void> {
+    const { scheduler } = this.options;
+    const forceKillMs = this.options.forceKillMs ?? 3_000;
+    const gone = () => child.exitCode !== null || child.signalCode !== null;
+    return new Promise<void>((resolve) => {
+      const timers: (() => void)[] = [];
+      const done = () => {
+        for (const stop of timers.splice(0)) stop();
+        child.off("exit", done);
+        resolve();
+      };
+      if (gone()) return done();
+      child.once("exit", done);
+      child.stdin.end();
+      const terminate = () => {
+        if (!gone()) child.kill("SIGTERM");
+      };
+      const force = () => {
+        if (gone()) return;
+        child.kill("SIGKILL");
+        // A SIGKILL the kernel accepted ends the helper's code at once; this only bounds the
+        // wait for the exit to be reported, so a lost event can't hold the queue forever.
+        timers.push(scheduler.after(forceKillMs, done));
+      };
+      // Windows: a kill can't be caught, so the helper first gets to stop on its own (it puts
+      // back a borrowed clipboard and releases held keys when stdin closes). Elsewhere SIGTERM
+      // lets it do that.
+      const stopGraceMs = this.options.stopGraceMs ?? 0;
+      if (stopGraceMs > 0) timers.push(scheduler.after(stopGraceMs, terminate));
+      else terminate();
+      timers.push(scheduler.after(stopGraceMs + forceKillMs, force));
+    });
   }
 }

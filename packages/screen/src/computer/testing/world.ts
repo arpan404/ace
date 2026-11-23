@@ -56,6 +56,8 @@ export async function computerWorld(options: WorldOptions = {}) {
   const dir = await mkdtemp(join(tmpdir(), "ace-computer-"));
   const logPath = join(dir, "ops.log");
   const children: ChildProcessWithoutNullStreams[] = [];
+  /** Per helper started: whether every earlier helper had exited by then. */
+  const startedAlone: boolean[] = [];
   let next = 0;
   const client = new ComputerClient({
     helper: async () => "fake-helper",
@@ -65,6 +67,9 @@ export async function computerWorld(options: WorldOptions = {}) {
         env: { ...process.env, ...env, FAKE_LOG: logPath, ...options.env },
         stdio: ["pipe", "pipe", "pipe"],
       });
+      startedAlone.push(
+        children.every((earlier) => earlier.exitCode !== null || earlier.signalCode !== null),
+      );
       children.push(child);
       return child;
     },
@@ -109,5 +114,5 @@ export async function computerWorld(options: WorldOptions = {}) {
     await Promise.all(children.map(exited));
     await rm(dir, { recursive: true, force: true });
   };
-  return { client, call, ops, logged, children, exited, close, dir };
+  return { client, call, ops, logged, children, startedAlone, exited, close, dir };
 }
