@@ -274,6 +274,13 @@ native path.
   Rust's bytes to clients without building JavaScript objects; until then it stays TypeScript.
 - **Rule this taught:** a native read pays off where the cost is inside SQLite and statement
   count (thread opens: 212 statements to 4), not where it is decoding into JavaScript objects.
+- **Phase 1b is dropped in its current form** (orchestrator decision, 2026-11-23). Three builds
+  were reviewed (`ace/rust-store-1b`, kept on origin): a Rust-side shaping model, a Rust fetch with a
+  second TypeScript loop, and one loop behind an `ItemRows` data source. Each still differed from
+  the TypeScript on malformed data, paging or allocation, and the last one changed the default
+  TypeScript path too. The measured gain was about 10% on scroll-back and windows and none on the
+  first thread open. Item reads stay TypeScript. Phase 1a stays: the writer (phase 5) and the Rust
+  engine need the native connection.
 - **Rust fetches, TypeScript shapes** (orchestrator decision after two reviews of phase 1b). A
   read that has to reproduce JavaScript's JSON semantics (number spellings, duplicate keys,
   UTF-16 lengths, Zod's decoding and stripping) does not reimplement them in Rust. Rust runs the
