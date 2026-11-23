@@ -77,7 +77,8 @@ Budgets, measured with `hyperfine` on release builds by `native/cli/bench` and k
 How:
 
 - No async runtime. One blocking connection per run, with deadlines (`set_read_timeout`), is all
-  a CLI needs. No tokio, no clap, no anyhow, no reqwest.
+  a CLI needs. No tokio or other async runtime (so no hyper or reqwest), no clap (the parser
+  follows ace's own command table), no anyhow.
 - Nothing runs before the line is parsed. Help, version and completion touch only the static table.
 - `--json` output the daemon already shaped is written as it arrived (`serde_json::value::RawValue`),
   not decoded and re-encoded. Human output decodes only the fields it prints, borrowing from the
@@ -85,10 +86,11 @@ How:
 - One locked, buffered stdout writer per run, flushed once; one reply buffer reused per connection.
 - Release profile: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, `strip = true`,
   `opt-level = 3`.
-- Every dependency is listed in `native/cli/README.md` with why it is needed and what it adds to
-  the binary. Allowed by default: `serde`, `serde_json`, `tungstenite` (blocking, no default
-  features), `rustls` (ring) for pinned remote machines, `crossterm` for the interactive home and
-  prompts. Anything else needs a line there first.
+- Standard work uses well-established, efficient crates rather than code written by hand (the
+  owner, 2026-11-23): `serde` and `serde_json`, `ureq` (blocking, rustls with ring) for HTTP and
+  pinned remote machines, `tungstenite` (blocking) for the daemon socket, `strsim` for
+  suggestions, `crossterm` for the interactive home and prompts. Every dependency is listed in
+  `native/cli/README.md` with why it is needed and what it adds to the binary.
 
 ### 6. Idiomatic Rust
 
