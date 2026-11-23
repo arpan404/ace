@@ -246,7 +246,7 @@ impl PiTranslator {
                 self.retrying = true;
                 out.extend(self.start());
                 let attempt = match number_field(&map, "attempt") {
-                    Some(value) if value.is_finite() && value.fract() == 0.0 => Some(value as i64),
+                    Some(value) if value.is_finite() && value.fract() == 0.0 => Some(value),
                     _ => None,
                 };
                 push_fact(
