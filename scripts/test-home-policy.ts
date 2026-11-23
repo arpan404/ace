@@ -115,6 +115,19 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_STORE !== undefined ? { ACE_STORE: ambient.ACE_STORE } : {}),
     ...(ambient.ACE_STORE_ADDON !== undefined ? { ACE_STORE_ADDON: ambient.ACE_STORE_ADDON } : {}),
     ...(ambient.ACE_STORE_READS !== undefined ? { ACE_STORE_READS: ambient.ACE_STORE_READS } : {}),
+    // The engine and adapter switches (ADR 0223) and the cross-mode gate's log: shells and
+    // boot hooks read them in workers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_TRANSLATORS !== undefined ? { ACE_TRANSLATORS: ambient.ACE_TRANSLATORS } : {}),
+    ...(ambient.ACE_SESSIONS !== undefined ? { ACE_SESSIONS: ambient.ACE_SESSIONS } : {}),
+    ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
+    ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
+    ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
+    ...(ambient.ACE_NATIVE_CROSS !== undefined
+      ? { ACE_NATIVE_CROSS: ambient.ACE_NATIVE_CROSS }
+      : {}),
+    ...(ambient.ACE_NATIVE_CROSS_LOG !== undefined
+      ? { ACE_NATIVE_CROSS_LOG: ambient.ACE_NATIVE_CROSS_LOG }
+      : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain
     // under RUSTUP_HOME, else $HOME/.rustup, which the test home doesn't have, so `cargo` would

@@ -35,6 +35,7 @@
     "./bounded-cache": "./src/bounded-cache.ts",
     "./flow-control": "./src/flow-control.ts",
     "./sqlite": "./src/sqlite.ts",
+    "./native-switches": "./src/native-switches.ts",
     "./open-error": "./src/open-error.ts",
     "./incompatible-data": "./src/incompatible-data.ts",
     "./startup-output": "./src/startup-output.ts",

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-adapter-acp"
+description = "The acp provider's translator (E1) and session (E3, except Claude) behind @ace/engine-api"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
+ace-supervisor = { path = "../ace-supervisor" }
+# agent-client-protocol: the ACP schema and bidirectional JSON-RPC connection (Apache-2.0, the protocol's official Rust crate, the counterpart of the TypeScript adapter's SDK).
+agent-client-protocol = "5"

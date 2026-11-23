@@ -5,6 +5,7 @@
     "": {
       "name": "@ace/monorepo",
       "devDependencies": {
+        "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/service": "workspace:*",
         "@lobehub/icons-static-svg": "1.95.1",

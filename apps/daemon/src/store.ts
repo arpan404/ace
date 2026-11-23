@@ -60,6 +60,7 @@ import type { ArchiveReader } from "@ace/history-import";
 import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { assertProcessSqlite, DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
+import { noteDatabaseBoot } from "@ace/provider-kit/native-switches";
 import {
   McpIntent,
   CommandResult,
@@ -198,6 +199,7 @@ export class Store {
     this.storedTrustBuild = options.storedTrustBuild;
     if (options.database) assertProcessSqlite(options.database);
     this.db = options.database ?? new DatabaseSync(path);
+    noteDatabaseBoot(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),
       // Other connections' commits, and local rows written outside the event writer.

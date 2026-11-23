@@ -2,6 +2,7 @@ import { childHasExited } from "./child-exit.ts";
 import { existsSync } from "node:fs";
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
+import { noteJournalBoot } from "./native-switches.ts";
 import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
 import { WindowsSid, windowsTreeRuntime, type WindowsTreeRuntime } from "./process-identity.ts";
 import type { WindowsProcessRecord } from "./process-identity.ts";
@@ -77,6 +78,7 @@ export class ProcessInventory implements ProcessJournal {
     this.runtime = runtime;
     this.report = report;
     this.db = new DatabaseSync(path);
+    noteJournalBoot(path);
     // Every spawn and exit writes here on the main thread. WAL commits are durable when the
     // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
     // work one fsync held the event loop for seconds.

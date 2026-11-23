@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-supervisor"
+description = "Process supervision behind @ace/provider-kit's process exports: spawning, containment, inventory, stop plans, bounded framing and JSON-RPC (E2 owns the port)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-store: the inventory and escapee journal stay one SQLite library by opening through the store's connection type.
+ace-store = { path = "../ace-store" }
+# tokio: the I/O runtime for processes, pipes, sockets, HTTP and timers (multi-thread, two workers), the one Spade already ships.
+tokio = { version = "1.54", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+# tokio-util: LinesCodec::new_with_max_length for bounded line framing over pipes.
+tokio-util = { version = "0.7", features = ["codec"] }
+# process-wrap: process groups on POSIX, Job Objects on Windows and kill-on-drop over tokio::process; it replaces process-containment.ts.
+process-wrap = { version = "10", features = ["tokio1"] }
+# rustix: the POSIX calls left (killpg, child-subreaper adoption, waitid).
+rustix = { version = "1", features = ["process", "thread"] }
+# sysinfo: lists processes for the owner sweep (process-marker.ts).
+sysinfo = { version = "0.40" }
+# eventsource-stream: OpenCode's SSE transport.
+eventsource-stream = "0.2"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# procfs: exact kernel start times from /proc, so a reused pid is never signalled (identity is pid plus start time).
+procfs = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# libproc: exact kernel start times from proc_pidinfo on macOS.
+libproc = "0.14"
+
+[target.'cfg(windows)'.dependencies]
+# windows-sys: Job Object and identity calls process-wrap does not cover (GetProcessTimes, token SID, stdin-close stop); Spade's version.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Threading"] }

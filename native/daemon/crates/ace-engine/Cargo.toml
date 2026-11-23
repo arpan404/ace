@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-engine"
+description = "The daemon's engine: actors, intents, delivery, sessions, recovery and transitions on the native core (E5 owns the port)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-store: the engine reads and writes its tables through the store's connection and transaction stack, in Rust once E5 lands.
+ace-store = { path = "../ace-store" }
+# ace-core: the fact reducer the engine folds frame batches with.
+ace-core = { path = "../ace-core" }
+# ace-adapter-api: the Session trait the engine drives, with its bridge rules.
+ace-adapter-api = { path = "../ace-adapter-api" }
+# async-task: the local executor's spawn_local runnables (from smol-rs, Apache-2.0/MIT, the parts async-executor is made of); engine state is Rc, never shared, never locked.
+async-task = "4.7"
+# concurrent-queue: the executor's ready queue beside async-task.
+concurrent-queue = "2.5"
+# futures: LocalBoxFuture for session calls and oneshot channels for commit acknowledgements.
+futures = "0.3"
+# lru: the engine's bounded record cache (today RecordBudget).
+lru = "0.19"
+# serde: engine state and records serialize for tests and stored rows.
+serde = { version = "1", features = ["derive"] }
+# serde_json: frames and records keep provider and stored JSON as values, never re-encoded.
+serde_json = { version = "1", features = ["raw_value"] }
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
