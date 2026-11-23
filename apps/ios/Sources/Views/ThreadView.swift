@@ -125,7 +125,7 @@ struct ThreadView: View {
                                                 openAgents: { open(.agents) }, threadStatus: { model.inbox[$0]?.status },
                                                 threadTitle: { model.inbox[$0]?.title }),
                          barHeight: barHeight, keyboard: keyboardRide, behind: $behind, jumps: jumps)
-            .markdownShelf(threadId: thread.id)
+            .markdownShelf(threadId: thread.id, heights: model.transcriptMarkdownHeights)
     }
 
     /// Chat alone, or Chat and Changes a swipe apart (a phone, a thread with changes).

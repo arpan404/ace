@@ -91,6 +91,7 @@ struct ConversationFeed: View {
         // A passage opened in a row is one of the thread's folds: the feed holds the reader's place.
         ScrollViewReader { proxy in feed(proxy) }
             .environment(\.expansions, shown.disclosures)
+            .environment(\.transcriptShowingHistory, reading.shown != nil)
     }
 
     /// The scroll view's own frame, header and home indicator included.
@@ -221,6 +222,7 @@ struct ConversationFeed: View {
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
         .onScrollPhaseChange { old, phase in
+            transcriptMarkdown?.moving = phase != .idle
             // The hold only moves a feed at rest; any scroll it didn't make (a finger, VoiceOver's
             // three-finger swipe, Switch Control) ends it where the reader is.
             if surface.running(.page), phase != .idle { endPageHold() }
@@ -370,7 +372,8 @@ struct ConversationFeed: View {
             .onChange(of: shown.disclosures.opens) { _, _ in disclosuresChanged() }
             .onChange(of: shown.screen.blockOrder, initial: true) { _, ids in
                 markdownShelf?.keepOwners(ids)
-                updateExtent(rows: TranscriptFeedRow.rows(shown))
+                // Reading revisions carry the page evidence and update the extent themselves.
+                if reading.shown == nil { updateExtent(rows: TranscriptFeedRow.rows(shown)) }
             }
             .onChange(of: reading.thread?.epoch) { _, _ in windowReplaced(proxy: proxy) }
             // The rows of an opened thread measure within a few frames of being drawn, and the scroll

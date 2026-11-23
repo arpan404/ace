@@ -52,6 +52,7 @@ actor TranscriptMarkdownDocuments {
 /// At most one batch reads ahead. A newer batch replaces work the reader is moving away from.
 @MainActor final class TranscriptMarkdownPrefetch {
     let documents = TranscriptMarkdownDocuments()
+    var moving = false
     private var pending: Task<Void, Never>?
 
     deinit { pending?.cancel() }

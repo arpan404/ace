@@ -15,9 +15,13 @@ window releases those views when it evicts their rows.
    patches arrive, while the page is still held. Visible answers share the same actor and look
    up prepared documents by dialect and content hash. The cache keeps at most 64 documents
    and 4 MiB of estimated content. The streaming renderer still applies incremental updates.
+   An idle feed opening at its live end can still render a cold answer immediately.
 2. **Keep UIKit layout on the main actor.** A cached document can be installed at first layout.
    A cold answer waits for its document and uses a prior measurement if one exists at this
    width and text size. SwiftUI owns the layout outside the Markdown view.
+3. **Keep only measurements on disk.** Coalesce writes off the main actor, cap the file at
+   768 measurements per paired machine, and key them by content hash and layout inputs.
+   Clearing Chat Cache clears these measurements too.
 
 ## Consequences
 

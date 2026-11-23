@@ -6,22 +6,26 @@ extension EnvironmentValues {
     /// The open thread's rendered Markdown, kept while its rows scroll off screen.
     @Entry var markdownShelf: ViewShelf<MarkitInlineView>? = nil
     @Entry var transcriptMarkdown: TranscriptMarkdownPrefetch? = nil
+    @Entry var transcriptMarkdownHeights: TranscriptMarkdownHeights? = nil
+    @Entry var transcriptShowingHistory = false
     @Entry var markdownOwner: String? = nil
 }
 
 /// The shelf is available on first layout, so finished messages mount their renderer once.
 private struct MarkdownShelfScope: ViewModifier {
+    let heights: TranscriptMarkdownHeights?
     @State private var shelf = ViewShelf<MarkitInlineView>(maxKept: 40)
     @State private var prefetch = TranscriptMarkdownPrefetch()
     func body(content: Content) -> some View {
         content.environment(\.markdownShelf, shelf)
             .environment(\.transcriptMarkdown, prefetch)
+            .environment(\.transcriptMarkdownHeights, heights)
     }
 }
 
 extension View {
-    func markdownShelf(threadId: String) -> some View {
-        modifier(MarkdownShelfScope()).id(threadId)
+    func markdownShelf(threadId: String, heights: TranscriptMarkdownHeights?) -> some View {
+        modifier(MarkdownShelfScope(heights: heights)).id(threadId)
     }
 }
 
@@ -42,6 +46,9 @@ struct ShelvedMarkdown: View {
     let shelf: ViewShelf<MarkitInlineView>
     @Environment(\.markdownOwner) var owner
     @Environment(\.transcriptMarkdown) var preparation
+    @Environment(\.transcriptMarkdownHeights) var heights
+    @Environment(\.transcriptShowingHistory) var history
+    @Environment(\.layoutDirection) var layoutDirection
     @Environment(\.transcriptScale) var scale
     @Environment(\.dynamicTypeSize) var typeSize
     /// Only a changed size that SwiftUI has yet to measure asks for layout again.
@@ -100,8 +107,8 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             onSizeChanged()
         }
         if initial {
-            if markdown.flavor == .agent, let documents = markdown.preparation?.documents {
-                coordinator.renderAnswer(documents)
+            if markdown.flavor == .agent, let preparation = markdown.preparation {
+                coordinator.renderAnswer(preparation.documents, deferColdRender: markdown.history || preparation.moving)
             } else {
                 view.render(markdown.text, finalized: true)
             }
@@ -116,11 +123,15 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
         let coordinator = context.coordinator
         var height = coordinator.view?.height(for: width) ?? 0
         if markdown.flavor == .agent, let key = coordinator.key {
-            let measurementKey = "\(key):\(width):\(markdown.scale):\(markdown.typeSize)"
-            if height > 0 {
+            let measurementKey = "\(key):\(width):\(markdown.scale):\(markdown.typeSize):\(markdown.layoutDirection)"
+            let measured = markdown.shelf.height(measurementKey)
+            if height > 0, measured != height {
                 markdown.shelf.remember(height: height, for: measurementKey)
-            } else if coordinator.preparing {
-                let kept = markdown.shelf.height(measurementKey)
+                markdown.heights?.remember(measurementKey, height: Double(height))
+            } else if coordinator.preparing, height == 0 {
+                let persisted = measured == nil ? markdown.heights?.disk.height(for: measurementKey) : nil
+                if persisted != nil { PerfProbe.add("markdown.heightDiskHit", 1) }
+                let kept = measured ?? persisted.map { CGFloat($0) }
                 PerfProbe.add(kept == nil ? "markdown.heightMiss" : "markdown.heightHit", 1)
                 height = kept ?? 0
             }
@@ -150,7 +161,7 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
             self.shelf = shelf
             MarkdownGates.gate(for: view).open()
         }
-        func renderAnswer(_ documents: TranscriptMarkdownDocuments) {
+        func renderAnswer(_ documents: TranscriptMarkdownDocuments, deferColdRender: Bool) {
             guard let view, let key, let text else { return }
             if let cached = documents.cached(key) {
                 PerfProbe.add("markdown.parseHit", 1)
@@ -158,6 +169,8 @@ private struct ShelvedMarkdownHost: UIViewRepresentable {
                 return
             }
             PerfProbe.add("markdown.parseMiss", 1)
+            // Preserve the immediate first layout of a newly opened thread at its live end.
+            guard deferColdRender else { view.render(text, finalized: true); return }
             pending = Task { [weak self, weak view] in
                 let document = await documents.document(text, flavor: .agent, key: key)
                 guard !Task.isCancelled, let self, let view else { return }

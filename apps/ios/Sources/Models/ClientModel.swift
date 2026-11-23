@@ -159,6 +159,7 @@ import QuartzCore
     /// Owned here (per connection/machine scope); the type lives with the viewport
     /// (`TranscriptSession.swift`). Replaces any global hub: no module singleton.
     @ObservationIgnored var transcriptSessions = TranscriptSessionStore()
+    @ObservationIgnored private(set) var transcriptMarkdownHeights: TranscriptMarkdownHeights?
     /// An item a search hit asked to show once its thread is open.
     var focusOnOpen: ThreadFocus?
     var inboxLoaded = false
@@ -346,6 +347,10 @@ import QuartzCore
         let restoring = LaunchTrace.begin("inbox.restore", target.hostId)
         // One machine's cache whichever route reaches it (`ConnectionTarget.scope`).
         let database = Self.database(hostId: target.scope.hostId, deviceId: target.scope.deviceId, in: directory)
+        let heightCache = database.deletingPathExtension().appendingPathExtension("markdown-heights-v1.json")
+        if transcriptMarkdownHeights?.disk.url != heightCache {
+            transcriptMarkdownHeights = TranscriptMarkdownHeights(url: heightCache)
+        }
         let restored = await checkpoints(database)
         // The Spade tab as this principal last kept it, and no one else's (`KeptScope`).
         let spadeKept = await InboxCheckpoint.spadeBackground(database, target.keptScope)
@@ -1032,6 +1037,7 @@ import QuartzCore
     func clearCache() {
         shelf.clear()
         transcriptSessions.clear()
+        transcriptMarkdownHeights?.clear()
         action(["type": "cache.clear"])
     }
     /// Drop the open thread's kept copy and read it again from the machine, in place.
