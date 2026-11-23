@@ -75,6 +75,9 @@ export async function measureIdleCpu(entry: string) {
     const response = once(child, "message");
     child.send({ id: ++id, op });
     const [value] = await Promise.race([response, failed.promise]);
+    // The seeding script reports its own failure (a broken store or projection) this way.
+    const failure = z.object({ error: z.string() }).safeParse(value);
+    if (failure.success) throw new Error(`Idle ${op} failed: ${failure.data.error}`);
     if (Ack.parse(value).id !== id) throw new Error("Uncorrelated idle CPU response");
     return value;
   };

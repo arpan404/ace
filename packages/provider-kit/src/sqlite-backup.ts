@@ -1,4 +1,5 @@
 import { backup as nodeBackup, type DatabaseSync } from "node:sqlite";
+import { NativeDatabaseSync } from "./native-sqlite.ts";
 
 type BackupPath = Parameters<typeof nodeBackup>[1];
 type BackupOptions = Parameters<typeof nodeBackup>[2];
@@ -20,6 +21,8 @@ export async function backup(
   path: BackupPath,
   options?: BackupOptions,
 ): Promise<number> {
+  // The native store's database (ADR 0222) copies itself; progress options do not apply.
+  if (source instanceof NativeDatabaseSync) return source.backup(path);
   const wake = setInterval(() => {}, WAKE_MS);
   try {
     // Node rejects an explicit undefined options argument.

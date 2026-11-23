@@ -111,6 +111,10 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_EDITOR_PERF_BUILD !== undefined
       ? { ACE_EDITOR_PERF_BUILD: ambient.ACE_EDITOR_PERF_BUILD }
       : {}),
+    // The store implementation switch (ADR 0222): a run with it on proves the native store.
+    ...(ambient.ACE_STORE !== undefined ? { ACE_STORE: ambient.ACE_STORE } : {}),
+    ...(ambient.ACE_STORE_ADDON !== undefined ? { ACE_STORE_ADDON: ambient.ACE_STORE_ADDON } : {}),
+    ...(ambient.ACE_STORE_READS !== undefined ? { ACE_STORE_READS: ambient.ACE_STORE_READS } : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain
     // under RUSTUP_HOME, else $HOME/.rustup, which the test home doesn't have, so `cargo` would

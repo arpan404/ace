@@ -59,7 +59,7 @@ import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
-import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
+import { assertProcessSqlite, DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import {
   McpIntent,
   CommandResult,
@@ -196,6 +196,7 @@ export class Store {
   ) {
     this.onError = onError;
     this.storedTrustBuild = options.storedTrustBuild;
+    if (options.database) assertProcessSqlite(options.database);
     this.db = options.database ?? new DatabaseSync(path);
     this.readCache = new ThreadReadCache({
       flush: () => this.flushLiveWrites(),

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-store"
+description = "The daemon's event store: a Rust API other crates call directly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# The SQLite rusqlite bundles, wrapped directly: a statement must outlive a single call
+# (a JavaScript iterator steps it across calls), which rusqlite's borrowed statements
+# cannot express. `src/sqlite.rs` is the only unsafe code.
+libsqlite3-sys = { version = "0.39", features = ["bundled"] }
+# Native reads build wire JSON; RawValue keeps stored JSON as stored.
+serde_json = { version = "1", features = ["raw_value"] }
+
