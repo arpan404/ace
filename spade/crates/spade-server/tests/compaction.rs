@@ -93,14 +93,17 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
         .unwrap_or(Value::Null);
     let people = person_texts(&last);
     assert!(people[0].starts_with("<summary>"), "{people:?}");
+    // The compacted message is no longer a turn of its own: it is quoted word for word inside
+    // the summary (ADR 0216), and only the newer message follows the summary as a turn.
+    let joined = people.join("\n\n");
+    let (summary, turns) = joined.split_once("</summary>").unwrap_or_default();
     assert!(
-        people.iter().any(|t| t.contains("Where should I stay?")),
-        "{people:?}"
+        summary.contains("word for word") && summary.contains("] How do I get to Oxford?\n"),
+        "{summary}"
     );
-    assert!(
-        !people.iter().any(|t| t.contains("How do I get to Oxford?")),
-        "{people:?}"
-    );
+    assert!(turns.contains("Where should I stay?"), "{turns}");
+    assert!(!turns.contains("How do I get to Oxford?"), "{turns}");
+    assert!(!summary.contains("Where should I stay?"), "{summary}");
     Ok(())
 }
 
