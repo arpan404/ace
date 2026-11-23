@@ -23,7 +23,6 @@ import { daemonSuitPort } from "../suits/port.ts";
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
 import { liveBrowserToolkit } from "../browser-toolkit.ts";
-import { followService } from "./service-watch.ts";
 import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
 import { screenToolkit, computerToolNames } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
@@ -61,7 +60,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   });
   services.asks = asks;
   // ace's browser may start after these tools (a startup retry), or start again: every call
-  // looks it up, and the tool list follows it (see the watch below).
+  // looks it up.
   const help = new BrowserHelp({
     store,
     engine: () => services.engine,
@@ -275,10 +274,10 @@ export async function startMcp(context: ServiceContext): Promise<void> {
             ? []
             : computerToolNames),
         ],
+        // ace's browser is never hidden while it is down: Codex and Cursor keep the list a
+        // session first got, so tools hidden then stay missing once a retry brings it up.
+        // Calls say it is unavailable meanwhile, and `machine` reaches another one's browser.
         disabled: {
-          ...(!services.browser
-            ? { browser: "ace's built-in browser failed to start in this daemon." }
-            : {}),
           ...(!services.screen?.isEnabled() && !services.machines?.caller.serves("screen")
             ? {
                 screen: "Computer use is disabled.",
@@ -314,8 +313,6 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
-  // ace's browser coming up after a failed start, or going, changes which tools are offered.
-  resources.own(followService(context, "browser", () => mcp.toolsChanged()));
   // Turning computer use or devices on or off changes which ace tools are offered.
   if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));

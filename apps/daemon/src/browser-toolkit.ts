@@ -29,6 +29,11 @@ const agentOf = (caller: BrowserCaller) => ({
  * first call would; `connected` refuses calls while that browser cannot be reached.
  */
 function port(current: () => BrowserService, store: Store, connected: () => void): BrowserToolPort {
+  /**
+   * Opens the thread's browser in the browser service of this moment and returns both: one call
+   * stays on that instance. Replaced while it opened (a restart), the call refuses rather than
+   * carrying on in a different browser.
+   */
   const ensure = async (caller: BrowserCaller, signal: AbortSignal) => {
     signal.throwIfAborted();
     connected();
@@ -38,20 +43,19 @@ function port(current: () => BrowserService, store: Store, connected: () => void
     if (!thread) throw new Error("Browser thread unavailable");
     await service.open({ threadId, workspaceId: thread.workspaceId, background: true });
     signal.throwIfAborted();
-    return threadId;
+    if (current() !== service) throw new PublicToolError("browser_restarted");
+    return { threadId, service };
   };
   return {
     async open(caller, signal) {
-      const threadId = await ensure(caller, signal);
-      signal.throwIfAborted();
-      const claimed = await current().claimTab(threadId, agentOf(caller));
+      const { threadId, service } = await ensure(caller, signal);
+      const claimed = await service.claimTab(threadId, agentOf(caller));
       // Stopped while the tab opened: the caller does nothing with it.
       signal.throwIfAborted();
       return claimed;
     },
     async tab(caller, tabId, signal) {
-      const threadId = await ensure(caller, signal);
-      const service = current();
+      const { threadId, service } = await ensure(caller, signal);
       if (tabId === undefined) return service.currentTab(threadId, agentOf(caller));
       const listed = service.state(threadId).tabs?.find((tab) => tab.tabId === tabId);
       if (listed) return { tabId, url: listed.url, title: listed.title };
@@ -63,12 +67,12 @@ function port(current: () => BrowserService, store: Store, connected: () => void
     },
     state: (caller) => current().state(caller.threadId),
     async execute(caller, command, signal) {
-      const threadId = await ensure(caller, signal);
-      return current().execute(threadId, command, agentOf(caller), signal);
+      const { threadId, service } = await ensure(caller, signal);
+      return service.execute(threadId, command, agentOf(caller), signal);
     },
     async screenshot(caller, options, signal) {
-      const threadId = await ensure(caller, signal);
-      return current().capture(threadId, signal, options.tabId, options, agentOf(caller));
+      const { threadId, service } = await ensure(caller, signal);
+      return service.capture(threadId, signal, options.tabId, options, agentOf(caller));
     },
     async close(caller, signal) {
       signal.throwIfAborted();

@@ -17,7 +17,8 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-async function toolNames(url: string, bearer: string): Promise<string[]> {
+async function rpc(url: string, bearer: string, method: string, params: object = {}) {
+  const name = "name" in params && typeof params.name === "string" ? params.name : undefined;
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -25,13 +26,15 @@ async function toolNames(url: string, bearer: string): Promise<string[]> {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       "MCP-Protocol-Version": "2026-07-28",
-      "Mcp-Method": "tools/list",
+      "Mcp-Method": method,
+      ...(name ? { "Mcp-Name": name } : {}),
     },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
-      method: "tools/list",
+      method,
       params: {
+        ...params,
         _meta: {
           "io.modelcontextprotocol/protocolVersion": "2026-07-28",
           "io.modelcontextprotocol/clientInfo": { name: "browser-recovery-test", version: "1" },
@@ -41,28 +44,54 @@ async function toolNames(url: string, bearer: string): Promise<string[]> {
     }),
   });
   expect(response.status).toBe(200);
-  const listed = z
-    .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
-    .parse(await response.json());
-  return listed.result.tools.map((tool) => tool.name);
+  return z.object({ result: z.record(z.string(), z.unknown()) }).parse(await response.json())
+    .result;
 }
 
-it("a browser that recovers on a startup retry gives agents the browser tools", async () => {
+async function toolNames(url: string, bearer: string): Promise<string[]> {
+  const listed = z
+    .object({ tools: z.array(z.object({ name: z.string() })) })
+    .parse(await rpc(url, bearer, "tools/list"));
+  return listed.tools.map((tool) => tool.name);
+}
+
+/** A tool call's outcome: whether it failed, and its text. */
+async function call(url: string, bearer: string, name: string, args: object = {}) {
+  const result = z
+    .object({
+      isError: z.boolean().optional(),
+      content: z.array(z.object({ type: z.string(), text: z.string().optional() })),
+    })
+    .parse(await rpc(url, bearer, "tools/call", { name, arguments: args }));
+  return {
+    failed: result.isError === true,
+    text: result.content.map((part) => part.text ?? "").join("\n"),
+  };
+}
+
+it("browser tools stay listed while the browser is down, and work once a retry brings it up", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-browser-recovery-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   const config = readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
   let failed = false;
+  // The browser's retry waits for the test, so the first calls surely meet no browser.
+  const retry = Promise.withResolvers<void>();
   const daemon = await startDaemon({
     engine: noProviderDiscovery,
     config,
     startup: {
-      retryDelaysMs: [300, 300, 300],
+      retryDelaysMs: [10, 10, 10],
       // The browser's first start runs past its deadline at once, as a stuck start would.
       schedule(name, expire, milliseconds) {
         if (name === "browser" && !failed) {
           failed = true;
           queueMicrotask(expire);
           return () => {};
+        }
+        if (name === "retry browser") {
+          let live = true;
+          void retry.promise.then(() => live && expire());
+          return () => void (live = false);
         }
         const timer = setTimeout(expire, milliseconds);
         return () => clearTimeout(timer);
@@ -96,14 +125,18 @@ it("a browser that recovers on a startup retry gives agents the browser tools", 
     }),
     new AbortController().signal,
   );
-  const before = await toolNames(daemon.mcp.url, lease.bearer);
-  expect(before).not.toContain("browser_open");
-  expect(before).not.toContain("browser_request_help");
+  // Clients that keep the list a session first got (Codex, Cursor) still find the tools.
+  const listed = ["browser_open", "browser_settings", "browser_snapshot", "browser_request_help"];
+  expect(await toolNames(daemon.mcp.url, lease.bearer)).toEqual(expect.arrayContaining(listed));
+  const down = await call(daemon.mcp.url, lease.bearer, "browser_settings", { action: "close" });
+  expect(down.failed).toBe(true);
+  expect(down.text).toContain("browser_unavailable");
 
-  // The retry comes 300ms after the daemon listens.
-  await expect.poll(browserState, { timeout: 10_000, interval: 50 }).toBe("ready");
+  retry.resolve();
+  await expect.poll(browserState, { timeout: 10_000, interval: 20 }).toBe("ready");
 
-  expect(await toolNames(daemon.mcp.url, lease.bearer)).toEqual(
-    expect.arrayContaining(["browser_open", "browser_snapshot", "browser_request_help"]),
-  );
+  expect(await toolNames(daemon.mcp.url, lease.bearer)).toEqual(expect.arrayContaining(listed));
+  const up = await call(daemon.mcp.url, lease.bearer, "browser_settings", { action: "close" });
+  expect(up.text).not.toContain("browser_unavailable");
+  expect(up.failed).toBe(false);
 });
