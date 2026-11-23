@@ -20,6 +20,8 @@ use spade_keys::KeyStore;
 const VERSION: u8 = 1;
 const NONCE: usize = 12;
 const KEY: usize = 32;
+/// The most a sealed pair can be: two JSON Web Tokens with room to spare. Nothing larger is read.
+const MOST_SEALED: u64 = 64 * 1024;
 
 /// Sealed sign-ins in a folder, their keys in a keychain.
 pub struct Vault {
@@ -44,10 +46,8 @@ impl Vault {
         let Some(key) = self.key(account)? else {
             return Ok(None);
         };
-        let sealed = match fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(format!("the sealed sign-in could not be read: {error}")),
+        let Some(sealed) = self.read_sealed(&path)? else {
+            return Ok(None);
         };
         let Some(plain) = open(&key, account, sealed) else {
             tracing::warn!(
@@ -79,7 +79,8 @@ impl Vault {
         let mut nonce = [0u8; NONCE];
         self.random.fill(&mut nonce)?;
         let sealed = seal(&key, account, nonce, plain.into_bytes())?;
-        fs::create_dir_all(&self.dir).map_err(|e| e.to_string())?;
+        private_dir(&self.dir).map_err(|e| format!("the sign-in folder could not be made: {e}"))?;
+        self.checked_dir()?;
         let mut tag = [0u8; 8];
         self.random.fill(&mut tag)?;
         let temporary = self.dir.join(format!(".{account}.{}.tmp", hex(&tag)));
@@ -90,20 +91,68 @@ impl Vault {
         })
     }
 
-    /// Forgets the account's tokens: its sealed file and its key. Returns whether either was
-    /// there.
+    /// Forgets the account's tokens: its key first, whatever happens to the file (a file left
+    /// without its key never opens again), then its sealed file. Returns whether either was there;
+    /// a part that couldn't go is an error, after the other was tried.
     pub fn erase(&self, account: &str) -> Result<bool, String> {
         let path = self.path(account)?;
+        let key = self.keys.delete_sign_in_key(account);
         let file = match fs::remove_file(&path) {
-            Ok(()) => true,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-            Err(error) => return Err(format!("the sealed sign-in could not be removed: {error}")),
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(format!("the sealed sign-in could not be removed: {error}")),
         };
-        let key = self
-            .keys
-            .delete_sign_in_key(account)
-            .map_err(|e| e.to_string())?;
-        Ok(file || key)
+        let key = key.map_err(|e| e.to_string())?;
+        Ok(file? || key)
+    }
+
+    /// The vault's folder, checked to be a folder itself, never a link to one elsewhere.
+    fn checked_dir(&self) -> Result<(), String> {
+        let meta = fs::symlink_metadata(&self.dir)
+            .map_err(|e| format!("the sign-in folder could not be read: {e}"))?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return Err("the sign-in folder is not a folder".to_owned());
+        }
+        Ok(())
+    }
+
+    /// The sealed file at `path`, if it is a plain file of a sealed pair's size: never through a
+    /// link, never a pipe or device that could hold the read open, never more than
+    /// [`MOST_SEALED`]. Anything else reads as none.
+    fn read_sealed(&self, path: &Path) -> Result<Option<Vec<u8>>, String> {
+        match fs::symlink_metadata(&self.dir) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            _ => self.checked_dir()?,
+        }
+        let meta = match fs::symlink_metadata(path) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(format!("the sealed sign-in could not be read: {error}")),
+        };
+        if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MOST_SEALED {
+            tracing::warn!("a sealed sign-in is not a plain file of its size; it reads as none");
+            return Ok(None);
+        }
+        let file = fs::File::open(path)
+            .map_err(|e| format!("the sealed sign-in could not be read: {e}"))?;
+        let mut sealed = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(file, MOST_SEALED + 1), &mut sealed)
+            .map_err(|e| format!("the sealed sign-in could not be read: {e}"))?;
+        if sealed.len() as u64 > MOST_SEALED {
+            return Ok(None);
+        }
+        Ok(Some(sealed))
+    }
+
+    /// Whether the account's sign-in is whole: its key and a plain sealed file both there. A home
+    /// restored without its keychain has the files but not the keys.
+    pub fn complete(&self, account: &str) -> Result<bool, String> {
+        let path = self.path(account)?;
+        if self.key(account)?.is_none() {
+            return Ok(false);
+        }
+        Ok(fs::symlink_metadata(&path)
+            .is_ok_and(|meta| meta.is_file() && !meta.file_type().is_symlink()))
     }
 
     /// Whether anything of the account's sign-in is kept: its key or its sealed file.
@@ -176,16 +225,45 @@ fn open(key: &[u8; KEY], account: &str, sealed: Vec<u8>) -> Option<Vec<u8>> {
     Some(plain.to_vec())
 }
 
-/// Writes `bytes` to a new file only this user can read.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
+/// Makes the folder only this user can open: `0700` on Unix, an owner-only DACL on Windows, set
+/// as it is made. One already there is left as it is.
+fn private_dir(dir: &Path) -> std::io::Result<()> {
+    #[cfg(windows)]
     {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        if let Some(parent) = dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        spade_sandbox_windows::private::create_dir(dir)
     }
-    let mut file = options.open(path)?;
+    #[cfg(not(windows))]
+    {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(dir)
+    }
+}
+
+/// Writes `bytes` to a new file only this user can read: `0600` on Unix, an owner-only DACL on
+/// Windows, set as the file is made, before any byte is written.
+fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(windows)]
+    let mut file = spade_sandbox_windows::private::create_new_file(path)?;
+    #[cfg(not(windows))]
+    let mut file = {
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options.open(path)?
+    };
     file.write_all(bytes)?;
     file.sync_all()
 }
@@ -262,6 +340,96 @@ mod tests {
         fs::copy(dir.path().join("chatgpt-b"), dir.path().join("chatgpt-a"))?;
         assert_eq!(vault.read("chatgpt-a")?, None);
         assert!(vault.read("../x").is_err(), "no path outside the folder");
+        Ok(())
+    }
+
+    /// Reads `account` on another thread, giving up after a few seconds: a read that blocks
+    /// fails the test instead of hanging it.
+    fn read_or_hang(
+        dir: &Path,
+        keys: KeyStore,
+        account: &'static str,
+    ) -> Result<Option<(String, String)>, Box<dyn std::error::Error>> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let dir = dir.to_path_buf();
+        std::thread::spawn(move || {
+            let vault = Vault::new(dir, keys, Arc::new(Counter(Default::default())));
+            let _ = tx.send(vault.read(account));
+        });
+        Ok(rx
+            .recv_timeout(std::time::Duration::from_secs(3))
+            .map_err(|_| "the read blocked")??)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sealed_file_that_is_a_link_or_a_pipe_reads_as_none_without_blocking()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let keys = KeyStore::with_store(keyring_core::mock::Store::new()?, spade_keys::SERVICE);
+        let vault = Vault::new(
+            dir.path(),
+            keys.clone(),
+            Arc::new(Counter(Default::default())),
+        );
+        vault.write("chatgpt-a", "access-a", "refresh-a")?;
+        vault.write("chatgpt-b", "access-b", "refresh-b")?;
+        // A pipe in a's place, and b's place a link to it: opening either would wait forever.
+        let pipe = dir.path().join("pipe");
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status()?;
+        assert!(made.success());
+        fs::remove_file(dir.path().join("chatgpt-a"))?;
+        std::process::Command::new("mkfifo")
+            .arg(dir.path().join("chatgpt-a"))
+            .status()?;
+        fs::remove_file(dir.path().join("chatgpt-b"))?;
+        std::os::unix::fs::symlink(&pipe, dir.path().join("chatgpt-b"))?;
+        assert_eq!(read_or_hang(dir.path(), keys.clone(), "chatgpt-a")?, None);
+        assert_eq!(read_or_hang(dir.path(), keys, "chatgpt-b")?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_goes_even_when_its_file_cannot_and_the_file_left_never_opens()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let keys = KeyStore::with_store(keyring_core::mock::Store::new()?, spade_keys::SERVICE);
+        let vault = Vault::new(
+            dir.path(),
+            keys.clone(),
+            Arc::new(Counter(Default::default())),
+        );
+        vault.write("chatgpt-a", "access-a", "refresh-a")?;
+        // Something holds the file's place that can't be removed as a file.
+        fs::remove_file(dir.path().join("chatgpt-a"))?;
+        fs::create_dir(dir.path().join("chatgpt-a"))?;
+        fs::write(dir.path().join("chatgpt-a").join("held"), b"x")?;
+        assert!(vault.erase("chatgpt-a").is_err());
+        assert_eq!(
+            keys.sign_in_key("chatgpt-a")?,
+            None,
+            "the key went regardless"
+        );
+        assert_eq!(vault.read("chatgpt-a")?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn a_key_left_without_its_file_reads_as_signed_out_and_goes_on_erase()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let keys = KeyStore::with_store(keyring_core::mock::Store::new()?, spade_keys::SERVICE);
+        let vault = Vault::new(
+            dir.path(),
+            keys.clone(),
+            Arc::new(Counter(Default::default())),
+        );
+        // As a first write stopped between its key and its file leaves it.
+        keys.set_sign_in_key("chatgpt-a", &"ab".repeat(KEY))?;
+        assert_eq!(vault.read("chatgpt-a")?, None);
+        assert!(vault.holds("chatgpt-a")?);
+        assert!(vault.erase("chatgpt-a")?);
+        assert_eq!(keys.sign_in_key("chatgpt-a")?, None);
         Ok(())
     }
 }

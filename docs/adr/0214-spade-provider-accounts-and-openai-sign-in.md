@@ -62,7 +62,14 @@ clients do, rather than only through the Codex CLI.
    never sent to the relay or ace's cloud. Only facts that are not secrets (email, plan, the
    ChatGPT account id) are kept in Spade's database. Signing out deletes the sealed file and its
    key and keeps the account, so bots on it say "signed out" until the person signs in again;
-   removing the account deletes both too. Tests use `keyring-core`'s mock store and a local fake
+   removing the account deletes both too (the key first, so a file left behind never opens
+   again). The folder and each file are owner-only from the moment they are made (`0700`/`0600`
+   on Unix, a protected owner-and-system DACL on Windows); a sealed file is read only when it is
+   a plain file of a sealed pair's size, never through a link or a pipe. An account the database
+   says is signed in but whose key or file is missing (a home restored elsewhere) is marked
+   signed out when Spade starts. Whatever the backend echoes, the tokens a call sent are taken
+   out of its answer (text, reasoning, tool arguments, typed values) before anything sees it.
+   Tests use `keyring-core`'s mock store and a local fake
    sign-in server, never a real keychain or a real OpenAI login.
 5. **The person opts in knowingly.** Using a ChatGPT sign-in outside OpenAI's own Codex clients
    may conflict with OpenAI's terms. The sign-in screen says so in one plain sentence, and Spade

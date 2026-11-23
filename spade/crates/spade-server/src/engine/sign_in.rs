@@ -32,6 +32,12 @@ impl Engine {
         if self.sign_ins.set(flows.clone()).is_err() {
             return;
         }
+        // What a restored or copied home says is signed in is checked against what it really
+        // keeps, off the async workers (the keychain may prompt).
+        let checking = Arc::clone(self);
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.spawn_blocking(move || checking.reconcile_sign_ins());
+        }
         let engine: Weak<Self> = Arc::downgrade(self);
         let accounts = flows.accounts().clone();
         let backend = accounts.config().backend.clone();
@@ -236,6 +242,25 @@ impl Engine {
         sign_in.signed_in = false;
         self.store.update_endpoint(&stored)?;
         Ok(())
+    }
+
+    /// Marks signed out every account the database says is signed in but whose sign-in isn't
+    /// whole where it rests (no key, no sealed file): a home restored to another machine, say.
+    /// Blocking: reads the keychain.
+    pub fn reconcile_sign_ins(&self) {
+        let Some(flows) = self.sign_ins.get() else {
+            return;
+        };
+        let accounts = flows.accounts();
+        for row in self.store.endpoints().unwrap_or_default() {
+            if !row.sign_in.as_ref().is_some_and(|s| s.signed_in) {
+                continue;
+            }
+            let generation = accounts.generation(&row.id);
+            if let Ok(false) = accounts.kept_whole(&row.id) {
+                let _ = self.record_signed_out(&row.id, generation);
+            }
+        }
     }
 
     /// Accounts that sign in but are signed out now: never picked as a default.

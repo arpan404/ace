@@ -729,8 +729,8 @@ async fn a_typed_reply_that_echoes_the_token_never_carries_it_into_the_error() -
     Ok(())
 }
 
-/// A model list that refuses `access-1` and, for the token after it, lists models named after
-/// both tokens.
+/// A model list that refuses `alpha-111` and, for any other token, lists models named after
+/// both the refused token and the one it was asked with.
 async fn naming_both() -> Result<String> {
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
@@ -742,11 +742,11 @@ async fn naming_both() -> Result<String> {
                 .and_then(|v| v.to_str().ok())
                 .unwrap_or_default()
                 .to_owned();
-            if sent == "Bearer access-1" {
+            if sent == "Bearer alpha-111" {
                 return StatusCode::UNAUTHORIZED.into_response();
             }
             axum::Json(serde_json::json!({ "models": [
-                { "slug": "gpt-5.5", "display_name": "first was access-1, so long" },
+                { "slug": "gpt-5.5", "display_name": "first was alpha-111, so long" },
                 { "slug": "gpt-5.5-mini", "display_name": format!("now {sent}") },
                 { "slug": "fine", "display_name": "Fine" }
             ] }))
@@ -762,18 +762,82 @@ async fn naming_both() -> Result<String> {
 #[tokio::test]
 async fn a_refreshed_listing_hands_on_neither_the_first_token_nor_the_new_one() -> Result {
     let root = naming_both().await?;
-    let client = client_for(&root, &root, Some("access-1"))?;
-    let listed = client.models.list("chatgpt").await?;
+    let models = Models::new(
+        Catalog::from_json(r#"{"endpoints":[]}"#)?,
+        Keys::new(|_| None),
+        "1.2.3",
+    )?;
+    models.set_endpoints(vec![account(&root)]);
+    // Two unrelated tokens: neither is the start of the other.
+    models.set_bearers(Bearers::new(
+        root.clone(),
+        |_| {
+            Box::pin(async {
+                Ok(Credential {
+                    token: "alpha-111".to_owned(),
+                    generation: 1,
+                })
+            })
+        },
+        |_, _| {
+            Box::pin(async {
+                Ok(Credential {
+                    token: "omega-222".to_owned(),
+                    generation: 1,
+                })
+            })
+        },
+        |_, _| Box::pin(async { Ok(Box::new(()) as DispatchGuard) }),
+    ));
+    let listed = models.list("chatgpt").await?;
     let shown = format!("{listed:?}");
-    assert!(!shown.contains("access-1"), "{shown}");
-    assert_eq!(
-        client
-            .rejected
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .len(),
-        1
-    );
+    assert!(!shown.contains("alpha-111"), "the first token: {shown}");
+    assert!(!shown.contains("omega-222"), "the refreshed token: {shown}");
     assert!(listed.iter().any(|m| m.name.as_deref() == Some("Fine")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_answer_echoing_the_token_split_across_frames_never_hands_it_on() -> Result {
+    let fake = FakeProvider::start_with(
+        Script::reply("before access-1 after, and access-1 again")
+            .chunks(17)
+            .call("c1", "note", serde_json::json!({ "said": "access-1" })),
+    )
+    .await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let mut stream = Box::pin(
+        client
+            .models
+            .stream("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+            .await?,
+    );
+    let (mut seen, mut text) = (String::new(), String::new());
+    while let Some(delta) = stream.next().await {
+        let delta = delta?;
+        if let spade_models::Delta::Text(piece) = &delta {
+            text.push_str(piece);
+        }
+        seen.push_str(&format!("{delta:?}"));
+    }
+    assert!(!seen.contains("access-1"), "{seen}");
+    assert_eq!(text, "before [hidden] after, and [hidden] again");
+    Ok(())
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct Note {
+    said: String,
+}
+
+#[tokio::test]
+async fn a_typed_answer_echoing_the_token_in_valid_json_never_hands_it_on() -> Result {
+    let fake = FakeProvider::start(r#"{"said":"the token is access-1"}"#).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let note = client
+        .models
+        .generate::<Note>("chatgpt/gpt-5.5", &Prompt::ask("say it"))
+        .await?;
+    assert!(!note.value.said.contains("access-1"), "{}", note.value.said);
     Ok(())
 }

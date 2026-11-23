@@ -18,6 +18,7 @@ pub mod listing;
 mod media;
 mod probes;
 mod prompt;
+mod scrub;
 mod signed;
 mod speech;
 pub mod terms;

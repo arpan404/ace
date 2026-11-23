@@ -736,3 +736,17 @@ async fn a_refused_refreshs_late_signed_out_never_lands_on_a_newer_sign_in() -> 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_restored_home_without_its_sign_in_keys_shows_those_accounts_signed_out() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    let id = signed_in(&spade).await?;
+    // As on another machine: the data folder came along, the keychain didn't.
+    spade.keys.delete_sign_in_key(&id)?;
+    let engine = spade.engine.clone();
+    tokio::task::spawn_blocking(move || engine.reconcile_sign_ins()).await?;
+    assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
+    Ok(())
+}

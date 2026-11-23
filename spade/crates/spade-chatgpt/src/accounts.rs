@@ -245,6 +245,19 @@ impl Accounts {
         }
     }
 
+    /// The account's credential generation now.
+    pub fn generation(&self, account: &str) -> u64 {
+        self.parts.generation(account)
+    }
+
+    /// Whether the account's sign-in is whole where it rests (key and sealed file). Blocking.
+    pub fn kept_whole(&self, account: &str) -> Result<bool, BearerError> {
+        match &self.parts.vault {
+            Some(vault) => vault.complete(account).map_err(BearerError::Failed),
+            None => Ok(false),
+        }
+    }
+
     /// [`Accounts::forget`] for blocking code (never on an async worker): waits for the account's
     /// lock, so nothing under way writes the tokens back after.
     pub fn forget_now(&self, account: &str) -> Result<bool, BearerError> {

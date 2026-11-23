@@ -17,6 +17,8 @@ pub mod link;
 #[cfg(windows)]
 pub mod pipe;
 #[cfg(windows)]
+pub mod private;
+#[cfg(windows)]
 pub mod profile;
 #[cfg(windows)]
 pub mod reach;

@@ -3738,6 +3738,7 @@ dependencies = [
  "serde_json",
  "spade-connect",
  "spade-keys",
+ "spade-sandbox-windows",
  "spade-testkit",
  "tempfile",
  "thiserror 2.0.21",

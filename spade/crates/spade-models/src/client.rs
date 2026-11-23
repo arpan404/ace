@@ -61,6 +61,8 @@ struct Call {
     signed: Option<Signed>,
     /// For a signed-in account: leave to send, held until the request is on the wire.
     held: Option<DispatchGuard>,
+    /// For a signed-in account: every token this call sent, taken out of what comes back.
+    secrets: Vec<String>,
 }
 
 /// A model resolved once for every try of one call (ADR 0213): a try that drops the effort goes
@@ -81,6 +83,8 @@ struct Resolved {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
+    /// Every token this call sent so far (the first, and one a refresh gave).
+    sent: Vec<String>,
 }
 
 impl Resolved {
@@ -106,6 +110,7 @@ impl Resolved {
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
             held: None,
+            secrets: self.sent.clone(),
         }
     }
 }
@@ -334,6 +339,7 @@ impl Models {
                         return Err(error);
                     }
                     resolved.target.auth = AuthData::from_single(credential.token.clone());
+                    resolved.sent.push(credential.token.clone());
                     resolved.signed = Some(Signed {
                         credential,
                         ..signed
@@ -478,7 +484,10 @@ impl Models {
             let tap = activity.clone();
             call.options = call.options.with_raw_frame_fn(move |_, _| tap.touch());
             let model = call.reference.clone();
-            let stream = Box::pin(self.open_stream(call, prompt, format).await?);
+            let secrets = std::mem::take(&mut call.secrets);
+            let raw = Box::pin(self.open_stream(call, prompt, format).await?);
+            // The call's own tokens never get out, whatever the backend echoes.
+            let stream: Deltas = Box::pin(crate::scrub::stream(raw, secrets));
             let waits = *self.waits.read().unwrap_or_else(|p| p.into_inner());
             return crate::waits::timed(stream, held, activity, waits, model).await;
         }
@@ -628,6 +637,10 @@ impl Models {
             ),
             effort,
             streamed_only,
+            sent: token
+                .iter()
+                .map(|signed| signed.credential.token.clone())
+                .collect(),
             signed: token,
         })
     }
