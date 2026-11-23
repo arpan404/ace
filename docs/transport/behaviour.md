@@ -46,14 +46,23 @@ observes, and must hold unchanged with any `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_REL
   Origin (the HTTP access allowlist, `web-origins.ts`) or, when the daemon serves the web app, its
   own literal loopback origin (`127.0.0.1`, `localhost`, `[::1]`; a DNS name rebound to loopback
   is refused, `:11`–`:24`); refused upgrades answer `403 Forbidden`, or `503 Service Unavailable`
-  over capacity (`:65`, `:71`). Remote clients authenticate with tickets and may carry any Origin.
+  over capacity (`:65`, `:71`); any other path is dropped without an answer (`:52`–`:55`).
+- **An upgrade without an Origin is admitted on loopback** (`:58`–`:61`: the check applies only when
+  `origin !== undefined`): native clients, the CLI and the desktop app's main process send none.
+  Remote listeners don't check Origin at all; their clients authenticate with tickets, and native
+  ones send an Origin derived from the URL.
+- **Origin and authentication are independent.** The Origin check runs before the hello and
+  doesn't look at credentials, so a page from a refused origin is refused even holding a valid
+  token; a valid Origin grants nothing, since the hello must still authenticate (§6).
 - **Capacity**: at most 256 sockets (`server.ts:289`, `:393`); a socket over it is closed with
   `4013 connection_limit`.
 - **Pre-authentication budget** (`socket-admission.ts:19`–`:24`): 128 unauthenticated sockets on
   loopback, 64 on remote listeners, 16 per remote address, and a hello deadline of 5 s, after which
   an unauthenticated socket is terminated. Authenticating releases the slot.
-- **Frame size**: 1 MiB per inbound message (`maxPayload`, `server.ts:252`, `:256`); larger closes
-  with `1009`.
+- **Message size**: 1 MiB per inbound message (`maxPayload`, `server.ts:252`, `:256`); larger closes
+  with `1009`. On a compressed socket the limit applies **after inflation** (`ws` checks the
+  inflated length against `maxPayload`), so a small compressed frame can't expand past 1 MiB in
+  memory; a Rust inflater stops and closes with `1009` as soon as the inflated bytes pass the limit.
 - **Per-message deflate** only on remote listeners (`remoteDeflate`, `server.ts:257`): RFC 7692
   without context takeover, both directions; outbound compression is chosen per message by the
   allowlist in `compression-policy.ts` (transcript and history bulk only, never a message that may
@@ -71,6 +80,13 @@ Two request chains, each an ordered list where the first handler that claims a r
 - **Remote** (paired devices; static and run-time TLS listeners share it): org gate (`true`) →
   outside MCP clients at the ts.net name (ADR 0122) → transfers → machine calls → web root →
   attachments → icons → … → access API with device bearers.
+- **Origin on HTTP** (`access-http.ts:61`–`:163`): only the cross-origin routes (account paths,
+  `/v1/status`, `/v1/pair`, tickets, paired devices, revoking) answer CORS, and only to an
+  allowlisted Origin (`web-origins.ts`); a preflight from any other origin is `403 Origin not
+allowed`. A request without an Origin (the CLI, native clients) is not refused for it: it is
+  authenticated by its bearer like any other. Every response is `Cache-Control: no-store`,
+  `Referrer-Policy: no-referrer`, `Vary: Origin`; the token travels only in `Authorization`, never in
+  a URL or cookie.
 - CORS, status codes, headers and bodies of each route are contract (guarded by
   `access-cors.server.process` and the route tests in §12). Range requests, upload budgets and
   relay attachments keep their limits (`attachment-range`, `attachment-http-budget`,
@@ -116,15 +132,50 @@ expired`, `1009` for an oversized message, `1011 service_unavailable` when finis
   optional `channel`, `framing`, `trim`, `compression`). The welcome follows only after every
   service's `authenticated()` resolved; a rejection with code `limit` refuses the socket as over
   capacity (`services/socket.ts`).
+- **Refused hellos**: a first frame that is binary, even one holding a valid hello, and a hello
+  that authenticates nothing get `{type: "error", code: "unauthorized"}` and close with `4001`,
+  sending no data first; a second hello on an authenticated socket closes it without another
+  welcome or heartbeat (`auth.server.process.test.ts:20`–`:40`).
+- **Welcome before pushes**: services' `welcomed()` runs after the welcome is on the wire
+  (`server.ts:923`; on an NK stream after `hello.confirmed`, `:755`–`:756`), and no service may
+  push before it; a client's first message after its
+  hello is always the welcome or a refusal.
 - **Credentials** (`socket-hello.ts`): the host token counts only on loopback and is never
   revocable; a ticket or a desktop bearer must name the device the hello claims and stays
   revocable; the "Use my Chrome" native host's credential authorizes only registering a browser
   link (ADR 0084). A paired device names its app install, so its records fold into one (ADR 0115).
-- **Tickets** (`ticket-pool.ts`): at most 10,000 outstanding, 120 per device per minute, each valid
-  60 s, bound to the host key that issued it (ADR 0155) and to the device and credential
-  generation that asked; a ticket offered under another key or device stays untaken.
-- **Pairing** (`pairing-codes.ts`, `pairing-issue.ts`, `remote-auth.ts`): codes, links and their
-  origins; a new paired credential replaces the old one and closes its sockets with `4001`.
+- **Tickets** (`ticket-pool.ts`, `remote-auth.ts`): one use each; at most 10,000 outstanding and
+  120 issued per device per minute; each valid 60 s; bound to the device and the credential
+  generation that asked, and to the host key epoch that handed it (ADR 0155). They live **in
+  memory only** (`TicketPool`; `clearPending` replaces it), so a restart voids every outstanding
+  ticket and a client exchanges a fresh one with its persisted device token (`/v1/tickets`); a
+  ticket asked for with a credential since replaced opens nothing.
+- **Two spending rules, not one** (keep them apart):
+  - **Direct hello** (`socket-hello.ts:27`–`:40`, `remote-auth.ts:209`–`:216`): the ticket is
+    **consumed first**, then its device is checked against the hello's `deviceId`; a mismatch
+    refuses the hello, and the ticket is spent anyway.
+  - **NK first message** (`remote-auth.ts:218`–`:231`, `relay-nk/`): the relay key epoch and the
+    claimed device are **checked before** the ticket is taken; a message that would be refused
+    spends nothing. A matching ticket is spent in one synchronous step, so exactly one of two racing
+    copies gets it, before the session is confirmed; what the hello does to the device (`touch`,
+    install folding) waits for confirmation.
+  - A ticket handed over in a welcome (`handOver`, ADR 0150) is one-use, as short-lived and as bound
+    as an exchanged one, and voided by revocation the same way.
+- **Pairing** (`remote-auth.ts:86`–`:140`, `pairing-codes.ts`, `pairing-issue.ts`): a link's code is
+  **single use** (`take` removes it as it returns it, so one code never pairs two devices); it
+  expires after `ttlMs` (default 5 minutes); at most 100 links are pending; redemption attempts are
+  limited to 5 per source address and 100 overall per minute (`remote-auth.ts:313`–`:319`, `429`).
+  Links are stored by the code's SHA-256 in the database, so a restart doesn't void one being
+  scanned, and each still ends at its expiry. Desktop and browser-link scopes can't be granted by a
+  link. A new paired credential replaces the old one and closes its sockets with `4001`.
+- **Files and pins** (`local-files.ts`, `tls-identity.ts`): the data directory is made private
+  (`secureDataDir`); the daemon token is 64 hex characters in `daemon-token`, created exclusively
+  with mode `0600` and set to `0600` on every start (`local-files.ts:84`–`:95`), and compared in
+  constant time (`validToken`); the persistent keys (Suit URL key, Spade person key, push key) and
+  host id are kept the same way. The TLS identity lives under the home's `tls/` and its pinned
+  fingerprint is the SHA-256 of the certificate's public key (`tls-identity.ts`); a port loads the
+  existing files and never regenerates them while they're valid, so every paired device's pin
+  still matches after the move (pin continuity).
 - **Account devices** (ADR 0111, ADR 0190): grants on the socket, refreshed by the channel, closed
   with `4014` when they lapse; person proof (`personProven`) is a paired device or an account
   device whose standing grant says person, never the host token.
@@ -170,6 +221,23 @@ backpressure`; each message is charged 256 bytes on top of its payload (`:21`–
 ## 9. Subscriptions and fan-out
 
 - Events reach subscribers only after commit (store behaviour.md §4), in sequence order.
+- **The handoff from a read to live events** (`subscription.ts:159`–`:221`, `:319`–`:323`), which any
+  implementation keeps step for step:
+  1. register for live events **before** reading (`routeThread` or `store.subscribe`), and queue
+     every batch heard while the subscription initializes;
+  2. take the rows and the head watermark **together**: the snapshot and `headSeq()` from one read
+     snapshot (today one synchronous step on the JS thread; on a reader pool, one SQLite read
+     transaction);
+  3. send the snapshot or replay, setting the cursor to the watermark;
+  4. drain the queued batches, delivering **strictly above** the cursor, then deliver live batches
+     the same way.
+- **Cursors are contiguous.** Every `events` and `progress` message carries `afterSeq` equal to the
+  previous message's `throughSeq` (`:179`–`:198`); events the subscription filters out (another
+  thread's, non-sidebar ones) still advance the cursor through a `progress` frame, sent within
+  `progressIntervalMs` (250 ms) or at once after a replay. The client refuses a message whose
+  `afterSeq` isn't its own sequence as a gap and resyncs (`packages/client/src/thread-store.ts:378`),
+  so a hole in the cursors costs a resync, and a skipped event would lose a committed status change
+  (priority 1).
 - **Thread subscriptions** (`subscription.ts`): a client resuming from `afterSeq` gets a replay of
   what it missed, split into frames of about 1 MiB of event bytes (`:83`), or a full snapshot when
   that costs fewer bytes and ends where the replay would, holding every item created after
@@ -178,7 +246,6 @@ backpressure`; each message is charged 256 bytes on top of its payload (`:21`–
   `socket-reads.ts:99`): a list cursor further behind than that, a cursor ahead of the head, or a
   replay that isn't safe gets a snapshot instead (`subscription.ts:240`–`:252`; a thread's replay
   is bounded by its own events, ADR 0128).
-  Progress beats every 250 ms during long reads.
 - **Read cursors** go with each row, and again when the device marks it read; marks made inside a
   command's transaction are read once it has committed (`subscription.ts:46`–`:58`).
 - **Sidebar subscriptions** (`sidebar-subscription.ts`, ADR 0107): every live thread and the newest
@@ -195,8 +262,8 @@ ADR 0155 and `docs/relay/README.md` are the relay's contract; the daemon's side:
   a one-byte readiness marker; early client data closes the stream.
 - Streams are `Noise_XX_25519_ChaChaPoly_SHA256` (prologue `ace daemon relay stream v1`), the client
   pinning the daemon's static key (the host id is the base32 of it); returning clients may connect
-  with `Noise_NK_25519_ChaChaPoly_SHA256` and `hello.early` (`relay-nk/`), whose effects wait for
-  confirmation.
+  with `Noise_NK_25519_ChaChaPoly_SHA256` and `hello.early` (`relay-nk/`), whose ticket is spent by
+  §6's NK rule and whose other effects wait for confirmation.
 - A relayed close carries the relay's reason ("Peer closed" when the far end went away); any other
   failure is `1006` (`relay-socket.ts`).
 - Bulk JSON is compressed per message with raw deflate when the hello asked for
@@ -205,24 +272,25 @@ ADR 0155 and `docs/relay/README.md` are the relay's contract; the daemon's side:
 
 ## 11. Inventory
 
-What is still TypeScript in `apps/daemon/src` after ADRs 0221 to 0225, by responsibility (981
-production modules, 143,917 lines; ADR 0226 has the line counts). Paths are relative to
+What is still TypeScript in `apps/daemon/src` after ADRs 0221 to 0225, by responsibility (982
+production modules, 143,980 lines; ADR 0226 has the line counts). Paths are relative to
 `apps/daemon/src`, without `.ts`; `services/` entries are the per-socket sessions of each area.
 Test files, test support, fixtures, evals and benches are not listed: they move with their modules.
 
 - **Machines** (144): `files-relay`, `machine-tables`, `machine-tunnel/` (6: ace-ports, host, policy, port-feed, relay, wiring), `machine-update/` (9: busy, create, desktop-installer, installer, machine-updates, record, rules, standalone-installer, updater-process), `machines/` (55: caller, capability-hosts, child-ledger, child-liveness, child-lost, child-messages, child-outbox, child-question, child-recheck, child-results, child-schedule, child-views, children, command-host, command-host-shell, command-jobs, command-process, command-rules, command-tools, connections, directory, failure-episodes, fleet-links, grant-rules, grant-store, guest-sessions, held-messages, http, link-routes, link-timing, machine-link, mirror, parent-gone, quiet-backoff, relay-fallback, relay-link, relay-pairing, remote-jobs, retry-backoff, saved-pairings, status-result, target, target-accounts, target-browser, target-devices, target-launches, target-outcomes, target-refusal, target-rejections, target-screen, target-spade, target-threads, tool-result, transport, unconfirmed-stops), `media-relay/` (7: admit, handover, port, runtime-port, streams, testing-producer, testing-relay), `parcels/` (11: descriptions, files, link, messages, puller, quarantine, rules, sender, service, store, target), `services/` (6: fleet, fleet-scope, machine-tunnel, machine-update, machines, transfers), `transfers/` (48: agent, archive-selection, chunk-pace, client, commands, files, http, identity, ignored-files, incoming, incoming-files, incoming-index, incoming-rows, incoming-unconfirmed, landing, landing-made, landing-place, landing-types, live/adapters, live/cutover, live/messages, live/ownership, live/ownership-rules, live/resumes, live/source, live/target, live/target-rows, live/turn-start, outgoing, outgoing-rows, ports, prepare, retry, route-policy, routes, serve, service, service-adapters, sessions/carrier, sessions/claude, sessions/codex, sessions/index, sessions/place, sessions/rewrite, sessions/stage, transfer-identity-support, transfer-index, transfer-live-support).
 - **Spade host side, Store, Suits, plugins, skills, icons, previews** (115): `builtin-skill-crash-child`, `builtin-skill-processes`, `builtin-skill-roots`, `builtin-skill-share`, `plugin-launches`, `preview`, `preview-client`, `skill-library`, `skill-usage`, `wasm-wrappers`, `icons/` (11: app-icon, avatar-fetch, avatar-url, favicon-fetch, favicon-image, icon-cache, icon-image, icon-service, linux-app-icon, local-site, public-fetch), `marketplace/` (41: agent-gate, agent-requests, arrived-bots, blocklist, browse, check, content-only, discover, draft-files, fresh-sign-in, git, http, install, journal, listings, looks, market-agent, market-error, open-reviews, options, org-registry, own-profile, package-diff, person-requests, pick, pick-ports, pictures, plugin-port, prepare, publish, publish-request, review, service, sources, spade-bot, spade-port, spade-skills, store, trust, turned-off, upkeep), `preview-suggestions/` (5: page-probe, printed-urls, scope, service, tracker), `services/` (16: icons, marketplace, plugin-availability, plugins, preview-client, prompt-files, skill-library, spade, spade-computer, spade-computers, spade-host, spade-http, spade-remote, spade-session, spade-switch, suits), `spade/` (22: account-grant-http, bodies, computer-drivers, computer-reports, computers, delivery, forward, grant, grant-auth, host-busy, host-thread, image-preview, link, link-runtime, loosen-stamp, member-stamp, notice-alert, notices, person-stamp, remote, rules, service-control), `suits/` (10: http, library, live-checks, looks, port, range, reader, urls, video-http, watch).
 - **Daemon lifecycle, settings, notifications, storage, verify, terminal** (100): `app-update-board`, `config`, `daemon-log`, `daemon-surface`, `diagnostic-log`, `expiry-map`, `fatal-log`, `home-backup-log`, `index`, `late-setup`, `notification-ack`, `notification-config`, `notification-intents`, `notification-ownership`, `notification-wake`, `notifications`, `onboarding`, `owned-evidence`, `owned-processes`, `peer-process`, `process-daemon`, `process-priority`, `process-recovery`, `service-crashes`, `settings`, `shutdown`, `shutdown-processes`, `shutdown-receipt`, `stall-log`, `startup-attempts`, `storage-levels`, `storage-reserve`, `storage-watch`, `test-git`, `update-hold`, `background-services/` (3: probe, task-ports, watcher), `services/` (11: app-update, background, background-ports, kill-all, notifications, resources, settings, silence-setting, storage, terminal, verify), `storage/` (35: apply, crash-worker, data-retention, data-retention-policy, delegation-trees, executor, files, inventory, journal, ownership, planner, refusal, schedule, service, skill-roots, space-reclaim, space-reclaim-policy, transcript, types, usage-activity, usage-cache, usage-scanner, usage-schedule, usage-walk, usage-walk-roots, usage-worker, usage-worker-scan, usage-worker-wire, worktree-backups, worktree-batches, worktree-executor, worktree-io, worktree-maintenance, worktree-worker, worktree-worker-wire), `verify/` (16: check-command, check-process, check-trees, forge-port, log-tail, ports, project-check, run-errors, run-execution, run-list, run-logs, run-recovery, run-session, run-state, run-store, verify-service).
-- **Transport (this ADR)** (89): `access-http`, `attachment-response`, `attachments-http`, `attachments-upload`, `client-access`, `compression-policy`, `devices`, `devices-setting`, `event-encodings`, `frame-holder`, `host-routes`, `icons-http`, `link-estimate`, `listener`, `local-token`, `machine-paths`, `main-socket`, `network`, `network-adapters`, `node-tls-identity`, `ordered-socket`, `outbox`, `pairing-codes`, `pairing-issue`, `preview-http`, `relay-account`, `relay-hello`, `relay-http`, `relay-machine-host`, `relay-route`, `relay-socket`, `remote-auth`, `remote-direct`, `remote-direct-policy`, `remote-policy`, `remote-relays`, `remote-runtime`, `remote-status`, `reply-bounds`, `self-signed-certificate`, `server`, `server-http`, `server-options`, `server-socket-close`, `sign-in-pages`, `sign-in-return`, `sni-listener`, `socket-admission`, `socket-commands`, `socket-hello`, `socket-input`, `socket-liveness`, `socket-reads`, `socket-upgrade`, `subscription`, `tailscale-certificate`, `tailscale-command`, `thread-routes`, `ticket-pool`, `tls-identity`, `web-http`, `web-origins`, `wire-encoder`, `wire-interactions`, `relay-nk/` (3: admission, early-reads, host), `services/` (22: admission, composition, feature-off, host-identity, options, registry, relay, relay-attachments, relay-channel, service-criticality, service-order, service-scope, service-slots, service-watch, socket, socket-message, startup, startup-notice, startup-runtime, transports, types, warmup).
 - **Agent-control and its publication tools** (83): `html-preview`, `html-publication`, `image-publication`, `knowledge`, `mcp-data`, `measurement-correlation`, `measurement-mcp`, `publish-artifact`, `tool-failure-log`, `tool-result-content`, `agent-control/` (62: account-availability, account-checks, account-names, admission, agent-subtree, ancestor-stop, authorization, catalog, child-status, child-sync, command-id, command-policy, conversation-answer, conversation-journal, conversation-tools, conversations, cursor-request, delegation-origins, delegations, failure, failure-account, failure-result, forks, handoffs, host-delegation, journal, launch-queue, limit-hold, limit-notices, limit-settlement, local-usage-recovery, message-arrival, message-notices, message-senders, model-load-budget, model-roster, models, monitor, owner-thread-executor, owners, peer-messages, previews, projects, provider-facts, queue-control, reservation-lifetimes, results, role-names, run-roles, selection, selection-defaults, snapshot-rows, task-view, thread-automations, thread-lineage, thread-settle, tools, turn-fence, wait-deadline, waiters, watch-view, workspaces), `native-tools/` (4: claude, codex, files, read), `services/` (7: agent-control, agent-control-failure, commands, context, context-scope, handoff-tools, native-tools).
 - **Providers and accounts** (81): `account-executable`, `account-homes`, `account-leases`, `account-limits`, `account-limits-schedule`, `account-management`, `account-reset`, `antigravity-settings`, `catalog-claude-discovery`, `catalog-discovery`, `catalog-env`, `codex-login-driver`, `credential-runtime`, `cursor-account-flow`, `cursor-account-terminal`, `cursor-catalog-env`, `cursor-process-check`, `cursor-sandbox-check`, `host-cli-identity`, `installation-gate`, `login-path-handoff`, `opencode-earlier-logins`, `opencode-login-driver`, `pi-login-driver`, `pi-login-worker`, `provider-account-support`, `provider-accounts`, `provider-admission`, `provider-api-key`, `provider-configurations`, `provider-discovery`, `provider-login-acp`, `provider-login-cursor`, `provider-login-driver`, `provider-mcp-add`, `provider-mcp-sources`, `provider-model-availability`, `provider-status`, `provider-status-row`, `role-settings`, `toolchains`, `usage`, `usage-accounts`, `utility-known-cli`, `utility-models`, `provider-install/` (9: admission, failure, planner, prerequisites, registry, release, sessions, testing, versions), `services/` (27: accounts, agent-registry, antigravity, antigravity-accounts, antigravity-skills, catalog, claude, cursor-activation, cursor-auth, cursor-hosts, cursor-instance, cursor-limits, cursor-mcp, login-refusal, models, native-login-guard, permissions, pi, provider-activation, provider-auth-relay, provider-install, provider-login, provider-login-agent, provider-login-prepare, provider-mcp, provider-status, usage).
 - **Git and forge callers** (80): `checkout-missing`, `default-branch`, `forge-action-observation`, `forge-backends`, `forge-reply-receipts`, `forge-resource-owner`, `forge-stack-state`, `forge-stack-sync`, `forge-write-lifecycle`, `forge-write-receipts`, `git-diff-cache`, `git-diff-page`, `gitlab-hosted-merge`, `hosted-browse`, `hosted-checks`, `hosted-create`, `hosted-inbox`, `hosted-issues`, `hosted-lifecycle`, `hosted-review-conversation`, `inbox-actions`, `issue-actions`, `managed-worktrees`, `owned-worktree`, `pr-auto-link`, `pr-conflicts`, `pr-create-command`, `pr-create-target`, `pr-head`, `pr-worktree-resolution`, `project-git`, `publication-state`, `pull-request-follow`, `repository-publications`, `review`, `review-executor`, `source-control`, `source-control-prompt`, `tea-source-control`, `workspace-change-clear`, `workspace-forge`, `workspace-forge-actions`, `workspace-forge-browse`, `workspace-forge-checks`, `workspace-forge-context`, `workspace-forge-lifecycle`, `workspace-forge-reviews`, `workspace-forge-stacks`, `workspace-head-watch`, `workspace-issue-links`, `workspace-move`, `workspace-pr-associations`, `workspace-pr-creation`, `workspace-pr-links`, `workspace-pr-new`, `workspace-push`, `workspace-read-queue`, `workspace-refresh`, `workspace-refresh-deadline`, `workspace-repository`, `workspace-reservations`, `workspace-root`, `workspace-roots`, `workspace-runtime`, `workspace-scripts`, `workspace-source-control`, `workspace-store`, `worktree-base`, `worktree-base-resolution`, `forge-media/` (7: media-cache, media-fetch, media-files, media-grants, media-service, media-sniff, media-test-hosts), `services/` (4: repositories, review, source-control, workspace-actions).
 - **Store reads and the modules ADR 0222 did not take** (79): `activity-reads`, `bounded-events`, `bounded-item-page`, `canonical-json`, `compressed-files`, `content-encoding`, `conversation-tables`, `entity-retention`, `entity-shape`, `entity-window`, `history`, `history-index`, `history-instances`, `history-message-replay`, `history-publish-worker`, `history-publisher`, `history-review-support`, `history-search-replay`, `history-session`, `history-storage`, `home-data`, `item-clip`, `item-page-capacity`, `item-store`, `item-text-store`, `measurement-store`, `metadata-retention`, `native-image-store`, `native-images`, `ordered-tree`, `run-client-storage`, `sidebar-columns`, `sidebar-facts`, `sidebar-index`, `sidebar-live`, `sidebar-page-storage`, `sidebar-page-weight`, `sidebar-placement`, `sidebar-reads`, `sidebar-revisions`, `sidebar-subscription`, `status-store`, `streaming-blobs`, `text-preview`, `thread-cache`, `thread-cleanup-journal`, `thread-client-storage`, `thread-cold`, `thread-columns`, `thread-gone`, `thread-lifecycle`, `thread-move`, `thread-organization`, `thread-organizer`, `thread-ownership-table`, `thread-read-cache`, `thread-reads`, `thread-row`, `thread-row-indexes`, `thread-row-trust`, `thread-snapshot`, `thread-titles`, `thread-tree`, `tool-result-store`, `tree-root`, `usage-replay`, `services/` (8: activity-reads, history, item-raw, long-thread, search, sidebar-placement, thread-address, thread-organization), `thread-address/` (5: asks, asks-store, context-pack, device-context, plan).
+- **Transport: listeners, sockets, HTTP, relay, auth (this ADR, T1 to T6)** (73): `access-http`, `attachment-response`, `attachments-http`, `attachments-upload`, `client-access`, `compression-policy`, `devices`, `devices-setting`, `event-encodings`, `frame-holder`, `host-routes`, `icons-http`, `link-estimate`, `listener`, `main-socket`, `network`, `network-adapters`, `node-tls-identity`, `ordered-socket`, `outbox`, `pairing-codes`, `pairing-issue`, `preview-http`, `relay-account`, `relay-hello`, `relay-http`, `relay-machine-host`, `relay-route`, `relay-socket`, `remote-auth`, `remote-direct`, `remote-direct-policy`, `remote-policy`, `remote-relays`, `remote-runtime`, `remote-status`, `reply-bounds`, `self-signed-certificate`, `server`, `server-http`, `server-socket-close`, `sign-in-pages`, `sign-in-return`, `sni-listener`, `socket-admission`, `socket-commands`, `socket-hello`, `socket-input`, `socket-liveness`, `socket-reads`, `socket-upgrade`, `subscription`, `tailscale-certificate`, `tailscale-command`, `thread-routes`, `ticket-pool`, `tls-identity`, `web-http`, `web-origins`, `wire-encoder`, `wire-interactions`, `relay-nk/` (3: admission, early-reads, host), `services/` (9: admission, host-identity, registry, relay, relay-attachments, relay-channel, socket, socket-message, transports).
 - **Engine callers** (54): `acp-agent-cli`, `acp-agent-status`, `acp-catalog`, `acp-engine`, `acp-model-instance`, `answer-gate`, `asks`, `async-commands`, `busy-open`, `busy-refusal`, `child-limit-setting`, `command-events`, `command-lanes`, `command-library`, `command-not-dispatched`, `command-receipts`, `command-status`, `commands`, `creation-drafts`, `creation-failure`, `creation-output`, `creation-preparation`, `creation-progress`, `creation-resource-id`, `creation-setup`, `creation-workspace`, `creation-workspace-journal`, `declared-limits`, `delivery-runtime`, `held-writes`, `history-continuation`, `interaction-reads`, `loop-monitor`, `models`, `needs-you-threads`, `run-checkpoints`, `run-marker`, `run-turns`, `stop-reason`, `stop-record`, `thread-fence`, `unread-answers`, `user-pause`, `work-outcome`, `liveness/` (4: bounded, lease, standing, stop), `services/` (6: creation-session, engine, history-engine, limit-recovery, recovery, thread-transitions).
-- **Projects and files** (49): `browser-artifact-files`, `chat-projects`, `download-folder`, `file-export-source`, `files-artifacts`, `files-scope`, `files-support`, `files-workspaces`, `host-open`, `host-open-places`, `host-open-target`, `image-files`, `installed-editors`, `linked-files`, `local-files`, `project-browse`, `project-directory`, `project-favicon`, `project-files-binding`, `project-folders`, `project-identity`, `project-image`, `project-marker`, `project-notes`, `project-origin`, `project-picker`, `project-picker-filesystem`, `project-policy`, `project-remote-key`, `project-remote-key-reader`, `project-repository-config`, `project-roots`, `project-storage`, `projects`, `files-tool/` (13: content-search, folder-watch, io, list-folder, page, relay-files, roots, search-batches, search-hits, test-clock, tool, watch-fanout, wiring), `services/` (2: files, projects).
+- **Projects and files** (48): `browser-artifact-files`, `chat-projects`, `download-folder`, `file-export-source`, `files-artifacts`, `files-scope`, `files-support`, `files-workspaces`, `host-open`, `host-open-places`, `host-open-target`, `image-files`, `installed-editors`, `linked-files`, `project-browse`, `project-directory`, `project-favicon`, `project-files-binding`, `project-folders`, `project-identity`, `project-image`, `project-marker`, `project-notes`, `project-origin`, `project-picker`, `project-picker-filesystem`, `project-policy`, `project-remote-key`, `project-remote-key-reader`, `project-repository-config`, `project-roots`, `project-storage`, `projects`, `files-tool/` (13: content-search, folder-watch, io, list-folder, page, relay-files, roots, search-batches, search-hits, test-clock, tool, watch-fanout, wiring), `services/` (2: files, projects).
 - **Account and org access** (39): `handoff-access`, `project-access`, `account-access/` (17: app-standing, backend, device-grant, grant-keys, grant-lease, grant-socket, machine-account, machine-code-policy, machine-codes, member-grant, org-credential, org-enrollment, org-socket, owner, relay-host-id, session-file, tables), `org-access/` (12: decide, fleet-refusal, gate, handles, http-gate, mcp-operations, org-probe, principal, socket-operations, socket-wiring, store-trees, trees), `org-host/` (3: link, plan, wire), `org-registry/` (4: keychain, loop, signer, wire), `services/` (1: machine-code).
 - **Outside MCP clients** (37): `external-mcp/` (35: access-alerts, access-requests, browser, card-key, card-signature, endpoint-port, grants, oauth/authorize, oauth/base, oauth/cimd, oauth/cimd-fetch, oauth/client, oauth/codes, oauth/consent-page, oauth/metadata, oauth/rate-limit, oauth/redirects, oauth/registrations, oauth/service, oauth/surface, oauth/token, outside, outside-proof, principals, reach, scopes, screen-use, server, spade-contracts, spawn-limits, tables, task-tool, token-files, tokens, tools), `services/` (2: external-mcp, outside-clients).
 - **Browser glue** (21): `browser-desktop`, `browser-engine-moves`, `browser-engine-setting`, `browser-forget`, `browser-forget-projects`, `browser-help`, `browser-help-tool`, `browser-profile-scope`, `browser-tab-context`, `browser-tab-excerpt`, `browser-tab-store`, `browser-test-client`, `browser-test-process`, `browser-toolkit`, `browser-turns`, `browsing`, `user-browser`, `services/` (4: browser, browser-transport, browsing, user-browser).
+- **Startup, composition and home identity (this ADR, T7)** (18): `computer-name`, `local-files`, `local-token`, `machine-paths`, `server-options`, `services/` (13: composition, feature-off, options, service-criticality, service-order, service-scope, service-slots, service-watch, startup, startup-notice, startup-runtime, types, warmup).
 - **Devices and screens remainder** (4): `services/` (4: media, media-connect, media-images, media-service).
 - **Doctor remainder (daemon side)** (3): `services/` (3: diagnostics, doctor-runs, support-files).
 - **Other** (2): `action-errors`, `services/` (1: utility).

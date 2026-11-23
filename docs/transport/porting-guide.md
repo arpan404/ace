@@ -57,22 +57,33 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
   `unsubscribe`, `snapshot`, `snapshot.part`, `events`, `items.page`, `items.window`, `turns.page`,
   `turn.steps`, `thread.catchUp`, `threads.patch`, `fail`, `ping`, `pong`).
 - The route table generator and its check.
+- `check:wire-fixtures` (ADR 0226 §3): the inbound and outbound samples taken from what the
+  repository already holds, and the comparison of Zod with each Rust owner and of the two
+  encoders. It starts with no Rust owners and grows with each swap; it never gets hand-written
+  cases.
 - Switch names in `native-switches.ts`: `ACE_TRANSPORT`, `ACE_HTTP`, `ACE_RELAY`, `ACE_DAEMON`,
   and `wire`/`sidebar` values of `ACE_STORE_READS`.
 - The baseline measurements below, scheduled by the owner.
 
 ### T1: sockets (needs T0)
 
-1. **Spike first, written down**: per-message deflate (ADR 0226 question 1). `tungstenite` 0.30
-   refuses RSV1 frames (`src/protocol/mod.rs:643`). Try, in order, a WebSocket crate with RFC 7692
-   server support (check its licence against `deny.toml` and its maintenance), then our own RFC 7692
-   extension over a framing layer that exposes RSV1. Record the result in the PR; the proof is
-   `remote-compression.server.process.test.ts` unchanged, plus a browser client and the iOS client
-   negotiating it (owner-run).
+1. **Spike first, written down**: per-message deflate (ADR 0226 answer 1). `tungstenite` 0.30
+   refuses RSV1 frames (`src/protocol/mod.rs:643`). Pick a maintained WebSocket crate with RFC 7692
+   server support (licence checked against `deny.toml`); our own RFC 7692 extension over a framing
+   layer that exposes RSV1 only if none passes; application-level `deflate-raw` on direct sockets
+   only as a last resort. Negotiation stays as today. Accepted only after
+   `remote-compression.server.process.test.ts` passes unchanged, a browser client and the iOS client
+   negotiate it (owner-run), and the post-inflate cap holds (behaviour.md §2: inflation stops and
+   closes `1009` past 1 MiB). Record the result in the PR.
 2. Listeners on hyper: loopback, LAN TLS, Tailscale TLS with SNI, run-time toggling
-   (`remote-runtime.ts`, `remote-direct.ts`), the `remoteStarted` promises' semantics.
-3. Upgrade admission (`socket-upgrade.ts`), the 256-socket cap, pre-auth budgets
-   (`socket-admission.ts`), the 1 MiB inbound limit.
+   (`remote-runtime.ts`, `remote-direct.ts`), the `remoteStarted` promises' semantics. Ownership
+   follows ADR 0226 §2's table for every `ACE_TRANSPORT`/`ACE_MCP` combination, read once at boot;
+   test the M2-first row (`ACE_MCP=native` alone) and each rollback (one switch turned off, restart).
+   TLS loads the existing `tls/` identity and never regenerates a valid one (pin continuity,
+   behaviour.md §6).
+3. Upgrade admission (`socket-upgrade.ts`): path, Origin on loopback only and only when present
+   (no Origin admitted), independent of any credential; the 256-socket cap, pre-auth budgets
+   (`socket-admission.ts`), the 1 MiB inbound limit after inflation.
 4. WebSocket framing, pings, idle sweep, close grace (`server-socket-close.ts`), close logging
    (`socket-liveness.ts`).
 5. Outbox, frame holder, ordered socket, input backpressure (`outbox.ts`, `frame-holder.ts`,
@@ -88,31 +99,54 @@ Proof: `socket-admission.server`, `socket-close-log.server`, `remote-compression
 then every `fixture()` file, each alone, switch on and off. Bench gate: fan-out and head-of-line
 (below) no worse; if worse, T1 waits and ships with T3 (ADR 0226 §6).
 
-### T2: hello, authentication, devices (needs T1, `ACE_STORE=native` default-on)
+### T2: hello, authentication, devices (needs T1, store phase 5's writer default-on)
 
 `socket-hello.ts`, `remote-auth.ts`, `ticket-pool.ts`, `pairing-codes.ts`, `pairing-issue.ts`,
 `devices.ts`, `client-access.ts`, `local-token.ts`, `relay-hello.ts`' account hello, the account
 grant socket (`account-access/grant-socket.ts`, `grant-lease.ts`), the org socket policy's
-admission checks (`org-access/socket-wiring.ts`). Device and ticket rows through `ace-store` on the
-main connection. Cross-mode list: `auth.server`, `handed-ticket.server`, `remote-restart.server`
-(device rows and tickets written by one backend are honoured by the other after a restart).
+admission checks (`org-access/socket-wiring.ts`). Device rows and pairing links through `ace-store`
+on the main connection, under the Rust writer's transaction stack; tickets stay in memory.
 
-### T3: subscriptions and fan-out (needs T2)
+Keep behaviour.md §6 rule for rule, in particular:
+
+- the two ticket spending rules: a direct hello consumes and then checks the device; an NK first
+  message checks epoch and device and then spends atomically, before confirmation;
+- one-shot pairing codes, their expiry, the 100-pending cap and the 5-per-address, 100-overall
+  per-minute redemption limit;
+- the token file's mode (`0600`, set on every start), constant-time comparison, and the persistent
+  keys and TLS identity loaded, never replaced;
+- refused hellos (binary first frame, unauthenticated, duplicate) and welcome before any push.
+
+Rollback gate (cross-mode list, both directions): a restart on the other backend keeps persisted
+pairings, devices and their credential generations; voids every outstanding ticket, since tickets
+live in memory; and a paired device then mints a fresh one with its device token and reconnects.
+Files: `auth.server`, `handed-ticket.server`, `ticket-allocation.server`, `remote-restart.server`,
+`relay-nk.process`.
+
+### T3: subscriptions and fan-out (needs T2, so the writer is on)
 
 `subscription.ts`, `sidebar-subscription.ts`, `wire-encoder.ts`, `event-encodings.ts`,
 `wire-interactions.ts`, `socket-reads.ts`, `socket-commands.ts`, `command-lanes.ts`,
-`@ace/projection`'s `wire-trim` and `short-deltas`. Until store phase 5, events arrive from the
-TypeScript store's publication through `JsEventSource` with their encodings; after it, from
-`ace-store` directly. Snapshots and pages are still read by TypeScript in T3 and handed over as
-strings.
+`@ace/projection`'s `wire-trim` and `short-deltas`. Events come from `ace-store`'s publication,
+whichever engine wrote them; there is no event bridge and E5 is not needed. The process uses the
+Rust encoder for every socket or the TypeScript one for every socket, chosen at boot. The
+subscription handoff (behaviour.md §9: register, read rows and watermark together, buffer, drain
+strictly above, contiguous cursors through progress frames) is ported step for step. Snapshots
+and pages are still read by TypeScript in T3 and handed over as strings.
 
-### T4: reads to the wire (needs T3, store phase 5)
+### T4a, then T4: reads to the wire (needs T3)
 
-ADR 0226 §4. Items pages and windows first, then snapshots and catch-up, turns and steps, then the
-sidebar once `ThreadCache` is fed by the Rust writer. Trusted rows spliced as stored; untrusted rows
-through the TypeScript lenient decoder as a port. When a wire read is default-on, its TypeScript
-shaper's JavaScript callers switch to a facade parsing the Rust bytes, and the shaper is deleted one
-release later.
+ADR 0226 §4. **T4a first**: the lenient decoder for untrusted rows ported to Rust, proven by
+`stored-history-trust`, `stored-trust-*` and `item-store-trusted-reads` and by
+`check:wire-fixtures` over the trust tests' legacy rows; no wire read is enabled before T4a is
+default-on, so no reader-pool read ever calls into JavaScript. **Then T4**: items pages and windows,
+then snapshots, then the sidebar once `ThreadCache` is fed by the Rust writer. `turnsPage`,
+`turnSteps` and `threadCatchUp` are not T4's: store phase 2 owns them and adds their wire encoding.
+Trusted rows are spliced as stored. Each wire read keeps the handoff of behaviour.md §9 on the
+reader pool (one read transaction for rows and watermark; a cancelled read drops its snapshot and
+sends nothing). When a wire read goes default-on, its JavaScript callers move to a facade parsing
+the Rust bytes in the same release; the TypeScript shaper remains only as the switch-off path and is
+deleted, with the switch, one release later.
 
 ### T5: HTTP routes (needs T1 and ADR 0225 M2)
 
@@ -129,17 +163,33 @@ position. Port `access-http.ts` with T2; `attachments-http.ts`, `attachments-upl
 (`noise-nk-vectors`, `media-vectors`) run against the Rust implementation through the binding.
 Built with the machines ADR's relay link.
 
-### T7: the inversion (needs ADR 0226 §5's preconditions)
+### T7: the inversion (needs `scripts/check-inversion.ts` to pass)
 
-`ace-daemon-bin`'s `main`, ported from `index.ts` with `config.ts`, `services/service-order.ts`,
-`services/startup*.ts`, `shutdown*.ts`, `process-daemon.ts`, `daemon-log.ts`, `fatal-log.ts`,
-`stall-log.ts`; the launcher change in `@ace/service` (`daemon-program.ts`, `process-names.ts`,
-`launcher.ts`); `ace.mjs` as a forwarding shim for one release.
+`ace-daemon-bin`'s `main`, ported from `index.ts` with `config.ts`, `local-files.ts`,
+`services/service-order.ts`, `services/startup*.ts`, `services/composition.ts`, `shutdown*.ts`,
+`process-daemon.ts`, `daemon-log.ts`, `fatal-log.ts`, `stall-log.ts`; the launcher change in
+`@ace/service` (`daemon-program.ts`, `process-names.ts`, `launcher.ts`).
+
+- `scripts/check-inversion.ts` implements ADR 0226 §5's gates: zero production `Store.atomic`,
+  `write` and `maintenance` callers in the bundle's production graph; zero production JavaScript
+  bridges (route table all `rust:`, and the bridge counters of a started daemon at zero); no
+  `@anthropic-ai/claude-agent-sdk` in the bundle; recurrence and argument wording in Rust; every
+  switch default-on for a release.
+- The fallback release ships the Bun daemon whole at `daemon-bun/ace.mjs` with its own assets,
+  addon and `node_modules`. `ACE_DAEMON=bun` makes the launcher start that entry directly. The old
+  `ace.mjs` is a shim: `ACE_DAEMON=bun` imports `daemon-bun/ace.mjs`, anything else executes
+  `ace-daemon`; it never routes a forced fallback back into Rust.
+- Gates on installed artifacts (a built release, not a development tree): the previous release's
+  updater launching the new release; forced fallback through the launcher and through the old
+  `ace.mjs` path; one home started native, then Bun, then native, with a paired device reconnecting
+  and a working thread resuming at each step.
 
 ### T8: packaging (needs T7 default-on for one release)
 
 `tools/release/src/daemon-runtime.ts`, `bundle.ts`, `build.ts` and the smoke tests: `ace-daemon` in
-every layout; Bun moved to a children-only runtime with each child bundled on its own.
+every layout; `daemon-bun/` removed; Bun moved to a children-only runtime with each child bundled
+on its own. Bun ships in every release while any supported feature needs a JavaScript child (ADR
+0226 answer 4).
 
 ## Measurements to schedule
 
@@ -214,8 +264,11 @@ area its session serves, everything else by the first matching prefix rule (for 
 `^relay-`, `^server` → transport; `^workspace-`, `^pr-`, `^hosted-` → git and forge callers;
 `^machines/`, `^transfers/`, `^parcels/` → machines), then marks it covered when an ADR's phases
 name it (the CLI and doctor directories, the store's connection, writer and long-thread modules,
-`engine/` and `native-engine/`, `automation-*`, the computer, locked-use and screen modules, the MCP
-server's daemon modules). A builder who finds a module in the wrong group moves it in
+`engine/` and `native-engine/`, `automation-*`, `computer-locked-use`, `computer-tools`,
+`computer-using`, the locked-use and screen modules, the MCP server's daemon modules). Startup,
+composition and home-identity modules (`services/startup*`, `composition`, `service-*`,
+`server-options`, `local-files`, `local-token`, `machine-paths`, `computer-name`) are their own group,
+T7's, apart from the listener work. A builder who finds a module in the wrong group moves it in
 behaviour.md §11 in the same change; the totals there and in the ADR are updated together.
 
 ## When you are done
