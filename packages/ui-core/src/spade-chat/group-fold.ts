@@ -3,7 +3,8 @@ import type { SpadeFoldInput } from "./fold.ts";
 import { spadeGroupBotShape, type SpadeGroupBot } from "./groups.ts";
 import type { SpadeStored } from "./wire.ts";
 import { spadeChatSegments, spadeMessageId } from "./chat-markup.ts";
-import { spadeDocCard, spadeLongWords, type SpadeDocCard } from "./documents-in-chat.ts";
+import { spadeDocCard, type SpadeDocCard } from "./documents-in-chat.ts";
+import { spadeMayFold } from "./long-messages.ts";
 import {
   spadeQuoteOf,
   spadeReplyToField,
@@ -277,8 +278,10 @@ export type SpadeGroupRow =
       text: string;
       id?: string;
       quote?: SpadeQuote;
-      /** Long words as a document card (ADR 0212 §5). */
+      /** A `<doc>` it wrote, as a document card (ADR 0212 §5). */
       doc?: SpadeDocCard;
+      /** Long enough to fold past ten lines (ADR 0212 amendment 2, `spadeMayFold`). */
+      fold?: true;
       /** First of a run of consecutive messages from this bot: its name shows above. */
       first: boolean;
       /** Last of the run: its face shows beside. */
@@ -319,16 +322,16 @@ export function spadeGroupView(state: SpadeGroupState): SpadeGroupView {
     spadeChatSegments(item.text).forEach((segment, index) => {
       const id = item.seq === undefined ? undefined : spadeMessageId(item.seq, index);
       const quote = segment.reply === undefined ? undefined : said.quote(segment.reply);
-      const long = segment.kind === "msg" ? spadeLongWords(segment.text) : undefined;
-      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : long?.doc;
+      const doc = segment.kind === "doc" ? spadeDocCard(segment.title, segment.text) : undefined;
       flat.push({
         kind: "member",
         key: index ? `${item.key}:${index + 1}` : item.key,
         bot: item.bot,
-        text: segment.kind === "doc" ? "" : (long?.summary ?? segment.text),
+        text: doc ? "" : segment.text,
         ...(id ? { id } : {}),
         ...(quote ? { quote } : {}),
         ...(doc ? { doc } : {}),
+        ...(!doc && spadeMayFold(segment.text) ? { fold: true as const } : {}),
       });
       if (id) said.add(id, segment.title ?? segment.text, { kind: "member", name: item.bot.name });
     });

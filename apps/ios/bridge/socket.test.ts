@@ -34,7 +34,7 @@ test("a paired socket hears only Swift's verdict on its own standing proof", () 
   native.socket = (socket, action) => {
     if (action === "open") id = socket;
   };
-  const heard: string[] = [];
+  const heard: (string | undefined)[] = [];
   const messages: string[] = [];
   const transport = nativeTransport(undefined, undefined, (standing) => heard.push(standing));
   transport.open({ open() {}, message: (text) => messages.push(text), close() {} });
@@ -45,8 +45,49 @@ test("a paired socket hears only Swift's verdict on its own standing proof", () 
   expect(heard).toEqual(["proven", "missing"]);
   expect(messages).toEqual([]);
   socketEvent(id, "close", "1006");
+  // Once closed, a late verdict from that socket is heard by no one.
   socketEvent(id, "standing", "proven");
-  expect(heard).toEqual(["proven", "missing"]);
+  expect(heard).toEqual(["proven", "missing", undefined]);
+});
+
+test("a socket's standing is cleared when Swift says it ran out and when the socket closes", () => {
+  let id = "";
+  native.socket = (socket, action) => {
+    if (action === "open") id = socket;
+  };
+  const heard: (string | undefined)[] = [];
+  const transport = nativeTransport(undefined, undefined, (standing) => heard.push(standing));
+  transport.open({ open() {}, message() {}, close() {} });
+  socketEvent(id, "standing", "proven");
+  // The daemon's expiry passed with no fresh proof: Swift clears what the script was told.
+  socketEvent(id, "standing", "cleared");
+  socketEvent(id, "standing", "proven");
+  // A reconnect starts unproven: the old socket's verdict is not carried to the next.
+  socketEvent(id, "close", "1006");
+  expect(heard).toEqual(["proven", undefined, "proven", undefined]);
+});
+
+test("a socket the client closes itself no longer holds its standing", () => {
+  let id = "";
+  native.socket = (socket, action) => {
+    if (action === "open") id = socket;
+  };
+  const heard: [string | undefined, string][] = [];
+  const transport = nativeTransport(undefined, undefined, (standing, { route }) =>
+    heard.push([standing, route]),
+  );
+  transport.open({ open() {}, message() {}, close() {} });
+  socketEvent(id, "standing", "proven relay");
+  // An orderly reconnect, a refused grant or a route switch: Swift sends no close event back.
+  transport.close();
+  expect(heard).toEqual([
+    ["proven", "relay"],
+    [undefined, "relay"],
+  ]);
+  // A direct socket's verdict names the direct route.
+  transport.open({ open() {}, message() {}, close() {} });
+  socketEvent(id, "standing", "missing");
+  expect(heard.at(-1)).toEqual(["missing", "direct"]);
 });
 
 test("a media connection opens natively at its address, sends its hello as bytes and hears text", () => {

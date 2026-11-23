@@ -8,6 +8,7 @@ export * from "./bubble-cache.ts";
 export * from "./chat-markup.ts";
 export * from "./replies.ts";
 export * from "./documents-in-chat.ts";
+export * from "./long-messages.ts";
 export * from "./work-lines.ts";
 export * from "./steps.ts";
 export * from "./undo.ts";

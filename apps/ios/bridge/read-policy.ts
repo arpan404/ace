@@ -84,6 +84,12 @@ const marketLookups = new Set([
   "readReview",
   "cancel",
 ]);
+/** The publish steps that only read (`market-publishing.ts`). */
+const publishReads = new Set(["me", "pick", "check", "listing"]);
+const publishStep = (value: Record<string, unknown>) => {
+  const step = record(value.step);
+  return typeof step?.step === "string" ? step.step : undefined;
+};
 const projectReads = new Set(["workspace.list"]);
 const projectLookups = new Set([
   "workspace.list",
@@ -218,6 +224,9 @@ export function writeFamilies(request: unknown): readonly ReadFamily[] {
       return marketLookups.has(operation(value) ?? "")
         ? []
         : ["market", "skills", "plugins", "catalog"];
+    // A version published or withdrawn, or the profile changed, shows on the publisher's pages.
+    case "market.publish":
+      return publishReads.has(publishStep(value) ?? "") ? [] : ["market"];
     case "prompts.request":
       return ["prompts"];
     case "provider.edit":

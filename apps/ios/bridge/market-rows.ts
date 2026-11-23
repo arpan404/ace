@@ -21,10 +21,14 @@ const linkWords: Readonly<Record<string, string>> = {
   "spade-plugin": "plugin",
 };
 
-/** `ace://market?at=skill/triage-mail`, with `@git:…` for a git catalog's entry. */
-function linkOf(summary: MarketEntrySummary): string {
-  const at = `${linkWords[summary.type] ?? summary.type}/${summary.name}`;
-  return `ace://market?at=${summary.source === "market" ? at : `${at}@${summary.source}`}`;
+/**
+ * `ace://market?at=skill/triage-mail`, for an entry on the market. A git catalog's entry has no
+ * link: its `git:` id is made on the machine that added the catalog, so the same catalog added
+ * anywhere else has another id and the link would open nothing there.
+ */
+function linkOf(summary: MarketEntrySummary): string | null {
+  if (summary.source !== "market") return null;
+  return `ace://market?at=${linkWords[summary.type] ?? summary.type}/${summary.name}`;
 }
 
 /** A listing as a row: its key, its words, and what its trailing button starts as. */
@@ -46,7 +50,7 @@ export function entryRow(summary: MarketEntrySummary) {
     picture: summary.previews?.[0] ?? null,
     /** A type this build can't install reads so, and has no Get (spec item 8). */
     block: summary.supported ? null : "Needs a newer ace",
-    /** What Share link sends. */
+    /** What Share link sends; null where no link would open it elsewhere. */
     link: linkOf(summary),
   };
 }

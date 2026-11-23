@@ -45,7 +45,7 @@ import os
     private static func kind(_ bubble: SpadeModel.Bubble) -> String {
         switch bubble {
         case .person: "person"
-        case .bot(let text, _, let end, _, _): text.isEmpty ? (end == nil ? "bot-empty" : "bot-end") : "bot"
+        case .bot(let text, _, _, let end, _, _): text.isEmpty ? (end == nil ? "bot-empty" : "bot-end") : "bot"
         case .ask: "ask"
         case .question(let card): "question-\(card.standing.rawValue)"
         case .member: "member"
