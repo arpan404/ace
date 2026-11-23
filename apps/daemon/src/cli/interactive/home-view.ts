@@ -33,24 +33,24 @@ export function keysLine(keys: readonly string[], width: number): string {
 }
 
 const homeKeys = (requests: number) => [
-  "n new thread",
   requests ? `r requests ${requests}` : "r requests",
   "p projects",
   "s Spade",
   "m Store",
   ", settings",
   "d doctor",
+  "t triage",
   "? help",
   "q quit",
 ];
 
-const rowKeys = ["↵ attach", "← fold", "x stop", "z snooze", "e settle", "/ filter"];
+const rowKeys = ["↵ show", "← fold", "x stop", "z snooze", "e settle", "/ filter"];
 
 const helpLines = [
-  "↑↓ or j k move · ↵ attach · → its agents · ← fold",
+  "↑↓ or j k move · ↵ show its state · → its agents · ← fold",
   "/ filter by words · x stop (asks first) · z snooze · e settle",
-  "n new thread · r requests · p projects · s Spade · m Store",
-  ", settings · d doctor · q quit · any key closes this",
+  "r requests · p projects · s Spade · m Store",
+  ", settings · d doctor · t triage · q quit · any key closes this",
 ];
 
 function summary(rows: readonly HomeRow[]): string {
@@ -129,7 +129,7 @@ export function homeView(
   }
   const body: string[] = [];
   if (view.loading && !view.rows.length) body.push(paint.dim("Reading your threads…"));
-  else if (!view.rows.length) body.push("No threads yet. n starts one.");
+  else if (!view.rows.length) body.push("No threads yet. Start one with ace run.");
   else if (!visible.length) body.push(paint.dim("No thread matches."));
   const room = Math.max(1, height - header.length - foot.length);
   if (visible.length) {

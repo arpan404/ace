@@ -66,8 +66,6 @@ export function homeKey(state: HomeState, rows: readonly HomeRow[], key: Key): S
       return stay({ ...quiet, filter: { text: state.filter.text, editing: true } });
     case "?":
       return stay({ ...quiet, help: true });
-    case "n":
-      return step(quiet, { kind: "new-thread" });
     case "r":
       return step(quiet, { kind: "requests" });
     case "p":
@@ -80,10 +78,12 @@ export function homeKey(state: HomeState, rows: readonly HomeRow[], key: Key): S
       return step(quiet, { kind: "place", place: "settings" });
     case "d":
       return step(quiet, { kind: "doctor" });
+    case "t":
+      return step(quiet, { kind: "triage" });
   }
   if (!row) return stay(quiet);
   const selected = { ...quiet, selected: row.id };
-  if (key.name === "enter") return step(selected, { kind: "attach", threadId: row.id });
+  if (key.name === "enter") return step(selected, { kind: "thread-show", threadId: row.id });
   if (key.name === "right" || typed(key) === "l") {
     if (state.open === row.id) return stay(selected);
     return step({ ...selected, open: row.id }, { kind: "tree", threadId: row.id });

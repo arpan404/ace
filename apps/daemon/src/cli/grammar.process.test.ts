@@ -87,6 +87,15 @@ test("a wrong command line exits 64 with the nearest command, as one CliError wi
   });
 });
 
+test("removed chat spellings are usage errors that name the app", async () => {
+  const { env } = await emptyHome();
+  for (const args of [["chat"], ["thread", "attach"], ["spade", "chat"]]) {
+    const output = await run(env, args);
+    expect(output.code, args.join(" ")).toBe(64);
+    expect(output.stderr).toContain("✕ Chat with agents in the ace app. The CLI manages ace.");
+  }
+});
+
 test("a command that needs the daemon says ace isn't running, exit 4, never a file error", async () => {
   const { env } = await emptyHome();
   const output = await run(env, ["thread", "list"]);

@@ -34,21 +34,18 @@ export async function daemonUp(home: string): Promise<boolean> {
   }
 }
 
-/** Starts the local daemon detached, as `ace chat` does. */
+/** Starts the local daemon detached (`s` on the offline screen). */
 export async function startDaemon(app: App): Promise<void> {
   app.terminal.draw({ lines: [app.ink.dim("Starting ace…")] });
   const { ensureDaemon, systemOpenRuntime } = await import("../open-runtime.ts");
   await ensureDaemon(app.start.dataDir, app.start.args, systemOpenRuntime());
 }
 
-/** Connects and opens the live stores; false when the daemon isn't running and may not start. */
+/** Connects and opens the live stores; false when the daemon isn't running. */
 export async function connect(app: App): Promise<boolean> {
   const { connectChat } = await import("../connection.ts");
   const { start } = app;
-  if (!start.args.flags.remote && !(await daemonUp(start.dataDir))) {
-    if (!start.startDaemon) return false;
-    await startDaemon(app);
-  }
+  if (!start.args.flags.remote && !(await daemonUp(start.dataDir))) return false;
   const session = await connectChat(start.dataDir, start.args);
   app.session = session;
   app.live = openLive(session.client, session.signal, app.schedule);

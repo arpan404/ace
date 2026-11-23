@@ -993,3 +993,10 @@ and that the market gate trusted a field the caller chooses (`thread`). The owne
 
 The ADR says plainly what each check is: the host token is full person power, so the CLI's agent
 checks guard honest agents, and the app, paired devices and fresh sign-ins are the boundary.
+
+## Amendment (2026-11-23)
+
+[ADR 0221](0221-the-ace-cli-is-a-rust-management-tool.md) amends decision 5: `ace chat` does not
+stay. `ace thread attach` and `ace chat`, `ace spade chat`, and the home's attach view, transcript,
+composer and new-thread flow are removed, and the CLI is a management tool. For one release those
+spellings answer with a usage error naming the app. The rest of this ADR stands unchanged.

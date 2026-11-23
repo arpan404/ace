@@ -50,6 +50,9 @@ export async function main(input: readonly string[]): Promise<void> {
         ...(parsed.hint ? { hint: parsed.hint } : {}),
         ...(parsed.argument ? { argument: parsed.argument } : {}),
       });
+    // Chat moved to the apps (ADR 0221 §1): for one release the old spelling says where.
+    if (parsed.kind === "retired")
+      throw usageFailure(parsed.message, { code: "retired_command", hint: parsed.hint });
     if (parsed.kind === "noun") {
       if (parsed.flags.help || outputMode(parsed.flags) !== "json")
         return await emit(args, nounPage(table, parsed.words));

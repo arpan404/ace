@@ -33,7 +33,7 @@ function invoke(home: string, empty: string, args: string[]) {
   });
 }
 
-test("the home in a terminal opens, attaches, answers an approval and gives the terminal back after SIGINT", async () => {
+test("the home in a terminal opens, answers an approval and gives the terminal back after SIGINT", async () => {
   const f = await daemonFixture();
   const home = join(f.h.home, "daemon");
   const empty = mkdtempSync(join(tmpdir(), "ace-home-pty-"));
@@ -93,11 +93,9 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
         }),
       ]),
     );
-    // Back home, Enter attaches to the selected thread: its composer and keys draw.
+    // Back home from the requests walk.
     terminal.pty.write("\x1b");
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    terminal.pty.write("\r");
-    await terminal.waitFor("esc home · /steer");
+    await terminal.waitFor("q quit");
     // A signal from outside: the terminal comes back (paste mode off, cursor shown) with one
     // line saying where the person was, and the exit code says it was interrupted.
     process.kill(terminal.pty.pid, "SIGINT");
@@ -105,7 +103,7 @@ test("the home in a terminal opens, attaches, answers an approval and gives the 
     const output = terminal.output();
     expect(output.lastIndexOf("\x1b[?2004l")).toBeGreaterThan(output.lastIndexOf("\x1b[?2004h"));
     expect(output.lastIndexOf("\x1b[?25h")).toBeGreaterThan(output.lastIndexOf("\x1b[?25l"));
-    expect(output).toMatch(/Detached from .+\. Back with ace chat \S+\./);
+    expect(output).toMatch(/Left the home.*\. Back with ace\./);
   } finally {
     await f.daemon.close();
     rmSync(empty, { recursive: true, force: true });
@@ -177,7 +175,7 @@ test("the home draws the last run's rows as Syncing before ace answers, then the
   }
 });
 
-test("without a terminal nothing prompts and no TUI draws: bare ace prints the overview and chat keeps its lines", async () => {
+test("without a terminal nothing prompts and no TUI draws: bare ace prints the overview", async () => {
   const f = await daemonFixture();
   const home = join(f.h.home, "daemon");
   const empty = mkdtempSync(join(tmpdir(), "ace-home-pipe-"));
@@ -185,15 +183,10 @@ test("without a terminal nothing prompts and no TUI draws: bare ace prints the o
     const bare = await invoke(home, empty, []);
     expect(bare.code, bare.stderr).toBe(0);
     expect(bare.stdout).toContain("ace help");
-    const chat = await invoke(home, empty, ["chat"]);
-    expect(chat.code, chat.stderr).toBe(0);
-    for (const run of [bare, chat]) {
-      // No raw-mode region: no bracketed paste, no hidden cursor, no line clearing.
-      expect(run.stdout).not.toContain("\x1b[?2004h");
-      expect(run.stdout).not.toContain("\x1b[?25l");
-      expect(run.stdout).not.toContain("\x1b[2K");
-    }
-    expect(chat.stdout).toContain("Chat closed.");
+    // No raw-mode region: no bracketed paste, no hidden cursor, no line clearing.
+    expect(bare.stdout).not.toContain("\x1b[?2004h");
+    expect(bare.stdout).not.toContain("\x1b[?25l");
+    expect(bare.stdout).not.toContain("\x1b[2K");
   } finally {
     await f.daemon.close();
     rmSync(empty, { recursive: true, force: true });

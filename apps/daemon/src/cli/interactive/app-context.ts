@@ -1,15 +1,11 @@
 import type { Client } from "@ace/client";
-import type { ProviderKind } from "@ace/protocol";
-import type { createBlockReader } from "@ace/ui-core/transcript-block-reader";
 import type { Args } from "../args.ts";
 import type { CommandTable } from "../commands/table.ts";
 import type { Paint } from "../tui/paint.ts";
 import type { Terminal } from "../tui/terminal.ts";
-import type { AttachState } from "./attach-model.ts";
 import type { HomeRow } from "./home-rows.ts";
 import type { HomeState } from "./home-state.ts";
 import type { Live } from "./live.ts";
-import type { NewThread } from "./new-thread.ts";
 import type { RequestsState } from "./requests.ts";
 
 /**
@@ -22,42 +18,13 @@ export interface AppStart {
   readonly dataDir: string;
   readonly env: NodeJS.ProcessEnv;
   readonly table: CommandTable;
-  /** Open attached (`ace chat`): to a thread, or fresh to start one. */
-  readonly attach?:
-    | {
-        threadId?: string | undefined;
-        fresh?:
-          | {
-              project?: string | undefined;
-              provider?: ProviderKind | undefined;
-              model?: string | undefined;
-            }
-          | undefined;
-      }
-    | undefined;
-  /** Start the daemon when it isn't running (`ace chat` does; the home asks first). */
-  readonly startDaemon: boolean;
   /** A terminal already opened (the home draws its first frame before this module loads). */
   readonly terminal?: Terminal | undefined;
   /** The rows the last run kept (`home-cache.ts`), drawn unconfirmed until the live list. */
   readonly kept?: readonly HomeRow[] | undefined;
 }
 
-export type Screen = "home" | "requests" | "attach" | "offline";
-
-/** The attached thread: what is already in the scrollback and which work is open. */
-export interface Attached {
-  readonly id: string | undefined;
-  fresh: NewThread | undefined;
-  /** Blocks printed into the scrollback, never redrawn. */
-  readonly printed: Set<string>;
-  /** Blocks of earlier turns left out of the scrollback (`ace thread show` has them). */
-  readonly hidden: Set<string>;
-  /** Work blocks of the turn in progress unfolded in place (`↵` on their line). */
-  readonly open: Set<string>;
-  readonly reader: ReturnType<typeof createBlockReader>;
-  first: boolean;
-}
+export type Screen = "home" | "requests" | "offline";
 
 export interface Session {
   readonly client: Client;
@@ -73,8 +40,6 @@ export interface App {
   screen: Screen;
   home: HomeState;
   requests: RequestsState;
-  attach: AttachState;
-  attached: Attached | undefined;
   session: Session | undefined;
   live: Live | undefined;
   /** The live list has been kept for the next run since it was confirmed. */
@@ -88,11 +53,21 @@ export interface App {
   height(): number;
 }
 
-/** Turns kept on screen when attaching: older history stays in `ace thread show`. */
-export const turnsShown = 3;
-
 /** An error's words for a flash. */
 export function words(error: unknown, fallback?: string): string {
   if (error instanceof Error) return error.message;
   return fallback ?? String(error);
+}
+
+/** The one line left on screen on the way out: where the person was, and how to come back. */
+export function leavingWords(app: App): string {
+  if (app.screen === "offline") return "ace isn't running. Start it with ace start.";
+  const rows = app.live?.rows(Date.now()) ?? [];
+  const needs = rows.filter((row) => row.needsYou).length;
+  const running = rows.filter((row) => row.running).length;
+  const parts = [
+    needs ? `${needs} need${needs === 1 ? "s" : ""} you` : "",
+    running ? `${running} running` : "",
+  ].filter(Boolean);
+  return `Left the home${parts.length ? `: ${parts.join(", ")}` : ""}. Back with ace.`;
 }

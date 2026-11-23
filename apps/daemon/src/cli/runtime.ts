@@ -83,7 +83,7 @@ export async function runtimeCommand(args: Args, config: Config) {
     remoteUrl: daemon.remoteUrl,
     fingerprint: daemon.fingerprint,
   };
-  // The desktop app, the login service and `ace chat` read these bytes: they never change.
+  // The desktop app and the login service read these bytes: they never change.
   await result(
     args,
     args.flags.json || args.flags.jq ? startedJson(started) : startedText(started),
