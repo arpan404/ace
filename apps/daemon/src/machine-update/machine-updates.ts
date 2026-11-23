@@ -93,8 +93,13 @@ export class MachineUpdates {
   /** Carries out a client's request; the caller has checked its scope. */
   async handle(request: MachineUpdateRequest): Promise<Answer> {
     const { installer } = this.#options;
-    if (request.operation === "check") await installer.check();
-    else if (request.operation === "cancel") {
+    if (request.operation === "check") {
+      // An accepted desktop update owns the app's instruction slot until it ends.
+      if (installer.install !== "desktop" || !this.#record.ask) {
+        if ((await installer.check()) === false)
+          return { ok: false, error: "blocked", update: this.current() };
+      }
+    } else if (request.operation === "cancel") {
       if (this.#record.ask && !this.#record.installing) {
         this.#record = { ...this.#record, ask: null };
         await this.#save();

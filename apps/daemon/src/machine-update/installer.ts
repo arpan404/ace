@@ -18,8 +18,8 @@ export interface Installer {
   facts(): InstallerFacts;
   /** Calls `listener` whenever the facts may have changed; returns the unsubscribe. */
   onChange(listener: () => void): () => void;
-  /** Asks the release feed now, where this installer asks it itself. */
-  check(): Promise<void>;
+  /** Requests a check. False when this installation can't check on request. */
+  check(): Promise<void | false>;
   /** Starts downloading the release `ask` names, for installers that download first. */
   download(ask: MachineUpdateAsk): void;
   /**
@@ -46,7 +46,7 @@ export function sourceInstaller(): Installer {
     install: "source",
     facts: () => facts,
     onChange: () => () => {},
-    check: async () => {},
+    check: async () => false,
     download() {},
     begin(_ask, _mode, ended) {
       ended({ ok: false, error: "This machine runs ace from source.", busy: false });

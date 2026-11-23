@@ -81,6 +81,13 @@
         }
       ]
     },
+    "line": {
+      "enum": [
+        "stable",
+        "beta"
+      ],
+      "type": "string"
+    },
     "percent": {
       "anyOf": [
         {

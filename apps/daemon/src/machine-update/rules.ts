@@ -14,10 +14,18 @@ import type {
  */
 
 /** Where the installer has got, as it reports it. */
-export type InstallerPhase = "none" | "available" | "downloading" | "ready" | "installing";
+export type InstallerPhase =
+  | "none"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "ready"
+  | "installing";
 
 /** What an installer (the desktop app, the standalone updater) says about this machine. */
 export interface InstallerFacts {
+  version?: string;
+  line?: MachineUpdate["line"];
   /** The release on offer for this platform, when one is newer. */
   available: string | null;
   releaseUrl: string | null;
@@ -150,7 +158,8 @@ export function machineStatus(input: {
   const { facts, ask, installing, last, busy } = input;
   const failed = last && !last.ok && !ask ? last : null;
   return {
-    version: input.version,
+    version: facts.version ?? input.version,
+    ...(facts.line ? { line: facts.line } : {}),
     platform: input.platform,
     arch: input.arch,
     install: input.install,
@@ -177,6 +186,8 @@ function state(input: Parameters<typeof machineStatus>[0]): MachineUpdate["state
     return "waiting";
   }
   if (last && !last.ok && facts.available === last.to) return "failed";
+  if (facts.phase === "checking") return "checking";
+  if (facts.error && facts.downloadsFirst && !facts.blocked) return "failed";
   if (facts.phase === "downloading") return "downloading";
   if (facts.phase === "ready") return "ready";
   if (facts.available) return "available";

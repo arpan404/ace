@@ -9,9 +9,11 @@ import { standaloneInstaller, type UpdaterPorts } from "./standalone-installer.t
 
 function clock() {
   let time = 1_000;
+  let ids = 0;
   const timers: { at: number; run(): void; cancelled: boolean }[] = [];
   return {
     now: () => time,
+    id: () => `check-${++ids}`,
     delay(run: () => void, ms: number) {
       const timer = { at: time + ms, run, cancelled: false };
       timers.push(timer);

@@ -115,6 +115,9 @@
           ],
           "type": "string"
         },
+        "treeRootId": {
+          "$ref": "https://ace.local/protocol/v1/TreeRootId.json"
+        },
         "type": {
           "const": "thread.updated",
           "type": "string"

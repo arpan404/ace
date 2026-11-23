@@ -1,0 +1,79 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryVersion.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/MarketHash.json"
+    },
+    "held": {
+      "type": "boolean"
+    },
+    "published": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 500,
+      "type": "string"
+    },
+    "scan": {
+      "additionalProperties": false,
+      "properties": {
+        "scanner": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "verdict": {
+          "$ref": "https://ace.local/protocol/v1/MarketScanVerdict.json"
+        }
+      },
+      "required": [
+        "verdict",
+        "scanner"
+      ],
+      "type": "object"
+    },
+    "size": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersionStatus.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+    },
+    "withdrawal": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 500,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "at"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "version",
+    "hash",
+    "size",
+    "published",
+    "status",
+    "held"
+  ],
+  "type": "object"
+}
