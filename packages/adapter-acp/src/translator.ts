@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { syncPromptHold } from "./prompt-hold.ts";
 import type { TranslatorIdentity } from "./identity.ts";
-import { cancellationDeadline, promptEnd, settlePrompt } from "./settlement.ts";
+import { cancellationDeadline, promptEnd } from "./settlement.ts";
 import { retainToolRaw } from "./tool-raw.ts";
 import { currentToolDetail, finalizeTool } from "./tool-final.ts";
 import { retireTool, renewTool } from "./completed-tools.ts";
@@ -114,7 +114,6 @@ class AcpTranslator implements Translator {
         if (typeof params["sessionId"] === "string") s.bindRoot(params["sessionId"], facts);
       }
       if (method === "session/prompt") {
-        if (id !== undefined) s.openPrompts.push(id);
         const agent = s.agent(string(params["sessionId"]), facts);
         agent.terminal = false;
         s.promptOpen = true;
@@ -193,24 +192,6 @@ class AcpTranslator implements Translator {
           s.end(s.root, facts, "completed");
         if (sent.method === "session/prompt" && ended) {
           const agent = s.agent(string(sent.params["sessionId"]), facts);
-          const refusedSteer = s.openPrompts.at(-1) === id && ended.reason === "";
-          const settled = settlePrompt(s.openPrompts, id, ended.reason === "");
-          s.openPrompts = settled?.open ?? [];
-          if (settled && !settled.ends) {
-            // A prompt a steer took over answered: the turn goes on under the steer's prompt.
-            // A steer the agent refused leaves the prompt before it running.
-            const message = string(object(data["error"])["message"]) || "the agent refused it";
-            if (!refusedSteer) s.notice(facts, frame.data, "jsonrpc");
-            else
-              s.notice(
-                facts,
-                frame.data,
-                "jsonrpc",
-                `The agent didn't take this message: ${message}.`,
-                agent,
-              );
-            return facts;
-          }
           endPrompt(s, agent, ended.reason, object(data["error"]), now, facts);
           if (!ended.known)
             s.notice(

@@ -20,25 +20,6 @@ export function promptEnd(
   if (typeof reason !== "string" || !reason) return undefined;
   return { reason, known: stopReason.safeParse(reason).success };
 }
-/**
- * How the reply to one of the prompts still open (oldest first) settles them, as both translation
- * and I/O read it. One prompt is the usual case. More are open only where a prompt sent during a
- * turn steers it (Antigravity from 1.5.0): the turn goes on under the newest, so an earlier one's
- * reply ends nothing, and a steer the agent refused with an error leaves the prompt it would have
- * replaced running. Any other reply of the newest ends the turn and every prompt with it.
- * `undefined` when `id` is not an open prompt.
- */
-export function settlePrompt<T>(
-  open: readonly T[],
-  id: T,
-  failed: boolean,
-): { ends: boolean; open: T[] } | undefined {
-  const index = open.indexOf(id);
-  if (index === -1) return undefined;
-  const rest = open.filter((_, at) => at !== index);
-  if (index < open.length - 1 || (failed && rest.length)) return { ends: false, open: rest };
-  return { ends: true, open: [] };
-}
 export const cancellationGraceMs = 12_000;
 export function cancellationDeadline(now: number): number {
   return now + cancellationGraceMs;

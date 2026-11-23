@@ -91,49 +91,6 @@ it("stopping a later Antigravity turn leaves a shell carried from an earlier one
   expect(tasks(h)).toEqual([["shell", "running", undefined]]);
   expect(required(h.tools()[0]).call.status).toBe("running");
 });
-it("a prompt steered into a running Antigravity turn keeps it one turn until the steer's prompt answers", () => {
-  const h = harness(antigravityQuirks);
-  h.ready();
-  prompt(h, 3, "change course");
-  // The earlier prompt answers as the steer takes over: the turn goes on.
-  h.frame("recv", { id: 2, result: { stopReason: "end_turn" } });
-  expect(h.state.status.state).toBe("working");
-  h.frame("recv", { id: 3, result: { stopReason: "end_turn" } });
-  expect(h.state.status.state).toBe("done");
-  expect(Object.values(h.state.runs).map((run) => run.state)).toEqual(["completed"]);
-  const asked = Object.values(h.state.items).flatMap((item) =>
-    item.type === "message" && item.role === "user"
-      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
-      : [],
-  );
-  expect(asked).toEqual(["Synthetic input", "change course"]);
-});
-it("a steer the agent refuses leaves the running turn going and says so", () => {
-  const h = harness(antigravityQuirks);
-  h.ready();
-  prompt(h, 3, "change course");
-  h.frame("recv", { id: 3, error: { code: -32603, message: "Overlapping prompt" } });
-  expect(h.state.status.state).toBe("working");
-  const notices = Object.values(h.state.items).flatMap((item) =>
-    item.type === "notice" ? [item.text] : [],
-  );
-  expect(notices).toEqual(["The agent didn't take this message: Overlapping prompt."]);
-  h.frame("recv", { id: 2, result: { stopReason: "end_turn" } });
-  expect(h.state.status.state).toBe("done");
-  expect(Object.values(h.state.runs).map((run) => run.state)).toEqual(["completed"]);
-});
-
-it("an error reply to the prompt ends a running Antigravity shell instead of holding prompts", () => {
-  const h = harness(antigravityQuirks);
-  h.ready();
-  shell(h, "in_progress");
-  h.frame("recv", { id: 2, error: { code: -32603, message: "Internal error" } });
-  expect(h.state.status.state).not.toBe("working");
-  expect(h.state.status).not.toMatchObject({ state: "waiting" });
-  expect(Object.values(h.state.tasks)).toEqual([]);
-  expect(required(h.tools()[0]).call.status).toBe("cancelled");
-});
-
 function startSubagent(h: ReturnType<typeof harness>) {
   h.update({
     sessionUpdate: "tool_call",

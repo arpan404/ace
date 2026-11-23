@@ -30,8 +30,6 @@ let gatedPrompt: unknown;
 let heldPrompt: unknown;
 let heldTool = "held";
 let heldCount = 0;
-/** A prompt a later prompt steers (Antigravity 1.5.0+): it answers, and the turn goes on. */
-let steerablePrompt: unknown;
 createInterface({ input: process.stdin }).on("line", (line) => {
   const frame = object(JSON.parse(line));
   const params = object(frame["params"]);
@@ -62,24 +60,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     send({ id: frame["id"], result: { sessionId: "native-root" } });
   else if (frame["method"] === "session/prompt") {
     const text = string(object(list(params["prompt"])[0])["text"]);
-    if (steerablePrompt !== undefined) {
-      send({ id: steerablePrompt, result: { stopReason: "end_turn" } });
-      steerablePrompt = undefined;
-      const steer = frame["id"];
-      setTimeout(() => {
-        update({ sessionUpdate: "tool_call_update", toolCallId: "held", status: "completed" });
-        update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text: "On it." } });
-        send({ id: steer, result: { stopReason: "end_turn" } });
-      }, 50);
-    } else if (text === "steerable") {
-      steerablePrompt = frame["id"];
-      update({
-        sessionUpdate: "tool_call",
-        toolCallId: "held",
-        kind: "read",
-        status: "in_progress",
-      });
-    } else if (heldPrompt !== undefined) {
+    if (heldPrompt !== undefined) {
       send({ id: frame["id"], error: { code: -32603, message: "Overlapping prompt" } });
     } else if (text === "hold-for-steer" || text.startsWith("hold-for-steer:")) {
       heldPrompt = frame["id"];
