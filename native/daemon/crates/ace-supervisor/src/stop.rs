@@ -6,97 +6,6 @@
 
 use crate::errors::SupervisorError;
 use crate::signal::SignalName;
-use crate::wintree::{WindowsRecord, WindowsTerminate, WindowsTreeState};
-
-/// What a stop may do to a tree, injected for tests.
-pub trait StopTree {
-    /// Ends the tree politely (SIGTERM, graceful taskkill).
-    fn terminate(&self, pid: u32);
-    /// Ends the tree forcefully (SIGKILL, forced taskkill).
-    fn destroy(&self, pid: u32);
-}
-
-/// Where a retained stop reports the tree gone.
-pub trait StopEvents {
-    /// The tree is confirmed gone; stops waiting on it resolve.
-    fn tree_gone(&self);
-    /// The forced stop did not end the tree; it stays owned meanwhile.
-    fn stop_failed(&self, message: String);
-}
-
-/// A retained stop: polite, then forceful after the grace, confirmed gone.
-/// A later stop with a shorter grace moves the force earlier, never later.
-/// On Windows a surviving tree is rechecked with backoff until it is gone.
-pub async fn run_retained_stop<T, E>(
-    tree: T,
-    pid: u32,
-    windows: bool,
-    confirm_gone: std::sync::Arc<dyn Fn() -> bool + Send + Sync>,
-    mut requests: tokio::sync::mpsc::UnboundedReceiver<crate::spawn::StopRequest>,
-    events: E,
-) where
-    T: StopTree + Sync + Send + 'static,
-    E: StopEvents + Sync + Send + 'static,
-{
-    use tokio::time::{Duration, Instant, sleep};
-    let mut deadline: Option<Instant> = None;
-    let mut terminated = false;
-    let mut failed = false;
-    let mut backoff_ms = 1_000u64;
-    loop {
-        if !terminated {
-            let Some(request) = requests.recv().await else {
-                return;
-            };
-            deadline = Some(Instant::now() + Duration::from_millis(request.grace_ms));
-            tree.terminate(pid);
-            terminated = true;
-        }
-        let end = deadline.unwrap_or_else(Instant::now);
-        if failed {
-            // Survivors stay owned until confirmed gone; the recheck backs off.
-            tokio::select! {
-                request = requests.recv() => {
-                    let Some(request) = request else { return };
-                    tree.destroy(pid);
-                    let _ = request;
-                }
-                _ = sleep(Duration::from_millis(backoff_ms)) => {
-                    backoff_ms = (backoff_ms * 2).min(60_000);
-                    if confirm_gone() {
-                        events.tree_gone();
-                        return;
-                    }
-                }
-            }
-            continue;
-        }
-        tokio::select! {
-            request = requests.recv() => {
-                let Some(request) = request else { return };
-                let earlier = Instant::now() + Duration::from_millis(request.grace_ms);
-                if earlier < end {
-                    deadline = Some(earlier);
-                }
-            }
-            _ = sleep(Duration::from_millis(25)) => {
-                if confirm_gone() {
-                    events.tree_gone();
-                    return;
-                }
-                if Instant::now() >= end {
-                    tree.destroy(pid);
-                    if confirm_gone() || !windows {
-                        events.tree_gone();
-                        return;
-                    }
-                    failed = true;
-                    events.stop_failed("Windows process tree survived its forced stop".to_owned());
-                }
-            }
-        }
-    }
-}
 
 /// Ends a group with `signal`. ESRCH proves it gone; on darwin EPERM while
 /// a group exits is not a failure either.
@@ -132,97 +41,6 @@ pub fn kill_group(_group: u32, _signal: SignalName) -> Result<(), SupervisorErro
     ))
 }
 
-/// A graceful stop that escalates after the grace, like the shell's retained
-/// path. Resolves only once the group is proven gone.
-#[cfg(unix)]
-pub fn stop_retained_group(group: u32, grace_ms: u64) -> Result<(), SupervisorError> {    kill_group(group, SignalName::Term)?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(grace_ms);
-    loop {
-        match crate::reaper::process_group_alive(group) {
-            Ok(false) => return Ok(()),
-            Ok(true) => {}
-            // The kernel refused the probe while the group exits: keep waiting.
-            Err(SupervisorError::Unavailable(_)) => {}
-            Err(error) => return Err(error),
-        }
-        if std::time::Instant::now() >= deadline {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-    kill_group(group, SignalName::Kill)?;
-    Ok(())
-}
-
-/// A process's creation time and owner for the tree stop.
-pub trait TreeStopIdentify {
-    /// Creation time and owner of a live pid; `None` once it is gone.
-    fn identify(&self, pid: u32) -> Option<(String, String)>;
-}
-
-/// The recorded-tree runtime behind the Windows stop.
-pub trait TreeStopTree {
-    /// The recorded members' state now.
-    fn state(&self, recorded: &[WindowsRecord]) -> WindowsTreeState;
-    /// Ends one member; returns what it did.
-    fn terminate(&self, member: &WindowsRecord) -> Result<WindowsTerminate, SupervisorError>;
-}
-
-/// How long recorded survivors may take to die before the stop fails them.
-pub const SURVIVOR_STOP_MS: u64 = 5_000;
-
-/// Proven members of the tree, grown as live members start children.
-pub type RecordedTree = Vec<WindowsRecord>;
-
-/// Records `pid`'s tree now, while its leader still names its descendants.
-/// `None` when nothing can be proven ours; the tree stop stays in charge.
-pub fn record_tree<T: TreeStopIdentify + TreeStopTree>(
-    pid: u32,
-    runtime: &T,
-) -> Option<RecordedTree> {
-    let (start, uid) = runtime
-        .identify(pid)
-        .unwrap_or_else(|| ("".to_owned(), "".to_owned()));
-    if start.is_empty() {
-        return None;
-    }
-    let recorded = vec![WindowsRecord { pid, start, uid }];
-    Some(runtime.state(&recorded).live)
-}
-
-/// Members still alive, plus children they were proven to start since.
-pub fn tree_survivors<T: TreeStopTree>(
-    recorded: &mut RecordedTree,
-    runtime: &T,
-) -> Result<Vec<WindowsRecord>, SupervisorError> {
-    let state = runtime.state(recorded);
-    recorded.extend(state.discovered.iter().cloned());
-    Ok(state.live)
-}
-
-/// Ends every recorded member still alive; resolves once none is left.
-pub fn end_recorded_tree<T: TreeStopTree>(
-    recorded: &mut RecordedTree,
-    runtime: &T,
-    deadline: std::time::Instant,
-) -> Result<(), SupervisorError> {
-    loop {
-        let left = tree_survivors(recorded, runtime)?;
-        if left.is_empty() {
-            return Ok(());
-        }
-        if std::time::Instant::now() >= deadline {
-            return Err(SupervisorError::Operation(
-                "Windows process tree survived its stop".to_owned(),
-            ));
-        }
-        for member in &left {
-            runtime.terminate(member)?;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(25));
-    }
-}
-
 /// Whole-tree stop on Windows, where process groups do not exist.
 /// taskkill /T stops the tree the way a Job Object would; /F forces it.
 /// Never uses a shell; a spawn failure is the stop's failure, not a wait.
@@ -251,10 +69,8 @@ pub fn kill_windows_tree(pid: u32, force: bool) -> Result<(), SupervisorError> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
-    fn survivor_stop_bound_is_five_seconds() {
-        assert_eq!(SURVIVOR_STOP_MS, 5_000);
+    fn kill_group_rejects_bad_groups() {
+        assert!(super::kill_group(0, super::SignalName::Kill).is_err());
     }
 }

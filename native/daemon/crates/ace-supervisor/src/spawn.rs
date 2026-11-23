@@ -60,21 +60,11 @@ pub enum ChildEvent {
     Stderr(Vec<u8>),
     Exit(RawExit),
     StdinError(String),
-    /// A retained stop confirmed the tree gone.
-    TreeGone,
-    /// A forced Windows stop did not end the tree; it stays owned meanwhile.
-    StopFailed(String),
 }
 
 /// Where byte events go; the shell turns them into streams.
 pub trait EventSink: Send + Sync + 'static {
     fn emit(&self, event: ChildEvent);
-}
-
-/// A stop escalation the stop task carries out.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StopRequest {
-    pub grace_ms: u64,
 }
 
 /// Validates a stop grace from the shell.
@@ -90,49 +80,6 @@ pub const EVENT_STDOUT: &str = "stdout";
 pub const EVENT_STDERR: &str = "stderr";
 pub const EVENT_EXIT: &str = "exit";
 pub const EVENT_STDIN_ERROR: &str = "stdin-error";
-
-/// The stop escalation: terminate, then destroy after the grace. A later
-/// stop with a shorter grace moves the destroy earlier, never later.
-pub async fn run_stop_plan<T: crate::stop::StopTree + Sync + Send + 'static>(
-    tree: T,
-    pid: u32,
-    mut requests: tokio::sync::mpsc::UnboundedReceiver<StopRequest>,
-    mut exited: tokio::sync::oneshot::Receiver<()>,
-) {
-    use tokio::time::{Duration, Instant, sleep};
-    let mut deadline: Option<Instant> = None;
-    loop {
-        match deadline {
-            None => {
-                tokio::select! {
-                    request = requests.recv() => {
-                        let Some(request) = request else { return };
-                        deadline =
-                            Some(Instant::now() + Duration::from_millis(request.grace_ms));
-                        tree.terminate(pid);
-                    }
-                    _ = &mut exited => return,
-                }
-            }
-            Some(end) => {
-                tokio::select! {
-                    request = requests.recv() => {
-                        let Some(request) = request else { return };
-                        let earlier = Instant::now() + Duration::from_millis(request.grace_ms);
-                        if earlier < end {
-                            deadline = Some(earlier);
-                        }
-                    }
-                    _ = sleep(end.saturating_duration_since(Instant::now())) => {
-                        tree.destroy(pid);
-                        return;
-                    }
-                    _ = &mut exited => return,
-                }
-            }
-        }
-    }
-}
 
 /// Reads every chunk of `reader` as byte events until EOF or error.
 pub async fn pump_stream<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
@@ -157,15 +104,6 @@ pub async fn pump_stream<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
                 }
             }
         }
-    }
-}
-
-/// Shortens an absolute deadline to an earlier grace; never pushes it back.
-pub fn shorten_deadline(current: Option<u64>, now_ms: u64, grace_ms: u64) -> (Option<u64>, bool) {
-    let at = now_ms.saturating_add(grace_ms);
-    match current {
-        Some(end) if end <= at => (Some(end), false),
-        _ => (Some(at), true),
     }
 }
 
@@ -200,18 +138,5 @@ mod tests {
         assert_eq!(check_grace_ms(500.0), Ok(500));
         assert!(check_grace_ms(f64::NAN).is_err());
         assert!(check_grace_ms(-1.0).is_err());
-    }
-
-    #[test]
-    fn shorter_grace_moves_the_deadline_earlier_never_later() {
-        assert_eq!(shorten_deadline(None, 1_000, 500), (Some(1_500), true));
-        assert_eq!(
-            shorten_deadline(Some(1_500), 1_000, 100),
-            (Some(1_100), true)
-        );
-        assert_eq!(
-            shorten_deadline(Some(1_100), 1_000, 500),
-            (Some(1_100), false)
-        );
     }
 }

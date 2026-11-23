@@ -4,7 +4,7 @@
 //! lives in `ace-supervisor`.
 
 use ace_supervisor::entries::EntryPlatform;
-use ace_supervisor::spawn::{ChildEvent, EventSink, RawExit, SpawnSpec, StdioMode, StopRequest};
+use ace_supervisor::spawn::{ChildEvent, EventSink, RawExit, SpawnSpec, StdioMode};
 #[cfg(target_os = "linux")]
 use ace_supervisor::listing::LinuxWalk;
 use ace_supervisor::signal::SignalIo as _;
@@ -76,8 +76,6 @@ impl EventSink for TsfnSink {
                 .into_bytes(),
             ),
             ChildEvent::StdinError(message) => ("stdin-error", message.into_bytes()),
-            ChildEvent::TreeGone => ("tree-gone", Vec::new()),
-            ChildEvent::StopFailed(message) => ("stop-failed", message.into_bytes()),
         };
         let _ = self.sink.call(
             Ok(FnArgs::from((kind.to_owned(), Uint8Array::new(data)))),
@@ -111,6 +109,10 @@ struct SpecJson {
     verbatim: bool,
     #[serde(default)]
     retained: bool,
+    /// Whether the waiter ends stragglers on a natural exit. The shell
+    /// clears it when it drives stops through injected fakes.
+    #[serde(default = "default_true")]
+    waiter_destroy: bool,
 }
 
 fn default_true() -> bool {
@@ -138,7 +140,6 @@ struct ChildState {
     pid: Option<u32>,
     stdin_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
     stdin_end: Option<tokio::sync::oneshot::Sender<()>>,
-    stop_tx: Option<tokio::sync::mpsc::UnboundedSender<StopRequest>>,
     job: Option<JobHandle>,
     exit: Arc<Mutex<Option<RawExit>>>,
     sink: Option<TsfnSink>,
@@ -197,26 +198,6 @@ impl NativeChild {
         }
     }
 
-    /// Begins the stop escalation; shorter graces move it earlier.
-    #[napi(catch_unwind)]
-    pub fn stop(&self, grace_ms: f64) -> napi::Result<()> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let grace_ms = ace_supervisor::spawn::check_grace_ms(grace_ms)
-                .map_err(|error| locked(&error.to_string()))?;
-            let state = lock_child(&self.state)?;
-            match &state.stop_tx {
-                Some(tx) => tx
-                    .send(StopRequest { grace_ms })
-                    .map_err(|_| locked("supervisor stop is closed")),
-                None => Err(locked("supervisor stop is closed")),
-            }
-        }));
-        match result {
-            Ok(outcome) => outcome,
-            Err(_) => Err(unwind("supervisor stop")),
-        }
-    }
-
     /// The exit once the process and its pipes are done, if it is over.
     #[napi(catch_unwind)]
     pub fn take_exit(&self) -> napi::Result<Option<String>> {
@@ -248,6 +229,62 @@ impl NativeChild {
         }
     }
 
+    /// Whether the joined job still has members; undefined when nothing
+    /// joined the job. Windows only; elsewhere undefined.
+    #[napi(catch_unwind)]
+    pub fn job_running(&self) -> napi::Result<Option<bool>> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let state = lock_child(&self.state)?;
+            #[cfg(windows)]
+            {
+                let Some(handle) = &state.job else {
+                    return Ok(None);
+                };
+                let Ok(mut job) = handle.job.lock() else {
+                    return Ok(None);
+                };
+                Ok(match job.running() {
+                    ace_supervisor::contain::JobRunning::Running(alive) => Some(alive),
+                    ace_supervisor::contain::JobRunning::Unjoined => None,
+                })
+            }
+            #[cfg(not(windows))]
+            {
+                drop(state);
+                Ok(None)
+            }
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job running")),
+        }
+    }
+
+    /// Ends every joined job member now; never throws. Windows only.
+    #[napi(catch_unwind)]
+    pub fn job_terminate(&self) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let state = lock_child(&self.state)?;
+            #[cfg(windows)]
+            {
+                if let Some(handle) = &state.job {
+                    if let Ok(mut job) = handle.job.lock() {
+                        job.terminate();
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                drop(state);
+            }
+            Ok(())
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job terminate")),
+        }
+    }
+
     /// Releases tasks and pipes; the tree stays as the exit left it.
     #[napi(catch_unwind)]
     pub fn dispose(&self) -> napi::Result<()> {
@@ -255,7 +292,6 @@ impl NativeChild {
             let mut state = lock_child(&self.state)?;
             state.stdin_tx = None;
             state.stdin_end = None;
-            state.stop_tx = None;
             for task in state.tasks.drain(..) {
                 task.abort();
             }
@@ -332,7 +368,6 @@ fn spawn_inner(
                 pid: spawned.pid,
                 stdin_tx: spawned.stdin_tx,
                 stdin_end: spawned.stdin_end,
-                stop_tx: Some(spawned.stop_tx),
                 job: spawned.job,
                 exit: Arc::clone(&spawned.exit_store),
                 sink: Some(sink),
@@ -348,7 +383,6 @@ struct Spawned {
     pid: Option<u32>,
     stdin_tx: Option<tokio::sync::mpsc::UnboundedSender<Vec<u8>>>,
     stdin_end: Option<tokio::sync::oneshot::Sender<()>>,
-    stop_tx: tokio::sync::mpsc::UnboundedSender<StopRequest>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     job: Option<JobHandle>,
     exit_store: Arc<Mutex<Option<RawExit>>>,
@@ -359,54 +393,6 @@ fn stdio_flag(mode: StdioMode) -> std::process::Stdio {
         StdioMode::Piped => std::process::Stdio::piped(),
         StdioMode::Ignore => std::process::Stdio::null(),
         StdioMode::Inherit => std::process::Stdio::inherit(),
-    }
-}
-
-struct TreeSignals {
-    pid: u32,
-}
-
-impl ace_supervisor::stop::StopTree for TreeSignals {
-    fn terminate(&self, pid: u32) {
-        debug_assert_eq!(pid, self.pid);
-        #[cfg(windows)]
-        {
-            let _ = stop::kill_windows_tree(self.pid, false);
-            let _ = pid;
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = pid;
-            let _ = stop::kill_group(self.pid, signal::SignalName::Term);
-        }
-    }
-
-    fn destroy(&self, pid: u32) {
-        debug_assert_eq!(pid, self.pid);
-        #[cfg(windows)]
-        {
-            let _ = stop::kill_windows_tree(self.pid, true);
-            let _ = pid;
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = pid;
-            let _ = stop::kill_group(self.pid, signal::SignalName::Kill);
-        }
-    }
-}
-
-struct RetainedEvents {
-    sink: TsfnSink,
-}
-
-impl ace_supervisor::stop::StopEvents for RetainedEvents {
-    fn tree_gone(&self) {
-        self.sink.emit(ChildEvent::TreeGone);
-    }
-
-    fn stop_failed(&self, message: String) {
-        self.sink.emit(ChildEvent::StopFailed(message));
     }
 }
 
@@ -455,8 +441,6 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
         .map_err(|error| napi::Error::from_reason(format!("supervisor spawn failed: {error}")))?;
     let pid = child.id();
     let exit_store: Arc<Mutex<Option<RawExit>>> = Arc::new(Mutex::new(None));
-    let (stop_tx, stop_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (exited_tx, exited_rx) = tokio::sync::oneshot::channel::<()>();
     let mut tasks = Vec::new();
     // Stdin: one owner, messages in order, EOF closes it.
     let (stdin_tx, stdin_end) = match (stdin_mode, child.stdin().take()) {
@@ -484,21 +468,18 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
         }));
     }
     // The waiter owns the child: after the wait it ends stragglers holding
-    // the pipes (unless retained), joins the pumps, then names the exit.
+    // the pipes (unless the shell owns the destroy), joins the pumps, then
+    // names the exit. The shell drives every stop with its own timers.
     let waiter_sink = sink.clone();
     let waiter_store = Arc::clone(&exit_store);
-    let retained = spec.retained;
-    let windows = spec.windows;
     tasks.push(tokio::spawn(waiter_task(
         child,
         pumps,
         waiter_sink,
         waiter_store,
-        exited_tx,
-        retained,
+        spec.waiter_destroy,
     )));
     // Windows containment: the job outlives the spawn call, like the shell's.
-    // The stop task shares it to confirm the tree is gone.
     #[cfg(windows)]
     let job: Option<JobHandle> = pid.and_then(|pid| {
         ace_supervisor::contain::KillOnCloseJob::create(SystemJobApi::new()).map(|mut job| {
@@ -512,66 +493,21 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
     });
     #[cfg(not(windows))]
     let job: Option<JobHandle> = None;
-    // The stop plan runs on its own task, never behind the reader.
-    // A retained tree is confirmed gone; any other tree just exits.
-    if let Some(pid) = pid {
-        let tree = TreeSignals { pid };
-        if retained {
-            let confirm: Arc<dyn Fn() -> bool + Send + Sync> = {
-                let job = job.clone();
-                Arc::new(move || confirm_tree_gone(pid, &job))
-            };
-            let events = RetainedEvents { sink: sink.clone() };
-            tasks.push(tokio::spawn(
-                ace_supervisor::stop::run_retained_stop(tree, pid, windows, confirm, stop_rx, events),
-            ));
-        } else {
-            tasks.push(tokio::spawn(
-                ace_supervisor::spawn::run_stop_plan(tree, pid, stop_rx, exited_rx),
-            ));
-        }
-    }
     Ok(Spawned {
         pid,
         stdin_tx,
         stdin_end,
-        stop_tx,
         tasks,
         job,
         exit_store,
     })
 }
 
-/// A shared Windows job handle: the stop task queries it, dispose closes it.
+/// A shared Windows job handle: dispose closes it.
 #[derive(Clone)]
 struct JobHandle {
     #[cfg(windows)]
     job: Arc<Mutex<Box<dyn ace_supervisor::contain::WindowsJob>>>,
-}
-
-/// Whether the tree is gone: the job's liveness, else the leader's.
-#[cfg(windows)]
-fn confirm_tree_gone(pid: u32, job: &Option<JobHandle>) -> bool {
-    if let Some(handle) = job {
-        if let Ok(mut contained) = handle.job.lock() {
-            match contained.running() {
-                ace_supervisor::contain::JobRunning::Running(alive) => return !alive,
-                ace_supervisor::contain::JobRunning::Unjoined => {}
-            }
-        }
-    }
-    windows_tree_gone(pid)
-}
-
-/// Whether a POSIX tree is gone: the group answers no probe.
-#[cfg(not(windows))]
-fn confirm_tree_gone(pid: u32, job: &Option<JobHandle>) -> bool {
-    let _ = job;
-    // A refused probe while the group exits counts as gone for the stop.
-    match reaper::process_group_alive(pid) {
-        Ok(alive) => !alive,
-        Err(_) => true,
-    }
 }
 
 async fn stdin_pump(
@@ -603,15 +539,17 @@ async fn waiter_task(
     mut pumps: Vec<tokio::task::JoinHandle<()>>,
     sink: TsfnSink,
     exit_store: Arc<Mutex<Option<RawExit>>>,
-    exited: tokio::sync::oneshot::Sender<()>,
-    retained: bool,
+    waiter_destroy: bool,
 ) {
     let status = child.wait().await;
     // A natural exit kills descendants by default, including agent-started
     // dev servers: their pipes close, and the exit names the leader's end.
-    if !retained && let Some(pid) = child.id() {
-        use ace_supervisor::stop::StopTree as _;
-        TreeSignals { pid }.destroy(pid);
+    // The shell owns the destroy when it drives stops through fakes.
+    if waiter_destroy && let Some(pid) = child.id() {
+        #[cfg(unix)]
+        let _ = stop::kill_group(pid, signal::SignalName::Kill);
+        #[cfg(windows)]
+        let _ = stop::kill_windows_tree(pid, true);
     }
     drop(child);
     // The exit lands only after the pipes drained, like the close event.
@@ -629,7 +567,6 @@ async fn waiter_task(
         *exit = Some(RawExit { code, signal: signal.clone() });
     }
     sink.emit(ChildEvent::Exit(RawExit { code, signal }));
-    let _ = exited.send(());
 }
 
 /// The signal that ended the process, if one did. Windows has no signals.
@@ -794,7 +731,6 @@ impl NativeInventory {
     #[napi(catch_unwind)]
     pub fn windows_tick(&self, now_ms: f64) -> napi::Result<bool> {
         self.with(|handle| {
-            let _ = &handle;
             #[cfg(windows)]
             {
                 Ok(handle.inventory.windows_tick(
