@@ -5,12 +5,47 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::context;
-use crate::event::{Event, Known};
+use crate::event::{CarriedLedger, Event, Known};
 
-/// Compact once the prompt reaches this share of the budget...
+/// Compact once the prompt reaches this share of the model's window...
 pub const HIGH: f64 = 0.75;
 /// ...keeping recent turns worth about this share, so one compaction lasts many turns.
 pub const LOW: f64 = 0.35;
+
+/// The working budget when the person set none (ADR 0216): a bot compacts once its prompt
+/// reaches this many tokens, however large the model's window, since models follow a long task
+/// less well past it and every step pays for the whole prompt again.
+pub const WORKING_TOKENS: u32 = 128_000;
+
+/// What a conversation's prompt may grow to before it compacts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Budget {
+    /// The model's own context window: the hard ceiling.
+    pub window: u32,
+    /// The working budget (ADR 0216): the person's, else [`WORKING_TOKENS`].
+    pub working: u32,
+}
+
+impl Budget {
+    /// A budget bounded by the window alone, as before working budgets.
+    pub fn window(window: u32) -> Self {
+        Self {
+            window,
+            working: u32::MAX,
+        }
+    }
+
+    /// The prompt size that compacts: the working budget, or [`HIGH`] of the window when that
+    /// is smaller.
+    pub fn trigger(self) -> f64 {
+        f64::from(self.working).min(f64::from(self.window) * HIGH)
+    }
+
+    /// About what a compaction keeps: the same share of the trigger as [`LOW`] is of [`HIGH`].
+    fn kept(self) -> f64 {
+        self.trigger() * (LOW / HIGH)
+    }
+}
 
 /// The part of the conversation a compaction keeps word for word.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,7 +61,12 @@ pub struct Plan {
 /// Too many images to show also compacts, whatever the size: that is the only point where which
 /// older images are left out may change.
 pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
-    let full = budget > 0 && f64::from(prompt_tokens) >= f64::from(budget) * HIGH;
+    plan_within(events, prompt_tokens, Budget::window(budget))
+}
+
+/// [`plan`] against a working budget as well as the window (ADR 0216).
+pub fn plan_within(events: &[Event], prompt_tokens: u32, budget: Budget) -> Option<Plan> {
+    let full = budget.window > 0 && f64::from(prompt_tokens) >= budget.trigger();
     if !full && !context::too_many_images(events) {
         return None;
     }
@@ -48,10 +88,29 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
         _ => None,
     });
     let starts = safe_starts(events, already);
-    // Size each candidate's kept part in proportion to the reported prompt, by text length.
-    let sizes: Vec<usize> = events.iter().map(text_len).collect();
+    // Size each candidate's kept part in proportion to the reported prompt, by text length, an
+    // aged result counting as its stub.
+    let aged = crate::aging::boundary(events);
+    let sizes: Vec<usize> = events
+        .iter()
+        .enumerate()
+        .map(|(at, event)| match event {
+            Event::Known(Known::ToolFinished {
+                name,
+                content,
+                is_error,
+                images,
+                ..
+            }) if at < aged
+                && crate::aging::may_age(name, content, *is_error, !images.is_empty()) =>
+            {
+                crate::aging::STUB_CHARS
+            }
+            event => text_len(event),
+        })
+        .collect();
     let total: usize = sizes.iter().sum::<usize>().max(1);
-    let target = f64::from(budget) * LOW;
+    let target = budget.kept();
     let after = already.unwrap_or(0);
     let fits = |start: usize| {
         let kept: usize = sizes[start..].iter().sum();
@@ -167,6 +226,10 @@ pub struct Summary {
     pub goal: String,
     /// What the person and Spade agreed.
     pub decisions: Vec<String>,
+    /// What Spade told the person it would do and has not done yet (ADR 0216). Missing from a
+    /// reply that leaves them out.
+    #[serde(default)]
+    pub commitments: Vec<String>,
     /// What was learned, each with where it came from.
     pub facts: Vec<String>,
     /// Open questions and the next steps.
@@ -187,10 +250,13 @@ pub fn request(focus: Option<&str>) -> String {
         .unwrap_or_default();
     format!(
         "Summarise this conversation so far so it can continue without the earlier messages. \
-         Be specific and brief: the goal, decisions made, facts learned with their sources, open \
-         questions and next steps, and ids, links and paths still needed.{focus} Do not call any \
-         tool. Reply with only a JSON object with the keys goal (a string) and decisions, facts, \
-         open, references and notes (arrays of strings). notes holds what is worth remembering \
+         Be specific and brief: the goal, every decision made and who made it, open commitments \
+         (what you told the person you would do and have not done yet), facts learned with their \
+         sources, open questions and next steps, and ids, links and paths still needed. The \
+         person's own messages are kept word for word beside your summary, so do not restate \
+         them; do keep what they decided or asked you to keep doing.{focus} Do not call any \
+         tool. Reply with only a JSON object with the keys goal (a string) and decisions, \
+         commitments, facts, open, references and notes (arrays of strings). notes holds what is worth remembering \
          beyond this conversation: facts about the person, their standing preferences and lasting \
          decisions, one short self-contained sentence each, leaving out what your notes already \
          say and anything only this task needs."
@@ -214,6 +280,7 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
     );
     for (title, items) in [
         ("Decisions", &summary.decisions),
+        ("Commitments still owed", &summary.commitments),
         ("Facts", &summary.facts),
         ("Open", &summary.open),
         ("References", &summary.references),
@@ -226,6 +293,18 @@ pub fn render(summary: &Summary, carried_out: &[String]) -> String {
         }
     }
     out.push_str(&carried_section(carried_out));
+    out
+}
+
+/// The whole text a compaction stores (ADR 0216): the summary (or `left_out` when the model
+/// wrote none), the person's messages kept word for word, then the writes already carried out.
+pub fn written(summary: Option<&Summary>, left_out: &str, ledger: &CarriedLedger) -> String {
+    let mut out = match summary {
+        Some(summary) => render(summary, &[]),
+        None => format!("{left_out}\n"),
+    };
+    out.push_str(&said::section(&ledger.said, ledger.said_earlier));
+    out.push_str(&carried_section(&lines(ledger)));
     out
 }
 
@@ -242,7 +321,8 @@ pub fn carried_section(carried_out: &[String]) -> String {
 }
 
 mod carried;
-pub use carried::{carried_out, ledger, lines};
+pub mod said;
+pub use carried::{brief, carried_out, ledger, lines};
 
 #[cfg(test)]
 mod tests;

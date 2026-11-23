@@ -659,6 +659,12 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         carried: Option<CarriedLedger>,
     },
+    /// Tool results before `before` (an event index) show as short stubs in later prompts, all
+    /// but the ones that never age (ADR 0216). Stored in batches, so prompts stay byte-stable
+    /// between them.
+    ResultsAged {
+        before: usize,
+    },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
     GroupMessage {
@@ -1296,6 +1302,19 @@ pub struct CarriedLedger {
     /// Older writes no longer listed one by one, so the list stays bounded over weeks.
     #[serde(default, skip_serializing_if = "is_none_earlier")]
     pub earlier: u64,
+    /// The person's own messages from every compacted span, word for word (ADR 0216), oldest
+    /// first; `said_earlier` counts older ones no longer listed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub said: Vec<Said>,
+    #[serde(default, skip_serializing_if = "is_none_earlier")]
+    pub said_earlier: u64,
+}
+
+/// A message of the person's a compaction keeps word for word: its position and text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Said {
+    pub seq: u64,
+    pub text: String,
 }
 
 fn is_none_earlier(n: &u64) -> bool {

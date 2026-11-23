@@ -650,6 +650,7 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
             _ => None,
         })
         .collect();
+    let aged = crate::aging::boundary(events);
     let events = reading_order(events, from);
     // Calls of the last Spade step still waiting for results, and messages held until they come.
     let mut pending: Vec<ToolCall> = Vec::new();
@@ -812,12 +813,20 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                 images: kept,
                 ..
             } => {
-                if let Some(at) = pending.iter().position(|c| &c.id == call_id) {
-                    pending.remove(at);
+                if let Some(open) = pending.iter().position(|c| &c.id == call_id) {
+                    let call = pending.remove(open);
+                    // An old result shows as a stub once aging reached it (ADR 0216).
+                    let content = if at < aged
+                        && crate::aging::may_age(name, content, *is_error, !kept.is_empty())
+                    {
+                        crate::aging::stub(name, &call.arguments, content, seq)
+                    } else {
+                        content.clone()
+                    };
                     out.push(Message::ToolResult {
                         call_id: call_id.clone(),
                         name: name.clone(),
-                        content: content.clone(),
+                        content,
                         is_error: *is_error,
                     });
                     returned.add(name, kept, images);

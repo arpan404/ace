@@ -194,6 +194,7 @@ fn completed_writes_are_listed_with_ids_and_arguments_and_reads_and_failures_are
         &Summary {
             goal: "Email Sam".into(),
             decisions: vec![],
+            commitments: vec![],
             facts: vec![],
             open: vec![],
             references: vec![],
@@ -781,5 +782,97 @@ fn a_write_handed_to_the_background_takes_its_outcome_from_its_job() {
         ))),
         maybe,
         "lost in a restart: may have taken effect"
+    );
+}
+
+#[test]
+fn a_working_budget_compacts_far_below_three_quarters_of_a_large_window() {
+    let events = conversation(10);
+    let large = Budget {
+        window: 1_000_000,
+        working: WORKING_TOKENS,
+    };
+    assert_eq!(plan_within(&events, 127_000, large), None);
+    assert!(plan_within(&events, 129_000, large).is_some());
+    assert_eq!(plan(&events, 129_000, 1_000_000), None, "the window alone");
+    // The window stays the ceiling: a small model compacts at three quarters of it.
+    let small = Budget {
+        window: 100_000,
+        working: WORKING_TOKENS,
+    };
+    assert!(plan_within(&events, 76_000, small).is_some());
+    assert_eq!(plan_within(&events, 74_000, small), None);
+}
+
+#[test]
+fn the_persons_messages_survive_two_compactions_word_for_word() {
+    let registry = Registry::default();
+    let mut events = conversation(6);
+    let first_cut = 12;
+    let ledger1 = ledger(&events, first_cut, &registry);
+    events.push(Event::Known(Known::ContextCompacted {
+        summary: written(None, "left out", &ledger1),
+        keep_from: first_cut,
+        tokens_before: 0,
+        images_left_out: None,
+        untrusted: false,
+        carried: Some(ledger1),
+    }));
+    events.extend(conversation(2));
+    let second_cut = events.len() - 4;
+    let ledger2 = ledger(&events, second_cut, &registry);
+    let said: Vec<u64> = ledger2.said.iter().map(|s| s.seq).collect();
+    // Questions 0–2 from the first span, 3–5 from the second, then the first of the new turns.
+    assert_eq!(said, vec![1, 5, 9, 13, 17, 21, 26]);
+    let text = written(None, "left out", &ledger2);
+    assert!(
+        text.contains(&format!("[#1] question 0 {}", "word ".repeat(50))),
+        "{text}"
+    );
+    assert!(text.contains("word for word"), "{text}");
+}
+
+#[test]
+fn past_the_bound_standing_instructions_outlast_one_off_requests() {
+    let mut events = vec![Event::user_message(
+        "From now on, always write tests first.",
+    )];
+    for n in 0..20 {
+        events.push(Event::user_message(format!(
+            "one-off {n} {}",
+            "z".repeat(2_000)
+        )));
+    }
+    events.push(Event::user_message("latest"));
+    let ledger = ledger(&events, events.len(), &Registry::default());
+    let texts: Vec<&str> = ledger.said.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(
+        texts.first(),
+        Some(&"From now on, always write tests first.")
+    );
+    assert_eq!(texts.last(), Some(&"latest"));
+    assert!(
+        ledger.said_earlier > 0,
+        "older one-off requests fold into a count"
+    );
+    let total: usize = texts.iter().map(|t| t.len()).sum();
+    assert!(total <= said::SAID_CHARS, "{total}");
+    assert!(written(None, "", &ledger).contains("older messages are no longer listed"));
+}
+
+#[test]
+fn the_summary_request_asks_for_decisions_and_open_commitments() {
+    let asked = request(None);
+    assert!(
+        asked.contains("open commitments") && asked.contains("decision"),
+        "{asked}"
+    );
+    let summary = parse_summary(
+        r#"{"goal":"g","decisions":["d"],"commitments":["Send the report Friday"],"facts":[],"open":[],"references":[]}"#,
+    );
+    let text = summary.map(|s| render(&s, &[])).unwrap_or_default();
+    assert!(
+        text.contains("Commitments still owed:\n- Send the report Friday"),
+        "{text}"
     );
 }
