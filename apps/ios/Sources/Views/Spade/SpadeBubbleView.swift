@@ -49,11 +49,11 @@ struct SpadeBubbleView: View {
             // Contained, not combined: each picture, file and Play stays its own button.
             .accessibilityElement(children: images.isEmpty && files.isEmpty && voice == nil ? .combine : .contain)
             .accessibilityIdentifier("spade.bubble.person")
-        case let .bot(text, live, end, images, files):
+        case let .bot(text, live, fold, end, images, files):
             VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
                 if !text.isEmpty || end != nil {
                     VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-                        if !text.isEmpty { AceMarkdown(text: text, streaming: live) }
+                        if !text.isEmpty { SpadeFoldedWords(text: text, streaming: live, fold: fold) }
                         if let end {
                             Text(end.text)
                                 .aceFont(AceDesign.TextRole.meta)
@@ -63,7 +63,8 @@ struct SpadeBubbleView: View {
                     .padding(.horizontal, AceDesign.Space.margin)
                     .padding(.vertical, AceDesign.Space.related)
                     .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
-                    .accessibilityElement(children: .combine)
+                    // One element to read; a folding one keeps its words and Show more apart.
+                    .accessibilityElement(children: fold ? .contain : .combine)
                 }
                 // What its tools showed: pictures open full size, documents in Quick Look.
                 if !images.isEmpty || !files.isEmpty { MessageAttachments(itemId: "", attachments: images + files, more: 0) }
@@ -78,8 +79,8 @@ struct SpadeBubbleView: View {
         case let .question(card):
             SpadeQuestionCardView(card: card, unfolded: unfolded.contains(card.callId), sending: sending(card.callId),
                                   drafts: drafts(card.callId), fold: { fold(card.callId, $0) }, reply: { await reply(card.callId, $0) })
-        case let .member(name, text, face, first, last):
-            SpadeMemberBubble(name: name, text: text, face: face, first: first, last: last)
+        case let .member(name, text, fold, face, first, last):
+            SpadeMemberBubble(name: name, text: text, fold: fold, face: face, first: first, last: last)
         // Drawn by the chat, which has the client its requests answer through (`SpadeWorkersCard`).
         case .workers:
             EmptyView()
@@ -100,6 +101,7 @@ struct SpadeBubbleView: View {
 private struct SpadeMemberBubble: View {
     let name: String
     let text: String
+    let fold: Bool
     let face: SpadeModel.Face
     let first: Bool
     let last: Bool
@@ -118,7 +120,7 @@ private struct SpadeMemberBubble: View {
                         .foregroundStyle(AceDesign.Ink.muted)
                         .padding(.leading, AceDesign.Space.margin)
                 }
-                AceMarkdown(text: text, streaming: false)
+                SpadeFoldedWords(text: text, fold: fold)
                     .padding(.horizontal, AceDesign.Space.margin)
                     .padding(.vertical, AceDesign.Space.related)
                     .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
@@ -126,9 +128,22 @@ private struct SpadeMemberBubble: View {
             .padding(.trailing, AceDesign.Space.section)
         }
         .padding(.top, first ? AceDesign.Space.related : AceTheme.Spacing.none)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name): \(text)")
+        .modifier(MemberAccessibility(label: "\(name): \(text)", fold: fold))
         .accessibilityIdentifier("spade.bubble.member")
+    }
+}
+
+/// A member's message reads as one element, its name first; a folding one keeps its words and
+/// Show more apart, so Show more can be reached.
+private struct MemberAccessibility: ViewModifier {
+    let label: String
+    let fold: Bool
+    func body(content: Content) -> some View {
+        if fold {
+            content.accessibilityElement(children: .contain)
+        } else {
+            content.accessibilityElement(children: .combine).accessibilityLabel(label)
+        }
     }
 }
 

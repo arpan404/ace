@@ -455,6 +455,18 @@ it("a phone on the account proves the person's standing on its own relayed socke
   const other = await relayed();
   expect(other.binding).not.toBe(phone.binding);
   expect(await proves(other.channel, phone.grant, proof)).toBe(false);
+  // Nor does one whose only fault is the nonce: this socket's own binding and grant, signed
+  // over the first socket's challenge.
+  const staleNonce = await sign(
+    standingProofText({
+      host: hostId,
+      nonce: phone.nonce,
+      binding: other.binding,
+      grant: other.grant,
+    }),
+  );
+  expect(await proves(other.channel, other.grant, staleNonce)).toBe(false);
+  expect(await changesGuardedSetting(other.channel)).toBe(false);
   // Nor does a proof with this socket's nonce but the first stream's binding, as whoever
   // answered the phone as this host would relay it.
   const elsewhere = await sign(

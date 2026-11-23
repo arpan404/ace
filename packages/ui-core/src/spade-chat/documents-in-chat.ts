@@ -1,9 +1,9 @@
 import { spadePlainText } from "./markup.ts";
 
 /*
- * Long words in a chat (ADR 0212 §5): a `<doc>` the bot wrote, or a message too long for a
- * bubble, shows as a document card (its title, two lines of preview, Open) and never as a wall of
- * text. Nothing is cut: the card holds every word, and Open shows them.
+ * A `<doc>` the bot wrote in a chat (ADR 0212 §5) shows as a document card: its title, two lines
+ * of preview, Open. Nothing is cut: the card holds every word, and Open shows them. A message is
+ * never a card, however long: it folds in place instead (`long-messages.ts`, amendment 2).
  */
 
 export interface SpadeDocCard {
@@ -14,17 +14,10 @@ export interface SpadeDocCard {
   text: string;
 }
 
-/** A message past this many lines (blank ones aside) shows as a card. */
-export const spadeMostBubbleLines = 12;
-/** Or past this many characters, however few lines. */
-const mostBubbleChars = 1600;
-const mostSummaryChars = 400;
 const mostPreviewChars = 240;
 
 const headingLine = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/;
 const tableRule = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
-const notProse = /^\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|\||```|~~~|>)/;
-const fenceLine = /^\s{0,3}(```|~~~)/;
 const tableRow = /^\s*\|.*\|\s*$/;
 
 /** A document's card. */
@@ -58,44 +51,6 @@ function previewOf(text: string): string {
     .map((line) => line.trim())
     .filter(Boolean)
     .join(" ");
-}
-
-/**
- * A message too long for a bubble, as its first paragraph and a card holding all of it: past
- * about 12 lines, or holding a heading or a table. Undefined when it fits in a bubble.
- */
-export function spadeLongWords(text: string): { summary: string; doc: SpadeDocCard } | undefined {
-  const lines = proseLines(text);
-  const lineCount = text.split("\n").filter((line) => line.trim() !== "").length;
-  const heading = lines.find((line) => headingLine.test(line));
-  const table = lines.some((line) => tableRule.test(line) && line.includes("-"));
-  if (
-    lineCount <= spadeMostBubbleLines &&
-    !heading &&
-    !table &&
-    [...text].length <= mostBubbleChars
-  )
-    return undefined;
-  const title = heading ? spadePlainText(heading.replace(headingLine, "$1")).trim() : "";
-  const first = text
-    .split(/\n\s*\n/)
-    .map((chunk) => chunk.trim())
-    .find((chunk) => chunk && !notProse.test(chunk));
-  return {
-    summary: first ? cut(first, mostSummaryChars) : "",
-    doc: spadeDocCard(title || "Full reply", text),
-  };
-}
-
-/** The lines outside code blocks, where a heading or a table can be. */
-function proseLines(text: string): string[] {
-  const out: string[] = [];
-  let code = false;
-  for (const line of text.split("\n")) {
-    if (fenceLine.test(line)) code = !code;
-    else if (!code) out.push(line);
-  }
-  return out;
 }
 
 /** At most `most` characters, ending at a sentence or a word when it must be cut. */

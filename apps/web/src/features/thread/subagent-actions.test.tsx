@@ -1,6 +1,6 @@
 import type { Fact } from "@ace/core";
 import { facts, sessionLimitText } from "@ace/fake-daemon";
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -109,4 +109,63 @@ test("a subagent gone silent never reads as working: Not responding with Stop, a
       /The subagent “dep-auditor” \(Audit outdated dependencies\) was stopped before it finished\./,
     ),
   ).toBeTruthy();
+});
+
+const approvalFrom = (agent: string, interaction: string): Fact => ({
+  type: "interaction.opened",
+  agent,
+  interaction,
+  blocking: true,
+  request: {
+    kind: "approval",
+    title: "Run the audit?",
+    options: [
+      { id: "allow", kind: "allow_once", label: "Allow once" },
+      { id: "deny", kind: "deny", label: "Deny" },
+    ],
+  },
+});
+
+test("a subagent's live line keeps Working while a subagent under it asks, and steps aside once it asks itself", async () => {
+  const app = harness();
+  app.daemon.createThread({
+    id: "audit",
+    workspaceId: "relay",
+    provider: "claude",
+    title: "Audit dependencies",
+  });
+  app.daemon.apply("audit", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    ...spawn("deps", "dep-auditor", "Audit outdated dependencies"),
+    facts.tool("deps", "spawn-lock", {
+      kind: "agent.spawn",
+      title: "Check the lockfile",
+      detail: { kind: "agent.spawn", description: "Check the lockfile", childAgent: "lock" },
+    }),
+    facts.subagent("claude", "lock", "lock-checker", "spawn-lock", {
+      parent: "deps",
+      background: true,
+    }),
+    facts.turn("lock", "spawn"),
+    facts.toolDone("deps", "spawn-lock"),
+    facts.tool("deps", "outdated", {
+      kind: "shell",
+      title: "bun outdated",
+      detail: { kind: "shell", command: "bun outdated" },
+    }),
+  ]);
+  await app.open("/t/audit");
+  await openSubagent("1 subagent", "dep-auditor");
+  expect(await screen.findByRole("status", { name: /^Working/ })).toBeTruthy();
+
+  // The background subagent under it asks while dep-auditor itself runs a command.
+  act(() => app.daemon.apply("audit", [approvalFrom("lock", "lock-asks")]));
+  expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+  expect(screen.getByRole("status", { name: /^Working/ })).toBeTruthy();
+
+  // dep-auditor asks too: it waits on the person itself now, so no Working line.
+  act(() => app.daemon.apply("audit", [approvalFrom("deps", "deps-asks")]));
+  await waitFor(() => expect(screen.queryByRole("status", { name: /^Working/ })).toBeNull());
+  expect(screen.queryByText(/Waiting for your approval/)).toBeNull();
 });

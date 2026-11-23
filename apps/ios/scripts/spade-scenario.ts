@@ -76,6 +76,9 @@ export function seedSpade(daemon: FakeDaemon, now: number): void {
   });
   spade.store(notes.conversation, { type: "user_message", text: "Summarise yesterday's PRs" });
   spade.reply(notes, "Three merged: the Work card fix, the market Worker and the Beta page.");
+  // A long answer, which folds after ten lines (ADR 0212 amendment 2).
+  spade.store(notes.conversation, { type: "user_message", text: "And the week's plan?" });
+  spade.reply(notes, weekPlan);
   seedProfile(spade);
   seedGroup(spade, now - 50 * minute);
   seedSetup(spade);
@@ -263,3 +266,26 @@ function reseed(): void {
     api.status(notes, "idle", null);
   }
 }
+
+/** A long answer, past ten lines: it folds in its bubble. */
+const weekPlan = [
+  "Here's the week, most important first.",
+  "",
+  "## Monday",
+  "- Merge the fold for long Spade messages",
+  "- Review the relay rate-limit change",
+  "",
+  "## Tuesday",
+  "- Cut 0.0.26 beta 1 for the Mac",
+  "- Check the release notes against what merged",
+  "",
+  "## Wednesday",
+  "- iPhone: Show more on long replies, Dynamic Type at the largest size",
+  "- Pair the test phone again after the relay update",
+  "",
+  "## Thursday",
+  "- Full suite on main, then the Windows VM run",
+  "",
+  "## Friday",
+  "- Write up what shipped, in three lines or fewer",
+].join("\n");

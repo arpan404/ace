@@ -36,6 +36,24 @@ export function shellSurvivesPrompt(provider: string, reason: string, status: To
   if (status !== "running" || !stopReason.safeParse(reason).success) return false;
   return reason === "cancelled" || provider === "antigravity";
 }
+/**
+ * Whether a shell that outlives its prompt stays the agent's own, open across turns: Antigravity
+ * keeps a command still running at a finished turn (`persisted_open_tool_calls`) and reports its
+ * end only inside a later prompt. The session takes new prompts beside it, since refusing them
+ * would leave that end unreported for good (ADR 0109). A cancelled prompt's shells carry no such
+ * promise.
+ */
+export function shellCarriedAcrossTurns(
+  provider: string,
+  reason: string,
+  status: ToolStatus,
+): boolean {
+  return (
+    provider === "antigravity" &&
+    reason !== "cancelled" &&
+    shellSurvivesPrompt(provider, reason, status)
+  );
+}
 /** Whether an answer to a tool's request refuses the tool: a deny option, a rejected plan, or a cancelled request. */
 export function answerRefusesTool(
   request: InteractionRequest,

@@ -92,6 +92,8 @@ import QuartzCore
     /// Whether this paired machine took this phone's proof of the person's standing; nil until a
     /// socket proved, for an account machine, and for a daemon that asks for none.
     var standing: PairedStanding?
+    /// The route that verdict came over; nil with it.
+    var standingRoute: StandingRoute?
     /// Why this account machine wants its machine code now (`MachineCodeAsk`), or nil.
     var machineCodeAsk: MachineCodeAsk? { didSet { if machineCodeAsk != oldValue { machineCodeDeferred = false } } }
     /// The person chose Not now for this ask; Machines › the machine asks again.
@@ -614,7 +616,9 @@ import QuartzCore
                 if state != "ready" { invalidateConfirmations() }
                 activityChanged = true
             case .problem(let notice): problem = notice
-            case .standing(let state): if standing != state { standing = state }
+            case .standing(let state, let route):
+                if standing != state { standing = state }
+                if standingRoute != route { standingRoute = route }
             case .machineCode(let reason, let until):
                 // Every refused retry says it again; only a change redraws.
                 let ask = reason.flatMap(MachineCodeAsk.init(rawValue:))

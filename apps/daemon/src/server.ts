@@ -1038,7 +1038,11 @@ export async function startServer(options: ServerOptions): Promise<{
               type: "account.standing.result",
               requestId,
               result: proven
-                ? { ok: true, until: proven.until }
+                ? {
+                    ok: true,
+                    until: proven.until,
+                    expiresIn: Math.max(0, proven.until - auth.now()),
+                  }
                 : {
                     ok: false,
                     code: "unauthorized",

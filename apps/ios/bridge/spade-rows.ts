@@ -203,6 +203,11 @@ export type SpadeBubbleRow =
       text: string;
       /** Still being written. */
       live: boolean;
+      /**
+       * Finished and long enough that it may draw past twenty lines: the phone shows its first twenty
+       * and Show more when it does (ADR 0212 amendment 2).
+       */
+      fold: boolean;
       /** How it ended when it didn't finish on its own; `alert` when it failed. */
       end: { text: string; alert: boolean } | null;
       /** What its tools showed the person, after its words: pictures, and documents that open. */
@@ -293,7 +298,15 @@ export function spadeBubbleRow(
       const images = spadeImageLines(bubble.images);
       const files = spadeDocumentLines(bubble.documents);
       if (!bubble.text && !end && !images.length && !files.length) return undefined;
-      return { kind: "bot", text: bubble.text, live: bubble.live, end, images, files };
+      return {
+        kind: "bot",
+        text: bubble.text,
+        live: bubble.live,
+        fold: Boolean(bubble.fold),
+        end,
+        images,
+        files,
+      };
     }
     case "ask": {
       const card = spadeRequestCard(bubble.name, bubble.arguments, who);

@@ -71,7 +71,7 @@ test("with the card closed the reading column keeps its full width", async () =>
   expect(scroller().style.getPropertyValue("padding-right")).toBe("");
 });
 
-test("at a mid-width window the open work card floats beside the column without moving it", async () => {
+test("at a mid-width window the open work card docks beside a narrower reading column", async () => {
   const resized = threadArea(1000);
   await openThread();
   resized();
@@ -80,12 +80,15 @@ test("at a mid-width window the open work card floats beside the column without 
   // The side card, not the header popover.
   expect(card.getAttribute("data-edge")).toBe("right");
   await within(card).findByRole("region", { name: "Workspace" });
-  // Opening it moves nothing: no narrowed column, no reserve, no padding on the area or scroller.
   const area = threadColumn();
-  expect(area.hasAttribute("data-work-docked")).toBe(false);
-  expect(area.style.getPropertyValue("--column")).toBe("");
-  expect(area.style.getPropertyValue("--work-reserve")).toBe("");
-  expect(area.style.getPropertyValue("--summary-inset")).toBe("");
+  expect(area.getAttribute("data-work-docked")).toBe("");
+  // 1000px leaves 672px for the column after the 280px card and its 48px of gaps.
+  expect(area.style.getPropertyValue("--column")).toBe("672px");
+  // The reserve lives in the content column's inset variables, never as padding on the area
+  // or the scroller: the scroller keeps its full width and its scrollbar stays at the far
+  // right edge, with the card floating over the gutter above it.
+  expect(area.style.getPropertyValue("--work-reserve")).toBe("304px");
+  expect(area.style.getPropertyValue("--summary-inset")).toBe("304px");
   expect(area.style.getPropertyValue("padding-right")).toBe("");
   expect(scroller().style.getPropertyValue("padding-right")).toBe("");
 });
@@ -97,7 +100,7 @@ test("below the minimum the card opens as a popover from the icon", async () => 
   await userEvent.click(await workButton());
   const card = await screen.findByRole("dialog", { name: "Thread details" });
   await within(card).findByRole("region", { name: "Workspace" });
-  // The header popover, not the side card.
+  // The header popover, not the docked side card.
   expect(card.hasAttribute("data-edge")).toBe(false);
   const area = threadColumn();
   expect(area.hasAttribute("data-work-docked")).toBe(false);

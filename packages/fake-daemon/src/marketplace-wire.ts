@@ -162,6 +162,8 @@ export class FakeMarketplaceWire {
   refuseInstall: Extract<MarketResult, { op: "error" }> | undefined;
   /** Refuses each turn on for bots with this error while set, as a socket without standing. */
   refuseTurnOnForBots: Extract<MarketResult, { op: "error" }> | undefined;
+  /** Refuses each publish action but `me` with this error while set, as a socket without standing. */
+  refusePublish: Extract<MarketResult, { op: "error" }> | undefined;
   /** Makes the bot a recipe's install asks Spade for; its id becomes the install's target. */
   makeBot: ((acceptance: FakeMarketAcceptance) => string | undefined) | undefined;
 
@@ -524,6 +526,7 @@ export class FakeMarketplaceWire {
         return this.publishing.publisher(operation.handle);
       case "publish": {
         const request = operation.request;
+        if (this.refusePublish && request.action !== "me") return this.refusePublish;
         if (request.action === "draftCheck") return this.pick.check(request.source);
         return this.pick.refusal(request) ?? this.publishing.publish(request);
       }

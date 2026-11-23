@@ -76,6 +76,10 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     /// The request id of the proof sent and not yet answered; its answer is native's, never the script's.
     private var awaitingVerdict: String?
     private var reprove: DispatchWorkItem?
+    /// Clears the verdict at the expiry the daemon reported, unless a newer proof replaced it.
+    private var lapse: DispatchWorkItem?
+    /// Counts the verdicts this socket has settled, so a lapse timed for an older one does nothing.
+    private var standingGeneration = 0
     /// How often a proven socket proves again: well inside the five minutes a person's grant lives.
     static let reproveInterval: TimeInterval = 4 * 60
     /// After a proof that couldn't reach the backend, the next try.
@@ -209,7 +213,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
             if !self.ended { self.record(1000, cause: "closed by the app") }
             self.ended = true
             self.deadline?.cancel()
-            self.reprove?.cancel()
+            self.reprove?.cancel(); self.lapse?.cancel()
             self.dropWaiting()
             self.task?.cancel(with: .goingAway, reason: nil)
             self.session?.invalidateAndCancel()
@@ -341,7 +345,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
                         if !welcomed, !admission(text) { return false }
                         // The answer to this socket's own proof is native's: the script hears the verdict only.
                         if let requestId = awaitingVerdict, let verdict = StandingVerdict.read(text, requestId: requestId) {
-                            settle(verdict)
+                            settle(verdict, remaining: StandingVerdict.remaining(text, requestId: requestId, now: Date()))
                             return true
                         }
                         event("message", .text(streams?.text(text) ?? text))
@@ -412,10 +416,28 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
     }
     /// The daemon's verdict on this socket's proof, or the phone's own `missing`: the script hears
     /// it, and a proven socket proves again before its grant runs out.
-    private func settle(_ verdict: PairedStanding) {
+    /// The standing also ends where the daemon says it does (`until`): if no fresh proof was taken
+    /// by then (renewal rate-limited, the backend unreachable), the verdict is cleared, so the
+    /// phone never reports a standing the daemon has already dropped.
+    private func settle(_ verdict: PairedStanding, remaining: TimeInterval? = nil) {
         awaitingVerdict = nil
-        event("standing", .text(verdict.rawValue))
-        if verdict == .proven { scheduleProof(after: Self.reproveInterval) }
+        lapse?.cancel()
+        standingGeneration += 1
+        // Every standing event names its route, so the script tells a relayed verdict from a direct one.
+        event("standing", .text("\(verdict.rawValue) relay"))
+        guard verdict == .proven else { return }
+        let left = remaining ?? Self.reproveInterval
+        scheduleProof(after: StandingVerdict.renewal(remaining: left, interval: Self.reproveInterval))
+        guard remaining != nil else { return }
+        let generation = standingGeneration
+        let work = DispatchWorkItem { [weak self] in self?.queue.addOperation { self?.standingEnded(generation) } }
+        lapse = work
+        DispatchQueue.global().asyncAfter(deadline: .now() + left, execute: work)
+    }
+    /// A lapse that was already queued when a newer proof settled is stale and says nothing.
+    private func standingEnded(_ generation: Int) {
+        guard !ended, generation == standingGeneration else { return }
+        event("standing", .text("cleared relay"))
     }
     private func scheduleProof(after delay: TimeInterval) {
         reprove?.cancel()
@@ -456,7 +478,7 @@ final class RelaySocket: NSObject, DaemonSocket, URLSessionWebSocketDelegate, @u
         record(code, cause: reason.isEmpty ? cause : "\(cause): \(reason)")
         ended = true
         deadline?.cancel()
-        reprove?.cancel()
+        reprove?.cancel(); lapse?.cancel()
         dropWaiting()
         phase = .connecting
         event("close", .text(Self.closeEvent(code, reason: reason, named: named)))
