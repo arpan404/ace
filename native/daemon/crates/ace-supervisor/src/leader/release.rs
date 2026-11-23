@@ -27,7 +27,11 @@ impl Leader {
             match self.state.lock() {
                 Ok(mut state) if state.exited && state.holds == 0 => {
                     state.released = true;
-                    state.confirmed_empty = true;
+                    // A /proc that hides processes can never prove a group
+                    // empty: the leader is still reaped, as before, but the
+                    // result is not reported as "empty" (a journal row is
+                    // never deleted on a scan that could miss members).
+                    state.confirmed_empty = !crate::system::proc_hides_pids();
                 }
                 _ => return ReleaseStep::Held,
             }
@@ -37,6 +41,13 @@ impl Leader {
         } else {
             ReleaseStep::Reaping
         }
+    }
+
+    /// Whether the leader's pid is still pinned: its handle (POSIX: the
+    /// unreaped child; Windows: the process handle) is still held. Once it
+    /// is released, only a fresh snapshot can say anything about the group.
+    pub fn pin_held(&self) -> bool {
+        self.state.lock().is_ok_and(|state| state.child.is_some())
     }
 
     /// POSIX: one scan of the group; true when it and the scan before both

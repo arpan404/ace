@@ -201,22 +201,26 @@ impl<R: InventoryRuntime> Inventory<R> {
         if !candidates.is_empty() {
             let second = self.runtime.group_snapshot();
             for (pid, group) in candidates {
-                if crate::system::group_empty_state(&second, group) == Some(true) {
-                    self.remove_inner(pid, now_ms);
+                // The row leaves only when both snapshots find its group
+                // empty and complete, and the delete itself lands. Deleting
+                // here, not through the retry pass, keeps recovery to the
+                // two walks it already took.
+                let empty = crate::system::group_empty_state(&first, group) == Some(true)
+                    && crate::system::group_empty_state(&second, group) == Some(true);
+                if !empty {
+                    recovered.unresolved += 1;
+                    continue;
+                }
+                if self.delete_row(pid, now_ms) {
                     recovered.removed += 1;
                 } else {
+                    // The delete failed: keep it for the retry pass.
+                    self.unremoved.insert(pid);
                     recovered.unresolved += 1;
                 }
             }
         }
         Ok(recovered)
-    }
-
-    #[cfg(not(windows))]
-    fn remove_inner(&mut self, pid: u32, now_ms: u64) {
-        // Mirrors `remove` without re-reading the clock.
-        self.unremoved.insert(pid);
-        self.retry_removals(now_ms);
     }
 }
 

@@ -285,10 +285,11 @@ export class ProcessInventory implements ProcessJournal {
       };
       this.drainNativeReports();
       // Both scans run inside recover(); the timer only retries deletes
-      // still pending. Schedule it from the native retry hint.
+      // still pending. Schedule it from the native retry hint, never as a
+      // zero-delay timer.
       const at = native.handle.retryAtMs();
       if (typeof at === "number" && Number.isFinite(at))
-        this.scheduleNativeRetry(native, Math.max(0, at - this.runtime.now()));
+        this.scheduleNativeRetry(native, Math.max(250, at - this.runtime.now()));
       // The verified orphan groups end through the runtime's guarded group stop, never past it.
       for (const group of groups) this.runtime.kill(group.pid, group.start);
       return recovered;

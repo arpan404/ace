@@ -11,7 +11,7 @@ use crate::errors::SupervisorError;
 use crate::identity::ProcessIdentity;
 #[cfg(not(windows))]
 use crate::identity::ProcessOwner;
-use crate::retry::{GuardedTick, inventory_backoff_ms};
+use crate::retry::{GuardedTick, inventory_backoff_ms, inventory_retry_ms};
 use ace_store::{Connection, OpenOptions, Value};
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -74,6 +74,8 @@ pub struct Inventory<R> {
     pub(crate) unremoved: HashSet<u32>,
     tick: GuardedTick,
     retry_at_ms: Option<u64>,
+    /// Passes in a row that left a row unconfirmed: its recheck backs off.
+    unconfirmed_passes: u32,
     closed: bool,
     /// Windows only: when the descendant recorder is next due.
     #[cfg(windows)]
@@ -103,6 +105,7 @@ impl<R: InventoryRuntime> Inventory<R> {
             unremoved: HashSet::new(),
             tick: GuardedTick::new(),
             retry_at_ms: None,
+            unconfirmed_passes: 0,
             closed: false,
             #[cfg(windows)]
             windows_due_ms: None,
@@ -246,36 +249,64 @@ impl<R: InventoryRuntime> Inventory<R> {
     pub fn remove(&mut self, pid: u32) {
         let now_ms = self.runtime.now_ms();
         #[cfg(not(windows))]
-        if let Some(entry) = self.recorded(pid) {
-            let mut snapshots = None;
-            if !self.release_empty(&mut snapshots, &entry) {
+        match self.recorded(pid) {
+            // A row that cannot be read is not an absent row: keep it and
+            // look again, never delete what the check never saw.
+            Err(_) => {
                 self.unremoved.insert(pid);
-                let at = now_ms.saturating_add(GATE_RECHECK_MS);
-                self.retry_at_ms = Some(match self.retry_at_ms {
-                    Some(earlier) => earlier.min(at),
-                    None => at,
-                });
+                self.schedule_recheck(now_ms);
                 return;
             }
+            Ok(Some(entry)) => {
+                let mut snapshots = None;
+                if !self.release_empty(&mut snapshots, &entry) {
+                    self.unremoved.insert(pid);
+                    self.schedule_recheck(now_ms);
+                    return;
+                }
+            }
+            Ok(None) => {}
         }
         self.unremoved.insert(pid);
         self.retry_removals(now_ms);
     }
 
-    /// The recorded row for `pid`, if it parses; a missing or corrupt row
-    /// needs no keeping.
+    /// Schedules the next row check, keeping an unexpired earlier one. An
+    /// expired deadline is replaced, never reused: it would fire at once.
     #[cfg(not(windows))]
-    fn recorded(&self, pid: u32) -> Option<ProcessEntry> {
+    fn schedule_recheck(&mut self, now_ms: u64) {
+        let at = now_ms.saturating_add(GATE_RECHECK_MS);
+        self.retry_at_ms = Some(match self.retry_at_ms {
+            Some(earlier) if earlier > now_ms => earlier.min(at),
+            _ => at,
+        });
+    }
+
+    /// The recorded row for `pid`. `Ok(None)` means there is no row;
+    /// `Err` means the lookup itself failed, which proves nothing and must
+    /// keep the row for a later retry.
+    #[cfg(not(windows))]
+    fn recorded(&self, pid: u32) -> Result<Option<ProcessEntry>, SupervisorError> {
+        let action = "inventory read";
         let statement = self
             .db
             .prepare("SELECT entry FROM processes WHERE pid=?")
-            .ok()?;
-        statement.bind(&[Some(Value::Integer(pid as i64))]).ok()?;
-        let row = statement.step().ok().flatten()?;
-        let Value::Text(text) = &row[0] else {
-            return None;
+            .map_err(|error| SupervisorError::journal(action, error))?;
+        statement
+            .bind(&[Some(Value::Integer(pid as i64))])
+            .map_err(|error| SupervisorError::journal(action, error))?;
+        let Some(row) = statement
+            .step()
+            .map_err(|error| SupervisorError::journal(action, error))?
+        else {
+            return Ok(None);
         };
-        parse_entry(text).ok()
+        let Value::Text(text) = &row[0] else {
+            return Err(SupervisorError::Journal(
+                "inventory row is not text".to_owned(),
+            ));
+        };
+        parse_entry(text).map(Some)
     }
 
     /// Whether the row for a recorded group may be forgotten: its group is
@@ -295,7 +326,12 @@ impl<R: InventoryRuntime> Inventory<R> {
     ) -> bool {
         // The check wakes the release loop to scan now when unconfirmed.
         if let Some(leader) = crate::leader::group_leader(entry.pid, &entry.start) {
-            return leader.group_gone();
+            // The latched result is only meaningful while ace still holds
+            // the leader's pid: that pin is what makes the group number
+            // ours. Once released, a fresh snapshot must decide.
+            if leader.pin_held() {
+                return leader.group_gone();
+            }
         }
         if snapshots.is_none() {
             *snapshots = Some((self.runtime.group_snapshot(), None));
@@ -337,57 +373,83 @@ impl<R: InventoryRuntime> Inventory<R> {
             Option<crate::system::GroupSnapshot>,
         )> = None;
         #[cfg(not(windows))]
-        let mut wait_until: Option<u64> = None;
+        let mut waiting = false;
         for pid in self.unremoved.clone() {
             #[cfg(not(windows))]
-            if let Some(entry) = self.recorded(pid)
-                && !self.release_empty(&mut snapshots, &entry)
-            {
-                // Still occupied, or nothing proves it gone: keep the
-                // row and look again soon.
-                let at = now_ms.saturating_add(GATE_RECHECK_MS);
-                wait_until = Some(wait_until.map_or(at, |due| due.min(at)));
-                continue;
-            }
-            let statement = match self.db.prepare("DELETE FROM processes WHERE pid=?") {
-                Ok(statement) => statement,
-                Err(error) => {
-                    self.failed(now_ms, error.to_string());
-                    return self.plan(now_ms);
+            match self.recorded(pid) {
+                // A lookup that failed proves nothing: keep the row.
+                Err(_) => {
+                    waiting = true;
+                    continue;
                 }
-            };
-            if statement.bind(&[Some(Value::Integer(pid as i64))]).is_err() {
-                self.failed(now_ms, format!("inventory delete of {pid} failed"));
-                return self.plan(now_ms);
-            }
-            let mut failed: Option<String> = None;
-            loop {
-                match statement.step() {
-                    Ok(None) => break,
-                    Ok(Some(_)) => {}
-                    Err(error) => {
-                        failed = Some(error.to_string());
-                        break;
+                Ok(None) => {}
+                Ok(Some(entry)) => {
+                    if !self.release_empty(&mut snapshots, &entry) {
+                        // Still occupied, or nothing proves it gone: keep
+                        // the row and look again after a backoff.
+                        waiting = true;
+                        continue;
                     }
                 }
             }
-            if let Some(message) = failed {
-                self.failed(now_ms, message);
+            if !self.delete_row(pid, now_ms) {
                 return self.plan(now_ms);
             }
-            self.unremoved.remove(&pid);
         }
         #[cfg(not(windows))]
-        if let Some(due) = wait_until {
+        if waiting {
+            // A row that stays unconfirmed backs off instead of retrying
+            // at the recheck floor for ever.
+            self.unconfirmed_passes = self.unconfirmed_passes.saturating_add(1);
+            let due = now_ms.saturating_add(inventory_retry_ms(
+                self.unconfirmed_passes,
+                GATE_RECHECK_MS,
+                30_000,
+            ));
+            // Never reuse an expired deadline: it would fire at once.
             self.retry_at_ms = Some(match self.retry_at_ms {
-                Some(at) => at.min(due),
-                None => due,
+                Some(at) if at > now_ms => at.min(due),
+                _ => due,
             });
             return self.plan(now_ms);
         }
+        self.unconfirmed_passes = 0;
         self.tick.settled();
         self.retry_at_ms = None;
         RetryPlan::Done
+    }
+
+    /// Deletes one recorded row outright. A failed delete is reported and
+    /// kept for the retry pass; true once the row is gone.
+    pub(crate) fn delete_row(&mut self, pid: u32, now_ms: u64) -> bool {
+        let statement = match self.db.prepare("DELETE FROM processes WHERE pid=?") {
+            Ok(statement) => statement,
+            Err(error) => {
+                self.failed(now_ms, error.to_string());
+                return false;
+            }
+        };
+        if statement.bind(&[Some(Value::Integer(pid as i64))]).is_err() {
+            self.failed(now_ms, format!("inventory delete of {pid} failed"));
+            return false;
+        }
+        let mut failed: Option<String> = None;
+        loop {
+            match statement.step() {
+                Ok(None) => break,
+                Ok(Some(_)) => {}
+                Err(error) => {
+                    failed = Some(error.to_string());
+                    break;
+                }
+            }
+        }
+        if let Some(message) = failed {
+            self.failed(now_ms, message);
+            return false;
+        }
+        self.unremoved.remove(&pid);
+        true
     }
 
     fn failed(&mut self, now_ms: u64, message: String) {
@@ -407,6 +469,18 @@ impl<R: InventoryRuntime> Inventory<R> {
     /// When the next retry is due, if one is scheduled.
     pub fn retry_at_ms(&self) -> Option<u64> {
         self.retry_at_ms
+    }
+
+    /// The delay until the next retry at `now_ms`, if one is scheduled:
+    /// never below the recheck floor (an expired deadline must not spin)
+    /// and never above this inventory's current backoff.
+    pub fn retry_delay_ms(&self, now_ms: u64) -> Option<u64> {
+        let at = self.retry_at_ms?;
+        let failures = self.tick.failures().max(self.unconfirmed_passes).max(1);
+        Some(
+            at.saturating_sub(now_ms)
+                .clamp(GATE_RECHECK_MS, inventory_backoff_ms(failures)),
+        )
     }
 
     /// Closes the inventory; a pending retry never runs against it.
