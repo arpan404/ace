@@ -76,6 +76,8 @@ export const ToolDetail = z.discriminatedUnion("kind", [
     kind: z.literal("shell"),
     command: z.string(),
     rawCommand: z.string().optional(),
+    /** What the provider says the command is for (Claude's Bash `description`); absent when it sends none. */
+    description: z.string().optional(),
     cwd: z.string().optional(),
     exitCode: z.number().int().nullable().optional(),
     /** Full output lives in the daemon stream store. */

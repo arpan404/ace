@@ -1,5 +1,11 @@
 import type { ThreadSource } from "@ace/client";
-import { backgroundCommand, backgroundTaskLine, ledgerOf, turnTreeOf } from "@ace/ui-core";
+import {
+  backgroundCommand,
+  commandLabel,
+  backgroundTaskLine,
+  ledgerOf,
+  turnTreeOf,
+} from "@ace/ui-core";
 import { preview } from "./presentation.ts";
 
 /*
@@ -15,13 +21,24 @@ export function backgroundRows(store: ThreadSource, ids: readonly string[]) {
     const taskId = calls.get(id);
     const task = taskId === undefined ? undefined : store.task(taskId);
     if (!task || task.internal) return [];
+    const item = store.item(id);
+    const command = backgroundCommand(task, item);
+    const detail = item?.type === "tool_call" ? item.call.detail : undefined;
     return [
       {
         itemId: id,
         taskId: task.id,
         /** "Running in background", "Finished", "Stopped". */
         label: backgroundTaskLine(task.status),
-        command: preview(backgroundCommand(task, store.item(id)), 512),
+        command: preview(command, 8192),
+        /** What it does in words: the provider's description, else the command's summary. */
+        description: preview(
+          commandLabel({
+            command,
+            description: detail?.kind === "shell" ? detail.description : undefined,
+          }),
+          256,
+        ),
         running: task.status === "running",
         /**
          * Settled, or a running command the thread's live tree counts (the pill's "1 command",

@@ -135,6 +135,7 @@ struct StripLineRow: Codable, Sendable, Equatable {
 /// Commands a stopped or finished turn left running: their strip, and the tasks its Stop ends.
 struct LeftRunningRow: Codable, Sendable, Equatable {
     let strip: StripLineRow
+    let commands: [String]
     let taskIds: [String]
 }
 struct PillRow: Codable, Sendable, Equatable {
