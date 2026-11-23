@@ -122,14 +122,10 @@ struct OrganizationAuditPage: View {
             Button("Export the whole log") { Task { await export() } }
                 .foregroundStyle(AceDesign.Ink.action)
                 .accessibilityIdentifier("organization.audit.export")
-            if let key = log.key {
-                Button("Copy the log's key") { UIPasteboard.general.string = key }
-                    .foregroundStyle(AceDesign.Ink.action)
-            }
         } header: {
             InsetHeader("Export")
         } footer: {
-            quiet("JSON Lines with its \(log.checkpoints ?? 0) signed checkpoints. On any machine with ace, `ace org audit verify <file> --key <key>` checks it offline. Use the key \(admin.org.name) registered for the host, not one the file names.")
+            quiet("JSON Lines with its \(log.checkpoints ?? 0) signed checkpoints. On any machine with ace, `ace org audit verify <file> --key <key>` checks it offline. Use the key \(admin.org.name) registered for the host when it enrolled, never one the file itself names.")
         }
         .insetRowBackground()
     }
