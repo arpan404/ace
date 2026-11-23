@@ -87,26 +87,29 @@ export class ChromeVideo implements VideoHost {
   ): Promise<VideoCaptureHandle> {
     const { windowId } = Window.parse(await page.send("Browser.getWindowForTarget"));
     const id = `capture-${++this.ids}`;
-    // Listening before the start: an end the extension reports while it answers reaches the
-    // viewer, rather than finding no capture to tell.
-    this.captures.set(id, events);
     let document: BrowserCdp;
     try {
-      document = await this.start(id, windowId, width, height);
+      // Each attempt listens on the document it starts in, right before it asks (`start`).
+      document = await this.start(id, windowId, width, height, events);
     } catch (error) {
       this.captures.delete(id);
       throw error;
     }
     const call = (name: string, args: unknown[]) =>
       void evaluate(document, name, args).catch(() => {});
+    let closed = false;
     return {
       encodes: (specs) => call("aceVideo.encodes", [id, specs]),
       keyframe: (encode) => call("aceVideo.keyframe", [id, encode]),
       audio: (on) => call("aceVideo.audio", [id, on]),
       // Chunks go only to ace-media's ingest, binary.
       ingest: (target) => call("aceVideo.ingest", [id, target ?? null]),
+      // Stopped in its document even when its end was heard already: a capture whose viewer
+      // let go of it never keeps its tab held.
       close: () => {
-        if (!this.captures.delete(id)) return;
+        if (closed) return;
+        closed = true;
+        this.captures.delete(id);
         const stopped = evaluate(document, "aceVideo.stop", [id]).catch(() => {});
         this.stopping.add(stopped);
         // `stopped` already swallows its own failure; only clearing the set is left.
@@ -122,12 +125,21 @@ export class ChromeVideo implements VideoHost {
    * nor a new document frees: then the extension is installed again, which ends every capture
    * it asked for, and the tab is tried once more.
    */
-  private async start(id: string, windowId: number, width: number, height: number) {
+  private async start(
+    id: string,
+    windowId: number,
+    width: number,
+    height: number,
+    events: CaptureEvents,
+  ) {
     // A capture still stopping holds its tab; asking for the tab before then is refused.
     await Promise.all(this.stopping);
     let { worker, document } = await this.extension();
     const attempt = async (audio: boolean) => {
       const { streamId } = OpenedStream.parse(await evaluate(worker, "aceVideo.open", [windowId]));
+      // Listening before this document's start: an end it reports while it answers reaches the
+      // viewer. An extension that went away before now never knew the capture.
+      this.captures.set(id, events);
       await evaluate(document, "aceVideo.start", [
         id,
         streamId,

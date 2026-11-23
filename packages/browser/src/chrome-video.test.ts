@@ -222,6 +222,8 @@ function chromeCapture(
       loads++;
     },
     targets: () => ({ worker: `worker-${loads}`, offscreen: `offscreen-${loads}` }),
+    /** Captures running in the extension now, by id. */
+    live,
   };
 }
 
@@ -311,4 +313,50 @@ test("installing the encoder again to free a held tab never ends the capture it 
   const starting = viewer();
   await v.open(page(1), 800, 600, starting.events);
   expect(starting.seen.ended).toBe(0);
+});
+
+/** The extension's event for capture `capture`, as its binding reports it. */
+const endedEvent = (capture: string) =>
+  JSON.stringify({
+    method: "Runtime.bindingCalled",
+    sessionId: "offscreen-1-document",
+    params: { name: "aceVideoEvent", payload: JSON.stringify({ t: "ended", capture }) },
+  });
+
+test("a capture whose extension went away while it waited to start opens on the next one, and its close stops it there", async () => {
+  let connection: CdpConnection | undefined;
+  const chrome = chromeCapture({ stopMs: 50 });
+  const v = await encoder(chrome, (made) => (connection = made));
+  const first = await v.open(page(1), 800, 600, viewer().events);
+  first.close();
+  // The next capture waits for that stop; meanwhile the extension's worker detaches.
+  const waiting = viewer();
+  const opening = v.open(page(2), 800, 600, waiting.events);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  connection?.receive(
+    JSON.stringify({
+      method: "Target.detachedFromTarget",
+      params: { sessionId: "worker-1-worker" },
+    }),
+  );
+  const handle = await opening;
+  // It never heard an end: it streams on the extension loaded again.
+  expect(waiting.seen.ended).toBe(0);
+  expect([...chrome.live.keys()]).toContain("capture-2");
+  handle.close();
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  expect([...chrome.live.keys()]).not.toContain("capture-2");
+});
+
+test("closing a capture the extension already said ended still stops it there", async () => {
+  let connection: CdpConnection | undefined;
+  const chrome = chromeCapture();
+  const v = await encoder(chrome, (made) => (connection = made));
+  const seen = viewer();
+  const handle = await v.open(page(1), 800, 600, seen.events);
+  connection?.receive(endedEvent("capture-1"));
+  expect(seen.seen.ended).toBe(1);
+  handle.close();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect([...chrome.live.keys()]).toEqual([]);
 });
