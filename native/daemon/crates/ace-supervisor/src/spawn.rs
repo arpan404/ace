@@ -5,7 +5,6 @@
 //! `process-interactive.ts`; the running child lives in `child.rs`.
 
 use crate::errors::SupervisorError;
-use crate::leader::Leader;
 use crate::pump::Flow;
 use std::sync::Arc;
 
@@ -50,10 +49,16 @@ impl SpawnSpec {
         Ok(())
     }
 
-    /// The command as the OS spawns it. POSIX children lead their own
-    /// process group; Windows children start suspended when contained, so
-    /// they are in their job before they run.
-    pub(crate) fn command(&self) -> std::process::Command {
+    /// The command as the OS spawns it, with its three standard streams.
+    /// POSIX children start a session of their own (`detached: true`), so
+    /// they lead their own process group; Windows children start suspended
+    /// when contained, so they are in their job before they run.
+    pub(crate) fn command(
+        &self,
+        stdin: std::process::Stdio,
+        stdout: std::process::Stdio,
+        stderr: std::process::Stdio,
+    ) -> std::process::Command {
         let mut command = std::process::Command::new(&self.command);
         #[cfg(windows)]
         {
@@ -80,21 +85,32 @@ impl SpawnSpec {
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt as _;
-            command.process_group(0);
+            // SAFETY: the hook runs in the forked child before exec and only
+            // calls setsid(2), which is async-signal-safe and allocates nothing.
+            #[allow(unsafe_code)]
+            unsafe {
+                command.pre_exec(|| {
+                    rustix::process::setsid()
+                        .map(|_| ())
+                        .map_err(std::io::Error::from)
+                });
+            }
         }
         command.env_clear();
         command.envs(self.env.iter().map(|(name, value)| (name, value)));
         if let Some(cwd) = &self.cwd {
             command.current_dir(cwd);
         }
-        command.stdin(stdio(self.stdin));
-        command.stdout(stdio(self.stdout));
-        command.stderr(stdio(self.stderr));
+        command.stdin(stdin);
+        command.stdout(stdout);
+        command.stderr(stderr);
         command
     }
 }
 
-fn stdio(mode: StdioMode) -> std::process::Stdio {
+/// A stream that is not piped, as the OS attaches it; `Piped` is the OS
+/// pipe (the Windows spawn makes its own overlapped pipes instead).
+pub(crate) fn stdio(mode: StdioMode) -> std::process::Stdio {
     match mode {
         StdioMode::Piped => std::process::Stdio::piped(),
         StdioMode::Ignore => std::process::Stdio::null(),
@@ -168,32 +184,14 @@ impl Drop for Delivered {
     }
 }
 
-/// The exit's receipt. When it drops, the shell's exit listeners have run
-/// (or can no longer run), so the leader is reaped: until then its pid, and
-/// so its process group id, cannot be reused, and the listeners' group stop
-/// reaches only this tree.
-pub struct ExitHeard {
-    leader: Arc<Leader>,
-}
-
-impl ExitHeard {
-    pub(crate) fn new(leader: Arc<Leader>) -> Self {
-        Self { leader }
-    }
-}
-
-impl Drop for ExitHeard {
-    fn drop(&mut self) {
-        self.leader.reap();
-    }
-}
-
 /// Where a child's events go, in order; the shell turns them into streams.
 pub trait EventSink: Send + Sync + 'static {
     /// A chunk of piped output.
     fn output(&self, stream: OutputStream, bytes: Vec<u8>, delivered: Delivered);
+    /// One output reached EOF (or failed): its stream ends.
+    fn end(&self, stream: OutputStream);
     /// The leader's end, like node's `exit`: pipes may still drain.
-    fn exit(&self, exit: RawExit, heard: ExitHeard);
+    fn exit(&self, exit: RawExit);
     /// The pipes are done, like node's `close`: no byte follows.
     fn close(&self, exit: RawExit);
     /// One stdin write reached the pipe; the shell's write callback runs.

@@ -19,6 +19,8 @@ import { supervisorBackend } from "./native-switches.ts";
 export type SupervisorEventKind =
   | "stdout"
   | "stderr"
+  | "stdout-end"
+  | "stderr-end"
   | "exit"
   | "close"
   | "stdin-written"
@@ -38,6 +40,8 @@ interface NativeChildHandle {
   resumeOutput(kind: "stdout" | "stderr"): void;
   closeOutput(kind: "stdout" | "stderr"): void;
   kill(signal: string): boolean;
+  signalGroup(signal: string): "sent" | "gone" | "released";
+  groupGone(): boolean;
   hasJob(): boolean;
   jobRunning(): boolean | null | undefined;
   jobTerminate(): void;
@@ -78,6 +82,7 @@ interface SupervisorAddon {
   supervisorProcessIdentity(pid: number): string | null;
   supervisorProcessGroupIsGone(group: number): boolean;
   supervisorKillGroup(group: number, signal: string): void;
+  supervisorGroupGone(group: number): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
   supervisorCaptureTree(rootsJson: string, limit: number): string;
@@ -348,6 +353,11 @@ export class NativeChildProcess
       // False pauses the native pump until the stream reads again.
       return (kind === "stdout" ? this.stdout : this.stderr).push(bytes);
     }
+    if (kind === "stdout-end" || kind === "stderr-end") {
+      // Each stream ends at its own EOF, like a node socket.
+      (kind === "stdout-end" ? this.stdout : this.stderr).push(null);
+      return undefined;
+    }
     if (kind === "stdin-written") {
       const written = this.written;
       this.written = undefined;
@@ -365,13 +375,46 @@ export class NativeChildProcess
     }
     const exit = parseExit(data);
     if (kind === "exit") {
-      this.emit("exit", exit.code, exit.signal);
+      try {
+        this.emit("exit", exit.code, exit.signal);
+      } finally {
+        // Like node's flushStdio: once the leader exits, a stream nobody reads is drained, so its
+        // EOF (and `close`) can arrive. Scheduled even when a listener threw.
+        process.nextTick(() => this.drainUnread());
+      }
       return undefined;
     }
     this.stdout.push(null);
     this.stderr.push(null);
     this.emit("close", exit.code, exit.signal);
     return undefined;
+  }
+
+  /** Resumes each piped stream that has no reader, discarding its bytes, as node does at exit. */
+  private drainUnread(): void {
+    for (const stream of [this.stdout, this.stderr]) {
+      if (
+        stream.readable &&
+        stream.readableFlowing === null &&
+        stream.listenerCount("data") === 0 &&
+        stream.listenerCount("readable") === 0
+      )
+        stream.resume();
+    }
+  }
+
+  /**
+   * Signals the child's process group while its id is provably the one ace created; once the
+   * supervisor has released the leader (its group emptied) nothing is sent.
+   */
+  signalGroup(signal: NodeJS.Signals): void {
+    if (!this.handle) return;
+    this.handle.signalGroup(signal);
+  }
+
+  /** Whether nothing of the child's group runs any more. */
+  groupGone(): boolean {
+    return this.handle ? this.handle.groupGone() : true;
   }
 
   /** Signals the leader through its own handle; false once it is reaped, never a reused pid. */

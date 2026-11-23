@@ -7,7 +7,7 @@ import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
 import { signalTreeMember } from "./process-tree.ts";
 import { supervisorBackend } from "./native-switches.ts";
-import { nativeKillWindowsTree, supervisorAddon } from "./native-process.ts";
+import { NativeChildProcess, nativeKillWindowsTree, supervisorAddon } from "./native-process.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -38,7 +38,21 @@ export function guardGroupSignals(guard: GroupGuard): () => void {
   };
 }
 
-export function killGroup(pid: number, signal: NodeJS.Signals): void {
+/**
+ * A child that signals its own process group, and only while the group id is provably the one
+ * ace created: the native supervisor keeps the exited leader unreaped while anything of its group
+ * lives, and refuses once it has released it.
+ */
+export interface GroupHandle {
+  signalGroup(signal: NodeJS.Signals): void;
+  groupGone(): boolean;
+}
+/** The child's own group handle, when the native supervisor spawned it. */
+export function groupOf(child: unknown): GroupHandle | undefined {
+  return child instanceof NativeChildProcess ? child : undefined;
+}
+
+export function killGroup(pid: number, signal: NodeJS.Signals, group?: GroupHandle): void {
   if (process.platform === "win32") {
     // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
     // still reach every other owner, so a failure here is reported, not thrown.
@@ -62,6 +76,10 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
       for (const member of allowed) signalTreeMember(member, signal);
       return;
     }
+  }
+  if (group) {
+    group.signalGroup(signal);
+    return;
   }
   if (supervisorBackend() === "native") {
     supervisorAddon().supervisorKillGroup(pid, signal);
@@ -90,7 +108,7 @@ export function signalTree(
 ): void {
   try {
     if (windows) killTree(pid, force);
-    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
+    else killGroup(pid, force ? "SIGKILL" : "SIGTERM", groupOf(leader));
   } catch (error) {
     process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
     try {
@@ -100,21 +118,34 @@ export function signalTree(
     }
   }
 }
+/** Whether nothing of the group runs: ESRCH, or darwin's EPERM for a group of zombies. */
+function groupGone(pid: number, group: GroupHandle | undefined): boolean {
+  if (group) return group.groupGone();
+  // The native supervisor's exited leaders stay unreaped while their group lives, so it answers
+  // for its own groups without counting that zombie.
+  if (supervisorBackend() === "native") return supervisorAddon().supervisorGroupGone(pid);
+  try {
+    process.kill(-pid, 0);
+    return false;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) return true;
+    throw error;
+  }
+}
 /** A retained group's lifetime is independent of its leader and inherited pipes. */
-export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
-  killGroup(pid, "SIGTERM");
+export async function stopRetainedGroup(
+  pid: number,
+  graceMs: number,
+  group?: GroupHandle,
+): Promise<void> {
+  killGroup(pid, "SIGTERM", group);
   const deadline = performance.now() + graceMs;
   while (true) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
-      throw error;
-    }
+    if (groupGone(pid, group)) break;
     const remaining = deadline - performance.now();
     if (remaining <= 0) {
-      killGroup(pid, "SIGKILL");
+      killGroup(pid, "SIGKILL", group);
       break;
     }
     await delay(Math.min(25, remaining));

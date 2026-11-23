@@ -36,4 +36,6 @@ pub mod system;
 pub mod test_scratch;
 pub mod tree;
 pub mod watch;
+#[cfg(windows)]
+mod winpipe;
 pub mod wintree;

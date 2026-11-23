@@ -19,7 +19,7 @@ import { admitProcess, registerGroup, signalTree, stopRetainedGroup } from "./pr
 import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
   type WindowsJob,
@@ -146,7 +146,7 @@ function spawnOwned(
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
-      : stopRetainedGroup(pid, graceMs);
+      : stopRetainedGroup(pid, graceMs, groupOf(child));
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined

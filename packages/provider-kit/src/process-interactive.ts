@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
   type WindowsJob,
@@ -41,11 +41,11 @@ export function spawnInteractive(options: {
   const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
+    else killGroup(pid, "SIGTERM", groupOf(child));
   };
   const destroy = (pid: number) => {
     if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
+    else killGroup(pid, "SIGKILL", groupOf(child));
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)

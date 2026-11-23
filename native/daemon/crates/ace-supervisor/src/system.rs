@@ -204,3 +204,39 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
             .unwrap_or(0)
     }
 }
+
+/// Whether any live (non-zombie) process other than `except` is in process
+/// group `group`. A listing that cannot be read counts as members present,
+/// so a group is never taken for empty on missing evidence.
+pub fn group_has_live_members(group: u32, except: u32) -> bool {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use crate::listing::KernelListing as _;
+        #[cfg(target_os = "linux")]
+        let listing = crate::listing::LinuxListing::new(crate::listing::SystemProcFs);
+        #[cfg(target_os = "macos")]
+        let listing = crate::listing::DarwinListing;
+        let candidates = if cfg!(target_os = "linux") {
+            let all = listing.all();
+            if all.is_empty() {
+                return true;
+            }
+            all
+        } else {
+            listing.group_members(group)
+        };
+        candidates
+            .into_iter()
+            .filter(|pid| *pid != except)
+            .any(|pid| {
+                listing
+                    .info(pid)
+                    .is_some_and(|info| info.group == group && !info.zombie)
+            })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (group, except);
+        false
+    }
+}

@@ -7,9 +7,7 @@
 use super::{bind_error, guarded, input_error, runtime};
 use ace_supervisor::child::{SupervisedChild, spawn_child};
 use ace_supervisor::signal::SignalName;
-use ace_supervisor::spawn::{
-    Delivered, EventSink, ExitHeard, OutputStream, RawExit, SpawnSpec, StdioMode,
-};
+use ace_supervisor::spawn::{Delivered, EventSink, OutputStream, RawExit, SpawnSpec, StdioMode};
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
@@ -63,20 +61,16 @@ impl EventSink for TsfnSink {
         );
     }
 
-    fn exit(&self, exit: RawExit, heard: ExitHeard) {
-        // `heard` drops once the shell's exit listeners have run (or the
-        // call was refused), and only then is the leader reaped.
-        let _ = self.events.call_with_return_value(
-            Ok(FnArgs::from((
-                "exit".to_owned(),
-                Uint8Array::new(exit_json(&exit)),
-            ))),
-            ThreadsafeFunctionCallMode::NonBlocking,
-            move |listened, _env| {
-                drop(heard);
-                listened.map(|_| ())
-            },
-        );
+    fn end(&self, stream: OutputStream) {
+        let kind = match stream {
+            OutputStream::Stdout => "stdout-end",
+            OutputStream::Stderr => "stderr-end",
+        };
+        self.send(kind, Vec::new());
+    }
+
+    fn exit(&self, exit: RawExit) {
+        self.send("exit", exit_json(&exit));
     }
 
     fn close(&self, exit: RawExit) {
@@ -229,7 +223,41 @@ impl NativeChild {
         })
     }
 
-    /// Releases the pipes; the leader stays held until its exit is heard.
+    /// Signals the whole group while its id is provably this tree's:
+    /// `"sent"`, `"gone"`, or `"released"` (nothing sent: the group emptied
+    /// and its id may be someone else's now).
+    #[napi(catch_unwind)]
+    pub fn signal_group(&self, signal: String) -> napi::Result<String> {
+        guarded("supervisor group signal", || {
+            let signal = SignalName::parse(&signal).map_err(bind_error)?;
+            #[cfg(unix)]
+            {
+                use ace_supervisor::leader::GroupSignal;
+                Ok(match self.child.signal_group(signal).map_err(bind_error)? {
+                    GroupSignal::Sent => "sent",
+                    GroupSignal::Gone => "gone",
+                    GroupSignal::Released => "released",
+                }
+                .to_owned())
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = signal;
+                Err(napi::Error::from_reason(
+                    "process groups do not exist on Windows",
+                ))
+            }
+        })
+    }
+
+    /// Whether nothing of the group runs any more.
+    #[napi(catch_unwind)]
+    pub fn group_gone(&self) -> napi::Result<bool> {
+        guarded("supervisor group probe", || Ok(self.child.group_gone()))
+    }
+
+    /// Releases the pipes; the leader stays held while its group may still
+    /// be signalled.
     #[napi(catch_unwind)]
     pub fn dispose(&self) -> napi::Result<()> {
         guarded("supervisor dispose", || {

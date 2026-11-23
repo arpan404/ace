@@ -173,6 +173,11 @@ pub struct KillOnCloseJob<A> {
 }
 
 impl<A: WindowsJobApi> KillOnCloseJob<A> {
+    /// Whether a process joined the job.
+    pub fn joined(&self) -> bool {
+        self.joined
+    }
+
     /// Creates the job; `None` when setup failed.
     pub fn create(api: A) -> Option<Self> {
         RetainedJob::create(api).ok().map(|inner| Self {

@@ -49,12 +49,41 @@ pub fn supervisor_process_group_is_gone(group: u32) -> napi::Result<bool> {
 }
 
 /// Ends a group with `signal`. Unguarded: only the shell's `killGroup`
-/// calls it, after its guard allowed the whole group.
+/// calls it, after its guard allowed the whole group. A group this
+/// supervisor spawned is signalled through its pinned leader (nothing once
+/// released); any other group by number, as the TypeScript backend does.
 #[napi(catch_unwind)]
 pub fn supervisor_kill_group(group: u32, signal: String) -> napi::Result<()> {
     guarded("supervisor kill group", || {
         let signal = SignalName::parse(&signal).map_err(bind_error)?;
+        #[cfg(unix)]
+        if let Some(leader) = ace_supervisor::leader::group_leader(group) {
+            return leader.signal_group(signal).map(|_| ()).map_err(bind_error);
+        }
         stop::kill_group(group, signal).map_err(bind_error)
+    })
+}
+
+/// Whether a group is gone, with `killGroup`'s meaning: no process left
+/// (ESRCH, or darwin's EPERM for a group of zombies). A group this
+/// supervisor spawned is asked through its leader, whose zombie does not count.
+#[napi(catch_unwind)]
+pub fn supervisor_group_gone(group: u32) -> napi::Result<bool> {
+    guarded("supervisor group gone", || {
+        if let Some(leader) = ace_supervisor::leader::group_leader(group) {
+            return Ok(leader.group_gone());
+        }
+        match ace_supervisor::reaper::process_group_alive(group) {
+            Ok(alive) => Ok(!alive),
+            Err(ace_supervisor::errors::SupervisorError::Unavailable(message)) => {
+                if cfg!(target_os = "macos") {
+                    Ok(true)
+                } else {
+                    Err(napi::Error::from_reason(message))
+                }
+            }
+            Err(error) => Err(bind_error(error)),
+        }
     })
 }
 

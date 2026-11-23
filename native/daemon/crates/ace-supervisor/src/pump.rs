@@ -84,8 +84,9 @@ impl Flow {
     }
 }
 
-/// Forwards `reader` as output events until EOF, a read error, or the
-/// shell closing the stream. Dropping `reader` on return closes the pipe.
+/// Forwards `reader` as output events until EOF or a read error (then the
+/// stream ends, on its own, like a node socket), or until the shell closes
+/// the stream. Dropping `reader` on return closes the pipe.
 pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
     sink: &E,
     mut reader: R,
@@ -107,6 +108,7 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
         match read {
             Ok(0) | Err(_) => {
                 flow.release();
+                sink.end(stream);
                 return;
             }
             Ok(n) => sink.output(
@@ -128,9 +130,9 @@ pub enum StdinMessage {
 /// Writes queued stdin in order; each write is acknowledged once it is in
 /// the pipe. `End`, the shell dropping its sender, or `abort` (the shell
 /// destroyed the stream) closes the pipe, which a CLI reads as EOF.
-pub async fn pump_stdin<E: EventSink>(
+pub async fn pump_stdin<E: EventSink, W: tokio::io::AsyncWrite + Unpin>(
     sink: &E,
-    mut stdin: tokio::process::ChildStdin,
+    mut stdin: W,
     mut queue: tokio::sync::mpsc::UnboundedReceiver<StdinMessage>,
     abort: CancellationToken,
 ) {
@@ -142,8 +144,13 @@ pub async fn pump_stdin<E: EventSink>(
         let Some(StdinMessage::Write(bytes)) = message else {
             return;
         };
+        // The write is acknowledged once the kernel took every byte (on
+        // Windows, once the overlapped write completed), never before.
         let written = tokio::select! {
-            written = stdin.write_all(&bytes) => written,
+            written = async {
+                stdin.write_all(&bytes).await?;
+                stdin.flush().await
+            } => written,
             () = abort.cancelled() => return,
         };
         match written {
