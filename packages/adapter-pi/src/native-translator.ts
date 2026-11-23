@@ -52,14 +52,8 @@ function addon(): NativeAddon {
   return loaded;
 }
 
-export function createNativePiTranslator(init: {
-  threadId: ThreadId;
-  rootKey: Key;
-}): Translator {
-  const handle = new (addon().PiTranslatorNative)(
-    String(init.threadId),
-    init.rootKey,
-  );
+export function createNativePiTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
+  const handle = new (addon().PiTranslatorNative)(String(init.threadId), init.rootKey);
   return {
     takeDiagnostics(): RawPayload[] {
       return JSON.parse(handle.takeDiagnostics()) as RawPayload[];

@@ -8,14 +8,10 @@ import { setup, identity } from "./remote-test-support.ts";
 import { cliProgram } from "./cli/pty-test-support.ts";
 const program = cliProgram();
 async function invoke(home: string, args: string[], env: NodeJS.ProcessEnv = {}, stdin = "") {
-  const child = spawn(
-    program.command,
-    [...program.prefix, ...args],
-    {
-      env: { ...process.env, ...program.env, ...env, ACE_HOME: home },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const child = spawn(program.command, [...program.prefix, ...args], {
+    env: { ...process.env, ...program.env, ...env, ACE_HOME: home },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   let stdout = "";
   let stderr = "";
   child.stdout.on("data", (chunk: Buffer) => {

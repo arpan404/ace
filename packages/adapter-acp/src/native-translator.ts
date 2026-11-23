@@ -45,10 +45,7 @@ function addonPath(): string {
   const explicit = process.env.ACE_STORE_ADDON;
   if (explicit) return explicit;
   return fileURLToPath(
-    new URL(
-      `../../../native/daemon/target/release/${library}`,
-      import.meta.url,
-    ),
+    new URL(`../../../native/daemon/target/release/${library}`, import.meta.url),
   );
 }
 
@@ -62,10 +59,7 @@ function addon(): Addon {
     );
   }
   const module = { exports: {} as Record<string, unknown> };
-  (process as unknown as { dlopen: (mod: unknown, path: string) => void }).dlopen(
-    module,
-    path,
-  );
+  (process as unknown as { dlopen: (mod: unknown, path: string) => void }).dlopen(module, path);
   loaded = module.exports as unknown as Addon;
   return loaded;
 }
@@ -85,8 +79,8 @@ export class NativeAcpTranslator implements Translator {
     init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
     quirks: AcpQuirks = genericQuirks,
   ) {
-    const { NativeAcpTranslator } = addon();
-    this.handle = new NativeAcpTranslator(
+    const { NativeAcpTranslator: Handle } = addon();
+    this.handle = new Handle(
       String(init.threadId),
       init.rootKey,
       init.identity.generation,

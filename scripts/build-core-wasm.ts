@@ -61,7 +61,11 @@ function cargo(args: string[]): void {
   if (command !== null && existsSync(command))
     execFileSync(command, args, { cwd: daemon, env, stdio: "inherit" });
   else if (hasRustup)
-    execFileSync("rustup", ["run", pinned, "cargo", ...args], { cwd: daemon, env, stdio: "inherit" });
+    execFileSync("rustup", ["run", pinned, "cargo", ...args], {
+      cwd: daemon,
+      env,
+      stdio: "inherit",
+    });
   else execFileSync("cargo", args, { cwd: daemon, env, stdio: "inherit" });
 }
 
@@ -82,9 +86,7 @@ function build(out: string, bindgenTarget: "web" | "nodejs"): void {
   try {
     execFileSync("wasm-bindgen", ["--version"], { stdio: "ignore" });
   } catch {
-    throw new Error(
-      "wasm-bindgen CLI not found: install it with `cargo install wasm-bindgen-cli`",
-    );
+    throw new Error("wasm-bindgen CLI not found: install it with `cargo install wasm-bindgen-cli`");
   }
   execFileSync("wasm-bindgen", [wasm, "--out-dir", out, "--target", bindgenTarget], {
     stdio: "inherit",
@@ -102,8 +104,7 @@ ensureWasmTarget();
 
 const outIndex = process.argv.indexOf("--out");
 const targetIndex = process.argv.indexOf("--target");
-const bindgenTarget =
-  targetIndex >= 0 ? (process.argv[targetIndex + 1] as string) : undefined;
+const bindgenTarget = targetIndex >= 0 ? (process.argv[targetIndex + 1] as string) : undefined;
 if (bindgenTarget !== undefined && bindgenTarget !== "web" && bindgenTarget !== "nodejs")
   throw new Error("--target takes web or nodejs");
 if (outIndex >= 0) {

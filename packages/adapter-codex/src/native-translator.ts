@@ -56,10 +56,7 @@ export function createNativeCodexTranslator(init: {
   threadId: ThreadId;
   rootKey: Key;
 }): Translator {
-  const handle = new (addon().NativeCodexTranslator)(
-    String(init.threadId),
-    init.rootKey,
-  );
+  const handle = new (addon().NativeCodexTranslator)(String(init.threadId), init.rootKey);
   return {
     translate(frame: Frame, now: number) {
       const facts = JSON.parse(
