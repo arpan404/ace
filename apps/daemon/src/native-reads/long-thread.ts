@@ -9,7 +9,6 @@ import {
   ThreadSearchRequest,
   TurnStepsRequest,
   TurnsPageRequest,
-  ToolSurface,
   type Thread,
   type TurnStepsResponse,
 } from "@ace/protocol";
@@ -17,7 +16,7 @@ import { nativeHandle } from "@ace/provider-kit/sqlite";
 import type { SearchIndex } from "@ace/search";
 import type { LongThreadIndex } from "../long-thread/index.ts";
 import type { PayloadStore } from "../payload-store.ts";
-import type { TurnStepsSource } from "../long-thread/steps.ts";
+import { shapeTurnSteps, type TurnStepRow, type TurnStepsSource } from "../long-thread/steps.ts";
 
 interface NativeSource {
   index: LongThreadIndex;
@@ -82,23 +81,6 @@ function readable(source: NativeSource, id: ThreadId): void {
   if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
 }
 
-function validSurface(
-  surface: { kind: string; icon?: unknown },
-  iconRef: string | undefined,
-): { kind: string; icon?: unknown; iconRef?: string } | undefined {
-  const whole = ToolSurface.safeParse(
-    iconRef ? { ...surface, iconRef } : surface,
-  );
-  if (whole.success) return whole.data as { kind: string; icon?: unknown; iconRef?: string };
-  const unresolved = ToolSurface.safeParse(surface);
-  if (unresolved.success)
-    return unresolved.data as { kind: string; icon?: unknown; iconRef?: string };
-  const bare = ToolSurface.safeParse({ kind: surface.kind });
-  return bare.success
-    ? (bare.data as { kind: string; icon?: unknown; iconRef?: string })
-    : undefined;
-}
-
 export function turnsPageNative(
   source: NativeSource,
   input: Omit<
@@ -137,23 +119,30 @@ export function turnStepsNative(
     query.requestId,
     source.headSeq(),
   );
-  const response = JSON.parse(json) as TurnStepsResponse;
-  for (const step of response.steps) {
-    const surface = (step as { surface?: { kind: string; icon?: { kind: string } } }).surface;
-    if (!surface) continue;
-    const icon = (surface as { icon?: { kind: string } }).icon;
-    const ref = icon
-      ? cachedIcon?.(icon as Parameters<NonNullable<TurnStepsSource["cachedIcon"]>>[0])
-      : undefined;
-    const shown = validSurface(
-      surface as { kind: string; icon?: unknown },
-      typeof ref === "string" ? ref : undefined,
-    );
-    if (shown) Object.assign(step, { surface: shown });
-    else delete (step as { surface?: unknown }).surface;
-  }
-  return response;
+  // Rust fetches the range rows; TypeScript shapes them with the existing
+  // item, trust and tail code, so streaming previews, the byte budget and
+  // in-memory trust match the legacy path exactly.
+  const fetched = JSON.parse(json) as { end_seq: number; rows: TurnStepRow[] };
+  if (!nativeStepSites) nativeStepSites = new Map();
+  return shapeTurnSteps(
+    {
+      data: source.index.data,
+      item: (threadId, itemId) => source.payloads.stepItem(threadId, itemId),
+      sites: nativeStepSites,
+      cachedIcon,
+    },
+    query,
+    source.headSeq(),
+    Number(fetched.end_seq),
+    fetched.rows.map((row) => ({
+      item_id: String(row.item_id),
+      created_seq: Number(row.created_seq),
+    })),
+  );
 }
+
+/** Sites already worked out for native step pages, misses included, like the loader's map. */
+let nativeStepSites: Map<string, string | null> | undefined;
 
 export function threadSearchNative(
   source: NativeSource,
@@ -220,5 +209,13 @@ export function threadCatchUpNative(
     family,
     source.headSeq(),
   );
-  return JSON.parse(json);
+  const response = JSON.parse(json);
+  // The family merge sorts files with `localeCompare`, as `@ace/projection`
+  // does; Rust keeps first-seen order so the shell's collation is exact.
+  if (Array.isArray(response?.digest?.files)) {
+    response.digest.files = [...response.digest.files].toSorted((left: { path: string }, right: { path: string }) =>
+      left.path.localeCompare(right.path),
+    );
+  }
+  return response;
 }

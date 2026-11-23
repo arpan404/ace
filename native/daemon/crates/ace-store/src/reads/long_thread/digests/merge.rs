@@ -24,6 +24,8 @@ fn merge_counts(left: Option<i64>, right: Option<i64>) -> Result<Option<i64>, Lo
 }
 
 /// Combine bounded summaries. Counts remain exact when detail arrays truncate.
+// Files stay in first-seen order here; the TypeScript shell sorts them with
+// `localeCompare`, exactly as `@ace/projection` merges them.
 pub fn merge_digests(digests: Vec<DigestOut>) -> Result<DigestOut, LongError> {
     let mut result = empty_digest();
     let mut files: Vec<FileOut> = Vec::new();
@@ -83,7 +85,6 @@ pub fn merge_digests(digests: Vec<DigestOut>) -> Result<DigestOut, LongError> {
             result.truncated = true;
         }
     }
-    files.sort_by(|left, right| left.path.cmp(&right.path));
     result.files = files;
     result.commands = commands;
     if files_overflow || commands_overflow {

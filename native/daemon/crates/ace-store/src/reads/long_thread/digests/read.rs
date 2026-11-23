@@ -98,7 +98,7 @@ pub fn read_turn_digests(
     for (index, _) in keys.iter().enumerate() {
         let current = counters_at(counts.get(index).map(Vec::as_slice).unwrap_or(&[]), 1, 2)?;
         let mut digest = digest_from_counters(&current);
-        let approvals = current.get("approvalsPending").unwrap_or(0).max(0);
+        let approvals = current.get("approvalsPending").unwrap_or(0);
         check_count(approvals)?;
         digest.approvals_pending = approvals;
         let token_samples = current.get("tokenSamples").unwrap_or(0);
@@ -113,8 +113,12 @@ pub fn read_turn_digests(
             digest.input_tokens = None;
             digest.output_tokens = None;
         }
+        let file_rows = files.get(index).map(Vec::as_slice).unwrap_or(&[]);
+        let command_rows = commands.get(index).map(Vec::as_slice).unwrap_or(&[]);
+        let files_truncated = file_rows.len() > 64;
+        let commands_truncated = command_rows.len() > 64;
         let mut file_values = Vec::new();
-        for row in files.get(index).map(Vec::as_slice).unwrap_or(&[]) {
+        for row in file_rows.iter().take(64) {
             let added = int_at(row, 1)?;
             let removed = int_at(row, 2)?;
             let unknown = int_at(row, 3)?;
@@ -122,11 +126,15 @@ pub fn read_turn_digests(
             file_values.push(turn_file(path, added, removed, unknown)?);
         }
         let mut command_values = Vec::new();
-        for row in commands.get(index).map(Vec::as_slice).unwrap_or(&[]) {
+        for row in command_rows.iter().take(64) {
             let data = text_at(row, 1)?;
             command_values.push(parse_command(data)?);
         }
-        let finished = finish_digest(digest, file_values, command_values)?;
+        let mut finished = finish_digest(digest, file_values, command_values)?;
+        if files_truncated || commands_truncated {
+            finished.truncated = true;
+        }
+        let finished = finished;
         out.push((finished, current));
     }
     Ok(out)
@@ -176,8 +184,12 @@ pub fn read_agent_digests(
     for index in 0..keys.len() {
         let current = counters_at(counts.get(index).map(Vec::as_slice).unwrap_or(&[]), 1, 2)?;
         let digest = digest_from_counters(&current);
+        let file_rows = files.get(index).map(Vec::as_slice).unwrap_or(&[]);
+        let command_rows = commands.get(index).map(Vec::as_slice).unwrap_or(&[]);
+        let files_truncated = file_rows.len() > 64;
+        let commands_truncated = command_rows.len() > 64;
         let mut file_values = Vec::new();
-        for row in files.get(index).map(Vec::as_slice).unwrap_or(&[]) {
+        for row in file_rows.iter().take(64) {
             let added = int_at(row, 1)?;
             let removed = int_at(row, 2)?;
             let unknown = int_at(row, 3)?;
@@ -185,11 +197,15 @@ pub fn read_agent_digests(
             file_values.push(agent_file(path, added, removed, unknown)?);
         }
         let mut command_values = Vec::new();
-        for row in commands.get(index).map(Vec::as_slice).unwrap_or(&[]) {
+        for row in command_rows.iter().take(64) {
             let data = text_at(row, 1)?;
             command_values.push(parse_command(data)?);
         }
-        out.push(finish_digest(digest, file_values, command_values)?);
+        let mut finished = finish_digest(digest, file_values, command_values)?;
+        if files_truncated || commands_truncated {
+            finished.truncated = true;
+        }
+        out.push(finished);
     }
     Ok(out)
 }

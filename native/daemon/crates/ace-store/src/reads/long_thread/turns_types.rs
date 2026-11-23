@@ -79,7 +79,7 @@ pub struct CommandOut {
     pub command: String,
     pub failed: bool,
     #[serde(rename = "exitCode", skip_serializing_if = "Option::is_none")]
-    pub exit_code: Option<i64>,
+    pub exit_code: Option<Option<i64>>,
 }
 
 /// A turn digest, in the protocol's field order.
@@ -196,11 +196,11 @@ pub fn parse_command(data: &str) -> Result<CommandOut, LongError> {
         serde_json::from_str(failed_raw.get()).map_err(|_| invalid("invalid index row"))?;
     let exit_code = match parsed.exit_code {
         None => None,
-        Some(raw) if raw.get() == "null" => None,
+        Some(raw) if raw.get() == "null" => Some(None),
         Some(raw) => {
             let code: i64 =
                 serde_json::from_str(raw.get()).map_err(|_| invalid("invalid index row"))?;
-            Some(code)
+            Some(Some(code))
         }
     };
     Ok(CommandOut {

@@ -8,29 +8,34 @@ use super::super::row::{json_string, strs_json};
 use serde::Deserialize;
 
 pub fn extract_terms(text: &str) -> Result<Vec<String>, LongError> {
+    use unicode_general_category::{GeneralCategory, get_general_category};
+    fn is_term_char(ch: char) -> bool {
+        if ch == '_' {
+            return true;
+        }
+        matches!(
+            get_general_category(ch),
+            GeneralCategory::UppercaseLetter
+                | GeneralCategory::LowercaseLetter
+                | GeneralCategory::TitlecaseLetter
+                | GeneralCategory::ModifierLetter
+                | GeneralCategory::OtherLetter
+                | GeneralCategory::DecimalNumber
+                | GeneralCategory::LetterNumber
+                | GeneralCategory::OtherNumber
+                | GeneralCategory::SpacingMark
+                | GeneralCategory::NonspacingMark
+                | GeneralCategory::EnclosingMark
+        )
+    }
     let mut terms = Vec::new();
     let mut current = String::new();
     for ch in text.chars() {
-        if ch == '_' || ch.is_alphanumeric() {
+        if is_term_char(ch) {
             current.push(ch);
-        } else if ch.is_ascii() {
-            if !current.is_empty() {
-                terms.push(current.clone());
-                current.clear();
-            }
-        } else {
-            // Combining marks (`\p{M}`) join a term; anything else ends it.
-            let mark = ('\u{300}'..='\u{36f}').contains(&ch)
-                || ('\u{1ab0}'..='\u{1aff}').contains(&ch)
-                || ('\u{1dc0}'..='\u{1dff}').contains(&ch)
-                || ('\u{20d0}'..='\u{20ff}').contains(&ch)
-                || ('\u{fe20}'..='\u{fe2f}').contains(&ch);
-            if mark {
-                current.push(ch);
-            } else if !current.is_empty() {
-                terms.push(current.clone());
-                current.clear();
-            }
+        } else if !current.is_empty() {
+            terms.push(current.clone());
+            current.clear();
         }
     }
     if !current.is_empty() {

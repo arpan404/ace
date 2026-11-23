@@ -182,30 +182,53 @@ pub fn owned_statuses(
     let list = ints_json(ordinals);
     let rows = all_rows_raw(
         conn,
-        "SELECT a.ordinal AS ordinal,a.status AS status FROM long_agents a WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND a.completion_relevant=1 AND json_extract(a.status,'$.state') NOT IN ('idle','interrupted','failed')",
+        "SELECT a.ordinal AS ordinal,a.status AS status,a.id AS id FROM long_agents a WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND a.completion_relevant=1 AND json_extract(a.status,'$.state') NOT IN ('idle','interrupted','failed') ORDER BY a.ordinal,a.id",
         vec![Value::Text(thread.to_owned()), Value::Text(list)],
     )?;
-    let mut best: Vec<(i64, i64, Status)> = Vec::new();
+    let mut best: Vec<(i64, i64, String, Status)> = Vec::new();
     for row in rows {
         let ordinal = int_at(&row, 0)?;
         let text = text_at(&row, 1)?;
+        let id = text_at(&row, 2)?.to_owned();
         let Ok(agent) = super::super::status::agent_thread_status(text) else {
             continue;
         };
-        let rank = owned_rank(&agent);
-        match best.iter_mut().find(|(at, _, _)| *at == ordinal) {
-            Some(slot) if rank < slot.1 => *slot = (ordinal, rank, agent),
+        let (state, on) = raw_state_on(text);
+        let rank = owned_rank(state, on.as_deref());
+        match best.iter_mut().find(|(at, _, _, _)| *at == ordinal) {
+            Some(slot) if rank < slot.1 => *slot = (ordinal, rank, id, agent),
+            Some(slot) if rank == slot.1 && id < slot.2 => *slot = (ordinal, rank, id, agent),
             Some(_) => {}
-            None => best.push((ordinal, rank, agent)),
+            None => best.push((ordinal, rank, id, agent)),
         }
     }
     Ok(best
         .into_iter()
-        .map(|(ordinal, _, status)| (ordinal, status))
+        .map(|(ordinal, _, _, status)| (ordinal, status))
         .collect())
 }
 
+/// The raw `state` and `on` of an agent status, for the loader's rank.
+/// Returns empty state when the body is not an object, so the caller skips it
+/// the same way the conversion does.
+fn raw_state_on(text: &str) -> (&str, Option<String>) {
+    #[derive(serde::Deserialize)]
+    struct Raw<'a> {
+        #[serde(borrow, default)]
+        state: Option<&'a str>,
+        #[serde(borrow, default)]
+        on: Option<&'a str>,
+    }
+    let parsed: Result<Raw<'_>, _> = serde_json::from_str(text);
+    match parsed {
+        Ok(raw) => (raw.state.unwrap_or(""), raw.on.map(|on| on.to_owned())),
+        Err(_) => ("", None),
+    }
+}
+
 /// The live threads of the page's subagents, with their validated statuses.
+/// Soft-deleted child threads are not live: the loader's `getThread` filters
+/// them, so the page shows the parent's recorded agent status and share.
 pub fn child_statuses(
     conn: &Arc<Connection>,
     child_ids: &[String],
@@ -217,7 +240,7 @@ pub fn child_statuses(
     let list = super::super::row::strs_json(child_ids)?;
     let rows = all_rows_raw(
         conn,
-        "SELECT id,status FROM threads WHERE id IN (SELECT value FROM json_each(?))",
+        "SELECT id,status FROM threads WHERE id IN (SELECT value FROM json_each(?)) AND json_extract(client,'$.deletedAt') IS NULL",
         vec![Value::Text(list)],
     )?;
     for row in rows {

@@ -61,7 +61,7 @@ pub(crate) fn summary_digest(
     counters: &Counters,
 ) -> Result<DigestOut, LongError> {
     let mut digest = digest_from_counters(counters);
-    let approvals = current.get("approvalsPending").unwrap_or(0).max(0);
+    let approvals = current.get("approvalsPending").unwrap_or(0);
     check_count(approvals)?;
     digest.approvals_pending = approvals;
     let token_samples = current.get("tokenSamples").unwrap_or(0);
@@ -159,8 +159,9 @@ pub(crate) fn read_since_seq(
         }
         map
     };
+    let files_truncated = files.len() > 64;
     let mut file_values = Vec::new();
-    for row in &files {
+    for row in files.iter().take(64) {
         let path = text_at(row, 0)?.to_owned();
         let added = int_at(row, 1)?;
         let removed = int_at(row, 2)?;
@@ -191,14 +192,15 @@ pub(crate) fn read_since_seq(
             Value::Integer(since),
         ],
     )?;
+    let commands_truncated = commands.len() > 64;
     let mut command_values = Vec::new();
-    for row in &commands {
+    for row in commands.iter().take(64) {
         let data = text_at(row, 0)?;
         command_values.push(parse_command(data)?);
     }
-    let truncated = files.len() > 64 || commands.len() > 64;
-    digest.files = file_values.into_iter().take(64).collect();
-    digest.commands = command_values.into_iter().take(64).collect();
+    let truncated = files_truncated || commands_truncated;
+    digest.files = file_values;
+    digest.commands = command_values;
     digest.truncated = truncated;
     validate_digest(&digest)?;
     Ok(digest)
