@@ -7,7 +7,7 @@ import XCTest
 
     func testNewThreadsChoicesAndSendStayOnScreenWithLargeText() {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        let compose = app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "inbox.compose", "New thread")).firstMatch
+        let compose = app.newThreadButton
         XCTAssertTrue(compose.waitForExistence(timeout: 25))
         compose.tap()
         let start = app.buttons["newThread.start"]

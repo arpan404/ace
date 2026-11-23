@@ -3,7 +3,7 @@ import SwiftUI
 /// The single inbox (issue #560) across every paired machine, in tabs: Threads (Inbox, Snoozed and
 /// Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside the lists
 /// and search everything). A phone switches them with the system's tab bar (Liquid Glass on iOS 26,
-/// Search its own trailing circle there), New thread in each list's top bar; a regular window with
+/// New thread in its own trailing circle there); a regular window with
 /// the sidebar's foot (`SidebarPlaces`), the system's bar hidden. Code review opens from the
 /// Projects list's top bar: as a place of its own in a regular window, over Projects on a phone. Spade's tab is there while
 /// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
@@ -168,23 +168,27 @@ struct InboxView: View {
         }
     }
 
-    /// Search, a place of the bar. Its page carries its own field under the title; the compose
-    /// tab holds the only search role and no tab-level search is set, so the system never gives
-    /// Compose Search's field.
+    /// Search is a regular tab with its own field under the page title.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
         Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
     }
 
-    /// New thread, New chat on Chats, in the slot iOS 26 gives the search role: its own round glass
-    /// button at the bar's end, beside the tabs. It isn't a place: choosing it runs compose and
-    /// leaves the tab showing (`tabChoice`). A regular window composes from the list's top bar.
+    /// iOS 27 gives the detached slot to the prominent role. iOS 26 uses the search role.
+    private static var composeRole: TabRole {
+        #if canImport(SwiftUI, _version: 8.0)
+        if #available(iOS 27, *) { return .prominent }
+        #endif
+        return .search
+    }
+
+    /// Compose opens over the current tab. A regular window composes from the list's top bar.
     @TabContentBuilder<InboxTab> private var composeTab: some TabContent<InboxTab> {
         if sizeClass != .regular && inbox.canStartThreads {
-            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose), value: InboxTab.compose, role: .search) {
+            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose), value: InboxTab.compose, role: Self.composeRole) {
                 Color.clear
             }
-            .accessibilityIdentifier("inbox.compose")
+            .accessibilityIdentifier("tab.\(HomeTabs.identifier(.compose))")
         }
     }
 
