@@ -77,6 +77,8 @@ import { nativeLoopbackHost } from "./device-host.ts";
 import { openPhoneTunnel } from "./machine-tunnel-open.ts";
 import { benchLoopback, startLoopbackBench } from "./tunnel-bench.ts";
 import { EarlyActions } from "./early-actions.ts";
+import { SpadeDaemonLive } from "@ace/client/spade-live";
+import { SpadeComputerLive, SpadeComputerLiveAction } from "./spade-computer-live.ts";
 
 const Config = z.object({
   deviceId: DeviceId,
@@ -178,6 +180,8 @@ let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
 let terminal: NativeTerminal | undefined;
+/** The Spade bot terminal on screen, live (`spade-computer-live.ts`). */
+let spadeComputer: SpadeComputerLive | undefined;
 let browser: BrowserLive | undefined;
 let devices: NativeDevices | undefined;
 let screen: NativeScreen | undefined;
@@ -392,6 +396,12 @@ async function start(json: string): Promise<void> {
   outside = new OutsideWatch(client, pump, preview, () => host.now());
   outside.start();
   spade?.stop();
+  spadeComputer?.stop();
+  spadeComputer = new SpadeComputerLive(
+    new SpadeDaemonLive(client, () => host.uuid()),
+    pump,
+    scheduler.set,
+  );
   spade = new NativeSpade(client, pump, {
     now: () => host.now(),
     id: () => host.uuid(),
@@ -649,6 +659,12 @@ function handle(raw: unknown): void {
     const panel = WorkspaceAction.safeParse(raw);
     if (panel.success) {
       if (workspace) void workspace.handle(panel.data).catch(error);
+      else error();
+      return;
+    }
+    const spadeComputerAction = SpadeComputerLiveAction.safeParse(raw);
+    if (spadeComputerAction.success) {
+      if (spadeComputer) spadeComputer.handle(spadeComputerAction.data);
       else error();
       return;
     }
