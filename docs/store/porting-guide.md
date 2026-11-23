@@ -266,101 +266,225 @@ These add to the rules for every phase above; where they differ, these win for p
     numbers are no worse than off (ADR 0222 §7); a slower part may still merge switched off,
     with the numbers in its PR.
 
+11. **Every call into the addon goes through the SQLite error translator.** The addon throws
+    `ace-store:{...}` errors that `packages/provider-kit/src/native-sqlite.ts` turns into the
+    errors node:sqlite throws (`rethrow`, `:82`; `call`, `:102`), with `errcode` and `errstr`.
+    Retry and busy handling branch on those (`isStoreBusy`, `isStoreRetry`, `store-busy.ts`), so
+    a shell that calls a binding method directly loses them. The first task that adds a shell
+    exports `call` from `native-sqlite.ts` as `nativeCall` (re-exported from
+    `@ace/provider-kit/sqlite`), and every shell call into the addon is
+    `nativeCall(() => handle.method(...))`. In Rust, SQLite failures leave the binding through
+    `fail()` (`ace-daemon-node/src/lib.rs`), never as a bare message; writer errors that are not
+    SQLite's (`WorkspaceUnregistered`, `Exhausted`, `FoldError`) throw a plain `Error` with the
+    TypeScript's message.
+
 ## Phase 4: the storage format
 
 ADR 0222 §6 steps 1 and 2, and the search cap from the owner's answer 2. Each step changes rows
 written after it ships; old rows stay as they are, and nothing history-sized runs at open
-(ADR 0170). The read side of every step ships, and is on, a release before its write side can be
-turned on. Recompression of old rows and cold storage are later work with their own switches
+(ADR 0170). Recompression of old rows and cold storage are later work with their own switches
 (owner's answers 3 and 4) and are not part of phase 4.
 
-Switch: `ACE_STORE_FORMAT`, a comma list of `refs` (step 4.2), `zstd` (step 4.3) and
-`search-cap` (step 4.4); ADR 0222's `ACE_STORE_FORMAT=2` means `refs,zstd`. It switches the
-write side only. The read side has no switch: once shipped, it always reads both formats.
+Two releases matter. **Release R** ships the read side (4.1): the schema step, the format-aware
+readers and writers, and the codec. It writes no format-2 row whatever the switch says. **R+1
+or later** may write format-2 rows, and only with the switch on. Nothing in 4.2 to 4.4 merges
+until R has shipped.
+
+Switch: `ACE_STORE_FORMAT`, a comma list of `refs` (4.2), `zstd` (4.3) and `search-cap` (4.4);
+ADR 0222's `ACE_STORE_FORMAT=2` means `refs,zstd`. It switches the write side only. The read
+side has no switch: from R on, every build reads both formats.
+
+Terms used below. A **body column** is `events.payload` or `history_item_revisions.item`. A
+**row kind** is an event `type`, or a revision's item `type`. The **logical body** is the JSON
+text a format-1 row stores in its body column. The **stub** is the small JSON object a format-2
+row keeps in its body column for SQL (rule 4). The **logical size** is the UTF-8 byte length of
+the logical body (what `octet_length(<body column>)` returns for a format-1 row). The **stored
+size** is the bytes the row takes on disk.
 
 ### 4.0 The rollback contract (write and review this before any code)
 
-ADR 0222 §7 requires it first. The builder of 4.1 turns each rule below into a checklist entry
-with the code that satisfies it, and the reviewer signs the list off before 4.2 starts.
+ADR 0222 §7 requires it first. The builder of 4.1 copies each rule below into
+`docs/store/format-inventory.md` as a checklist entry with the code that meets it, and the
+reviewer signs every entry off before 4.2 starts.
 
-1. **A build with the format switch off reads every row written with it on**, through every
-   path: the `Store` methods, the Rust reads (`crates/ace-store/src/reads/`), and direct SQL in
-   `atomic` callers. This holds with `ACE_STORE` off too: decoding a body is a pure function of
-   the addon that needs no connection, so a node:sqlite store can call it without breaking the
-   one-SQLite-per-file rule. A store that finds a format-2 row and cannot load the addon fails
-   open with a message naming the addon, never misreads.
-2. **Builds older than the read side** must refuse a home that has format-2 rows rather than
-   misread it. Check whether `migrate` refuses a newer `schemaVersion` (`migrations.ts:237`); if
-   it does, the read-side release adds one migration step (an O(1) `ALTER TABLE ... ADD COLUMN`,
-   ADR 0170) so older builds refuse it. If it doesn't, stop and ask.
-3. **SQL that looks inside a body keeps working.** Every `json_extract`/`json_each` over a body
-   column, every partial index on one, and every trigger that reads one must give the same
-   answer on a format-2 row. Found so far (4.1 makes the full list):
-   `events.payload` in `engine/handler.ts:419` (`$.run.agentId`, `$.item.agentId`, `$.item.role`,
-   `$.item.synthetic`) and `engine/transition-history.ts:45` (`$.runId`);
-   `history_item_revisions.item` in the partial index `history_completed_revisions`
-   (`history-index.ts:102`, `$.complete`) and `history-search-replay.ts:85` (`$.agentId`, `$.id`,
-   `$.createdAt`, `$.type`, `$.call.detail.kind`, `$.complete`). `items.item` readers
-   (`agent-control/forks.ts:44`, `engine/transition-history.ts:142`, `engine/title-input.ts:5`,
-   `browser-artifact-files.ts:19`) are not changed by phase 4 because phase 4 leaves `items`
-   alone; the list must say so. The rule that meets this: a format-2 row keeps, in its JSON
-   column, a stub object holding exactly the paths SQL reads (in the order the full body has
-   them), and the full body goes in the new column. A path that cannot be in a stub is a reason
-   not to convert that column.
-4. **Sizes stay the sizes of the JSON.** `bounded-events.ts:37` sizes ranges with
-   `octet_length(payload)`; replay pages and byte budgets (behaviour.md §8, §13) are counted on
-   the JSON a client gets. Format-2 rows store the uncompressed byte length in a column, and every
-   size query reads `coalesce(body_size, octet_length(payload))`.
-5. **A reference revision survives every rewrite and removal of the row it points at.** A
-   revision stored as "same as the item in the event at seq N" must be made whole again, in the
-   same transaction, before any statement that rewrites or deletes event N: `PayloadStore`'s
-   migration that caps and rewrites payloads (`payload-store.ts:139`, `UPDATE events SET
-   payload`), `deleteThread` (`store.ts:1412`), `purgeThreadData` and `storage/transcript.ts`
-   (bounded batches: revisions before events, or a crash between batches leaves a dangling
-   reference), retention (`storage/data-retention.ts`) and compaction (`storage/compaction.ts`
-   if it touches `events`). 4.1 lists every `DELETE FROM events` and `UPDATE events` with
-   `rg -n "(DELETE FROM|UPDATE) events" apps/daemon/src packages`. A reader that meets a reference
-   whose event row is missing fails loudly with the thread and seq; it never returns an empty
-   item.
-6. **Dictionaries are immutable once a row uses them**, are written in the same transaction as
-   (or before) the first row that uses them, and are never shipped in the build: they are trained
-   on this home's own rows, in an idle, bounded batch (ADR 0170), because a dictionary trained on
-   one person's data carries their text. Until a kind has a dictionary, its rows are plain zstd
-   frames (dictionary id 0).
-7. **Turning the switch off changes no stored bytes**, and turning it back on resumes; nothing
+1. **Readable with the switch off, through every path.** A build from R on, with the format
+   switch off, reads every format-2 row through the `Store` methods, the Rust reads
+   (`crates/ace-store/src/reads/`), and direct SQL in `atomic` callers. This holds with
+   `ACE_STORE` off too: decoding is a pure addon function that opens no SQLite, so a
+   node:sqlite store can call it without breaking the one-SQLite-per-file rule (ADR 0222,
+   constraint 2).
+2. **A constant-time codec check before serving a format-2 home.** R adds
+   `storage_format(id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)`. The first
+   format-2 row is written in the same transaction that inserts this row. At open, right after
+   `migrate`, the store reads it with one primary-key lookup. If it exists, the store calls the
+   addon's `bodyCodecVersion()` and refuses to open (`IncompatibleDataError`, naming the addon
+   path) when the addon is missing or its version is lower. It never falls back to reading stubs.
+3. **Builds older than R refuse the home, and R's own writes keep working.** `migrate` refuses
+   a newer `schema_version` (`migrations.ts:221` to `:235`: `version > migrations.length`
+   throws `IncompatibleDataError`). R adds exactly one migration step, and that step only runs
+   `ALTER TABLE ... ADD COLUMN` and `CREATE TABLE IF NOT EXISTS` (O(1), ADR 0170). `migrate`
+   runs every step and the `schema_version` bump in one `BEGIN IMMEDIATE` transaction, so the
+   columns and the version land together or not at all. In the same release, before the step is
+   added, every positional insert into a changed table becomes a named-column insert, in both
+   writer modes: `event-writer.ts:180` (`INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)` becomes
+   `INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`),
+   `history-index.ts:142` (`INSERT INTO history_item_revisions VALUES (?,?,?)` becomes
+   `(item_id, seq, item)`), task 5.3a's Rust, and every other match of
+   `rg -n "INSERT (OR [A-Z]+ )?INTO \"?(events|history_item_revisions)\"? *(VALUES|SELECT)" apps packages native`.
+   Release gate (a manual check, not a vitest file, run on a throwaway `ACE_HOME`): with the
+   R+1 build and the switch on, write format-2 rows with the scripted provider, then `kill -9`
+   the daemon before any checkpoint so the committed rows are still in the WAL; open that home
+   with the last build before R. It must refuse with "newer than this build's", and the
+   `events.sqlite`, `-wal` and `-shm` files must hash the same afterwards.
+4. **SQL that looks inside a body keeps working.** 4.1a lists every consumer of a body column,
+   per row kind, in `docs/store/format-inventory.md`. Find them with
+   `rg -n "json_extract|json_type|json_each|json_tree|json_set|json_group_array|json_array_length|->>|->|octet_length|length\(CAST" apps packages native --glob '!*.test.ts'`,
+   then read each hit: much of this SQL is built at runtime from helpers (for example
+   `field(path)`, `optional(...)` and `asks` in `usage-replay.ts:20` to `:109`), and the
+   inventory records the expanded paths, not the helper. Also list every TypeScript or Rust
+   reader that reads a whole body column. Classify each consumer:
+   - **F (fixed paths):** reads named paths only. Known so far: `usage-replay.ts:20` to `:109`
+     (usage and session counters, `usageScope`, `delegatedBy`, `delegatedFrom`, `startedBy`,
+     skill names, the ask test on `item.type`, `item.role`, `item.synthetic`, `item.inherited`,
+     `item.origin.kind`), `search-replay.ts:53` (`thread.id`, `thread.workspaceId`,
+     `thread.provider`, `thread.createdAt`, `thread.updatedAt`, `thread.status`, `status`, and
+     the rest of that statement), `draft-migration.ts:12` (`type`, `role`, `synthetic` on
+     `items` and revisions), `engine/handler.ts:419`, `engine/transition-history.ts:45`, and the
+     partial index `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
+   - **W (whole body or computed paths):** walks the body or builds paths from data. Known so
+     far: `history-search-replay.ts:50` to `:66` (`json_tree(r.item)` over revisions of every
+     item type) and `history-message-replay.ts:16` to `:24` (`json_each` over `$.parts` with
+     part ordinals and `$.source` objects).
+     A row kind may be written in format 2 only when every consumer of it is F with all its paths
+     in the stub, or has moved to a format-aware reader (4.1b). Until then that kind stays whole.
+     With the two W consumers above, **every revision stays format 1** (no references, no
+     compression) until 4.1b has moved both. The stub is a JSON object holding exactly the union
+     of that kind's F paths, values copied unchanged, keys in the order the logical body has them,
+     nested objects cut down to the paths needed. A path absent from the body is absent from the
+     stub, so `json_type(...) IS NULL` answers the same. A kind whose stub would be more than half
+     its logical body stays format 1.
+5. **Sizes.** Every format-2 row, in `events` and in `history_item_revisions` (references
+   included), stores its logical size in `body_size`, computed from the logical body before
+   anything is stored. Every query that measures a body for a budget, a page or a trust batch
+   reads `coalesce(body_size, octet_length(<column>))` in place of the bare expression, and keeps
+   the terms around it: `bounded-events.ts:37`
+   (`+ octet_length(id) + octet_length(thread_id)`), `history-index.ts:191`
+   (`length(CAST(item AS BLOB))`, the history budget), `stored-trust-batch.ts:83` (each
+   statement), `search-replay.ts:50`, and every other size hit from rule 4's search.
+   Stored-size accounting stays separate and never stands in for a logical size:
+   `storage/transcript.ts:65` (`transcriptQueries`) sums stored bytes; its per-column sum picks
+   up the new BLOB columns by itself, and its `events` query adds `octet_length(body)`.
+   Diagnostics (`packages/diagnostics/src/thread-worker.ts:22`) decode a format-2 row through
+   the addon and apply the 60,000-byte cap to the logical size; when the addon cannot be
+   loaded, they emit `"<ENCODED EVENT OMITTED>"`. They never emit a stub as if it were the
+   payload.
+6. **One function changes a body.** `rewriteStoredBody(db, table, key, logicalJson)` in
+   `apps/daemon/src/stored-body.ts`, and `format::rewrite` in Rust for Rust callers, do all of
+   this in the caller's transaction: (a) materialise the references to the old body (rule 7);
+   (b) write the new stub, `body`, `body_size`, format tag and dictionary id together, or the
+   plain JSON with those columns NULL for a format-1 row; (c) drop the trust of the rewritten
+   row so it is validated again (ADR 0125): `forgetStoredTrust` (`stored-shape.ts:269`) for a
+   bulk rewrite, as `permission-mode-migration.ts:33` does today, or the per-row equivalent the
+   builder finds in `stored-trust-rows.ts`. No other code updates a body column. Each raw
+   rewrite that exists today either gets a written proof in the checklist that it can only run
+   on a home with no format-2 row, or is converted to `rewriteStoredBody`. The proof is: its
+   marker is written on every home at or before R, and a fresh home runs it at creation, before
+   any row exists. The two known rewrites are `payload-store.ts:139` (`UPDATE events SET
+   payload`, marker `payload_migration`) and `permission-mode-migration.ts:38` (`json_set` over
+   `payload`, marker in `upgrade_cleanup`). A rewrite that cannot be proven safe this way is
+   converted. Review rejects any new raw update of a body column; find them with
+   `rg -n "UPDATE \"?(events|history_item_revisions)\"? SET" apps packages native`.
+7. **References and deletes.** A reference revision stands for the item in the event row with
+   the same seq and the same thread, whose payload is `item.created` or `item.updated` of the
+   same item id. From an event to its references is one primary-key lookup on
+   `history_item_revisions(item_id, seq)`, with `item_id` read from the event's stub
+   (`$.item.id` is therefore an F path of both kinds). Never scan revisions per event (ADR 0170).
+   The removal paths:
+   - `deleteThread` (`store.ts:1412`) deletes the thread's events and its `threads` row in one
+     transaction. Its revisions go by cascade
+     (`threads` → `history_items` → `history_item_revisions`, `history-index.ts:93`, `:98`), so
+     nothing needs materialising.
+   - `purgeThreadData` (`store.ts:1405`) runs the generated plan
+     (`storage/transcript.ts:187` `transcriptPurgePlan`, batches at `:282`, the last step at
+     `:298`). The plan deletes owned rows, revisions included, before events (its step 3 is
+     last), so the purged thread's references go before the rows they point at, and nothing
+     needs materialising. The builder confirms this order for `history_item_revisions` from the
+     plan the code generates (including after a crash between batches, when only references
+     whose event rows still exist may remain) and writes the proof in the checklist.
+   - Every other statement that deletes or rewrites an event row, literal or generated from
+     `sqlite_master` (search `storage/transcript.ts`, `storage/compaction.ts`,
+     `storage/data-retention.ts`, `storage/apply.ts` and the rest of rule 4's search), first
+     materialises the references that survive it, by primary-key lookup, in the same
+     transaction, through rule 6's function.
+     A reader that meets a reference whose event row is missing throws an error naming the thread
+     id and seq. It never returns an empty or partial item.
+8. **Dictionaries.** R creates
+   `body_dictionaries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, dictionary BLOB NOT NULL, retired INTEGER NOT NULL DEFAULT 0)`
+   and `body_dictionary_sources(dictionary_id INTEGER NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY(dictionary_id, thread_id))`.
+   - `AUTOINCREMENT` makes ids fresh and never reused in this database, even after a delete. An
+     id means something only in the database that holds it: a frame's id is resolved against
+     that database's table, through a cache owned by that connection, never a process-wide one.
+   - The cache takes a dictionary only after the transaction that inserted it has committed. A
+     rolled-back insert leaves nothing cached.
+   - A dictionary's bytes never change. Which dictionary a kind uses now is the newest
+     non-retired id of that kind, so a kind can change dictionaries without changing what any
+     existing id means.
+   - Phase 4 deletes no dictionary: its bytes stay while any frame might use them. Deletion
+     comes with recompression (owner's answer 4).
+   - Training (4.3b) samples only threads that are not deleted, not tombstoned and not host
+     threads (ADR 0121). It runs in idle batches bounded by rows (2,000), sample bytes (8 MiB) and
+     time (50 ms per batch), and pauses while writes run (ADR 0170). It records every source
+     thread in `body_dictionary_sources`.
+   - Purging, deleting or retaining away a source thread marks its dictionaries retired in the
+     same transaction, so no new frame uses them. Their bytes keep fragments of that thread until
+     recompression rewrites the frames that use them. The 4.3b PR states this limit in its
+     description.
+   - A copy of the database (backup, clone) carries dictionaries as it carries rows. An export
+     that leaves transcripts out (diagnostics, triage bundles) also leaves `body_dictionaries`
+     out. Find the export paths with
+     `rg -n "events\.sqlite|\.backup\(|VACUUM INTO" apps packages tools`.
+   - Until the reviewer signs off this rule's checklist, no dictionary is trained on a real
+     home: frames are plain zstd (dictionary id 0). Tests and benches train on throwaway homes.
+9. **Turning the switch off changes no stored bytes**, and turning it back on resumes. Nothing
    converts rows in either direction at open.
 
-### 4.1 Read side and inventory
+### 4.1 Release R: the read side
 
-- Modules: a new `crates/ace-store/src/format/` (`mod.rs`, `body.rs` for the tagged body: one
-  format byte, dictionary id as a varint, the zstd frame; `dictionaries.rs` for the table and an
-  in-memory cache keyed by id), the `zstd` crate 0.13 (already chosen in ADR 0222 §2; check
-  `deny.toml`), and a binding `decodeBody(bytes: Uint8Array, dictionary: Uint8Array | null):
-  string` that returns the JSON text.
-- TypeScript: one loader, `apps/daemon/src/stored-body.ts`, `storedPayload(row)` and
-  `storedRevision(row)`, which every reader of a changed column calls instead of reading the JSON
-  column. Readers to move (4.1 completes the list with
-  `rg -n "payload FROM events|e\.payload|events\.payload|history_item_revisions" apps/daemon/src packages/search/src`):
-  `bounded-events.ts`, `thread-reads.ts`, `search-replay.ts`, `long-thread/queries.ts`,
-  `storage/transcript.ts`, `stored-trust-batch.ts`, `thread-fence.ts`, `engine/frame-envelope.ts`,
-  `engine/handler.ts`, `engine/transition-history.ts`, `history-index.ts`,
-  `history-message-replay.ts`, `history-search-replay.ts`, `stored-decode.ts`, `stored-shape.ts`,
-  `stored-trust-rows.ts`, `draft-migration.ts`, `native-reads/long-thread.ts`, and the Rust reads
-  in `crates/ace-store/src/reads/long_thread/`.
-- Schema: `events.body BLOB`, `events.body_size INTEGER`, `history_item_revisions.body BLOB`,
-  `history_item_revisions.ref_seq INTEGER` (NULL for a whole body), and
-  `body_dictionaries(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, dictionary BLOB NOT NULL)`,
-  added by `ALTER TABLE ... ADD COLUMN` and `CREATE TABLE IF NOT EXISTS` only.
-- Proof: every (a) file in behaviour.md §15, with `ACE_STORE` off and on, on homes that have no
-  format-2 rows: nothing may change. The read side is exercised by 4.2 and 4.3's runs.
-- Bench: `sqlite-store.ts --split` before and after (reads must not slow on a format-1 home).
+**4.1a Inventory.** `docs/store/format-inventory.md`: every consumer from rule 4 with its class
+and expanded paths, every size query from rule 5, every rewrite and delete from rules 6 and 7
+(literal and generated), every export from rule 8, and the stub path list per row kind. Docs
+only; reviewed before 4.1b.
+
+**4.1b Code.**
+
+- Rust: `crates/ace-store/src/format/` with `mod.rs`, `body.rs` (the tagged body: one format
+  byte, the dictionary id as a varint, the zstd frame), `stub.rs` (stub from logical body and a
+  path list), `dictionaries.rs` (the table and the per-connection cache of rule 8) and
+  `rewrite.rs` (rule 6). Dependency: `zstd` 0.13 (ADR 0222 §2), checked against `deny.toml`.
+- Binding: `decodeBody(bytes: Uint8Array, dictionary: Uint8Array | null): string` (the logical
+  JSON text) and `bodyCodecVersion(): number`, both pure, needing no connection.
+- TypeScript `apps/daemon/src/stored-body.ts`: `storedPayload(row)`, `storedRevision(row)`,
+  `rewriteStoredBody(...)`, and `logicalSize(column)`, the SQL fragment of rule 5. Every reader
+  of a body column from 4.1a calls them in place of reading the column.
+- The schema step (rule 3), named inserts (rule 3), the open-time check (rule 2), the size
+  queries (rule 5), the diagnostics change (rule 5).
+- The W consumers move to format-aware readers that decode one row at a time inside the bounds
+  they have today (page sizes, byte budgets, statement counts). These are
+  `history-search-replay.ts:50` to `:66` and `history-message-replay.ts:16` to `:24`, plus any
+  others 4.1a finds. Their results stay identical; the search-replay files below prove it.
+
+Proof, with `ACE_STORE` off and on, on homes with no format-2 row (nothing may change): every
+(a) file in behaviour.md §15, run one at a time. Bench: `sqlite-store.ts --split` before and
+after; reads must not get slower on a format-1 home.
 
 ### 4.2 Write side: one body per revision (`refs`)
 
-- Module: `history-index.ts` `record` (`:227`, the `INSERT INTO history_item_revisions` at
-  `:142`). When the revision's item JSON equals the item in the event row written at the same
-  seq (byte-equal text, compared before anything is stored), store the stub (rule 3), `ref_seq`,
-  and no body. Plus every rewrite and removal path from rule 5.
+Starts only after 4.1b has moved the W consumers of revisions and R has shipped.
+
+- Module: `history-index.ts` `record` (`:227`, the insert at `:142`). When the revision's logical
+  JSON is byte-equal to the item JSON in the event row written at the same seq, compared before
+  either is stored, store the stub, `ref_seq`, `body_size` and no body. Also every path of
+  rule 7.
 - Proof, on and off: `history-storage.process.test.ts`,
   `history-publication-recovery.process.test.ts`, `stored-history-trust.test.ts`,
   `write-path-reads.test.ts`, `item-store-trusted-reads.test.ts`, `thread-delete.process.test.ts`,
@@ -369,41 +493,57 @@ with the code that satisfies it, and the reviewer signs the list off before 4.2 
   `storage/retention.process.test.ts`, `storage/compaction.process.test.ts`,
   `storage/recovery.process.test.ts`, `payloads.process.test.ts`, `migrations.process.test.ts`,
   the four `search-replay-*.process.test.ts`, `long-thread-lifecycle.process.test.ts`; then the
-  cross-mode gate (written on, reopened off, and back).
-- Bench: `sqlite-store.ts --split` (WAL pages per commit, database growth over the write phase),
-  `event-writes.ts`.
-- Failure modes: a crash between a revision and its event row (same transaction: both or
-  neither); a purge batch boundary (rule 5); a restart with the switch flipped (rule 7); a
-  reference read inside the open transaction that wrote it (one connection, so it sees the row).
+  cross-mode gate (written with it on, reopened with it off, and back).
+- Bench: `sqlite-store.ts --split` (WAL pages per commit, database growth over the write
+  phase), `event-writes.ts`.
+- Failure modes: a crash between a revision and its event row (one transaction: both or
+  neither); a purge batch boundary (rule 7); a restart with the switch flipped (rule 9); a
+  reference read inside the transaction that wrote it (one connection, so it sees the row).
 
 ### 4.3 Write side: compressed bodies (`zstd`)
 
-- Modules: the `events` insert (`event-writer.ts`, the `INSERT INTO events VALUES` line, or
-  `EventWriter::store_event` once task 5.3a has landed), `history-index.ts` record, the
-  dictionary trainer in `crates/ace-store/src/format/train.rs` with an idle shell beside
-  `stored-trust-pass.ts` (bounded batches, paused while writes run, resumable after restart).
-- Kinds: one dictionary per event type for the five measured types (`item.updated`,
-  `item.created`, `item.delta`, `thread.client.updated`, `agent.status`), one for revisions;
-  everything else uses plain zstd level 3.
-- Proof: as 4.2, plus `stored-trust-pass.test.ts`, `stored-trust-rows.test.ts`,
+**4.3a Plain zstd.** Row kinds the inventory cleared get a stub, `body` (format byte, dictionary
+id 0, zstd level 3 frame) and `body_size`. Modules: the `events` insert (`event-writer.ts:180`,
+or `EventWriter::store_event` once 5.3a has landed), and `history-index.ts` `record` for
+revision kinds once 4.2's precondition holds.
+
+**4.3b Dictionaries.** Rule 8's tables and rules, the trainer in
+`crates/ace-store/src/format/train.rs`, and an idle shell beside `stored-trust-pass.ts`. Kinds:
+one dictionary per measured event type (`item.updated`, `item.created`, `item.delta`,
+`thread.client.updated`, `agent.status`) and one for revisions; every other kind stays plain
+zstd.
+
+- Proof, on and off: as 4.2, plus `stored-trust-pass.test.ts`, `stored-trust-rows.test.ts`,
   `stored-trust-coverage.test.ts`, `stored-shape.test.ts`, `usage-replay.test.ts`,
-  `wal-maintenance.process.test.ts`, `daemon-crash-recovery.process.test.ts`; cross-mode gate.
+  `usage-reads.process.test.ts`, `wal-maintenance.process.test.ts`,
+  `daemon-crash-recovery.process.test.ts`; the cross-mode gate.
 - Bench: as 4.2, and decode time per row on the read benches (ADR 0222 measured 0.4 to 3 µs).
-- Failure modes: a dictionary row lost to a rolled-back transaction while a later row uses it
-  (rule 6); training interrupted by shutdown (resumes; a half-trained dictionary is never used);
-  a body over SQLite's limits (stays JSON).
+- Failure modes: a dictionary insert rolled back after a frame was encoded with it (the frame is
+  in the same transaction, so it rolls back too; the cache never saw it, rule 8); training
+  interrupted by shutdown (it resumes, and a half-trained dictionary is never inserted); a body
+  over SQLite's limits (stays format 1).
 
 ### 4.4 Search: index long tool output up to 64 KiB (`search-cap`)
 
-- Module: `packages/search/src/writer.ts` and `thread-writer.ts`, where bodies are handed to the
-  trigram tables. Message and reasoning bodies stay whole; tool output and every other body is
-  indexed up to its first 64 KiB of UTF-8, cut at a character boundary (never inside a UTF-16
-  pair). Rows already indexed stay; nothing reindexes at open.
+- Modules: `packages/search/src/thread-writer.ts` (the delta path at `:85` and the bounded tail
+  segments at `:200`), `writer.ts`, and the rebuild paths (`apps/daemon/src/search-replay.ts`,
+  `history-search-replay.ts`).
+- Rule: message and reasoning bodies stay whole. Every other body is indexed up to 64 KiB
+  **per logical body**, meaning per item and field, cumulatively across `item.created`, every
+  `item.delta` append, `item.updated`, the overlapping and sealed chunks of the tail segments,
+  and rebuild or replay, so a rebuilt index holds exactly what live indexing wrote. The count is
+  UTF-8 bytes of the indexed text (`Buffer.byteLength`), whatever the stream's encoding. It is
+  kept per segment in a new `indexed_bytes` column (`ALTER TABLE ... ADD COLUMN`). Once it
+  reaches the cap, later appends index nothing. The cut falls on a code point boundary, never
+  between the halves of a surrogate pair. An authoritative replacement starts the count again
+  only where today's writer replaces the indexed text; the builder reads that path and records
+  what it does in the PR. Rows already indexed stay as they are, and nothing reindexes at open.
 - Proof, on and off: `packages/search/src/search.process.test.ts`,
   `thread-search.process.test.ts`, `outputs.process.test.ts`, `pagination.process.test.ts`,
-  `apps/daemon/src/search.outputs.process.test.ts` and the four `search-replay-*.process.test.ts`.
-  One new test is allowed: a search for text past 64 KiB of a tool output finds nothing with the
-  cap on (no test covers that behaviour today).
+  `apps/daemon/src/search.outputs.process.test.ts`, the four `search-replay-*.process.test.ts`.
+  One new test is allowed, because nothing covers this behaviour today: with the cap on, a tool
+  output streamed in many deltas past 64 KiB is not found by text after the cutoff, neither
+  live nor after a rebuild.
 - Bench: index size (`dbstat` on the search tables) and in-thread search p50 from
   `sqlite-store.ts --split`, on a clone rebuilt with the cap on and off. Dropped if it saves less
   than a gigabyte there (owner's answer 2).
@@ -415,6 +555,15 @@ starts: 5.1 the projection fold, 5.2 sequence reservation, 5.3 the event writer,
 buffer, 5.5 the transaction stack. Tasks 5.1 and 5.2 are small and self-contained; 5.3 to 5.5
 are split into steps, and a step marked "needs a decision" is not briefed until the orchestrator
 makes it.
+
+Recorded decisions (orchestrator, on the owner's delegation, 2026-11-23):
+
+- 5.3b: Rust reproduces Zod's stripping and defaults through the generated `ace-protocol`
+  types, pinned by vectors from existing samples (task 5.3, step 5.3b).
+- Performance: 5.1 and 5.4 may merge switched off even if their benches are slower while
+  TypeScript is the caller, since each call converts JavaScript values to and from JSON. Their
+  gain is measured under E5 (ADR 0223) and ADR 0226, when the thread and the buffer stay in
+  Rust. Every other part stays off until its numbers are no worse (rule 10).
 
 What phase 5 does not do while TypeScript is the caller: move a loop whose body calls back into
 TypeScript collaborators. Phases 1b and 3 measured that crossing values into JavaScript costs
@@ -528,8 +677,8 @@ load the addon): `packages/projection/src/projection.test.ts`, `settled-lifecycl
 `apps/daemon/src/canonical-event.test.ts` after the move. Rust: `cargo test -p ace-projection`.
 
 **Bench:** `event-writes.ts` on and off. Expect it slower (two `JSON.stringify` and a
-`JSON.parse` per event); record it, don't turn it on. The fold pays off when the thread stays in
-Rust (5.3c, E5).
+`JSON.parse` per event); record it, don't turn it on. It may merge switched off (recorded
+decision above); its gain is measured under E5 and ADR 0226.
 
 **Do not:** import the addon in `packages/projection` (clients load that package); change
 `updateThread`; use `serde_json`; add a Rust dependency other than `ace-json`; validate the event (canonical input is trusted, ADR 0125); write any other test.
@@ -540,66 +689,134 @@ all three modes; the bench numbers are in the PR.
 
 ### Task 5.2: sequence reservation (`sequences`)
 
+**What the TypeScript does today**, which the port keeps unless this brief says otherwise:
+
+- Ordinary appends allocate without reserving: `EventWriter` calls `sequences.next`
+  (`event-writer.ts:117`), and each event row's own `UPDATE host_sequence SET seq = MAX(seq,?)`
+  (`event-writer.ts:182`) moves the high-water mark in that write's commit. Deletion tombstones
+  do the same (`store.ts:1394` to `:1397`). Their sequences reach subscribers only after that
+  commit.
+- Only the live path reserves. `StoreStream.prepare` (`store-stream.ts:91`) opens a range at
+  admission. `StoreStream.append` (`:96` to `:117`) allocates first (`next` per event, before any
+  refill), pins the batch in the buffer, then calls `prepare(events.length, first.seq - 1)` to
+  refill. A refill's `commit(run)` is `Store.atomic` (`store.ts:233`), whose `transaction`
+  flushes the buffered batch first (`store.ts:582`): the flush commits those events with their
+  own `host_sequence` updates, before the reservation SQL runs. When the refill returns, the
+  batch is published (`publishPending`, `:117`) if it holds deltas only.
+- `atomic` may not commit at all when it returns: nested in an open transaction it ends with
+  `RELEASE` of a savepoint (`store.ts:590` to `:602`), and during `installHistory` it runs inline
+  (`store.ts:583`). Today `reserved` and the lineage mark move as soon as `atomic` returns, even
+  when an outer transaction later rolls back. **The port fixes this**: a reservation counts only
+  once the outermost transaction that wrote it has committed.
+
 **Port** `StreamSequences` (`apps/daemon/src/stream-sequences.ts`, all of it) to
 `crates/ace-store/src/writer/sequences.rs`:
 
 ```rust
-pub struct Sequences { cursor: Cursor, reserved: f64 }   // Cursor models the TS NaN case
+pub enum SequenceError { Exhausted }        // Display: "Sequence exhausted"
+pub struct Sequences {
+    cursor: Option<f64>,                    // None models the TS NaN (no host_sequence row)
+    confirmed: Option<f64>,                 // reserved through, by a committed outermost
+                                            // transaction; None models the TS NaN
+}
 impl Sequences {
-    /// `SELECT seq FROM host_sequence WHERE id=1`. A missing row is not an error here: as in the
-    /// TS (`Number(undefined)` is NaN), every later `next` fails with "Sequence exhausted".
+    /// `SELECT seq FROM host_sequence WHERE id=1`. No row: `cursor` and `confirmed` are None,
+    /// as `Number(undefined)` is NaN in the TS, and every `next` fails with Exhausted.
     pub fn initialize(conn: &Connection) -> Result<Sequences>;
+    /// `reservedThrough()`: the confirmed reservation; NaN when None.
     pub fn reserved_through(&self) -> f64;
-    /// Larger of MAX(events.seq) and MAX(usage_deletions.seq), 0 when both are empty.
+    /// Larger of MAX(events.seq) and MAX(usage_deletions.seq); 0 when both are empty.
     pub fn head(&self, conn: &Connection) -> Result<f64>;
-    /// The TS rule: false past both head and reservation; true for 0, head, or a stored seq.
+    /// False when `after > head && after > confirmed`; else true for 0, for head, or for a seq
+    /// stored in `events`.
     pub fn replay_safe(&self, conn: &Connection, after: f64) -> Result<bool>;
-    /// `cursor = max(cursor, after) + 1`; `SequenceError::Exhausted` past 2^53 - 1.
+    /// Provisional allocation: `cursor = max(cursor, after) + 1`; Exhausted past 2^53 - 1.
     pub fn next(&mut self, after: f64) -> Result<f64, SequenceError>;
-    /// Pure: `None` when `after + events <= reserved`, else `Some(after + max(65536, events))`,
-    /// or `Exhausted` when that is not a safe integer.
+    /// Pure. None when `after + events <= confirmed`; else `Some(after + max(65536, events))`,
+    /// or Exhausted when that is not a safe integer. Pending reservations never count.
     pub fn reservation(&self, events: f64, after: f64) -> Result<Option<f64>, SequenceError>;
-    /// Runs `UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1`. The caller holds the
-    /// transaction that commits it; `reserved` does not change here.
+    /// `UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1`, inside the caller's transaction.
+    /// Changes no field.
     pub fn reserve(&self, conn: &Connection, through: f64) -> Result<()>;
-    /// Records `reserved = through`, called only after that transaction committed.
-    pub fn confirm_reserved(&mut self, through: f64);
+    /// `confirmed = Some(through)` when None or below `through` (the TS assigns; a reservation
+    /// is only ever made past the confirmed one, so this is the same). Called only after the
+    /// outermost commit.
+    pub fn confirm(&mut self, through: f64);
+    /// Whether every sequence through `seq` lies in the confirmed reservation.
+    pub fn covers(&self, seq: f64) -> bool;
 }
 ```
 
-Values are `f64` because they are JavaScript numbers on both sides until no TypeScript caller is
-left; the safe-integer checks are where the TS has them. Statements go through `stmt_cache.rs`.
+Every comparison with a None field is false, as every comparison with NaN is in the TS (so
+`reservation` with `confirmed` None always returns a range, and `replay_safe`'s
+`after > confirmed` test is false). Values are `f64` because both sides hold JavaScript numbers
+until no TypeScript caller is left. Statements go through `stmt_cache.rs`.
 
-**Binding:** `NativeDatabase::sequences(&self) -> NativeSequences`, a `#[napi]` class holding the
-`Arc<Connection>` and the `Sequences`, with one method per function above (`reserve` takes the
-`through` that `reservation` returned). Non-finite or non-integral input throws `RangeError`.
+**Binding:** `NativeDatabase::sequences(&self) -> NativeSequences`, a `#[napi]` class holding
+the `Arc<Connection>` and the `Sequences`, with one method per function above. Non-finite or
+non-integral input throws `RangeError`.
 
-**Shell** `apps/daemon/src/native-writer/sequences.ts`: `class NativeStreamSequences` with the
-same public methods and constructor options as `StreamSequences`. `prepare(events, after)` asks
-`reservation`; if it returns a value, runs `options.commit(() => native.reserve(through))`, then
-`native.confirmReserved(through)`, then `options.reserved?.(through)`, in that order (the lineage mark hears of a range before any
-sequence in it goes out, ADR 0128). The one call site is where `store.ts` constructs
-`StreamSequences`.
+**Shell** `apps/daemon/src/native-writer/sequences.ts`: `class NativeStreamSequences` with
+`StreamSequences`' public methods. Its constructor options replace `commit(run)` with
+`commit(run, outcome)`, which the store wires to `this.transaction(run, outcome)` (the
+`TransactionOutcome` form at `store.ts:581`; this is the one change to `store.ts`, at the
+construction at `:231`). `prepare(events, after)` runs exactly this:
 
-**Invariants:** strictly increasing, never reused, every sequence inside a committed
-reservation, reservation durable before use, `Sequence exhausted` past 2^53 - 1, head counts
-deletion tombstones, a restart resumes from `host_sequence` (never below anything handed out).
+1. `through = native.reservation(events, after)`; if none, return.
+2. `commit(() => native.reserve(through), { committed: () => { native.confirm(through);
+   options.reserved?.(through); }, rolledBack: () => {} })`.
+   `committed` runs after the outermost `COMMIT` returns, whether the reservation was the top
+   level or nested; `rolledBack` runs when any enclosing transaction rolls back, and the pending
+   reservation is simply forgotten. During `installHistory`, a `transaction` with an outcome
+   throws `Store is busy` (`store.ts:585`); the live path already treats that as "retry later".
+3. Return. The lineage mark therefore hears of a range only once it is durable in the database,
+   and before any of it is published.
+
+`store-stream.ts` changes in one place: `append` publishes the pinned batch (`publishPending`)
+only when `sequences.covers(lastSeq)` for its last event. When the refill is pending in an outer
+transaction or failed, the batch stays pinned and unpublished, and reaches subscribers when its
+flush commits, as stored rows. Ordinary appends and tombstones are unchanged: their rows' own
+`host_sequence` updates cover them, and they publish after their commit.
+
+**Guarantees, stated separately:**
+
+- Process crash (WAL, `synchronous=NORMAL`): every committed transaction survives, so every
+  sequence a subscriber has seen is either in a committed reservation or in a committed row.
+  Restart reads `host_sequence`, which is at least every sequence handed out and committed.
+- Power loss or OS crash: commits since the last checkpoint's fsync may be lost, including a
+  reservation whose deltas clients saw. Two things catch this: the lineage mark (written after
+  the reservation committed and before publication), which makes `keepLineage`
+  (`store.ts:1047`) rename the database at open; and `replay_safe`, which refuses cursors past
+  head and reservation. The port must not weaken either one. Making the mark itself durable
+  against power loss is out of scope here.
+
+**Invariants:** strictly increasing, never reused (the cursor is in memory and never moves back,
+even when a rollback discards rows); a sequence reaches a subscriber only when covered by a
+confirmed reservation or by its own committed row; `confirmed` moves only after the outermost
+commit; `Sequence exhausted` past 2^53 - 1; head counts deletion tombstones.
 
 **Proof, on and off:** `store.test.ts`, `sequence-lineage.test.ts`, `store-live-writes.test.ts`,
 `store-live-write-recovery.test.ts`, `subscription-replay.test.ts`,
 `history-storage.process.test.ts`, `history-publication-recovery.process.test.ts`,
-`usage-replay.test.ts`, `thread-delete.process.test.ts`, `daemon-crash-recovery.process.test.ts`.
-No new test.
+`usage-replay.test.ts`, `thread-delete.process.test.ts`, `daemon-crash-recovery.process.test.ts`,
+`engine/live-write-buffer.process.test.ts`, `engine/storage-behaviour.process.test.ts`. The
+outermost-commit rule is a fix over today's TypeScript. If any of these files fails because of
+it, stop and report the failing test; do not change the test. One new test is allowed, because
+nothing covers this today: a live batch whose refill runs inside an outer transaction that rolls
+back is not published before it is stored.
 
-**Failure modes:** a crash after a reservation commits and before its sequences are used leaves
-a gap, which `replay_safe` already handles; a rolled-back reservation leaves `reserved`
-unchanged, because only `confirm_reserved`, after the commit, records it.
+**Failure modes:** refill fails (the batch stays pinned and unpublished; the retry flush stores
+it with its own `host_sequence` updates); outer rollback after a nested refill (pending
+forgotten, `confirmed` and the mark unchanged, cursor not moved back); crash after a reservation
+commits and before its sequences are used (a gap, which `replay_safe` handles).
 
-**Do not:** keep a second cursor in TypeScript; open a transaction in Rust; change the SQL text;
-change `host_sequence`'s format (old builds read it).
+**Do not:** keep a second cursor in TypeScript; open or end a transaction in Rust; change the SQL
+text; change `host_sequence`'s format (older builds read it); count a pending reservation
+anywhere.
 
-**Reviewer checks:** NaN/missing-row and exhaustion behaviour match; `reserved` changes only
-after commit; proof files pass in all three modes; `event-writes.ts` on and off.
+**Reviewer checks:** the no-row (NaN) and exhaustion cases match the TS; `confirm` is reached
+only through the outcome's `committed`; `publishPending` is guarded by `covers`; the proof files
+pass in all three modes; `event-writes.ts` and `live-write-buffer.ts` on and off.
 
 ### Task 5.3: the event writer (`events`)
 
@@ -623,11 +840,14 @@ impl EventWriter {
 }
 ```
 
-The SQL text is copied from `event-writer.ts` unchanged. `at` in `EventRow` is the append's `at`
+The SQL is `event-writer.ts`'s, with the `events` insert in its named-column form
+(`INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`, phase 4
+rule 3); if the TypeScript insert is still positional when 5.3a starts, 5.3a changes it to the
+same named form in the same commit, so both writer modes write the same statement. `at` in `EventRow` is the append's `at`
 argument, as the TS stores it, not `event.at`. `payload_json` is the TypeScript's
 `JSON.stringify(event.payload)` after capping, stored as given. `WriteError::WorkspaceUnregistered`
 carries the message `workspace_unregistered`. Binding: `NativeDatabase::event_writer()`, a class
-with `createThread(...)` and `storeEvent(...)`. Shell: in `event-writer.ts`, the two blocks
+with `createThread(...)` and `storeEvent(...)`. Shell: every call goes through `nativeCall` (rule 11). In `event-writer.ts`, the two blocks
 (`thread.created` insert, `events` + `host_sequence`) each become one `if (storeWriterOn("events"))`
 call into `apps/daemon/src/native-writer/events.ts`. The `Invalid thread creation` and `Unknown
 thread` checks stay in the TypeScript.
@@ -644,12 +864,18 @@ with `rg -l workspace_recent apps/daemon/src --glob '*.test.ts'`). Bench: `event
 duplicate id or seq throws SQLite's constraint error unchanged (`isStoreBusy` and retry logic
 branch on `errcode`).
 
-**Step 5.3b: thread column writes (needs a decision).** `writeThread` and `threadColumnChanges`
-(`thread-columns.ts`) encode columns with `ThreadClientColumn.parse`, `ThreadDetails.parse` and
-`ThreadProviderMetadata.parse`. Porting them means reproducing Zod's stripping and defaults for
-those schemas in Rust, which the "Rust fetches, TypeScript shapes" decision (ADR 0222) forbids
-unless the generated `ace-protocol` types can do it, pinned by vectors. The orchestrator decides
-before this is briefed.
+**Step 5.3b: thread column writes (decided 2026-11-23).** `writeThread` and
+`threadColumnChanges` (`thread-columns.ts`) encode columns with `ThreadClientColumn.parse`,
+`ThreadDetails.parse` and `ThreadProviderMetadata.parse`. The orchestrator's decision, on the
+owner's delegation: Rust reproduces Zod's stripping and defaults for these schemas through the
+generated `ace-protocol` types (`native/daemon/crates/ace-protocol/src/generated.rs`, regenerated
+with `bun scripts/generate-rust-protocol.ts`), pinned by vectors made from existing samples (the
+canonical-event samples of 5.1 and the thread rows `thread-columns.process.test.ts` writes,
+moved into a shared module the same way). Rust has to own this eventually: the daemon is leaving
+Bun (ADR 0226, in progress). This overrides ADR 0222's "Rust fetches, TypeScript shapes" for
+these three schemas only. The brief for 5.3b is written once 5.3a is reviewed: it names the
+generator change, the vector cases (every optional field absent, present and `null`; unknown
+keys; defaults; lone surrogates; key order) and the proof files.
 
 **Step 5.3c onward: collaborators, then the loop.** In this order, each a later task:
 `canonicalEvent` (its samples become vectors, behaviour.md §15), decorations, payload capping
@@ -697,7 +923,8 @@ Proof, on and off: `store-live-writes.test.ts`, `store-live-write-recovery.test.
 (split pairs, lone surrogates, exactly 4096 and 4097 bytes, different agent or field, other
 threads interleaved). Bench: `live-write-buffer.ts`, `allocation-rate.ts`.
 
-Failure modes: a crash with buffered output loses only rows nobody saw as stored (replay of a
+Failure modes: a refill that fails or is pending leaves the batch pinned and unpublished
+(task 5.2); a crash with buffered output loses only rows nobody saw as stored (replay of a
 published-but-unstored cursor is refused by `replay_safe`, behaviour.md §11); a flush sealed
 inside an open transaction is written once after rollback and never after commit; a retry
 treats rows an earlier attempt committed (same seq and id) as stored; contention and a full disk
@@ -708,37 +935,93 @@ Do not: own a timer or thread in Rust; compact the held suffix; change the 4 KiB
 
 ### Task 5.5: the transaction stack (`transactions`)
 
-**Port** the stack in `store.ts` `transaction` (`:567` to `:700`): depth, numbered savepoints,
-`BEGIN IMMEDIATE`, `RELEASE`, `recoverSavepoint`, the doomed flag, `rollBack`, settlement
-positions and the publication order, to `writer/transaction.rs`. JavaScript closures cannot run
-inside a Rust call, so the API is begin/finish, and the closure form is built on it for Rust
-callers:
+**Port** the stack in `store.ts` `transaction` (`:581` to `:678`) and its helpers
+`recoverSavepoint`, `rollBack` and `settle` (`:679` to `:719`): depth, numbered savepoints,
+`BEGIN IMMEDIATE`, `RELEASE`, savepoint recovery, the doomed flag, rollback, settlement
+positions and the publication order. Port it to `writer/transaction.rs`. JavaScript closures
+cannot run inside a Rust call, so the API is begin, then exactly one of succeed or fail per
+frame:
 
 ```rust
-pub struct TransactionStack { depth: u32, events: Vec<Published>, settlements: Vec<Settlement>, doomed: Option<Error> }
-pub struct Frame { depth: u32, savepoint: Option<String>, events_len: usize, settlements_len: usize }
-pub enum Finish { Released, Committed(Publication), RolledBack { generation_bump: bool } }
-/// The order the caller runs after COMMIT: publish events[a..b], settle settlement i, ...
-pub struct Publication(pub Vec<Step>);
-pub enum Step { Publish { from: usize, to: usize }, Settle { index: usize, committed: bool } }
-impl TransactionStack {
-    pub fn begin(&mut self, conn: &Connection) -> Result<Frame>;
-    pub fn succeed(&mut self, conn: &Connection, frame: Frame, outcome: Option<SettlementId>) -> Result<Finish>;
-    pub fn fail(&mut self, conn: &Connection, frame: Frame) -> Finish;   // never throws; failures are reported in Finish
-    pub fn atomic<T>(&mut self, conn: &Connection, run: impl FnOnce(&Connection) -> Result<T>) -> Result<(T, Finish)>;
+pub type SettlementId = u64;
+pub enum Settled { Committed, RolledBack }
+/// What the caller runs, in order, after the stack has finished its SQL.
+pub enum Step { Publish { from: usize, to: usize }, Settle { id: SettlementId, how: Settled } }
+pub enum Ending { Released, Committed, RolledBackToSavepoint, RolledBack }
+pub enum FinishError {
+    /// COMMIT, RELEASE or a statement failed; the SQLite error, untranslated.
+    Sqlite(ace_store::Error),
+    /// "A failed step could not be undone, so the transaction rolled back", cause attached.
+    Doomed(ace_store::Error),
 }
+pub struct Finish {
+    pub ending: Ending,
+    /// The caller truncates its event list to this length before running `steps`.
+    pub events_len: usize,
+    pub steps: Vec<Step>,
+    /// Recovery failures (a failed ROLLBACK, a failed ROLLBACK TO): report, never throw.
+    pub reports: Vec<ace_store::Error>,
+    /// The error the caller throws after running `steps`; None for Released and Committed.
+    /// When the caller's own `run` threw, it throws that instead and this stays None.
+    pub error: Option<FinishError>,
+    /// Bump `rollbackGeneration` and drop the read and sidebar caches.
+    pub rolled_back: bool,
+}
+pub struct Frame { /* depth, savepoint name, events_len and settlements_len at begin, own outcome */ }
+impl TransactionStack {
+    /// BEGIN IMMEDIATE at depth 0, else SAVEPOINT nested_<n>. Err: nothing was opened and there
+    /// is nothing to clean up.
+    pub fn begin(&mut self, conn: &Connection, own: Option<SettlementId>) -> Result<Frame>;
+    /// The caller's event list grew to `len` (events written inside the open transaction).
+    pub fn note_events(&mut self, len: usize);
+    /// `run` returned. Never returns Err: every failure is in `Finish`, and on any failure the
+    /// stack has already rolled back (to the savepoint, or the whole transaction).
+    pub fn succeed(&mut self, conn: &Connection, frame: Frame) -> Finish;
+    /// `run` threw. Never returns Err.
+    pub fn fail(&mut self, conn: &Connection, frame: Frame) -> Finish;
+}
+/// For Rust callers: begin, run, then succeed or fail, returning the Finish.
+pub fn atomic<T>(stack: &mut TransactionStack, conn: &Connection, own: Option<SettlementId>,
+    run: impl FnOnce(&Connection) -> Result<T>) -> (Option<T>, Finish);
 ```
 
-The TypeScript `Store.transaction` keeps everything that is a TypeScript object: the thread
-cache, read caches, sidebar invalidation, the WAL wake, the `Promise` check (`Store transactions
-must be synchronous`), the history-installation inline path, and running the `Publication`
-steps. Shell: `apps/daemon/src/native-writer/transaction.ts`, selected inside `transaction`.
+**One owner for each piece of state.** The stack owns depth, the doomed error, the event-range
+positions and the list of pending settlements (id and position). The TypeScript shell owns the
+`Event` objects and the settlement callbacks, in a map keyed by `SettlementId`. It applies
+`events_len` and `steps` exactly as given and holds no position of its own.
 
-**Invariants** (behaviour.md §4): live writes flush before any transaction; publication only
-after `COMMIT` returns, in sequence order, interleaving settlements in nesting order; nothing at
-or below `publishedSeq` republished; a nested failure rolls back to its savepoint and rethrows; a
-savepoint that cannot be undone dooms the outer transaction; any rollback bumps
-`rollbackGeneration`; a failed `ROLLBACK` is reported and the caller's own error is thrown.
+**The rules, as the TS has them** (the reviewer checks each against `store.ts`):
+
+1. Top-level success: if doomed, roll back and finish with `FinishError::Doomed`. Else `COMMIT`.
+   On commit failure, roll back (unless SQLite already did, `is_transaction` false) and finish
+   `RolledBack` with `FinishError::Sqlite`. On commit success the steps are, in order:
+   `Settle { own, Committed }` if the frame has its own outcome; then, for each pending
+   settlement in order, `Publish { from, to: settlement.at }` (only when the frame has no own
+   outcome), then `Settle { id, Committed }`; then a final `Publish { from, to: events_len }`
+   (only when the frame has no own outcome). A frame with its own outcome publishes none of its
+   events (outer-outcome suppression, `store.ts:653` to `:660`).
+2. Top-level failure (`fail`, or a failed commit): roll back if SQLite has not, report a failed
+   `ROLLBACK` in `reports`, then `Settle { id, RolledBack }` for every pending settlement in
+   order. The frame's own outcome is **not** settled: the caller sees the error and handles it,
+   as `store-stream.ts` `write` does today.
+3. Nested success: `RELEASE`. If the frame has its own outcome, events recorded since the
+   frame's begin are cut from the publish range (`events_len` = the frame's begin length), and
+   the outcome joins the pending list at that position. It settles when the outermost frame
+   settles. No steps now.
+4. Nested failure: `ROLLBACK TO` and `RELEASE` the savepoint. If that is impossible (no open
+   transaction, or the statement fails), set doomed (first error kept) and add the failure to
+   `reports`. `events_len` = the frame's begin length. `Settle { id, RolledBack }` for every
+   settlement registered since the frame began, in order. The frame's own outcome is not
+   settled, because it never joined the list. `rolled_back` is true.
+5. Exactly once: every `SettlementId` that joins the pending list appears in exactly one
+   `Settle` step, ever. An id never joins twice.
+
+The TypeScript `Store.transaction` keeps the flush before begin, the history-installation inline
+path, the `Promise` check (`Store transactions must be synchronous`), the thread cache
+(`begin`, `discard`, `commit`, `end`), the read and sidebar caches, `writtenThreads`, the WAL
+wake, `transactions++`, `eventRows`, `publishFresh` (it filters at or below `publishedSeq`), the
+usage listeners, and running `steps` (each `Settle` callback in its own try, as `settle` does).
+Shell: `apps/daemon/src/native-writer/transaction.ts`, selected inside `transaction`.
 
 **Proof, on and off:** `store.test.ts`, `store-auto-rollback.test.ts`,
 `store-held-view-rollback.test.ts`, `store-live-write-recovery.test.ts`,
@@ -748,13 +1031,14 @@ savepoint that cannot be undone dooms the outer transaction; any rollback bumps
 `daemon-crash-recovery.process.test.ts`, `storage/recovery.process.test.ts`. Bench:
 `sqlite-store.ts --split` (commit p50 and p95), `event-writes.ts`.
 
-**Failure modes:** `SQLITE_FULL` or an I/O error that rolls the transaction back inside a
-savepoint (`is_transaction` false afterwards); a crash mid-transaction (WAL frames uncommitted,
-nothing published); a throw from a settlement callback (reported, the transaction stays
+**Failure modes:** `SQLITE_FULL` or an I/O error that makes SQLite roll the whole transaction
+back inside a savepoint (`is_transaction` false, so the savepoint cannot be undone, which dooms
+the outer frame); a crash mid-transaction (uncommitted WAL frames are discarded, nothing was
+published); a throw from a settlement callback (the shell reports it, and the transaction stays
 settled).
 
 **Placement:** when no TypeScript calls `Store.atomic` any more (ADR 0223 §4), the stack and
-the connection move to one core thread; `TransactionStack` is unchanged and only the binding is
+the connection move to one core thread. `TransactionStack` is unchanged; only the binding is
 replaced.
 
 ## Reviewing a phase 5 task
