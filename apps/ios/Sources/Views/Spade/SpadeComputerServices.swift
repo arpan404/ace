@@ -26,6 +26,7 @@ struct SpadeComputerServices: View {
                         row(service)
                         if open == service.id {
                             SpadeServiceLog(model: model, agent: agent, service: service)
+                                .id(service.restarts)
                         }
                     }
                 }

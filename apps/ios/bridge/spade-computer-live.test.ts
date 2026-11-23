@@ -183,7 +183,9 @@ test("an ended service starts again, and none is offered while one of its name r
     { ok: true },
   );
   const again = await ask({ type: "spade.services", agentId: "writer" });
-  expect(again).toMatchObject({ services: [{ words: "Running", running: true }, {}, {}] });
+  expect(again).toMatchObject({
+    services: [{ words: "Running", running: true, restarts: 1 }, {}, {}],
+  });
   expect(
     await ask({ type: "spade.services.start", agentId: "writer", service: oldPreview.id }),
   ).toMatchObject({ ok: false, title: "Couldn't start the service" });

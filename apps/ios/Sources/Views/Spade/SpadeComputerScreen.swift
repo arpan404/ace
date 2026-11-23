@@ -28,6 +28,8 @@ struct SpadeComputerScreen: View {
     /// The screen's controls are the person's now, so their input goes in.
     private var controlling: Bool { holding && screen.live.sessionId.map(screen.controls) == true }
 
+    private var screenLifecycle: String? { screen.live.sessionId.flatMap(screen.state)?.lifecycle }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             picture
@@ -47,7 +49,7 @@ struct SpadeComputerScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .followsComputer(watch, model: model)
         .task(id: "\(scene)-\(model.connection)-\(model.connectionEpoch)-\(threadId ?? "")") { await follow() }
-        .task(id: "\(holding)-\(screen.live.sessionId ?? "")") { await control() }
+        .task(id: "\(holding)-\(screen.live.sessionId ?? "")-\(screenLifecycle ?? "")") { await control() }
         .onDisappear { stop() }
     }
 
@@ -126,10 +128,9 @@ struct SpadeComputerScreen: View {
     private func control() async {
         guard let sessionId = screen.live.sessionId else { return }
         guard holding else { await screen.release(model, id: sessionId); return }
-        guard !screen.controls(sessionId) else { return }
+        guard screenLifecycle == "live", !screen.controls(sessionId),
+              let threadId, RemoteScreenState.bot(screen.states, threadId: threadId)?.id == sessionId else { return }
         await screen.takeControl(model, id: sessionId)
-        // Holding ended while the controls were on their way: they go straight back.
-        if Task.isCancelled { await screen.release(model, id: sessionId) }
     }
 
     /// Input goes in only on Spade's fresh word that the person holds the computer.

@@ -282,6 +282,7 @@ export const spadeComputerLiveRequests = spadeRequestArea(
               name: service.name,
               command: service.command,
               words: spadeServiceWords(service),
+              restarts: service.restarts,
               running: service.state === "running",
               failed: service.state === "failed" || (service.exitCode ?? 0) !== 0,
               // Ended, with none of its name running: Start runs it again.

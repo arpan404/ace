@@ -140,6 +140,34 @@ import Testing
         #expect(RemoteScreenState.bot(held, threadId: "t1")?.sessionId == "holds")
     }
 
+    @Test func aScreenHeldByAnotherBotCannotBeSelectedByItsOpeningThread() throws {
+        let states = try Self.screenStates("""
+        [{"sessionId":"moved","lifecycle":"live","controller":"agent","threadId":"t1",
+          "holder":{"threadId":"t2","agentId":"a2"},"target":{"kind":"window"}}]
+        """)
+        #expect(RemoteScreenState.bot(states, threadId: "t1") == nil)
+        #expect(RemoteScreenState.bot(states, threadId: "t2")?.id == "moved")
+    }
+
+    @Test func leavingWhileTakeControlAwaitsAReplyReleasesTheLateGrant() async {
+        let screen = RemoteScreen()
+        var granted: CheckedContinuation<Void, Never>?
+        var controller: String?
+        let ask: ScreenAsk = { payload, _ in
+            controller = (payload["operation"] as? [String: Any])?["controller"] as? String
+            if controller == "human" { await withCheckedContinuation { granted = $0 } }
+            return .object(["ok": .bool(true)])
+        }
+        let acquisition = Task { await screen.takeControl(ask, id: "screen") }
+        while granted == nil { await Task.yield() }
+        #expect(controller == "human")
+        acquisition.cancel()
+        #expect(!screen.relinquish("screen"))
+        granted?.resume()
+        await acquisition.value
+        #expect(controller == "none")
+    }
+
     @Test func aTapClicksAndAMoveScrollsOrDragsWhereItStarted() {
         let tap = RemoteScreen.pointer(from: CGPoint(x: 10, y: 20), to: CGPoint(x: 11, y: 20), drag: false)
         #expect(tap["kind"] as? String == "pointer.click")

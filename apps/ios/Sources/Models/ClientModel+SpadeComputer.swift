@@ -64,6 +64,7 @@ struct SpadeService: Decodable, Equatable, Identifiable, Sendable {
     let failed: Bool
     /// Ended, with none of its name running: Start runs its own command again.
     let startable: Bool
+    let restarts: Int
 }
 
 struct SpadeServiceLine: Decodable, Equatable, Sendable {
