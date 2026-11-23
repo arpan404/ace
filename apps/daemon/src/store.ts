@@ -634,16 +634,30 @@ export class Store {
       this.doomed = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
-    // subscribers have already received.
+    // subscribers have already received. Every committed settlement runs even when a
+    // publication throws (a lineage write's onError may rethrow): a skipped reservation would
+    // stay unconfirmed and keep gating publication. The first error is rethrown last.
     const settlements = this.settlements.splice(0);
-    if (outcome) outcome.committed();
+    let failed = false;
+    let failure: unknown;
+    const step = (action: () => void) => {
+      try {
+        action();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
+      }
+    };
+    if (outcome) step(() => outcome.committed());
     let from = 0;
     for (const settlement of settlements) {
-      if (!outcome) this.publishFresh(events.slice(from, settlement.at));
+      if (!outcome) step(() => this.publishFresh(events.slice(from, settlement.at)));
       from = settlement.at;
       this.settle([settlement], "committed");
     }
-    if (!outcome) this.publishFresh(events.slice(from));
+    if (!outcome) step(() => this.publishFresh(events.slice(from)));
     for (const listener of this.usageListeners) {
       try {
         listener();
@@ -655,6 +669,7 @@ export class Store {
         }
       }
     }
+    if (failed) throw failure;
     return result;
   }
   /**
