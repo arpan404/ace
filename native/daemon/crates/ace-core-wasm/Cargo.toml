@@ -20,3 +20,7 @@ crate-type = ["cdylib"]
 ace-core = { path = "../ace-core" }
 # wasm-bindgen: the browser binding for fake-daemon (ADR 0223, decided by the orchestrator).
 wasm-bindgen = "0.2"
+# js-sys: the ids callback the facade passes into each fold.
+js-sys = "0.3"
+# serde_json: states and facts cross the wasm boundary as JSON strings.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
