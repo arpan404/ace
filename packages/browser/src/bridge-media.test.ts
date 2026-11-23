@@ -563,3 +563,57 @@ test("a view bound before any grant, whose every codec failed, hears the encoder
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
   client.close();
 });
+
+test("a resubscribe on a new connection says the new view's own state, not the replaced view's refusal", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "pending" }),
+    },
+  });
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [first] = d.views.values();
+  // ace-media refused the first view at its limit.
+  first?.onGrant?.(false, "limit");
+  // The client's media connection was replaced: it subscribes again naming the new one.
+  results.length = 0;
+  await client.handle({
+    ...subscribe(a, "mc_bbbbbbbbbbbb"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const reply = results.find(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.result",
+  );
+  expect(reply).toMatchObject({ ok: true, undelivered: { code: "starting" } });
+  // A late word from the replaced view changes nothing of the new one's.
+  results.length = 0;
+  first?.onGrant?.(false, "limit");
+  expect(
+    results.some(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    ),
+  ).toBe(false);
+  client.close();
+});

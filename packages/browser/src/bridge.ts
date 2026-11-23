@@ -125,8 +125,6 @@ export function connectBrowser(
     views: Map<string, string>;
     /** The view the capture was last told about, to tell it again when delivery changes. */
     shown?: CaptureViewer | undefined;
-    /** ace-media's last word on this connection's view: granted, or why not. */
-    grant?: { granted: boolean; why: string | undefined } | undefined;
     /** Whether this connection's view waits for the tab's encoder to recover (`videoNotice`). */
     recovering?: boolean;
   };
@@ -153,7 +151,10 @@ export function connectBrowser(
   /** A subscriber leaves its media connection's view; the last one out closes it. */
   const retire = (entry: Subscription | undefined, subscriber: string) => {
     const mediaViewer = leave(entry, subscriber);
-    if (mediaViewer !== undefined) options.media?.delivery()?.unbind(mediaViewer);
+    if (mediaViewer !== undefined) {
+      grants.delete(mediaViewer);
+      options.media?.delivery()?.unbind(mediaViewer);
+    }
   };
   /**
    * The thread's state as this connection sees it: while only older clients watch it here, it
@@ -166,6 +167,11 @@ export function connectBrowser(
       : state;
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
+  /**
+   * ace-media's last word on each view this connection holds, by viewer id: a view replaced by a
+   * newer one (a new media connection) keeps its own, which never speaks for the new one.
+   */
+  const grants = new Map<string, { granted: boolean; why: string | undefined }>();
   const bind = (threadId: string, entry: Subscription, capture?: CaptureViewer) => {
     entry.stop = service.subscribe(
       threadId,
@@ -178,7 +184,8 @@ export function connectBrowser(
         if (recovering === (entry.recovering ?? false)) return;
         entry.recovering = recovering;
         // Any bound view hears it, before its first grant too.
-        if (entry.views.size > 0) delivered(threadId, notice(threadId, entry));
+        const view = latestView(entry);
+        if (view !== undefined) delivered(threadId, notice(threadId, entry, view));
       },
       (event) => options.send(event),
       capture,
@@ -209,6 +216,9 @@ export function connectBrowser(
     if (shared !== undefined) return { viewer: shared, created: false };
     const viewport = message.viewport;
     const link = viewLink(viewport?.link);
+    /** The view's id, once `bind` gave it; a grant before then is held for it. */
+    let id: string | undefined;
+    let early: { granted: boolean; why: string | undefined } | undefined;
     const bound = delivery.bind({
       requester: owner,
       connection,
@@ -220,13 +230,18 @@ export function connectBrowser(
       ...(link ? { link } : {}),
       shows: showsThread(threadId),
       onGrant: (granted, why) => {
+        if (id === undefined) return void (early = { granted, why });
+        grants.set(id, { granted, why });
         const current = subscriptions.get(threadId);
+        // Only the connection's view now speaks for it: a replaced one's word changes nothing.
         if (!current) return delivered(threadId, granted ? undefined : waiting(threadId, why));
-        current.grant = { granted, why };
-        delivered(threadId, notice(threadId, current));
+        if (latestView(current) !== id) return;
+        delivered(threadId, notice(threadId, current, id));
       },
     });
     if (bound === undefined) throw bindingRefused(delivery, connection);
+    id = bound;
+    if (early) grants.set(bound, early);
     return { viewer: bound, created: true };
   };
   /**
@@ -242,16 +257,14 @@ export function connectBrowser(
       ...(undelivered ? { undelivered } : {}),
     });
   };
-  /** What this connection's view of the thread says now: ace-media's word, then the encoder's. */
-  const notice = (threadId: string, entry: Subscription) => {
-    // ace-media's last word on the view, or before its first one, what the port holds now.
-    const view = entry.views.values().next().value;
+  /** The view bound last for this connection: the one its notice speaks for. */
+  const latestView = (entry: Subscription): string | undefined => [...entry.views.values()].at(-1);
+  /** What view `view` of the thread says now: ace-media's word on it, then the encoder's. */
+  const notice = (threadId: string, entry: Subscription, view: string) => {
+    // ace-media's last word on this view, or before its first one, what the port holds now.
     const port = options.media?.delivery();
     const grant =
-      entry.grant ??
-      (view !== undefined && port
-        ? { granted: port.granted(view), why: port.why(view) }
-        : undefined);
+      grants.get(view) ?? (port ? { granted: port.granted(view), why: port.why(view) } : undefined);
     const undelivered = grant?.granted ? undefined : waiting(threadId, grant?.why);
     // What the view was told, so a state push tells it again only when this changes.
     entry.recovering = service.videoRecovering(threadId, options.connectionId);
@@ -604,6 +617,11 @@ export function connectBrowser(
               throw error;
             }
             swap().commit();
+            // A view the swap let go of has no word left to keep.
+            const held = new Set<string>();
+            for (const each of subscriptions.values())
+              for (const view of each.views.values()) held.add(view);
+            for (const view of grants.keys()) if (!held.has(view)) grants.delete(view);
             if (joined && message.media) {
               const port = options.media?.delivery();
               const poster = await port?.poster(joined.viewer);
@@ -613,7 +631,7 @@ export function connectBrowser(
               // One reckoning for the reply and every change after: ace-media's word on the
               // view, then the encoder's recovery.
               const undelivered = bound
-                ? notice(threadId, bound)
+                ? notice(threadId, bound, joined.viewer)
                 : port?.granted(joined.viewer)
                   ? undefined
                   : waiting(threadId, port?.why(joined.viewer));
@@ -724,6 +742,7 @@ export function connectBrowser(
           options.media?.delivery()?.unbind(mediaViewer);
         entry.stop();
       }
+      grants.clear();
       subscriptions.clear();
       service.disconnect(options.connectionId);
     },
