@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-core"
+description = "The fact reducer: facts fold into thread state, statuses and deadlines (E4 owns the port)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# ace-protocol: the generated event, item and status types the fold emits and reads.
+ace-protocol = { path = "../ace-protocol" }
+# serde: the fold's state and facts serialize for tests and for the facade's state refresh.
+serde = { version = "1", features = ["derive"] }
+# serde_json: facts and diagnostics keep provider data as JSON, never re-encoded.
+serde_json = { version = "1", features = ["raw_value"] }
+# thiserror: the fold's typed errors (invalid facts are rejected, never fatal, in E4).
+thiserror = { version = "2" }

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-protocol"
+description = "Rust types for the @ace/protocol values the engine reads and writes, generated from the Zod schemas, never hand-edited"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# serde: generated types serialize for tests and stored rows.
+serde = { version = "1", features = ["derive"] }
+# serde_json: generated types keep stored JSON as stored (RawValue), never re-encoded.
+serde_json = { version = "1", features = ["raw_value"] }

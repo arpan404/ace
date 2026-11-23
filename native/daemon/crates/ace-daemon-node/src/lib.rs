@@ -8,9 +8,24 @@ use napi::bindgen_prelude::{BigInt, Either4, Either5, Null, Uint8Array};
 use napi_derive::napi;
 use std::sync::Arc;
 
+mod core;
+mod engine;
 mod items;
 mod long_thread;
+mod session_acp;
+mod session_codex;
+mod session_cursor;
+mod session_opencode;
+mod session_pi;
 mod sidebar;
+mod streams;
+mod supervisor;
+mod translate_acp;
+mod translate_claude;
+mod translate_codex;
+mod translate_cursor;
+mod translate_opencode;
+mod translate_pi;
 
 /// Largest integer a JavaScript number holds exactly.
 const SAFE: i64 = (1 << 53) - 1;

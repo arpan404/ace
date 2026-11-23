@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-protocol-gen"
+description = "Generation-time only: turns the @ace/protocol JSON Schema into ace-protocol/src/generated.rs with typify"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# schemars: the Schema type typify consumes; 0.8 matches typify 0.8's own dependency.
+schemars = "0.8"
+# serde_json: reads the combined schema scripts/generate-rust-protocol.ts wrote.
+serde_json = { version = "1" }
+# typify: produces Rust types from JSON Schema at generation time only (nothing it emits is hand-edited).
+# 0.8: the newest line whose dependency closure still builds on the workspace's pinned toolchain
+# (0.10 needs rustc 1.97 through typespace).
+typify = "0.8"
