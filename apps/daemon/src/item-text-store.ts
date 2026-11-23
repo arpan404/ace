@@ -297,6 +297,20 @@ export class ItemTextStore {
     return { item: storedItem(created, String(row.item), this.trust), target: row.target };
   }
   /**
+   * `read` from a parsed preview: the fill with sizes and bytes for its sources.
+   * Shared by the single read and the primed path so both shape text identically.
+   */
+  readBatchedItem(
+    item: Item,
+    sizes: Map<string, unknown>,
+    byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>,
+  ): Item {
+    const sizeOf = (source: TextSource): number => StreamSize.parse(sizes.get(source.streamId));
+    const slice = (streamId: string, start: number, end: number): string =>
+      sliceByteRows(byteRows.get(streamId) ?? [], start, end);
+    return this.fill(item, sizeOf, slice);
+  }
+  /**
    * `read` from prefetched rows: `preview` is the batch's preview row (or undefined when the
    * id had none), `sizes` maps stream id to its whole length, `byteRows` maps stream id to
    * its chunk rows in offset order. Slicing, surrogate handling and `remaining` match `read`.
@@ -309,9 +323,6 @@ export class ItemTextStore {
   ): Item {
     const stored = preview ? this.previewFromRow(preview) : undefined;
     if (!stored) throw new Error("Missing item preview");
-    const sizeOf = (source: TextSource): number => StreamSize.parse(sizes.get(source.streamId));
-    const slice = (streamId: string, start: number, end: number): string =>
-      sliceByteRows(byteRows.get(streamId) ?? [], start, end);
-    return this.fill(stored.item, sizeOf, slice);
+    return this.readBatchedItem(stored.item, sizes, byteRows);
   }
 }

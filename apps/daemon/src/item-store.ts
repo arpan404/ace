@@ -124,6 +124,7 @@ export class ItemStore {
         bodies: Map<string, { item: unknown; created_seq: unknown }>;
         chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
         previews: Map<string, PreviewRow>;
+        parsed: Map<string, Item>;
         sizes: Map<string, unknown>;
         byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
       }
@@ -454,6 +455,7 @@ export class ItemStore {
     bodies: Map<string, { item: unknown; created_seq: unknown }>;
     chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
     previews: Map<string, PreviewRow>;
+    parsed: Map<string, Item>;
     sizes: Map<string, unknown>;
     byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
   } {
@@ -462,8 +464,8 @@ export class ItemStore {
     const grouped = groupBodyRows(fetchBodies(this.db, bodyIds));
     const previews = new Map<string, PreviewRow>();
     for (const row of fetchPreviews(this.db, previewIds)) previews.set(String(row.id), row);
-    const { sizes, byteRows } = this.primePreviewBytes([...previews.values()]);
-    return { bodies: grouped.bodies, chunks: grouped.chunks, previews, sizes, byteRows };
+    const { sizes, byteRows, parsed } = this.primePreviewBytes([...previews.values()]);
+    return { bodies: grouped.bodies, chunks: grouped.chunks, previews, parsed, sizes, byteRows };
   }
   /**
    * Sizes and bytes for batched previews, in the order `fill` reads them: sizes for every
@@ -473,21 +475,22 @@ export class ItemStore {
   private primePreviewBytes(previewRows: PreviewRow[]): {
     sizes: Map<string, unknown>;
     byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
+    parsed: Map<string, Item>;
   } {
-    const parsed = new Map<string, { item: Item; streaming: boolean }>();
+    const parsed = new Map<string, Item>();
     for (const row of previewRows) {
       const item = this.texts.previewFromRow({
         item: row.item,
         target: row.target,
         created_seq: row.created_seq,
       }).item;
-      parsed.set(String(row.id), { item, streaming: !item.complete });
+      parsed.set(String(row.id), item);
     }
     const order = new Map<string, TextSource[]>();
     const streamIds: string[] = [];
     const seen = new Set<string>();
-    for (const [id, entry] of parsed) {
-      const sources = sourcesInFillOrder(entry.item);
+    for (const [id, item] of parsed) {
+      const sources = sourcesInFillOrder(item);
       order.set(id, sources);
       for (const source of sources)
         if (!seen.has(source.streamId)) {
@@ -505,9 +508,8 @@ export class ItemStore {
       position.set(id, 0);
     }
     for (;;) {
-      const ranges: { id: string; start: number; end: number }[] = [];
       const pending: { id: string; streamId: string; start: number; end: number }[] = [];
-      for (const [id, entry] of parsed) {
+      for (const [id, item] of parsed) {
         const sources = order.get(id) ?? [];
         const at = position.get(id) ?? sources.length;
         if (at >= sources.length) continue;
@@ -521,21 +523,23 @@ export class ItemStore {
         }
         const numericSize = Number(size);
         const rem = remaining.get(id) ?? 4096;
-        const [start, end] = entry.streaming
+        const [start, end] = !item.complete
           ? tailRange(numericSize, rem)
           : headRange(numericSize, rem);
-        ranges.push({ id: source.streamId, start, end });
         pending.push({ id, streamId: source.streamId, start, end });
       }
       if (!pending.length) break;
-      if (ranges.length)
-        for (const row of fetchStreamBytes(this.db, ranges)) {
+      const fetchable = pending.filter((step) => step.end > step.start);
+      if (fetchable.length) {
+        const fetchRanges = fetchable.map(({ streamId: id, start, end }) => ({ id, start, end }));
+        for (const row of fetchStreamBytes(this.db, fetchRanges)) {
           const streamId = String(row.stream_id);
           const entry = { offset: Number(row.offset), bytes: row.bytes as Uint8Array };
           const list = byteRows.get(streamId);
           if (list) list.push(entry);
           else byteRows.set(streamId, [entry]);
         }
+      }
       for (const step of pending) {
         const text = trimLowStart(
           sliceByteRows(byteRows.get(step.streamId) ?? [], step.start, step.end),
@@ -545,7 +549,7 @@ export class ItemStore {
         position.set(step.id, (position.get(step.id) ?? 0) + 1);
       }
     }
-    return { sizes, byteRows };
+    return { sizes, byteRows, parsed };
   }
   /**
    * Prime the rows the window's add loop will read, in its order: heads for the decided
@@ -601,6 +605,7 @@ export class ItemStore {
       bodies: Map<string, { item: unknown; created_seq: unknown }>;
       chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
       previews: Map<string, PreviewRow>;
+      parsed: Map<string, Item>;
       sizes: Map<string, unknown>;
       byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>;
     },
@@ -608,9 +613,10 @@ export class ItemStore {
     type: string,
   ): Item | undefined {
     if (ItemStore.isPreviewType(type)) {
-      const row = cache.previews.get(id);
-      if (!row) return undefined;
-      return this.texts.readBatched(id, row, cache.sizes, cache.byteRows);
+      if (!cache.previews.has(id)) return undefined;
+      const item = cache.parsed.get(id);
+      if (!item) return undefined;
+      return this.texts.readBatchedItem(item, cache.sizes, cache.byteRows);
     }
     const body = cache.bodies.get(id);
     if (!body) return undefined;
