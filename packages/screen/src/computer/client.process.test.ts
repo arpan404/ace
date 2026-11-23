@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { ComputerError } from "./client.ts";
+import { systemScheduler } from "../runtime.ts";
 import { computerWorld, manualScheduler, type WorldOptions } from "./testing/world.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -271,6 +272,45 @@ it("an evicted app whose old helper refuses to die is told so instead of waiting
     within(client.request("state", { app: "com.example.stuck" }), 3_000),
   ).rejects.toMatchObject({ code: "helper_stopping" });
   expect(children).toHaveLength(1);
+});
+
+it("an app evicted again and again while its old helper refuses to die keeps failing fast, then recovers", async () => {
+  // Idle eviction runs at once, so thousands of request-and-evict rounds stay quick.
+  const idleMs = 7;
+  const scheduler = {
+    after(ms: number, run: () => void) {
+      if (ms !== idleMs) return systemScheduler.after(ms, run);
+      const timer = setImmediate(run);
+      return () => clearImmediate(timer);
+    },
+  };
+  const { client, children, exited, endHelpers } = await world({
+    // The app's first act hangs; after that it answers.
+    env: { FAKE_IGNORE_STOP: "1", FAKE_HANG_ONCE: await marker("hung") },
+    unkillable: true,
+    client: { ...quick, forceKillMs: 100, idleMs, scheduler },
+  });
+  const app = "com.apple.calculator";
+  await expect(
+    client.request("act", { app, actions: [{ type: "key", key: "Escape" }] }),
+  ).rejects.toMatchObject({ code: "timeout" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const began = performance.now();
+  for (let round = 0; round < 10_000; round++) {
+    await expect(client.request("state", { app })).rejects.toMatchObject({
+      code: "helper_stopping",
+    });
+    // The failed request leaves the app idle: it is evicted before the next round.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  // Each round costs the same however many came before: well under a millisecond apiece.
+  expect(performance.now() - began).toBeLessThan(10_000);
+  expect(children).toHaveLength(1);
+  // The old helper finally exits: the app's next request gets a helper.
+  endHelpers();
+  await exited(children[0]);
+  await within(client.request("state", { app }), 5_000);
+  expect(children).toHaveLength(2);
 });
 
 it("beyond the helper limit, the least recently used idle app's helper exits", async () => {

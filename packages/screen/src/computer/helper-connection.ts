@@ -107,6 +107,18 @@ export class HelperConnection {
   }
 
   /**
+   * Resolves once no helper this connection started is starting, running or stopping, however
+   * long that takes: unlike `stopped`, it waits out a helper that refuses SIGKILL.
+   */
+  async gone(): Promise<void> {
+    for (;;) {
+      if (this.starting) await this.starting.catch(() => {});
+      else if (this.stopping) await this.stopping;
+      else return;
+    }
+  }
+
+  /**
    * One wait on the stopping helper: until it exits, or at once with `helper_stopping` while it
    * refuses SIGKILL. Its successor, here or in a new connection, must not start meanwhile.
    */

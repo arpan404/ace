@@ -124,5 +124,9 @@ export async function computerWorld(options: WorldOptions = {}) {
     await Promise.all(children.map(exited));
     await rm(dir, { recursive: true, force: true });
   };
-  return { client, call, ops, logged, children, startedAlone, exited, close, dir };
+  /** Ends every helper now, whatever it refuses, as its exit finally coming would. */
+  const endHelpers = () => {
+    for (const end of ends) end();
+  };
+  return { client, call, ops, logged, children, startedAlone, exited, endHelpers, close, dir };
 }

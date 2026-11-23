@@ -81,16 +81,12 @@ export function defaultDeadlineMs(op: string): number {
   return op === "act" ? 85_000 : op === "state" ? 40_000 : 15_000;
 }
 
-/** A dropped app connection, and the one dropped before it, until their helpers have exited. */
-interface Retired {
-  connection: HelperConnection;
-  before: Retired | undefined;
-}
-
 interface Entry {
   connection: HelperConnection;
-  /** The app's dropped connections when this one was made: its helper waits for theirs. */
-  before: Retired | undefined;
+  /** The app's retired connection when this one was made: its helper waits for that one's. */
+  before: HelperConnection | undefined;
+  /** Whether this connection ever spawned a helper; one that never did retires nothing. */
+  spawned: boolean;
   idle: boolean;
   /** Use order, for least-recently-used eviction. */
   used: number;
@@ -101,7 +97,11 @@ export class ComputerClient {
   private readonly options: ComputerClientOptions;
   private readonly entries = new Map<string, Entry>();
   /** Dropped connections whose helper has not exited yet; the app's next helper waits. */
-  private readonly retiring = new Map<string, Retired>();
+  /**
+   * Per app, the dropped connection whose helper may still run: at most one, since a successor
+   * spawns only once it has exited. Cleared when that helper exits.
+   */
+  private readonly retiring = new Map<string, HelperConnection>();
   private readonly scheduler: Scheduler;
   private uses = 0;
   private closed = false;
@@ -157,17 +157,24 @@ export class ComputerClient {
         start: async () => {
           if (entry.connection.isClosed())
             throw new ComputerError("closed", "Computer use stopped.");
-          await fence(entry.before);
+          const before = entry.before;
+          if (before) {
+            // Fails at once with helper_stopping while the old helper refuses to die.
+            await before.stopped();
+            if (this.retiring.get(key) === before) this.retiring.delete(key);
+          }
           const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
           // Dropped while the helper was resolved: its successor may be starting already.
           if (entry.connection.isClosed())
             throw new ComputerError("closed", "Computer use stopped.");
-          return (this.options.spawnHelper ?? defaultSpawn)(
+          const child = (this.options.spawnHelper ?? defaultSpawn)(
             command,
             ["--computer", ...(this.options.helperArgs ?? [])],
             env,
           );
+          entry.spawned = true;
+          return child;
         },
         nextId: this.options.nextId,
         scheduler: this.scheduler,
@@ -195,6 +202,7 @@ export class ComputerClient {
       }),
       // Captured before this entry is listed: it never waits for itself.
       before: this.retiring.get(key),
+      spawned: false,
       // About to take a request: never the one trimmed to make room for itself.
       idle: false,
       used: ++this.uses,
@@ -234,26 +242,14 @@ export class ComputerClient {
     entry.stopIdle();
     this.entries.delete(key);
     entry.connection.close();
-    const retired: Retired = { connection: entry.connection, before: entry.before };
+    // One that never spawned leaves the app's retired connection, if any, as it is.
+    if (!entry.spawned) return;
+    const retired = entry.connection;
     this.retiring.set(key, retired);
-    void fence(retired).then(
-      () => {
-        if (this.retiring.get(key) === retired) this.retiring.delete(key);
-      },
-      () => {},
-    );
+    void retired.gone().then(() => {
+      if (this.retiring.get(key) === retired) this.retiring.delete(key);
+    });
   }
-}
-
-/**
- * Waits until every dropped connection in the chain has no helper left; fails with
- * `helper_stopping` while one refuses to die, so the app's next helper never starts beside it.
- */
-async function fence(retired: Retired | undefined): Promise<void> {
-  if (!retired) return;
-  await fence(retired.before);
-  retired.before = undefined;
-  await retired.connection.stopped();
 }
 
 function defaultSpawn(
