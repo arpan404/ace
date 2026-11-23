@@ -25,6 +25,7 @@ mod raw;
 mod scan;
 pub mod ser;
 mod string;
+mod to_value;
 mod value;
 mod write;
 
@@ -34,6 +35,7 @@ pub use object::{Entry, Map, MapKey};
 pub use parse::{SyntaxError, parse};
 pub use raw::{Entries, Items, Kind, Raw, RawRef, parse_raw};
 pub use string::{JsString, Units};
+pub use to_value::{ToValue, to_value};
 pub use value::{Array, Value};
 pub use write::{ObjectWriter, to_string, write_js_string, write_str, write_value};
 

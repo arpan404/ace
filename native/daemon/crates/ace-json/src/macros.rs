@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! `json!`: a value literal, as serde_json's macro writes one. Keys are string literals;
 //! values are `null`, nested `[...]` / `{...}` literals or any expression with
-//! `Into<Value>`. Object keys follow JavaScript's order, like every [`crate::Map`].
+//! `ToValue` (taken by reference). Object keys follow JavaScript's order, like every [`crate::Map`].
 
 /// Build a [`crate::Value`] from a JSON-like literal.
 #[macro_export]
@@ -17,7 +17,7 @@ macro_rules! json {
         $crate::json_internal!(@object map $($tt)+);
         $crate::Value::Object(map)
     }};
-    ($other:expr) => { $crate::Value::from($other) };
+    ($other:expr) => { $crate::to_value(&$other) };
 }
 
 #[doc(hidden)]

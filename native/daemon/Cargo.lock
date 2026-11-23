@@ -22,11 +22,11 @@ name = "ace-adapter-api"
 version = "0.1.0"
 dependencies = [
  "ace-core",
+ "ace-json",
  "ace-protocol",
  "base64 0.22.1",
  "futures",
  "serde",
- "serde_json",
  "sha2",
  "thiserror",
 ]
@@ -95,9 +95,9 @@ dependencies = [
 name = "ace-core"
 version = "0.1.0"
 dependencies = [
+ "ace-json",
  "ace-protocol",
  "serde",
- "serde_json",
  "thiserror",
 ]
 
