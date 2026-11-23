@@ -11,7 +11,7 @@ import {
 import { flushSync } from "react-dom";
 
 /*
- * A long message folded in place (ADR 0212 amendment 2): the bubble shows its first ten drawn
+ * A long message folded in place (ADR 0212 amendment 2): the bubble shows its first twenty drawn
  * lines, wrapped ones counted, and Show more under them opens the rest where it is. Opening keeps
  * the bubble's top where it was and closing keeps Show less under the pointer, so the chat never
  * jumps; either one lets go of following the conversation's end, which would otherwise scroll
@@ -31,7 +31,7 @@ export const FoldScrollContext = createContext<FoldScroll | undefined>(undefined
 /** A line's height when the page doesn't say (`normal`, or no layout to ask). */
 const fallbackLine = 24;
 
-/** The words of a message that may fold, and Show more when they run past ten lines. */
+/** The words of a message that may fold, and Show more when they run past twenty lines. */
 export function SpadeFold(props: { fold: boolean | undefined; children: ReactNode }) {
   if (!props.fold) return props.children;
   return <Folded>{props.children}</Folded>;

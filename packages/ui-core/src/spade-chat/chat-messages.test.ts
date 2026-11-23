@@ -113,13 +113,14 @@ describe("long words", () => {
   });
 
   test("a short message doesn't fold, and a reply quoting a long one quotes its words", () => {
-    const long = Array.from({ length: 14 }, (_, at) => `Line ${at + 1}`).join("\n");
+    const long = Array.from({ length: 24 }, (_, at) => `Line ${at + 1}`).join("\n");
+    const fourteen = Array.from({ length: 14 }, (_, at) => `Step ${at + 1}`).join("\n");
     const c = conversation();
     c.stored({ type: "reply_started", reply: "r1" });
     c.stored({
       type: "step_finished",
       reply: "r1",
-      text: `<msg>Short and sweet.</msg><msg>${long}</msg>`,
+      text: `<msg>Short and sweet.</msg><msg>${long}</msg><msg>${fourteen}</msg>`,
     });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     c.stored({ type: "reply_started", reply: "r2" });
@@ -128,10 +129,12 @@ describe("long words", () => {
       reply: "r2",
       text: '<msg reply="m2.2">About line 14.</msg>',
     });
-    const [short, folded, answer] = bots(c.bubbles());
+    const [short, folded, middling, answer] = bots(c.bubbles());
     expect(short).toMatchObject({ text: "Short and sweet." });
     expect(short?.fold).toBeUndefined();
     expect(folded?.fold).toBe(true);
+    // Fourteen lines fit under the twenty a bubble shows before it folds.
+    expect(middling?.fold).toBeUndefined();
     expect(answer?.quote?.text).toContain("Line 1");
   });
 

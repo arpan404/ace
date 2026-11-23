@@ -94,7 +94,7 @@ test("while Spade isn't running the tab says why, and no bot shows as still work
   await until(() => patches.state?.list.rows?.[0]?.state === "off");
 });
 
-test("a long reply reaches the phone whole, to fold after ten lines", async () => {
+test("a long reply reaches the phone whole, to fold after twenty lines", async () => {
   const long = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join("\n");
   let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
   const { patches, spade } = await setUp((fake) => {

@@ -77,7 +77,7 @@ type SpadeBubbleOf =
       id?: string;
       /** A `<doc>` it wrote, as a document card (ADR 0212 §5). */
       doc?: SpadeDocCard;
-      /** Long enough to fold past ten lines (ADR 0212 amendment 2, `spadeMayFold`). */
+      /** Long enough to fold past twenty lines (ADR 0212 amendment 2, `spadeMayFold`). */
       fold?: true;
     }
   | {
@@ -112,7 +112,7 @@ type SpadeBubbleOf =
        */
       doc?: SpadeDocCard;
       /**
-       * Finished and long enough that it may draw past ten lines: the client shows its first ten
+       * Finished and long enough that it may draw past twenty lines: the client shows its first twenty
        * and Show more when it does (ADR 0212 amendment 2). Never while it streams.
        */
       fold?: true;

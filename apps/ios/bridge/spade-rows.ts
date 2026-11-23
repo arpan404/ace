@@ -200,7 +200,7 @@ export type SpadeBubbleRow =
       /** Still being written. */
       live: boolean;
       /**
-       * Finished and long enough that it may draw past ten lines: the phone shows its first ten
+       * Finished and long enough that it may draw past twenty lines: the phone shows its first twenty
        * and Show more when it does (ADR 0212 amendment 2).
        */
       fold: boolean;

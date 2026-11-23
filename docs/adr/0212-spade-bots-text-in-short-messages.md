@@ -151,8 +151,18 @@ rule ("X is done, now Y") added the same day.
 ## Amendment 2: a long message folds in place instead of becoming a document
 
 Accepted 2026-11-22, on the owner's word: "instead of docs lets make the message expand like
-imessage does after 10 lines". A message past ten lines stays a message: its bubble shows the
-first ten lines and the rest opens in place on a tap, on every client. This replaces decision
+imessage does after 10 lines". A message past twenty lines stays a message: its bubble shows the
+first twenty lines and the rest opens in place on a tap, on every client (ten at first; the owner
+raised it to twenty the same day). This replaces decision
 'A long reply renders as its first paragraph and a document card' (`spadeLongWords`). The
 instructions say so: a long answer stays in the message with what matters first, markdown, lists
 and code are fine in it, and `<doc>` is only for something the person will keep, copy or share.
+
+## Amendment 3: reply at once, in small batches
+
+Accepted 2026-11-22, on the owner's word: "tell agent to write smaller batch and reply
+immediately ... so we can get the actual agent like feel". "Staying with the person" now opens
+every reply with a short message before any tool call (naming itself when Spade asks is the one
+exception), keeps each message to a sentence or two sent as soon as it is ready, and works in
+short runs of a few tool calls with a line to the person between them. The narration bullet that
+said the same under "How you answer" is folded into it.

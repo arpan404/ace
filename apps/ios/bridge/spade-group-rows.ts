@@ -117,7 +117,7 @@ export type SpadeGroupBubbleRow =
       kind: "member";
       name: string;
       text: string;
-      /** Long enough to fold past ten lines (ADR 0212 amendment 2). */
+      /** Long enough to fold past twenty lines (ADR 0212 amendment 2). */
       fold: boolean;
       face: SpadeFaceRow;
       /** First of the member's run: its name shows above. */

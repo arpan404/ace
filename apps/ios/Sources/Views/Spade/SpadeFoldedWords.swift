@@ -1,22 +1,22 @@
 import SwiftUI
 
-/// A Spade message's markdown, folded once finished when it draws past ten lines (ADR 0212
-/// amendment 2): its first ten lines under a fade, then Show more, which opens the rest in place
+/// A Spade message's markdown, folded once finished when it draws past twenty lines (ADR 0212
+/// amendment 2): its first twenty lines under a fade, then Show more, which opens the rest in place
 /// with the system's own animation; Show less folds it again. Lines are the answer's line height
 /// at the person's text size, so the fold follows Dynamic Type. Open stays open while the bubble
 /// is on screen. A message the bridge doesn't mark `fold` is drawn as it is.
 struct SpadeFoldedWords: View {
     let text: String
     var streaming = false
-    /// The bridge's word: finished and long enough that it may draw past ten lines.
+    /// The bridge's word: finished and long enough that it may draw past twenty lines.
     let fold: Bool
     @State private var open = false
     /// The words' drawn height, unfolded.
     @State private var drawn: CGFloat?
     @Environment(\.transcriptScale) private var scale
     @ScaledMetric(relativeTo: .body) private var lineHeight = AceDesign.TextRole.answer.lineHeight
-    /// The web's and the bridge's ten (`spadeFoldLines`).
-    private static let lines: CGFloat = 10
+    /// The web's and the bridge's twenty (`spadeFoldLines`).
+    private static let lines: CGFloat = 20
     private var foldHeight: CGFloat { lineHeight * scale * Self.lines }
 
     var body: some View {
