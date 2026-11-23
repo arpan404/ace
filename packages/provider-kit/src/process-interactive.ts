@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
   type WindowsJob,
@@ -12,7 +12,7 @@ import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
-  nativeJobFactory,
+  nativeChildJob,
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
@@ -41,11 +41,11 @@ export function spawnInteractive(options: {
   const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
+    else killGroup(pid, "SIGTERM", groupOf(child));
   };
   const destroy = (pid: number) => {
     if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
+    else killGroup(pid, "SIGKILL", groupOf(child));
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)
@@ -55,14 +55,13 @@ export function spawnInteractive(options: {
         command: target.command,
         args: target.args,
         env: launchEnv(markedEnv(options.env)),
-        windows,
-        clearEnv: false,
         stdin: "inherit",
         stdout: options.stdout === "stderr" ? "stderr" : "inherit",
         stderr: "inherit",
         verbatim: target.verbatim,
-        waiterDestroy:
-          options.windowsKillTree === undefined && options.windowsJobFactory === undefined,
+        // The console stays visible: login owns credential entry and browser handoff.
+        hide: false,
+        contain: windows && options.windowsJobFactory === undefined,
       })
     : spawn(target.command, target.args, {
         env: markedEnv(options.env),
@@ -72,7 +71,8 @@ export function spawnInteractive(options: {
         windowsVerbatimArguments: target.verbatim,
       });
   const pid = child.pid;
-  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+  const factory =
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let stopped = false;

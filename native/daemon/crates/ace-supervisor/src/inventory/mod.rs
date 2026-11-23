@@ -4,9 +4,13 @@
 //! `process-inventory.ts`: rows, deletes retried on a bounded backoff, and
 //! the capacity bound. Recovery lives in `recover.rs`.
 
-use crate::entries::{INVENTORY_CAPACITY, OwnerValue, ProcessEntry, entry_json, parse_entry};
+#[cfg(not(windows))]
+use crate::entries::{INVENTORY_CAPACITY, OwnerValue};
+use crate::entries::{ProcessEntry, entry_json, parse_entry};
 use crate::errors::SupervisorError;
-use crate::identity::{ProcessIdentity, ProcessOwner};
+use crate::identity::ProcessIdentity;
+#[cfg(not(windows))]
+use crate::identity::ProcessOwner;
 use crate::retry::{GuardedTick, inventory_backoff_ms};
 use ace_store::{Connection, OpenOptions, Value};
 use std::collections::HashSet;
@@ -91,6 +95,11 @@ impl<R: InventoryRuntime> Inventory<R> {
         })
     }
 
+    /// The runtime the inventory reads the kernel through.
+    pub fn runtime(&self) -> &R {
+        &self.runtime
+    }
+
     fn count(&self) -> Result<i64, SupervisorError> {
         query_one(&self.db, "SELECT COUNT(*) AS n FROM processes", &[])
     }
@@ -149,13 +158,10 @@ impl<R: InventoryRuntime> Inventory<R> {
             ));
         }
         #[cfg(windows)]
-        {
-            return self.windows_add(pid, name, cwd);
-        }
+        let added = self.windows_add(pid, name, cwd);
         #[cfg(not(windows))]
-        {
-            self.posix_add(pid, name, cwd)
-        }
+        let added = self.posix_add(pid, name, cwd);
+        added
     }
 
     #[cfg(not(windows))]
@@ -292,180 +298,12 @@ impl<R: InventoryRuntime> Inventory<R> {
         self.retry_at_ms = None;
         let _ = self.db.close();
     }
-
-    /// Windows only: records one owned leader and arms the descendant
-    /// recorder. A tick runs on an interval; a failed write is reported
-    /// and retried on a backoff, never thrown.
-    #[cfg(windows)]
-    pub fn windows_add(
-        &mut self,
-        pid: u32,
-        name: &str,
-        cwd: Option<&str>,
-    ) -> Result<(), SupervisorError> {
-        use crate::entries::EntryPlatform;
-        use crate::identity::ProcessOwner;
-        let now_ms = self.runtime.now_ms();
-        let identity = self.runtime.identity(pid)?.ok_or_else(|| {
-            SupervisorError::InvalidInput("Cannot record owned process identity".to_owned())
-        })?;
-        let owner_pid = self.runtime.owner_pid();
-        let owner = self.runtime.identity(owner_pid)?.ok_or_else(|| {
-            SupervisorError::InvalidInput("Cannot record owned process identity".to_owned())
-        })?;
-        if identity.pid != pid || owner.pid != owner_pid || identity.owner != owner.owner {
-            return Err(SupervisorError::InvalidInput(
-                "Cannot record owned process identity".to_owned(),
-            ));
-        }
-        if self.count()? >= INVENTORY_CAPACITY {
-            return Err(SupervisorError::Limit(
-                "Process inventory capacity".to_owned(),
-            ));
-        }
-        self.write(
-            &ProcessEntry {
-                pid,
-                start: identity.start,
-                owner: match identity.owner {
-                    ProcessOwner::Uid(uid) => OwnerValue::Uid(uid),
-                    ProcessOwner::Sid(sid) => OwnerValue::Sid(sid),
-                },
-                group: pid,
-                owner_pid,
-                owner_start: owner.start,
-                name: name.to_owned(),
-                cwd: cwd.map(str::to_owned),
-                created_at: now_ms,
-                tree: None,
-            },
-            EntryPlatform::Windows,
-        )?;
-        self.windows_due_ms = Some(now_ms);
-        Ok(())
-    }
-
-    /// Windows only: one recorder tick. Returns whether the interval stays.
-    #[cfg(windows)]
-    pub fn windows_tick(&mut self, now_ms: u64, tree: &dyn crate::wintree::WindowsTreeOps) -> bool {
-        if self.windows_due_ms.is_none() {
-            return false;
-        }
-        if !self.tick.ready(now_ms) {
-            return true;
-        }
-        match self.record_windows_trees(tree) {
-            Ok(owned) => {
-                self.tick.settled();
-                if !owned {
-                    self.windows_due_ms = None;
-                    return false;
-                }
-                self.windows_due_ms = Some(now_ms.saturating_add(1_000));
-                true
-            }
-            Err(error) => {
-                (self.report)(error.to_string());
-                self.tick.failed(now_ms);
-                true
-            }
-        }
-    }
-
-    /// Windows only: records newly proven descendants of this daemon's
-    /// trees and drops members proven gone. Returns whether any of this
-    /// daemon's trees remain recorded.
-    #[cfg(windows)]
-    fn record_windows_trees(
-        &mut self,
-        tree: &dyn crate::wintree::WindowsTreeOps,
-    ) -> Result<bool, SupervisorError> {
-        use crate::entries::EntryPlatform;
-        use crate::wintree::WindowsRecord;
-        let mut owned = false;
-        for (_, entries) in self.windows_trees()? {
-            let Some(leader) = entries
-                .iter()
-                .find(|entry| entry.tree.is_none())
-                .or(entries.first())
-            else {
-                continue;
-            };
-            if leader.owner_pid != self.runtime.owner_pid() {
-                continue;
-            }
-            owned = true;
-            let recorded: Vec<WindowsRecord> = entries
-                .iter()
-                .map(|entry| WindowsRecord {
-                    pid: entry.pid,
-                    start: entry.start.clone(),
-                    uid: match &entry.owner {
-                        OwnerValue::Uid(uid) => uid.to_string(),
-                        OwnerValue::Sid(sid) => sid.clone(),
-                    },
-                })
-                .collect();
-            let state = tree.state(&recorded);
-            let room = (INVENTORY_CAPACITY - self.count()?).max(0) as usize;
-            for member in state.discovered.iter().take(room) {
-                let key = format!("{}:{}", leader.pid, leader.start);
-                self.write(
-                    &ProcessEntry {
-                        pid: member.pid,
-                        start: member.start.clone(),
-                        owner: match &leader.owner {
-                            OwnerValue::Uid(uid) => OwnerValue::Uid(*uid),
-                            OwnerValue::Sid(sid) => OwnerValue::Sid(sid.clone()),
-                        },
-                        group: member.pid,
-                        owner_pid: leader.owner_pid,
-                        owner_start: leader.owner_start.clone(),
-                        name: leader.name.clone(),
-                        cwd: leader.cwd.clone(),
-                        created_at: self.runtime.now_ms(),
-                        tree: Some(key),
-                    },
-                    EntryPlatform::Windows,
-                )?;
-                self.unremoved.remove(&member.pid);
-            }
-            // A gone member stays as evidence while a live process still
-            // names it as parent.
-            if state.ambiguous.is_empty() {
-                for gone in &state.gone {
-                    if entries
-                        .iter()
-                        .any(|entry| entry.pid == gone.pid && entry.tree.is_some())
-                    {
-                        let now_ms = self.runtime.now_ms();
-                        self.unremoved.insert(gone.pid);
-                        self.retry_removals(now_ms);
-                    }
-                }
-            }
-        }
-        Ok(owned)
-    }
-
-    /// Windows only: the recorded trees grouped by leader.
-    #[cfg(windows)]
-    pub(crate) fn windows_trees(
-        &self,
-    ) -> Result<Vec<(String, Vec<ProcessEntry>)>, SupervisorError> {
-        let mut trees: std::collections::HashMap<String, Vec<ProcessEntry>> =
-            std::collections::HashMap::new();
-        for entry in self.list()? {
-            let key = entry
-                .tree
-                .clone()
-                .unwrap_or_else(|| format!("{}:{}", entry.pid, entry.start));
-            trees.entry(key).or_default().push(entry);
-        }
-        Ok(trees.into_iter().collect())
-    }
 }
 
+#[cfg(windows)]
+mod windows;
+
+#[cfg(not(windows))]
 impl ProbeRefused {
     fn into_error(refused: ProbeRefused, pid: u32) -> SupervisorError {
         match refused {
@@ -510,75 +348,4 @@ fn drain(statement: &ace_store::Statement, action: &str) -> Result<(), Superviso
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_scratch::{Fake, Scratch, identity};
-    use std::sync::Arc;
-
-    fn open(path: &str, runtime: Fake) -> Inventory<Fake> {
-        Inventory::open(path, runtime, Arc::new(|_| {})).expect("inventory opens")
-    }
-
-    #[test]
-    fn unremoved_rows_retry_and_a_reused_pid_survives() {
-        let scratch = Scratch::new();
-        let path = scratch.file("processes.sqlite");
-        let (mut fake, _) = Fake::new(10);
-        fake.insert(10, "owner-start", 1000, 10);
-        fake.insert(20, "first", 1000, 20);
-        fake.insert(30, "other", 1000, 30);
-        let mut inventory = open(&path, fake);
-        inventory.add(20, "first", None).expect("adds");
-        inventory.add(30, "other", None).expect("adds");
-        // Another writer holds the file, so the deletes fail like a full disk.
-        let blocker = Connection::open(&path, OpenOptions::default()).expect("blocker opens");
-        blocker.exec("BEGIN IMMEDIATE").expect("blocks");
-        inventory.remove(20);
-        inventory.remove(30);
-        assert!(inventory.retry_at_ms().is_some());
-        blocker.exec("ROLLBACK").expect("unblocks");
-        // The pid is reused before the retry: the new row must survive it.
-        inventory
-            .runtime
-            .processes
-            .insert(20, identity(20, "second"));
-        inventory.add(20, "second", None).expect("adds");
-        assert_eq!(inventory.retry_removals(1), RetryPlan::Done);
-        assert_eq!(
-            inventory
-                .list()
-                .expect("lists")
-                .into_iter()
-                .map(|entry| (entry.pid, entry.start))
-                .collect::<Vec<_>>(),
-            vec![(20, "second".to_owned())]
-        );
-        inventory.close();
-        blocker.close().expect("blocker closes");
-    }
-
-    #[test]
-    fn failing_deletes_retry_on_backoff_and_close_cancels() {
-        let scratch = Scratch::new();
-        let path = scratch.file("processes.sqlite");
-        let (mut fake, _) = Fake::new(10);
-        fake.insert(10, "owner-start", 1000, 10);
-        fake.insert(20, "child", 1000, 20);
-        let mut inventory = open(&path, fake);
-        inventory.add(20, "child", None).expect("adds");
-        let blocker = Connection::open(&path, OpenOptions::default()).expect("blocker opens");
-        blocker.exec("BEGIN IMMEDIATE").expect("blocks");
-        inventory.remove(20);
-        assert_eq!(inventory.retry_at_ms(), Some(1_000));
-        // The scheduled retry finds the file still locked: another, later one.
-        blocker.exec("ROLLBACK").expect("unblocks");
-        blocker.exec("BEGIN IMMEDIATE").expect("blocks");
-        assert_eq!(inventory.retry_removals(1_000), RetryPlan::RetryIn(2_000));
-        blocker.exec("ROLLBACK").expect("unblocks");
-        assert_eq!(inventory.retry_removals(3_000), RetryPlan::Done);
-        assert!(inventory.list().expect("lists").is_empty());
-        assert_eq!(inventory.retry_at_ms(), None);
-        inventory.close();
-        blocker.close().expect("blocker closes");
-    }
-}
+mod tests;

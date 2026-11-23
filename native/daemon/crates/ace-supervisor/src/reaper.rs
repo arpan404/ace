@@ -42,9 +42,11 @@ pub fn proven_adoptions<E: AdoptionEvidence>(
 }
 
 /// Makes this process a child subreaper. False where the platform can't.
+/// `PR_SET_CHILD_SUBREAPER` takes a nonzero flag to enable; rustix spells
+/// that flag as a pid, and `None` (zero) would turn subreaping off.
 #[cfg(target_os = "linux")]
 pub fn become_subreaper() -> bool {
-    rustix::process::set_child_subreaper(None).is_ok()
+    rustix::process::set_child_subreaper(Some(rustix::process::Pid::INIT)).is_ok()
 }
 
 /// No subreaper off Linux.
@@ -94,7 +96,7 @@ pub fn reap(pid: u32) -> bool {
         return false;
     };
     matches!(
-        rustix::process::waitpid(target, rustix::process::WaitOptions::NOHANG),
+        rustix::process::waitpid(Some(target), rustix::process::WaitOptions::NOHANG),
         Ok(Some(_))
     )
 }
@@ -107,6 +109,7 @@ pub fn reap(_pid: u32) -> bool {
 
 /// Whether `pid` answers a signal probe: false once the kernel says ESRCH.
 /// Other refusals fail closed with an error.
+#[cfg(unix)]
 pub fn process_alive(pid: u32) -> Result<bool, SupervisorError> {
     let raw = i32::try_from(pid)
         .ok()
@@ -127,6 +130,7 @@ pub fn process_alive(pid: u32) -> Result<bool, SupervisorError> {
 /// Whether group `group` answers a signal probe. ESRCH proves it gone;
 /// EPERM proves nothing (macOS reports it while a group exits) and stays
 /// an error for the caller to keep as evidence.
+#[cfg(unix)]
 pub fn process_group_alive(group: u32) -> Result<bool, SupervisorError> {
     // rustix negates the group itself; the id stays positive here.
     let raw = i32::try_from(group)
@@ -146,6 +150,55 @@ pub fn process_group_alive(group: u32) -> Result<bool, SupervisorError> {
             "signal probe of group {group} failed: {error}"
         ))),
     }
+}
+
+/// Whether `pid` names a live process, as `process.kill(pid, 0)` answers on
+/// Windows: an invalid pid is gone, an exited one is gone, a refused open
+/// fails closed.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub fn process_alive(pid: u32) -> Result<bool, SupervisorError> {
+    use windows_sys::Win32::Foundation::{
+        CloseHandle, ERROR_INVALID_PARAMETER, GetLastError, STILL_ACTIVE,
+    };
+    use windows_sys::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: plain values in, a handle or null out; a non-null handle is
+    // closed exactly once below.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if handle.is_null() {
+        // SAFETY: reads this thread's error slot right after the failed call.
+        let error = unsafe { GetLastError() };
+        return if error == ERROR_INVALID_PARAMETER {
+            Ok(false)
+        } else {
+            Err(SupervisorError::Operation(format!(
+                "signal probe of {pid} failed: {error}"
+            )))
+        };
+    }
+    let mut code = 0u32;
+    // SAFETY: `handle` is live with query rights; `code` is an owned local.
+    let read = unsafe { GetExitCodeProcess(handle, &mut code) };
+    // SAFETY: `handle` came from OpenProcess above and is closed once.
+    unsafe {
+        CloseHandle(handle);
+    }
+    if read == 0 {
+        return Err(SupervisorError::Operation(format!(
+            "signal probe of {pid} failed"
+        )));
+    }
+    Ok(code == STILL_ACTIVE as u32)
+}
+
+/// No process groups exist on Windows: no probe can answer.
+#[cfg(not(unix))]
+pub fn process_group_alive(group: u32) -> Result<bool, SupervisorError> {
+    Err(SupervisorError::Unavailable(format!(
+        "process group {group} has no meaning on Windows"
+    )))
 }
 
 #[cfg(test)]

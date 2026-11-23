@@ -185,10 +185,10 @@ export function signalTreeMember(
   io: TreeIo = systemTreeIo,
 ): "sent" | "gone" | "unsafe" {
   if (supervisorBackend() === "native" && io === systemTreeIo) {
-    return supervisorAddon().supervisorSignalMember(
-      JSON.stringify(member),
-      signal,
-    ) as "sent" | "gone" | "unsafe";
+    return supervisorAddon().supervisorSignalMember(JSON.stringify(member), signal) as
+      | "sent"
+      | "gone"
+      | "unsafe";
   }
   return signalMember(member, signal, {
     start: (pid) => readIdentity(io, pid)?.start,
