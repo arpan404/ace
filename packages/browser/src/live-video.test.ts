@@ -168,6 +168,24 @@ describe("a view ace-media delivers", () => {
     expect(t.video.recoveringFor("nobody")).toBe(false);
   });
 
+  it("tells the views again when another view's codecs all fail, though one was already recovering longer", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("hevc only", { ...delivered(), video: { codecs: [hevc] } });
+    t.video.add("h264 only", { ...delivered(), video: { codecs: ["avc1.42E033"] } });
+    await t.run();
+    // HEVC fails twice: its view is on its second cooldown.
+    t.encoder.opened[0]?.failed(`${hevc}/640x400`);
+    await t.run(50);
+    t.encoder.opened[0]?.failed(`${hevc}/640x400`);
+    await t.run(50);
+    const before = t.changes();
+    // Now H.264's first failure: the other view starts recovering too, and is told.
+    t.encoder.opened[0]?.failed("avc1.42E033/640x400");
+    await t.run(50);
+    expect(t.changes()).toBeGreaterThan(before);
+    expect(t.video.recoveringFor("h264 only")).toBe(true);
+  });
+
   it("starts at the top rate on this machine, and lower for a viewer elsewhere", async () => {
     const local = watched();
     local.video.add("viewer", delivered(), { local: true });

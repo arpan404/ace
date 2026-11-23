@@ -123,6 +123,8 @@ export class LiveVideo {
   private cooldowns = new CodecCooldowns();
   /** The encoder-recovering status last told (`statusChanged`), as its attempts; 0: none. */
   private recoveringTold = 0;
+  /** The views whose every usable codec waits out a failure now, as of the last tick. */
+  private recoveringViews = new Set<string>();
   /** The codecs last told to the open capture (`VideoCaptureHandle.codecs`), joined. */
   private told = "";
   private capture: Capture | undefined;
@@ -270,16 +272,12 @@ export class LiveVideo {
     this.page = { ...this.page, ...page };
     const source = this.source;
     const showing = this.showing();
+    this.noteRecovering(showing);
     if (!source || !showing.length) {
       if (this.capture) this.close();
       return;
     }
     if (this.codecs === undefined) return this.probe(source, now);
-    const recovering = this.recovering();
-    if (recovering !== this.recoveringTold) {
-      this.recoveringTold = recovering;
-      this.statusChanged();
-    }
     const runnable = this.runnable();
     // ace-media's plan once it has one; until then one encode, so it sees the source.
     const first = firstEncode(
@@ -341,19 +339,38 @@ export class LiveVideo {
    * fix); 0 otherwise.
    */
   private recovering(): number {
+    return this.recoveringTold;
+  }
+  /**
+   * Works out, once per tick, which shown views wait for the encoder to recover and the most
+   * tries any has taken; whoever listens hears it when either changes, so a second view that
+   * starts recovering is told though another was recovering longer.
+   */
+  private noteRecovering(showing: [string, Viewer][]): void {
     const runnable = this.runnable();
+    const views = new Set<string>();
     let attempts = 0;
-    for (const [, viewer] of this.showing())
-      attempts = Math.max(attempts, this.exhausted(viewer, runnable));
-    return attempts;
+    for (const [id, viewer] of showing) {
+      const tries = this.exhausted(viewer, runnable);
+      if (!tries) continue;
+      views.add(id);
+      attempts = Math.max(attempts, tries);
+    }
+    const same =
+      attempts === this.recoveringTold &&
+      views.size === this.recoveringViews.size &&
+      [...views].every((id) => this.recoveringViews.has(id));
+    if (same) return;
+    this.recoveringTold = attempts;
+    this.recoveringViews = views;
+    this.statusChanged();
   }
   /**
    * Whether every codec viewer `id` takes, of those this encoder has, waits out a failure's
    * cooldown now: its view gets nothing until one runs again, though others may play.
    */
   recoveringFor(id: string): boolean {
-    const viewer = this.viewers.get(id);
-    return viewer !== undefined && !paused(viewer.capture) && this.exhausted(viewer) > 0;
+    return this.recoveringViews.has(id);
   }
   /** The tries so far while all of `viewer`'s usable codecs are cooling down; 0 otherwise. */
   private exhausted(viewer: Viewer, runnable = this.runnable()): number {
