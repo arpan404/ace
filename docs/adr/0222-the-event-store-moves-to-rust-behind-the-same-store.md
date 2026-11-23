@@ -274,6 +274,12 @@ native path.
   Rust's bytes to clients without building JavaScript objects; until then it stays TypeScript.
 - **Rule this taught:** a native read pays off where the cost is inside SQLite and statement
   count (thread opens: 212 statements to 4), not where it is decoding into JavaScript objects.
+- **Rust fetches, TypeScript shapes** (orchestrator decision after two reviews of phase 1b). A
+  read that has to reproduce JavaScript's JSON semantics (number spellings, duplicate keys,
+  UTF-16 lengths, Zod's decoding and stripping) does not reimplement them in Rust. Rust runs the
+  batched statements and returns stored values untouched; the existing TypeScript decodes,
+  measures, clips and validates them, so the result is the same by construction. Phase 1b's
+  measured cost was statement count, which this keeps.
 - Phase 2's first build was 2.5 to 4 times slower (no prepared-statement reuse, per-child
   lookups, intermediate trees); it ships only once it is no slower than the TypeScript.
 

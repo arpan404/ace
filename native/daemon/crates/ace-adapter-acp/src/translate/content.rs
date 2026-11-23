@@ -2,7 +2,7 @@
 //! Native content as parts ace can show (`content.ts`).
 
 use crate::translate::data::{object, string};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 const TEXT_BOUND: usize = 128 * 1024;
 const BLOB_BOUND: usize = 44 * 1024 * 1024;
@@ -61,18 +61,18 @@ pub fn decode_content(value: &Value) -> Vec<Value> {
 
 fn text_part(text: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("text".to_owned()));
-    map.insert("text".to_owned(), Value::String(text.to_owned()));
+    map.insert("type".to_owned(), Value::from("text".to_owned()));
+    map.insert("text".to_owned(), Value::from(text.to_owned()));
     Value::Object(map)
 }
 
 fn image_part(mime_type: &str, data: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("image".to_owned()));
-    map.insert("mimeType".to_owned(), Value::String(mime_type.to_owned()));
+    map.insert("type".to_owned(), Value::from("image".to_owned()));
+    map.insert("mimeType".to_owned(), Value::from(mime_type.to_owned()));
     map.insert(
         "url".to_owned(),
-        Value::String(format!("data:{mime_type};base64,{data}")),
+        Value::from(format!("data:{mime_type};base64,{data}")),
     );
     Value::Object(map)
 }
@@ -80,14 +80,14 @@ fn image_part(mime_type: &str, data: &str) -> Value {
 fn reference(uri: &str, name: &str, mime_type: &str, content: Option<Value>) -> Vec<Value> {
     if let Some(path) = file_path(uri) {
         let mut map = Map::with_capacity(5);
-        map.insert("type".to_owned(), Value::String("file".to_owned()));
-        map.insert("path".to_owned(), Value::String(path));
+        map.insert("type".to_owned(), Value::from("file".to_owned()));
+        map.insert("path".to_owned(), Value::from(path));
         if !mime_type.is_empty() {
-            map.insert("mimeType".to_owned(), Value::String(mime_type.to_owned()));
+            map.insert("mimeType".to_owned(), Value::from(mime_type.to_owned()));
         }
         if !name.is_empty() {
             let truncated: String = name.chars().take(255).collect();
-            map.insert("name".to_owned(), Value::String(truncated));
+            map.insert("name".to_owned(), Value::from(truncated));
         }
         if let Some(content) = content {
             map.insert("content".to_owned(), content);
@@ -101,11 +101,11 @@ fn reference(uri: &str, name: &str, mime_type: &str, content: Option<Value>) -> 
     }
 }
 
-fn embedded(resource: &Map<String, Value>) -> Option<Value> {
+fn embedded(resource: &Map) -> Option<Value> {
     if let Some(Value::String(text)) = resource.get("text") {
         if text.len() <= TEXT_BOUND {
             let mut map = Map::with_capacity(2);
-            map.insert("encoding".to_owned(), Value::String("text".to_owned()));
+            map.insert("encoding".to_owned(), Value::from("text".to_owned()));
             map.insert("data".to_owned(), Value::String(text.clone()));
             return Some(Value::Object(map));
         }
@@ -115,7 +115,7 @@ fn embedded(resource: &Map<String, Value>) -> Option<Value> {
         && blob.len() <= BLOB_BOUND
     {
         let mut map = Map::with_capacity(2);
-        map.insert("encoding".to_owned(), Value::String("base64".to_owned()));
+        map.insert("encoding".to_owned(), Value::from("base64".to_owned()));
         map.insert("data".to_owned(), Value::String(blob.clone()));
         return Some(Value::Object(map));
     }

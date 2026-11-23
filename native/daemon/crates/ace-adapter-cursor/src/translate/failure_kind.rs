@@ -3,12 +3,12 @@
 //! own `rate_limit` code is a usage limit; out-of-usage prose stays a failed
 //! turn that holds nothing.
 
-use super::json::{J, is_low, units_eq};
+use super::text::{JsString, Value, is_high, is_low, units_eq};
 
 /// A classified failure: its kind and, when the SDK names one, its code.
 pub struct Failure {
     pub kind: &'static str,
-    pub code: Option<Vec<u16>>,
+    pub code: Option<JsString>,
 }
 
 fn is_word_unit(unit: u16) -> bool {
@@ -22,7 +22,7 @@ fn lower(units: &[u16]) -> Vec<u16> {
     let mut index = 0;
     while let Some(unit) = units.get(index) {
         let unit = *unit;
-        if super::json::is_high(unit)
+        if is_high(unit)
             && let Some(next) = units.get(index + 1)
             && is_low(*next)
         {
@@ -100,15 +100,15 @@ fn hit_limit(text: &[u16]) -> bool {
 }
 
 /// Classify a failed run from the SDK's code and its message.
-pub fn cursor_failure(code: &J, message: &[u16], retryable: &J) -> Failure {
-    if matches!(code, J::Str(units) if units_eq(units, "auth")) {
+pub fn cursor_failure(code: &Value, message: &JsString, retryable: &Value) -> Failure {
+    if matches!(code, Value::String(units) if units_eq(units, "auth")) {
         return Failure {
             kind: "auth",
             code: None,
         };
     }
-    if matches!(code, J::Str(units) if units_eq(units, "rate_limit")) {
-        return if matches!(retryable, J::Bool(true)) {
+    if matches!(code, Value::String(units) if units_eq(units, "rate_limit")) {
+        return if matches!(retryable, Value::Bool(true)) {
             Failure {
                 kind: "provider",
                 code: Some("rate_limited".encode_utf16().collect()),
@@ -120,13 +120,14 @@ pub fn cursor_failure(code: &J, message: &[u16], retryable: &J) -> Failure {
             }
         };
     }
-    if matches!(code, J::Str(units) if units_eq(units, "network")) {
+    if matches!(code, Value::String(units) if units_eq(units, "network")) {
         return Failure {
             kind: "network",
             code: None,
         };
     }
-    let lower = lower(message);
+    let message: Vec<u16> = message.units().collect();
+    let lower = lower(&message);
     if find_phrase(&lower, "out of usage")
         || find_phrase(&lower, "usage limit")
         || hit_limit(&lower)

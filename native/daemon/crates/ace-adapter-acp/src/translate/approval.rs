@@ -6,13 +6,9 @@ use crate::translate::frame_redaction::LEASE_REDACTION;
 use crate::translate::mcp::mcp_arguments;
 use crate::translate::quirks::QuirksKind;
 use crate::translate::tools::tool_detail;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
-pub(crate) fn approval_request(
-    call: &Value,
-    options: &[Map<String, Value>],
-    quirks: QuirksKind,
-) -> Value {
+pub(crate) fn approval_request(call: &Value, options: &[Map], quirks: QuirksKind) -> Value {
     let detail = tool_detail(call, quirks);
     let input = object(object(call).get("rawInput").unwrap_or(&Value::Null)).clone();
     let paths: Vec<Value> = list(object(call).get("locations").unwrap_or(&Value::Null))
@@ -21,7 +17,7 @@ pub(crate) fn approval_request(
         .map(|location| string(location.get("path").unwrap_or(&Value::Null)).to_owned())
         .filter(|path| !path.is_empty() && path.len() <= 4096)
         .take(128)
-        .map(Value::String)
+        .map(Value::from)
         .collect();
     let detail_map = object(&detail);
     let mcp = if detail_map
@@ -67,7 +63,7 @@ pub(crate) fn approval_request(
     let mut target = Map::with_capacity(6);
     target.insert(
         "tool".to_owned(),
-        Value::String(tool_name.chars().take(256).collect()),
+        Value::from(tool_name.chars().take(256).collect::<String>()),
     );
     let access = if detail_map
         .get("kind")
@@ -83,7 +79,7 @@ pub(crate) fn approval_request(
             _ => "unknown",
         }
     };
-    target.insert("access".to_owned(), Value::String(access.to_owned()));
+    target.insert("access".to_owned(), Value::from(access.to_owned()));
     target.insert(
         "input".to_owned(),
         if mcp.is_some() {
@@ -100,26 +96,23 @@ pub(crate) fn approval_request(
         if let Some(command) = detail_map.get("command").and_then(Value::as_str)
             && !command.is_empty()
         {
-            target.insert(
-                "command".to_owned(),
-                Value::String(bounded_command(command)),
-            );
+            target.insert("command".to_owned(), Value::from(bounded_command(command)));
         }
         if let Some(cwd) = detail_map.get("cwd").and_then(Value::as_str)
             && !cwd.is_empty()
         {
             target.insert(
                 "cwd".to_owned(),
-                Value::String(cwd.chars().take(4096).collect()),
+                Value::from(cwd.chars().take(4096).collect::<String>()),
             );
         }
     }
-    target.insert("paths".to_owned(), Value::Array(paths));
+    target.insert("paths".to_owned(), Value::from(paths));
     let mut map = Map::with_capacity(6);
-    map.insert("kind".to_owned(), Value::String("approval".to_owned()));
+    map.insert("kind".to_owned(), Value::from("approval".to_owned()));
     map.insert(
         "title".to_owned(),
-        Value::String({
+        Value::from({
             let title = string(object(call).get("title").unwrap_or(&Value::Null));
             if title.is_empty() {
                 tool_name.clone()
@@ -133,9 +126,9 @@ pub(crate) fn approval_request(
         let mut mcp_server = Map::with_capacity(2);
         mcp_server.insert(
             "name".to_owned(),
-            Value::String(server.chars().take(256).collect::<String>()),
+            Value::from(server.chars().take(256).collect::<String>()),
         );
-        mcp_server.insert("source".to_owned(), Value::String("acp".to_owned()));
+        mcp_server.insert("source".to_owned(), Value::from("acp".to_owned()));
         map.insert("mcpServer".to_owned(), Value::Object(mcp_server));
     }
     let option_values: Vec<Value> = options
@@ -143,24 +136,21 @@ pub(crate) fn approval_request(
         .enumerate()
         .map(|(index, option)| {
             let mut entry = Map::with_capacity(3);
-            entry.insert(
-                "id".to_owned(),
-                Value::String(local_option_id(option, index)),
-            );
+            entry.insert("id".to_owned(), Value::from(local_option_id(option, index)));
             entry.insert(
                 "label".to_owned(),
-                Value::String(string(option.get("name").unwrap_or(&Value::Null)).to_owned()),
+                Value::from(string(option.get("name").unwrap_or(&Value::Null)).to_owned()),
             );
             entry.insert(
                 "kind".to_owned(),
-                Value::String(option_kind(string(
+                Value::from(option_kind(string(
                     option.get("kind").unwrap_or(&Value::Null),
                 ))),
             );
             Value::Object(entry)
         })
         .collect();
-    map.insert("options".to_owned(), Value::Array(option_values));
+    map.insert("options".to_owned(), Value::from(option_values));
     Value::Object(map)
 }
 
@@ -177,7 +167,7 @@ fn bounded_command(command: &str) -> String {
     format!("{kept_text}{}", truncation_note(command.len() - kept))
 }
 
-pub(crate) fn local_option_id(option: &Map<String, Value>, index: usize) -> String {
+pub(crate) fn local_option_id(option: &Map, index: usize) -> String {
     let id = string(option.get("optionId").unwrap_or(&Value::Null));
     if id.contains(LEASE_REDACTION) {
         format!("ace-option:{index}")
@@ -186,11 +176,7 @@ pub(crate) fn local_option_id(option: &Map<String, Value>, index: usize) -> Stri
     }
 }
 
-pub(crate) fn native_option_id(
-    published: &[Map<String, Value>],
-    native: &[Map<String, Value>],
-    local: &str,
-) -> Option<String> {
+pub(crate) fn native_option_id(published: &[Map], native: &[Map], local: &str) -> Option<String> {
     let index = published
         .iter()
         .enumerate()
@@ -203,7 +189,7 @@ pub(crate) fn native_option_id(
         .map(str::to_owned)
 }
 
-pub(crate) fn published_option_id(options: &[Map<String, Value>], native_id: &str) -> String {
+pub(crate) fn published_option_id(options: &[Map], native_id: &str) -> String {
     let index = options
         .iter()
         .position(|option| {

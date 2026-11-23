@@ -2,7 +2,7 @@
 //! Item translation: started and completed thread items.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
 use super::helpers::{list_of, obj_map, str_empty};
@@ -11,7 +11,7 @@ use super::state::CodexTranslator;
 
 fn retry_cleared(agent_key: &str) -> RawFact {
     let mut body = Map::with_capacity(1);
-    body.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+    body.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
     fact("retry.cleared", body)
 }
 
@@ -20,7 +20,7 @@ fn retry_cleared(agent_key: &str) -> RawFact {
 pub fn translate_item(
     translator: &mut CodexTranslator,
     agent_native: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     p_value: &Value,
     method: &str,
     frame_data: &Value,
@@ -49,11 +49,11 @@ pub fn translate_item(
     }
     if item_type == "contextCompaction" {
         let mut draft = Map::with_capacity(2);
-        draft.insert("type".to_owned(), Value::String("compaction".to_owned()));
+        draft.insert("type".to_owned(), Value::from("compaction".to_owned()));
         draft.insert("complete".to_owned(), Value::Bool(complete));
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("item".to_owned(), Value::String(item_id.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("item".to_owned(), Value::from(item_id.clone()));
         body.insert("draft".to_owned(), Value::Object(draft));
         facts.push(fact("item.upsert", body));
         return;
@@ -67,8 +67,8 @@ pub fn translate_item(
         if kind == "started" && !child.is_empty() {
             let title = format!("Spawn {}", str_empty(item_map.get("agentPath")));
             let mut detail = Map::with_capacity(2);
-            detail.insert("kind".to_owned(), Value::String("agent.spawn".to_owned()));
-            detail.insert("childAgent".to_owned(), Value::String(child.clone()));
+            detail.insert("kind".to_owned(), Value::from("agent.spawn".to_owned()));
+            detail.insert("childAgent".to_owned(), Value::from(child.clone()));
             let draft = tool_draft(
                 Value::Object(detail),
                 &title,
@@ -78,8 +78,8 @@ pub fn translate_item(
                 None,
             );
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("item".to_owned(), Value::String(item_id.clone()));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("item".to_owned(), Value::from(item_id.clone()));
             body.insert("draft".to_owned(), draft);
             facts.push(fact("item.upsert", body));
             let native = agent_native.to_owned();
@@ -109,20 +109,20 @@ pub fn translate_item(
                     .map(|a| a.key.clone())
                     .unwrap_or(child.clone());
                 let mut body = Map::with_capacity(7);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-                body.insert("task".to_owned(), Value::String(task));
-                body.insert("kind".to_owned(), Value::String("subagent".to_owned()));
-                body.insert("childAgent".to_owned(), Value::String(child_key));
-                body.insert("item".to_owned(), Value::String(item_id.clone()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+                body.insert("task".to_owned(), Value::from(task));
+                body.insert("kind".to_owned(), Value::from("subagent".to_owned()));
+                body.insert("childAgent".to_owned(), Value::from(child_key));
+                body.insert("item".to_owned(), Value::from(item_id.clone()));
                 body.insert(
                     "title".to_owned(),
-                    Value::String(str_empty(item_map.get("agentPath")).to_owned()),
+                    Value::from(str_empty(item_map.get("agentPath")).to_owned()),
                 );
                 body.insert("stoppable".to_owned(), Value::Bool(true));
                 // TS omits the title fallback when empty? It uses `str(...)`, which
                 // is `""` when missing; keep the empty title to match.
                 if str_empty(item_map.get("agentPath")).is_empty() {
-                    body.insert("title".to_owned(), Value::String(child.clone()));
+                    body.insert("title".to_owned(), Value::from(child.clone()));
                 }
                 facts.push(fact("background.started", body));
             }
@@ -144,19 +144,19 @@ pub fn translate_item(
             let _ = root_key;
             // `note` with text returns a notice upsert.
             let mut draft = Map::with_capacity(6);
-            draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-            draft.insert("level".to_owned(), Value::String("info".to_owned()));
-            draft.insert("text".to_owned(), Value::String(format!("{base} finished")));
+            draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+            draft.insert("level".to_owned(), Value::from("info".to_owned()));
+            draft.insert("text".to_owned(), Value::from(format!("{base} finished")));
             draft.insert("complete".to_owned(), Value::Bool(true));
             draft.insert(
                 "raw".to_owned(),
-                Value::Array(vec![raw_payload(&item_type, &item_value, None)]),
+                Value::from(vec![raw_payload(&item_type, &item_value, None)]),
             );
             translator.synthetic += 1;
             let key = format!("codex:raw:{}", translator.synthetic);
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("item".to_owned(), Value::String(key));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("item".to_owned(), Value::from(key));
             body.insert("draft".to_owned(), Value::Object(draft));
             facts.push(fact("item.upsert", body));
             let has_turn = translator
@@ -211,15 +211,15 @@ pub fn translate_item(
                     .map(|a| a.key.clone())
                     .unwrap_or(child.clone());
                 let mut body = Map::with_capacity(7);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-                body.insert("task".to_owned(), Value::String(task));
-                body.insert("childAgent".to_owned(), Value::String(child_key));
-                body.insert("item".to_owned(), Value::String(item_id.clone()));
-                body.insert("kind".to_owned(), Value::String("subagent".to_owned()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+                body.insert("task".to_owned(), Value::from(task));
+                body.insert("childAgent".to_owned(), Value::from(child_key));
+                body.insert("item".to_owned(), Value::from(item_id.clone()));
+                body.insert("kind".to_owned(), Value::from("subagent".to_owned()));
                 let prompt = str_empty(item_map.get("prompt")).to_owned();
                 body.insert(
                     "title".to_owned(),
-                    Value::String(if prompt.is_empty() {
+                    Value::from(if prompt.is_empty() {
                         "Subagent".to_owned()
                     } else {
                         prompt
@@ -298,13 +298,13 @@ pub fn translate_item(
     }
     if item_type == "plan" && previous.as_ref().is_some_and(|(_, started)| *started) && complete {
         let mut upsert_body = Map::with_capacity(3);
-        upsert_body.insert("agent".to_owned(), Value::String(agent_key.clone()));
+        upsert_body.insert("agent".to_owned(), Value::from(agent_key.clone()));
         upsert_body.insert(
             "item".to_owned(),
-            Value::String(format!("codex:plan-stream:{item_id}")),
+            Value::from(format!("codex:plan-stream:{item_id}")),
         );
         let mut notice = Map::with_capacity(2);
-        notice.insert("type".to_owned(), Value::String("notice".to_owned()));
+        notice.insert("type".to_owned(), Value::from("notice".to_owned()));
         notice.insert("complete".to_owned(), Value::Bool(true));
         upsert_body.insert("draft".to_owned(), Value::Object(notice));
         facts.push(fact("item.upsert", upsert_body));
@@ -328,7 +328,7 @@ pub fn translate_item(
                     if let Some(Value::Array(existing)) = call.get("raw") {
                         combined.extend(existing.clone());
                     }
-                    call.insert("raw".to_owned(), Value::Array(combined));
+                    call.insert("raw".to_owned(), Value::from(combined));
                 }
             } else if matches!(
                 draft_map.get("type").and_then(|v| v.as_str()),
@@ -338,7 +338,7 @@ pub fn translate_item(
                 if let Some(Value::Array(existing)) = draft_map.get("raw") {
                     combined.extend(existing.clone());
                 }
-                draft_map.insert("raw".to_owned(), Value::Array(combined));
+                draft_map.insert("raw".to_owned(), Value::from(combined));
             }
         }
     }
@@ -359,14 +359,14 @@ pub fn translate_item(
             detail.insert("output".to_owned(), Value::String(output.clone()));
         }
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("item".to_owned(), Value::String(item_id.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("item".to_owned(), Value::from(item_id.clone()));
         body.insert("draft".to_owned(), draft);
         facts.push(fact("item.reconciled", body));
     } else {
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("item".to_owned(), Value::String(item_id.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("item".to_owned(), Value::from(item_id.clone()));
         body.insert("draft".to_owned(), draft);
         facts.push(fact("item.upsert", body));
     }

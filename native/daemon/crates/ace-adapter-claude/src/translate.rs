@@ -38,7 +38,7 @@ pub mod tools;
 pub mod translate_interactions;
 pub mod usage;
 
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::HashMap;
 
 use blocks::{MessageIndex, StreamState};

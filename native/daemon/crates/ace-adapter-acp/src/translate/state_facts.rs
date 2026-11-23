@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Agent facts: ensure, bind, start, end, streams, notices (`state.ts`).
 
-use crate::translate::data::{object, raw, string};
+use crate::translate::data::raw;
 use crate::translate::keys::native_agent_key;
 use crate::translate::state::{AgentState, TranslationState};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 impl TranslationState {
     pub fn ensure_root(&mut self, facts: &mut Vec<Value>) {
@@ -15,21 +15,21 @@ impl TranslationState {
         let mut native = Map::with_capacity(2);
         native.insert(
             "provider".to_owned(),
-            Value::String(self.quirks.provider().to_owned()),
+            Value::from(self.quirks.provider().to_owned()),
         );
         if !self.root.native_id.is_empty() {
             native.insert(
                 "nativeId".to_owned(),
-                Value::String(self.root.native_id.clone()),
+                Value::from(self.root.native_id.clone()),
             );
         }
         let mut fact = Map::with_capacity(6);
-        fact.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(self.root.key.clone()));
-        fact.insert("origin".to_owned(), Value::String("root".to_owned()));
-        fact.insert("fidelity".to_owned(), Value::String("full".to_owned()));
+        fact.insert("type".to_owned(), Value::from("agent.seen".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(self.root.key.clone()));
+        fact.insert("origin".to_owned(), Value::from("root".to_owned()));
+        fact.insert("fidelity".to_owned(), Value::from("full".to_owned()));
         fact.insert("native".to_owned(), Value::Object(native));
-        fact.insert("cwd".to_owned(), Value::String(self.cwd.clone()));
+        fact.insert("cwd".to_owned(), Value::from(self.cwd.clone()));
         facts.push(Value::Object(fact));
     }
 
@@ -40,16 +40,16 @@ impl TranslationState {
         let mut native = Map::with_capacity(2);
         native.insert(
             "provider".to_owned(),
-            Value::String(self.quirks.provider().to_owned()),
+            Value::from(self.quirks.provider().to_owned()),
         );
-        native.insert("nativeId".to_owned(), Value::String(id.to_owned()));
+        native.insert("nativeId".to_owned(), Value::from(id.to_owned()));
         let mut fact = Map::with_capacity(6);
-        fact.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(self.root.key.clone()));
-        fact.insert("origin".to_owned(), Value::String("root".to_owned()));
-        fact.insert("fidelity".to_owned(), Value::String("full".to_owned()));
+        fact.insert("type".to_owned(), Value::from("agent.seen".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(self.root.key.clone()));
+        fact.insert("origin".to_owned(), Value::from("root".to_owned()));
+        fact.insert("fidelity".to_owned(), Value::from("full".to_owned()));
         fact.insert("native".to_owned(), Value::Object(native));
-        fact.insert("cwd".to_owned(), Value::String(self.cwd.clone()));
+        fact.insert("cwd".to_owned(), Value::from(self.cwd.clone()));
         facts.push(Value::Object(fact));
     }
 
@@ -101,20 +101,20 @@ impl TranslationState {
         let mut native = Map::with_capacity(2);
         native.insert(
             "provider".to_owned(),
-            Value::String(self.quirks.provider().to_owned()),
+            Value::from(self.quirks.provider().to_owned()),
         );
-        native.insert("nativeId".to_owned(), Value::String(id.to_owned()));
+        native.insert("nativeId".to_owned(), Value::from(id.to_owned()));
         let mut fact = Map::with_capacity(7);
-        fact.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(key.clone()));
-        fact.insert("parent".to_owned(), Value::String(self.root.key.clone()));
+        fact.insert("type".to_owned(), Value::from("agent.seen".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(key.clone()));
+        fact.insert("parent".to_owned(), Value::from(self.root.key.clone()));
         fact.insert(
             "origin".to_owned(),
-            Value::String("provider_subagent".to_owned()),
+            Value::from("provider_subagent".to_owned()),
         );
-        fact.insert("fidelity".to_owned(), Value::String("full".to_owned()));
+        fact.insert("fidelity".to_owned(), Value::from("full".to_owned()));
         fact.insert("native".to_owned(), Value::Object(native));
-        fact.insert("cwd".to_owned(), Value::String(self.cwd.clone()));
+        fact.insert("cwd".to_owned(), Value::from(self.cwd.clone()));
         facts.push(Value::Object(fact));
         key
     }
@@ -124,9 +124,9 @@ impl TranslationState {
         let mut reconnected = Map::with_capacity(2);
         reconnected.insert(
             "type".to_owned(),
-            Value::String("agent.reconnected".to_owned()),
+            Value::from("agent.reconnected".to_owned()),
         );
-        reconnected.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+        reconnected.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
         facts.push(Value::Object(reconnected));
         let already_active = if agent_key == self.root.key {
             self.root.active
@@ -153,15 +153,15 @@ impl TranslationState {
             agent.segment.clear();
         }
         let mut cleared = Map::with_capacity(2);
-        cleared.insert("type".to_owned(), Value::String("retry.cleared".to_owned()));
-        cleared.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+        cleared.insert("type".to_owned(), Value::from("retry.cleared".to_owned()));
+        cleared.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
         facts.push(Value::Object(cleared));
         let turn_id = self.key("turn");
         let mut started = Map::with_capacity(4);
-        started.insert("type".to_owned(), Value::String("turn.started".to_owned()));
-        started.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-        started.insert("nativeTurnId".to_owned(), Value::String(turn_id));
-        started.insert("trigger".to_owned(), Value::String(trigger.to_owned()));
+        started.insert("type".to_owned(), Value::from("turn.started".to_owned()));
+        started.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+        started.insert("nativeTurnId".to_owned(), Value::from(turn_id));
+        started.insert("trigger".to_owned(), Value::from(trigger.to_owned()));
         facts.push(Value::Object(started));
     }
 
@@ -183,9 +183,9 @@ impl TranslationState {
             agent.active = false;
         }
         let mut ended = Map::with_capacity(4);
-        ended.insert("type".to_owned(), Value::String("turn.ended".to_owned()));
-        ended.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-        ended.insert("outcome".to_owned(), Value::String(outcome.to_owned()));
+        ended.insert("type".to_owned(), Value::from("turn.ended".to_owned()));
+        ended.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+        ended.insert("outcome".to_owned(), Value::from(outcome.to_owned()));
         if let Some(error) = error {
             ended.insert("error".to_owned(), error);
         }
@@ -206,16 +206,16 @@ impl TranslationState {
         };
         let mut draft = Map::with_capacity(2);
         if stream.kind == "agent_thought_chunk" {
-            draft.insert("type".to_owned(), Value::String("reasoning".to_owned()));
+            draft.insert("type".to_owned(), Value::from("reasoning".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(true));
         } else {
-            draft.insert("type".to_owned(), Value::String("message".to_owned()));
+            draft.insert("type".to_owned(), Value::from("message".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(true));
         }
         let mut fact = Map::with_capacity(4);
-        fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-        fact.insert("item".to_owned(), Value::String(stream.key));
+        fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+        fact.insert("item".to_owned(), Value::from(stream.key));
         fact.insert("draft".to_owned(), Value::Object(draft));
         facts.push(Value::Object(fact));
         if agent_key == self.root.key {
@@ -241,15 +241,15 @@ impl TranslationState {
             let item_key = self.key("raw");
             let agent_key = owner_key.unwrap_or(&self.root.key.clone()).to_owned();
             let mut draft = Map::with_capacity(5);
-            draft.insert("type".to_owned(), Value::String("notice".to_owned()));
+            draft.insert("type".to_owned(), Value::from("notice".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(true));
-            draft.insert("level".to_owned(), Value::String("info".to_owned()));
-            draft.insert("text".to_owned(), Value::String(text.to_owned()));
-            draft.insert("raw".to_owned(), Value::Array(vec![raw(data, typ, None)]));
+            draft.insert("level".to_owned(), Value::from("info".to_owned()));
+            draft.insert("text".to_owned(), Value::from(text.to_owned()));
+            draft.insert("raw".to_owned(), Value::from(vec![raw(data, typ, None)]));
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(agent_key));
-            fact.insert("item".to_owned(), Value::String(item_key));
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(agent_key));
+            fact.insert("item".to_owned(), Value::from(item_key));
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
         } else {

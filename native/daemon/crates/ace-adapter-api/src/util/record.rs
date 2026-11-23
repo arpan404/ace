@@ -6,19 +6,19 @@
 //! Contract (from `packages/provider-kit/src/record.ts`, which stays for the
 //! daemon code that still uses it): for plain JSON objects it reads the same
 //! fields the TypeScript read. The TypeScript decides plainness by prototype;
-//! every `serde_json` object is plain by construction, so this returns the
+//! every parsed object is plain by construction, so this returns the
 //! value's map itself, never a copy, and anything else reads as the shared
 //! empty map. The empty map is immutable by type: there is no frozen-copy
 //! step because nothing here can mutate through the borrow.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::sync::LazyLock;
 
 /// A decoded provider value read as a JSON object, borrowed, never copied.
-pub type NativeRecord<'a> = &'a Map<String, Value>;
+pub type NativeRecord<'a> = &'a Map;
 
 /// The shared empty object non-objects read as.
-static EMPTY: LazyLock<Map<String, Value>> = LazyLock::new(Map::new);
+static EMPTY: LazyLock<Map> = LazyLock::new(Map::new);
 
 /// The value's map if it is a JSON object, otherwise the shared empty one.
 pub fn native_record(value: &Value) -> NativeRecord<'_> {
@@ -31,14 +31,14 @@ pub fn native_record(value: &Value) -> NativeRecord<'_> {
 #[cfg(test)]
 mod tests {
     use super::native_record;
-    use serde_json::{Map, Value, json};
+    use ace_json::{Map, Value, json};
     use std::path::PathBuf;
 
     /// What the adapters' record readers returned before: the object's fields,
     /// or an empty object for anything else. This mirrors the zod record
     /// parse the TypeScript cases compare against, restricted to JSON values,
     /// where every object is plain by construction.
-    fn expected(value: &Value) -> Map<String, Value> {
+    fn expected(value: &Value) -> Map {
         match value {
             Value::Object(map) => map.clone(),
             _ => Map::new(),
@@ -67,7 +67,7 @@ mod tests {
                         if line.is_empty() {
                             continue;
                         }
-                        let value: Value = serde_json::from_str(line).expect("fixture line parses");
+                        let value: Value = ace_json::parse(line).expect("fixture line parses");
                         collect(&value, &mut values);
                     }
                 }

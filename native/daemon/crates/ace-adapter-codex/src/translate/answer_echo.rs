@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use serde_json::Value;
+use ace_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::helpers::{obj_map, str_empty};
@@ -72,7 +72,7 @@ impl AnswerEchoes {
             }
         }
         let text = match map.get("text") {
-            Some(Value::String(s)) => s.clone(),
+            Some(Value::String(s)) => s.to_string(),
             _ => return,
         };
         let interaction_id = match map.get("interactionId") {
@@ -82,10 +82,10 @@ impl AnswerEchoes {
         if self.pending.len() >= 256 {
             self.pending.pop_front();
         }
-        let mut origin_map = serde_json::Map::with_capacity(2);
+        let mut origin_map = ace_json::Map::with_capacity(2);
         origin_map.insert(
             "kind".to_owned(),
-            Value::String("interaction_answer".to_owned()),
+            Value::from("interaction_answer".to_owned()),
         );
         if let Some(id) = interaction_id {
             origin_map.insert("interactionId".to_owned(), Value::String(id));
@@ -102,7 +102,7 @@ impl AnswerEchoes {
         if utf16_len(thread) > 1024 || utf16_len(item) > 1024 {
             return None;
         }
-        let identity = serde_json::to_string(&vec![thread, item])
+        let identity = ace_json::ser::to_string(&vec![thread, item])
             .unwrap_or_default()
             .to_string();
         if let Some(previous) = self.matched.get(&identity) {

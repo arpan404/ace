@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Pi tool details, mirroring `tools.ts`. Reads borrow `&RawValue`; tool
+//! Pi tool details, mirroring `tools.ts`. Reads borrow `&Raw`; tool
 //! results stream through `result_suffix` without joining historical prefixes.
 
 use super::native::{
     bare_tool_name, field, parse_array, parse_object, str_field, utf16_len, utf16_slice,
     utf16_to_byte_index,
 };
+use ace_json::Raw;
 use serde::Serialize;
-use serde_json::value::RawValue;
 use std::collections::HashMap;
 
 const MAX_PATCH: usize = 1 << 20;
@@ -31,7 +31,7 @@ pub enum ToolDetail {
         server: String,
         tool: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        arguments: Option<Box<RawValue>>,
+        arguments: Option<Raw>,
     },
     #[serde(rename = "custom")]
     Custom {},
@@ -52,12 +52,12 @@ pub struct FileChange {
     pub diff: Option<String>,
 }
 
-fn clone_raw(raw: &RawValue) -> Option<Box<RawValue>> {
-    serde_json::from_str::<Box<RawValue>>(raw.get()).ok()
+fn clone_raw(raw: &Raw) -> Option<Raw> {
+    Some(raw.clone())
 }
 
 /// Build the detail for a tool start, mirroring `toolDetail`.
-pub fn tool_detail(name: &str, args_raw: Option<&RawValue>) -> ToolDetail {
+pub fn tool_detail(name: &str, args_raw: Option<&Raw>) -> ToolDetail {
     let args = match args_raw {
         Some(raw) => parse_object(raw).unwrap_or_default(),
         None => HashMap::new(),
@@ -114,13 +114,13 @@ pub fn tool_detail(name: &str, args_raw: Option<&RawValue>) -> ToolDetail {
 }
 
 /// The text replacements of a Pi edit, mirroring `replacements`.
-pub fn replacements(args: &HashMap<String, Box<RawValue>>) -> Vec<FileChange> {
+pub fn replacements(args: &super::native::Fields) -> Vec<FileChange> {
     let path = str_field(args, "path");
     let mut changes = Vec::new();
     if let Some(edits_raw) = field(args, "edits") {
         let items = parse_array(edits_raw).unwrap_or_default();
         for item in &items {
-            let pair = parse_object(item.as_ref()).unwrap_or_default();
+            let pair = parse_object(item).unwrap_or_default();
             push_replacement(&mut changes, &path, &pair);
         }
     }
@@ -137,7 +137,7 @@ pub fn replacements(args: &HashMap<String, Box<RawValue>>) -> Vec<FileChange> {
     changes
 }
 
-fn push_replacement(out: &mut Vec<FileChange>, path: &str, pair: &HashMap<String, Box<RawValue>>) {
+fn push_replacement(out: &mut Vec<FileChange>, path: &str, pair: &super::native::Fields) {
     let old = match field(pair, "oldText") {
         Some(raw) => super::native::raw_as_str(raw),
         None => None,
@@ -160,8 +160,8 @@ fn push_replacement(out: &mut Vec<FileChange>, path: &str, pair: &HashMap<String
 /// A finished Pi edit's patch detail, mirroring `editResultDetail`.
 pub fn edit_result_detail(
     name: &str,
-    args_raw: Option<&RawValue>,
-    result_raw: Option<&RawValue>,
+    args_raw: Option<&Raw>,
+    result_raw: Option<&Raw>,
 ) -> Option<ToolDetail> {
     if name != "edit" {
         return None;
@@ -198,11 +198,11 @@ pub fn edit_result_detail(
 
 /// Visit cumulative blocks without joining their historical prefix.
 /// Mirrors `resultSuffix` in UTF-16 units, as JavaScript `length` does.
-pub fn result_suffix(value: Option<&RawValue>, seen: usize) -> (String, usize) {
+pub fn result_suffix(value: Option<&Raw>, seen: usize) -> (String, usize) {
     let mut append = String::new();
     let mut length = 0_usize;
     let mut first = true;
-    let items: Vec<Box<RawValue>> = match value {
+    let items: Vec<Raw> = match value {
         Some(raw) => {
             let obj = parse_object(raw).unwrap_or_default();
             match field(&obj, "content") {
@@ -220,7 +220,7 @@ pub fn result_suffix(value: Option<&RawValue>, seen: usize) -> (String, usize) {
             length += 1;
         }
         first = false;
-        let text = block_text(item.as_ref());
+        let text = block_text(item);
         let text_units = utf16_len(&text);
         let end = length + text_units;
         if end > seen {
@@ -242,7 +242,7 @@ pub fn result_suffix(value: Option<&RawValue>, seen: usize) -> (String, usize) {
     (append, length)
 }
 
-fn block_text(block_raw: &RawValue) -> String {
+fn block_text(block_raw: &Raw) -> String {
     let block = parse_object(block_raw).unwrap_or_default();
     str_field(&block, "text")
 }
@@ -261,7 +261,7 @@ pub fn tool_kind(detail: &ToolDetail) -> String {
 }
 
 /// Whether `result.details.aceMcp.isError` is true.
-pub fn ace_mcp_error(map: &HashMap<String, Box<RawValue>>) -> bool {
+pub fn ace_mcp_error(map: &super::native::Fields) -> bool {
     let result_raw = match field(map, "result") {
         Some(raw) => raw,
         None => return false,
@@ -281,7 +281,7 @@ pub fn ace_mcp_error(map: &HashMap<String, Box<RawValue>>) -> bool {
 }
 
 /// Whether `result.isError` is true.
-pub fn result_is_error(map: &HashMap<String, Box<RawValue>>) -> bool {
+pub fn result_is_error(map: &super::native::Fields) -> bool {
     let result_raw = match field(map, "result") {
         Some(raw) => raw,
         None => return false,
@@ -291,8 +291,8 @@ pub fn result_is_error(map: &HashMap<String, Box<RawValue>>) -> bool {
 }
 
 /// Join block texts with newlines, mirroring `resultText`.
-pub fn result_text(value: Option<&RawValue>) -> String {
-    let items: Vec<Box<RawValue>> = match value {
+pub fn result_text(value: Option<&Raw>) -> String {
+    let items: Vec<Raw> = match value {
         Some(raw) => {
             let obj = parse_object(raw).unwrap_or_default();
             match field(&obj, "content") {
@@ -304,7 +304,7 @@ pub fn result_text(value: Option<&RawValue>) -> String {
     };
     let mut parts = Vec::new();
     for item in &items {
-        parts.push(block_text(item.as_ref()));
+        parts.push(block_text(item));
     }
     parts.join("\n")
 }

@@ -2,19 +2,19 @@
 //! The ACP translator behind the shared `Translator` trait (E0).
 
 use crate::translate::translator::AcpTranslator;
-use serde_json::Value;
+use ace_json::Value;
 
 fn value_to_fact(value: &Value) -> Option<ace_core::RawFact> {
     let fact_type = value.get("type")?.as_str()?.to_owned();
     let mut body = value.as_object()?.clone();
     body.shift_remove("type");
-    let json = serde_json::to_string(&Value::Object(body)).ok()?;
-    let data = serde_json::value::RawValue::from_string(json).ok()?;
+    let json = ace_json::ser::to_string(&Value::Object(body)).ok()?;
+    let data = ace_json::Raw::from_string(json).ok()?;
     Some(ace_core::RawFact { fact_type, data })
 }
 
 fn value_to_json_string(value: &Value) -> Option<String> {
-    serde_json::to_string(value).ok()
+    ace_json::ser::to_string(value).ok()
 }
 
 impl ace_adapter_api::translator::Translator for AcpTranslator {
@@ -41,25 +41,25 @@ impl ace_adapter_api::translator::Translator for AcpTranslator {
             ace_adapter_api::frame::FrameDirection::Stderr => "stderr",
             ace_adapter_api::frame::FrameDirection::Note => "note",
         };
-        let data: Value = match serde_json::from_str(frame.data.get()) {
+        let data: Value = match ace_json::parse(frame.data.get()) {
             Ok(data) => data,
             Err(_) => {
                 self.state.diagnostics.push(crate::translate::data::raw(
-                    &Value::String(frame.data.get().to_owned()),
+                    &Value::from(frame.data.get().to_owned()),
                     "malformed",
                     None,
                 ));
-                let mut signal = serde_json::Map::with_capacity(1);
-                signal.insert("type".to_owned(), Value::String("signal".to_owned()));
+                let mut signal = ace_json::Map::with_capacity(1);
+                signal.insert("type".to_owned(), Value::from("signal".to_owned()));
                 let signal_value = Value::Object(signal);
                 return value_to_fact(&signal_value).into_iter().collect();
             }
         };
-        let mut frame_value = serde_json::Map::with_capacity(5);
+        let mut frame_value = ace_json::Map::with_capacity(5);
         frame_value.insert("seq".to_owned(), Value::from(frame.seq));
         frame_value.insert("t".to_owned(), Value::from(frame.t));
-        frame_value.insert("dir".to_owned(), Value::String(dir.to_owned()));
-        frame_value.insert("channel".to_owned(), Value::String(frame.channel.clone()));
+        frame_value.insert("dir".to_owned(), Value::from(dir.to_owned()));
+        frame_value.insert("channel".to_owned(), Value::from(frame.channel.clone()));
         frame_value.insert("data".to_owned(), data);
         let values = self.translate(&Value::Object(frame_value), now_ms);
         values.iter().filter_map(value_to_fact).collect()

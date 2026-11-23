@@ -2,7 +2,7 @@
 //! Agent discovery status: replays history turns and recovers terminals.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::fact;
 use super::helpers::{list_of, obj_map, str_empty};
@@ -13,7 +13,7 @@ impl CodexTranslator {
     pub(crate) fn discover_status(
         &mut self,
         id: &str,
-        p: &Map<String, Value>,
+        p: &Map,
         facts: &mut Vec<RawFact>,
         now: i64,
         revision: &Option<Revision>,
@@ -48,7 +48,7 @@ impl CodexTranslator {
         {
             self.replay_hydration(
                 "turn/completed",
-                serde_json::json!({"threadId": id, "turn": {"id": turn, "status": "completed"}}),
+                ace_json::json!({"threadId": id, "turn": {"id": turn, "status": "completed"}}),
                 now,
                 facts,
             );
@@ -68,7 +68,7 @@ impl CodexTranslator {
             {
                 self.replay_hydration(
                     "turn/started",
-                    serde_json::json!({"threadId": id, "turn": turn}),
+                    ace_json::json!({"threadId": id, "turn": turn}),
                     now,
                     facts,
                 );
@@ -91,7 +91,7 @@ impl CodexTranslator {
                 };
                 self.replay_hydration(
                     method,
-                    serde_json::json!({"threadId": id, "turnId": turn_id, "item": value}),
+                    ace_json::json!({"threadId": id, "turnId": turn_id, "item": value}),
                     now,
                     facts,
                 );
@@ -99,7 +99,7 @@ impl CodexTranslator {
             if turn_status != "inProgress" {
                 self.replay_hydration(
                     "turn/completed",
-                    serde_json::json!({"threadId": id, "turn": turn}),
+                    ace_json::json!({"threadId": id, "turn": turn}),
                     now,
                     facts,
                 );
@@ -123,9 +123,9 @@ impl CodexTranslator {
                     let mut body = Map::with_capacity(2);
                     body.insert(
                         "task".to_owned(),
-                        Value::String(super::helpers::shell_key(&item_id)),
+                        Value::from(super::helpers::shell_key(&item_id)),
                     );
-                    body.insert("status".to_owned(), Value::String("completed".to_owned()));
+                    body.insert("status".to_owned(), Value::from("completed".to_owned()));
                     facts.push(fact("background.ended", body));
                 }
             }
@@ -153,13 +153,13 @@ impl CodexTranslator {
                         .map(|a| a.key.clone())
                         .unwrap_or_default();
                     let mut body = Map::with_capacity(6);
-                    body.insert("agent".to_owned(), Value::String(agent_key));
+                    body.insert("agent".to_owned(), Value::from(agent_key));
                     body.insert(
                         "task".to_owned(),
-                        Value::String(super::helpers::shell_key(item_id)),
+                        Value::from(super::helpers::shell_key(item_id)),
                     );
-                    body.insert("kind".to_owned(), Value::String("shell".to_owned()));
-                    body.insert("title".to_owned(), Value::String(title));
+                    body.insert("kind".to_owned(), Value::from("shell".to_owned()));
+                    body.insert("title".to_owned(), Value::from(title));
                     body.insert("stoppable".to_owned(), Value::Bool(true));
                     facts.push(fact("background.started", body));
                 }
@@ -198,10 +198,10 @@ impl CodexTranslator {
                     continue;
                 }
                 let mut completed = obj_map(&data).clone();
-                completed.insert("status".to_owned(), Value::String("completed".to_owned()));
+                completed.insert("status".to_owned(), Value::from("completed".to_owned()));
                 self.replay_hydration(
                         "item/completed",
-                        serde_json::json!({"threadId": id, "turnId": open_turn, "item": Value::Object(completed)}),
+                        ace_json::json!({"threadId": id, "turnId": open_turn, "item": Value::Object(completed)}),
                         now,
                         facts,
                     );
@@ -235,9 +235,9 @@ impl CodexTranslator {
                 .map(|a| a.key.clone())
                 .unwrap_or_default();
             let mut body = Map::with_capacity(4);
-            body.insert("agent".to_owned(), Value::String(agent_key));
-            body.insert("nativeTurnId".to_owned(), Value::String(observed));
-            body.insert("trigger".to_owned(), Value::String("unknown".to_owned()));
+            body.insert("agent".to_owned(), Value::from(agent_key));
+            body.insert("nativeTurnId".to_owned(), Value::from(observed));
+            body.insert("trigger".to_owned(), Value::from("unknown".to_owned()));
             facts.push(fact("turn.started", body));
         }
     }

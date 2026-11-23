@@ -3,7 +3,7 @@
 //! Stable child identities contain only ids, hashes and stream indices,
 //! never payloads.
 
-use serde_json::Value;
+use ace_json::Value;
 use std::collections::HashMap;
 
 use super::json::{object, str_of};

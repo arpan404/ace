@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::helpers::{list_of, obj_map, str_empty};
 
@@ -23,7 +23,7 @@ impl HistoryAssembly {
         }
     }
 
-    pub fn add(&mut self, note: &Map<String, Value>) {
+    pub fn add(&mut self, note: &Map) {
         let thread = str_empty(note.get("threadId")).to_owned();
         let read = match note.get("read") {
             Some(Value::Number(n)) => n.as_f64().unwrap_or(f64::NAN),
@@ -52,7 +52,7 @@ impl HistoryAssembly {
                     let mut merged_items = list_of(obj_map(last).get("items")).to_vec();
                     merged_items.extend(list_of(turn.get("items")).iter().cloned());
                     if let Value::Object(last_map) = last {
-                        last_map.insert("items".to_owned(), Value::Array(merged_items));
+                        last_map.insert("items".to_owned(), Value::from(merged_items));
                     }
                 }
             } else {
@@ -61,7 +61,7 @@ impl HistoryAssembly {
         }
     }
 
-    pub fn complete(&mut self, note: &Map<String, Value>) -> Value {
+    pub fn complete(&mut self, note: &Map) -> Value {
         let thread = note.get("thread").map(obj_map).cloned().unwrap_or_default();
         let id = str_empty(thread.get("id")).to_owned();
         let entry = self.reads.remove(&id);
@@ -76,7 +76,7 @@ impl HistoryAssembly {
         let mut out = thread;
         let mut turns = history;
         turns.extend(list_of(out.get("turns")).iter().cloned());
-        out.insert("turns".to_owned(), Value::Array(turns));
+        out.insert("turns".to_owned(), Value::from(turns));
         Value::Object(out)
     }
 }
@@ -88,7 +88,7 @@ impl Default for HistoryAssembly {
 }
 
 /// An opening reply that excluded turns: metadata, no turns or status to act on.
-pub fn metadata_only(thread: &Map<String, Value>) -> Value {
+pub fn metadata_only(thread: &Map) -> Value {
     let mut out = Map::new();
     for (key, value) in thread {
         if key != "turns" && key != "status" {

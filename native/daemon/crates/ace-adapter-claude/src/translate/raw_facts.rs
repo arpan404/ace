@@ -3,7 +3,7 @@
 //! Receipt diagnostics own raw data; canonical enrichment must preserve
 //! prior raw.
 
-use serde_json::Value;
+use ace_json::Value;
 
 use super::json::object;
 
@@ -19,19 +19,19 @@ pub fn fact_raw(fact: &Value) -> Vec<Value> {
                 "tool_call" => {
                     let call = object(draft.get("call").unwrap_or(&Value::Null));
                     match call.get("raw") {
-                        Some(Value::Array(items)) => items.clone(),
+                        Some(Value::Array(items)) => items.to_vec(),
                         _ => Vec::new(),
                     }
                 }
                 "message" | "notice" | "reasoning" => match draft.get("raw") {
-                    Some(Value::Array(items)) => items.clone(),
+                    Some(Value::Array(items)) => items.to_vec(),
                     _ => Vec::new(),
                 },
                 _ => Vec::new(),
             }
         }
         "interaction.opened" | "background.started" => match obj.get("raw") {
-            Some(Value::Array(items)) => items.clone(),
+            Some(Value::Array(items)) => items.to_vec(),
             _ => Vec::new(),
         },
         _ => Vec::new(),

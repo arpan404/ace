@@ -21,10 +21,9 @@ ace-supervisor = { path = "../ace-supervisor" }
 ace-core = { path = "../ace-core" }
 # serde: the translator's options and envelope views deserialize from the shell's JSON.
 serde = { version = "1", features = ["derive"] }
-# serde_json: frames keep each message's encoding as JSON; facts are built as JSON values.
-# `preserve_order` keeps object key order as the TypeScript's insertion order,
-# so emitted fact and diagnostic JSON matches field for field.
-serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# ace-json: the frame and fact JSON, with JavaScript semantics (UTF-16 strings, JS numbers,
+# key order, no depth limit).
+ace-json = { path = "../ace-json" }
 # sha2: StreamedAnswer hashes the streamed text as UTF-16LE, as Node's sha256 does.
 sha2 = { version = "0.11" }
 # thiserror: the translator's typed budget errors, mapped to the overflow fence.

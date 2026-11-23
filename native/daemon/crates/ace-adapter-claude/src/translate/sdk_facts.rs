@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Small fact shapes the SDK dispatcher emits (split from `translate.rs`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::object;
 use super::token_counts::token_counts;
@@ -15,58 +15,55 @@ pub(crate) fn model_answered(data: &Value) -> bool {
 
 pub(crate) fn signal(agent: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("signal".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
+    map.insert("type".to_owned(), Value::from("signal".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn tick_fact() -> Value {
     let mut map = Map::with_capacity(1);
-    map.insert("type".to_owned(), Value::String("tick".to_owned()));
+    map.insert("type".to_owned(), Value::from("tick".to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn title_upsert(root: &str, summary: &str) -> Value {
     let mut draft = Map::with_capacity(6);
-    draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-    draft.insert("code".to_owned(), Value::String("thread_title".to_owned()));
-    draft.insert("title".to_owned(), Value::String(summary.to_owned()));
-    draft.insert("text".to_owned(), Value::String(summary.to_owned()));
-    draft.insert("level".to_owned(), Value::String("info".to_owned()));
+    draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+    draft.insert("code".to_owned(), Value::from("thread_title".to_owned()));
+    draft.insert("title".to_owned(), Value::from(summary.to_owned()));
+    draft.insert("text".to_owned(), Value::from(summary.to_owned()));
+    draft.insert("level".to_owned(), Value::from("info".to_owned()));
     draft.insert("complete".to_owned(), Value::Bool(true));
     let mut map = Map::with_capacity(4);
-    map.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert(
-        "item".to_owned(),
-        Value::String("provider:title".to_owned()),
-    );
+    map.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("item".to_owned(), Value::from("provider:title".to_owned()));
     map.insert("draft".to_owned(), Value::Object(draft));
     Value::Object(map)
 }
 
 pub(crate) fn agent_linked(root: &str, model: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("agent.linked".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("model".to_owned(), Value::String(model.to_owned()));
+    map.insert("type".to_owned(), Value::from("agent.linked".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("model".to_owned(), Value::from(model.to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn activity(root: &str, name: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("activity".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("activity".to_owned(), Value::String(name.to_owned()));
+    map.insert("type".to_owned(), Value::from("activity".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("activity".to_owned(), Value::from(name.to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn retry(root: &str, on: &str, message: &str, attempt: Option<i64>) -> Value {
     let mut map = Map::with_capacity(5);
-    map.insert("type".to_owned(), Value::String("retry".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("on".to_owned(), Value::String(on.to_owned()));
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
+    map.insert("type".to_owned(), Value::from("retry".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("on".to_owned(), Value::from(on.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
     if let Some(a) = attempt {
         map.insert("attempt".to_owned(), Value::Number(a.into()));
     }
@@ -75,42 +72,39 @@ pub(crate) fn retry(root: &str, on: &str, message: &str, attempt: Option<i64>) -
 
 pub(crate) fn retry_cleared(root: &str) -> Value {
     let mut map = Map::with_capacity(2);
-    map.insert("type".to_owned(), Value::String("retry.cleared".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("retry.cleared".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn process_exited(deliberate: bool, message: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert(
-        "type".to_owned(),
-        Value::String("process.exited".to_owned()),
-    );
+    map.insert("type".to_owned(), Value::from("process.exited".to_owned()));
     map.insert("deliberate".to_owned(), Value::Bool(deliberate));
-    map.insert("message".to_owned(), Value::String(message.to_owned()));
+    map.insert("message".to_owned(), Value::from(message.to_owned()));
     Value::Object(map)
 }
 
 pub(crate) fn goal_updated(root: &str, goal: Value) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("goal.updated".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("goal.updated".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert("goal".to_owned(), goal);
     Value::Object(map)
 }
 
 pub(crate) fn goal_cleared(root: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("goal.updated".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("goal.updated".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert("goal".to_owned(), Value::Null);
     Value::Object(map)
 }
 
 pub(crate) fn wake_expected(root: &str, until: i64) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("type".to_owned(), Value::String("wake.expected".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("type".to_owned(), Value::from("wake.expected".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
     map.insert("until".to_owned(), Value::Number(until.into()));
     Value::Object(map)
 }
@@ -147,17 +141,17 @@ pub(crate) fn ended_error(error: Option<&Value>, result: &str) -> Value {
     for (k, v) in map {
         ordered.insert(k, v);
     }
-    ordered.insert("kind".to_owned(), Value::String(kind));
-    ordered.insert("message".to_owned(), Value::String(message));
+    ordered.insert("kind".to_owned(), Value::from(kind));
+    ordered.insert("message".to_owned(), Value::from(message));
     Value::Object(ordered)
 }
 
 pub(crate) fn turn_ended(root: &str, outcome: &str, trigger: &str, error: Option<Value>) -> Value {
     let mut map = Map::with_capacity(5);
-    map.insert("type".to_owned(), Value::String("turn.ended".to_owned()));
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
-    map.insert("outcome".to_owned(), Value::String(outcome.to_owned()));
-    map.insert("trigger".to_owned(), Value::String(trigger.to_owned()));
+    map.insert("type".to_owned(), Value::from("turn.ended".to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
+    map.insert("outcome".to_owned(), Value::from(outcome.to_owned()));
+    map.insert("trigger".to_owned(), Value::from(trigger.to_owned()));
     if let Some(e) = error {
         map.insert("error".to_owned(), e);
     }
@@ -172,13 +166,13 @@ pub(crate) fn interaction_closed(
     let mut map = Map::with_capacity(4);
     map.insert(
         "type".to_owned(),
-        Value::String("interaction.closed".to_owned()),
+        Value::from("interaction.closed".to_owned()),
     );
     map.insert(
         "interaction".to_owned(),
-        Value::String(interaction.to_owned()),
+        Value::from(interaction.to_owned()),
     );
-    map.insert("state".to_owned(), Value::String(state.to_owned()));
+    map.insert("state".to_owned(), Value::from(state.to_owned()));
     if let Some(r) = resolution {
         map.insert("resolution".to_owned(), r);
     }

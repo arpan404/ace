@@ -9,7 +9,7 @@ use crate::translate::settlement::{
 };
 use crate::translate::state::TranslationState;
 use crate::translate::tools::tool_detail;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 const CUT_OFF: &[(&str, &str)] = &[
     (
@@ -94,25 +94,25 @@ pub fn end_prompt(
                 let mut started = Map::with_capacity(9);
                 started.insert(
                     "type".to_owned(),
-                    Value::String("background.started".to_owned()),
+                    Value::from("background.started".to_owned()),
                 );
-                started.insert("agent".to_owned(), Value::String(tool.owner_key.clone()));
-                started.insert("task".to_owned(), Value::String(task));
-                started.insert("kind".to_owned(), Value::String("shell".to_owned()));
-                started.insert("title".to_owned(), Value::String(title));
+                started.insert("agent".to_owned(), Value::from(tool.owner_key.clone()));
+                started.insert("task".to_owned(), Value::from(task));
+                started.insert("kind".to_owned(), Value::from("shell".to_owned()));
+                started.insert("title".to_owned(), Value::from(title));
                 let item_key = state
                     .tools
                     .get(&tool_key)
                     .map(|tool| tool.key.clone())
                     .unwrap_or_default();
-                started.insert("item".to_owned(), Value::String(item_key));
+                started.insert("item".to_owned(), Value::from(item_key));
                 started.insert("stoppable".to_owned(), Value::Bool(false));
                 if carried {
                     started.insert("endsWithSession".to_owned(), Value::Bool(true));
                 } else {
                     started.insert("blocksPrompts".to_owned(), Value::Bool(true));
                 }
-                started.insert("raw".to_owned(), Value::Array(raw));
+                started.insert("raw".to_owned(), Value::from(raw));
                 facts.push(Value::Object(started));
             }
             if !cancelled {
@@ -127,10 +127,10 @@ pub fn end_prompt(
                 let mut ended = Map::with_capacity(4);
                 ended.insert(
                     "type".to_owned(),
-                    Value::String("background.ended".to_owned()),
+                    Value::from("background.ended".to_owned()),
                 );
-                ended.insert("task".to_owned(), Value::String(task));
-                ended.insert("status".to_owned(), Value::String("unknown".to_owned()));
+                ended.insert("task".to_owned(), Value::from(task));
+                ended.insert("status".to_owned(), Value::from("unknown".to_owned()));
                 ended.insert("uncertain".to_owned(), Value::Bool(true));
                 facts.push(Value::Object(ended));
             }
@@ -177,23 +177,23 @@ pub fn end_prompt(
             let tool_snapshot = state.tools.get(&tool_key).cloned();
             if let Some(tool) = tool_snapshot {
                 let mut draft = Map::with_capacity(2);
-                draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+                draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
                 let mut call = Map::with_capacity(4);
-                call.insert("status".to_owned(), Value::String("cancelled".to_owned()));
+                call.insert("status".to_owned(), Value::from("cancelled".to_owned()));
                 call.insert(
                     "error".to_owned(),
-                    Value::String("turn ended without completion".to_owned()),
+                    Value::from("turn ended without completion".to_owned()),
                 );
                 call.insert("detail".to_owned(), detail);
-                call.insert("raw".to_owned(), Value::Array(tool.raw.clone()));
+                call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
                 // Order: type, complete, call{status, error, detail, raw}.
                 // TS inserts: type, complete, call{status, error, detail, raw}
                 // via object literal order.
                 let mut ordered_call = Map::with_capacity(4);
-                ordered_call.insert("status".to_owned(), Value::String("cancelled".to_owned()));
+                ordered_call.insert("status".to_owned(), Value::from("cancelled".to_owned()));
                 ordered_call.insert(
                     "error".to_owned(),
-                    Value::String("turn ended without completion".to_owned()),
+                    Value::from("turn ended without completion".to_owned()),
                 );
                 if let Some(detail) = call.get("detail") {
                     ordered_call.insert("detail".to_owned(), detail.clone());
@@ -205,9 +205,9 @@ pub fn end_prompt(
                 draft.insert("call".to_owned(), Value::Object(ordered_call));
                 // Rebuild draft in type, complete, call order (already).
                 let mut fact = Map::with_capacity(4);
-                fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-                fact.insert("agent".to_owned(), Value::String(tool.owner_key.clone()));
-                fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+                fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+                fact.insert("agent".to_owned(), Value::from(tool.owner_key.clone()));
+                fact.insert("item".to_owned(), Value::from(tool.key.clone()));
                 fact.insert("draft".to_owned(), Value::Object(draft));
                 facts.push(Value::Object(fact));
             }
@@ -275,8 +275,8 @@ pub fn end_prompt(
     if cancelling {
         let until = cancellation_deadline(now);
         let mut wake = Map::with_capacity(3);
-        wake.insert("type".to_owned(), Value::String("wake.expected".to_owned()));
-        wake.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
+        wake.insert("type".to_owned(), Value::from("wake.expected".to_owned()));
+        wake.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
         wake.insert("until".to_owned(), Value::from(until));
         facts.push(Value::Object(wake));
     }
@@ -292,10 +292,10 @@ pub fn end_prompt(
             let mut closed = Map::with_capacity(3);
             closed.insert(
                 "type".to_owned(),
-                Value::String("interaction.closed".to_owned()),
+                Value::from("interaction.closed".to_owned()),
             );
-            closed.insert("interaction".to_owned(), Value::String(pending.key.clone()));
-            closed.insert("state".to_owned(), Value::String("cancelled".to_owned()));
+            closed.insert("interaction".to_owned(), Value::from(pending.key.clone()));
+            closed.insert("state".to_owned(), Value::from("cancelled".to_owned()));
             facts.push(Value::Object(closed));
         }
     }
@@ -312,11 +312,11 @@ pub fn end_prompt(
     let classified = state.quirks.classify_error(&segment).or_else(|| {
         if reason == "refusal" {
             let mut error = Map::with_capacity(3);
-            error.insert("kind".to_owned(), Value::String("provider".to_owned()));
-            error.insert("code".to_owned(), Value::String("refusal".to_owned()));
+            error.insert("kind".to_owned(), Value::from("provider".to_owned()));
+            error.insert("code".to_owned(), Value::from("refusal".to_owned()));
             error.insert(
                 "message".to_owned(),
-                Value::String("Provider refused the prompt".to_owned()),
+                Value::from("Provider refused the prompt".to_owned()),
             );
             Some(Value::Object(error))
         } else {
@@ -346,8 +346,8 @@ pub fn end_prompt(
                 message
             };
             let mut map = Map::with_capacity(2);
-            map.insert("kind".to_owned(), Value::String(kind.to_owned()));
-            map.insert("message".to_owned(), Value::String(message));
+            map.insert("kind".to_owned(), Value::from(kind.to_owned()));
+            map.insert("message".to_owned(), Value::from(message));
             Some(Value::Object(map))
         }
     });
@@ -375,15 +375,15 @@ pub fn end_prompt(
     if let Some(text) = limit {
         let stop_key = state.key("stop");
         let mut draft = Map::with_capacity(6);
-        draft.insert("type".to_owned(), Value::String("notice".to_owned()));
+        draft.insert("type".to_owned(), Value::from("notice".to_owned()));
         draft.insert("complete".to_owned(), Value::Bool(true));
-        draft.insert("level".to_owned(), Value::String("warning".to_owned()));
-        draft.insert("code".to_owned(), Value::String(reason.to_owned()));
-        draft.insert("text".to_owned(), Value::String(text.to_owned()));
+        draft.insert("level".to_owned(), Value::from("warning".to_owned()));
+        draft.insert("code".to_owned(), Value::from(reason.to_owned()));
+        draft.insert("text".to_owned(), Value::from(text.to_owned()));
         let mut fact = Map::with_capacity(4);
-        fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
-        fact.insert("item".to_owned(), Value::String(stop_key));
+        fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(agent_key.to_owned()));
+        fact.insert("item".to_owned(), Value::from(stop_key));
         fact.insert("draft".to_owned(), Value::Object(draft));
         facts.push(Value::Object(fact));
     }

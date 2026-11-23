@@ -3,9 +3,8 @@
 
 use super::native::{field, parse_array, parse_object, raw_as_str, str_field};
 use ace_core::RawFact;
+use ace_json::Raw;
 use serde::Serialize;
-use serde_json::value::RawValue;
-use std::collections::HashMap;
 
 const MAX_SAFE: u64 = 9_007_199_254_740_991;
 
@@ -27,7 +26,7 @@ pub struct MessageResult {
 struct RawPayload<'a> {
     #[serde(rename = "type")]
     payload_type: String,
-    data: &'a RawValue,
+    data: &'a Raw,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,24 +89,24 @@ struct UsageFact {
 }
 
 fn make_fact(fact_type: &str, json: String) -> Option<RawFact> {
-    let data = serde_json::from_str::<Box<RawValue>>(&json).ok()?;
+    let data = Raw::from_string(json).ok()?;
     Some(RawFact {
         fact_type: fact_type.to_owned(),
         data,
     })
 }
 
-fn raw_payload<'a>(data: &'a RawValue) -> RawPayload<'a> {
+fn raw_payload<'a>(data: &'a Raw) -> RawPayload<'a> {
     let payload_type = super::native::raw_type_of(data, "message_end");
     RawPayload { payload_type, data }
 }
 
 fn serialize_upsert(upsert: &ItemUpsert<'_>) -> Option<String> {
-    serde_json::to_string(upsert).ok()
+    ace_json::ser::to_string(upsert).ok()
 }
 
 /// Each admitted envelope is retained once; subsequent items retain only their block.
-pub fn message_facts(agent: &str, prefix: &str, message: u64, data: &RawValue) -> MessageResult {
+pub fn message_facts(agent: &str, prefix: &str, message: u64, data: &Raw) -> MessageResult {
     let mut facts = Vec::new();
     let top = parse_object(data).unwrap_or_default();
     let message_raw = match field(&top, "message") {
@@ -142,30 +141,26 @@ fn assistant_facts(
     agent: &str,
     prefix: &str,
     message: u64,
-    frame_data: &RawValue,
-    parsed: &HashMap<String, Box<RawValue>>,
+    frame_data: &Raw,
+    parsed: &super::native::Fields,
     facts: &mut Vec<RawFact>,
 ) -> MessageResult {
     let mut retained = false;
     let mut order: u64 = 0;
     // Borrow the content list raw values without building `Value` trees.
-    let content_items: Vec<Box<RawValue>> = match field(parsed, "content") {
+    let content_items: Vec<Raw> = match field(parsed, "content") {
         Some(raw) => parse_array(raw).unwrap_or_default(),
         None => Vec::new(),
     };
     for block_raw in &content_items {
-        let block = parse_object(block_raw.as_ref()).unwrap_or_default();
+        let block = parse_object(block_raw).unwrap_or_default();
         let block_type = str_field(&block, "type");
         if block_type != "text" && block_type != "thinking" {
             continue;
         }
         let index = order;
         order += 1;
-        let raw_data: &RawValue = if retained {
-            block_raw.as_ref()
-        } else {
-            frame_data
-        };
+        let raw_data: &Raw = if retained { block_raw } else { frame_data };
         retained = true;
         let raw = vec![raw_payload(raw_data)];
         let item = format!("{prefix}:message:{message}:{index}");
@@ -213,7 +208,7 @@ fn assistant_facts(
     }
 }
 
-fn push_usage(agent: &str, parsed: &HashMap<String, Box<RawValue>>, facts: &mut Vec<RawFact>) {
+fn push_usage(agent: &str, parsed: &super::native::Fields, facts: &mut Vec<RawFact>) {
     let usage_raw = match field(parsed, "usage") {
         Some(raw) => raw,
         None => return,
@@ -263,7 +258,7 @@ fn push_usage(agent: &str, parsed: &HashMap<String, Box<RawValue>>, facts: &mut 
         Some(cost_raw) => {
             let cost = parse_object(cost_raw).unwrap_or_default();
             match field(&cost, "total") {
-                Some(total) => serde_json::from_str::<f64>(total.get()).ok(),
+                Some(total) => super::native::raw_as_f64(total),
                 None => None,
             }
         }
@@ -290,32 +285,32 @@ fn push_usage(agent: &str, parsed: &HashMap<String, Box<RawValue>>, facts: &mut 
         billing_mode,
         cost_usd,
     };
-    if let Ok(json) = serde_json::to_string(&usage_fact)
+    if let Ok(json) = ace_json::ser::to_string(&usage_fact)
         && let Some(fact) = make_fact("usage", json)
     {
         facts.push(fact);
     }
 }
 
-fn count_value(map: &HashMap<String, Box<RawValue>>, key: &str) -> Option<u64> {
+fn count_value(map: &super::native::Fields, key: &str) -> Option<u64> {
     let raw = field(map, key)?;
-    let value: u64 = serde_json::from_str(raw.get()).ok()?;
+    let value: u64 = super::native::raw_as_u64(raw)?;
     if value <= MAX_SAFE { Some(value) } else { None }
 }
 
-fn opt_count_value(map: &HashMap<String, Box<RawValue>>, key: &str) -> Option<u64> {
+fn opt_count_value(map: &super::native::Fields, key: &str) -> Option<u64> {
     match field(map, key) {
         Some(raw) => {
-            let value: u64 = serde_json::from_str(raw.get()).ok()?;
+            let value: u64 = super::native::raw_as_u64(raw)?;
             if value <= MAX_SAFE { Some(value) } else { None }
         }
         None => Some(0),
     }
 }
 
-fn timestamp_counter_key(raw: &RawValue) -> Option<String> {
+fn timestamp_counter_key(raw: &Raw) -> Option<String> {
     // `Number.isSafeInteger`: finite, integral, within ±MAX_SAFE.
-    let value: f64 = serde_json::from_str(raw.get()).ok()?;
+    let value: f64 = super::native::raw_as_f64(raw)?;
     if !value.is_finite() || value.fract() != 0.0 {
         return None;
     }
@@ -330,8 +325,8 @@ fn user_facts(
     agent: &str,
     prefix: &str,
     message: u64,
-    frame_data: &RawValue,
-    parsed: &HashMap<String, Box<RawValue>>,
+    frame_data: &Raw,
+    parsed: &super::native::Fields,
     facts: &mut Vec<RawFact>,
 ) {
     let parts = user_parts(parsed);
@@ -355,7 +350,7 @@ fn user_facts(
     }
 }
 
-fn user_parts(parsed: &HashMap<String, Box<RawValue>>) -> Vec<TextPart> {
+fn user_parts(parsed: &super::native::Fields) -> Vec<TextPart> {
     let content_raw = match field(parsed, "content") {
         Some(raw) => raw,
         None => return Vec::new(),
@@ -372,7 +367,7 @@ fn user_parts(parsed: &HashMap<String, Box<RawValue>>) -> Vec<TextPart> {
     let items = parse_array(content_raw).unwrap_or_default();
     let mut parts = Vec::new();
     for item in &items {
-        let block = parse_object(item.as_ref()).unwrap_or_default();
+        let block = parse_object(item).unwrap_or_default();
         if str_field(&block, "type") != "text" {
             continue;
         }

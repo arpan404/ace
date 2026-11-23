@@ -15,6 +15,15 @@ workspace = true
 [dependencies]
 # ace-adapter-api: the Adapter, Translator and Session traits this provider implements.
 ace-adapter-api = { path = "../ace-adapter-api" }
+# serde: facts and requests serialize straight into the output buffer, never via a Value tree.
+serde = { version = "1", features = ["derive"] }
+# ace-json: provider frames and facts as JavaScript-exact JSON (JSON.parse and
+# JSON.stringify semantics, no recursion, raw splices).
+ace-json = { path = "../ace-json" }
+# indexmap: translator maps keep TypeScript insertion order so fact order matches.
+indexmap = { version = "2" }
+# thiserror: the translator's typed internal errors, mapped to diagnostics, never thrown.
+thiserror = { version = "2" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
 # reqwest: OpenCode's HTTP and SSE transport, served on localhost only, so no TLS feature (the TLS root bundles would bring licences deny.toml excludes).

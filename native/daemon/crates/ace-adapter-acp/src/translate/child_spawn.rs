@@ -3,7 +3,7 @@
 
 use crate::translate::data::{object, string};
 use crate::translate::state::TranslationState;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 pub fn background_child(state: &mut TranslationState, tool_key: &str, facts: &mut Vec<Value>) {
     let (child_key, child_native_id, owner_key, title, raw) = match state.tools.get(tool_key) {
@@ -48,8 +48,8 @@ pub fn background_child(state: &mut TranslationState, tool_key: &str, facts: &mu
     state.background_tools.insert(tool_key.to_owned());
     state.start(&child_key_clone, facts, "spawn");
     let mut linked = Map::with_capacity(3);
-    linked.insert("type".to_owned(), Value::String("agent.linked".to_owned()));
-    linked.insert("agent".to_owned(), Value::String(child_key.clone()));
+    linked.insert("type".to_owned(), Value::from("agent.linked".to_owned()));
+    linked.insert("agent".to_owned(), Value::from(child_key.clone()));
     linked.insert("background".to_owned(), Value::Bool(true));
     facts.push(Value::Object(linked));
     let has_task = state.tools.get(tool_key).and_then(|tool| tool.task.clone());
@@ -68,21 +68,21 @@ pub fn background_child(state: &mut TranslationState, tool_key: &str, facts: &mu
     let mut started = Map::with_capacity(8);
     started.insert(
         "type".to_owned(),
-        Value::String("background.started".to_owned()),
+        Value::from("background.started".to_owned()),
     );
-    started.insert("agent".to_owned(), Value::String(owner_key));
-    started.insert("task".to_owned(), Value::String(task));
-    started.insert("kind".to_owned(), Value::String("subagent".to_owned()));
-    started.insert("title".to_owned(), Value::String(title));
+    started.insert("agent".to_owned(), Value::from(owner_key));
+    started.insert("task".to_owned(), Value::from(task));
+    started.insert("kind".to_owned(), Value::from("subagent".to_owned()));
+    started.insert("title".to_owned(), Value::from(title));
     let item_key = state
         .tools
         .get(tool_key)
         .map(|tool| tool.key.clone())
         .unwrap_or_default();
-    started.insert("item".to_owned(), Value::String(item_key));
-    started.insert("childAgent".to_owned(), Value::String(child_key));
+    started.insert("item".to_owned(), Value::from(item_key));
+    started.insert("childAgent".to_owned(), Value::from(child_key));
     started.insert("stoppable".to_owned(), Value::Bool(false));
-    started.insert("raw".to_owned(), Value::Array(raw));
+    started.insert("raw".to_owned(), Value::from(raw));
     facts.push(Value::Object(started));
 }
 pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &mut Vec<Value>) {
@@ -132,43 +132,40 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
         let mut native = Map::with_capacity(1);
         native.insert(
             "provider".to_owned(),
-            Value::String(state.quirks.provider().to_owned()),
+            Value::from(state.quirks.provider().to_owned()),
         );
         let mut seen = Map::with_capacity(8);
-        seen.insert("type".to_owned(), Value::String("agent.seen".to_owned()));
-        seen.insert("agent".to_owned(), Value::String(child_key.clone()));
-        seen.insert("parent".to_owned(), Value::String(owner_key.clone()));
+        seen.insert("type".to_owned(), Value::from("agent.seen".to_owned()));
+        seen.insert("agent".to_owned(), Value::from(child_key.clone()));
+        seen.insert("parent".to_owned(), Value::from(owner_key.clone()));
         // spawnedBy
         let tool_item_key = state
             .tools
             .get(tool_key)
             .map(|tool| tool.key.clone())
             .unwrap_or_default();
-        seen.insert("spawnedBy".to_owned(), Value::String(tool_item_key.clone()));
+        seen.insert("spawnedBy".to_owned(), Value::from(tool_item_key.clone()));
         seen.insert(
             "origin".to_owned(),
-            Value::String("provider_subagent".to_owned()),
+            Value::from("provider_subagent".to_owned()),
         );
-        seen.insert(
-            "fidelity".to_owned(),
-            Value::String("placeholder".to_owned()),
-        );
+        seen.insert("fidelity".to_owned(), Value::from("placeholder".to_owned()));
         seen.insert("native".to_owned(), Value::Object(native));
-        seen.insert("cwd".to_owned(), Value::String(state.cwd.clone()));
-        seen.insert("name".to_owned(), Value::String(title));
+        seen.insert("cwd".to_owned(), Value::from(state.cwd.clone()));
+        seen.insert("name".to_owned(), Value::from(title));
         facts.push(Value::Object(seen));
         let mut draft = Map::with_capacity(2);
-        draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+        draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
         let mut call = Map::with_capacity(1);
         let mut detail = Map::with_capacity(2);
-        detail.insert("kind".to_owned(), Value::String("agent.spawn".to_owned()));
-        detail.insert("childAgent".to_owned(), Value::String(child_key.clone()));
+        detail.insert("kind".to_owned(), Value::from("agent.spawn".to_owned()));
+        detail.insert("childAgent".to_owned(), Value::from(child_key.clone()));
         call.insert("detail".to_owned(), Value::Object(detail));
         draft.insert("call".to_owned(), Value::Object(call));
         let mut fact = Map::with_capacity(4);
-        fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-        fact.insert("agent".to_owned(), Value::String(owner_key));
-        fact.insert("item".to_owned(), Value::String(tool_item_key));
+        fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+        fact.insert("agent".to_owned(), Value::from(owner_key));
+        fact.insert("item".to_owned(), Value::from(tool_item_key));
         fact.insert("draft".to_owned(), Value::Object(draft));
         facts.push(Value::Object(fact));
         state.start(&child_key, facts, "spawn");

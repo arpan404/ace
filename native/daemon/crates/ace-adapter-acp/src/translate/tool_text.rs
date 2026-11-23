@@ -2,18 +2,18 @@
 //! Tool text: errors, titles, todos, merge (`tools.ts` text half).
 
 use crate::translate::data::{list, object, string};
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 const ERROR_LIMIT: usize = 16 * 1024;
 
 pub fn tool_error(update: &Value) -> Option<String> {
     let output = update.get("rawOutput").unwrap_or(&Value::Null);
     let error_text = match output {
-        Value::String(text) => Some(text.clone()),
+        Value::String(text) => Some(text.to_string()),
         _ => {
             let output_map = object(output);
             match output_map.get("error").unwrap_or(&Value::Null) {
-                Value::String(text) => Some(text.clone()),
+                Value::String(text) => Some(text.to_string()),
                 _ => object(output_map.get("error").unwrap_or(&Value::Null))
                     .get("message")
                     .and_then(Value::as_str)
@@ -90,15 +90,15 @@ pub fn todos(value: &Value) -> Vec<Value> {
             if let Some(Value::String(id)) = map.get("id") {
                 out.insert("id".to_owned(), Value::String(id.clone()));
             }
-            out.insert("content".to_owned(), Value::String(content.to_owned()));
-            out.insert("status".to_owned(), Value::String(status.to_owned()));
+            out.insert("content".to_owned(), Value::from(content.to_owned()));
+            out.insert("status".to_owned(), Value::from(status.to_owned()));
             Some(Value::Object(out))
         })
         .collect()
 }
 
 /// Carry interpreted fields between partial refreshes.
-pub fn merge_tool_data(data: &mut Map<String, Value>, update: &Value) {
+pub fn merge_tool_data(data: &mut Map, update: &Value) {
     let update_map = object(update);
     for field in [
         "kind",

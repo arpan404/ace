@@ -2,7 +2,7 @@
 //! Item completion: command actions, waiting, background ends and async questions.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::command::command_action_items;
 use super::facts::{fact, raw_payload};
@@ -12,7 +12,7 @@ use super::state::CodexTranslator;
 pub struct FinishArgs {
     pub agent_key: String,
     pub item_id: String,
-    pub item_map: Map<String, Value>,
+    pub item_map: Map,
     pub item_value: Value,
     pub item_type: String,
     pub complete: bool,
@@ -38,8 +38,8 @@ pub fn finish_item(
     if item_type == "commandExecution" {
         for (key, action_draft) in command_action_items(&item_map, complete) {
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("item".to_owned(), Value::String(key));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("item".to_owned(), Value::from(key));
             body.insert("draft".to_owned(), action_draft);
             facts.push(fact("item.upsert", body));
         }
@@ -48,25 +48,25 @@ pub fn finish_item(
     {
         let targets: Vec<Value> = list_of(item_map.get("receiverThreadIds"))
             .iter()
-            .filter_map(|v| v.as_str().map(|s| Value::String(s.to_owned())))
+            .filter_map(|v| v.as_str().map(|s| Value::from(s.to_owned())))
             .collect();
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("item".to_owned(), Value::String(item_id.clone()));
-        body.insert("targets".to_owned(), Value::Array(targets));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("item".to_owned(), Value::from(item_id.clone()));
+        body.insert("targets".to_owned(), Value::from(targets));
         facts.push(fact("subagents.waiting", body));
     }
     if complete && item_type == "commandExecution" {
         let task = super::helpers::shell_key(&item_id);
         translator.tasks.remove(&task);
         let mut body = Map::with_capacity(2);
-        body.insert("task".to_owned(), Value::String(task));
+        body.insert("task".to_owned(), Value::from(task));
         let status = if str_empty(item_map.get("status")) == "failed" {
             "failed"
         } else {
             "completed"
         };
-        body.insert("status".to_owned(), Value::String(status.to_owned()));
+        body.insert("status".to_owned(), Value::from(status.to_owned()));
         facts.push(fact("background.ended", body));
         if frame_channel != "hydration"
             && let Some(agent) = translator.agents.get_mut(agent_native)
@@ -120,20 +120,20 @@ pub fn finish_item(
             },
         );
         let mut request_questions = Map::with_capacity(2);
-        request_questions.insert("kind".to_owned(), Value::String("question".to_owned()));
+        request_questions.insert("kind".to_owned(), Value::from("question".to_owned()));
         request_questions.insert(
             "questions".to_owned(),
             super::interactions::async_questions(&item_value),
         );
         let mut body = Map::with_capacity(6);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("interaction".to_owned(), Value::String(key));
-        body.insert("item".to_owned(), Value::String(item_id.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("interaction".to_owned(), Value::from(key));
+        body.insert("item".to_owned(), Value::from(item_id.clone()));
         body.insert("blocking".to_owned(), Value::Bool(false));
         body.insert("request".to_owned(), Value::Object(request_questions));
         body.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload(&item_type, &item_value, None)]),
+            Value::from(vec![raw_payload(&item_type, &item_value, None)]),
         );
         facts.push(fact("interaction.opened", body));
     }
@@ -145,8 +145,8 @@ pub fn finish_item(
             _ => "tool",
         };
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("activity".to_owned(), Value::String(activity.to_owned()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("activity".to_owned(), Value::from(activity.to_owned()));
         facts.push(fact("activity", body));
     }
     if item_type == "collabAgentToolCall" && str_empty(item_map.get("tool")) != "wait" {

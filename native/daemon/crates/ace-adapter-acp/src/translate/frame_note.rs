@@ -3,14 +3,14 @@
 
 use crate::translate::data::{object, string};
 use crate::translate::state::TranslationState;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Handle `note` frames. Always returns true (notes never fall through).
 pub fn handle_note(
     state: &mut TranslationState,
     input_native_id: &mut Option<String>,
     data: &Value,
-    data_map: &Map<String, Value>,
+    data_map: &Map,
     facts: &mut Vec<Value>,
 ) -> bool {
     if data_map.get("event").and_then(Value::as_str) == Some("stop") {
@@ -22,10 +22,7 @@ pub fn handle_note(
         state.stopped = false;
         state.process_dead = false;
         let mut fact = Map::with_capacity(1);
-        fact.insert(
-            "type".to_owned(),
-            Value::String("process.started".to_owned()),
-        );
+        fact.insert("type".to_owned(), Value::from("process.started".to_owned()));
         facts.push(Value::Object(fact));
     }
     if data_map.get("event").and_then(Value::as_str) == Some("process-exit") {
@@ -35,10 +32,7 @@ pub fn handle_note(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
         let mut fact = Map::with_capacity(2);
-        fact.insert(
-            "type".to_owned(),
-            Value::String("process.exited".to_owned()),
-        );
+        fact.insert("type".to_owned(), Value::from("process.exited".to_owned()));
         fact.insert("deliberate".to_owned(), Value::Bool(deliberate));
         facts.push(Value::Object(fact));
         state.reset_process();
@@ -49,7 +43,7 @@ pub fn handle_note(
         && (count.as_i64().is_some() || count.as_u64().is_some())
     {
         let mut fact = Map::with_capacity(2);
-        fact.insert("type".to_owned(), Value::String("queue.changed".to_owned()));
+        fact.insert("type".to_owned(), Value::from("queue.changed".to_owned()));
         fact.insert("count".to_owned(), count.clone());
         facts.push(Value::Object(fact));
     }

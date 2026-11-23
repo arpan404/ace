@@ -3,8 +3,8 @@
 //! redacted encoding, kept as received; a typed view decodes from it by
 //! matching the method or type string first.
 
+use ace_json::Raw;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 /// Direction from ace's point of view; notes include process exits and interrupts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,9 +43,9 @@ pub struct Frame {
     /// Transport-specific channel, such as stdio, sse, http or sdk.
     pub channel: String,
     /// The frame's redacted encoding, kept as received.
-    pub data: Box<RawValue>,
+    pub data: Raw,
     /// Immutable decoded value admitted from bounded encoded bytes.
-    pub payload: Option<Box<RawValue>>,
+    pub payload: Option<Raw>,
     /// Account the shell captured when it admitted the frame.
     pub usage_account: Option<UsageAccount>,
 }

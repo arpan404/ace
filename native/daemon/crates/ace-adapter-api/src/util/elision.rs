@@ -310,24 +310,22 @@ mod tests {
             let text = "héllo wörld \\u00e9 \u{1F600} ".repeat(16);
             // The object is stringified, as `JSON.stringify` does in the
             // TypeScript case, so the literal backslash is escaped.
-            let value = serde_json::to_string(&serde_json::json!({
+            let value = ace_json::to_string(&ace_json::json!({
                 "small": "a\"quoted\\ value",
                 "image": image,
                 "data": data,
                 "text": text,
                 "nested": [{ "keep": "x".repeat(40) }],
-            }))
-            .expect("input serializes");
-            let parsed: serde_json::Value =
-                serde_json::from_str(&elide(&value, chunk_bytes)).expect("stays JSON");
-            assert_eq!(parsed["small"], serde_json::json!("a\"quoted\\ value"));
+            }));
+            let parsed = ace_json::parse(&elide(&value, chunk_bytes)).expect("stays JSON");
+            assert_eq!(parsed["small"], ace_json::json!("a\"quoted\\ value"));
             assert_eq!(
                 parsed["nested"],
-                serde_json::json!([{"keep": "x".repeat(40)}])
+                ace_json::json!([{"keep": "x".repeat(40)}])
             );
             assert_eq!(
                 parsed["image"],
-                serde_json::json!(format!(
+                ace_json::json!(format!(
                     "[ace: {} bytes of data:image/png;base64 elided]",
                     image.len()
                 )),
@@ -335,7 +333,7 @@ mod tests {
             );
             assert_eq!(
                 parsed["data"],
-                serde_json::json!(format!("[ace: {} bytes of base64 data elided]", data.len())),
+                ace_json::json!(format!("[ace: {} bytes of base64 data elided]", data.len())),
                 "chunk {chunk_bytes}"
             );
             let kept = parsed["text"].as_str().expect("text stays text");

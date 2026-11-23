@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Streaming message deltas (the port of `content.ts`: `stream`, `finishStream`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::HashMap;
 
 use super::blocks::{BlockSlot, StreamState};
@@ -108,25 +108,25 @@ fn stream_start_upsert(
     agent: &str,
     item: &str,
     kind: &str,
-    block: &Map<String, Value>,
+    block: &Map,
     settled: bool,
     keep: Value,
 ) -> Value {
     let mut draft = Map::with_capacity(7);
     if kind == "text" {
-        draft.insert("type".to_owned(), Value::String("message".to_owned()));
-        draft.insert("role".to_owned(), Value::String("assistant".to_owned()));
+        draft.insert("type".to_owned(), Value::from("message".to_owned()));
+        draft.insert("role".to_owned(), Value::from("assistant".to_owned()));
         draft.insert(
             "parts".to_owned(),
-            Value::Array(vec![part_text(
+            Value::from(vec![part_text(
                 block.get("text").and_then(|v| v.as_str()).unwrap_or(""),
             )]),
         );
     } else {
-        draft.insert("type".to_owned(), Value::String("reasoning".to_owned()));
+        draft.insert("type".to_owned(), Value::from("reasoning".to_owned()));
         draft.insert(
             "text".to_owned(),
-            Value::String(
+            Value::from(
                 block
                     .get("thinking")
                     .and_then(|v| v.as_str())
@@ -153,14 +153,14 @@ fn stream_start_upsert(
 
 fn stream_delta(agent: &str, item: &str, kind: &str, append: &str) -> Value {
     let mut map = Map::with_capacity(5);
-    map.insert("type".to_owned(), Value::String("item.delta".to_owned()));
-    map.insert("agent".to_owned(), Value::String(agent.to_owned()));
-    map.insert("item".to_owned(), Value::String(item.to_owned()));
+    map.insert("type".to_owned(), Value::from("item.delta".to_owned()));
+    map.insert("agent".to_owned(), Value::from(agent.to_owned()));
+    map.insert("item".to_owned(), Value::from(item.to_owned()));
     map.insert(
         "field".to_owned(),
-        Value::String(if kind == "text" { "text" } else { "reasoning" }.to_owned()),
+        Value::from(if kind == "text" { "text" } else { "reasoning" }.to_owned()),
     );
-    map.insert("append".to_owned(), Value::String(append.to_owned()));
+    map.insert("append".to_owned(), Value::from(append.to_owned()));
     Value::Object(map)
 }
 
@@ -168,7 +168,7 @@ fn stream_stop_upsert(agent: &str, item: &str, kind: &str) -> Value {
     let mut draft = Map::with_capacity(2);
     draft.insert(
         "type".to_owned(),
-        Value::String(
+        Value::from(
             if kind == "text" {
                 "message"
             } else {

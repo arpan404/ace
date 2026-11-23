@@ -2,7 +2,7 @@
 //! Remaining live methods: items, deltas, plans, errors, status and usage.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::ParsedFrame;
 use super::facts::{fact, raw_payload};
@@ -73,9 +73,9 @@ pub fn handle_live(
                 let mut todo = Map::with_capacity(2);
                 todo.insert(
                     "content".to_owned(),
-                    Value::String(str_empty(step.get("step")).to_owned()),
+                    Value::from(str_empty(step.get("step")).to_owned()),
                 );
-                todo.insert("status".to_owned(), Value::String(status.to_owned()));
+                todo.insert("status".to_owned(), Value::from(status.to_owned()));
                 Value::Object(todo)
             })
             .collect();
@@ -97,26 +97,26 @@ pub fn handle_live(
             explanation
         };
         let mut detail = Map::with_capacity(2);
-        detail.insert("kind".to_owned(), Value::String("todo".to_owned()));
-        detail.insert("todos".to_owned(), Value::Array(todos));
+        detail.insert("kind".to_owned(), Value::from("todo".to_owned()));
+        detail.insert("todos".to_owned(), Value::from(todos));
         let mut call = Map::with_capacity(5);
-        call.insert("kind".to_owned(), Value::String("todo".to_owned()));
-        call.insert("title".to_owned(), Value::String(title));
-        call.insert("status".to_owned(), Value::String("succeeded".to_owned()));
+        call.insert("kind".to_owned(), Value::from("todo".to_owned()));
+        call.insert("title".to_owned(), Value::from(title));
+        call.insert("status".to_owned(), Value::from("succeeded".to_owned()));
         call.insert("detail".to_owned(), Value::Object(detail));
         call.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload(method, &frame.data, None)]),
+            Value::from(vec![raw_payload(method, &frame.data, None)]),
         );
         let mut draft = Map::with_capacity(3);
-        draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+        draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
         draft.insert("complete".to_owned(), Value::Bool(true));
         draft.insert("call".to_owned(), Value::Object(call));
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key));
+        body.insert("agent".to_owned(), Value::from(agent_key));
         body.insert(
             "item".to_owned(),
-            Value::String(format!("codex:plan-update:{key_turn}")),
+            Value::from(format!("codex:plan-update:{key_turn}")),
         );
         body.insert("draft".to_owned(), Value::Object(draft));
         facts.push(fact("item.upsert", body));
@@ -136,41 +136,35 @@ pub fn handle_live(
         translator.synthetic += 1;
         let key = format!("codex:raw:{}", translator.synthetic);
         let mut draft = Map::with_capacity(7);
-        draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-        draft.insert("level".to_owned(), Value::String("info".to_owned()));
-        draft.insert("text".to_owned(), Value::String(message.clone()));
+        draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+        draft.insert("level".to_owned(), Value::from("info".to_owned()));
+        draft.insert("text".to_owned(), Value::from(message.clone()));
         draft.insert("complete".to_owned(), Value::Bool(true));
         if will_retry {
-            draft.insert(
-                "code".to_owned(),
-                Value::String("provider.retry".to_owned()),
-            );
+            draft.insert("code".to_owned(), Value::from("provider.retry".to_owned()));
         }
         draft.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload(method, &frame.data, None)]),
+            Value::from(vec![raw_payload(method, &frame.data, None)]),
         );
         // TS sets `code` after construction but before pushing; key order in
         // JS objects is insertion order, so `code` sorts after `raw`.
         let mut ordered_draft = Map::with_capacity(7);
-        ordered_draft.insert("type".to_owned(), Value::String("notice".to_owned()));
-        ordered_draft.insert("level".to_owned(), Value::String("info".to_owned()));
-        ordered_draft.insert("text".to_owned(), Value::String(message.clone()));
+        ordered_draft.insert("type".to_owned(), Value::from("notice".to_owned()));
+        ordered_draft.insert("level".to_owned(), Value::from("info".to_owned()));
+        ordered_draft.insert("text".to_owned(), Value::from(message.clone()));
         ordered_draft.insert("complete".to_owned(), Value::Bool(true));
         ordered_draft.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload(method, &frame.data, None)]),
+            Value::from(vec![raw_payload(method, &frame.data, None)]),
         );
         if will_retry {
-            ordered_draft.insert(
-                "code".to_owned(),
-                Value::String("provider.retry".to_owned()),
-            );
+            ordered_draft.insert("code".to_owned(), Value::from("provider.retry".to_owned()));
         }
         let _ = draft;
         let mut body = Map::with_capacity(3);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-        body.insert("item".to_owned(), Value::String(key));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+        body.insert("item".to_owned(), Value::from(key));
         body.insert("draft".to_owned(), Value::Object(ordered_draft));
         facts.push(fact("item.upsert", body));
         if will_retry || kind == "quota" {
@@ -182,9 +176,9 @@ pub fn handle_live(
                 "upstream"
             };
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key));
-            body.insert("on".to_owned(), Value::String(on.to_owned()));
-            body.insert("message".to_owned(), Value::String(message));
+            body.insert("agent".to_owned(), Value::from(agent_key));
+            body.insert("on".to_owned(), Value::from(on.to_owned()));
+            body.insert("message".to_owned(), Value::from(message));
             facts.push(fact("retry", body));
         }
         return;

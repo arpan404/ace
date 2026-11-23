@@ -2,7 +2,7 @@
 //! Model confirmation: the agent's model, linked when it changes.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::fact;
 use super::state::Agent;
@@ -15,9 +15,9 @@ pub fn confirm_model(agent: &mut Agent, value: Option<&Value>, facts: &mut Vec<R
     if agent.model.as_deref() == Some(model.as_str()) {
         return;
     }
-    agent.model = Some(model.clone());
+    agent.model = Some(String::from(model.clone()));
     let mut body = Map::with_capacity(2);
-    body.insert("agent".to_owned(), Value::String(agent.key.clone()));
+    body.insert("agent".to_owned(), Value::from(agent.key.clone()));
     body.insert("model".to_owned(), Value::String(model));
     facts.push(fact("agent.linked", body));
 }

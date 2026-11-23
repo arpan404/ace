@@ -2,14 +2,14 @@
 //! Turn completion: settle open items, end the turn, link children.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
 use super::helpers::{list_of, obj_map};
 use super::item::item_draft;
 use super::state::CodexTranslator;
 
-fn turn_id_of(p: &Map<String, Value>) -> String {
+fn turn_id_of(p: &Map) -> String {
     p.get("turn")
         .map(obj_map)
         .and_then(|m| m.get("id"))
@@ -18,7 +18,7 @@ fn turn_id_of(p: &Map<String, Value>) -> String {
         .to_owned()
 }
 
-fn turn_status_of(p: &Map<String, Value>) -> String {
+fn turn_status_of(p: &Map) -> String {
     p.get("turn")
         .map(obj_map)
         .and_then(|m| m.get("status"))
@@ -31,7 +31,7 @@ fn turn_status_of(p: &Map<String, Value>) -> String {
 pub fn complete_turn(
     translator: &mut CodexTranslator,
     agent_native: &str,
-    p: &Map<String, Value>,
+    p: &Map,
     actionable: bool,
     facts: &mut Vec<RawFact>,
 ) {
@@ -134,30 +134,30 @@ pub fn complete_turn(
             // && !ctx.outputLost` for `wakesAgent: false`; otherwise omits it.
             let include_wakes_false = actionable && current && !unseen_start && !output_lost;
             let mut body = Map::with_capacity(9);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("task".to_owned(), Value::String(task));
-            body.insert("kind".to_owned(), Value::String("shell".to_owned()));
-            body.insert("title".to_owned(), Value::String(command));
-            body.insert("item".to_owned(), Value::String(item_id.clone()));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("task".to_owned(), Value::from(task));
+            body.insert("kind".to_owned(), Value::from("shell".to_owned()));
+            body.insert("title".to_owned(), Value::from(command));
+            body.insert("item".to_owned(), Value::from(item_id.clone()));
             body.insert("stoppable".to_owned(), Value::Bool(true));
             if include_wakes_false {
                 body.insert("wakesAgent".to_owned(), Value::Bool(false));
             }
             body.insert(
                 "raw".to_owned(),
-                Value::Array(vec![raw_payload("commandExecution", &open.0, None)]),
+                Value::from(vec![raw_payload("commandExecution", &open.0, None)]),
             );
             facts.push(fact("background.started", body));
         } else {
             if open.2 {
                 let mut body = Map::with_capacity(3);
-                body.insert("agent".to_owned(), Value::String(agent_key.clone()));
+                body.insert("agent".to_owned(), Value::from(agent_key.clone()));
                 body.insert(
                     "item".to_owned(),
-                    Value::String(format!("codex:plan-stream:{item_id}")),
+                    Value::from(format!("codex:plan-stream:{item_id}")),
                 );
                 let mut draft = Map::with_capacity(2);
-                draft.insert("type".to_owned(), Value::String("notice".to_owned()));
+                draft.insert("type".to_owned(), Value::from("notice".to_owned()));
                 draft.insert("complete".to_owned(), Value::Bool(true));
                 body.insert("draft".to_owned(), Value::Object(draft));
                 facts.push(fact("item.upsert", body));
@@ -169,7 +169,7 @@ pub fn complete_turn(
             if let Some(Value::Object(call)) = draft.get_mut("call") {
                 call.insert(
                     "status".to_owned(),
-                    Value::String(
+                    Value::from(
                         if outcome == "completed" {
                             "succeeded"
                         } else {
@@ -188,8 +188,8 @@ pub fn complete_turn(
             // but keep the value whole when it does.
             let draft_value = Value::Object(draft);
             let mut body = Map::with_capacity(3);
-            body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-            body.insert("item".to_owned(), Value::String(item_id.clone()));
+            body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+            body.insert("item".to_owned(), Value::from(item_id.clone()));
             body.insert("draft".to_owned(), draft_value);
             facts.push(fact("item.upsert", body));
             if let Some(agent) = translator.agents.get_mut(agent_native) {
@@ -228,7 +228,7 @@ pub fn complete_turn(
                 };
             if child_turn.is_some() || !child_had_turn || child_open_shell {
                 let mut body = Map::with_capacity(3);
-                body.insert("agent".to_owned(), Value::String(child_key));
+                body.insert("agent".to_owned(), Value::from(child_key));
                 body.insert("background".to_owned(), Value::Bool(true));
                 facts.push(fact("agent.linked", body));
             }
@@ -248,8 +248,8 @@ pub fn complete_turn(
         .unwrap_or_default();
     for key in request_keys {
         let mut body = Map::with_capacity(3);
-        body.insert("interaction".to_owned(), Value::String(key.clone()));
-        body.insert("state".to_owned(), Value::String("cancelled".to_owned()));
+        body.insert("interaction".to_owned(), Value::from(key.clone()));
+        body.insert("state".to_owned(), Value::from("cancelled".to_owned()));
         facts.push(fact("interaction.closed", body));
         if let Some(agent) = translator.agents.get_mut(agent_native) {
             agent.requests.shift_remove(&key);
@@ -257,16 +257,16 @@ pub fn complete_turn(
     }
     // `turn.ended`, with the failure error when it failed.
     let mut body = Map::with_capacity(6);
-    body.insert("agent".to_owned(), Value::String(agent_key.clone()));
-    body.insert("nativeTurnId".to_owned(), Value::String(turn_id.clone()));
-    body.insert("outcome".to_owned(), Value::String(outcome.clone()));
+    body.insert("agent".to_owned(), Value::from(agent_key.clone()));
+    body.insert("nativeTurnId".to_owned(), Value::from(turn_id.clone()));
+    body.insert("outcome".to_owned(), Value::from(outcome.clone()));
     if !actionable || !current {
         body.insert("historical".to_owned(), Value::Bool(true));
     }
     if outcome == "failed" {
         let error_value = if current && !failure_text.is_empty() {
             let mut map = Map::with_capacity(1);
-            map.insert("message".to_owned(), Value::String(failure_text));
+            map.insert("message".to_owned(), Value::from(failure_text));
             Value::Object(map)
         } else {
             p.get("turn")
@@ -279,8 +279,8 @@ pub fn complete_turn(
         // Reuse the shared error mapping via the interactions helper shape.
         let (kind, message) = super::interactions::turn_error(&error_value);
         let mut error = Map::with_capacity(2);
-        error.insert("kind".to_owned(), Value::String(kind));
-        error.insert("message".to_owned(), Value::String(message));
+        error.insert("kind".to_owned(), Value::from(kind));
+        error.insert("message".to_owned(), Value::from(message));
         body.insert("error".to_owned(), Value::Object(error));
     }
     facts.push(fact("turn.ended", body));
@@ -301,10 +301,10 @@ pub fn complete_turn(
     if current && parent.is_some() && translator.tasks.contains(&child_task) {
         translator.tasks.remove(&child_task);
         let mut body = Map::with_capacity(2);
-        body.insert("task".to_owned(), Value::String(child_task));
+        body.insert("task".to_owned(), Value::from(child_task));
         body.insert(
             "status".to_owned(),
-            Value::String(
+            Value::from(
                 if outcome == "failed" {
                     "failed"
                 } else {
@@ -330,23 +330,23 @@ pub fn complete_turn(
         && let Some((plan_id, plan_text)) = plan
     {
         let mut request = Map::with_capacity(2);
-        request.insert("kind".to_owned(), Value::String("plan_review".to_owned()));
-        request.insert("markdown".to_owned(), Value::String(plan_text.clone()));
+        request.insert("kind".to_owned(), Value::from("plan_review".to_owned()));
+        request.insert("markdown".to_owned(), Value::from(plan_text.clone()));
         let mut raw_inner = Map::with_capacity(2);
-        raw_inner.insert("id".to_owned(), Value::String(plan_id.clone()));
-        raw_inner.insert("text".to_owned(), Value::String(plan_text));
+        raw_inner.insert("id".to_owned(), Value::from(plan_id.clone()));
+        raw_inner.insert("text".to_owned(), Value::from(plan_text));
         let mut body = Map::with_capacity(5);
-        body.insert("agent".to_owned(), Value::String(agent_key.clone()));
+        body.insert("agent".to_owned(), Value::from(agent_key.clone()));
         body.insert(
             "interaction".to_owned(),
-            Value::String(super::helpers::plan_key(&turn_id)),
+            Value::from(super::helpers::plan_key(&turn_id)),
         );
-        body.insert("item".to_owned(), Value::String(plan_id));
+        body.insert("item".to_owned(), Value::from(plan_id));
         body.insert("blocking".to_owned(), Value::Bool(true));
         body.insert("request".to_owned(), Value::Object(request));
         body.insert(
             "raw".to_owned(),
-            Value::Array(vec![raw_payload("plan", &Value::Object(raw_inner), None)]),
+            Value::from(vec![raw_payload("plan", &Value::Object(raw_inner), None)]),
         );
         facts.push(fact("interaction.opened", body));
     }

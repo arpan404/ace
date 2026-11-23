@@ -3,7 +3,7 @@
 
 use crate::translate::data::object;
 use crate::translate::state::TranslationState;
-use serde_json::Value;
+use ace_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 
@@ -55,11 +55,11 @@ impl ShellOutput {
         let output = object(update.get("rawOutput").unwrap_or(&Value::Null));
         let mut snapshots: Vec<(String, String)> = Vec::new();
         if let Some(Value::String(combined)) = output.get("combinedOutput") {
-            snapshots.push(("combined".to_owned(), combined.clone()));
+            snapshots.push(("combined".to_owned(), String::from(combined.clone())));
         } else {
             for name in ["stdout", "stderr"] {
                 if let Some(Value::String(text)) = output.get(name) {
-                    snapshots.push((name.to_owned(), text.clone()));
+                    snapshots.push((name.to_owned(), String::from(text.clone())));
                 }
             }
         }
@@ -108,17 +108,17 @@ impl ShellOutput {
             );
         }
         if !append_text.is_empty() {
-            let mut fact = serde_json::Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.delta".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(owner_key));
+            let mut fact = ace_json::Map::with_capacity(4);
+            fact.insert("type".to_owned(), Value::from("item.delta".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(owner_key));
             let item_key = state
                 .tools
                 .get(tool_key)
                 .map(|tool| tool.key.clone())
                 .unwrap_or_default();
-            fact.insert("item".to_owned(), Value::String(item_key));
-            fact.insert("field".to_owned(), Value::String("output".to_owned()));
-            fact.insert("append".to_owned(), Value::String(append_text));
+            fact.insert("item".to_owned(), Value::from(item_key));
+            fact.insert("field".to_owned(), Value::from("output".to_owned()));
+            fact.insert("append".to_owned(), Value::from(append_text));
             facts.push(Value::Object(fact));
         }
     }

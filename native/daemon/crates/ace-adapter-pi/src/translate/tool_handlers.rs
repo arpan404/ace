@@ -11,14 +11,13 @@ use super::tools::{
 };
 use super::{PiTranslator, ToolEntry};
 use ace_core::RawFact;
-use std::collections::HashMap;
 
 impl PiTranslator {
     pub(super) fn on_tool_start(
         &mut self,
         seq: u64,
-        map: &HashMap<String, Box<serde_json::value::RawValue>>,
-        data: &serde_json::value::RawValue,
+        map: &super::native::Fields,
+        data: &ace_json::Raw,
         now: i64,
         out: &mut Vec<RawFact>,
     ) -> bool {
@@ -75,8 +74,8 @@ impl PiTranslator {
     pub(super) fn on_tool_update(
         &mut self,
         seq: u64,
-        map: &HashMap<String, Box<serde_json::value::RawValue>>,
-        data: &serde_json::value::RawValue,
+        map: &super::native::Fields,
+        data: &ace_json::Raw,
         now: i64,
         is_end: bool,
         out: &mut Vec<RawFact>,
@@ -125,7 +124,7 @@ impl PiTranslator {
         let failed = super::native::bool_field(map, "isError").unwrap_or(false)
             || ace_mcp_error(map)
             || result_is_error(map);
-        let edited = edit_result_detail(&name, args.as_deref(), partial);
+        let edited = edit_result_detail(&name, args.as_ref(), partial);
         let status = if failed { "failed" } else { "succeeded" };
         push_fact(
             out,
@@ -160,7 +159,7 @@ impl PiTranslator {
                 },
             );
         }
-        self.tools.remove(&id);
+        self.tools.shift_remove(&id);
         true
     }
 }

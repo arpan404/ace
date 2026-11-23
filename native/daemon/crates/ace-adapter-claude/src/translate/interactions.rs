@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Interaction requests and resolutions (the port of `interactions.ts`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{list, object, str_of};
 
@@ -22,12 +22,12 @@ fn approval_target(name: &str, input: &Value, command: &Value, access: &str) -> 
         let _ = cmd;
     }
     let mut map = Map::with_capacity(5);
-    map.insert("tool".to_owned(), Value::String(name.to_owned()));
+    map.insert("tool".to_owned(), Value::from(name.to_owned()));
     if let Value::String(cmd) = command {
         map.insert("command".to_owned(), Value::String(cmd.clone()));
     }
     // paths: the caller passes a single path string, if any.
-    map.insert("access".to_owned(), Value::String(access.to_owned()));
+    map.insert("access".to_owned(), Value::from(access.to_owned()));
     map.insert("input".to_owned(), input.clone());
     // Rebuild in schema order: tool, origin?, description?, riskClass?,
     // command?, cwd?, paths?, access, input. Only present keys survive.
@@ -66,7 +66,7 @@ fn approval_target_with_path(
             return None;
         }
         // Insert paths before access to keep schema order on rebuild.
-        base.insert("paths".to_owned(), Value::Array(vec![Value::String(p)]));
+        base.insert("paths".to_owned(), Value::from(vec![Value::from(p)]));
         let mut ordered = Map::with_capacity(base.len());
         for key in [
             "tool",
@@ -114,8 +114,8 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
             let q = object(value);
             let text = str_of(q.get("question").unwrap_or(&Value::Null));
             let mut qmap = Map::with_capacity(7);
-            qmap.insert("id".to_owned(), Value::String(text.clone()));
-            qmap.insert("text".to_owned(), Value::String(text));
+            qmap.insert("id".to_owned(), Value::from(text.clone()));
+            qmap.insert("text".to_owned(), Value::from(text));
             qmap.insert(
                 "multiSelect".to_owned(),
                 Value::Bool(q.get("multiSelect") == Some(&Value::Bool(true))),
@@ -127,30 +127,30 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
                 let o = object(option);
                 let label = str_of(o.get("label").unwrap_or(&Value::Null));
                 let mut omap = Map::with_capacity(3);
-                omap.insert("id".to_owned(), Value::String(label.clone()));
-                omap.insert("label".to_owned(), Value::String(label));
+                omap.insert("id".to_owned(), Value::from(label.clone()));
+                omap.insert("label".to_owned(), Value::from(label));
                 if let Some(Value::String(d)) = o.get("description") {
                     omap.insert("description".to_owned(), Value::String(d.clone()));
                 }
                 opts.push(Value::Object(omap));
             }
-            qmap.insert("options".to_owned(), Value::Array(opts));
+            qmap.insert("options".to_owned(), Value::from(opts));
             if let Some(Value::String(h)) = q.get("header") {
                 qmap.insert("header".to_owned(), Value::String(h.clone()));
             }
             questions.push(Value::Object(qmap));
         }
         let mut map = Map::with_capacity(3);
-        map.insert("kind".to_owned(), Value::String("question".to_owned()));
-        map.insert("questions".to_owned(), Value::Array(questions));
+        map.insert("kind".to_owned(), Value::from("question".to_owned()));
+        map.insert("questions".to_owned(), Value::from(questions));
         return Value::Object(map);
     }
     if name == "ExitPlanMode" {
         let mut map = Map::with_capacity(4);
-        map.insert("kind".to_owned(), Value::String("plan_review".to_owned()));
+        map.insert("kind".to_owned(), Value::from("plan_review".to_owned()));
         map.insert(
             "markdown".to_owned(),
-            Value::String(str_of(input_obj.get("plan").unwrap_or(&Value::Null))),
+            Value::from(str_of(input_obj.get("plan").unwrap_or(&Value::Null))),
         );
         if let Some(Value::String(p)) = input_obj.get("planFilePath") {
             map.insert("planPath".to_owned(), Value::String(p.clone()));
@@ -217,8 +217,8 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
         }
     };
     let mut map = Map::with_capacity(9);
-    map.insert("kind".to_owned(), Value::String("approval".to_owned()));
-    map.insert("title".to_owned(), Value::String(title));
+    map.insert("kind".to_owned(), Value::from("approval".to_owned()));
+    map.insert("title".to_owned(), Value::from(title));
     if let Some(t) = target {
         map.insert("target".to_owned(), t);
     }
@@ -238,7 +238,7 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
     }
     map.insert(
         "permissionUpdates".to_owned(),
-        Value::Array(suggestions.to_vec()),
+        Value::from(suggestions.to_vec()),
     );
     let mut opts = vec![
         option_value("allow_once", "Allow once", "allow_once"),
@@ -264,7 +264,7 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
         };
         opts.push(option_value("allow_updates", &label, kind));
     }
-    map.insert("options".to_owned(), Value::Array(opts));
+    map.insert("options".to_owned(), Value::from(opts));
     // TypeScript order: kind, title, target?, description?, defaultToNo?,
     // suppressAlwaysAllowRule?, mcpServer?, permissionUpdates, options.
     // Insertion above already follows it.
@@ -273,8 +273,8 @@ pub fn request_for(name: &str, input: &Value, options: &Value) -> Value {
 
 fn option_value(id: &str, label: &str, kind: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("id".to_owned(), Value::String(id.to_owned()));
-    map.insert("label".to_owned(), Value::String(label.to_owned()));
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    map.insert("id".to_owned(), Value::from(id.to_owned()));
+    map.insert("label".to_owned(), Value::from(label.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     Value::Object(map)
 }

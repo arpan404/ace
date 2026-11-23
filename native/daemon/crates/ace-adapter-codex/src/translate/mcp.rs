@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Codex MCP tool approvals: a yes/no approval, never a form.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::helpers::{list_of, obj_map, str_empty};
 
@@ -29,12 +29,12 @@ fn extract_tool_name(message: &str) -> Option<String> {
 }
 
 /// The tool a Codex MCP approval is for: metadata, else the name in its message.
-fn tool_name(server: &str, message: &str, meta: &Map<String, Value>) -> Option<String> {
+fn tool_name(server: &str, message: &str, meta: &Map) -> Option<String> {
     let _ = server;
     if let Some(Value::String(name)) = meta.get("tool_name")
         && valid_tool_name(name)
     {
-        return Some(name.clone());
+        return Some(String::from(name.clone()));
     }
     extract_tool_name(message)
 }
@@ -44,8 +44,8 @@ fn approval_target(tool: &str, params: Option<&Value>) -> Option<Value> {
         return None;
     }
     let mut map = Map::with_capacity(3);
-    map.insert("tool".to_owned(), Value::String(tool.to_owned()));
-    map.insert("access".to_owned(), Value::String("unknown".to_owned()));
+    map.insert("tool".to_owned(), Value::from(tool.to_owned()));
+    map.insert("access".to_owned(), Value::from("unknown".to_owned()));
     if let Some(input) = params {
         map.insert("input".to_owned(), input.clone());
     }
@@ -70,7 +70,7 @@ pub fn mcp_tool_approval(params: &Value) -> Option<Value> {
     }
     let persist: Vec<String> = match meta.get("persist") {
         None => Vec::new(),
-        Some(Value::String(s)) if s == "session" || s == "always" => vec![s.clone()],
+        Some(Value::String(s)) if s == "session" || s == "always" => vec![String::from(s.clone())],
         Some(Value::Array(items)) => {
             if items.len() > 8 {
                 return None;
@@ -78,7 +78,7 @@ pub fn mcp_tool_approval(params: &Value) -> Option<Value> {
             let mut out = Vec::new();
             for item in items {
                 match item {
-                    Value::String(s) => out.push(s.clone()),
+                    Value::String(s) => out.push(s.to_string()),
                     _ => return None,
                 }
             }
@@ -110,29 +110,29 @@ pub fn mcp_tool_approval(params: &Value) -> Option<Value> {
         .and_then(|v| v.as_str())
         .map(str::to_owned)
         .or(tool.clone())
-        .unwrap_or_else(|| message.clone());
+        .unwrap_or_else(|| String::from(message.clone()));
     let mut request = Map::with_capacity(6);
-    request.insert("kind".to_owned(), Value::String("approval".to_owned()));
-    request.insert("title".to_owned(), Value::String(title));
+    request.insert("kind".to_owned(), Value::from("approval".to_owned()));
+    request.insert("title".to_owned(), Value::from(title));
     request.insert("description".to_owned(), Value::String(message));
     if let Some(tool) = tool
         && let Some(target) = approval_target(&tool, tool_params.as_ref())
     {
         request.insert("target".to_owned(), target);
     }
-    request.insert("options".to_owned(), Value::Array(options));
+    request.insert("options".to_owned(), Value::from(options));
     let mut mcp_server = Map::with_capacity(2);
     mcp_server.insert("name".to_owned(), Value::String(server));
-    mcp_server.insert("source".to_owned(), Value::String("codex".to_owned()));
+    mcp_server.insert("source".to_owned(), Value::from("codex".to_owned()));
     request.insert("mcpServer".to_owned(), Value::Object(mcp_server));
     Some(Value::Object(request))
 }
 
 fn approval_option(id: &str, label: &str, kind: &str) -> Value {
     let mut map = Map::with_capacity(3);
-    map.insert("id".to_owned(), Value::String(id.to_owned()));
-    map.insert("label".to_owned(), Value::String(label.to_owned()));
-    map.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    map.insert("id".to_owned(), Value::from(id.to_owned()));
+    map.insert("label".to_owned(), Value::from(label.to_owned()));
+    map.insert("kind".to_owned(), Value::from(kind.to_owned()));
     Value::Object(map)
 }
 

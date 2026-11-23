@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Model usage snapshots (split from `result_usage.rs`).
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 use std::collections::BTreeMap;
 
 use super::json::object;
 
 const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 
-type ModelMap = BTreeMap<String, Map<String, Value>>;
+type ModelMap = BTreeMap<String, Map>;
 
 pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
     let obj = object(value);
@@ -72,7 +72,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
                     return None;
                 }
 
-                Value::Number(n.clone())
+                Value::Number(*n)
             }
 
             _ => return None,
@@ -101,7 +101,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
         // contextWindow is passthrough in the TypeScript schema: validated
         // above, then read back for the agent-scope usage fact.
         if let Some(Value::Number(n)) = eobj.get("contextWindow") {
-            kept.insert("contextWindow".to_owned(), Value::Number(n.clone()));
+            kept.insert("contextWindow".to_owned(), Value::Number(*n));
         }
 
         kept.insert("inputTokens".to_owned(), Value::Number(input_tokens.into()));
@@ -123,7 +123,7 @@ pub(crate) fn parse_model_usage(value: &Value) -> Option<ModelMap> {
 
         kept.insert("costUSD".to_owned(), cost_value);
 
-        out.insert(name.clone(), kept);
+        out.insert(String::from(name.clone()), kept);
     }
 
     Some(out)
@@ -145,26 +145,23 @@ pub(crate) fn model_session_fact(
 ) -> Value {
     let mut map = Map::with_capacity(10);
 
-    map.insert("type".to_owned(), Value::String("usage".to_owned()));
+    map.insert("type".to_owned(), Value::from("usage".to_owned()));
 
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
 
     map.insert(
         "usageScope".to_owned(),
-        Value::String("model_session".to_owned()),
+        Value::from("model_session".to_owned()),
     );
 
-    map.insert("model".to_owned(), Value::String(model.to_owned()));
+    map.insert("model".to_owned(), Value::from(model.to_owned()));
 
     map.insert(
         "counterMode".to_owned(),
-        Value::String("cumulative".to_owned()),
+        Value::from("cumulative".to_owned()),
     );
 
-    map.insert(
-        "counterKey".to_owned(),
-        Value::String(counter_key.to_owned()),
-    );
+    map.insert("counterKey".to_owned(), Value::from(counter_key.to_owned()));
 
     map.insert("inputTokens".to_owned(), Value::Number(counts.input.into()));
 
@@ -205,24 +202,21 @@ pub(crate) fn provider_session_fact(
 ) -> Value {
     let mut map = Map::with_capacity(9);
 
-    map.insert("type".to_owned(), Value::String("usage".to_owned()));
+    map.insert("type".to_owned(), Value::from("usage".to_owned()));
 
-    map.insert("agent".to_owned(), Value::String(root.to_owned()));
+    map.insert("agent".to_owned(), Value::from(root.to_owned()));
 
     map.insert(
         "usageScope".to_owned(),
-        Value::String("provider_session".to_owned()),
+        Value::from("provider_session".to_owned()),
     );
 
     map.insert(
         "counterMode".to_owned(),
-        Value::String("cumulative".to_owned()),
+        Value::from("cumulative".to_owned()),
     );
 
-    map.insert(
-        "counterKey".to_owned(),
-        Value::String(counter_key.to_owned()),
-    );
+    map.insert("counterKey".to_owned(), Value::from(counter_key.to_owned()));
 
     map.insert("inputTokens".to_owned(), Value::Number(input.into()));
 

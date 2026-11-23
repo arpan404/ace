@@ -4,24 +4,23 @@
 use super::dialogs::DialogRequest;
 use super::tools::ToolDetail;
 use ace_core::RawFact;
+use ace_json::Raw;
 use serde::Serialize;
-use serde_json::value::RawValue;
 
 #[derive(Serialize)]
 pub struct RawPayload<'a> {
     #[serde(rename = "type")]
     pub payload_type: String,
-    pub data: &'a RawValue,
+    pub data: &'a Raw,
 }
 
-pub fn raw_payload<'a>(data: &'a RawValue, default: &str) -> RawPayload<'a> {
+pub fn raw_payload<'a>(data: &'a Raw, default: &str) -> RawPayload<'a> {
     let payload_type = super::native::raw_type_of(data, default);
     RawPayload { payload_type, data }
 }
 
 pub fn make_fact<T: Serialize + ?Sized>(fact_type: &str, value: &T) -> Option<RawFact> {
-    let json = serde_json::to_string(value).ok()?;
-    let data = serde_json::from_str::<Box<RawValue>>(&json).ok()?;
+    let data = ace_json::ser::to_raw(value).ok()?;
     Some(RawFact {
         fact_type: fact_type.to_owned(),
         data,
@@ -34,12 +33,12 @@ pub fn push_fact<T: Serialize + ?Sized>(out: &mut Vec<RawFact>, fact_type: &str,
     }
 }
 
-pub fn raw_json(payload_type: &str, data: &RawValue) -> Option<String> {
+pub fn raw_json(payload_type: &str, data: &Raw) -> Option<String> {
     let payload = RawPayload {
         payload_type: payload_type.to_owned(),
         data,
     };
-    serde_json::to_string(&payload).ok()
+    ace_json::ser::to_string(&payload).ok()
 }
 
 #[derive(Serialize)]

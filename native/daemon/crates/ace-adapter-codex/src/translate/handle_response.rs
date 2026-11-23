@@ -2,7 +2,7 @@
 //! Responses: replies to the requests `handle_send` remembered.
 
 use ace_core::RawFact;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::ParsedFrame;
 use super::facts::fact;
@@ -123,7 +123,7 @@ pub fn handle_response(
             );
         } else if pending.method == "turn/start" {
             let native = match obj_map(&pending.params).get("threadId") {
-                Some(Value::String(s)) => s.clone(),
+                Some(Value::String(s)) => s.to_string(),
                 _ => translator.root.clone(),
             };
             let turn = if !has_error {
@@ -174,14 +174,14 @@ pub fn handle_response(
                         if agent_turn.as_deref() != Some(turn.as_str()) && !ended_has {
                             // Synthesize the acknowledged turn's start, as TS does.
                             let mut params = Map::with_capacity(2);
-                            params.insert("threadId".to_owned(), Value::String(native.clone()));
+                            params.insert("threadId".to_owned(), Value::from(native.clone()));
                             let mut turn_obj = Map::with_capacity(1);
-                            turn_obj.insert("id".to_owned(), Value::String(turn.clone()));
+                            turn_obj.insert("id".to_owned(), Value::from(turn.clone()));
                             params.insert("turn".to_owned(), Value::Object(turn_obj));
                             let mut data = Map::with_capacity(2);
                             data.insert(
                                 "method".to_owned(),
-                                Value::String("turn/started".to_owned()),
+                                Value::from("turn/started".to_owned()),
                             );
                             data.insert("params".to_owned(), Value::Object(params));
                             translator.handle_frame(
@@ -212,8 +212,8 @@ pub fn handle_response(
                     }
                     if correlated.settled {
                         let mut body = Map::with_capacity(2);
-                        body.insert("task".to_owned(), Value::String(correlated.task));
-                        body.insert("status".to_owned(), Value::String("completed".to_owned()));
+                        body.insert("task".to_owned(), Value::from(correlated.task));
+                        body.insert("status".to_owned(), Value::from("completed".to_owned()));
                         facts.push(fact("background.ended", body));
                     }
                 }
@@ -226,8 +226,8 @@ pub fn handle_response(
     {
         let interaction = pending.interaction.unwrap_or_default();
         let mut body = Map::with_capacity(2);
-        body.insert("interaction".to_owned(), Value::String(interaction.clone()));
-        body.insert("state".to_owned(), Value::String("resolved".to_owned()));
+        body.insert("interaction".to_owned(), Value::from(interaction.clone()));
+        body.insert("state".to_owned(), Value::from("resolved".to_owned()));
         facts.push(fact("interaction.closed", body));
         translator.close_async(&interaction);
     }
@@ -256,10 +256,10 @@ fn confirm_model_here(
         return;
     }
     if let Some(agent) = translator.agents.get_mut(native) {
-        agent.model = Some(model.clone());
+        agent.model = Some(String::from(model.clone()));
     }
     let mut body = Map::with_capacity(2);
-    body.insert("agent".to_owned(), Value::String(agent_key));
+    body.insert("agent".to_owned(), Value::from(agent_key));
     body.insert("model".to_owned(), Value::String(model));
     facts.push(fact("agent.linked", body));
 }

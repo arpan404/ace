@@ -4,8 +4,8 @@
 
 use std::collections::HashMap;
 
+use ace_json::Value;
 use indexmap::IndexMap;
-use serde_json::Value;
 
 use super::helpers::{obj_map, str_empty};
 
@@ -109,10 +109,7 @@ impl PendingCompletions {
                 overflow: false,
             });
         }
-        let bytes = match serde_json::to_string(params) {
-            Ok(text) => text.len(),
-            Err(_) => 0,
-        };
+        let bytes = ace_json::to_string(params).len();
         let overflow = buffer.bytes + bytes > 2 * 1024 * 1024 || buffer.frames.len() >= 128;
         if overflow {
             buffer.frames.clear();

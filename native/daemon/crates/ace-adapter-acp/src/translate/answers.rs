@@ -7,7 +7,7 @@ use crate::translate::settlement::{answer_is_neutral, answer_refuses_tool};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_final::finalize_tool;
 use crate::translate::tool_raw::retain_tool_raw;
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 /// Answer an open request. Returns true when the frame is handled.
 pub fn answer_request(
@@ -35,12 +35,12 @@ pub fn answer_request(
     let mut closed = Map::with_capacity(4);
     closed.insert(
         "type".to_owned(),
-        Value::String("interaction.closed".to_owned()),
+        Value::from("interaction.closed".to_owned()),
     );
-    closed.insert("interaction".to_owned(), Value::String(pending.key.clone()));
+    closed.insert("interaction".to_owned(), Value::from(pending.key.clone()));
     closed.insert(
         "state".to_owned(),
-        Value::String(if cancelled {
+        Value::from(if cancelled {
             "cancelled".to_owned()
         } else {
             "resolved".to_owned()
@@ -60,7 +60,7 @@ pub fn answer_request(
             .request
             .get("options")
             .and_then(Value::as_array)
-            .cloned()
+            .map(|items| items.to_vec())
             .unwrap_or_default();
         let declined =
             answer_refuses_tool(request_kind, &request_options, resolution.as_ref(), false);
@@ -102,19 +102,19 @@ pub fn answer_request(
         };
         if let Some(tool) = state.tools.get(&tool_key) {
             let mut call = Map::with_capacity(3);
-            call.insert("status".to_owned(), Value::String(status.to_owned()));
+            call.insert("status".to_owned(), Value::from(status.to_owned()));
             if let Some(detail) = detail {
                 call.insert("detail".to_owned(), detail);
             }
-            call.insert("raw".to_owned(), Value::Array(tool.raw.clone()));
+            call.insert("raw".to_owned(), Value::from(tool.raw.clone()));
             let mut draft = Map::with_capacity(3);
-            draft.insert("type".to_owned(), Value::String("tool_call".to_owned()));
+            draft.insert("type".to_owned(), Value::from("tool_call".to_owned()));
             draft.insert("complete".to_owned(), Value::Bool(settled));
             draft.insert("call".to_owned(), Value::Object(call));
             let mut fact = Map::with_capacity(4);
-            fact.insert("type".to_owned(), Value::String("item.upsert".to_owned()));
-            fact.insert("agent".to_owned(), Value::String(pending.owner_key.clone()));
-            fact.insert("item".to_owned(), Value::String(tool.key.clone()));
+            fact.insert("type".to_owned(), Value::from("item.upsert".to_owned()));
+            fact.insert("agent".to_owned(), Value::from(pending.owner_key.clone()));
+            fact.insert("item".to_owned(), Value::from(tool.key.clone()));
             fact.insert("draft".to_owned(), Value::Object(draft));
             facts.push(Value::Object(fact));
         }

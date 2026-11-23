@@ -11,6 +11,7 @@ use std::sync::Arc;
 mod core;
 mod engine;
 mod items;
+mod json_bind;
 mod long_thread;
 mod session_acp;
 mod session_codex;
@@ -134,6 +135,7 @@ impl NativeDatabase {
 
     #[napi(catch_unwind)]
     pub fn close(&self) -> napi::Result<()> {
+        ace_store::stmt_cache::clear(&self.connection);
         self.connection.close().map_err(fail)
     }
 }

@@ -2,7 +2,7 @@
 //! Claude's active goal frame (the port of `goal.ts`).
 //! The goal it keeps checking, or none once met or cleared.
 
-use serde_json::{Map, Value};
+use ace_json::{Map, Value};
 
 use super::json::{number, object, str_of};
 
@@ -47,14 +47,14 @@ pub fn claude_goal(data: &Value) -> GoalOut {
         return GoalOut::None;
     }
     let mut map = Map::with_capacity(6);
-    map.insert("objective".to_owned(), Value::String(objective));
-    map.insert("status".to_owned(), Value::String("active".to_owned()));
+    map.insert("objective".to_owned(), Value::from(objective));
+    map.insert("status".to_owned(), Value::from("active".to_owned()));
     map.insert("checks".to_owned(), Value::Number(checks_int.into()));
     if set_at > 0 {
         map.insert("setAt".to_owned(), Value::Number(set_at.into()));
     }
     if !reason.is_empty() {
-        map.insert("lastReason".to_owned(), Value::String(reason));
+        map.insert("lastReason".to_owned(), Value::from(reason));
     }
     GoalOut::Goal(Value::Object(map))
 }

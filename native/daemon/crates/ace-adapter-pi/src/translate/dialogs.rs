@@ -43,9 +43,7 @@ pub struct ValidDialog {
 }
 
 /// Validate a dialog envelope, mirroring the `Dialog` zod schema.
-pub fn parse_dialog(
-    map: &std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
-) -> Result<ValidDialog, super::PiError> {
+pub fn parse_dialog(map: &super::native::Fields) -> Result<ValidDialog, super::PiError> {
     use super::native::{field, parse_array, raw_as_str, str_field};
     let type_name = str_field(map, "type");
     if type_name != "extension_ui_request" {
@@ -80,7 +78,7 @@ pub fn parse_dialog(
             let items = parse_array(raw).ok_or(super::PiError::InvalidDialog)?;
             let mut out = Vec::new();
             for item in &items {
-                let value = raw_as_str(item.as_ref()).ok_or(super::PiError::InvalidDialog)?;
+                let value = raw_as_str(item).ok_or(super::PiError::InvalidDialog)?;
                 out.push(value);
             }
             Some(out)
@@ -89,8 +87,7 @@ pub fn parse_dialog(
     };
     let timeout = match field(map, "timeout") {
         Some(raw) => {
-            let value: f64 =
-                serde_json::from_str(raw.get()).map_err(|_| super::PiError::InvalidDialog)?;
+            let value: f64 = super::native::raw_as_f64(raw).ok_or(super::PiError::InvalidDialog)?;
             if !value.is_finite() || value < 0.0 {
                 return Err(super::PiError::InvalidDialog);
             }
@@ -175,8 +172,8 @@ impl super::PiTranslator {
     pub(super) fn on_dialog(
         &mut self,
         seq: u64,
-        map: &std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
-        data: &serde_json::value::RawValue,
+        map: &super::native::Fields,
+        data: &ace_json::Raw,
         now: i64,
         out: &mut Vec<ace_core::RawFact>,
     ) -> bool {
