@@ -31,8 +31,6 @@ pub struct Limits {
     pub context_budget: u32,
     /// The window assumed for a model that doesn't say how large its own is.
     pub context_fallback: u32,
-    /// The working budget when the person set none (ADR 0216).
-    pub working_tokens: u32,
     /// Asks one other machine may deliver here in a day (ADR 0132).
     pub remote_asks_per_day: usize,
     /// Asks to other machines that may wait in the outbox at once.
@@ -69,7 +67,6 @@ impl Default for Limits {
             longest_message: 100_000,
             context_budget: u32::MAX,
             context_fallback: 200_000,
-            working_tokens: spade_core::compaction::WORKING_TOKENS,
             remote_asks_per_day: 500,
             remote_asks_waiting: 500,
             retry: super::retry::Retry::default(),

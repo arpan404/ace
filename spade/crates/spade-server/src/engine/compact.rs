@@ -18,8 +18,7 @@ const LEFT_OUT: &str = "Earlier messages were left out to fit the model's contex
 
 /// The budget: the smallest context window of the models that may serve the step (the turn's
 /// model and its fallbacks; the fallback size for a model that doesn't say), capped only by
-/// `SPADE_CONTEXT_TOKENS`, and the working budget the conversation compacts at well before it
-/// (ADR 0216).
+/// `SPADE_CONTEXT_TOKENS`, and the lower cap the person may set (`context_tokens`, ADR 0216).
 fn budget(engine: &Engine, id: &str, model: &str) -> Budget {
     let route = engine.step_route(id, model);
     let window = std::iter::once(model)
@@ -32,7 +31,7 @@ fn budget(engine: &Engine, id: &str, model: &str) -> Budget {
         .unwrap_or(engine.limits.context_fallback);
     Budget {
         window,
-        working: engine.context_tokens(id).0,
+        working: engine.context_tokens(id).unwrap_or(u32::MAX),
     }
 }
 
@@ -167,6 +166,10 @@ async fn run(
 /// Stores the next batch of aged tool results when one is due (ADR 0216). Returns whether it
 /// did; a store that fails ages nothing, so the step goes on as it was.
 pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
+    // Off unless the person turned it on: models see full output by default.
+    if !engine.ages_results(id) {
+        return false;
+    }
     // A stub points at `history_read`; a conversation not offered it keeps its results whole.
     let readable = engine
         .offered_for(id)

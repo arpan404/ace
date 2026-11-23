@@ -7,27 +7,25 @@ use serde::Deserialize;
 use crate::context;
 use crate::event::{CarriedLedger, Event, Known};
 
-/// Compact once the prompt reaches this share of the model's window...
-pub const HIGH: f64 = 0.75;
-/// ...keeping recent turns worth about this share, so one compaction lasts many turns.
+/// Compact once the next prompt reaches this share of the smallest window on the step's route
+/// (ADR 0216): late enough that a model with a large window uses most of it...
+pub const HIGH: f64 = 0.90;
+/// ...keeping recent turns worth about this share of the window, so one compaction lasts many
+/// turns.
 pub const LOW: f64 = 0.35;
-
-/// The working budget when the person set none (ADR 0216): a bot compacts once its prompt
-/// reaches this many tokens, however large the model's window, since models follow a long task
-/// less well past it and every step pays for the whole prompt again.
-pub const WORKING_TOKENS: u32 = 128_000;
 
 /// What a conversation's prompt may grow to before it compacts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Budget {
     /// The model's own context window: the hard ceiling.
     pub window: u32,
-    /// The working budget (ADR 0216): the person's, else [`WORKING_TOKENS`].
+    /// A lower cap the person set (`context_tokens`, ADR 0216); `u32::MAX` for none.
     pub working: u32,
 }
 
 impl Budget {
-    /// A budget bounded by the window alone, as before working budgets.
+    /// A budget bounded by the window alone: what a conversation gets unless the person set a
+    /// lower cap.
     pub fn window(window: u32) -> Self {
         Self {
             window,
@@ -35,13 +33,14 @@ impl Budget {
         }
     }
 
-    /// The prompt size that compacts: the working budget, or [`HIGH`] of the window when that
-    /// is smaller.
+    /// The prompt size that compacts: [`HIGH`] of the window, or the person's cap when that is
+    /// smaller.
     pub fn trigger(self) -> f64 {
         f64::from(self.working).min(f64::from(self.window) * HIGH)
     }
 
-    /// About what a compaction keeps: the same share of the trigger as [`LOW`] is of [`HIGH`].
+    /// About what a compaction keeps: the same share of the trigger as [`LOW`] is of [`HIGH`]
+    /// ([`LOW`] of the window when the person set no cap).
     fn kept(self) -> f64 {
         self.trigger() * (LOW / HIGH)
     }
@@ -64,7 +63,7 @@ pub fn plan(events: &[Event], prompt_tokens: u32, budget: u32) -> Option<Plan> {
     plan_within(events, prompt_tokens, Budget::window(budget))
 }
 
-/// [`plan`] against a working budget as well as the window (ADR 0216).
+/// [`plan`] against the person's cap as well as the window (ADR 0216).
 pub fn plan_within(events: &[Event], prompt_tokens: u32, budget: Budget) -> Option<Plan> {
     let full = budget.window > 0 && f64::from(prompt_tokens) >= budget.trigger();
     if !full && !context::too_many_images(events) {

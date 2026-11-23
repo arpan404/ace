@@ -34,21 +34,21 @@ fn conversation(turns: usize) -> Vec<Event> {
 }
 
 #[test]
-fn nothing_happens_below_three_quarters_of_the_budget() {
-    assert_eq!(plan(&conversation(10), 7_499, 10_000), None);
+fn nothing_happens_below_ninety_percent_of_the_window() {
+    assert_eq!(plan(&conversation(10), 8_999, 10_000), None);
 }
 
 #[test]
 fn at_the_high_mark_the_cut_keeps_recent_turns_and_starts_at_a_message() {
     let events = conversation(10);
-    let plan = plan(&events, 8_000, 10_000);
+    let plan = plan(&events, 9_000, 10_000);
     let keep_from = plan.map(|p| p.keep_from).unwrap_or(0);
     assert!(matches!(
         events[keep_from],
         Event::Known(Known::UserMessage { .. })
     ));
-    // 10 equal turns at 8,000 tokens are 800 each; 4 turns (3,200) fit under 3,500 (35%).
-    assert_eq!(keep_from, 6 * 4);
+    // 10 equal turns at 9,000 tokens are 900 each; 3 turns (2,700) fit under 3,500 (35%).
+    assert_eq!(keep_from, 7 * 4);
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn a_second_compaction_only_cuts_after_the_first() {
         carried: None,
     }));
     events.extend((10..12).flat_map(|n| turn(n, 50)));
-    let second = plan(&events, 8_000, 10_000)
+    let second = plan(&events, 9_000, 10_000)
         .map(|p| p.keep_from)
         .unwrap_or(0);
     assert!(second > 28, "{second}");
@@ -364,7 +364,7 @@ fn writes_keep_their_ids_and_arguments_and_uncertain_ones_say_so() {
 #[test]
 fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
     let mut events = conversation(10);
-    let first = plan(&events, 8_000, 10_000).map(|p| p.keep_from);
+    let first = plan(&events, 9_000, 10_000).map(|p| p.keep_from);
     assert!(first.is_some());
     events.push(Event::Known(Known::ContextCompacted {
         summary: "earlier".into(),
@@ -375,13 +375,13 @@ fn right_after_a_compaction_the_old_prompt_size_does_not_compact_again() {
         carried: None,
     }));
     assert_eq!(
-        plan(&events, 8_000, 10_000),
+        plan(&events, 9_000, 10_000),
         None,
-        "the 8,000 is from before the compaction"
+        "the 9,000 is from before the compaction"
     );
     events.extend(turn(10, 50));
     assert!(
-        plan(&events, 8_000, 10_000).is_some(),
+        plan(&events, 9_000, 10_000).is_some(),
         "a new step's size counts again"
     );
 }
@@ -786,22 +786,25 @@ fn a_write_handed_to_the_background_takes_its_outcome_from_its_job() {
 }
 
 #[test]
-fn a_working_budget_compacts_far_below_three_quarters_of_a_large_window() {
+fn a_large_window_compacts_at_ninety_percent_unless_the_person_set_a_lower_cap() {
     let events = conversation(10);
-    let large = Budget {
+    // A 1M window: not at 750k, at 900k.
+    assert_eq!(plan(&events, 800_000, 1_000_000), None);
+    assert!(plan(&events, 900_000, 1_000_000).is_some());
+    // The person's cap compacts below that.
+    let capped = Budget {
         window: 1_000_000,
-        working: WORKING_TOKENS,
+        working: 200_000,
     };
-    assert_eq!(plan_within(&events, 127_000, large), None);
-    assert!(plan_within(&events, 129_000, large).is_some());
-    assert_eq!(plan(&events, 129_000, 1_000_000), None, "the window alone");
-    // The window stays the ceiling: a small model compacts at three quarters of it.
-    let small = Budget {
+    assert_eq!(plan_within(&events, 199_000, capped), None);
+    assert!(plan_within(&events, 201_000, capped).is_some());
+    // The window stays the ceiling: a cap above it changes nothing.
+    let high = Budget {
         window: 100_000,
-        working: WORKING_TOKENS,
+        working: 500_000,
     };
-    assert!(plan_within(&events, 76_000, small).is_some());
-    assert_eq!(plan_within(&events, 74_000, small), None);
+    assert_eq!(plan_within(&events, 89_000, high), None);
+    assert!(plan_within(&events, 91_000, high).is_some());
 }
 
 #[test]

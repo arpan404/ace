@@ -1,6 +1,7 @@
-//! A bot's context stays small (ADR 0216): it compacts at its working budget, not at three
-//! quarters of a million-token window; old tool results age out in batches; the person's words
-//! survive both word for word. Through the real engine and API, on a scripted model.
+//! When a bot compacts and what it keeps (ADR 0216): at 90% of the smallest window on its route,
+//! or the person's lower cap; old tool results age out in batches only when the person turns it
+//! on; the person's words survive word for word. Through the real engine and API, on a scripted
+//! model.
 
 mod support;
 
@@ -68,12 +69,12 @@ fn tool_texts(body: &Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn a_bot_on_a_million_token_model_compacts_at_its_working_budget_keeping_the_persons_words()
+async fn a_bot_on_a_million_token_model_compacts_near_ninety_percent_keeping_the_persons_words()
 -> Result {
-    // The first step reports a 170,011-token prompt: under 75% of the window, over the budget.
+    // The first step reports a 905,011-token prompt: past 90% of the window.
     let spade = Spade::start(
         vec![
-            Script::reply("On it.").cached(170_000, 0),
+            Script::reply("On it.").cached(905_000, 0),
             title(),
             Script::reply("").plain(SUMMARY),
             Script::reply("Tests pass."),
@@ -88,12 +89,12 @@ async fn a_bot_on_a_million_token_model_compacts_at_its_working_budget_keeping_t
     let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
 
     let compacted = events.iter().find(|e| e["type"] == "context_compacted");
-    // The reported 170,011 plus an estimate of what came after it.
+    // The reported 905,011 plus an estimate of what came after it.
     let before = compacted
         .and_then(|e| e["tokens_before"].as_u64())
         .unwrap_or(0);
     assert!(
-        (170_011..171_000).contains(&before),
+        (905_011..906_000).contains(&before),
         "{before}: {:?}",
         types(&events)
     );
@@ -115,33 +116,59 @@ async fn a_bot_on_a_million_token_model_compacts_at_its_working_budget_keeping_t
 }
 
 #[tokio::test]
-async fn a_bots_own_working_budget_is_honoured() -> Result {
+async fn a_bot_on_a_million_token_model_does_not_compact_at_three_quarters() -> Result {
+    // 800,011 tokens: past 75% of the window, under 90%.
     let spade = Spade::start(
         vec![
-            Script::reply("On it.").cached(170_000, 0),
+            Script::reply("On it.").cached(800_000, 0),
             title(),
             Script::reply("Tests pass."),
         ],
         Vec::new(),
     )
     .await?;
+    let (_, id) = big_bot(&spade).await?;
+    spade.say(&id, STANDING).await?;
+    spade.wait_for(&id, "renamed").await?;
+    spade.say(&id, "Now fix the build.").await?;
+    let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
+    assert!(
+        !types(&events).iter().any(|t| t == "context_compacted"),
+        "{:?}",
+        types(&events)
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_bots_own_cap_compacts_it_sooner_whatever_the_global_one() -> Result {
+    let spade = Spade::start(
+        vec![
+            Script::reply("On it.").cached(170_000, 0),
+            title(),
+            Script::reply("").plain(SUMMARY),
+            Script::reply("Tests pass."),
+        ],
+        Vec::new(),
+    )
+    .await?;
     let (agent, id) = big_bot(&spade).await?;
-    // A global budget that would compact at 170k; the bot's own, larger, wins.
+    // A global cap that would not compact at 170k; the bot's own, lower, wins.
     let (status, global) = spade
-        .put("/v1/models/roles", json!({ "context_tokens": 50_000 }))
+        .put("/v1/models/roles", json!({ "context_tokens": 500_000 }))
         .await?;
     assert_eq!(status, 200, "{global}");
-    assert_eq!(global["context_tokens"], json!(50_000));
+    assert_eq!(global["context_tokens"], json!(500_000));
     let path = format!("/v1/agents/{agent}/models");
     let (status, _) = spade.put(&path, json!({ "context_tokens": 1_000 })).await?;
-    assert_eq!(status, 400, "a budget too small to work in is refused");
+    assert_eq!(status, 400, "a cap too small to work in is refused");
     let (status, view) = spade
-        .put(&path, json!({ "context_tokens": 300_000 }))
+        .put(&path, json!({ "context_tokens": 100_000 }))
         .await?;
     assert_eq!(status, 200, "{view}");
     assert_eq!(
         view["context_tokens"],
-        json!({ "tokens": 300_000, "source": "bot" })
+        json!({ "tokens": 100_000, "source": "bot" })
     );
 
     spade.say(&id, STANDING).await?;
@@ -149,13 +176,61 @@ async fn a_bots_own_working_budget_is_honoured() -> Result {
     spade.say(&id, "Now fix the build.").await?;
     let events = spade.wait_for_count(&id, "reply_finished", 2).await?;
     assert!(
-        !types(&events).iter().any(|t| t == "context_compacted"),
-        "170k is under this bot's 300k budget, whatever the global one: {:?}",
+        types(&events).iter().any(|t| t == "context_compacted"),
+        "170k is past this bot's 100k cap: {:?}",
         types(&events)
     );
+    Ok(())
+}
 
-    let (_, global) = spade.get("/v1/models/roles").await?;
-    assert_eq!(global["context_tokens_default"], json!(128_000));
+/// Turns aging on for every bot, as the person would on the model roles settings.
+async fn aging_on(spade: &Spade) -> Result {
+    let (status, global) = spade
+        .put("/v1/models/roles", json!({ "age_results": true }))
+        .await?;
+    assert_eq!(status, 200, "{global}");
+    assert_eq!(global["age_results"], json!(true));
+    Ok(())
+}
+
+#[tokio::test]
+async fn old_results_stay_whole_unless_the_person_turns_aging_on() -> Result {
+    let page = format!("page {}", "x".repeat(15_000));
+    let read = support::FakeTool::new("read_page", spade_core::tools::Risk::Read, &page);
+    let mut scripts = Vec::new();
+    for n in 0..24 {
+        scripts.push(Script::reply("").call(&format!("c{n}"), "read_page", json!({ "n": n })));
+    }
+    scripts.push(Script::reply("Read them all."));
+    let spade = Spade::start(
+        scripts,
+        vec![Arc::new(read) as Arc<dyn spade_server::tools::Tool>],
+    )
+    .await?;
+    let id = spade.ask(STANDING).await?;
+    let events = spade.wait_for(&id, "reply_finished").await?;
+    assert!(
+        !types(&events).iter().any(|t| t == "results_aged"),
+        "{:?}",
+        types(&events)
+    );
+    let last = spade
+        .fake
+        .seen()
+        .into_iter()
+        .map(|s| s.body)
+        .rfind(|b| {
+            b["messages"]
+                .as_array()
+                .is_some_and(|m| m.iter().any(|m| m["role"] == "tool"))
+        })
+        .unwrap_or(Value::Null);
+    let results = tool_texts(&last);
+    assert_eq!(results.len(), 24);
+    assert!(
+        results.iter().all(|r| r.len() > 15_000),
+        "every result is whole"
+    );
     Ok(())
 }
 
@@ -178,6 +253,7 @@ async fn a_long_task_ages_old_results_in_batches_and_the_stub_says_how_to_get_on
         vec![Arc::new(read) as Arc<dyn spade_server::tools::Tool>],
     )
     .await?;
+    aging_on(&spade).await?;
     let id = spade.ask(STANDING).await?;
     let events = spade.wait_for(&id, "reply_finished").await?;
 
@@ -289,6 +365,7 @@ async fn a_helper_following_a_stub_reads_its_own_history_back() -> Result {
         ],
     )
     .await?;
+    aging_on(&spade).await?;
     let agent = spade.new_agent("Reader", "").await?;
     let conversation = agent["conversation"]
         .as_str()
@@ -327,7 +404,7 @@ async fn a_helper_following_a_stub_reads_its_own_history_back() -> Result {
 #[tokio::test]
 async fn a_step_compacts_before_it_would_overflow_the_smallest_window_on_its_route() -> Result {
     // The bot's model has a 1M window, but its fallback only 32k: 22k reported, then three
-    // 20,000-character results, is about 37k for the next request, past three quarters of 32k.
+    // 20,000-character results, is about 37k for the next request, past 90% of 32k.
     let big = support::FakeTool::new("dump", spade_core::tools::Risk::Read, &"y".repeat(30_000));
     let spade = Spade::start(
         vec![
@@ -363,6 +440,6 @@ async fn a_step_compacts_before_it_would_overflow_the_smallest_window_on_its_rou
     let before = compacted
         .and_then(|e| e["tokens_before"].as_u64())
         .unwrap_or(0);
-    assert!(before > 24_000, "{before}: {:?}", types(&events));
+    assert!(before > 28_800, "{before}: {:?}", types(&events));
     Ok(())
 }
