@@ -8,6 +8,7 @@ pub mod claims;
 pub mod flows;
 pub mod loopback;
 pub mod oauth;
+pub mod vault;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +17,7 @@ pub use accounts::{Accounts, Bearer, BearerError, Dispatch};
 pub use claims::Account;
 pub use flows::{AfterKeep, Finish, FlowView, Flows, Method, SignedIn};
 pub use oauth::Tokens;
+pub use vault::Vault;
 
 /// The current time in Unix seconds: the system's in Spade, fixed in tests.
 pub type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;

@@ -181,73 +181,18 @@ fn connector_secrets_are_kept_apart_from_endpoint_keys_and_each_other() -> Resul
 }
 
 #[test]
-fn a_sign_ins_two_tokens_are_one_entry_per_account_apart_from_its_key() -> Result {
+fn a_sign_ins_sealing_key_is_filed_per_account_apart_from_its_api_key() -> Result {
     let (keys, store) = mock_store()?;
-    let keys = keys.scoped("home-a");
     keys.set("chatgpt-k1", "an-api-key")?;
-    keys.set_sign_in_pair("chatgpt-k1", "access-1", "refresh-1")?;
-    keys.set_sign_in_pair("chatgpt-k2", "access-2", "refresh-2")?;
-    // Both tokens in one entry: written, read and erased together.
-    let entry = store.build(SERVICE, "oauth:home-a:chatgpt-k1", None)?;
-    assert!(entry.get_password()?.contains("refresh-1"));
-    assert_eq!(
-        keys.sign_in_pair("chatgpt-k1")?,
-        Some(("access-1".to_owned(), "refresh-1".to_owned()))
-    );
-    assert!(keys.delete_sign_in("chatgpt-k1")?);
-    assert_eq!(keys.sign_in_pair("chatgpt-k1")?, None);
-    // The other account's tokens and the account's own key stay.
-    assert_eq!(
-        keys.sign_in_secret("chatgpt-k2", "refresh")?.as_deref(),
-        Some("refresh-2")
-    );
+    keys.set_sign_in_key("chatgpt-k1", "11aa")?;
+    keys.set_sign_in_key("chatgpt-k2", "22bb")?;
+    let entry = store.build(SERVICE, "oauth:chatgpt-k1", None)?;
+    assert_eq!(entry.get_password()?, "11aa");
+    assert!(keys.delete_sign_in_key("chatgpt-k1")?);
+    assert_eq!(keys.sign_in_key("chatgpt-k1")?, None);
+    // The other account's key and the account's own API key stay.
+    assert_eq!(keys.sign_in_key("chatgpt-k2")?.as_deref(), Some("22bb"));
     assert_eq!(keys.get("chatgpt-k1")?, Some("an-api-key".to_owned()));
-    assert!(!keys.delete_sign_in("chatgpt-k1")?);
-    Ok(())
-}
-
-#[test]
-fn two_spade_homes_on_one_machine_never_read_or_erase_each_others_keys_or_sign_ins() -> Result {
-    let (keys, _) = mock_store()?;
-    let (mine, theirs) = (keys.clone().scoped("home-a"), keys.scoped("home-b"));
-    mine.set("chatgpt", "my-key")?;
-    mine.set_sign_in_pair("chatgpt", "my-access", "my-refresh")?;
-    // The other home has an endpoint with the same id: it sees none of mine.
-    assert_eq!(theirs.get("chatgpt")?, None);
-    assert_eq!(theirs.sign_in_pair("chatgpt")?, None);
-    theirs.set("chatgpt", "their-key")?;
-    assert!(theirs.delete("chatgpt")?);
-    assert!(!theirs.delete_sign_in("chatgpt")?);
-    assert_eq!(mine.get("chatgpt")?, Some("my-key".to_owned()));
-    assert_eq!(
-        mine.sign_in_pair("chatgpt")?,
-        Some(("my-access".to_owned(), "my-refresh".to_owned()))
-    );
-    Ok(())
-}
-
-#[test]
-fn a_home_takes_on_the_shared_keys_of_its_own_endpoints_once_and_leaves_them_for_others() -> Result
-{
-    let (keys, store) = mock_store()?;
-    // As an earlier build filed them, for every home on the machine.
-    let shared = keys.clone();
-    shared.set("openai", "shared-openai")?;
-    shared.set("zai", "shared-zai")?;
-    let mine = keys.clone().scoped("home-a");
-    mine.set("anthropic", "already-mine")?;
-    // This home had openai and anthropic; zai was another home's.
-    assert_eq!(mine.adopt_unscoped_keys(&["openai", "anthropic"])?, 1);
-    assert_eq!(mine.get("openai")?, Some("shared-openai".to_owned()));
-    assert_eq!(mine.get("anthropic")?, Some("already-mine".to_owned()));
-    assert_eq!(mine.get("zai")?, None, "never another home's");
-    // The shared entries stay for the other home.
-    assert_eq!(
-        store
-            .build(SERVICE, "endpoint:openai", None)?
-            .get_password()?,
-        "shared-openai"
-    );
-    assert_eq!(mine.adopt_unscoped_keys(&["openai"])?, 0, "once");
+    assert!(!keys.delete_sign_in_key("chatgpt-k1")?);
     Ok(())
 }

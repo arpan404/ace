@@ -9,13 +9,32 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_chatgpt::{Accounts, Config, Flows};
+use spade_chatgpt::{Accounts, Config, Flows, Vault};
 use spade_testkit::{FakeSignIn, Script};
 use support::{Result, Spade};
 
 /// Sets up sign-ins against `fake`, with calls going to the fake model endpoint.
 fn sign_ins(spade: &Spade, fake: &FakeSignIn) -> Result<Arc<Accounts>> {
     Ok(flows_for(spade, fake)?.accounts().clone())
+}
+
+/// The sealed sign-ins of `spade`'s home, as Spade keeps them.
+fn vault_of(spade: &Spade) -> Vault {
+    Vault::new(
+        spade.dir.path().join("sign-ins"),
+        spade.keys.clone(),
+        Arc::new(spade_connect::OsRandom),
+    )
+}
+
+/// The refresh token kept for `account`, read back as Spade reads it.
+fn kept_refresh(spade: &Spade, account: &str) -> Result<Option<String>> {
+    Ok(vault_of(spade).read(account)?.map(|(_, refresh)| refresh))
+}
+
+/// Whether anything of `account`'s sign-in is kept: its sealed file or its key.
+fn holds(spade: &Spade, account: &str) -> Result<bool> {
+    Ok(vault_of(spade).holds(account)?)
 }
 
 /// [`sign_ins`], answering the sign-ins themselves.
@@ -29,7 +48,7 @@ fn flows_for(spade: &Spade, fake: &FakeSignIn) -> Result<Arc<Flows>> {
         backend: spade.fake.root.clone(),
     };
     let accounts = Arc::new(Accounts::new(
-        Some(spade.keys.clone()),
+        Some(vault_of(spade)),
         config,
         Arc::new(|| 1_000),
     )?);
@@ -175,7 +194,7 @@ async fn signing_in_again_renews_the_account_and_another_chatgpt_account_is_adde
         "the same ChatGPT account renews its account"
     );
     assert_eq!(
-        spade.keys.sign_in_secret(&id, "refresh")?.as_deref(),
+        kept_refresh(&spade, &id)?.as_deref(),
         Some("refresh-2"),
         "the renewed sign-in's tokens replace the first's"
     );
@@ -218,7 +237,7 @@ async fn signing_out_keeps_the_account_and_removing_it_takes_its_tokens() -> Res
         .await?;
     assert_eq!(status, 200, "{out}");
     assert_eq!(out["endpoint"]["account"]["signed_in"], false);
-    assert_eq!(spade.keys.sign_in_secret(&id, "refresh")?, None);
+    assert!(!holds(&spade, &id)?);
     assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
     // A key account has nothing to sign out of.
     let (status, _) = spade.post("/v1/endpoints/fake/sign-out", json!({})).await?;
@@ -239,10 +258,10 @@ async fn signing_out_keeps_the_account_and_removing_it_takes_its_tokens() -> Res
     assert_eq!(status, 200, "{renamed}");
     assert_eq!(renamed["endpoint"]["id"], id.as_str());
     assert_eq!(renamed["endpoint"]["account"]["signed_in"], true);
-    assert!(spade.keys.sign_in_secret(&id, "refresh")?.is_some());
+    assert!(holds(&spade, &id)?);
     assert_eq!(spade.delete(&format!("/v1/endpoints/{id}")).await?.0, 204);
-    assert_eq!(spade.keys.sign_in_secret(&id, "refresh")?, None);
-    assert_eq!(spade.keys.sign_in_secret(&id, "access")?, None);
+    assert!(!holds(&spade, &id)?);
+    assert!(!holds(&spade, &id)?);
     Ok(())
 }
 
@@ -298,8 +317,8 @@ async fn removing_an_account_while_its_token_refreshes_leaves_no_token_behind() 
         before + 1,
         "the refresh was under way"
     );
-    assert_eq!(spade.keys.sign_in_secret(&id, "refresh")?, None);
-    assert_eq!(spade.keys.sign_in_secret(&id, "access")?, None);
+    assert!(!holds(&spade, &id)?);
+    assert!(!holds(&spade, &id)?);
     assert!(
         matches!(
             accounts.bearer(&id).await,
@@ -350,7 +369,7 @@ async fn without_the_persons_stamp_no_sign_in_starts_and_no_signed_in_account_go
     );
     let still = account(&spade, &id).await?;
     assert_eq!(still["account"]["signed_in"], true);
-    assert!(spade.keys.sign_in_secret(&id, "refresh")?.is_some());
+    assert!(holds(&spade, &id)?);
 
     // A key account is still the window's to remove.
     let (status, _) = spade
@@ -380,7 +399,7 @@ async fn removal_is_decided_on_the_row_it_removes_so_a_signed_in_account_never_g
         matches!(refused, Err(spade_server::engine::EndpointError::Forbidden)),
         "{refused:?}"
     );
-    assert!(spade.keys.sign_in_secret(&id, "refresh")?.is_some());
+    assert!(holds(&spade, &id)?);
     assert_eq!(account(&spade, &id).await?["account"]["signed_in"], true);
     Ok(())
 }
@@ -529,8 +548,8 @@ async fn an_account_removed_between_its_tokens_and_its_commit_leaves_nothing_beh
         .clone()
         .ok_or("the hook never ran")?;
     assert_ne!(gone, other);
-    assert_eq!(spade.keys.sign_in_secret(&gone, "refresh")?, None);
-    assert_eq!(spade.keys.sign_in_secret(&gone, "access")?, None);
+    assert!(!holds(&spade, &gone)?);
+    assert!(!holds(&spade, &gone)?);
     assert_eq!(account(&spade, &gone).await?, Value::Null);
     // Nothing takes its id again, an endpoint named after it included.
     let (status, made) = spade
@@ -542,7 +561,7 @@ async fn an_account_removed_between_its_tokens_and_its_commit_leaves_nothing_beh
     assert_eq!(status, 201, "{made}");
     assert_ne!(made["endpoint"]["id"], gone.as_str());
     // The account that was there before is untouched.
-    assert!(spade.keys.sign_in_secret(&other, "refresh")?.is_some());
+    assert!(holds(&spade, &other)?);
     assert_eq!(account(&spade, &other).await?["account"]["signed_in"], true);
     Ok(())
 }
@@ -580,7 +599,11 @@ async fn a_backend_that_never_starts_answering_cannot_hold_off_a_sign_out() -> R
     spade
         .engine
         .models()
-        .set_first_answer_wait(Duration::from_millis(300));
+        .set_stream_waits(spade_models::StreamWaits {
+            headers: Duration::from_millis(300),
+            idle: Duration::from_secs(10),
+            total: Duration::from_secs(60),
+        });
     let id = signed_in(&spade).await?;
     let (_, bot) = spade
         .post(
@@ -644,7 +667,7 @@ async fn a_sign_out_between_a_sign_ins_tokens_and_its_commit_wins() -> Result {
     .await?;
     assert_eq!(flow["state"], "failed", "{flow}");
     assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
-    assert_eq!(spade.keys.sign_in_secret(&id, "refresh")?, None);
+    assert!(!holds(&spade, &id)?);
     Ok(())
 }
 
@@ -684,6 +707,32 @@ async fn a_sign_in_whose_id_was_ever_used_is_refused_rather_than_given_it_again(
     let flow = sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
     assert_eq!(flow["state"], "failed", "{flow}");
     assert_eq!(account(&spade, &first).await?, Value::Null);
-    assert_eq!(spade.keys.sign_in_secret(&first, "refresh")?, None);
+    assert!(!holds(&spade, &first)?);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refused_refreshs_late_signed_out_never_lands_on_a_newer_sign_in() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let accounts = sign_ins(&spade, &fake)?;
+    // Its access token is always near its end, so the next use refreshes.
+    fake.expires_at(1_100);
+    let id = signed_in(&spade).await?;
+    let refresh = kept_refresh(&spade, &id)?.ok_or("no refresh token kept")?;
+    fake.kill(&refresh);
+    let refused = accounts.bearer(&id).await;
+    let Err(spade_chatgpt::BearerError::SignedOut(_, generation)) = refused else {
+        return Err(format!("the refresh was not refused: {refused:?}").into());
+    };
+    // Signed in again before the refusal's "signed out" is written.
+    assert_eq!(signed_in(&spade).await?, id);
+    assert_eq!(account(&spade, &id).await?["account"]["signed_in"], true);
+    spade.engine.record_signed_out(&id, generation)?;
+    assert_eq!(
+        account(&spade, &id).await?["account"]["signed_in"],
+        true,
+        "a late write from the old credential signed the newer one out"
+    );
     Ok(())
 }

@@ -21,6 +21,7 @@ use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
 use crate::signed::{Bearers, DispatchGuard, Signed};
+use crate::waits::{Activity, StreamWaits};
 use crate::{failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
@@ -37,17 +38,14 @@ pub struct Models {
     pub(crate) http: reqwest::Client,
     pub(crate) listing: ListBounds,
     refusals: Refusals,
-    /// How long a signed-in account's stream may take to start answering, in milliseconds.
-    first_answer_ms: Arc<std::sync::atomic::AtomicU64>,
+    /// How long a signed-in account's stream may take (ADR 0214).
+    waits: Arc<RwLock<StreamWaits>>,
     /// Access tokens for accounts that sign in (ADR 0214), set by the server.
     pub(crate) bearers: Arc<RwLock<Option<Bearers>>>,
 }
 
 /// A streamed reply, its first item already read.
-type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
-
-/// How long a signed-in account's stream may take to start answering by default: two minutes.
-const FIRST_ANSWER_MS: u64 = 120_000;
+pub(crate) type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
@@ -138,23 +136,14 @@ impl Models {
             http,
             listing: ListBounds::default(),
             refusals: Refusals::default(),
-            first_answer_ms: Arc::new(std::sync::atomic::AtomicU64::new(FIRST_ANSWER_MS)),
+            waits: Arc::default(),
             bearers: Arc::default(),
         })
     }
 
-    /// How long a signed-in account's stream may take to start answering (ADR 0214).
-    pub fn set_first_answer_wait(&self, wait: std::time::Duration) {
-        let ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
-        self.first_answer_ms
-            .store(ms, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn first_answer_wait(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(
-            self.first_answer_ms
-                .load(std::sync::atomic::Ordering::Relaxed),
-        )
+    /// How long a signed-in account's stream may take (ADR 0214).
+    pub fn set_stream_waits(&self, waits: StreamWaits) {
+        *self.waits.write().unwrap_or_else(|p| p.into_inner()) = waits;
     }
 
     /// How much of an endpoint's model list is read, and for how long.
@@ -482,27 +471,19 @@ impl Models {
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<Deltas, ModelError> {
         let mut call = call;
-        // Held until the first item: by then the request is on the wire. For a signed-in
-        // account, never longer than the first answer's wait, so a backend that stalls can't
-        // hold off a sign-out; a stall may have been billed, so it is never sent again.
-        let held = call.held.take();
-        let reference = call.reference.clone();
-        let opening = async {
-            let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
-            let first = stream.next().await;
-            Ok::<_, ModelError>((stream, first))
-        };
-        let (stream, first) = if held.is_some() {
-            tokio::time::timeout(self.first_answer_wait(), opening)
-                .await
-                .map_err(|_| ModelError::Provider {
-                    model: reference,
-                    message: "the ChatGPT backend did not start answering in time".to_owned(),
-                })??
-        } else {
-            opening.await?
-        };
-        drop(held);
+        // A signed-in account's send: timed by its waits, its leave to send held until the
+        // backend's first frame (its answer's headers and first event), and no longer.
+        if let Some(held) = call.held.take() {
+            let activity = Activity::new();
+            let tap = activity.clone();
+            call.options = call.options.with_raw_frame_fn(move |_, _| tap.touch());
+            let model = call.reference.clone();
+            let stream = Box::pin(self.open_stream(call, prompt, format).await?);
+            let waits = *self.waits.read().unwrap_or_else(|p| p.into_inner());
+            return crate::waits::timed(stream, held, activity, waits, model).await;
+        }
+        let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
+        let first = stream.next().await;
         match first {
             Some(Err(error)) => Err(error),
             first => Ok(Box::pin(futures_util::stream::iter(first).chain(stream))),

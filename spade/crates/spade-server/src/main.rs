@@ -274,13 +274,8 @@ async fn run() -> Result<(), Failure> {
         e => other(e),
     })?;
 
-    // Filed under this home's own id, so another Spade home on this machine never reads,
-    // overwrites or erases this one's keys and sign-ins (ADR 0214).
-    let scope = home
-        .keychain_scope(|| uuid::Uuid::new_v4().simple().to_string())
-        .map_err(other)?;
     let keychain = match KeyStore::os() {
-        Ok(store) => Some(store.scoped(&scope)),
+        Ok(store) => Some(store),
         Err(error) => {
             tracing::warn!(%error, "no keychain; endpoint keys come from the environment only");
             None
@@ -584,8 +579,16 @@ async fn run() -> Result<(), Failure> {
     .map_err(other)?;
     bots.set(&engine);
     // ChatGPT sign-ins (ADR 0214): tokens in the keychain only; none without one.
+    // Tokens rest sealed in the home's data folder, their key per account in the keychain.
+    let vault = keychain.clone().map(|keys| {
+        spade_chatgpt::Vault::new(
+            home.dir.join("sign-ins"),
+            keys,
+            Arc::new(spade_connect::OsRandom),
+        )
+    });
     match spade_chatgpt::Accounts::new(
-        keychain.clone(),
+        vault,
         spade_chatgpt::Config::openai(),
         Arc::new(|| {
             std::time::SystemTime::now()

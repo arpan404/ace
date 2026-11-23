@@ -728,3 +728,52 @@ async fn a_typed_reply_that_echoes_the_token_never_carries_it_into_the_error() -
     assert!(!shown.contains("access-1"), "{shown}");
     Ok(())
 }
+
+/// A model list that refuses `access-1` and, for the token after it, lists models named after
+/// both tokens.
+async fn naming_both() -> Result<String> {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(|headers: HeaderMap| async move {
+            let sent = headers
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            if sent == "Bearer access-1" {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+            axum::Json(serde_json::json!({ "models": [
+                { "slug": "gpt-5.5", "display_name": "first was access-1, so long" },
+                { "slug": "gpt-5.5-mini", "display_name": format!("now {sent}") },
+                { "slug": "fine", "display_name": "Fine" }
+            ] }))
+            .into_response()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(root)
+}
+
+#[tokio::test]
+async fn a_refreshed_listing_hands_on_neither_the_first_token_nor_the_new_one() -> Result {
+    let root = naming_both().await?;
+    let client = client_for(&root, &root, Some("access-1"))?;
+    let listed = client.models.list("chatgpt").await?;
+    let shown = format!("{listed:?}");
+    assert!(!shown.contains("access-1"), "{shown}");
+    assert_eq!(
+        client
+            .rejected
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len(),
+        1
+    );
+    assert!(listed.iter().any(|m| m.name.as_deref() == Some("Fine")));
+    Ok(())
+}

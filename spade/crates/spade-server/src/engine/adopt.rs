@@ -14,8 +14,6 @@ use super::endpoints::is_credential_header;
 
 const PRESETS_IMPORTED: &str = "presets_imported";
 const FILE_ADOPTED: &str = "models_file_adopted";
-/// Set once this home's keys were copied into its own place in the keychain (ADR 0214).
-const KEYS_SCOPED: &str = "keys_scoped";
 
 impl Engine {
     /// An endpoint made from `preset`: its settings, none of its models (those are inherited).
@@ -46,7 +44,6 @@ impl Engine {
     /// under the lock every endpoint change takes, against a fresh read of the database, so a
     /// change the person made meanwhile is never lost or overwritten.
     pub(super) fn settle_endpoints(&self, file: Option<&Catalog>) -> Result<(), StoreError> {
-        self.adopt_shared_keys()?;
         let adopting = match file {
             Some(file) if self.store.setting(FILE_ADOPTED)?.is_none() => Some(file),
             _ => None,
@@ -74,34 +71,6 @@ impl Engine {
             self.import_presets(&preset_keys)?;
         }
         self.sync_endpoints()
-    }
-
-    /// Once: the keys an earlier build filed for every home on this machine, copied into this
-    /// home's own place for the endpoints this home already has (ADR 0214). Bounded by those
-    /// endpoints; another home's keys are never taken. A keychain that fails is tried again on
-    /// the next start.
-    fn adopt_shared_keys(&self) -> Result<(), StoreError> {
-        let Some(keychain) = &self.keychain else {
-            return Ok(());
-        };
-        if self.store.setting(KEYS_SCOPED)?.is_some() {
-            return Ok(());
-        }
-        let ids: Vec<String> = self
-            .store
-            .endpoints()?
-            .into_iter()
-            .filter(|e| e.needs_key)
-            .map(|e| e.id)
-            .collect();
-        let ids: Vec<&str> = ids.iter().map(String::as_str).collect();
-        match keychain.adopt_unscoped_keys(&ids) {
-            Ok(_) => self.store.set_setting(KEYS_SCOPED, Some("1")),
-            Err(error) => {
-                tracing::warn!(%error, "this home's keys were not moved to its own place yet");
-                Ok(())
-            }
-        }
     }
 
     /// Shipped presets that have a key (`keyed`) become the person's endpoints, so a setup from

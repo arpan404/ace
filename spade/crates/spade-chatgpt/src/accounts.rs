@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use spade_keys::KeyStore;
+use crate::vault::Vault;
 
 use crate::oauth::{self, OauthError, Tokens};
 use crate::{Clock, Config};
@@ -47,7 +47,9 @@ type Slot = Arc<tokio::sync::Mutex<Option<Held>>>;
 /// forget that follows it can't be undone by it.
 #[derive(Clone)]
 struct Parts {
-    keys: Option<KeyStore>,
+    /// Where the tokens rest: sealed in the data folder, their key in the keychain. None on a
+    /// machine without a keychain, where no sign-in is kept.
+    vault: Option<Arc<Vault>>,
     http: reqwest::Client,
     config: Config,
     clock: Clock,
@@ -99,10 +101,10 @@ pub struct Accounts {
 }
 
 impl Accounts {
-    pub fn new(keys: Option<KeyStore>, config: Config, clock: Clock) -> Result<Self, String> {
+    pub fn new(vault: Option<Vault>, config: Config, clock: Clock) -> Result<Self, String> {
         Ok(Self {
             parts: Parts {
-                keys,
+                vault: vault.map(Arc::new),
                 http: oauth::client()?,
                 config,
                 clock,
@@ -130,7 +132,7 @@ impl Accounts {
 
     /// Whether this machine has a keychain to keep sign-ins in.
     pub fn can_keep(&self) -> bool {
-        self.parts.keys.is_some()
+        self.parts.vault.is_some()
     }
 
     fn slot(&self, account: &str) -> Slot {
@@ -252,10 +254,8 @@ impl Accounts {
         let gate = self.parts.gate(account);
         let _alone = gate.blocking_write();
         self.parts.bump(account);
-        match &self.parts.keys {
-            Some(keys) => keys
-                .delete_sign_in(account)
-                .map_err(|e| BearerError::Failed(e.to_string())),
+        match &self.parts.vault {
+            Some(vault) => vault.erase(account).map_err(BearerError::Failed),
             None => Ok(false),
         }
     }
@@ -442,15 +442,15 @@ impl Parts {
     }
 
     async fn load(&self, account: &str) -> Result<Option<Held>, BearerError> {
-        let Some(keys) = self.keys.clone() else {
+        let Some(vault) = self.vault.clone() else {
             return Ok(None);
         };
         let id = account.to_owned();
-        // One entry holds both tokens: never one sign-in's access with another's refresh.
-        let read = tokio::task::spawn_blocking(move || keys.sign_in_pair(&id))
+        // One sealed file holds both tokens: never one sign-in's access with another's refresh.
+        let read = tokio::task::spawn_blocking(move || vault.read(&id))
             .await
-            .map_err(|_| BearerError::Failed("the keychain read stopped".to_owned()))?
-            .map_err(|e| BearerError::Failed(e.to_string()))?;
+            .map_err(|_| BearerError::Failed("the sign-in read stopped".to_owned()))?
+            .map_err(BearerError::Failed)?;
         Ok(read.map(|(access, refresh)| Held {
             expires: crate::claims::expires(&access),
             access,
@@ -459,27 +459,27 @@ impl Parts {
     }
 
     async fn write(&self, account: &str, access: &str, refresh: &str) -> Result<(), BearerError> {
-        let Some(keys) = self.keys.clone() else {
+        let Some(vault) = self.vault.clone() else {
             return Err(BearerError::Failed(
                 "this machine has no keychain Spade can keep a sign-in in".to_owned(),
             ));
         };
         let (id, access, refresh) = (account.to_owned(), access.to_owned(), refresh.to_owned());
-        // Both in one write: it lands whole, or not at all.
-        tokio::task::spawn_blocking(move || keys.set_sign_in_pair(&id, &access, &refresh))
+        // Both in one sealed file, put in place whole: it lands entire, or not at all.
+        tokio::task::spawn_blocking(move || vault.write(&id, &access, &refresh))
             .await
-            .map_err(|_| BearerError::Failed("the keychain write stopped".to_owned()))?
-            .map_err(|e| BearerError::Failed(e.to_string()))
+            .map_err(|_| BearerError::Failed("the sign-in write stopped".to_owned()))?
+            .map_err(BearerError::Failed)
     }
 
     async fn erase(&self, account: &str) -> Result<bool, BearerError> {
-        let Some(keys) = self.keys.clone() else {
+        let Some(vault) = self.vault.clone() else {
             return Ok(false);
         };
         let id = account.to_owned();
-        tokio::task::spawn_blocking(move || keys.delete_sign_in(&id))
+        tokio::task::spawn_blocking(move || vault.erase(&id))
             .await
-            .map_err(|_| BearerError::Failed("the keychain change stopped".to_owned()))?
-            .map_err(|e| BearerError::Failed(e.to_string()))
+            .map_err(|_| BearerError::Failed("the sign-in change stopped".to_owned()))?
+            .map_err(BearerError::Failed)
     }
 }

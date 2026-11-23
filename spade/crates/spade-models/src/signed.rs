@@ -158,6 +158,8 @@ impl Models {
         let mut asking = endpoint.clone();
         asking.headers.extend(chatgpt::headers(account_id, None));
         let mut refreshed = false;
+        // Every token this listing sent, scrubbed from what it returns.
+        let mut sent = vec![signed.credential.token.clone()];
         loop {
             let _sending = self
                 .dispatch(&signed)
@@ -172,7 +174,7 @@ impl Models {
             )
             .await
             {
-                Ok(listed) => return Ok(without_token(listed, &signed.credential.token)),
+                Ok(listed) => return Ok(without_tokens(listed, &sent)),
                 Err(failure) => failure,
             };
             drop(_sending);
@@ -184,6 +186,7 @@ impl Models {
                     .map_err(|e| listing_error(e.to_string()))?;
                 // The same token again would be the same request: the 401 stands.
                 if fresh.token != signed.credential.token {
+                    sent.push(fresh.token.clone());
                     signed.credential = fresh;
                     continue;
                 }
@@ -196,14 +199,15 @@ impl Models {
     }
 }
 
-/// A signed-in account's model list with nothing that carries its token: a model whose id holds
-/// it is left out, a name that holds it goes, and the raw item is never kept.
-fn without_token(listed: Vec<Listed>, token: &str) -> Vec<Listed> {
+/// A signed-in account's model list with nothing that carries any of `tokens`: a model whose id
+/// holds one is left out, a name that holds one goes, and the raw item is never kept.
+fn without_tokens(listed: Vec<Listed>, tokens: &[String]) -> Vec<Listed> {
+    let holds = |text: &str| tokens.iter().any(|token| text.contains(token.as_str()));
     listed
         .into_iter()
-        .filter(|m| !m.id.contains(token))
+        .filter(|m| !holds(&m.id))
         .map(|mut m| {
-            m.name = m.name.filter(|name| !name.contains(token));
+            m.name = m.name.filter(|name| !holds(name));
             m.raw = serde_json::Value::Null;
             m
         })

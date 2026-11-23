@@ -23,6 +23,7 @@ mod speech;
 pub mod terms;
 mod thoughts;
 mod typed;
+mod waits;
 mod web_search;
 
 pub use catalog::{
@@ -45,4 +46,5 @@ pub use signed::{BearerFuture, Bearers, Credential, DispatchFuture, DispatchGuar
 pub use spade_keys::{KeyRequest, Keys};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
 pub use terms::{CliTerms, TermsNotice, TermsRecord, TermsStatus};
+pub use waits::StreamWaits;
 pub use web_search::{WebFound, WebHit};

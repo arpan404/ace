@@ -46,7 +46,7 @@ impl Engine {
                 }),
                 Err(BearerError::SignedOut(line, generation)) => {
                     if let Some(engine) = engine.upgrade() {
-                        let _ = engine.mark_signed_out_at(&id, generation);
+                        let _ = engine.record_signed_out(&id, generation);
                     }
                     Err(line)
                 }
@@ -182,7 +182,7 @@ impl Engine {
                     .sign_out(id)
                     .await
                     .map_err(|e| EndpointError::Keychain(e.to_string()))?;
-                self.mark_signed_out_at(id, generation)?;
+                self.record_signed_out(id, generation)?;
             }
             None => {
                 self.forget_sign_in(id)?;
@@ -201,7 +201,7 @@ impl Engine {
         let forgot = match self.sign_ins.get() {
             Some(flows) => flows.accounts().forget_now(id).map_err(|e| e.to_string()),
             None => match &self.keychain {
-                Some(keychain) => keychain.delete_sign_in(id).map_err(|e| e.to_string()),
+                Some(keychain) => keychain.delete_sign_in_key(id).map_err(|e| e.to_string()),
                 None => Ok(false),
             },
         };
@@ -218,7 +218,7 @@ impl Engine {
 
     /// Records that an account is signed out, as of credential `generation`: only while that is
     /// still its generation, so a sign-in that came since is never marked signed out.
-    fn mark_signed_out_at(&self, id: &str, generation: u64) -> Result<(), StoreError> {
+    pub fn record_signed_out(&self, id: &str, generation: u64) -> Result<(), StoreError> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         let current = self
             .sign_ins
@@ -411,7 +411,7 @@ impl Engine {
         let _ = self.sync_endpoints();
     }
 
-    /// A new account's id: `chatgpt-<8 characters>`, never one any endpoint has or ever had
+    /// A new account's id: `chatgpt-<16 characters>`, never one any endpoint has or ever had
     /// (removed ids are retired for good), so a sign-in, its tokens and every call on it name
     /// one account only.
     fn fresh_sign_in_id(&self, endpoints: &[StoredEndpoint]) -> Result<String, String> {
@@ -423,7 +423,9 @@ impl Engine {
                 .filter(char::is_ascii_alphanumeric)
                 .collect::<String>()
                 .to_ascii_lowercase();
-            let short = &tail[tail.len().saturating_sub(8)..];
+            // Sixteen random characters: unique across every Spade home on the machine, since
+            // a sign-in's key in the keychain is filed by this id alone.
+            let short = &tail[tail.len().saturating_sub(16)..];
             let id = format!("{CHATGPT}-{short}");
             let retired = self
                 .store

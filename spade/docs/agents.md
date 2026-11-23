@@ -339,10 +339,10 @@ carries the key.
 - `used_by`: names of the bots whose model is on it, in name order.
 
 and the answer has `sign_in: ["chatgpt"]`, the sign-ins this Spade can run. The account id is the
-reference's first part (`work/gpt-5.5`, `chatgpt-k3f9a2c1/gpt-5.5`): unique across providers and
+reference's first part (`work/gpt-5.5`, `chatgpt-k3f9a2c1d07e5b44/gpt-5.5`): unique across providers and
 never changed, and never reused: a removed endpoint's id is retired for good (`retired_endpoints`),
 so no later endpoint, sign-in, credential or call can take it. A ChatGPT account's id is `chatgpt-`
-and eight characters; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
+and sixteen random characters; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
 takes only a new name: any other change is refused (`400`), so its token never goes anywhere but
 where it was issued for. The model client also sends a sign-in's token only to the ChatGPT
 backend's origin, whatever address an account says. A second account from a
@@ -377,14 +377,13 @@ target `accounts` (starting, reading and cancelling sign-ins, and `GET /v1/model
 `account:<id>`, and value `<METHOD> <path and query>:<SHA-256 of the body, hex>`, so it holds for
 that request and no other. A new ChatGPT account is named `ChatGPT`, then `ChatGPT 2` and on,
 never its email; an older account named after its email shows to other callers as `ChatGPT`.
-Keys and sign-ins are filed per Spade home (`endpoint:<home>:<id>`, `oauth:<home>:<id>`, the
-home's id kept in `keychain-scope` in its data folder): another home on the same machine with the
-same endpoint ids never reads, overwrites or erases them. On its first start with this, a home
-copies the machine-wide keys an earlier build kept for the endpoints it already has, and leaves
-them for any other home. A sign-in's two tokens are one entry, written and erased together.
-A signed-in account's stream must start answering within two minutes (`first answer wait`), so a
-backend that stalls can't hold the dispatch gate; a stall is possibly billed and never resent.
-A send on a signed-in account holds the account's dispatch gate until the request is on the wire:
+A sign-in's two tokens are sealed together in `sign-ins/<account id>` in the home's data folder,
+replaced whole by renaming; the sealing key (32 random bytes) is in the keychain under
+`oauth:<account id>`. Account ids are `chatgpt-` and sixteen random characters, unique across homes.
+A signed-in call holds the dispatch gate until the backend's first frame, at most two minutes;
+after that the answer lives while frames (heartbeats included) keep coming, up to ten minutes
+apart and an hour in all. A call ended by a wait is possibly billed and never resent.
+A send on a signed-in account holds the account's dispatch gate until its first frame arrives:
 a sign-out, removal or new sign-in waits for those sends, and none under the old credential starts
 after. The model SDK's own diagnostics are never logged, whatever `RUST_LOG` says: they carry
 failed calls' response bodies. A usage line never names the plan. Only a connection never made
