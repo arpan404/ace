@@ -5,6 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { expect, test } from "vitest";
 import { z } from "zod";
 import { spawnBytes } from "./process-bytes.ts";
+import { guardGroupSignals } from "./leader-group.ts";
 
 function isRunning(pid: number): boolean {
   try {
@@ -73,6 +74,75 @@ test.runIf(process.platform === "win32").each(["a stop", "a normal exit"] as con
         process.kill(pid, "SIGKILL");
         while (isRunning(pid)) await delay(25);
       }
+      await rm(root, { recursive: true, force: true, maxRetries: 20 });
+    }
+  },
+);
+
+// The leader starts a grandchild that stays in its group and never exits, and a detached helper
+// (its own session and group) that keeps stdout open past the leader's exit, so the stream is
+// still draining once the leader has been reaped.
+const grandchild = "setInterval(() => {}, 1000);";
+const helperOpen = "setTimeout(() => {}, 500);";
+const reapedLeader = `const { spawn } = require('node:child_process');
+spawn(process.execPath, ['-e', ${JSON.stringify(helperOpen)}], { detached: true, stdio: ['ignore', 'inherit', 'ignore'] }).unref();
+const kept = spawn(process.execPath, ['-e', ${JSON.stringify(grandchild)}], { stdio: 'ignore' });
+kept.once('spawn', () => { process.stdout.write(kept.pid + '\\n'); process.exit(0); });`;
+
+test.runIf(process.platform !== "win32")(
+  "once its leader is reaped, a byte process stops the grandchild it left by identity and never signals the group number",
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), "ace-bytes-reaped-"));
+    // Every signal passes these guards first. Group signals are only recorded, never let
+    // through (by now the number may be someone else's); member signals reach only the
+    // grandchild this test started.
+    const groups: number[] = [];
+    let left: number | undefined;
+    const members: number[] = [];
+    const unguard = guardGroupSignals(
+      (group) => {
+        groups.push(group);
+        return [];
+      },
+      (candidates) => {
+        members.push(...candidates.map((member) => member.pid));
+        return candidates.filter((member) => member.pid === left);
+      },
+    );
+    try {
+      const draining = Promise.withResolvers<() => void>();
+      const child = spawnBytes({
+        command: process.execPath,
+        args: ["-e", reapedLeader],
+        cwd: root,
+        env: { ...process.env },
+        scheduleDrain(callback) {
+          draining.resolve(callback);
+          return () => {};
+        },
+      });
+      let text = "";
+      child.stdout.on("data", (chunk) => {
+        text += String(chunk);
+        left ??= z.coerce
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .parse(/^(\d+)$/m.exec(text)?.[1]);
+      });
+      child.stderr.resume();
+      // The drain is scheduled from the exit listener: the leader has been reaped by now.
+      const drain = await draining.promise;
+      drain();
+      await child.exited;
+      expect(left).toBeDefined();
+      expect(members).toContain(left);
+      expect(left !== undefined && isRunning(left)).toBe(false);
+      expect(groups).toEqual([]);
+    } finally {
+      unguard();
+      if (left !== undefined && isRunning(left)) process.kill(left, "SIGKILL");
       await rm(root, { recursive: true, force: true, maxRetries: 20 });
     }
   },
