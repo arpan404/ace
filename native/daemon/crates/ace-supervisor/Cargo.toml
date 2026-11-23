@@ -22,7 +22,15 @@ serde_json = { version = "1", features = ["preserve_order"] }
 # thiserror: one typed error enum for the crate, mapped in the binding.
 thiserror = { version = "2" }
 # tokio: the I/O runtime for processes, pipes, sockets, HTTP and timers (multi-thread, two workers), the one Spade already ships.
-tokio = { version = "1.54", features = ["macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio = { version = "1.54", features = [
+  "macros",
+  "net",
+  "process",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+] }
 # tokio-util: LinesCodec::new_with_max_length for bounded line framing over pipes.
 tokio-util = { version = "0.7", features = ["codec"] }
 # process-wrap: process groups on POSIX, Job Objects on Windows and kill-on-drop over tokio::process; it replaces process-containment.ts.
@@ -44,4 +52,12 @@ libproc = "0.14"
 
 [target.'cfg(windows)'.dependencies]
 # windows-sys: Job Object and identity calls process-wrap does not cover (GetProcessTimes, token SID, stdin-close stop); Spade's version.
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_System_Time"] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_System_Time",
+] }

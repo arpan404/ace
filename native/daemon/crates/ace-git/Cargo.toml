@@ -28,4 +28,13 @@ libc = { version = "0.2" }
 # gix: ref, branch and worktree-list reads (G1) and display-only status (G7), behind each caller's
 # contract and decoder. default-features off with only the ADR's features; never
 # pack-cache-lru-static: it pulls uluru (MPL-2.0), which deny.toml bans.
-gix = { version = "0.91", default-features = false, features = ["revision", "status", "sha1", "sha256", "parallel", "dirwalk", "excludes", "attributes"] }
+gix = { version = "0.91", default-features = false, features = [
+  "revision",
+  "status",
+  "sha1",
+  "sha256",
+  "parallel",
+  "dirwalk",
+  "excludes",
+  "attributes",
+] }

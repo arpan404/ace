@@ -189,8 +189,7 @@ function spawnOwned(
   const pid = child.pid;
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
-  const factory =
-    options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;
