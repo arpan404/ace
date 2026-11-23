@@ -9,6 +9,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 
 mod core;
+mod core_derive;
 mod engine;
 mod git;
 mod items;

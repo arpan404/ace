@@ -41,6 +41,7 @@ import {
   seedGitLabMirror,
   seedLongLists,
   withLongAutomations,
+  startFakeCore,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { HostId } from "@ace/protocol";
@@ -78,7 +79,7 @@ const origins: Record<string, string> = {
 };
 
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
-export function bootFake(): {
+export async function bootFake(): Promise<{
   client: Client;
   daemon: FakeDaemon;
   /** The fake daemon's access routes and devices, for the connection context. */
@@ -87,7 +88,9 @@ export function bootFake(): {
   profileName: string;
   /** A second machine, a build server, in the window's machine pool. */
   machines: Promise<MachinePool>;
-} {
+}> {
+  // The wasm core must exist before the world is seeded: every fold runs on it.
+  await startFakeCore();
   // The fake browser's live view is video of SVG pictures: decode them as the real stream is.
   installFakeVideoDecoder();
   const daemon = new FakeDaemon({

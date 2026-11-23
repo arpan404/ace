@@ -300,6 +300,76 @@ impl PartialEq<JsString> for String {
 }
 
 /// Hashes a well-formed string's bytes the same way [`crate::object`] hashes a `&str` lookup.
+/// The marker a lone surrogate is carried by in Rust text, and the unit a literal marker is
+/// written as (doubled) so the mapping is one-to-one.
+pub(crate) const ESCAPE_MARKER: char = '\u{10fffd}';
+
+fn marker_hex(unit: u16) -> String {
+    format!("{unit:04x}")
+}
+
+/// A JavaScript string as Rust text for fields that keep `String`: a lone surrogate is written as
+/// [`ESCAPE_MARKER`] and four hex digits, and a literal marker is doubled, so nothing two
+/// distinct strings carry is lost. [`crate::write::write_str`] turns it back into the exact JSON
+/// bytes, so ids that differ only by a surrogate stay distinct.
+pub(crate) fn to_rust_text(text: &JsString) -> Cow<'_, str> {
+    match text.as_well_formed() {
+        Some(plain) if !plain.contains(ESCAPE_MARKER) => Cow::Borrowed(plain),
+        Some(plain) => Cow::Owned(plain.replace(ESCAPE_MARKER, "\u{10fffd}\u{10fffd}")),
+        None => {
+            let mut out = String::with_capacity(text.len_utf16());
+            let mut units = text.units().peekable();
+            while let Some(unit) = units.next() {
+                if is_high(unit)
+                    && let Some(&low) = units.peek()
+                    && is_low(low)
+                {
+                    units.next();
+                    let code =
+                        0x10000 + ((u32::from(unit) - 0xd800) << 10) + (u32::from(low) - 0xdc00);
+                    out.push(char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER));
+                } else if is_high(unit) || is_low(unit) {
+                    out.push(ESCAPE_MARKER);
+                    out.push_str(&marker_hex(unit));
+                } else if char::from_u32(u32::from(unit)) == Some(ESCAPE_MARKER) {
+                    out.push(ESCAPE_MARKER);
+                    out.push(ESCAPE_MARKER);
+                } else {
+                    out.push(
+                        char::from_u32(u32::from(unit)).unwrap_or(char::REPLACEMENT_CHARACTER),
+                    );
+                }
+            }
+            Cow::Owned(out)
+        }
+    }
+}
+
+/// The exact JavaScript string a Rust text carries, when it holds an escape: `None` means the
+/// text is already the string.
+pub(crate) fn decode_marker(text: &str) -> Option<JsString> {
+    if !text.contains(ESCAPE_MARKER) {
+        return None;
+    }
+    let mut units: Vec<u16> = Vec::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(ESCAPE_MARKER) {
+        units.extend(rest.get(..at)?.encode_utf16());
+        rest = rest.get(at + ESCAPE_MARKER.len_utf8()..)?;
+        if let Some(after) = rest.strip_prefix(ESCAPE_MARKER) {
+            units.push(ESCAPE_MARKER as u16);
+            rest = after;
+            continue;
+        }
+        let hex = rest.get(..4)?;
+        let unit = u16::from_str_radix(hex, 16).ok()?;
+        units.push(unit);
+        rest = rest.get(4..)?;
+    }
+    units.extend(rest.encode_utf16());
+    Some(JsString::from_units(&units))
+}
+
 pub(crate) fn hash_text<H: Hasher>(text: &str, state: &mut H) {
     state.write(text.as_bytes());
     state.write_u8(0xff);

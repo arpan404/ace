@@ -3,6 +3,7 @@
 //! `ace-core`; this module translates handles and errors only. Every export
 //! catches panics and turns them into JS errors.
 
+use std::collections::{HashMap, HashSet};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use napi::bindgen_prelude::Function;
@@ -12,13 +13,16 @@ use napi_derive::napi;
 #[napi]
 pub struct CoreThreadNative {
     state: ace_core::ThreadState,
-    batch: Option<ace_core::reduce::FactBatch>,
+    /// The fact batches open on this thread, keyed by the id the facade was handed: a second
+    /// batch must not replace the first one's deferred status.
+    batches: HashMap<u32, ace_core::reduce::FactBatch>,
+    next_batch: u32,
     /// Preallocated output buffer reused for every JSON response.
     buffer: String,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum CoreBindError {
+pub enum CoreBindError {
     #[error("invalid thread: {0}")]
     InvalidThread(String),
     #[error("invalid fact: {0}")]
@@ -35,19 +39,9 @@ impl From<CoreBindError> for napi::Error {
     }
 }
 
-struct NextId<'a> {
+pub struct NextId<'a> {
     next: &'a Function<'a, String, String>,
     failure: Option<String>,
-}
-
-/// One fold's answer, written straight into the reused buffer. The state is not sent: the
-/// facade re-reads it through `snapshot()` the next time TypeScript actually looks at a field,
-/// so a fold costs one crossing, not a whole state serialization per fact.
-fn write_response(buffer: &mut String, events: &[ace_core::emit::Event]) {
-    buffer.clear();
-    buffer.push_str("{\"events\":");
-    ace_core::event_json::write_events(events, buffer);
-    buffer.push('}');
 }
 
 impl ace_core::state::IdSource for NextId<'_> {
@@ -65,7 +59,37 @@ impl ace_core::state::IdSource for NextId<'_> {
     }
 }
 
-fn to_millis(now: f64) -> Result<i64, CoreBindError> {
+/// One fold's answer, written straight into the reused buffer: its events, and the state's own
+/// field order so the facade's view has exactly the fields the state has. The state's bytes are
+/// not sent: the facade re-reads them through `snapshot()` when TypeScript looks at a field.
+pub fn write_response(
+    buffer: &mut String,
+    state: &ace_core::ThreadState,
+    events: &[ace_core::emit::Event],
+) {
+    buffer.clear();
+    buffer.push_str("{\"events\":");
+    ace_core::event_json::write_events(events, buffer);
+    buffer.push_str(",\"fields\":[");
+    for (index, field) in ace_core::state_json::field_order(state).iter().enumerate() {
+        if index > 0 {
+            buffer.push(',');
+        }
+        ace_json::write_str(buffer, field);
+    }
+    buffer.push_str("]}");
+}
+
+/// Finish one fold: the ids callback's failure wins, then the fold's own outcome.
+pub fn finish_fold(ids: NextId<'_>, outcome: Option<()>) -> Result<(), CoreBindError> {
+    if let Some(failure) = ids.failure {
+        return Err(CoreBindError::Contract(failure));
+    }
+    outcome.ok_or_else(|| CoreBindError::Contract("fold failed".to_owned()))?;
+    Ok(())
+}
+
+pub fn to_millis(now: f64) -> Result<i64, CoreBindError> {
     if !now.is_finite() || now.fract() != 0.0 {
         return Err(CoreBindError::InvalidContext(
             "now must be a nonnegative integer".to_owned(),
@@ -79,14 +103,27 @@ fn to_millis(now: f64) -> Result<i64, CoreBindError> {
     Ok(now as i64)
 }
 
-fn parse_state(text: &str) -> Result<ace_core::ThreadState, CoreBindError> {
+pub fn parse_state(text: &str) -> Result<ace_core::ThreadState, CoreBindError> {
+    // One decoder for both loaders: ace-json's numbers and key order, never serde_json's.
     ace_core::json_io::parse_typed(text)
         .map_err(|error| CoreBindError::InvalidThread(error.to_string()))
 }
 
-fn parse_fact(text: &str) -> Result<ace_json::Value, CoreBindError> {
+pub fn parse_fact(text: &str) -> Result<ace_json::Value, CoreBindError> {
     ace_core::json_io::parse_untrusted(text)
         .map_err(|error| CoreBindError::InvalidFact(error.to_string()))
+}
+
+/// The engine's answer RPCs in flight, as the fold's context carries them.
+fn parse_resolving(json: Option<&str>) -> Result<Option<HashSet<String>>, CoreBindError> {
+    match json {
+        None => Ok(None),
+        Some(text) => {
+            let ids: Vec<String> = ace_core::json_io::parse_typed(text)
+                .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+            Ok(Some(ids.into_iter().collect()))
+        }
+    }
 }
 
 #[napi]
@@ -102,11 +139,7 @@ impl CoreThreadNative {
             create_inner(&thread_id, &config_json, root_json.as_deref())
         }));
         match result {
-            Ok(Ok(state)) => Ok(Self {
-                state,
-                batch: None,
-                buffer: String::with_capacity(65536),
-            }),
+            Ok(Ok(state)) => Ok(Self::with_state(state)),
             Ok(Err(error)) => Err(error.into()),
             Err(_) => Err(napi::Error::from_reason("core thread failed to start")),
         }
@@ -117,27 +150,53 @@ impl CoreThreadNative {
     pub fn from_state(state_json: String) -> napi::Result<Self> {
         let result = catch_unwind(AssertUnwindSafe(|| parse_state(&state_json)));
         match result {
-            Ok(Ok(state)) => Ok(Self {
-                state,
-                batch: None,
-                buffer: String::with_capacity(65536),
-            }),
+            Ok(Ok(state)) => Ok(Self::with_state(state)),
             Ok(Err(error)) => Err(error.into()),
             Err(_) => Err(napi::Error::from_reason("core thread failed to import")),
         }
     }
 
-    /// Fold one fact, returning events and the refreshed state as JSON.
+    /// Write one top-level state field, the way `state[key] = value` does in TypeScript: the
+    /// handle keeps it, so the next fold is computed from it.
+    #[napi(catch_unwind)]
+    pub fn set_field(&mut self, field: String, json: String) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            set_field(&mut self.state, &field, &json)
+        }));
+        match result {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err(napi::Error::from_reason("core field write panicked")),
+        }
+    }
+
+    /// Adopt a seeded state: the engine built it as plain data before folding on it.
+    #[napi(catch_unwind)]
+    pub fn adopt(&mut self, state_json: String) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| parse_state(&state_json)));
+        match result {
+            Ok(Ok(state)) => {
+                self.state = state;
+                Ok(())
+            }
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err(napi::Error::from_reason("core state failed to load")),
+        }
+    }
+
+    /// Fold one fact, returning its events and the state's field order as JSON.
     #[napi(catch_unwind)]
     pub fn apply(
         &mut self,
         fact_json: String,
         now: f64,
         next_id: Function<String, String>,
+        resolving_json: Option<String>,
     ) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let now = to_millis(now)?;
             let fact = parse_fact(&fact_json)?;
+            let resolving = parse_resolving(resolving_json.as_deref())?;
             let mut ids = NextId {
                 next: &next_id,
                 failure: None,
@@ -145,14 +204,11 @@ impl CoreThreadNative {
             let mut ctx = ace_core::state::ApplyContext {
                 now,
                 ids: &mut ids,
-                resolving_interactions: None,
+                resolving_interactions: resolving,
             };
             let mut events = Vec::new();
             let outcome = ace_core::reduce::apply(&mut self.state, &fact, &mut ctx, &mut events);
-            if let Some(failure) = ids.failure {
-                return Err(CoreBindError::Contract(failure));
-            }
-            outcome.ok_or_else(|| CoreBindError::Contract("fold failed".to_owned()))?;
+            finish_fold(ids, outcome)?;
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(events)
         }));
         let events = match result {
@@ -160,43 +216,22 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core apply panicked")),
         };
-        write_response(&mut self.buffer, &events);
+        write_response(&mut self.buffer, &self.state, &events);
         Ok(std::mem::take(&mut self.buffer))
     }
 
-    /// Start one fact batch over this thread.
+    /// Reject a fact JSON cannot carry, described by the facade exactly as the TypeScript does.
     #[napi(catch_unwind)]
-    pub fn batch_begin(&mut self, deadline_json: Option<String>) -> napi::Result<()> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let deadline = match deadline_json {
-                None => None,
-                Some(text) => {
-                    let deadline: Option<i64> = serde_json::from_str(&text)
-                        .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
-                    Some(deadline)
-                }
-            };
-            self.batch = Some(ace_core::reduce::FactBatch::new(deadline));
-            Ok::<(), CoreBindError>(())
-        }));
-        match result {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(error.into()),
-            Err(_) => Err(napi::Error::from_reason("core batch failed to start")),
-        }
-    }
-
-    /// Fold one fact of this thread's batch.
-    #[napi(catch_unwind)]
-    pub fn batch_apply(
+    pub fn reject(
         &mut self,
-        fact_json: String,
+        data_json: String,
+        reason: String,
         now: f64,
         next_id: Function<String, String>,
     ) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let now = to_millis(now)?;
-            let fact = parse_fact(&fact_json)?;
+            let data = parse_fact(&data_json)?;
             let mut ids = NextId {
                 next: &next_id,
                 failure: None,
@@ -207,14 +242,83 @@ impl CoreThreadNative {
                 resolving_interactions: None,
             };
             let mut events = Vec::new();
-            let batch = self.batch.as_mut().ok_or_else(|| {
-                CoreBindError::Contract("no batch began on this thread".to_owned())
-            })?;
-            let outcome = batch.apply(&mut self.state, &fact, &mut ctx, &mut events);
-            if let Some(failure) = ids.failure {
-                return Err(CoreBindError::Contract(failure));
+            let outcome = ace_core::diagnostics::reject_data(
+                &mut self.state,
+                &data,
+                &reason,
+                &mut ctx,
+                &mut events,
+            );
+            finish_fold(ids, outcome)?;
+            Ok::<Vec<ace_core::emit::Event>, CoreBindError>(events)
+        }));
+        let events = match result {
+            Ok(Ok(events)) => events,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => return Err(napi::Error::from_reason("core reject panicked")),
+        };
+        write_response(&mut self.buffer, &self.state, &events);
+        Ok(std::mem::take(&mut self.buffer))
+    }
+
+    /// Start one fact batch over this thread; the id names it for the facade.
+    #[napi(catch_unwind)]
+    pub fn batch_begin(&mut self, deadline_json: Option<String>) -> napi::Result<u32> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let deadline = match deadline_json {
+                None => None,
+                Some(text) => {
+                    let deadline: Option<i64> = ace_core::json_io::parse_typed(&text)
+                        .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+                    Some(deadline)
+                }
+            };
+            Ok::<ace_core::reduce::FactBatch, CoreBindError>(ace_core::reduce::FactBatch::new(
+                deadline,
+            ))
+        }));
+        match result {
+            Ok(Ok(batch)) => {
+                let id = self.next_batch;
+                self.next_batch = self.next_batch.wrapping_add(1);
+                self.batches.insert(id, batch);
+                Ok(id)
             }
-            outcome.ok_or_else(|| CoreBindError::Contract("fold failed".to_owned()))?;
+            Ok(Err(error)) => Err(error.into()),
+            Err(_) => Err(napi::Error::from_reason("core batch failed to start")),
+        }
+    }
+
+    /// Fold one fact of one of this thread's batches.
+    #[napi(catch_unwind)]
+    pub fn batch_apply(
+        &mut self,
+        batch_id: u32,
+        fact_json: String,
+        now: f64,
+        next_id: Function<String, String>,
+        resolving_json: Option<String>,
+    ) -> napi::Result<String> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let now = to_millis(now)?;
+            let fact = parse_fact(&fact_json)?;
+            let resolving = parse_resolving(resolving_json.as_deref())?;
+            let mut ids = NextId {
+                next: &next_id,
+                failure: None,
+            };
+            let mut ctx = ace_core::state::ApplyContext {
+                now,
+                ids: &mut ids,
+                resolving_interactions: resolving,
+            };
+            let mut events = Vec::new();
+            let batch = self
+                .batches
+                .get_mut(&batch_id)
+                .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
+            let outcome = batch.apply(&mut self.state, &fact, &mut ctx, &mut events);
+            finish_fold(ids, outcome)?;
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(events)
         }));
         let events = match result {
@@ -222,17 +326,18 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core batch apply panicked")),
         };
-        write_response(&mut self.buffer, &events);
+        write_response(&mut self.buffer, &self.state, &events);
         Ok(std::mem::take(&mut self.buffer))
     }
 
-    /// Derive this thread's deferred batch status.
+    /// Derive one batch's deferred status.
     #[napi(catch_unwind)]
-    pub fn batch_flush(&mut self) -> napi::Result<String> {
+    pub fn batch_flush(&mut self, batch_id: u32) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let batch = self.batch.as_mut().ok_or_else(|| {
-                CoreBindError::Contract("no batch began on this thread".to_owned())
-            })?;
+            let batch = self
+                .batches
+                .get_mut(&batch_id)
+                .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(batch.flush(&mut self.state))
         }));
         let events = match result {
@@ -240,7 +345,7 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core batch flush panicked")),
         };
-        write_response(&mut self.buffer, &events);
+        write_response(&mut self.buffer, &self.state, &events);
         Ok(std::mem::take(&mut self.buffer))
     }
 
@@ -256,6 +361,102 @@ impl CoreThreadNative {
             Err(_) => Err(napi::Error::from_reason("core snapshot panicked")),
         }
     }
+}
+
+impl CoreThreadNative {
+    fn with_state(state: ace_core::ThreadState) -> Self {
+        Self {
+            state,
+            batches: HashMap::new(),
+            next_batch: 0,
+            buffer: String::with_capacity(65536),
+        }
+    }
+}
+
+/// Assign one field of the state from JSON, keeping the state's own insertion order for a field
+/// the fold had not set yet (a written field is appended, as `state[key] = value` appends it).
+fn set_field(
+    state: &mut ace_core::ThreadState,
+    field: &str,
+    json: &str,
+) -> Result<(), CoreBindError> {
+    let value = ace_core::json_io::parse_untrusted(json)
+        .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+    fn decode<T: serde::de::DeserializeOwned>(
+        value: &ace_core::json_io::Json,
+        name: &str,
+    ) -> Result<T, CoreBindError> {
+        ace_core::json_io::decode(value)
+            .map_err(|error| CoreBindError::InvalidContext(format!("{name}: {error}")))
+    }
+    match field {
+        "threadId" => state.thread_id = decode(&value, field)?,
+        "config" => state.config = decode(&value, field)?,
+        "rootKey" => {
+            state.root_key = decode(&value, field)?;
+            state.appended("rootKey");
+        }
+        "initialRoot" => state.initial_root = decode(&value, field)?,
+        "processExit" => {
+            state.process_exit = decode(&value, field)?;
+            state.appended("processExit");
+        }
+        "lastTransportSignalAt" => {
+            state.last_transport_signal_at = decode(&value, field)?;
+            state.appended("lastTransportSignalAt");
+        }
+        "statusObservedAt" => {
+            state.status_observed_at = decode(&value, field)?;
+            state.appended("statusObservedAt");
+        }
+        "agents" => state.agents = decode(&value, field)?,
+        "runs" => state.runs = decode(&value, field)?,
+        "items" => state.items = decode(&value, field)?,
+        "interactions" => state.interactions = decode(&value, field)?,
+        "tasks" => state.tasks = decode(&value, field)?,
+        "uncertainTasks" => state.uncertain_tasks = decode(&value, field)?,
+        "personTasks" => {
+            state.person_tasks = decode(&value, field)?;
+            state.appended("personTasks");
+        }
+        "interactionHistory" => state.interaction_history = decode(&value, field)?,
+        "taskHistory" => state.task_history = decode(&value, field)?,
+        "indexes" => state.indexes = decode(&value, field)?,
+        "outcomeOrder" => state.outcome_order = decode(&value, field)?,
+        "runSeq" => {
+            state.run_seq = decode(&value, field)?;
+            state.appended("runSeq");
+        }
+        "pendingNotices" => state.pending_notices = decode(&value, field)?,
+        "rejectionNotices" => {
+            state.rejection_notices = decode(&value, field)?;
+            state.appended("rejectionNotices");
+        }
+        "itemLinks" => state.item_links = decode(&value, field)?,
+        "queueCount" => state.queue_count = decode(&value, field)?,
+        "queueSources" => state.queue_sources = decode(&value, field)?,
+        "queueHeld" => {
+            state.queue_held = decode(&value, field)?;
+            state.appended("queueHeld");
+        }
+        "queueStopped" => {
+            state.queue_stopped = decode(&value, field)?;
+            state.appended("queueStopped");
+        }
+        "hasRun" => state.has_run = decode(&value, field)?,
+        "movedTo" => {
+            state.moved_to = decode(&value, field)?;
+            state.appended("movedTo");
+        }
+        "status" => state.status = decode(&value, field)?,
+        other => {
+            return Err(CoreBindError::InvalidContext(format!(
+                "unknown state field: {other}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn create_inner(
@@ -274,199 +475,4 @@ fn create_inner(
     };
     ace_core::state::create_thread_state(thread_id.to_owned(), root, config)
         .map_err(|error| CoreBindError::InvalidThread(error.to_string()))
-}
-
-/// Derive one agent's status from a state snapshot.
-#[napi(catch_unwind)]
-pub fn core_derive_agent_status(state_json: String, key: String, now: f64) -> napi::Result<String> {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let now = to_millis(now)?;
-        let state = parse_state(&state_json)?;
-        let status = ace_core::status::derive_agent_status(&state, &key, now);
-        ace_json::ser::to_string(&status)
-            .map_err(|error| CoreBindError::Contract(error.to_string()))
-    }));
-    match result {
-        Ok(Ok(json)) => Ok(json),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(napi::Error::from_reason("core derive panicked")),
-    }
-}
-
-/// Derive one thread's status from a state snapshot.
-#[napi(catch_unwind)]
-pub fn core_derive_thread_status(state_json: String) -> napi::Result<String> {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let state = parse_state(&state_json)?;
-        let status = ace_core::status::derive_thread_status(&state);
-        ace_json::ser::to_string(&status)
-            .map_err(|error| CoreBindError::Contract(error.to_string()))
-    }));
-    match result {
-        Ok(Ok(json)) => Ok(json),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(napi::Error::from_reason("core derive panicked")),
-    }
-}
-
-/// The next deadline from a state snapshot.
-#[napi(catch_unwind)]
-pub fn core_next_deadline(
-    state_json: String,
-    provider_deadline: Option<f64>,
-) -> napi::Result<Option<f64>> {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let state = parse_state(&state_json)?;
-        // Invalid provider deadlines are ignored, like TypeScript's
-        // `earliest` (safe integer >= 0), not rejected.
-        let provider = match provider_deadline {
-            Some(deadline)
-                if deadline.is_finite()
-                    && deadline.fract() == 0.0
-                    && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
-            {
-                Some(deadline as i64)
-            }
-            _ => None,
-        };
-        Ok::<Option<i64>, CoreBindError>(ace_core::deadlines::next_deadline(&state, provider))
-    }));
-    match result {
-        Ok(Ok(deadline)) => Ok(deadline.map(|deadline| deadline as f64)),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(napi::Error::from_reason("core deadline panicked")),
-    }
-}
-
-/// One deadline index behind a handle the TypeScript shell holds.
-#[napi]
-pub struct DeadlineIndexNative {
-    inner: ace_core::deadlines::DeadlineIndex,
-}
-
-#[napi]
-impl DeadlineIndexNative {
-    /// Build the index over one state snapshot.
-    #[napi(constructor, catch_unwind)]
-    pub fn new(state_json: String) -> napi::Result<Self> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            parse_state(&state_json).map(|state| Self {
-                inner: ace_core::deadlines::DeadlineIndex::new(&state),
-            })
-        }));
-        match result {
-            Ok(Ok(index)) => Ok(index),
-            Ok(Err(error)) => Err(error.into()),
-            Err(_) => Err(napi::Error::from_reason("deadline index failed to start")),
-        }
-    }
-
-    /// Rebuild the index over one state snapshot.
-    #[napi(catch_unwind)]
-    pub fn rebuild(&mut self, state_json: String) -> napi::Result<()> {
-        let result = catch_unwind(AssertUnwindSafe(|| parse_state(&state_json)));
-        match result {
-            Ok(Ok(state)) => {
-                self.inner.rebuild(&state);
-                Ok(())
-            }
-            Ok(Err(error)) => Err(error.into()),
-            Err(_) => Err(napi::Error::from_reason("deadline index failed to rebuild")),
-        }
-    }
-
-    /// Move eligibility after a signal.
-    #[napi(catch_unwind)]
-    pub fn signal(&mut self, agent: Option<String>, at: f64, silence_ms: f64) -> napi::Result<()> {
-        if !at.is_finite() || !silence_ms.is_finite() || silence_ms < 0.0 {
-            return Err(napi::Error::from_reason(
-                "deadline signal needs finite times",
-            ));
-        }
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            self.inner.signal(agent.as_deref(), at as i64, silence_ms);
-        }));
-        match result {
-            Ok(()) => Ok(()),
-            Err(_) => Err(napi::Error::from_reason("deadline signal panicked")),
-        }
-    }
-
-    /// The earliest deadline, if any.
-    #[napi(catch_unwind)]
-    pub fn next(&mut self, provider_deadline: Option<f64>) -> napi::Result<Option<f64>> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            let provider = match provider_deadline {
-                Some(deadline)
-                    if deadline.is_finite()
-                        && deadline.fract() == 0.0
-                        && (0.0..=9_007_199_254_740_991.0).contains(&deadline) =>
-                {
-                    Some(deadline as i64)
-                }
-                _ => None,
-            };
-            Ok::<Option<i64>, CoreBindError>(self.inner.next(provider))
-        }));
-        match result {
-            Ok(Ok(deadline)) => Ok(deadline.map(|deadline| deadline as f64)),
-            Ok(Err(error)) => Err(error.into()),
-            Err(_) => Err(napi::Error::from_reason("deadline next panicked")),
-        }
-    }
-}
-
-/// Whether an agent still counts for completion, from a state snapshot.
-#[napi(catch_unwind)]
-pub fn core_completion_relevant(state_json: String, key: String) -> napi::Result<bool> {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let state = parse_state(&state_json)?;
-        Ok::<bool, CoreBindError>(ace_core::status::completion_relevance_reader(&state)(&key))
-    }));
-    match result {
-        Ok(Ok(relevant)) => Ok(relevant),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(napi::Error::from_reason("core relevance panicked")),
-    }
-}
-
-/// The human-attention rule, from interaction and owner snapshots.
-#[napi(catch_unwind)]
-pub fn core_is_actionable_interaction(
-    interaction_json: String,
-    owner_json: Option<String>,
-) -> napi::Result<bool> {
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let interaction: serde_json::Value = serde_json::from_str(&interaction_json)
-            .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
-        let state = interaction
-            .get("state")
-            .and_then(|state| state.as_str())
-            .unwrap_or("");
-        let blocking = interaction
-            .get("blocking")
-            .and_then(|blocking| blocking.as_bool())
-            .unwrap_or(false);
-        let owner_state = match owner_json.as_deref() {
-            None => None,
-            Some(text) => {
-                let owner: serde_json::Value = serde_json::from_str(text)
-                    .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
-                owner
-                    .get("state")
-                    .and_then(|state| state.as_str())
-                    .map(str::to_owned)
-            }
-        };
-        Ok::<bool, CoreBindError>(ace_core::human::is_actionable_interaction(
-            state,
-            blocking,
-            owner_state.as_deref(),
-        ))
-    }));
-    match result {
-        Ok(Ok(actionable)) => Ok(actionable),
-        Ok(Err(error)) => Err(error.into()),
-        Err(_) => Err(napi::Error::from_reason("core interaction rule panicked")),
-    }
 }

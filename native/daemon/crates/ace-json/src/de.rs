@@ -6,6 +6,15 @@
 //!
 //! Numbers visit as integers when they are integral and in range, else as `f64`, so both
 //! `z.number().int()` fields and plain `f64` fields read what JavaScript holds.
+//!
+//! Decoding is recursive (serde's structs and tagged enums walk down the tree), so nesting is
+//! bounded: a fact or state nested past `MAX_DEPTH` fails as an invalid value, which the fold
+//! turns into a rejection notice. Parsing itself is iterative; only this decode has a budget.
+//!
+//! Decoding into typed Rust values recurses (a struct's visitor calls back for each nested
+//! value, and an internally tagged enum buffers through serde's content tree), so nesting is
+//! bounded: a document deeper than [`MAX_DEPTH`] fails with an error instead of growing the
+//! stack. The parser itself is iterative and has no such limit.
 
 use std::fmt;
 
@@ -41,27 +50,58 @@ type Result<T> = std::result::Result<T, Error>;
 /// The token [`JsString`] asks for: its UTF-16 units, a lone surrogate included.
 pub const JS_STRING_TOKEN: &str = "$ace_json::JsString";
 
-impl<'de> de::Deserializer<'de> for &'de Value {
+/// The deepest document typed decoding accepts. Each level costs a handful of stack frames in
+/// serde's visitors, so this keeps a pathological payload an error rather than a crash; real
+/// provider data, and the diagnostics capture's own limit of 100, stay well inside it.
+pub const MAX_DEPTH: u32 = 256;
+
+/// A value to decode, and how deep inside its document it sits.
+#[derive(Clone, Copy)]
+pub struct Deserializer<'de> {
+    value: &'de Value,
+    depth: u32,
+}
+
+impl<'de> Deserializer<'de> {
+    /// Decode a whole document.
+    pub fn new(value: &'de Value) -> Deserializer<'de> {
+        Deserializer { value, depth: 0 }
+    }
+
+    /// The value one level deeper, or an error when the document is too deep.
+    fn child(value: &'de Value, depth: u32) -> Result<Deserializer<'de>> {
+        if depth > MAX_DEPTH {
+            return Err(Error(format!(
+                "document nests deeper than {MAX_DEPTH} levels"
+            )));
+        }
+        Ok(Deserializer { value, depth })
+    }
+}
+
+impl<'de> de::Deserializer<'de> for Deserializer<'de> {
     type Error = Error;
 
     fn deserialize_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        match self {
+        match self.value {
             Value::Null => visitor.visit_unit(),
             Value::Bool(flag) => visitor.visit_bool(*flag),
             Value::Number(number) => visit_number(number, visitor),
-            Value::String(text) => match text.as_well_formed() {
-                Some(text) => visitor.visit_borrowed_str(text),
-                // Rust text cannot hold a lone surrogate: a provider id that carries one keeps
-                // its structure with U+FFFD in its place. A field that must keep the units
-                // exactly asks for them through [`JS_STRING_TOKEN`].
-                None => visitor.visit_string(text.to_string_lossy().into_owned()),
+            Value::String(text) => match crate::string::to_rust_text(text) {
+                // The string is its own Rust text (no surrogate, no marker): borrow it.
+                std::borrow::Cow::Borrowed(text) => visitor.visit_borrowed_str(text),
+                // A lone surrogate (or a literal marker) travels as Rust text that keeps every
+                // unit, and writes back as the same JavaScript string.
+                std::borrow::Cow::Owned(text) => visitor.visit_string(text),
             },
             Value::Array(items) => visitor.visit_seq(SeqAccess {
                 items: items.iter(),
+                depth: self.depth,
             }),
             Value::Object(map) => visitor.visit_map(MapAccess {
                 entries: map.iter(),
                 value: None,
+                depth: self.depth,
             }),
         }
     }
@@ -71,7 +111,7 @@ impl<'de> de::Deserializer<'de> for &'de Value {
         name: &'static str,
         visitor: V,
     ) -> Result<V::Value> {
-        match (name, self) {
+        match (name, self.value) {
             (JS_STRING_TOKEN, Value::String(text)) => match text.as_well_formed() {
                 Some(text) => visitor.visit_str(text),
                 None => {
@@ -87,9 +127,9 @@ impl<'de> de::Deserializer<'de> for &'de Value {
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        match self {
+        match self.value {
             Value::Null => visitor.visit_none(),
-            other => visitor.visit_some(other),
+            _ => visitor.visit_some(self),
         }
     }
 
@@ -113,6 +153,7 @@ fn visit_number<'de, V: Visitor<'de>>(number: &Number, visitor: V) -> Result<V::
 
 struct SeqAccess<'a> {
     items: std::slice::Iter<'a, Value>,
+    depth: u32,
 }
 
 impl<'de> de::SeqAccess<'de> for SeqAccess<'de> {
@@ -121,7 +162,9 @@ impl<'de> de::SeqAccess<'de> for SeqAccess<'de> {
     fn next_element_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
         match self.items.next() {
             None => Ok(None),
-            Some(value) => seed.deserialize(value).map(Some),
+            Some(value) => seed
+                .deserialize(Deserializer::child(value, self.depth + 1)?)
+                .map(Some),
         }
     }
 
@@ -133,6 +176,7 @@ impl<'de> de::SeqAccess<'de> for SeqAccess<'de> {
 struct MapAccess<'a> {
     entries: indexmap::map::Iter<'a, JsString, Value>,
     value: Option<&'a Value>,
+    depth: u32,
 }
 
 impl<'de> de::MapAccess<'de> for MapAccess<'de> {
@@ -156,7 +200,7 @@ impl<'de> de::MapAccess<'de> for MapAccess<'de> {
 
     fn next_value_seed<V: DeserializeSeed<'de>>(&mut self, seed: V) -> Result<V::Value> {
         match self.value.take() {
-            Some(value) => seed.deserialize(value),
+            Some(value) => seed.deserialize(Deserializer::child(value, self.depth + 1)?),
             None => Err(Error("a map value was read before its key".to_owned())),
         }
     }
@@ -168,7 +212,7 @@ impl<'de> de::MapAccess<'de> for MapAccess<'de> {
 
 /// Read a typed value from a parsed [`Value`].
 pub fn from_value<'de, T: serde::Deserialize<'de>>(value: &'de Value) -> Result<T> {
-    T::deserialize(value)
+    T::deserialize(Deserializer::new(value))
 }
 
 impl<'de> serde::Deserialize<'de> for Value {

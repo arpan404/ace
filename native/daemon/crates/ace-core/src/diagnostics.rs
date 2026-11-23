@@ -71,11 +71,23 @@ pub fn reject_fact(
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
+    reject_data(state, &diagnostic_data(input), reason, ctx, events)
+}
+
+/// Reject a fact JSON cannot carry: `data` is its described form (the facade builds the same one
+/// the TypeScript does), so the notice and its raw payload match byte for byte.
+pub fn reject_data(
+    state: &mut ThreadState,
+    data: &Json,
+    reason: &str,
+    ctx: &mut ApplyContext<'_>,
+    events: &mut Vec<Event>,
+) -> Option<()> {
     let text = format!("Ignored adapter fact: {reason}");
     let raw = RawPayload::Inline {
         payload_type: "core.rejected_fact".to_owned(),
         name: None,
-        data: crate::item_model::vet_json(&diagnostic_data(input)).ok()?.0,
+        data: crate::item_model::vet_json(data).ok()?.0,
     };
     let owner_key = state.root_key.clone();
     let Some(owner_key) = owner_key else {
@@ -102,7 +114,7 @@ pub fn reject_fact(
             notices: indexmap::IndexMap::new(),
         });
     }
-    let fact_type = match input.get("type").and_then(|kind| kind.as_str()) {
+    let fact_type = match data.get("type").and_then(|kind| kind.as_str()) {
         Some(kind) => kind.to_owned(),
         None => String::new(),
     };

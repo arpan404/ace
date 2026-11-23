@@ -225,7 +225,7 @@ async function fakeNoMachine(signedOut: boolean): Promise<ReactNode> {
       import("./boot/fake-account-main.ts"),
       import("./boot/fake.ts"),
     ]);
-  const { daemon } = fake.bootFake();
+  const { daemon } = await fake.bootFake();
   const routes = fakeAccountRoutes({ daemon, session, now: Date.now });
   return (
     <AceAccountBackendContext value={fakeNoMachineAccount(session, signedOut)}>
@@ -259,7 +259,7 @@ async function content(): Promise<ReactNode> {
     if (search.get("machine") === "none") session.setItem("ace.fake.machine", "none");
     if (session.getItem("ace.fake.machine") === "none")
       return fakeNoMachine(search.get("account") === "out");
-    const fake = (await import("./boot/fake.ts")).bootFake();
+    const fake = await (await import("./boot/fake.ts")).bootFake();
     const { client } = fake;
     if (!profileName(local)) setProfileName(local, fake.profileName);
     await client.start();

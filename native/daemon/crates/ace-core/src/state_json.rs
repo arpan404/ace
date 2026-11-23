@@ -88,6 +88,58 @@ fn write_optional<S: SerializeMap>(
     Ok(())
 }
 
+/// The state's own key order, exactly as [`Serialize`] writes it: the facade keeps its view's
+/// fields in it, so `Object.keys`, a spread and `JSON.stringify` see what the TypeScript sees.
+pub fn field_order(state: &ThreadState) -> Vec<&'static str> {
+    let mut order: Vec<&'static str> = vec!["threadId", "config"];
+    if state.initial_root.is_some() {
+        order.push("initialRoot");
+    }
+    order.extend([
+        "agents",
+        "runs",
+        "items",
+        "interactions",
+        "tasks",
+        "uncertainTasks",
+        "interactionHistory",
+        "taskHistory",
+        "indexes",
+        "outcomeOrder",
+        "pendingNotices",
+        "itemLinks",
+        "queueCount",
+        "queueSources",
+        "hasRun",
+        "status",
+    ]);
+    for key in &state.appended {
+        order.push(key);
+    }
+    for key in OPTIONAL {
+        if !state.appended.contains(&key) && present(state, key) {
+            order.push(key);
+        }
+    }
+    order
+}
+
+fn present(state: &ThreadState, key: &str) -> bool {
+    match key {
+        "rootKey" => state.root_key.is_some(),
+        "processExit" => state.process_exit.is_some(),
+        "lastTransportSignalAt" => state.last_transport_signal_at.is_some(),
+        "statusObservedAt" => state.status_observed_at.is_some(),
+        "runSeq" => state.run_seq.is_some(),
+        "personTasks" => state.person_tasks.is_some(),
+        "rejectionNotices" => state.rejection_notices.is_some(),
+        "queueHeld" => state.queue_held.is_some(),
+        "queueStopped" => state.queue_stopped.is_some(),
+        "movedTo" => state.moved_to.is_some(),
+        _ => false,
+    }
+}
+
 impl Serialize for ThreadState {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;

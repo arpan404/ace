@@ -27,13 +27,16 @@ export function adoptImportedThread(
   if (!root || !workspace) throw new Error("Imported project unavailable");
   const nativeId = root.native.nativeId ?? thread.imported.native.nativeId;
   if (!nativeId) throw new Error("Native session identity unavailable");
+  // The root enters as plain data before the core owns the state: a created state is read-only.
   const state = createThreadState({
     threadId: id,
     config: { provider: thread.provider, silenceMs },
+    seed: (state) => {
+      state.rootKey = "root";
+      state.agents.root = { agent: root, activity: "thinking", lastSignalAt: now };
+      state.indexes.agentKeysById[root.id] = "root";
+    },
   });
-  state.rootKey = "root";
-  state.agents.root = { agent: root, activity: "thinking", lastSignalAt: now };
-  state.indexes.agentKeysById[root.id] = "root";
   repo.store.atomic(() => {
     repo.createSession(id, workspace.path, root.model, undefined, thread.imported?.instanceId);
     repo.nativeSession(id, nativeId);

@@ -13,8 +13,32 @@ fn failure(message: String) -> JsValue {
     JsValue::from_str(&message)
 }
 
+/// The same decoder the napi loader uses: ace-json's numbers and JavaScript's key order, so a
+/// snapshot this crate wrote reads back unchanged, lone surrogates included.
 fn parse_state(text: &str) -> Result<ThreadState, String> {
-    serde_json::from_str(text).map_err(|error| error.to_string())
+    ace_core::json_io::parse_typed(text).map_err(|error| error.to_string())
+}
+
+/// The engine's answer RPCs in flight, as the fold's context carries them.
+fn parse_resolving(
+    json: Option<&str>,
+) -> Result<Option<std::collections::HashSet<String>>, String> {
+    match json {
+        None => Ok(None),
+        Some(text) => {
+            let ids: Vec<String> =
+                ace_core::json_io::parse_typed(text).map_err(|error| error.to_string())?;
+            Ok(Some(ids.into_iter().collect()))
+        }
+    }
+}
+
+/// Finish one fold: the ids callback's failure wins, then the fold's own outcome.
+fn finish_fold(ids: NextId<'_>, outcome: Option<()>) -> Result<(), String> {
+    if let Some(failure) = ids.failure {
+        return Err(failure);
+    }
+    outcome.ok_or_else(|| "core contract: fold failed".to_owned())
 }
 
 fn parse_fact(text: &str) -> Result<ace_json::Value, String> {
@@ -75,10 +99,12 @@ fn create_inner(
     root_json: Option<&str>,
 ) -> Result<String, String> {
     let config: ace_core::state::CoreConfig =
-        serde_json::from_str(config_json).map_err(|error| error.to_string())?;
+        ace_core::json_io::parse_typed(config_json).map_err(|error| error.to_string())?;
     let root = match root_json {
         None => None,
-        Some(text) => Some(serde_json::from_str(text).map_err(|error| error.to_string())?),
+        Some(text) => {
+            Some(ace_core::json_io::parse_typed(text).map_err(|error| error.to_string())?)
+        }
     };
     let state = ace_core::state::create_thread_state(thread_id.to_owned(), root, config)
         .map_err(|error| error.to_string())?;
@@ -106,9 +132,16 @@ pub fn core_apply(
     fact_json: &str,
     now: f64,
     next_id: &js_sys::Function,
+    resolving_json: Option<String>,
 ) -> Result<String, JsValue> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        apply_inner(state_json, fact_json, now, next_id)
+        apply_inner(
+            state_json,
+            fact_json,
+            now,
+            next_id,
+            resolving_json.as_deref(),
+        )
     }));
     match result {
         Ok(Ok(json)) => Ok(json),
@@ -122,10 +155,56 @@ fn apply_inner(
     fact_json: &str,
     now: f64,
     next_id: &js_sys::Function,
+    resolving_json: Option<&str>,
 ) -> Result<String, String> {
     let mut state = parse_state(state_json)?;
     let now = to_millis(now)?;
     let input = parse_fact(fact_json)?;
+    let mut ids = NextId {
+        next: next_id,
+        failure: None,
+    };
+    let resolving = parse_resolving(resolving_json)?;
+    let mut ctx = ace_core::state::ApplyContext {
+        now,
+        ids: &mut ids,
+        resolving_interactions: resolving,
+    };
+    let mut events = Vec::new();
+    let outcome = ace_core::reduce::apply(&mut state, &input, &mut ctx, &mut events);
+    finish_fold(ids, outcome)?;
+    response(&events, &state)
+}
+
+/// Reject a fact JSON cannot carry, described by the facade exactly as the TypeScript does.
+#[wasm_bindgen]
+pub fn core_reject(
+    state_json: &str,
+    data_json: &str,
+    reason: &str,
+    now: f64,
+    next_id: &js_sys::Function,
+) -> Result<String, JsValue> {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        reject_inner(state_json, data_json, reason, now, next_id)
+    }));
+    match result {
+        Ok(Ok(json)) => Ok(json),
+        Ok(Err(error)) => Err(failure(error)),
+        Err(_) => Err(failure("core reject failed".to_owned())),
+    }
+}
+
+fn reject_inner(
+    state_json: &str,
+    data_json: &str,
+    reason: &str,
+    now: f64,
+    next_id: &js_sys::Function,
+) -> Result<String, String> {
+    let mut state = parse_state(state_json)?;
+    let now = to_millis(now)?;
+    let data = parse_fact(data_json)?;
     let mut ids = NextId {
         next: next_id,
         failure: None,
@@ -136,11 +215,9 @@ fn apply_inner(
         resolving_interactions: None,
     };
     let mut events = Vec::new();
-    let outcome = ace_core::reduce::apply(&mut state, &input, &mut ctx, &mut events);
-    if let Some(failure) = ids.failure {
-        return Err(failure);
-    }
-    outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
+    let outcome =
+        ace_core::diagnostics::reject_data(&mut state, &data, reason, &mut ctx, &mut events);
+    finish_fold(ids, outcome)?;
     response(&events, &state)
 }
 
@@ -383,10 +460,12 @@ impl WasmBatch {
         fact_json: &str,
         now: f64,
         next_id: &js_sys::Function,
+        resolving_json: Option<String>,
     ) -> Result<String, JsValue> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let now = to_millis(now)?;
             let input = parse_fact(fact_json)?;
+            let resolving = parse_resolving(resolving_json.as_deref())?;
             let mut ids = NextId {
                 next: next_id,
                 failure: None,
@@ -394,16 +473,13 @@ impl WasmBatch {
             let mut ctx = ace_core::state::ApplyContext {
                 now,
                 ids: &mut ids,
-                resolving_interactions: None,
+                resolving_interactions: resolving,
             };
             let mut events = Vec::new();
             let outcome = self
                 .batch
                 .apply(&mut self.state, &input, &mut ctx, &mut events);
-            if let Some(failure) = ids.failure {
-                return Err(failure);
-            }
-            outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
+            finish_fold(ids, outcome)?;
             response(&events, &self.state)
         }));
         match result {

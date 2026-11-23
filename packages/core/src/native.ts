@@ -9,15 +9,26 @@
  * not copied back after every fold: the `ThreadState` fields are accessors
  * that re-read the handle's snapshot the next time the field is looked at,
  * so a fold costs one crossing and TypeScript still sees the same shape
- * (same field names, optional fields absent as `undefined`, never `null`).
+ * (same field names, optional fields absent, never `null`).
+ *
+ * Nothing here touches the host until a backend is actually in use: the addon
+ * path and the wasm loaders are resolved inside the calls that need them, so
+ * importing this module works in a browser and with `ACE_CORE` switched off.
  */
 
 import type { AgentStatus, EventPayload, ThreadId, ThreadStatus } from "@ace/protocol";
 import { coreBackend } from "@ace/provider-kit/native-switches";
 import type { ApplyContext, CoreConfig, ThreadState } from "./state.ts";
-import type { RootAgentInit } from "./facts.ts";
-import type { Fact } from "./facts.ts";
-import { applyResult, type CoreThreadHandle, handleFor, lazyThreadState } from "./native-state.ts";
+import type { Fact, RootAgentInit } from "./facts.ts";
+import { diagnosticData } from "./diagnostics.ts";
+import { isFactData } from "./fact-data.ts";
+import {
+  applyResult,
+  type CoreThreadHandle,
+  handleFor,
+  invalidate,
+  lazyThreadState,
+} from "./native-state.ts";
 
 interface DeadlineIndexHandle {
   rebuild(stateJson: string): void;
@@ -45,6 +56,14 @@ interface WasmExports {
     factJson: string,
     now: number,
     nextId: (kind: string) => string,
+    resolvingJson?: string,
+  ): string;
+  core_reject(
+    stateJson: string,
+    dataJson: string,
+    reason: string,
+    now: number,
+    nextId: (kind: string) => string,
   ): string;
   core_derive_agent_status(stateJson: string, key: string, now: number): string;
   core_derive_thread_status(stateJson: string): string;
@@ -60,22 +79,33 @@ interface WasmExports {
     stateJson: string,
     deadlineJson?: string,
   ) => {
-    apply(factJson: string, now: number, nextId: (kind: string) => string): string;
+    apply(
+      factJson: string,
+      now: number,
+      nextId: (kind: string) => string,
+      resolvingJson?: string,
+    ): string;
     flush(): string;
   };
 }
 
-const library =
-  process.platform === "win32"
-    ? "ace_daemon_node.dll"
-    : process.platform === "darwin"
-      ? "libace_daemon_node.dylib"
-      : "libace_daemon_node.so";
+/** The addon's file name for this platform. Only read where the addon is opened. */
+function library(): string {
+  const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? "";
+  if (platform === "win32") return "ace_daemon_node.dll";
+  if (platform === "darwin") return "libace_daemon_node.dylib";
+  return "libace_daemon_node.so";
+}
+
+/** The Node build of the wasm core, beside the crate it is built from. */
+const WASM_NODE = "../../../native/daemon/wasm-pkg-nodejs/ace_core_wasm.js";
 
 function addonPath(): string {
-  const explicit = process.env.ACE_CORE_ADDON ?? process.env.ACE_STORE_ADDON;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+  const explicit = env?.ACE_CORE_ADDON ?? env?.ACE_STORE_ADDON;
   if (explicit) return explicit;
-  return new URL(`../../../native/daemon/target/release/${library}`, import.meta.url).pathname;
+  return new URL(`../../../native/daemon/target/release/${library()}`, import.meta.url).pathname;
 }
 
 let loaded: NativeAddon | undefined;
@@ -116,21 +146,21 @@ let wasmNode: WasmExports | undefined;
 function wasm(): WasmExports {
   if (wasmNode) return wasmNode;
   if (coreBackend() !== "wasm") throw new Error("wasm core is off");
-  wasmNode = nodeRequire("../../../native/daemon/wasm-pkg-nodejs/ace_core_wasm.js") as WasmExports;
+  wasmNode = nodeRequire(WASM_NODE) as WasmExports;
   return wasmNode;
 }
 
 let wasmBrowser: WasmExports | undefined;
 let wasmBrowserReady: Promise<WasmExports> | undefined;
-/** Resolve once the browser's wasm core is instantiated (fake-daemon startup awaits this). */
+/** Instantiate the browser's wasm core; a caller that folds must await this first. */
 export function ensureNativeCoreReady(): Promise<void> {
   if (coreBackend() !== "wasm" || isNode) return Promise.resolve();
   wasmBrowserReady ??= (async () => {
-    const pkg = (await import("../../native/daemon/wasm-pkg/ace_core_wasm.js")) as {
+    const pkg = (await import("../../../native/daemon/wasm-pkg/ace_core_wasm.js")) as {
       default: (bytes: BufferSource) => Promise<unknown>;
     } & WasmExports;
     const response = await fetch(
-      new URL("../../native/daemon/wasm-pkg/ace_core_wasm_bg.wasm", import.meta.url),
+      new URL("../../../native/daemon/wasm-pkg/ace_core_wasm_bg.wasm", import.meta.url),
     );
     await pkg.default(await response.arrayBuffer());
     wasmBrowser = pkg as unknown as WasmExports;
@@ -162,14 +192,47 @@ function idsNext(ctx: ApplyContext): (kind: string) => string {
   };
 }
 
-/** `JSON.stringify` for a fact. The replacer only exists for `bigint`s, which JSON rejects. */
+/** The engine's answer RPCs in flight: a turn that ends now keeps their interactions open. */
+function resolvingJson(ctx: ApplyContext): string | undefined {
+  if (ctx.resolvingInteractions === undefined) return undefined;
+  return JSON.stringify([...ctx.resolvingInteractions]);
+}
+
+/** The fact as JSON, after the preflight the TypeScript fold runs on the value itself. */
 function factJson(fact: unknown): string {
+  const json = JSON.stringify(fact);
+  // `undefined` has no JSON text; the core reads it as the non-object fact it is.
+  return json === undefined ? "null" : json;
+}
+
+/**
+ * A fact JSON cannot carry (a `bigint`, a function, a cycle, a non-finite number) is rejected by
+ * the same rule and with the same described data the TypeScript uses, so the notice matches.
+ */
+function rejectNonJson(state: ThreadState, fact: unknown, ctx: ApplyContext): EventPayload[] {
+  const data = JSON.stringify(diagnosticData(fact)) ?? "null";
+  const reason = "adapter facts must contain JSON data";
+  if (coreBackend() === "native")
+    return fold(state, () =>
+      handleFor(state, openThread).reject(data, reason, ctx.now, idsNext(ctx)),
+    );
+  return applyResult(
+    state,
+    wasmAny().core_reject(JSON.stringify(state), data, reason, ctx.now, idsNext(ctx)),
+  );
+}
+
+/**
+ * Fold one fact through `call` and read the answer. A rollback the core had already begun when
+ * an id callback failed leaves the handle's state changed, so the view is invalidated either
+ * way: the handle stays the one source of truth.
+ */
+function fold(state: ThreadState, call: () => string): EventPayload[] {
   try {
-    return JSON.stringify(fact) as string;
-  } catch {
-    return JSON.stringify(fact, (_, value) =>
-      typeof value === "bigint" ? undefined : value,
-    ) as string;
+    return applyResult(state, call());
+  } catch (error) {
+    invalidate(state);
+    throw error;
   }
 }
 
@@ -178,6 +241,8 @@ export function createThreadState(init: {
   threadId: ThreadId;
   rootAgent?: RootAgentInit;
   config: CoreConfig;
+  /** Seed plain state before it becomes the core's (an imported historical thread's root). */
+  seed?: (state: ThreadState) => void;
 }): ThreadState {
   const backend = coreBackend();
   if (backend === "native") {
@@ -186,6 +251,10 @@ export function createThreadState(init: {
       JSON.stringify(init.config),
       init.rootAgent === undefined ? undefined : JSON.stringify(init.rootAgent),
     );
+    if (init.seed === undefined) return lazyThreadState(handle);
+    const plain = JSON.parse(handle.snapshot()) as ThreadState;
+    init.seed(plain);
+    handle.adopt(JSON.stringify(plain));
     return lazyThreadState(handle);
   }
   if (backend === "wasm") {
@@ -194,7 +263,9 @@ export function createThreadState(init: {
       JSON.stringify(init.config),
       init.rootAgent === undefined ? undefined : JSON.stringify(init.rootAgent),
     );
-    return JSON.parse(result) as ThreadState;
+    const state = JSON.parse(result) as ThreadState;
+    init.seed?.(state);
+    return state;
   }
   throw new Error("native core is off");
 }
@@ -202,13 +273,18 @@ export function createThreadState(init: {
 /** Fold one adapter fact and recompute statuses. */
 export function apply(state: ThreadState, fact: unknown, ctx: ApplyContext): EventPayload[] {
   const backend = coreBackend();
+  // The fold's preflight reads the value itself: a fact JSON cannot carry must be rejected, not
+  // stringified away (`1n` into a valid update, a function-valued field into nothing).
+  if (!isFactData(fact)) return rejectNonJson(state, fact, ctx);
   const json = factJson(fact);
   if (backend === "native")
-    return applyResult(state, handleFor(state, openThread).apply(json, ctx.now, idsNext(ctx)));
+    return fold(state, () =>
+      handleFor(state, openThread).apply(json, ctx.now, idsNext(ctx), resolvingJson(ctx)),
+    );
   if (backend === "wasm") {
     return applyResult(
       state,
-      wasmAny().core_apply(JSON.stringify(state), json, ctx.now, idsNext(ctx)),
+      wasmAny().core_apply(JSON.stringify(state), json, ctx.now, idsNext(ctx), resolvingJson(ctx)),
     );
   }
   throw new Error("native core is off");
@@ -218,6 +294,8 @@ export function apply(state: ThreadState, fact: unknown, ctx: ApplyContext): Eve
 export class FactBatch {
   private readonly state: ThreadState;
   private readonly backend: string;
+  /** The native batch handle; each wrapper owns its own, as the TypeScript's does. */
+  private readonly batchId: number;
   private readonly wasmBatch: InstanceType<WasmExports["WasmBatch"]> | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
@@ -227,22 +305,31 @@ export class FactBatch {
     const deadlineJson =
       stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
     if (backend === "native") {
-      handleFor(state, openThread).batchBegin(deadlineJson);
+      this.batchId = handleFor(state, openThread).batchBegin(deadlineJson);
       this.wasmBatch = undefined;
     } else {
+      this.batchId = 0;
       this.wasmBatch = new (wasmAny().WasmBatch)(JSON.stringify(state), deadlineJson);
     }
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
-    const json = factJson(fact);
+    if (!isFactData(fact)) return rejectNonJson(this.state, fact, ctx);
     if (this.backend === "wasm") {
       const batch = this.wasmBatch;
       if (!batch) throw new Error("wasm batch is off");
-      return applyResult(this.state, batch.apply(json, ctx.now, idsNext(ctx)));
+      return applyResult(
+        this.state,
+        batch.apply(factJson(fact), ctx.now, idsNext(ctx), resolvingJson(ctx)),
+      );
     }
-    return applyResult(
-      this.state,
-      handleFor(this.state, openThread).batchApply(json, ctx.now, idsNext(ctx)),
+    return fold(this.state, () =>
+      handleFor(this.state, openThread).batchApply(
+        this.batchId,
+        factJson(fact),
+        ctx.now,
+        idsNext(ctx),
+        resolvingJson(ctx),
+      ),
     );
   }
   flush(): EventPayload[] {
@@ -251,7 +338,7 @@ export class FactBatch {
       if (!batch) throw new Error("wasm batch is off");
       return applyResult(this.state, batch.flush());
     }
-    return applyResult(this.state, handleFor(this.state, openThread).batchFlush());
+    return fold(this.state, () => handleFor(this.state, openThread).batchFlush(this.batchId));
   }
 }
 
