@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //! A spawned leader, held so its pid, and on POSIX its process group id,
-//! cannot be reused while ace may still signal the group.
+//! cannot be reused while ace may still signal the group by number.
 //!
 //! POSIX: the exit is observed without reaping (`waitid(WNOWAIT)`); the
-//! zombie keeps the group id ace's. It is reaped (released) once the leader
-//! exited, no stop holds it, and either two consecutive scans found the
-//! same empty group or the shell gave the group up (`disown`). After that
-//! the handle never signals the group again. Only the leader is waited for:
-//! adopted descendants are the reaper's (`reaper.rs`). Windows: the process
-//! handle pins the pid until the shell disposes the child after its exit.
+//! zombie keeps the group id ace's. Every group signal sent while it is held
+//! first records the group's members and the leader's tree. The leader is
+//! released once it exited, no stop holds it, and either two consecutive
+//! scans found the same empty group, the shell gave the group up
+//! (`disown`), or the hold reached its bound. Release records the members
+//! once more, reaps (keeping the handle and retrying if the reap fails), and
+//! then, while the kernel still reports the group occupied (so its id cannot
+//! have been reused), adopts any member a scan missed. From release on the
+//! group number is never signalled: stops reach the recorded members one by
+//! one (`members`). Only the leader is waited for: adopted descendants are
+//! the reaper's (`reaper.rs`). Windows: the process handle pins the pid
+//! until the shell disposes the child after its exit.
 
 #[cfg(unix)]
 use crate::errors::SupervisorError;
@@ -22,23 +28,29 @@ pub struct Leader {
     /// The kernel start time read at spawn; the registry key with `pid`.
     start: Option<String>,
     state: Mutex<LeaderState>,
+    /// Wakes the release loop: a stop is polling for the group to empty.
+    pub(crate) wake: tokio::sync::Notify,
 }
 
 #[derive(Default)]
 struct LeaderState {
-    /// The child until it is released: reaped (POSIX) or closed (Windows).
+    /// The child until it is reaped (POSIX) or closed (Windows).
     child: Option<std::process::Child>,
     /// The wait saw the exit; only then may the child be released.
     exited: bool,
-    /// Stops in progress; none may run against a released group.
+    /// The group number is no longer signalled (the child may still be
+    /// held until its reap succeeds).
+    released: bool,
+    /// Stops in progress; release waits for them.
     holds: usize,
     /// The shell gave the group up (POSIX) or disposed the child (Windows).
     disowned: bool,
-    /// The previous scan's live members, to see two identical scans.
+    /// The previous scan's live members, to see two identical scans; also
+    /// what a stop's poll reads, so the poll itself never scans.
     last_scan: Option<BTreeSet<(u32, String)>>,
-    /// Members and tree recorded while the leader pinned the group (at
-    /// each group signal, and just before release): after release, stops
-    /// reach only these, one by one, and the children they prove.
+    /// Members and tree recorded while the leader pinned the group: after
+    /// release, stops reach only these, one by one, and the children they
+    /// prove.
     known: BTreeSet<(u32, String)>,
 }
 
@@ -51,6 +63,17 @@ pub enum GroupSignal {
     /// The leader was released: nothing is sent, since the group id may
     /// belong to someone else now.
     Released,
+}
+
+/// What one release step left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReleaseStep {
+    /// Still held: exited not yet, a stop holds it, or the group lives.
+    Held,
+    /// Released, but the reap has not succeeded yet: retry.
+    Reaping,
+    /// Released and reaped (or closed): nothing more to do.
+    Done,
 }
 
 /// Supervised leaders in this process, by kernel identity (pid and start),
@@ -88,6 +111,7 @@ impl Leader {
                 child: Some(child),
                 ..LeaderState::default()
             }),
+            wake: tokio::sync::Notify::new(),
         });
         if let (Some(start), Ok(mut leaders)) = (&leader.start, registry().lock()) {
             leaders.insert((pid, start.clone()), Arc::downgrade(&leader));
@@ -101,7 +125,7 @@ impl Leader {
     }
 
     /// Signals the leader itself while its pid is still its own (alive, or
-    /// exited but unreaped). False once released: nothing is sent.
+    /// exited but unreaped). False once reaped: nothing is sent.
     pub fn kill(&self, signal: SignalName) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
@@ -128,11 +152,11 @@ impl Leader {
         }
     }
 
-    /// Starts a stop: true while the group id is still ace's, and then the
-    /// leader stays unreaped until `unhold`. False once released.
+    /// Starts a stop: true while the group number is still ace's, and the
+    /// leader then stays unreleased until `unhold`. False once released.
     pub fn hold(&self) -> bool {
         match self.state.lock() {
-            Ok(mut state) if state.child.is_some() => {
+            Ok(mut state) if !state.released && state.child.is_some() => {
                 state.holds += 1;
                 true
             }
@@ -151,7 +175,7 @@ impl Leader {
             Err(_) => false,
         };
         if disowned {
-            self.release_if_ready();
+            self.step();
         }
     }
 
@@ -160,6 +184,7 @@ impl Leader {
     fn record(&self) {
         let found = crate::system::capture_group(self.pid);
         if let Ok(mut state) = self.state.lock()
+            && !state.released
             && state.child.is_some()
         {
             state.known.extend(found);
@@ -176,7 +201,7 @@ impl Leader {
         crate::system::live_with_children(&known)
     }
 
-    /// Signals the whole group while the unreaped leader keeps its id
+    /// Signals the whole group while the unreleased leader keeps its id
     /// ace's, recording its members first. The lock is held across the
     /// signal, so release cannot slip in. Once released: nothing is sent,
     /// and stops go member by member (`members`).
@@ -187,7 +212,7 @@ impl Leader {
             .state
             .lock()
             .map_err(|_| SupervisorError::Operation("supervisor leader lock failed".to_owned()))?;
-        if state.child.is_none() {
+        if state.released || state.child.is_none() {
             return Ok(GroupSignal::Released);
         }
         let Some(target) = i32::try_from(self.pid)
@@ -212,91 +237,41 @@ impl Leader {
         }
     }
 
-    /// Whether nothing of the group runs: once released, no recorded member
-    /// (or child it proves) runs; before, a scan read every member and
-    /// found none live. The zombie leader does not count; an unreadable
+    /// Whether nothing of the group runs. Released: no recorded member (or
+    /// child it proves) runs. Held: the release loop's latest scan read every
+    /// member and found none live; the poll never scans itself, it asks the
+    /// loop to scan now. The zombie leader does not count; an unreadable
     /// member does.
     pub fn group_gone(&self) -> bool {
-        let (released, exited) = match self.state.lock() {
-            Ok(state) => (state.child.is_none(), state.exited),
+        let (released, exited, scanned_empty) = match self.state.lock() {
+            Ok(state) => (
+                state.released,
+                state.exited,
+                state.last_scan.as_ref().is_some_and(BTreeSet::is_empty),
+            ),
             Err(_) => return false,
         };
         if released {
-            return self.members_none();
+            return self.members().is_empty();
         }
-        exited
-            && crate::system::group_live_members(self.pid, self.pid)
-                .is_some_and(|live| live.is_empty())
-    }
-
-    fn members_none(&self) -> bool {
-        self.members().is_empty()
+        self.wake.notify_one();
+        exited && scanned_empty
     }
 
     /// The shell gave the group up: once the leader has exited and no stop
-    /// holds it, it is released whatever the group holds; later stops find
-    /// the group released and send nothing.
+    /// holds it, it is released whatever the group holds.
     pub fn disown(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.disowned = true;
         }
-        self.release_if_ready();
+        self.step();
+        self.wake.notify_one();
     }
 
     /// Windows: the shell disposed the child; same as giving the tree up.
     pub fn dispose(&self) {
         if cfg!(windows) {
             self.disown();
-        }
-    }
-
-    /// Releases the leader when it may be: exited, no stop holding it, and
-    /// disowned or (POSIX) two consecutive identical scans of an empty
-    /// group. True once released.
-    pub(crate) fn release_if_ready(&self) -> bool {
-        let disowned = match self.state.lock() {
-            Ok(state) if state.child.is_none() => return true,
-            Ok(state) if !state.exited || state.holds > 0 => return false,
-            Ok(state) => state.disowned,
-            Err(_) => return false,
-        };
-        if !disowned && !self.scanned_empty_twice() {
-            return false;
-        }
-        self.release();
-        true
-    }
-
-    /// POSIX: one scan of the group; true when it and the scan before both
-    /// read every member and found the same, empty, set. Windows trees have
-    /// no group and are released only by `dispose`.
-    fn scanned_empty_twice(&self) -> bool {
-        if cfg!(not(unix)) {
-            return false;
-        }
-        let scan = crate::system::group_live_members(self.pid, self.pid);
-        let Ok(mut state) = self.state.lock() else {
-            return false;
-        };
-        let stable = matches!((&scan, &state.last_scan), (Some(now), Some(before)) if now.is_empty() && now == before);
-        state.last_scan = scan;
-        stable
-    }
-
-    /// Reaps (POSIX) or closes (Windows) the exited leader, unless a stop
-    /// took a hold in the meantime; records the members first, while the
-    /// group id is still pinned.
-    fn release(&self) {
-        if cfg!(unix) {
-            self.record();
-        }
-        let child = match self.state.lock() {
-            Ok(mut state) if state.exited && state.holds == 0 => state.child.take(),
-            _ => None,
-        };
-        if let Some(mut child) = child {
-            // POSIX: collects the zombie. Windows: the drop closes the handle.
-            let _ = child.try_wait();
         }
     }
 
@@ -321,11 +296,22 @@ impl Leader {
 }
 
 impl Drop for Leader {
+    /// The last handle is gone: an exited leader is released (members
+    /// recorded, but no one is left to use them) and reaped, so no zombie
+    /// outlives every handle.
     fn drop(&mut self) {
+        let exited = self.state.lock().is_ok_and(|state| state.exited);
+        if exited {
+            if let Ok(mut state) = self.state.lock() {
+                state.holds = 0;
+            }
+            let _ = self.step_bounded();
+        }
         self.forget();
     }
 }
 
+mod release;
 mod wait;
 
 #[cfg(unix)]

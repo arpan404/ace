@@ -78,13 +78,17 @@ pub(super) fn start_stdin<E: EventSink + Clone>(
 }
 
 /// Starts one output pump; its flow is the shell stream's.
-pub(super) fn start_output<E: EventSink + Clone, R: PipeEnd + tokio::io::AsyncRead>(
+pub(super) fn start_output<
+    E: EventSink + Clone,
+    R: PipeEnd + tokio::io::AsyncRead + crate::pump::HangUp,
+>(
     runtime: &tokio::runtime::Handle,
     sink: &E,
     stream: OutputStream,
     pipe: R,
+    budget: &Arc<crate::pump::OutputBudget>,
 ) -> (tokio::task::JoinHandle<()>, Arc<Flow>) {
-    let flow = Flow::new();
+    let flow = Flow::new(Arc::clone(budget));
     let (task_sink, task_flow) = (sink.clone(), Arc::clone(&flow));
     let pump = runtime.spawn(async move {
         if !pipe.connected().await {

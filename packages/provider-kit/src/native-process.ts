@@ -217,6 +217,8 @@ export interface NativeSpawnSpec {
   hide: boolean;
   /** Windows: the child joins a kill-on-close job before it runs (the shell's own job). */
   contain: boolean;
+  /** The process's output budget: what the native pumps read ahead never exceeds it. */
+  maxOutputBytes?: number;
 }
 
 /** A masked (undefined) variable isn't launched, like node's spawn. */
@@ -281,6 +283,7 @@ export class NativeChildProcess
           verbatim: spec.verbatim,
           hide: spec.hide,
           contain: spec.contain,
+          ...(spec.maxOutputBytes === undefined ? {} : { max_output_bytes: spec.maxOutputBytes }),
         }),
         // napi calls threadsafe functions error-first: (null, kind, data).
         (_error: unknown, kind, data) => this.onEvent(kind, data),

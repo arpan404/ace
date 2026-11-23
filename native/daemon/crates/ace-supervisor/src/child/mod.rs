@@ -154,13 +154,14 @@ pub fn spawn_child<E: EventSink + Clone>(
     }
     let mut pumps = Vec::new();
     let mut outputs = [None, None];
+    let budget = crate::pump::OutputBudget::new(spec.max_output_bytes);
     if let Some(pipe) = pipes.stdout.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stdout, pipe);
+        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stdout, pipe, &budget);
         pumps.push(pump);
         outputs[0] = Some(flow);
     }
     if let Some(pipe) = pipes.stderr.take() {
-        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stderr, pipe);
+        let (pump, flow) = start_output(runtime, &sink, OutputStream::Stderr, pipe, &budget);
         pumps.push(pump);
         outputs[1] = Some(flow);
     }
@@ -208,27 +209,44 @@ async fn wait_and_close<E: EventSink>(
 /// The longest wait between scans for an exited leader's group to empty.
 #[cfg(unix)]
 const RELEASE_POLL_MAX: std::time::Duration = std::time::Duration::from_secs(5);
-/// How long scans continue after the exit. A group that outlives this
-/// keeps its leader held, without further scans, until the shell gives the
-/// group up (`unregisterGroup`) or the daemon exits: one zombie, no cost.
+/// The bound on holding an exited leader for a group that outlives it: then
+/// it is released anyway (members recorded first), and stops reach the
+/// recorded members one by one.
 #[cfg(unix)]
-const RELEASE_SCAN_FOR: std::time::Duration = std::time::Duration::from_secs(600);
+const RELEASE_HOLD_FOR: std::time::Duration = std::time::Duration::from_secs(600);
 
-/// Releases the exited leader once two consecutive scans find its group
-/// empty: at once, then at growing intervals (within milliseconds of a
-/// group stop), at most every five seconds, for at most ten minutes.
+/// Releases and reaps the exited leader: once two consecutive scans find
+/// its group empty, the shell gives the group up, or the hold reaches its
+/// bound. Scans at once, then at growing intervals (at most every five
+/// seconds); a stop polling for the group wakes it to scan at once.
 #[cfg(unix)]
 async fn release_when_group_empty(leader: Arc<Leader>) {
-    let until = tokio::time::Instant::now() + RELEASE_SCAN_FOR;
+    use crate::leader::ReleaseStep;
+    let bound = tokio::time::Instant::now() + RELEASE_HOLD_FOR;
     let mut delay = std::time::Duration::from_millis(1);
-    while tokio::time::Instant::now() < until {
+    loop {
         let probe = Arc::clone(&leader);
-        match tokio::task::spawn_blocking(move || probe.release_if_ready()).await {
-            Ok(false) => {}
-            Ok(true) | Err(_) => return,
+        let bounded = tokio::time::Instant::now() >= bound;
+        let step = tokio::task::spawn_blocking(move || {
+            if bounded {
+                probe.step_bounded()
+            } else {
+                probe.step()
+            }
+        })
+        .await;
+        match step {
+            Ok(ReleaseStep::Done) | Err(_) => return,
+            Ok(ReleaseStep::Held | ReleaseStep::Reaping) => {}
         }
-        tokio::time::sleep(delay).await;
-        delay = (delay * 2).min(RELEASE_POLL_MAX);
+        tokio::select! {
+            () = tokio::time::sleep(delay) => {
+                delay = (delay * 2).min(RELEASE_POLL_MAX);
+            }
+            () = leader.wake.notified() => {
+                delay = std::time::Duration::from_millis(1);
+            }
+        }
     }
 }
 

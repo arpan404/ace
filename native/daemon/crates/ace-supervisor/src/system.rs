@@ -334,18 +334,25 @@ pub fn live_with_children(known: &BTreeSet<(u32, String)>) -> Vec<crate::signal:
 }
 
 /// The members a stop may signal one by one in a group this supervisor
-/// does not hold: only while its leader is verified alive with `start`
-/// (leading `group`), the group and the leader's tree; otherwise none, since
-/// the group id may be someone else's.
+/// does not hold: the group and the leader's tree, read while its leader is
+/// verified alive with `start` (leading `group`) both before and after the
+/// read; if the pin changed in between, the read may be another group's and
+/// is discarded. Otherwise none, since the group id may be someone else's.
 pub fn verified_group_members(group: u32, start: &str) -> Vec<crate::signal::TreeRef> {
-    let verified = identity::process_identity(group)
-        .ok()
-        .flatten()
-        .is_some_and(|leader| leader.start == start && leader.group == group);
-    if !verified {
+    let pinned = || {
+        identity::process_identity(group)
+            .ok()
+            .flatten()
+            .is_some_and(|leader| leader.start == start && leader.group == group)
+    };
+    if !pinned() {
         return Vec::new();
     }
-    capture_group(group)
+    let found = capture_group(group);
+    if !pinned() {
+        return Vec::new();
+    }
+    found
         .into_iter()
         .map(|(pid, start)| crate::signal::TreeRef { pid, start })
         .collect()

@@ -10,7 +10,7 @@
 use crate::pump::StdinMessage;
 use crate::spawn::EventSink;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_IO_PENDING, GetLastError, HANDLE, INVALID_HANDLE_VALUE,
 };
@@ -28,9 +28,19 @@ static NEXT_STDIN: AtomicU64 = AtomicU64::new(0);
 
 /// Ace's end of one child's stdin.
 pub(crate) struct StdinPipe {
-    /// The server handle; `None` once closed. Locked only to cancel or close.
-    handle: Mutex<Option<usize>>,
-    aborted: AtomicBool,
+    /// The handle and what is in flight on it. A write is submitted under
+    /// this lock and an abort cancels under it, so an abort either comes
+    /// before the submission (which then never happens) or cancels a write
+    /// that was submitted; the completion wait runs only for a submitted one.
+    state: Mutex<PipeState>,
+}
+
+struct PipeState {
+    /// The server handle; `None` once closed.
+    handle: Option<usize>,
+    aborted: bool,
+    /// A write was submitted and its completion not yet collected.
+    in_flight: bool,
 }
 
 fn os_error(code: u32) -> std::io::Error {
@@ -66,8 +76,11 @@ pub(crate) fn stdin_pipe() -> std::io::Result<(StdinPipe, std::fs::File)> {
             continue;
         }
         let pipe = StdinPipe {
-            handle: Mutex::new(Some(handle as usize)),
-            aborted: AtomicBool::new(false),
+            state: Mutex::new(PipeState {
+                handle: Some(handle as usize),
+                aborted: false,
+                in_flight: false,
+            }),
         };
         let child_end = std::fs::OpenOptions::new().read(true).open(&name)?;
         return Ok((pipe, child_end));
@@ -76,19 +89,45 @@ pub(crate) fn stdin_pipe() -> std::io::Result<(StdinPipe, std::fs::File)> {
 }
 
 impl StdinPipe {
-    fn raw(&self) -> Option<HANDLE> {
-        self.handle
-            .lock()
-            .ok()
-            .and_then(|handle| *handle)
-            .map(|raw| raw as HANDLE)
+    fn aborted(&self) -> bool {
+        self.state.lock().map_or(true, |state| state.aborted)
+    }
+
+    /// Submits one write under the lock; `None` when aborted or closed
+    /// first (nothing submitted), else whether it is pending (or done).
+    fn submit(&self, rest: &[u8], overlapped: &mut OVERLAPPED) -> Option<std::io::Result<HANDLE>> {
+        let mut state = self.state.lock().ok()?;
+        if state.aborted {
+            return None;
+        }
+        let handle = state.handle? as HANDLE;
+        let length = u32::try_from(rest.len()).unwrap_or(u32::MAX);
+        // SAFETY: `handle` is the live server handle (only the writer thread
+        // closes it, after its last write); `rest` and `overlapped` are the
+        // caller's and outlive the I/O, which completes or is cancelled
+        // before the caller's GetOverlappedResult (waiting) returns.
+        let started = unsafe {
+            WriteFile(
+                handle,
+                rest.as_ptr(),
+                length,
+                std::ptr::null_mut(),
+                overlapped,
+            )
+        };
+        if started == 0 {
+            // SAFETY: reads this thread's error slot right after the call.
+            let error = unsafe { GetLastError() };
+            if error != ERROR_IO_PENDING {
+                return Some(Err(os_error(error)));
+            }
+        }
+        state.in_flight = true;
+        Some(Ok(handle))
     }
 
     /// Writes every byte, returning once the kernel completed the writes.
     fn write(&self, bytes: &[u8]) -> std::io::Result<()> {
-        let Some(handle) = self.raw() else {
-            return Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe));
-        };
         // SAFETY: a manual-reset, unnamed event; closed below.
         let event = unsafe { CreateEventW(std::ptr::null(), 1, 0, std::ptr::null()) };
         if event.is_null() {
@@ -99,35 +138,24 @@ impl StdinPipe {
             if written_total >= bytes.len() {
                 break Ok(());
             }
-            let rest = &bytes[written_total..];
-            let length = u32::try_from(rest.len()).unwrap_or(u32::MAX);
             // SAFETY: plain data; only `hEvent` is set before the write.
             let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
             overlapped.hEvent = event;
-            // SAFETY: `handle` is the live server handle (only this thread
-            // closes it, after its last write); `rest` and `overlapped`
-            // outlive the I/O, which completes or is cancelled before
-            // GetOverlappedResult (waiting) returns.
-            let started = unsafe {
-                WriteFile(
-                    handle,
-                    rest.as_ptr(),
-                    length,
-                    std::ptr::null_mut(),
-                    &mut overlapped,
-                )
+            let handle = match self.submit(&bytes[written_total..], &mut overlapped) {
+                None => break Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe)),
+                Some(Err(error)) => break Err(error),
+                Some(Ok(handle)) => handle,
             };
-            if started == 0 {
-                // SAFETY: reads this thread's error slot right after the call.
-                let error = unsafe { GetLastError() };
-                if error != ERROR_IO_PENDING {
-                    break Err(os_error(error));
-                }
-            }
             let mut written = 0u32;
-            // SAFETY: as above; waits for this I/O to finish.
-            if unsafe { GetOverlappedResult(handle, &overlapped, &mut written, 1) } == 0 {
-                break Err(std::io::Error::last_os_error());
+            // SAFETY: waits for the write submitted above on its own
+            // OVERLAPPED; a cancel makes it return with an error.
+            let completed = unsafe { GetOverlappedResult(handle, &overlapped, &mut written, 1) };
+            let failure = (completed == 0).then(std::io::Error::last_os_error);
+            if let Ok(mut state) = self.state.lock() {
+                state.in_flight = false;
+            }
+            if let Some(error) = failure {
+                break Err(error);
             }
             written_total += written as usize;
         };
@@ -138,27 +166,30 @@ impl StdinPipe {
         result
     }
 
-    /// The shell destroyed stdin: the pending write is cancelled and no
-    /// later one runs.
+    /// The shell destroyed stdin: a submitted write is cancelled, and no
+    /// later one is submitted.
     pub(crate) fn abort(&self) {
-        self.aborted.store(true, Ordering::SeqCst);
-        if let Ok(handle) = self.handle.lock()
-            && let Some(raw) = *handle
-        {
-            // SAFETY: the handle is live while the lock shows it open; the
-            // call cancels its pending I/O, which the writer then sees.
-            unsafe {
-                CancelIoEx(raw as HANDLE, std::ptr::null());
+        if let Ok(mut state) = self.state.lock() {
+            state.aborted = true;
+            if state.in_flight
+                && let Some(raw) = state.handle
+            {
+                // SAFETY: the handle is live while the lock shows it open;
+                // the call cancels the submitted write, which the writer's
+                // completion wait then reports.
+                unsafe {
+                    CancelIoEx(raw as HANDLE, std::ptr::null());
+                }
             }
         }
     }
 
     fn close(&self) {
-        if let Ok(mut handle) = self.handle.lock()
-            && let Some(raw) = handle.take()
+        if let Ok(mut state) = self.state.lock()
+            && let Some(raw) = state.handle.take()
         {
             // SAFETY: the handle came from CreateNamedPipeW and leaves the
-            // mutex here, so it is closed exactly once.
+            // state here, so it is closed exactly once.
             unsafe {
                 CloseHandle(raw as HANDLE);
             }
@@ -173,13 +204,13 @@ impl StdinPipe {
         mut queue: tokio::sync::mpsc::UnboundedReceiver<StdinMessage>,
     ) {
         while let Some(StdinMessage::Write(bytes)) = queue.blocking_recv() {
-            if self.aborted.load(Ordering::SeqCst) {
+            if self.aborted() {
                 break;
             }
             match self.write(&bytes) {
                 Ok(()) => sink.stdin_written(),
                 Err(error) => {
-                    if !self.aborted.load(Ordering::SeqCst) {
+                    if !self.aborted() {
                         sink.stdin_error(error.to_string());
                     }
                     break;

@@ -35,35 +35,62 @@ impl Leader {
                 }
                 // Without WNOHANG the kernel returns only with a status.
                 Ok(None) | Err(Errno::INTR) => continue,
+                // Already reaped by something else: no pin and nothing to
+                // reap, so the group number is never signalled again.
                 Err(Errno::CHILD) => {
-                    let child = self.unpin();
-                    drop(child);
+                    self.unpin();
+                    if let Ok(mut state) = self.state.lock() {
+                        state.child = None;
+                    }
                     return RawExit {
                         code: None,
                         signal: None,
                     };
                 }
-                Err(_) => {
-                    let Some(mut child) = self.unpin() else {
-                        return RawExit {
-                            code: None,
-                            signal: None,
-                        };
-                    };
-                    return match child.wait() {
-                        Ok(status) => {
-                            use std::os::unix::process::ExitStatusExt as _;
-                            RawExit {
-                                code: status.code(),
-                                signal: status.signal().map(signal_name),
-                            }
-                        }
-                        Err(_) => RawExit {
-                            code: None,
-                            signal: None,
-                        },
+                // Anything else: the pid is still this process's unreaped
+                // child, so wait for it by polling the reap itself, keeping
+                // the handle (and so the pin) until the reap succeeds.
+                Err(_) => return self.poll_reap(),
+            }
+        }
+    }
+
+    /// Reaps the leader by polling `try_wait`, holding its handle until the
+    /// reap succeeds; a reap that keeps failing leaves the handle held and
+    /// the group released, so its number is never signalled.
+    #[cfg(unix)]
+    fn poll_reap(&self) -> RawExit {
+        use std::os::unix::process::ExitStatusExt as _;
+        loop {
+            let polled = match self.state.lock() {
+                Ok(mut state) => match state.child.as_mut().map(std::process::Child::try_wait) {
+                    Some(Ok(Some(status))) => {
+                        state.child = None;
+                        state.exited = true;
+                        state.released = true;
+                        Some(Ok(status))
+                    }
+                    Some(Ok(None)) => None,
+                    Some(Err(error)) => Some(Err(error)),
+                    None => Some(Err(std::io::Error::other("leader already released"))),
+                },
+                Err(_) => Some(Err(std::io::Error::other("leader lock failed"))),
+            };
+            match polled {
+                Some(Ok(status)) => {
+                    return RawExit {
+                        code: status.code(),
+                        signal: status.signal().map(signal_name),
                     };
                 }
+                Some(Err(_)) => {
+                    self.unpin();
+                    return RawExit {
+                        code: None,
+                        signal: None,
+                    };
+                }
+                None => std::thread::sleep(std::time::Duration::from_millis(50)),
             }
         }
     }
@@ -98,20 +125,18 @@ impl Leader {
                 .and_then(|status| status.code())
         });
         self.mark_exited();
-        self.release_if_ready();
+        self.step();
         RawExit { code, signal: None }
     }
 
-    /// The pid can no longer be proven pinned: every later signal is
-    /// refused, and the child is handed back for whatever reaping remains.
+    /// The pid can no longer be proven pinned: every later group signal is
+    /// refused. A child that was already reaped elsewhere is dropped; one
+    /// whose reap failed stays held.
     #[cfg(unix)]
-    fn unpin(&self) -> Option<std::process::Child> {
-        match self.state.lock() {
-            Ok(mut state) => {
-                state.exited = true;
-                state.child.take()
-            }
-            Err(_) => None,
+    fn unpin(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.exited = true;
+            state.released = true;
         }
     }
 }

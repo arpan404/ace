@@ -35,6 +35,9 @@ pub struct SpawnSpec {
     pub hide_window: bool,
     /// Windows: the child joins a kill-on-close job before it runs.
     pub contain: bool,
+    /// The process's output budget (`maxOutputBytes`), stdout and stderr
+    /// together: what pumps read ahead of the shell never exceeds it.
+    pub max_output_bytes: Option<u64>,
     pub stdin: StdioMode,
     pub stdout: StdioMode,
     pub stderr: StdioMode,

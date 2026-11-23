@@ -167,6 +167,7 @@ function spawnOwned(
         verbatim: target.verbatim,
         hide: true,
         contain: windows && options.windowsJobFactory === undefined,
+        ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
       })
     : spawn(target.command, target.args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),

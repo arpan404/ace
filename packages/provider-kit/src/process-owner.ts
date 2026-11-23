@@ -88,11 +88,13 @@ export function groupOf(child: unknown): GroupHandle | undefined {
   return child instanceof NativeChildProcess ? child : undefined;
 }
 
-/** The native handle for a group known by its leader's identity, recorded at registration. */
+/**
+ * The native handle for a group known by its leader's identity, which the caller itself
+ * recorded. A pid alone is never enough: it may name whoever holds that pid now.
+ */
 function nativeHandle(pid: number, start: string | undefined): GroupHandle | undefined {
-  if (supervisorBackend() !== "native") return undefined;
-  const known = start ?? owned.get(pid)?.start;
-  return known === undefined ? undefined : nativeGroup(pid, known);
+  if (supervisorBackend() !== "native" || start === undefined) return undefined;
+  return nativeGroup(pid, start);
 }
 
 /** The guard, then the group by number: callers hold the group first. */
@@ -150,6 +152,7 @@ export function killGroup(
     return;
   }
   if (supervisorBackend() === "native") {
+    // A pid-only caller: the native supervisor never signals a group it cannot prove.
     process.emitWarning(`Process group ${pid} has no recorded identity, so it is not signalled`);
     return;
   }
@@ -189,8 +192,8 @@ export function signalTree(
   }
 }
 /** Whether nothing of the group runs: ESRCH, or darwin's EPERM for a group of zombies. */
-function groupGone(pid: number, group: GroupHandle | undefined): boolean {
-  const handle = group ?? nativeHandle(pid, undefined);
+function groupGone(pid: number, group: GroupHandle | undefined, start?: string): boolean {
+  const handle = group ?? nativeHandle(pid, start);
   if (handle) return handle.groupGone();
   // The native supervisor answers by the kernel's probe for a group it knows no identity of.
   if (supervisorBackend() === "native") return supervisorAddon().supervisorGroupGone(pid);
@@ -208,14 +211,22 @@ export async function stopRetainedGroup(
   pid: number,
   graceMs: number,
   group?: GroupHandle,
+  start?: string,
 ): Promise<void> {
-  killGroup(pid, "SIGTERM", group);
+  if (supervisorBackend() === "native" && process.platform !== "win32" && !group && !start) {
+    // Under the native supervisor a pid alone proves nothing: nothing is signalled.
+    process.emitWarning(`Process group ${pid} has no recorded identity, so it is not stopped`);
+    unregisterGroup(pid);
+    return;
+  }
+  killGroup(pid, "SIGTERM", group, start);
   const deadline = performance.now() + graceMs;
   while (true) {
-    if (groupGone(pid, group)) break;
+    // Cheap for a native group: its release loop scans, the poll reads the result.
+    if (groupGone(pid, group, start)) break;
     const remaining = deadline - performance.now();
     if (remaining <= 0) {
-      killGroup(pid, "SIGKILL", group);
+      killGroup(pid, "SIGKILL", group, start);
       break;
     }
     await delay(Math.min(25, remaining));
@@ -273,7 +284,10 @@ export function registerGroup(
   metadata: { name: string; cwd?: string; unique?: string } = { name: "ace-process" },
   destroy?: () => void,
 ): void {
-  const end = destroy ?? (() => killGroup(pid, "SIGKILL"));
+  // The identity recorded now is this caller's: its default stop is bound to it, never to
+  // whoever holds the pid later.
+  const recorded = nativeStart(pid);
+  const end = destroy ?? (() => killGroup(pid, "SIGKILL", undefined, recorded.start));
   try {
     for (const journal of journals) journal.add(pid, metadata);
   } catch (error) {
@@ -281,7 +295,7 @@ export function registerGroup(
     throw error;
   }
   if (ownersSize() === 0) process.on("exit", cleanup);
-  owned.set(pid, { stop, destroy: end, ...nativeStart(pid) });
+  owned.set(pid, { stop, destroy: end, ...recorded });
   for (const listener of ownershipListeners)
     try {
       listener(pid, metadata.unique);

@@ -102,6 +102,8 @@ struct SpecJson {
     hide: bool,
     #[serde(default)]
     contain: bool,
+    #[serde(default)]
+    max_output_bytes: Option<u64>,
     stdin: String,
     stdout: String,
     stderr: String,
@@ -144,6 +146,7 @@ pub fn supervisor_spawn(spec_json: String, events: Events) -> napi::Result<Nativ
             windows_verbatim: spec.verbatim,
             hide_window: spec.hide,
             contain: spec.contain,
+            max_output_bytes: spec.max_output_bytes,
             stdin: stdio_mode(&spec.stdin)?,
             stdout: stdio_mode(&spec.stdout)?,
             stderr: stdio_mode(&spec.stderr)?,
