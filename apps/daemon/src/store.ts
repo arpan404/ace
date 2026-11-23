@@ -228,7 +228,7 @@ export class Store {
     });
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
-      commit: (run) => this.atomic(run),
+      commit: (run, outcome) => this.transaction(run, outcome),
       reserved: (through) => this.markLineage(through),
     });
     this.now = options.now ?? Date.now;

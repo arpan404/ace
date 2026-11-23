@@ -1,4 +1,5 @@
 import type { StatementSync } from "node:sqlite";
+import type { TransactionOutcome } from "./store-stream.ts";
 
 /** Reserve ranges durably before publishing events. Old builds also skip this high-water mark, so
  * the existing host_sequence format remains readable in both directions. Every sequence handed
@@ -9,8 +10,9 @@ export class StreamSequences {
   private reserved = 0;
   constructor(privateOptions: {
     statement(sql: string): StatementSync;
-    commit(run: () => void): void;
-    /** A range through `through` is reserved and about to be used. */
+    /** Runs the reservation; settles only when the outermost transaction that wrote it does. */
+    commit(run: () => void, outcome: TransactionOutcome): void;
+    /** A range through `through` is reserved by a committed transaction and about to be used. */
     reserved?(through: number): void;
   }) {
     this.options = privateOptions;
@@ -52,10 +54,23 @@ export class StreamSequences {
     if (after + events <= this.reserved) return;
     const through = after + Math.max(65536, events);
     if (!Number.isSafeInteger(through)) throw new Error("Sequence exhausted");
-    this.options.commit(() => {
-      this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);
-    });
-    this.reserved = through;
-    this.options.reserved?.(through);
+    this.options.commit(
+      () => {
+        this.options.statement("UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1").run(through);
+      },
+      {
+        // Only the outermost commit counts: a rollback forgets the pending range.
+        committed: () => {
+          const raised = Number.isNaN(this.reserved) || through > this.reserved;
+          this.reserved = Number.isNaN(this.reserved) ? through : Math.max(this.reserved, through);
+          if (raised) this.options.reserved?.(through);
+        },
+        rolledBack: () => {},
+      },
+    );
+  }
+  /** Whether a committed reservation covers `seq`; false while none has committed. */
+  covers(seq: number): boolean {
+    return seq <= this.reserved;
   }
 }

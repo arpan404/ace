@@ -106,15 +106,19 @@ export class StoreStream {
     );
     this.buffer.append(events, id, snapshot);
     try {
+      const first = events[0];
+      // An empty batch (liveness only) changes nothing.
+      if (!first) return;
       // Reserve the actual canonical event count, including split shell output. Pin first:
       // a reservation transaction drains the buffer, and a failed drain must retain the
       // reducer's snapshot and events together without applying the facts a second time.
-      const first = events[0];
-      if (first) this.options.sequences.prepare(events.length, first.seq - 1);
+      this.options.sequences.prepare(events.length, first.seq - 1);
       // A range refill already committed and published this batch through the write barrier.
       if (!this.buffer.has(id)) return;
       const boundary = events.some((event) => event.payload.type !== "item.delta");
-      if (!boundary) this.publishPending();
+      // A batch above the confirmed reservation publishes as stored rows when its flush commits.
+      const last = events.at(-1);
+      if (!boundary && last && this.options.sequences.covers(last.seq)) this.publishPending();
       if (boundary || this.buffer.full()) this.flush();
     } catch (error) {
       // A failed attempt has reported itself and scheduled its retry.
