@@ -183,7 +183,7 @@ private struct SpadeList: View {
                 Button("Close", role: .cancel) { pinProblem = nil }
             }
             .listStyle(.plain)
-            .scrollsToTop(on: .spade, first: SpadePins.split(entries).rows.first.map { AnyHashable($0.id) })
+            .scrollsToTop(on: .spade, first: SpadeRoster.listRows(SpadePins.split(entries).rows).first.map { AnyHashable($0.id) })
             .refreshable { for machine in machines { machine.client.spadeRefresh() } }
             .accessibilityIdentifier("spade.list")
     }
@@ -206,10 +206,14 @@ private struct SpadeList: View {
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
             }
-            ForEach(pins.rows) { entry in
+            ForEach(SpadeRoster.listRows(pins.rows)) { row in
+                let entry = row.entry
                 NavigationLink(value: route(entry)) {
                     SpadeBotRow(bot: entry.bot, machine: machineName(entry.machine))
+                        .padding(.leading, row.indented ? SpadeBotFace.size + AceDesign.Space.row : 0)
                 }
+                .listRowSeparator(row.indented ? .hidden : .automatic, edges: .top)
+                .listRowSeparator(row.joinsNext ? .hidden : .automatic, edges: .bottom)
                 .contextMenu { pinButton(entry) }
                 .swipeActions(edge: .leading) { pinButton(entry).tint(AceDesign.Ink.action) }
                 .accessibilityIdentifier(entry.bot.group.map { "spade.group.\($0)" } ?? "spade.bot.\(entry.bot.id)")
@@ -308,6 +312,7 @@ struct SpadeBotRow: View {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.tight) {
                     Text(bot.name)
+                        .accessibilityLabel(bot.parent.map { "\(bot.name), worker of \($0.name)" } ?? bot.name)
                         .aceFont(AceDesign.TextRole.rowTitle)
                         .fontWeight(bot.state == "unseen" ? AceDesign.Typeface.strong : AceDesign.Typeface.regular)
                         .foregroundStyle(AceDesign.Ink.primary)
@@ -335,7 +340,7 @@ struct SpadeBotRow: View {
                 }
             }
         }
-        .frame(minHeight: AceDesign.Size.rowThread)
+        .frame(minHeight: AceDesign.Size.tap)
         .accessibilityElement(children: .combine)
     }
 

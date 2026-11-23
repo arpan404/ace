@@ -64,6 +64,14 @@ import Observation
         var createdAt: Double? = nil
         /// Its state's place in the list, lowest first (`spadeRowRank`).
         var rank: Int? = nil
+        var depth: Int? = nil
+        var parent: Parent? = nil
+        var familyRoot: String? = nil
+
+        struct Parent: Decodable, Equatable, Sendable {
+            let id: String
+            let name: String
+        }
     }
     /// Where the person's machines chose Spade lives (ADR 0187), as one machine holds it.
     struct HostRecord: Decodable, Equatable, Sendable {
