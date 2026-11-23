@@ -5,7 +5,8 @@ const cleanup: Cleanup = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-const fixture = (options: { resetAtControl?: boolean } = {}) => scrcpyFixture(cleanup, options);
+const fixture = (options: { resetAtControl?: boolean; exitAtControl?: boolean } = {}) =>
+  scrcpyFixture(cleanup, options);
 it("the live view is the emulator's own H.264, and every keyframe can start a decoder", async () => {
   const { frames, commands } = await fixture();
   await until(() => (frames.length >= 2 ? true : undefined));
@@ -170,4 +171,14 @@ it("an emulator that resets its sockets during startup fails the view, not the d
   await expect(fixture({ resetAtControl: true })).rejects.toMatchObject({
     code: "command_failed",
   });
+});
+
+it("a server that exits mid-handshake fails the view at once, not at the startup deadline", async () => {
+  const started = performance.now();
+  await expect(fixture({ exitAtControl: true })).rejects.toMatchObject({
+    code: "command_failed",
+    message: "scrcpy-server closed during startup",
+  });
+  // The startup deadline is 10 s; the exit is seen within a few of the helper's polls.
+  expect(performance.now() - started).toBeLessThan(3_000);
 });

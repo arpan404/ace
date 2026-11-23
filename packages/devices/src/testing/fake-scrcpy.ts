@@ -42,12 +42,16 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
  * dummy byte on the first connection, device name once control connects, then video.
  */
-export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
+export async function fakeDevice(
+  cleanup: Cleanup,
+  options: { resetAtControl?: boolean; atControl?: () => void } = {},
+) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
   const server: Server = createServer((socket) => {
     sockets.push(socket);
     if (sockets.length === 1) socket.write(Buffer.from([0]));
+    else if (options.atControl) options.atControl();
     else if (options.resetAtControl) {
       // The emulator dies before it names itself: control is reset at once, and the first
       // socket, still awaited for the device name, ends a moment later.
@@ -98,6 +102,8 @@ export async function fixture(
   options: {
     /** The device resets both sockets once control connects, before naming itself. */
     resetAtControl?: boolean;
+    /** The server process exits once control connects, leaving both sockets open and silent. */
+    exitAtControl?: boolean;
     media?: DeviceMedia;
     now?: () => number;
     /** Each published frame, as it is published. */
@@ -108,14 +114,23 @@ export async function fixture(
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "sdk/platform-tools"), { recursive: true });
   await mkdir(join(root, "sdk/emulator"), { recursive: true });
-  // The long-running `adb shell app_process ...` stays up until ace stops it.
-  await nodeBinary(join(root, "sdk/platform-tools"), "adb", "process.stdin.resume();");
+  // The long-running `adb shell app_process ...` stays up until ace stops it, or until the
+  // marker appears when the test has it exit mid-handshake.
+  const exitMarker = join(root, "server-exit");
+  await nodeBinary(
+    join(root, "sdk/platform-tools"),
+    "adb",
+    `process.stdin.resume(); setInterval(() => require("node:fs").existsSync(${JSON.stringify(exitMarker)}) && process.exit(1), 10);`,
+  );
   await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
   // PATH holds only this folder, so no tool from the host is found.
   await mkdir(join(root, "bin"));
   const jar = join(root, "scrcpy-server");
   await writeFile(jar, "server");
-  const device = await fakeDevice(cleanup, { resetAtControl: options.resetAtControl ?? false });
+  const device = await fakeDevice(cleanup, {
+    resetAtControl: options.resetAtControl ?? false,
+    ...(options.exitAtControl ? { atControl: () => void writeFile(exitMarker, "") } : {}),
+  });
   const commands: string[] = [];
   const env = {
     PATH: join(root, "bin"),

@@ -155,13 +155,35 @@ export async function startScrcpyServer(options: {
     server.stderr.on("data", listen);
     let exited = false;
     // `exited` reports the server's exit and does not reject.
-    void server.exited
-      .then(() => {
+    const serverExit = server.exited.then(
+      () => {
         exited = true;
-      })
-      .catch(() => {});
+      },
+      () => {
+        exited = true;
+      },
+    );
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
+    /**
+     * One startup step, bounded by the single startup deadline and by the server's exit:
+     * either ends it at once with `undefined`.
+     */
+    const step = <T>(work: Promise<T>): Promise<T | undefined> =>
+      new Promise<T | undefined>((resolve, reject) => {
+        const cancel = runtime.after(remaining(), () => resolve(undefined));
+        void serverExit.then(() => {
+          cancel();
+          resolve(undefined);
+        });
+        void work.then(resolve, reject).finally(cancel);
+      });
+    const closedDuringStartup = () =>
+      new DeviceError(
+        "command_failed",
+        "scrcpy-server closed during startup",
+        "Start the device view again.",
+      );
     let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
     while (!first) {
@@ -176,7 +198,7 @@ export async function startScrcpyServer(options: {
       if (socket) {
         sockets.push(socket);
         // The server answers its first socket with one dummy byte once it is listening.
-        const greeting = await preamble(socket, 1, runtime, remaining());
+        const greeting = await step(preamble(socket, 1, runtime, remaining()));
         if (greeting) {
           first = socket;
           early = greeting.subarray(1);
@@ -185,22 +207,27 @@ export async function startScrcpyServer(options: {
       if (!first) await new Promise<void>((resolve) => runtime.after(100, resolve));
     }
     const hasVideo = options.profile.video !== false;
-    const control = hasVideo ? await open(port) : first;
-    if (hasVideo) sockets.push(control);
+    let control = first;
+    if (hasVideo) {
+      const opening = open(port);
+      // A connect that lands after startup gave up is closed with the rest.
+      void opening.then(
+        (socket) => {
+          sockets.push(socket);
+          if (closing) socket.destroy();
+        },
+        () => {},
+      );
+      const connected = await step(opening);
+      if (!connected) throw closedDuringStartup();
+      control = connected;
+    }
     check();
     // The device name follows on the first socket once every socket is connected.
-    const rest = await preamble(
-      first,
-      Math.max(0, deviceNameBytes - early.length),
-      runtime,
-      remaining(),
+    const rest = await step(
+      preamble(first, Math.max(0, deviceNameBytes - early.length), runtime, remaining()),
     );
-    if (!rest)
-      throw new DeviceError(
-        "command_failed",
-        "scrcpy-server closed during startup",
-        "Start the device view again.",
-      );
+    if (!rest || exited) throw closedDuringStartup();
     const meta = Buffer.concat([early, rest]);
     const nameBytes = meta.subarray(0, deviceNameBytes);
     const end = nameBytes.indexOf(0);
