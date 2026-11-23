@@ -22,6 +22,8 @@ const RequestId = z.union([z.string(), z.number()]);
 const CancelledNotification = z.object({ params: z.object({ requestId: RequestId }) });
 const SseEnvelope = z.object({ id: RequestId.optional() }).passthrough();
 const ReplyEnvelope = z.object({ jsonrpc: z.literal("2.0"), id: RequestId }).passthrough();
+/** How long one notification subscription attempt may hold the requests waiting on it. */
+const subscribeTimeoutMs = 10_000;
 export type BridgeOptions = {
   connection: AceMcpConnection;
   input: Readable;
@@ -60,30 +62,60 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
   // ACP stdio clients can receive unsolicited notifications even though the
   // legacy request forwarding is stateless. Use the current subscription channel.
   const { Client, StreamableHTTPClientTransport } = await import("@modelcontextprotocol/client");
-  const notifications = new Client(
-    { name: "ace-stdio", version: "1" },
-    {
-      versionNegotiation: { mode: { pin: "2026-07-28" } },
-    },
-  );
+  const scheduler = options.scheduler ?? nodeScheduler;
+  const subscribe = async (client: InstanceType<typeof Client>) => {
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(connection.url), {
+        // Only ACP agents use this bridge; each lists what its own tool refresh supports.
+        requestInit: {
+          headers: { Authorization: `Bearer ${connection.bearer}`, ...listingHeaders },
+        },
+        ...(options.fetch ? { fetch: options.fetch } : {}),
+      }),
+    );
+    client.setNotificationHandler("notifications/tools/list_changed", () =>
+      write({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }),
+    );
+    // Resolves once the server acknowledges; the subscription then runs for the bridge's life.
+    if (client.getServerCapabilities()?.tools?.listChanged)
+      await client.listen({ toolsListChanged: true });
+  };
+  let notifications: InstanceType<typeof Client> | undefined;
   let listening: Promise<void> | undefined;
-  const listen = () =>
-    (listening ??= (async () => {
-      await notifications.connect(
-        new StreamableHTTPClientTransport(new URL(connection.url), {
-          // Only ACP agents use this bridge; each lists what its own tool refresh supports.
-          requestInit: {
-            headers: { Authorization: `Bearer ${connection.bearer}`, ...listingHeaders },
-          },
-          ...(options.fetch ? { fetch: options.fetch } : {}),
-        }),
+  /**
+   * One subscription attempt, shared by the requests that arrive while it runs. It never
+   * rejects and settles within `subscribeTimeoutMs`; one that failed or hasn't connected by
+   * then is given up, so the next request tries again.
+   */
+  const listen = (): Promise<void> => {
+    if (listening) return listening;
+    const client = new Client(
+      { name: "ace-stdio", version: "1" },
+      { versionNegotiation: { mode: { pin: "2026-07-28" } } },
+    );
+    notifications = client;
+    const connected = new Promise<boolean>((resolve) => {
+      const stop = scheduler.after(subscribeTimeoutMs, () => resolve(false));
+      void subscribe(client).then(
+        () => {
+          stop();
+          resolve(true);
+        },
+        () => {
+          stop();
+          resolve(false);
+        },
       );
-      notifications.setNotificationHandler("notifications/tools/list_changed", () =>
-        write({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }),
-      );
-      if (notifications.getServerCapabilities()?.tools?.listChanged)
-        await notifications.listen({ toolsListChanged: true });
-    })());
+    });
+    const attempt = connected.then((ok) => {
+      if (ok) return;
+      if (listening === attempt) listening = undefined;
+      if (notifications === client) notifications = undefined;
+      void client.close().catch(() => {});
+    });
+    listening = attempt;
+    return attempt;
+  };
   const forward = async (line: string): Promise<void> => {
     const message = Message.parse(JSON.parse(line));
     if (message.method === "notifications/cancelled") {
@@ -98,7 +130,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     let timedOut = false;
     // Registry tools may run for five minutes. A bridge deadline settles only
     // this request, preserving the provider's connection for subsequent tools.
-    const cancelTimer = (options.scheduler ?? nodeScheduler).after(
+    const cancelTimer = scheduler.after(
       message.method === "tools/call" ? maxToolTimeoutMs : 120_000,
       () => {
         timedOut = true;
@@ -107,13 +139,10 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     );
     const requestSignal = AbortSignal.any([signal, controller.signal]);
     try {
-      // The subscription's connect counts against this request's deadline: a server that
-      // accepts and never answers fails the request instead of holding it forever.
+      // The subscription is best effort: its own bounded attempt, inside this request's
+      // deadline, never holds the request beyond that.
       if (message.method === "notifications/initialized" || message.method === "tools/list")
-        await untilAborted(
-          listen().catch(() => {}),
-          requestSignal,
-        );
+        await untilAborted(listen(), requestSignal);
       const response = await (options.fetch ?? fetch)(connection.url, {
         method: "POST",
         redirect: "error",
@@ -218,7 +247,7 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     if (failure) throw failure;
   } finally {
     signal.removeEventListener("abort", abort);
-    await notifications.close();
+    await notifications?.close();
     lines.close();
     gate.destroy();
     writer.close(new Error("MCP bridge closed"));
