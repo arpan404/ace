@@ -311,3 +311,56 @@ test("stdio requests can finish after two minutes and a timed-out request leaves
     output.destroy();
   }
 });
+test("a tools/list whose notification subscription never connects fails at the request deadline", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lifetime = new AbortController();
+  const lines = createInterface({ input: output });
+  const reply = Promise.withResolvers<unknown>();
+  lines.once("line", (line) => reply.resolve(JSON.parse(line)));
+  const timers = new Set<{ at: number; run(): void }>();
+  let now = 0;
+  const subscribing = Promise.withResolvers<void>();
+  const bridge = runStdioBridge({
+    connection: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) },
+    input,
+    output,
+    signal: lifetime.signal,
+    scheduler: {
+      after(ms, run) {
+        const timer = { at: now + ms, run };
+        timers.add(timer);
+        return () => timers.delete(timer);
+      },
+    },
+    async fetch(_url, options) {
+      const request = z.object({ method: z.string() }).safeParse(JSON.parse(String(options?.body)));
+      if (request.success && request.data.method === "tools/list")
+        return Response.json({ jsonrpc: "2.0", id: 1, result: { tools: [] } });
+      // The subscription's connect: the server accepts and never answers.
+      subscribing.resolve();
+      return new Promise<never>((_, reject) =>
+        options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true,
+        }),
+      );
+    },
+  });
+  try {
+    input.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) + "\n");
+    await subscribing.promise;
+    now += 120_000;
+    for (const timer of timers) if (timer.at <= now) timer.run();
+    expect(await reply.promise).toMatchObject({
+      id: 1,
+      error: { code: -32603, message: "ace MCP bridge request timed out" },
+    });
+    input.end();
+    await bridge;
+  } finally {
+    lifetime.abort();
+    await bridge.catch(() => {});
+    lines.close();
+    output.destroy();
+  }
+});

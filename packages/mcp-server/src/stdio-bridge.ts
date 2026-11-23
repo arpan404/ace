@@ -86,8 +86,6 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     })());
   const forward = async (line: string): Promise<void> => {
     const message = Message.parse(JSON.parse(line));
-    if (message.method === "notifications/initialized" || message.method === "tools/list")
-      await listen().catch(() => {});
     if (message.method === "notifications/cancelled") {
       const cancelled = CancelledNotification.safeParse(message);
       if (cancelled.success) active.get(cancelled.data.params.requestId)?.abort();
@@ -109,6 +107,13 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     );
     const requestSignal = AbortSignal.any([signal, controller.signal]);
     try {
+      // The subscription's connect counts against this request's deadline: a server that
+      // accepts and never answers fails the request instead of holding it forever.
+      if (message.method === "notifications/initialized" || message.method === "tools/list")
+        await untilAborted(
+          listen().catch(() => {}),
+          requestSignal,
+        );
       const response = await (options.fetch ?? fetch)(connection.url, {
         method: "POST",
         redirect: "error",
@@ -218,4 +223,17 @@ export async function runStdioBridge(options: BridgeOptions): Promise<void> {
     gate.destroy();
     writer.close(new Error("MCP bridge closed"));
   }
+}
+
+/** Settles with `work`, or rejects once `signal` aborts, whichever comes first. */
+function untilAborted(work: Promise<void>, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error("MCP bridge request aborted"));
+  return new Promise<void>((resolve, reject) => {
+    const abort = () => reject(new Error("MCP bridge request aborted"));
+    signal.addEventListener("abort", abort, { once: true });
+    void work.then(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    });
+  });
 }
