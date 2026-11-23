@@ -116,7 +116,7 @@ import XCTest
         app.closeSheet()
         let latest = app.buttons["transcript.latest"]
         // The first downward gesture can dismiss the keyboard. Continue into older messages.
-        for _ in 0..<3 where !latest.exists { app.scrollViews["transcript"].swipeDown() }
+        for _ in 0..<3 where !latest.exists { app.collectionViews["transcript"].swipeDown() }
         capture("thread-reading-history", app)
         XCTAssertTrue(latest.waitForExistence(timeout: 5))
         latest.tap()
@@ -127,7 +127,7 @@ import XCTest
         let app = XCUIApplication()
         app.launchArguments = ["--chat-render-fixture"]
         app.launchWithArguments()
-        let feed = app.scrollViews["transcript"]
+        let feed = app.collectionViews["transcript"]
         XCTAssertTrue(feed.waitForExistence(timeout: 20))
         let paging = app.descendants(matching: .any)["transcript.paging"]
         for _ in 0..<8 where !paging.exists { feed.swipeDown(velocity: .fast) }
@@ -157,7 +157,7 @@ import XCTest
         let current = app.buttons["thread.01a15b0e-7eef-705b-a011-fde54ae8afd1"]
         XCTAssertTrue(current.waitForExistence(timeout: 30)); current.tap()
         waitForConversation(app)
-        let feed = app.scrollViews["transcript"]
+        let feed = app.collectionViews["transcript"]
         for _ in 0..<12 where feed.value as? String != "Reading history" { feed.swipeDown(velocity: .fast) }
         expectation(for: NSPredicate(format: "value == %@", "Reading history"), evaluatedWith: feed)
         waitForExpectations(timeout: 20)
@@ -259,7 +259,7 @@ import XCTest
         XCTAssertFalse(app.staticTexts["service.problem"].exists)
     }
     private func waitForConversation(_ app: XCUIApplication) {
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         expectation(for: NSPredicate(format: "value == %@", "Ready"), evaluatedWith: transcript)
         waitForExpectations(timeout: 30)
         XCTAssertFalse(app.descendants(matching: .any)["transcript.loading"].exists)

@@ -269,7 +269,7 @@ enum TranscriptJumpHooks {
         }
         #endif
     }
-    @MainActor static func scrolling(_ phase: ScrollPhase) {
+    @MainActor static func scrolling(_ phase: TranscriptScrollPhase) {
         #if ACE_FIXTURE
         guard PerfProbe.enabled else { return }
         let letter: String
@@ -279,7 +279,6 @@ enum TranscriptJumpHooks {
         case .interacting: letter = "n"
         case .decelerating: letter = "d"
         case .animating: letter = "a"
-        @unknown default: letter = "?"
         }
         TranscriptJumpProbe.shared.scrolling(letter)
         #endif

@@ -135,7 +135,7 @@ import XCTest
         // page beside Chat, both in ⋯, elsewhere a sheet.
         if app.descendants(matching: .any)["thread.page.changes.body"].exists {
             app.showThreadPage("chat")
-            XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.collectionViews["transcript"].waitForExistence(timeout: 10))
             app.showThreadPage("changes")
         } else {
             app.buttons["changes.close"].tap()

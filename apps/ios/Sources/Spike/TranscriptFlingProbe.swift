@@ -25,18 +25,21 @@ import os
     private var largestGap = 0.0
     private var sequence = 0
 
-    func phase(from old: ScrollPhase, to phase: ScrollPhase, context: ScrollPhaseChangeContext, holdingEnd: Bool) {
+    /// `velocity` is UIKit's release velocity (`scrollViewWillEndDragging`), in points per second
+    /// toward older rows.
+    func phase(from old: TranscriptScrollPhase, to phase: TranscriptScrollPhase, geometry: TranscriptScrollGeometry,
+               velocity: Double?, holdingEnd: Bool) {
         guard Self.enabled else { return }
         let now = CACurrentMediaTime()
-        let offset = Double(context.geometry.contentOffset.y)
-        let height = Double(context.geometry.contentSize.height)
+        let offset = Double(geometry.offset)
+        let height = Double(geometry.contentHeight)
         if phase == .decelerating {
-            let room = height + Double(context.geometry.contentInsets.bottom - context.geometry.containerSize.height) - offset
-            start = Start(time: now, offset: offset, velocity: context.velocity.map { Double($0.dy) },
+            let room = height - Double(geometry.viewport) - offset
+            start = Start(time: now, offset: offset, velocity: velocity,
                           height: height, room: room, counts: PerfCounters.snapshot())
             lastTime = now
             largestGap = 0
-            Self.logger.log("decelerating y=\(offset) endAnchor=\(holdingEnd) isolated=\(Self.isolated)")
+            Self.logger.log("decelerating y=\(offset) releaseVelocity=\(velocity ?? .nan) endAnchor=\(holdingEnd) isolated=\(Self.isolated)")
             return
         }
         guard let began = start else {
@@ -56,13 +59,17 @@ import os
         let velocity = began.velocity.map { String($0) } ?? "unknown"
         let feed = perSecond("feed.body")
         let rows = perSecond("row.body")
+        let configured = perSecond("row.configure")
+        let joins = count("offset.join")
+        let measured = count("offset.measure")
         let requests = perSecond("offset.proxy")
         let writes = perSecond("offset.write")
         let samples = perSecond("scroll.geometry")
         sequence += 1
         let summary = """
             fling \(sequence) \(phase) seconds=\(elapsed) travel=\(travel) releaseVelocity=\(velocity) room=\(began.room) heightDelta=\(growth) \
-            geometry/s=\(samples) gapMs=\(gap) feed/s=\(feed) rows/s=\(rows) \
+            geometry/s=\(samples) gapMs=\(gap) feed/s=\(feed) rows/s=\(rows) configured/s=\(configured) \
+            joinAdjusts=\(joins) measureAdjusts=\(measured) \
             proxy/s=\(requests) offsetWrites/s=\(writes) blocked=\(count("offset.blocked"))
             """
         Self.logger.log("\(summary, privacy: .public)")
@@ -83,7 +90,8 @@ import os
     #else
     static let isolated = false
     static let suppressesAnchors = false
-    func phase(from old: ScrollPhase, to phase: ScrollPhase, context: ScrollPhaseChangeContext, holdingEnd: Bool) {}
+    func phase(from old: TranscriptScrollPhase, to phase: TranscriptScrollPhase, geometry: TranscriptScrollGeometry,
+               velocity: Double?, holdingEnd: Bool) {}
     func geometry() {}
     #endif
 }

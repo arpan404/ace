@@ -1,6 +1,6 @@
 # 0222: Invert the iPhone transcript
 
-Status: proposed. Date: 2026-11-23. Amends [ADR 0157](0157-short-transcript-windows-use-a-plain-stack.md),
+Status: proposed. Date: 2026-11-23. Amended 2026-11-23 (a flipped collection view). Amends [ADR 0157](0157-short-transcript-windows-use-a-plain-stack.md),
 specifically the placement of older pages.
 
 ## Context
@@ -40,3 +40,32 @@ after inserting older rows above it.
 
 The scroll-axis tests check page growth at a fixed native offset and chronological row
 geometry. The simulator paging and jump probes check the actual drawn feed and fling.
+
+## Amendment: a flipped collection view (2026-11-23)
+
+The inverted SwiftUI feed still moved the reader when an older page joined. In the simulator a
+page of 12,234 pt landed mid-fling and the offset went from 911 to -814 in 47 ms with no offset
+write from ace: the `ScrollView` and its lazy stack re-placed the content on their own. Its
+offset adjustments can't be observed or turned off per change, so the transcript moves to UIKit,
+the second option above.
+
+1. **A flipped `UICollectionView` holds the rows.** Each cell hosts the existing SwiftUI row in
+   a `UIHostingConfiguration`, flipped back upright. Entry 0 is the live end. The tail, the
+   spacers, pending sends and the cached-history line are entries too.
+2. **A custom layout owns every implicit offset change** (`TranscriptCollectionLayout`, from the
+   pure `TranscriptStackGeometry`). Heights are measured per id and kept across window changes,
+   and a row never measured starts at the mean of those that were. A height correction moves the
+   offset only when the entry starts above the viewport's physical top. A window change keeps
+   the reader's entry where it was on screen: an older page extends the far edge and moves
+   nothing. UIKit keeps decelerating from an adjusted offset.
+3. **A row is configured only when it comes on screen or its own key changes** (its block, room,
+   links, stale state). A fling doesn't re-evaluate rows already drawn.
+4. **UIKit reports the scroll.** Phases come from the scroll view's delegate. The release
+   velocity comes from `scrollViewWillEndDragging(_:withVelocity:targetContentOffset:)`, so a
+   device trace (`-ace-fling-trace`) records it. Row frames come from the layout.
+5. **VoiceOver reads the cells on screen oldest first.** Three-finger swipes page in the
+   direction they read. The feed keeps the `transcript` identifier; UI tests find it as a
+   collection view.
+
+The eager or lazy stack choice (ADR 0157) no longer applies to this feed: the collection view
+only builds cells near the viewport.

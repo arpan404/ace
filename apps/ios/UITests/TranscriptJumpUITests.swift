@@ -38,7 +38,7 @@ import XCTest
     func testAnOlderPageLandsWithoutMovingTheReadersLine() {
         let app = open("ios-reading")
         _ = jumpRun(app, "open")
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         for _ in 0..<20 where (app.probeValue("jump.older.runs") ?? 0) < 2 {
             transcript.fling(older: true)
         }
@@ -61,7 +61,7 @@ import XCTest
         app.launchWithArguments()
         let allow = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.buttons["Allow"]
         if allow.waitForExistence(timeout: 3) { allow.tap() }
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 30))
         return app
     }

@@ -7,7 +7,7 @@ extension ConversationFeed {
     /// has measured. No-ops (keeping the restore pending) until the frame
     /// arrives; clears once the frame settles within tolerance, and the
     /// viewport budget (or a gesture) cancels a restore that never settles.
-    func applySessionRestore(proxy: ScrollViewProxy) {
+    func applySessionRestore(proxy: TranscriptSurface) {
         guard let session = viewport.sessionAnchor,
             let frame = anchor.keeper.frames.frame(session.rowID) else { return }
         let metrics = intent.metrics
@@ -29,9 +29,9 @@ extension ConversationFeed {
             viewport: Double(metrics.viewport),
             topInset: Double(metrics.topInset), bottomInset: Double(metrics.bottomInset),
             rowHeight: Double(frame.height)) {
-            surface.scroll(proxy, to: session.rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
+            surface.scroll(to: session.rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         } else {
-            surface.scroll(proxy, to: session.rowID, anchor: .bottom)
+            surface.scroll(to: session.rowID, anchor: .bottom)
         }
         viewport.noteCorrectionApplied()
     }
@@ -61,7 +61,7 @@ extension ConversationFeed {
     }
     /// A row was laid out at `frame` in the content: on coming on screen, or when it or a row
     /// above it changed height. Heights feed the extent; the place keeper puts a held row back.
-    func rowLaidOut(_ id: String, frame: CGRect, proxy: ScrollViewProxy) {
+    func rowLaidOut(_ id: String, frame: CGRect, proxy: TranscriptSurface) {
         keep(.laidOut(id, frame), proxy: proxy)
         let change = anchor.keeper.lastLayout
         if change == .unchanged { return }
@@ -75,7 +75,7 @@ extension ConversationFeed {
         if !reading.landing.holdsPlace, viewport.sessionAnchor?.rowID == id { applySessionRestore(proxy: proxy) }
     }
     /// The feed scrolled: the content's top is at `origin` on screen. No row is touched.
-    func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
+    func contentScrolled(to origin: CGFloat, proxy: TranscriptSurface) {
         if intent.active, !reading.landing.holdsPlace, viewport.sessionAnchor == nil {
             anchor.keeper.trackOrigin(origin)
             return
@@ -95,13 +95,13 @@ extension ConversationFeed {
     /// Hands `event` to the place keeper and does what it decides: hold a row, or scroll one back.
     /// Pure-geometry drift (async Markdown and media sizing) is corrected there, bounded by the
     /// viewport's budget and never during a gesture, a jump re-aiming, VoiceOver or following.
-    func keep(_ event: TranscriptPlaceKeeper.Event, proxy: ScrollViewProxy) {
+    func keep(_ event: TranscriptPlaceKeeper.Event, proxy: TranscriptSurface) {
         place(.keeper(event), proxy: proxy)
     }
     /// Routes `event` between the place keeper and a landing focus (`TranscriptFeedPlace`) and
     /// does what they decide. The landing is written back only when it changed, so a scroll
     /// with no focus landing writes nothing the feed observes.
-    func place(_ event: TranscriptFeedPlace.Event, proxy: ScrollViewProxy) {
+    func place(_ event: TranscriptFeedPlace.Event, proxy: TranscriptSurface) {
         let metrics = intent.metrics
         // The composer and keyboard float over the feed's bottom edge, inside its insets.
         let geometry = TranscriptFocusLanding.Geometry(viewport: Double(metrics.viewport),
@@ -118,10 +118,10 @@ extension ConversationFeed {
                     : TranscriptFeedRow.block(id, in: shown)?.row.items.first
                 viewport.noteCaptured(rowID: id, itemID: item, top: top)
             case .place(let id, let top):
-                if !placeRowAtTop(id, top: top, proxy: proxy) { surface.scroll(proxy, to: id, anchor: .bottom) }
+                if !placeRowAtTop(id, top: top, proxy: proxy) { surface.scroll(to: id, anchor: .bottom) }
                 viewport.noteCorrectionApplied()
             case .aim(let id, let fraction):
-                surface.scroll(proxy, to: id, anchor: fraction.map { UnitPoint(x: 0, y: 1 - $0) } ?? .center)
+                surface.scroll(to: id, anchor: fraction.map { UnitPoint(x: 0, y: 1 - $0) } ?? .center)
             case .released: pageIfNeeded(proxy)
             }
         }
@@ -131,14 +131,14 @@ extension ConversationFeed {
     /// alignment). Fraction math keeps partial rows as well as top-aligned
     /// ones, like the capture/restore fraction.
     @discardableResult
-    func placeRowAtTop(_ rowID: String, top: Double, proxy: ScrollViewProxy) -> Bool {
+    func placeRowAtTop(_ rowID: String, top: Double, proxy: TranscriptSurface) -> Bool {
         if shiftRow(rowID, toTop: top) { return true }
         guard let frame = anchor.keeper.frames.frame(rowID) else { return false }
         let metrics = intent.metrics
         guard let fraction = TranscriptAnchorPlacement.fraction(top: top,
             viewport: Double(metrics.viewport), topInset: Double(metrics.topInset),
             bottomInset: Double(metrics.bottomInset), rowHeight: Double(frame.height)) else { return false }
-        surface.scroll(proxy, to: rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
+        surface.scroll(to: rowID, anchor: UnitPoint(x: 0, y: 1 - fraction))
         return true
     }
     /// Puts a measured `rowID` back `top` points below the header by moving the scroll its drift,
@@ -315,7 +315,7 @@ extension ConversationFeed {
 
     /// Approaching a resident edge loads another page. A fling into retained space keeps
     /// loading after the finger lifts, until real rows cover the viewport again.
-    func pageIfNeeded(_ proxy: ScrollViewProxy) {
+    func pageIfNeeded(_ proxy: TranscriptSurface) {
         guard thread.loaded, !reading.loading, model.readingSettled, reading.problem == nil,
             !reading.landing.holdsPlace else { return }
         let inRetainedSpace = extent.needsContent(top: intent.metrics.top, bottom: intent.metrics.bottom)
