@@ -133,11 +133,9 @@ extension XCUIApplication {
     /// One of the system tab bar's places, by its id: `threads`, `chats`, `spade` or `search` on a
     /// phone. A regular window has the sidebar's foot (`sidebar.<id>`) instead.
     func homeTab(_ id: String) -> XCUIElement { buttons["tab.\(id)"] }
-    /// The compose button (`inbox.compose`): the tab bar's round button on a phone, the list's top
-    /// bar in a regular window. Waits up to 25 s for it to show, so a caller's own wait still fails with its
-    /// message when it never came.
+    /// Compose is in the tab bar on a phone and the list toolbar in a regular window.
     var newThreadButton: XCUIElement {
-        let compose = buttons["inbox.compose"]
+        let compose = buttons.matching(NSPredicate(format: "identifier IN %@", ["tab.compose", "inbox.compose"])).firstMatch
         _ = compose.waitForExistence(timeout: 25)
         return compose
     }

@@ -9,6 +9,11 @@ const offered = new Set<UpdateStatus["state"]>([
   "installing",
 ]);
 const fetched = new Set<UpdateStatus["state"]>(["downloaded", "installing"]);
+const updateErrors = {
+  check: "Couldn't check for updates. Try again.",
+  download: "Couldn't download the update. Try again.",
+  install: "Agents are still working. Try again once they finish.",
+} satisfies Record<NonNullable<UpdateStatus["error"]>["during"], string>;
 
 /** What the daemon is told about this app's update, from the updater's own status. */
 export function appUpdateReport(status: UpdateStatus): AppUpdateReport {
@@ -24,8 +29,9 @@ export function appUpdateReport(status: UpdateStatus): AppUpdateReport {
     // The updater's own state, so an update asked for from elsewhere can follow it (ADR 0113).
     state: status.state,
     percent: status.percent,
-    error: status.error?.message ?? null,
+    error: status.error ? updateErrors[status.error.during] : status.blocked,
     inPlace: status.inPlace,
+    line: status.line,
   };
 }
 
@@ -70,6 +76,7 @@ export class UpdateReporter {
   #sending: Promise<void> = Promise.resolve();
   #stopRenewing: (() => void) | undefined;
   #heard: string | undefined;
+  #checkedInstruction: string | undefined;
   #failures = 0;
   #stopRetry: (() => void) | undefined;
   #generation = 0;
@@ -78,6 +85,10 @@ export class UpdateReporter {
   }
   status(status: UpdateStatus): void {
     this.#report = appUpdateReport(status);
+    this.#push();
+  }
+  checkedInstruction(id: string): void {
+    this.#checkedInstruction = id;
     this.#push();
   }
   /** The daemon is running (true) or gone (false); each new connection hears the report again. */
@@ -137,7 +148,10 @@ export class UpdateReporter {
   }
   #push(): void {
     this.#sending = this.#sending.then(async () => {
-      const report = this.#report;
+      const report =
+        this.#checkedInstruction && this.#report
+          ? { ...this.#report, checkedInstruction: this.#checkedInstruction }
+          : this.#report;
       if (!report || !this.#connected || this.#withdrawn) return;
       const key = JSON.stringify(report);
       if (key === this.#sent) return;

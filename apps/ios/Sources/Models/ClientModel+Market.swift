@@ -72,6 +72,13 @@ extension ClientModel {
     func keptMarketPublisher(_ handle: String) -> MarketPublisherPage? {
         keptMarket(["op": "publisher", "handle": handle], as: MarketPublisherPage.self)
     }
+    func marketLook(_ listing: MarketListing) async throws -> MarketLook {
+        var operation = listing.key.operation
+        operation["op"] = "look"
+        operation["version"] = listing.version
+        return try await market(operation, as: MarketLook.self)
+    }
+
     /// A listing picture or an avatar by its hash; `kind` is `preview` or `avatar`.
     func marketPicture(_ hash: String, kind: String) async throws -> MarketPicture {
         try await market(["op": "picture", "kind": kind, "hash": hash], as: MarketPicture.self)

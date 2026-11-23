@@ -162,3 +162,67 @@ test("a daemon without remote updates says so instead of failing", async () => {
     error: "unavailable",
   });
 });
+
+const check = (client: Client) =>
+  client.send({ type: "machineUpdate.request", requestId: "check", operation: "check" });
+
+test("only an administrator can ask the app to check its selected line", async () => {
+  const { report, device } = await desktopMachine();
+  const current: AppUpdateReport = {
+    ...downloaded,
+    line: "beta",
+    state: "current",
+    available: null,
+    downloaded: false,
+    restartRequired: false,
+    releaseUrl: null,
+  };
+  await report(current);
+  const reader = await device(["read"]);
+  check(reader);
+  expect(await next(reader, "machineUpdate.result")).toMatchObject({
+    ok: false,
+    error: "forbidden",
+  });
+  expect((await report(current)).instruction).toBeNull();
+
+  const admin = await device(["read", "operate", "admin"]);
+  check(admin);
+  expect(await next(admin, "machineUpdate.result")).toMatchObject({
+    ok: true,
+    update: { state: "checking", line: "beta", version: "0.0.18", available: null },
+  });
+  const { instruction } = await report(current);
+  expect(instruction).toMatchObject({ action: "check" });
+  expect((await report({ ...current, state: "checking" })).instruction).toEqual(instruction);
+  const ack = instruction?.id;
+  if (!ack) throw new Error("The desktop didn't get its check instruction");
+  expect(
+    (
+      await report({
+        ...current,
+        state: "available",
+        available: "0.0.19-beta.2",
+        checkedInstruction: ack,
+      })
+    ).instruction,
+  ).toBeNull();
+  let changed = await next(admin, "machineUpdate.changed");
+  while (changed.update.state === "checking") changed = await next(admin, "machineUpdate.changed");
+  expect(changed.update).toMatchObject({
+    state: "available",
+    line: "beta",
+    available: "0.0.19-beta.2",
+  });
+});
+
+test("a closed desktop app can't be asked to check", async () => {
+  const { device } = await desktopMachine();
+  const admin = await device(["read", "operate", "admin"]);
+  admin.send({ type: "machineUpdate.request", requestId: "closed", operation: "check" });
+  expect(await next(admin, "machineUpdate.result")).toMatchObject({
+    ok: false,
+    error: "blocked",
+    update: { blocked: "app-closed" },
+  });
+});

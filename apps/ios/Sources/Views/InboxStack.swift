@@ -14,9 +14,7 @@ struct InboxHeaderActions {
     var compose: () -> Void = {}
     /// Code review, from the Projects list's top bar.
     var review: () -> Void = {}
-    /// A page inside Settings, so Back lands on its list: the avatar menu's Profile and
-    /// Archived threads.
-    var page: (SettingsRoute) -> Void = { _ in }
+    var account: () -> Void = {}
 }
 
 /// One home list and the page it opens (`InboxSplit`): Threads (Inbox, Snoozed and Settled under
@@ -45,6 +43,7 @@ struct InboxStack<Destination: View, Side: View>: View {
     let selectAsks: Int
     let actions: InboxRowActions
     let header: InboxHeaderActions
+    let usageClient: ClientModel?
     /// Delete, move and the bulk actions across machines.
     let organize: InboxOrganize
     @ViewBuilder let destination: (InboxKey) -> Destination
@@ -286,12 +285,15 @@ struct InboxStack<Destination: View, Side: View>: View {
                 .accessibilityIdentifier("select.done")
         }
     }
-    /// The person's avatar at the bar's leading edge, then Code review (the Projects list; neither the
-    /// phone's tab bar nor the iPad sidebar's foot holds it), the scope menu and, in a regular window, compose (New thread, New chat on Chats), on one glass capsule at the right: system bar buttons with ace's
-    /// glyphs, at the system's size, on a phone and in a regular window alike. (The system's title
-    /// menu draws no chevron by a large title, so it would go unseen.)
+    /// The avatar leads. Usage on iPhone, Code review on Projects, scope and iPad compose
+    /// share the trailing glass capsule with ace's bar glyphs.
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
-        AccountToolbarItem(open: header.page, settings: header.settings)
+        AccountToolbarItem(open: header.account)
+        if sizeClass == .compact {
+            ToolbarItem(placement: .topBarTrailing) {
+                UsageToolbarButton(client: usageClient) { header.place(.usage) }
+            }
+        }
         if !chats {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: header.review) { Image(bar: HomeTabs.icon(.review)) }

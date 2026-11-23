@@ -1,14 +1,13 @@
 import XCTest
 
-/// The home shell: Threads, Chats, Spade (the fixture's machine shows it) in the tab bar with
-/// New thread as its round button, Search in the lists' top bar, holding the places a More tab used to. Run against the
+/// The home shell's tab bar and its detached compose button. Run against the
 /// fixture (`ACE_IOS_SPIKE_PORT`, `TEST_RUNNER_ACE_IOS_SPIKE_PORT` for another port). With
 /// `TEST_RUNNER_ACE_SHOT_DIR` set, each step's screenshot is written there too.
 @MainActor final class HomeShellUITests: XCTestCase, @unchecked Sendable {
     private let port = ProcessInfo.processInfo.environment["ACE_IOS_SPIKE_PORT"] ?? "9841"
     override func setUp() { continueAfterFailure = false }
 
-    func testTheTabBarHoldsProjectsChatsSpadeAndCompose() {
+    func testComposeSitsAfterTheFourHomeTabs() {
         let app = launch()
         let projects = app.homeTab("threads")
         XCTAssertTrue(projects.waitForExistence(timeout: 30))
@@ -24,7 +23,7 @@ import XCTest
         XCTAssertTrue(order.allSatisfy { $0.frame.minY > app.frame.height * 0.8 })
         // New thread is the round button at the bar's end, not in the list's top bar; Search is
         // a tab of the bar, before it.
-        let compose = app.buttons["inbox.compose"]
+        let compose = app.homeTab("compose")
         XCTAssertTrue(compose.waitForExistence(timeout: 15))
         XCTAssertEqual(compose.label, "New thread")
         XCTAssertGreaterThan(compose.frame.minY, app.frame.height * 0.8)
@@ -50,6 +49,7 @@ import XCTest
         XCTAssertTrue(app.buttons["select.done"].waitForExistence(timeout: 5))
         // Picking hides the tab bar for the selection's own bar.
         XCTAssertFalse(app.homeTab("threads").isHittable)
+        XCTAssertFalse(compose.isHittable)
     }
 
     func testComposeOnChatsStartsAChatAndOnThreadsAThread() {

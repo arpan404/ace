@@ -33,6 +33,16 @@
       "minLength": 1,
       "type": "string"
     },
+    "rootThreadId": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "threadId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },

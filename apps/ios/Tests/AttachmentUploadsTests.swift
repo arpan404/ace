@@ -9,7 +9,7 @@ import Testing
     @Test func sendWaitsWhileAFileUploadsAndSaysSo() {
         let files = [file("a", "ready"), file("b", "uploading"), file("c", "uploading")]
         #expect(AttachmentUploads.holdsSend(files))
-        #expect(AttachmentUploads.line(files) == "Uploading 2 files. Send waits until they're done.")
+        #expect(AttachmentUploads.line(files) == "Files uploading")
     }
 
     @Test func aFailedFileHoldsSendUntilItIsRetriedOrRemoved() {

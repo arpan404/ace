@@ -27,6 +27,15 @@ const iconKinds: Record<MachineIconKind, MachineKind> = {
   phone: "phone",
 };
 
+function computerKind(name: string): Exclude<MachineKind, "phone"> | undefined {
+  const lower = name.toLowerCase();
+  if (/laptop|macbook|notebook/.test(lower)) return "laptop";
+  if (/server|box|nas|runner|\bci\b/.test(lower)) return "server";
+  if (/studio|desktop|imac|mini|tower|workstation|\bpc\b/.test(lower)) return "desktop";
+  if (/computer/.test(lower)) return "laptop";
+  return undefined;
+}
+
 /**
  * A machine from its mark, else its name ("Build server", "Studio"), else its platform (Linux is
  * most often a server); a laptop when nothing says.
@@ -37,10 +46,22 @@ export function machineKind(input: {
   platform?: string | undefined;
 }): MachineKind {
   if (input.icon) return iconKinds[input.icon];
-  const name = input.name.toLowerCase();
-  if (/laptop|macbook|notebook/.test(name)) return "laptop";
-  if (/server|box|nas|runner|\bci\b/.test(name)) return "server";
-  if (/studio|desktop|imac|mini|tower|workstation|\bpc\b/.test(name)) return "desktop";
-  if (input.platform?.toLowerCase() === "linux") return "server";
-  return "laptop";
+  return (
+    computerKind(input.name) ?? (input.platform?.toLowerCase() === "linux" ? "server" : "laptop")
+  );
+}
+
+/** The mark for a fleet node. A paired computer keeps its device role and its computer mark. */
+export function markOf(input: {
+  kind: "machine" | "device";
+  name: string;
+  icon?: MachineIconKind | undefined;
+  platform?: string | undefined;
+}): MachineKind | DeviceKind {
+  if (input.kind === "device") {
+    const device = deviceKind(input.name);
+    return device === "browser" ? (computerKind(input.name) ?? device) : device;
+  }
+  if (input.icon === "phone") return computerKind(input.name) ?? "phone";
+  return machineKind(input);
 }

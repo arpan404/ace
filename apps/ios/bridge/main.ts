@@ -574,7 +574,7 @@ async function start(json: string): Promise<void> {
     reads,
     new ProjectManage(client, scheduler.set),
     inboxRequests(client, inbox.organizer, { now: () => host.now(), set: scheduler.set }, pump),
-    new HostCare(client, admission),
+    new HostCare(client, admission, followers.update),
     () => host.now(),
     automations,
     () => ({ state: pairedStanding, route: standingRoute }),

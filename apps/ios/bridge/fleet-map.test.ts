@@ -74,11 +74,18 @@ test("the map lists each machine as the phone reaches it and each device with it
   });
   // A phone paired only with mini, where every network paired devices use is off.
   mini.access.completePairing("Pixel 9");
+  studio.access.completePairing("Arpan’s MacBook Pro");
+  studio.access.completePairing("remote-computer");
   const view = combineFleetMap(
     FleetMapCombineRequest.parse({
       type: "fleetMap.combine",
       machines: [
-        { ...ready("studio", "wss://studio.tail1a2b.ts.net:4243", await part(studio)), working: 2 },
+        {
+          ...ready("studio", "wss://studio.tail1a2b.ts.net:4243", await part(studio)),
+          name: "MacBook Pro Rijan",
+          icon: "phone",
+          working: 2,
+        },
         ready("mini", "wss://192.168.1.30:4243", await part(mini)),
         {
           id: "box",
@@ -93,7 +100,7 @@ test("the map lists each machine as the phone reaches it and each device with it
   );
   const row = (name: string) => view.rows.find((entry) => entry.name === name);
 
-  expect(row("studio")).toMatchObject({
+  expect(row("MacBook Pro Rijan")).toMatchObject({
     tone: "on",
     token: "done",
     state: "Connected",
@@ -122,13 +129,56 @@ test("the map lists each machine as the phone reaches it and each device with it
     ],
   });
 
+  const picture = view.picture;
+  expect(picture).not.toBeNull();
+  if (!picture) throw new Error("Expected a placed fleet map");
+  expect(picture.nodes.map(({ id }) => id)).toEqual(view.rows.map(({ id }) => id));
+  expect(picture.nodes).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: "studio",
+        mark: "laptop",
+        label: "MacBook Pro Rijan",
+        status: "2 agents working",
+        token: "done",
+      }),
+      expect.objectContaining({ label: "Arpan’s MacBook Pro", mark: "laptop" }),
+      expect.objectContaining({ label: "remote-computer", mark: "laptop" }),
+      expect.objectContaining({ label: "iPhone 16 Pro", mark: "phone" }),
+    ]),
+  );
+  expect(row("MacBook Pro Rijan")).toMatchObject({ kind: "machine", art: "laptop" });
+  expect(row("Arpan’s MacBook Pro")).toMatchObject({ kind: "device", art: "laptop" });
+  expect(row("remote-computer")).toMatchObject({ kind: "device", art: "laptop" });
+  expect(picture.zones.map(({ name }) => name)).toEqual(["Local network", "Tailnet"]);
+  expect(picture.cloud?.label).toBe("Relay");
+  expect(picture.wires).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ node: "studio", kind: "direct" }),
+      expect.objectContaining({ node: "box", kind: "broken", relayed: true }),
+      expect.objectContaining({ node: row("iPhone 16 Pro")?.id, kind: "unknown" }),
+      expect.objectContaining({ node: row("Pixel 9")?.id, from: "mini", kind: "broken" }),
+    ]),
+  );
+  expect(new Set(picture.nodes.map(({ x, y }) => `${x},${y}`)).size).toBe(picture.nodes.length);
+  const coordinates = [...picture.nodes, ...picture.wires.flatMap(({ points }) => points)];
+  for (const { x, y } of coordinates) {
+    expect(x).toBeGreaterThan(0);
+    expect(x).toBeLessThan(picture.width);
+    expect(y).toBeGreaterThan(0);
+    expect(y).toBeLessThan(picture.height);
+  }
+
   // The fixtures' iPhone is this phone, paired with both: one row, judged against studio.
   expect(view.rows.filter((entry) => entry.name === "iPhone 16 Pro")).toHaveLength(1);
   expect(row("iPhone 16 Pro")?.lines).toContainEqual({
     label: "Last seen",
     value: "Now, this device",
   });
-  expect(row("iPhone 16 Pro")?.lines).toContainEqual({ label: "Opens", value: "studio and mini" });
+  expect(row("iPhone 16 Pro")?.lines).toContainEqual({
+    label: "Opens",
+    value: "MacBook Pro Rijan and mini",
+  });
   expect(row("Pixel 9")).toMatchObject({
     tone: "warn",
     problem: {
@@ -146,7 +196,7 @@ test("the map lists each machine as the phone reaches it and each device with it
     ],
   ]);
   expect(view.problems).toBe(2);
-  expect(view.summary).toBe("6 machines and devices. 2 connections need you.");
+  expect(view.summary).toBe("8 machines and devices. 2 connections need you.");
 
   // Turning Tailscale off on studio asks first, naming who reaches it now.
   const tailscale = view.reach
@@ -157,8 +207,8 @@ test("the map lists each machine as the phone reaches it and each device with it
     key: "remote.tailscale",
     value: false,
     confirm: {
-      title: "Turn off Tailscale on studio?",
-      body: "This iPhone and iPad Air may disconnect until they can reach studio another way.",
+      title: "Turn off Tailscale on MacBook Pro Rijan?",
+      body: "This iPhone, Arpan’s MacBook Pro, remote-computer and iPad Air may disconnect until they can reach MacBook Pro Rijan another way.",
       confirm: "Turn off",
     },
   });
@@ -241,7 +291,9 @@ test("the phone's connection reads as the web's machine states", () => {
     now,
   );
   expect(
-    view.rows.map((entry) => [entry.name, entry.line, entry.fixes.map((fix) => fix.label)]),
+    view.rows
+      .filter((entry) => entry.kind === "machine")
+      .map((entry) => [entry.name, entry.line, entry.fixes.map((fix) => fix.label)]),
   ).toEqual([
     ["a", "Refused this iPhone", ["Remove"]],
     ["b", "Needs its code", ["Enter code"]],

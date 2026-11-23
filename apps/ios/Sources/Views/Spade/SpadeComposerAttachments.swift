@@ -33,33 +33,37 @@ struct SpadeComposer: View {
     private let staging = AttachmentStaging()
 
     var body: some View {
+        let rowInset = AceDesign.Space.tight
+        let textInset = attaches ? AceDesign.Space.tight : AceDesign.Space.margin
+        let attachWidth = attaches ? AceDesign.Size.tap + AceDesign.Space.tight : 0
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
             notice
-            if !picks.files.isEmpty {
-                ComposerMediaStrip(files: picks.strip, staging: staging, inset: AceDesign.Space.margin) { remove($0) }
-                    .opacity(picks.sending ? AceTheme.Opacity.disabled(.light) : 1)
-                    .accessibilityIdentifier("spade.attachments")
-            }
             if recorder.recording, let began = recorder.began {
                 SpadeRecordingLine(began: began)
             } else if let voice = picks.voice {
                 SpadeRecordedLine(seconds: voice.seconds, sending: picks.sending) { remove(voice.file.localId) }
             }
-            HStack(alignment: .bottom, spacing: AceDesign.Space.tight) {
-                if attaches {
-                    AttachMenu(stage: { picks.add($0) }, problem: $pickProblem, identifier: "spade.attach", staging: staging)
-                        .disabled(picks.sending || recorder.recording)
+            VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
+                if !picks.files.isEmpty {
+                    ComposerMediaStrip(files: picks.strip, staging: staging, inset: rowInset + attachWidth + textInset, remove: remove)
+                        .accessibilityIdentifier("spade.attachments")
                 }
-                TextField("Message \(name)", text: $draft, axis: .vertical)
-                    .aceFont(AceDesign.TextRole.message)
-                    .lineLimit(1...6)
-                    .focused($typing)
-                    .padding(.horizontal, attaches ? AceDesign.Space.tight : AceDesign.Space.margin)
-                    .padding(.vertical, AceDesign.Space.related)
-                    .accessibilityIdentifier("spade.composer")
-                trailing
+                HStack(alignment: .bottom, spacing: AceDesign.Space.tight) {
+                    if attaches {
+                        AttachMenu(stage: { picks.add($0) }, problem: $pickProblem, identifier: "spade.attach", staging: staging)
+                            .disabled(picks.sending || recorder.recording)
+                    }
+                    TextField("Message \(name)", text: $draft, axis: .vertical)
+                        .aceFont(AceDesign.TextRole.message)
+                        .lineLimit(1...6)
+                        .focused($typing)
+                        .padding(.horizontal, textInset)
+                        .padding(.vertical, AceDesign.Space.related)
+                        .accessibilityIdentifier("spade.composer")
+                    trailing
+                }
+                .padding(rowInset)
             }
-            .padding(AceDesign.Space.tight)
             .aceGlass(in: AceDesign.Shape.field, interactive: true)
             .padding(.horizontal, AceDesign.Space.margin)
             .padding(.bottom, AceDesign.Space.related)

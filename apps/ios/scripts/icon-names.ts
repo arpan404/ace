@@ -328,17 +328,17 @@ export const filledIcons = [
   "x-circle",
 ];
 
-/**
- * The tab bar's glyphs, also written at the bar's own glyph size as `tab-<name>` (outline) and
- * `tab-<name>-fill` (the chosen tab), so every tab draws one size and the chosen one fills.
- */
+/** The tab bar's outline glyphs, written at tab size as `tab-<name>`. */
 export const tabIcons = [
   "folder-simple",
   "chats",
   "git-pull-request",
   "magnifying-glass",
   "note-pencil",
+  "sparkle",
 ];
+/** Selected glyphs used by the iPad sidebar. */
+export const sidebarFilledIcons = new Set(["folder-simple", "chats", "magnifying-glass"]);
 /** The system tab bar's glyph box. */
 export const tabIconSize = 26;
 

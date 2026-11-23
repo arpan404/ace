@@ -21,7 +21,7 @@ export type MachineInstall = z.infer<typeof MachineInstall>;
 
 /**
  * How far the machine's update has got. `none`: up to date or nothing found yet. `available`:
- * a newer release is on offer. `waiting`: asked to update when idle, waiting for agents to
+ * a newer release is on offer. `checking`: the desktop app is checking its release line. `waiting`: asked to update when idle, waiting for agents to
  * finish. `downloading`, `ready` (downloaded), `installing` (stopping and restarting).
  * `updated`: the last update finished. `failed`: it didn't; the old version still runs and
  * `error` says why.
@@ -29,6 +29,7 @@ export type MachineInstall = z.infer<typeof MachineInstall>;
 export const MachineUpdateState = z.union([
   z.enum([
     "none",
+    "checking",
     "available",
     "waiting",
     "downloading",
@@ -77,12 +78,14 @@ export const MachineUpdateOutcome = z.looseObject({
 export type MachineUpdateOutcome = z.infer<typeof MachineUpdateOutcome>;
 
 export const MachineUpdate = z.looseObject({
-  /** The running version. */
+  /** The running version (the desktop app version when it reports one). */
   version,
   /** `process.platform` and `process.arch`, as the daemon runs. */
   platform: z.string().min(1).max(32),
   arch: z.string().min(1).max(32),
   install: MachineInstall,
+  /** The selected desktop release line, when reported by the app. */
+  line: z.enum(["stable", "beta"]).optional(),
   state: MachineUpdateState,
   /** The release on offer for this platform; null when none is newer or none was found. */
   available: version.nullable(),

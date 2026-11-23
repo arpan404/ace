@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { useElementSize } from "@/lib/element-size.ts";
 import { cn } from "@/lib/cn.ts";
-import { fleetMapLayout } from "./data/fleet-map-layout.ts";
+import { fleetMapLayout } from "@ace/ui-core/fleet-map";
 import { useFleetMap } from "./data/use-fleet-map.ts";
 import { useAccountOpenings } from "./fleet-map-openings.ts";
 import { MapList, MapPanel } from "./fleet-map-panel.tsx";

@@ -1,3 +1,4 @@
+import { commandSummary } from "./command-summary.ts";
 import { pluralCount } from "./counts.ts";
 import { waitingOnSubagentsLabel } from "./live-status.ts";
 import type { TurnWait } from "./turn-activity.ts";
@@ -27,7 +28,12 @@ export function waitWords(wait: TurnWait): WaitWords {
         ? `${pluralCount(wait.commands, "command", "commands")} running`
         : undefined,
     };
-  if (wait.title) return { label: "Running", code: wait.title, detail: undefined };
+  if (wait.title)
+    return {
+      label: "Running",
+      code: wait.shells ? commandSummary(wait.title) : wait.title,
+      detail: undefined,
+    };
   const noun = wait.shells ? ["command", "commands"] : ["background task", "background tasks"];
   return {
     label: `Running ${pluralCount(wait.count, noun[0] ?? "", noun[1])}`,

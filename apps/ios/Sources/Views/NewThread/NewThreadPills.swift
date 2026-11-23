@@ -1,20 +1,20 @@
 import SwiftUI
 
-/// One pill of New thread's top row: a capsule in the fill surface with its words and a quiet
+/// One pill of New thread's choices: a capsule in the fill surface with its words and a quiet
 /// caret, its touch area a full 44 points tall. The project leads in full ink; the rest are muted.
 struct NewThreadPill<Label: View>: View {
     var primary = false
     @ViewBuilder var label: () -> Label
     var body: some View {
         HStack(spacing: AceDesign.Space.tight) {
-            label().lineLimit(1)
+            label().lineLimit(1).fixedSize(horizontal: true, vertical: false)
             AceIcon(.caretDown, size: AceDesign.Size.caret, relativeTo: .caption)
                 .font(.caption2.weight(.semibold)).foregroundStyle(AceTheme.Colours.subtleForeground)
         }
         .aceFont(NewThreadStyle.chip, relativeTo: .subheadline)
         .foregroundStyle(primary ? AceTheme.Colours.foreground : AceTheme.Colours.mutedForeground)
         .padding(.horizontal, AceDesign.Space.row)
-        .frame(minHeight: ComposerControlRow.height)
+        .frame(minWidth: AceDesign.Size.tap, minHeight: ComposerControlRow.height)
         .background(AceTheme.Colours.fill, in: AceShape.capsule)
         .padding(.vertical, (AceDesign.Size.tap - ComposerControlRow.height) / 2)
         .contentShape(Rectangle())
@@ -49,7 +49,7 @@ struct NewThreadPillsModel {
 }
 
 /// Project, machine (only when there's more than one), model, its effort, where it runs and
-/// access: the choices a start makes, as pills that wrap.
+/// access: the choices a start makes, as a horizontal strip.
 struct NewThreadPills: View {
     let model: NewThreadPillsModel
     let chooseProject: () -> Void
@@ -61,21 +61,9 @@ struct NewThreadPills: View {
     /// Asks the machine for the project's branches again, after a failed read.
     let retryBranches: () -> Void
     @State private var choosingAccess = false
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
-            ChipFlow(spacing: AceDesign.Space.related, scale: displayScale) {
-                Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Project").accessibilityValue(model.project)
-                    .accessibilityIdentifier("newThread.project")
-                if model.machines.count > 1 { machine }
-                modelPill
-                if let place = model.place { placePill(place) }
-                if let access = model.access, !access.choices.isEmpty { accessPill(access) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
             if let problem = model.place?.problem {
                 // Where it runs can't be chosen until the branches arrive: say why, and ask again.
                 HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
@@ -89,6 +77,21 @@ struct NewThreadPills: View {
                 }
                 .accessibilityElement(children: .contain)
             }
+            ScrollView(.horizontal) {
+                HStack(spacing: AceDesign.Space.related) {
+                    Button(action: chooseProject) { NewThreadPill(primary: true) { Text(model.project) } }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Project").accessibilityValue(model.project)
+                        .accessibilityIdentifier("newThread.project")
+                    if model.machines.count > 1 { machine }
+                    modelPill
+                    if let place = model.place { placePill(place) }
+                    if let access = model.access, !access.choices.isEmpty { accessPill(access) }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("newThread.choices")
         }
     }
 
@@ -101,7 +104,7 @@ struct NewThreadPills: View {
                 HStack(spacing: AceDesign.Space.tight) {
                     if model.loadingModel { ProgressView().controlSize(.mini) }
                     else if let provider = model.provider { ProviderMark(provider: provider, size: AceDesign.Size.metaIcon) }
-                    Text(model.model).truncationMode(.middle)
+                    Text(model.model)
                     if let tune = model.tune { Text("· \(tune)").fixedSize() }
                 }
             }
@@ -162,17 +165,24 @@ struct NewThreadPills: View {
 
     private func accessPill(_ access: ComposeAccess) -> some View {
         let label = access.choices.first { $0.mode == access.selected }?.label ?? "Access"
-        return Button { choosingAccess = true } label: { NewThreadPill { Text(label) } }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Access").accessibilityValue(label)
-            .accessibilityIdentifier("newThread.access")
-            .sheet(isPresented: $choosingAccess) {
-                AccessSheet(selected: access.selected,
-                            items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
-                            note: access.problem ?? access.stricter, identifier: "newThread.access") { mode in
-                    choosingAccess = false
-                    if mode != access.selected { chooseAccess(mode) }
+        return Button { choosingAccess = true } label: {
+            NewThreadPill {
+                HStack(spacing: AceDesign.Space.tight) {
+                    AceIcon(AccessItem.icon(for: access.selected), size: AceDesign.Size.metaIcon, relativeTo: .subheadline)
+                    Text(label)
                 }
             }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Access").accessibilityValue(label)
+        .accessibilityIdentifier("newThread.access")
+        .sheet(isPresented: $choosingAccess) {
+            AccessSheet(selected: access.selected,
+                        items: access.choices.map { AccessItem(mode: $0.mode, label: $0.label, description: $0.description, attention: $0.attention) },
+                        note: access.problem ?? access.stricter, identifier: "newThread.access") { mode in
+                choosingAccess = false
+                if mode != access.selected { chooseAccess(mode) }
+            }
+        }
     }
 }

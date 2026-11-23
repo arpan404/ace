@@ -3,7 +3,7 @@ import SwiftUI
 /// The single inbox (issue #560) across every paired machine, in tabs: Threads (Inbox, Snoozed and
 /// Settled), Chats (plain chats with no project, ADR 0099), Search (the places outside the lists
 /// and search everything). A phone switches them with the system's tab bar (Liquid Glass on iOS 26,
-/// Search its own trailing circle there), New thread in each list's top bar; a regular window with
+/// New thread in its own trailing circle there); a regular window with
 /// the sidebar's foot (`SidebarPlaces`), the system's bar hidden. Code review opens from the
 /// Projects list's top bar: as a place of its own in a regular window, over Projects on a phone. Spade's tab is there while
 /// a machine shows Spade (Settings › Beta). Grouping and wording come from each machine's runtime. A row and its
@@ -20,6 +20,7 @@ struct InboxView: View {
     @State private var tab = InboxTab.threads
     /// A place's tab tapped again while it shows: its list goes back to the top.
     @State private var retap = HomeRetap()
+    @State private var spadeTabMotion = SpadeTabMotion()
     @State private var threadsPath: [InboxRoute] = []
     @State private var chatsPath: [InboxRoute] = []
     /// Each list as a drawer over its open page in a narrow regular window (`ThreadDrawer`).
@@ -141,21 +142,20 @@ struct InboxView: View {
     }
 
     @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
+        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads), value: InboxTab.threads) {
             stack(.threads, path: $threadsPath, drawer: $threadsDrawer).environment(\.homePlace, .threads)
         }
         .placeTab(.threads, waiting: waiting(.threads))
-        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
+        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats), value: InboxTab.chats) {
             stack(.chats, path: $chatsPath, drawer: $chatsDrawer).environment(\.homePlace, .chats)
         }
         .placeTab(.chats, waiting: waiting(.chats))
     }
 
-    /// Spade, ace's assistant, after Chats while a machine shows it (Settings › Beta). The system's
-    /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
+    /// Spade, ace's assistant, appears after Chats while a machine shows it (Settings › Beta).
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
                 .placeTab(.spade, waiting: waiting(.spade))
         }
     }
@@ -164,28 +164,32 @@ struct InboxView: View {
     /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
                 .accessibilityIdentifier("tab.\(HomeTabs.identifier(.review))")
         }
     }
 
-    /// Search, a place of the bar. Its page carries its own field under the title; the compose
-    /// tab holds the only search role and no tab-level search is set, so the system never gives
-    /// Compose Search's field.
+    /// Search is a regular tab with its own field under the page title.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
     }
 
-    /// New thread, New chat on Chats, in the slot iOS 26 gives the search role: its own round glass
-    /// button at the bar's end, beside the tabs. It isn't a place: choosing it runs compose and
-    /// leaves the tab showing (`tabChoice`). A regular window composes from the list's top bar.
+    /// iOS 27 gives the detached slot to the prominent role. iOS 26 uses the search role.
+    private static var composeRole: TabRole {
+        #if canImport(SwiftUI, _version: 8.0)
+        if #available(iOS 27, *) { return .prominent }
+        #endif
+        return .search
+    }
+
+    /// Compose opens over the current tab. A regular window composes from the list's top bar.
     @TabContentBuilder<InboxTab> private var composeTab: some TabContent<InboxTab> {
         if sizeClass != .regular && inbox.canStartThreads {
-            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose, role: .search) {
+            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose), value: InboxTab.compose, role: Self.composeRole) {
                 Color.clear
             }
-            .accessibilityIdentifier("inbox.compose")
+            .accessibilityIdentifier("tab.\(HomeTabs.identifier(.compose))")
         }
     }
 
@@ -203,6 +207,7 @@ struct InboxView: View {
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
+        .environment(\.spadeTabMotion, spadeTabMotion)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
     }
@@ -280,8 +285,7 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions,
-                   account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
-                                               settings: { open(.settings) }),
+                   account: AccountToolbarItem(open: openAccount),
                    query: $searchQuery, focusAsks: searchFocusAsks,
                    hasLock: lock != nil)
             .inboxFootBar {
@@ -314,9 +318,10 @@ struct InboxView: View {
 
     private var sheets: some View {
         tabs
-            .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
+            .placeSheet($place, inbox: inbox, machines: machines, lock: lock, machineFilter: machineFilter,
                         places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
-                                           openUnlisted: { openThread($0, listed: false) }))
+                                           openUnlisted: { openThread($0, listed: false) },
+                                           showMachineThreads: { selectMachine($0) }))
             // A phone's Code review, over Projects: a thread or New thread asked from it opens
             // on the home screen as it closes.
             .sheet(isPresented: $reviewing) {
@@ -370,6 +375,7 @@ struct InboxView: View {
         guard let sheet else { return }
         place = sheet
     }
+    private func openAccount() { present(PlaceSheet(id: nextSerial(), root: .accountHome)) }
     private func nextSerial() -> Int { placeSerial += 1; return placeSerial }
     private func open(_ searchPlace: SearchPlace) {
         present(PlaceSheet.of(searchPlace, machine: toolsMachine, id: nextSerial()))
@@ -454,7 +460,8 @@ struct InboxView: View {
                                               place: { open($0) },
                                               compose: { compose(chat: list == .chats) },
                                               review: { openReview() },
-                                              page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
+                                              account: openAccount),
+                   usageClient: toolsMachine.flatMap(inbox.client),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -514,6 +521,12 @@ struct InboxView: View {
                       place: open,
                       pull: { route in present(PlaceSheet(id: nextSerial(), root: .forge(route))) })
     }
+    private func selectMachine(_ machine: String) {
+        machineFilter = machine
+        projectFilter = ""
+        tab = .threads
+    }
+
     /// A command id from the shared catalog (`bridge/palette.ts`).
     private func runCommand(_ id: String) {
         switch HomeCommand(id: id) {
@@ -524,10 +537,7 @@ struct InboxView: View {
             tab = .threads
             selectAsks += 1
         case .place(let place): open(place)
-        case .machine(let machine):
-            machineFilter = machine
-            projectFilter = ""
-            tab = .threads
+        case .machine(let machine): selectMachine(machine)
         case .thread(let destination): openOnThread(destination)
         case .settings(let id): present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
         }

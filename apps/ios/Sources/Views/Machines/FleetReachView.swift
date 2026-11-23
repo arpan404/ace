@@ -22,14 +22,7 @@ struct FleetReachView: View {
         List {
             if let row {
                 Section { FleetMapRowLabel(row: row, line: row.state) }.insetRowBackground()
-                Section {
-                    if let reach {
-                        ForEach(reach.rows) { entry in reachRow(entry) }
-                    } else {
-                        Text("Shown once this phone reaches \(row.name).").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
-                    }
-                } header: { InsetHeader("How it's reached") }
-                .insetRowBackground()
+                if row.machine != nil { reachSection(row) }
                 if !row.lines.isEmpty {
                     Section {
                         ForEach(row.lines, id: \.self) { line in LabeledContent(line.label, value: line.value) }
@@ -39,17 +32,19 @@ struct FleetReachView: View {
                 if let problem {
                     Section { ServiceProblem(message: problem) }.insetRowBackground()
                 }
-                Section {
-                    NavigationLink(value: SettingsRoute.machine(row.id)) { InsetRow("Machine page", icon: .info) }
-                        .accessibilityIdentifier("fleetReach.page")
+                if let machine = row.machine {
+                    Section {
+                        NavigationLink(value: SettingsRoute.machine(machine)) { InsetRow("Machine page", icon: .info) }
+                            .accessibilityIdentifier("fleetReach.page")
+                    }
+                    .insetRowBackground()
                 }
-                .insetRowBackground()
             }
         }
         .insetGroupedList()
         .smoothChange(reach)
         .sensoryFeedback(.success, trigger: saved)
-        .navigationTitle(row?.name ?? "Machine").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(row?.name ?? "Fleet map").navigationBarTitleDisplayMode(.inline)
         .refreshable { await reload() }
         .confirmationDialog(asking?.question.title ?? "", isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),
                             titleVisibility: .visible) {
@@ -57,6 +52,17 @@ struct FleetReachView: View {
                 if let asking { Task { await write(asking.row, asking.action) } }
             }
         } message: { Text(asking?.question.body ?? "") }
+    }
+
+    private func reachSection(_ row: FleetMapReply.Row) -> some View {
+        Section {
+            if let reach {
+                ForEach(reach.rows) { entry in reachRow(entry) }
+            } else {
+                Text("Shown once this phone reaches \(row.name).").font(AceDesign.Typeface.meta).foregroundStyle(AceDesign.Ink.muted)
+            }
+        } header: { InsetHeader("How it's reached") }
+        .insetRowBackground()
     }
 
     private func reachRow(_ entry: FleetMapReply.ReachRow) -> some View {

@@ -49,7 +49,9 @@ import XCTest
         XCTAssertTrue(app.buttons["newThread.project"].waitForExistence(timeout: 10))
     }
     private func choose(_ app: XCUIApplication, _ name: String) {
-        app.descendants(matching: .any)["newThread.machine"].firstMatch.tap()
+        let machine = app.descendants(matching: .any)["newThread.machine"].firstMatch
+        app.revealNewThreadChoice(machine)
+        machine.tap()
         let option = app.buttons[name].firstMatch
         XCTAssertTrue(option.waitForExistence(timeout: 5))
         option.tap()
@@ -57,7 +59,9 @@ import XCTest
         wait(for: [expectation(for: chosen, evaluatedWith: app.descendants(matching: .any)["newThread.machine"].firstMatch)], timeout: 10)
     }
     private func pickProject(_ app: XCUIApplication) {
-        app.buttons["newThread.project"].tap()
+        let project = app.buttons["newThread.project"]
+        app.revealNewThreadChoice(project, towardEnd: false)
+        project.tap()
         XCTAssertTrue(app.buttons["project.ace"].waitForExistence(timeout: 15))
         app.buttons["project.ace"].tap()
         let named = NSPredicate(format: "value == %@", "ace-next")

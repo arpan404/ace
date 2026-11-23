@@ -98,9 +98,18 @@ import XCTest
     func testProfileSendsForgetAndSignOutOnlyWhenConfirmed() async throws {
         try await accountFixture("/account/reset", method: "POST")
         let app = launch(["--spike-account"])
-        app.openBrowseDestination("inbox.settings")
-        let profile = app.buttons["settings.account"]
+        let avatar = app.buttons["inbox.account"]
+        XCTAssertTrue(avatar.waitForExistence(timeout: 10))
+        avatar.tap()
+        let profile = app.buttons["account.menu.profile"]
         XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        let done = app.buttons["account.sheet.done"]
+        XCTAssertTrue(done.exists)
+        done.tap()
+        XCTAssertTrue(profile.waitForNonExistence(timeout: 5))
+        avatar.tap()
+        XCTAssertTrue(profile.waitForExistence(timeout: 10))
+        XCTAssertEqual(profile.label, "Ada Lovelace, ada@example.com, Profile")
         profile.tap()
         let person = app.descendants(matching: .any)["account.person"].firstMatch
         XCTAssertTrue(person.waitForExistence(timeout: 10))

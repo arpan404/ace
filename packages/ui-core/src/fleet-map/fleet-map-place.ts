@@ -1,4 +1,4 @@
-import { relayEnd, type FleetMap, type MapNode, type ZoneId } from "@ace/ui-core/fleet-map";
+import { relayEnd, type FleetMap, type MapNode, type ZoneId } from "./map-types.ts";
 
 /*
  * Which grid cell each Fleet map node takes, by how it reaches this computer. Pure.

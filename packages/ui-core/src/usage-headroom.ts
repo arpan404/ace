@@ -145,6 +145,8 @@ export interface HeadroomBar {
   tone: HeadroomTone;
   /** What `left` measures, for the spoken name: "week", "day", or the window's own name. */
   span: string;
+  /** Set when the bar is one chosen window of the account: "5-hour", "Daily" or "Weekly". */
+  window?: string;
 }
 
 /** The rail icon: one bar per account, at most four; none with nothing read. */
@@ -156,6 +158,107 @@ export interface RailUsage {
   accounts: AccountLimits[];
   /** Whether they are the person's pins, rather than the accounts used most this week. */
   pinned: boolean;
+  /** Every account with a reading: the ones drawn first, in their order, then the rest. */
+  choices: RailChoice[];
+}
+
+/** An account the person can put in the rail's bars, or leave out. */
+export interface RailChoice extends Omit<HeadroomBar, "key"> {
+  /** What a pin names it by: the account's id, then `#` and its window ("acct-1#session"). */
+  id: string;
+  /** Whether the rail draws it now. */
+  shown: boolean;
+}
+
+/**
+ * Which readable bars the rail draws, and in what order: the person's pins that still read, in
+ * the order pinned (pins that no longer read are skipped, repeats count once); with none left,
+ * the `defaults` (all of `readable` when omitted) most used in the last seven days, ties and the
+ * unused in the page's order. At most `railBars`. `used` is tokens by account id; a pin's window
+ * (after `#`) is not part of the account id.
+ */
+export function pickRail<T extends { id: string }>(
+  readable: readonly T[],
+  used: ReadonlyMap<string, number> | undefined,
+  pins: readonly string[] = [],
+  defaults: readonly T[] = readable,
+): { shown: T[]; pinned: boolean } {
+  const pinnedHere = [...new Set(pins)].flatMap(
+    (id) => readable.find((each) => each.id === id) ?? [],
+  );
+  if (pinnedHere.length) return { shown: pinnedHere.slice(0, railBars), pinned: true };
+  const tokens = (each: T) => used?.get(each.id) ?? 0;
+  const shown = defaults
+    .map((each, index) => ({ each, index }))
+    .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
+    .slice(0, railBars)
+    .map(({ each }) => each);
+  return { shown, pinned: false };
+}
+
+/** The limits of an account a bar can show. */
+export const railWindowKinds = ["session", "daily", "weekly"] as const;
+export type RailWindowKind = (typeof railWindowKinds)[number];
+
+const kindNames: Record<RailWindowKind, string> = {
+  session: "5-hour",
+  daily: "Daily",
+  weekly: "Weekly",
+};
+const kindSpans: Record<RailWindowKind, string> = {
+  session: "5-hour window",
+  daily: "day",
+  weekly: "week",
+};
+
+/** A pin for one limit of one account. A bare account id is the account's default bar. */
+export const railPin = (accountId: string, kind: RailWindowKind) => `${accountId}#${kind}`;
+
+/** The window kind a window's label names: the 5-hour session, the daily or the weekly limit. */
+export function railWindowKind(window: AccountWindow): RailWindowKind | undefined {
+  if (window.label === "Session (5h)") return "session";
+  if (window.label === "Daily") return "daily";
+  if (window.label === "Weekly") return "weekly";
+  return undefined;
+}
+
+/** The limits an account reports that a bar can show, in the order session, daily, weekly. */
+export function railWindowsOf(
+  account: AccountLimits,
+): { kind: RailWindowKind; window: AccountWindow }[] {
+  return railWindowKinds.flatMap((kind) => {
+    const window = account.windows.find((each) => railWindowKind(each) === kind);
+    return window ? [{ kind, window }] : [];
+  });
+}
+
+/** Each account's session limit kind ("session" or "daily"), by account id; none without one. */
+export function railSessionKinds(limits: UsageLimits): Map<string, RailWindowKind> {
+  const kinds = new Map<string, RailWindowKind>();
+  for (const group of limits.providers)
+    for (const entry of group.accounts) {
+      if (entry.signIn) continue;
+      const found = railWindowsOf(entry).find(({ kind }) => kind !== "weekly");
+      if (found) kinds.set(entry.account.id, found.kind);
+    }
+  return kinds;
+}
+
+/**
+ * A pin saved before windows existed names an account alone and drew its default bar. It becomes
+ * that account's session limit (its 5-hour or daily one), which that bar measured; an account
+ * with neither, or a pin that already names a window, stays as it was. `sessionKinds` maps an
+ * account id to the kind its session limit has.
+ */
+export function migrateRailPins(
+  pins: readonly string[],
+  sessionKinds: ReadonlyMap<string, RailWindowKind>,
+): string[] {
+  const moved = pins.map((pin) => {
+    const kind = pin.includes("#") ? undefined : sessionKinds.get(pin);
+    return kind ? railPin(pin, kind) : pin;
+  });
+  return [...new Set(moved)];
 }
 
 /** The most accounts the rail shows, so the most that can be pinned to it. */
@@ -210,45 +313,77 @@ export function railUsage(
   measure: RailMeasure = "week",
   pins: RailPins = [],
 ): RailUsage {
-  const readable = limits.providers.flatMap((group) =>
+  const options = limits.providers.flatMap((group) =>
     group.accounts.flatMap((entry) => {
-      const room = measure === "session" ? sessionRoom(entry) : railLeft(entry);
-      if (room === null) return [];
+      if (entry.signIn) return [];
       const label =
         group.accounts.length > 1
           ? `${group.providerLabel} · ${entry.account.label}`
           : group.providerLabel;
-      const bar = {
-        key: entry.key,
-        label,
-        left: room.left,
-        span: room.span,
-        tone: headroomTone(room.left),
-      };
-      return [{ entry, bar }];
+      const id = entry.account.id;
+      const room = measure === "session" ? sessionRoom(entry) : railLeft(entry);
+      const make = (key: string, left: number, span: string, window?: string) => ({
+        id: key,
+        accountId: id,
+        entry,
+        bar: {
+          key,
+          label,
+          left,
+          span,
+          tone: headroomTone(left),
+          ...(window === undefined ? {} : { window }),
+        },
+      });
+      const fallback = room === null ? [] : [make(id, room.left, room.span)];
+      const windows = railWindowsOf(entry).map(({ kind, window }) =>
+        make(
+          railPin(id, kind),
+          window.stale ? 100 : window.leftPercent,
+          kindSpans[kind],
+          kindNames[kind],
+        ),
+      );
+      return [{ fallback, windows }];
     }),
   );
-  const pinnedHere = pins.flatMap(
-    (id) => readable.find((each) => each.entry.account.id === id) ?? [],
-  );
-  // Pins, in the order pinned; with none here, the accounts used most this week, the rest in the
-  // page's order, up to four.
-  const tokens = (each: { entry: AccountLimits }) => used?.get(each.entry.account.id) ?? 0;
-  const shown = pinnedHere.length
-    ? pinnedHere
-    : readable
-        .map((each, index) => ({ each, index }))
-        .toSorted((a, b) => tokens(b.each) - tokens(a.each) || a.index - b.index)
-        .slice(0, railBars)
-        .map(({ each }) => each);
+  const defaults = options.flatMap((each) => each.fallback);
+  const every = options.flatMap((each) => [...each.fallback, ...each.windows]);
+  const sessionKinds = railSessionKinds(limits);
+  const { shown, pinned } = pickRail(every, used, pins, defaults);
   const bars = shown.map((each) => each.bar);
+  // The rows the person picks from: each window an account reports, else its one default bar.
+  const rows = options.flatMap(({ fallback, windows }) => (windows.length ? windows : fallback));
+  const drawn = new Set(shown.map((each) => migratedId(each.id, sessionKinds)));
+  const ordered = [
+    ...shown.flatMap((each) => rows.filter((row) => row.id === migratedId(each.id, sessionKinds))),
+    ...rows.filter((row) => !drawn.has(row.id)),
+  ];
+  const choices = ordered.map((each) => {
+    const choice: RailChoice = {
+      id: each.id,
+      label: each.bar.label,
+      left: each.bar.left,
+      tone: each.bar.tone,
+      span: each.bar.span,
+      shown: drawn.has(each.id),
+    };
+    if (each.bar.window !== undefined) choice.window = each.bar.window;
+    return choice;
+  });
   return {
     bars,
     label: railLabel(bars),
     accounts: shown.map((each) => each.entry),
-    pinned: pinnedHere.length > 0,
+    pinned,
+    choices,
   };
 }
+
+const migratedId = (id: string, sessionKinds: ReadonlyMap<string, RailWindowKind>) => {
+  const kind = sessionKinds.get(id);
+  return kind ? railPin(id, kind) : id;
+};
 
 /** "Usage: Claude Code · Personal 59% of the week left, Codex 78%, Gemini CLI 29% of the day". */
 function railLabel(bars: readonly HeadroomBar[]): string {
@@ -256,6 +391,10 @@ function railLabel(bars: readonly HeadroomBar[]): string {
   // The first figure says what it measures; later ones over the same span are just figures.
   let said: string | undefined;
   const parts = bars.map((bar) => {
+    if (bar.window !== undefined)
+      return bar.left <= 0
+        ? `${bar.label} ${bar.window} out`
+        : `${bar.label} ${bar.window} ${bar.left}% left`;
     if (bar.left <= 0) return `${bar.label} out for the ${bar.span}`;
     if (said === bar.span) return `${bar.label} ${bar.left}%`;
     const first = said === undefined;
