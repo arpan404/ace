@@ -154,14 +154,14 @@ pub enum Fact {
     ItemUpsert {
         agent: String,
         item: String,
-        draft: serde_json::Map<String, serde_json::Value>,
+        draft: crate::json_io::Map,
     },
     /// Idempotent snapshot reconciliation.
     #[serde(rename = "item.reconciled")]
     ItemReconciled {
         agent: String,
         item: String,
-        draft: serde_json::Map<String, serde_json::Value>,
+        draft: crate::json_io::Map,
     },
     /// A streaming append to a transcript item.
     #[serde(rename = "item.delta")]
@@ -169,7 +169,7 @@ pub enum Fact {
         agent: String,
         item: String,
         field: String,
-        append: String,
+        append: ace_json::JsString,
     },
     /// An interaction opened.
     #[serde(rename = "interaction.opened")]
@@ -450,8 +450,28 @@ pub struct UnknownFact {
 /// already established every shape, so a failure here is a caller-contract
 /// violation, never provider data. Bridges ace-json (transient) to serde
 /// (typed) via canonical text until the Value deserializer lands.
-pub fn convert(value: &crate::json_io::Map, fact_type: &str) -> Option<Fact> {
-    let _ = fact_type;
-    let text = ace_json::to_string(&crate::json_io::Json::Object(value.clone()));
-    serde_json::from_str(&text).ok()
+pub fn convert(value: &crate::json_io::Json) -> Option<Fact> {
+    // A delta's `append` is a JavaScript string and may hold a lone surrogate (a provider can
+    // split a pair across frames). serde's internally tagged decoding buffers the fact through
+    // `deserialize_any`, which cannot carry one, so this variant is read from the doorway's
+    // value directly — the same units, exactly.
+    if let crate::json_io::Json::Object(map) = value
+        && map.get("type").and_then(|tag| tag.as_str()) == Some("item.delta")
+    {
+        let text = |key: &str| {
+            map.get(key)
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        };
+        return Some(Fact::ItemDelta {
+            agent: text("agent")?,
+            item: text("item")?,
+            field: text("field")?,
+            append: match map.get("append") {
+                Some(crate::json_io::Json::String(text)) => text.clone(),
+                _ => return None,
+            },
+        });
+    }
+    crate::json_io::decode(value).ok()
 }

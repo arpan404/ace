@@ -49,7 +49,7 @@ fn publish_notice(
         tool_call_id: None,
         measurement: None,
         asked: None,
-        text,
+        text: text.into(),
         source: None,
         raw,
     };
@@ -96,6 +96,7 @@ pub fn reject_fact(
         .as_ref()
         .is_some_and(|notices| notices.run == run);
     if !same_run {
+        state.appended("rejectionNotices");
         state.rejection_notices = Some(crate::state::RejectionNotices {
             run: run.clone(),
             notices: indexmap::IndexMap::new(),
@@ -126,7 +127,7 @@ pub fn reject_fact(
                 ..
             }) = state.items.get_mut(&item_key)
             {
-                *item_text = format!("{text} ({} times)", count + 1);
+                *item_text = format!("{text} ({} times)", count + 1).into();
                 if item_raw.len() < REPEAT_RAW_LIMIT {
                     item_raw.push(raw);
                 }

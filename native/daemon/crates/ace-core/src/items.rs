@@ -3,6 +3,7 @@
 //! streaming deltas, and the legacy shell-output path. Every variant keeps
 //! its protocol JSON exactly; `validate` admits only canonical candidates.
 
+use ace_json::JsString;
 use serde::{Deserialize, Serialize};
 
 use crate::emit::{Event, emit, get, put};
@@ -14,7 +15,7 @@ use crate::json_io::{Json, Map};
 use crate::state::{ApplyContext, ThreadState};
 
 /// Agent-owned transcript entries, plus the thread-level rows the core folds.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Item {
     /// A visualization.
@@ -83,7 +84,7 @@ pub enum Item {
     Reasoning {
         #[serde(flatten)]
         base: ItemBase,
-        text: String,
+        text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<TextSource>,
         #[serde(default)]
@@ -126,7 +127,7 @@ pub enum Item {
         measurement: Option<Vetted>,
         #[serde(skip_serializing_if = "Option::is_none")]
         asked: Option<crate::item_meta::AskedLine>,
-        text: String,
+        text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<TextSource>,
         #[serde(default)]
@@ -338,7 +339,11 @@ fn canonical_detail(
     } else {
         ("targetAgent", "targetAgentId")
     };
-    let native = draft.get(native_key).and_then(|value| value.as_str())?;
+    // A spawn or message detail that names no native agent keeps its own fields, like the
+    // TypeScript's `canonicalDetail` returning the draft.
+    let Some(native) = draft.get(native_key).and_then(|value| value.as_str()) else {
+        return Some(draft.clone());
+    };
     let linked = {
         crate::tree::ensure_agent(state, native, ctx, events)?;
         get(&state.agents, native)?.agent.id.clone()
@@ -410,8 +415,7 @@ pub fn upsert_item(
         ctx.now,
         detail_patch.as_ref(),
     );
-    let candidate_text = ace_json::to_string(&Json::Object(candidate));
-    let mut item: Item = serde_json::from_str(&candidate_text).ok()?;
+    let mut item: Item = crate::json_io::decode(&Json::Object(candidate)).ok()?;
     // Legacy output strings become suffix deltas: restore the verified stream
     // first, then append only the new aggregate bytes.
     let legacy = legacy_aggregate(previous.as_ref(), draft, &item);
@@ -460,7 +464,7 @@ pub fn upsert_item(
             .map(String::from_utf8_lossy)
             .unwrap_or_default()
             .into_owned();
-        append_stored_delta(state, key, "output", &suffix, events)?;
+        append_stored_delta(state, key, "output", &JsString::from(suffix), events)?;
     }
     if let Some(Item::ToolCall { call, .. }) = get(&state.items, key)
         && matches!(&call.detail, ToolDetail::AgentSpawn { .. })
@@ -542,7 +546,7 @@ fn legacy_aggregate(previous: Option<&Item>, draft: &Map, item: &Item) -> Option
 }
 
 /// Whether `applyDelta(item, field, append)` would change `item`.
-fn delta_changes(item: &Item, field: &str, append: &str) -> bool {
+fn delta_changes(item: &Item, field: &str, append: &JsString) -> bool {
     if !append.is_empty() {
         return true;
     }
@@ -574,7 +578,7 @@ fn append_stored_delta(
     state: &mut ThreadState,
     key: &str,
     field: &str,
-    append: &str,
+    append: &JsString,
     events: &mut Vec<Event>,
 ) -> Option<()> {
     if !get(&state.items, key).is_some_and(|item| accepts_delta(item, field)) {
@@ -597,7 +601,7 @@ fn append_stored_delta(
                     item_id: item_id.clone(),
                     agent_id: agent_id.clone(),
                     field: field.to_owned(),
-                    append: part,
+                    append: JsString::from(part),
                 },
             );
         }
@@ -608,7 +612,7 @@ fn append_stored_delta(
                 item_id,
                 agent_id,
                 field: field.to_owned(),
-                append: append.to_owned(),
+                append: append.clone(),
             },
         );
     }
@@ -620,7 +624,7 @@ fn apply_delta_to_stored(
     state: &mut ThreadState,
     key: &str,
     field: &str,
-    append: &str,
+    append: &JsString,
 ) -> Option<()> {
     match state.items.get_mut(key)? {
         Item::ToolCall { call, .. } if field == "output" => {
@@ -631,7 +635,7 @@ fn apply_delta_to_stored(
                     tail: summary.tail.clone(),
                 });
                 let summary: OutputSummaryData =
-                    summarize_output(&call.id, append, previous.as_ref());
+                    summarize_output(&call.id, append.as_str(), previous.as_ref());
                 *output = Some(OutputSummary {
                     stream_id: summary.stream_id,
                     bytes: summary.bytes,
@@ -702,7 +706,7 @@ fn apply_delta_to_stored(
                     });
                 }
                 _ => parts.push(ContentPart::Text {
-                    text: append.to_owned(),
+                    text: append.clone(),
                     source: None,
                 }),
             }
@@ -718,7 +722,7 @@ pub fn append_item(
     agent_key: &str,
     item_key: &str,
     field: &str,
-    append: &str,
+    append: &JsString,
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<bool> {

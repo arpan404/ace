@@ -213,18 +213,15 @@ impl<T> Maybe<T> {
     }
 }
 
-/// Deserialize a verbatim payload (`ace_json::Raw`) through a serde
-/// deserializer (typed decoding still runs on serde_json): via `Value`
-/// (which survives the buffering internally tagged enums do), then keep its
-/// canonical ace-json form. Inputs are canonical, so re-encoding is verbatim.
+/// Deserialize a verbatim payload (`ace_json::Raw`) from the value the doorway parsed, keeping
+/// its canonical ace-json form (the exact number, JavaScript's key order).
 pub fn deserialize_raw<'de, D>(deserializer: D) -> Result<ace_json::Raw, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     use serde::Deserialize as _;
-    let value = serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
-    let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
-    ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)
+    let value = ace_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+    Ok(ace_json::Raw::from_value(&value))
 }
 
 /// Serialize a verbatim payload: ace-json splices it, serde_json would
@@ -244,15 +241,12 @@ where
 {
     use serde::Deserialize as _;
     Ok(
-        match Option::<serde_json::Value>::deserialize(deserializer)
+        match Option::<ace_json::Value>::deserialize(deserializer)
             .map_err(serde::de::Error::custom)?
         {
             None => None,
-            Some(serde_json::Value::Null) => None,
-            Some(value) => {
-                let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
-                Some(ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)?)
-            }
+            Some(ace_json::Value::Null) => None,
+            Some(value) => Some(ace_json::Raw::from_value(&value)),
         },
     )
 }
@@ -266,6 +260,32 @@ where
         None => serializer.serialize_none(),
         Some(raw) => serialize_raw(raw, serializer),
     }
+}
+
+/// The members of a fact's body for `{ type, agentId, ...body }`: every field except `type` and
+/// `agent`, in the adapter's order, as `"key":value` text (values already serialized
+/// JavaScript-exactly). This is the TypeScript's spread of the validated fact.
+pub fn spread_members(input: &Json) -> String {
+    let mut out = String::new();
+    let mut wrote = false;
+    let Json::Object(map) = input else {
+        return out;
+    };
+    for (key, value) in map.iter() {
+        let Some(key) = key.as_well_formed() else {
+            continue;
+        };
+        if key == "type" || key == "agent" {
+            continue;
+        }
+        if std::mem::replace(&mut wrote, true) {
+            out.push(',');
+        }
+        ace_json::write_str(&mut out, key);
+        out.push(':');
+        ace_json::write_value(&mut out, value);
+    }
+    out
 }
 
 /// A JSON number the TypeScript reads as an integer (`z.number().int()`:
@@ -284,6 +304,23 @@ pub fn as_count(value: Option<&Json>) -> Option<i64> {
 /// no recursion, no stack growth, depth bounded by memory alone.
 pub fn parse_untrusted(text: &str) -> Result<Json, crate::error::CoreError> {
     ace_json::parse(text).map_err(crate::error::CoreError::invalid_json)
+}
+
+/// Read a typed value from the tree the doorway parsed: numbers keep the exact double the text
+/// named, and objects keep JavaScript's key order.
+pub fn decode<'de, T: serde::Deserialize<'de>>(
+    value: &'de Json,
+) -> Result<T, crate::error::CoreError> {
+    ace_json::from_value(value).map_err(crate::error::CoreError::invalid_json)
+}
+
+/// Parse text into a typed value through the doorway (never serde_json, whose float path
+/// rounds 17-digit numbers to the double of their shortest text).
+pub fn parse_typed<T: serde::de::DeserializeOwned>(
+    text: &str,
+) -> Result<T, crate::error::CoreError> {
+    let value = parse_untrusted(text)?;
+    decode(&value)
 }
 
 /// Keep an opaque payload as canonical text, spliced verbatim downstream.

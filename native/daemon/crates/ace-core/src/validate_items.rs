@@ -1622,9 +1622,8 @@ fn valid_delegation_outcome(value: &Json) -> bool {
 fn valid_delegation_status(value: Option<&Json>) -> bool {
     match value {
         Some(Json::String(_)) | Some(Json::Object(_)) => {
-            let status = value.cloned().unwrap_or(Json::Null);
-            let text = ace_json::to_string(&status);
-            serde_json::from_str::<crate::status::ThreadStatus>(&text).is_ok()
+            let status = value.unwrap_or(&Json::Null);
+            crate::json_io::decode::<crate::status::ThreadStatus>(status).is_ok()
         }
         _ => false,
     }

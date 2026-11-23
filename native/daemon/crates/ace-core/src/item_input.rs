@@ -262,8 +262,5 @@ fn overlay_value(target: &mut Map, source: &Json) {
 }
 
 fn to_map(item: &Item) -> Json {
-    ace_json::ser::to_string(item)
-        .ok()
-        .and_then(|text| ace_json::parse(&text).ok())
-        .unwrap_or(Json::Null)
+    crate::json_io::to_value(item)
 }

@@ -85,6 +85,20 @@ fn create_inner(
     ace_json::ser::to_string(&state).map_err(|error| error.to_string())
 }
 
+/// `{"events":[...],"state":{...}}`, each event written in one buffer (no per-event copy).
+fn response(
+    events: &[ace_core::emit::Event],
+    state: &ace_core::ThreadState,
+) -> Result<String, String> {
+    let mut out = String::new();
+    out.push_str("{\"events\":");
+    ace_core::event_json::write_events(events, &mut out);
+    out.push_str(",\"state\":");
+    ace_json::ser::write_into(&mut out, state).map_err(|error| error.to_string())?;
+    out.push('}');
+    Ok(out)
+}
+
 /// Fold one fact, returning events and the refreshed state as JSON.
 #[wasm_bindgen]
 pub fn core_apply(
@@ -127,16 +141,7 @@ fn apply_inner(
         return Err(failure);
     }
     outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
-    #[derive(serde::Serialize)]
-    struct Response<'a> {
-        events: &'a [ace_core::emit::Event],
-        state: &'a ace_core::ThreadState,
-    }
-    let response = Response {
-        events: &events,
-        state: &state,
-    };
-    ace_json::ser::to_string(&response).map_err(|error| error.to_string())
+    response(&events, &state)
 }
 
 /// Derive one agent's status from a state snapshot.
@@ -399,16 +404,7 @@ impl WasmBatch {
                 return Err(failure);
             }
             outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
-            #[derive(serde::Serialize)]
-            struct Response<'a> {
-                events: &'a [ace_core::emit::Event],
-                state: &'a ace_core::ThreadState,
-            }
-            let response = Response {
-                events: &events,
-                state: &self.state,
-            };
-            ace_json::ser::to_string(&response).map_err(|error| error.to_string())
+            response(&events, &self.state)
         }));
         match result {
             Ok(Ok(json)) => Ok(json),
@@ -421,16 +417,7 @@ impl WasmBatch {
     pub fn flush(&mut self) -> Result<String, JsValue> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let events = self.batch.flush(&mut self.state);
-            #[derive(serde::Serialize)]
-            struct Response<'a> {
-                events: &'a [ace_core::emit::Event],
-                state: &'a ace_core::ThreadState,
-            }
-            let response = Response {
-                events: &events,
-                state: &self.state,
-            };
-            ace_json::ser::to_string(&response).map_err(|error| error.to_string())
+            response(&events, &self.state)
         }));
         match result {
             Ok(Ok(json)) => Ok(json),

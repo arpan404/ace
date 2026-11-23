@@ -11,6 +11,18 @@ use crate::state::{ApplyContext, ThreadState};
 /// One turn of one agent, from its first output to the provider's turn end.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Run {
+    pub id: String,
+    /// The order it started in among every run of its thread.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seq: Option<i64>,
+    #[serde(rename = "threadId")]
+    pub thread_id: String,
+    #[serde(rename = "agentId")]
+    pub agent_id: String,
+    /// Some providers only reveal why a run started when it ends.
+    pub trigger: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Native selection acknowledged for this turn.
     #[serde(
         rename = "permissionMode",
@@ -20,39 +32,27 @@ pub struct Run {
         skip_serializing_if = "Maybe::<String>::is_missing"
     )]
     pub permission_mode: Maybe<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<String>,
-    pub id: String,
-    #[serde(rename = "threadId")]
-    pub thread_id: String,
-    #[serde(rename = "agentId")]
-    pub agent_id: String,
-    /// Some providers only reveal why a run started when it ends.
-    pub trigger: String,
+    pub state: String,
+    #[serde(rename = "startedAt", deserialize_with = "de_i64")]
+    pub started_at: i64,
     /// Provider's turn id, when it has one.
     #[serde(rename = "nativeId", skip_serializing_if = "Option::is_none")]
     pub native_id: Option<String>,
+    #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<i64>,
+    /// ace interrupted this run so the person's steer reached the model now.
+    #[serde(rename = "endedBy", skip_serializing_if = "Option::is_none")]
+    pub ended_by: Option<String>,
     /// Stable root-run number (runs list, checkpoints).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ordinal: Option<i64>,
     /// Stable turn number of a root run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn: Option<i64>,
-    /// The order it started in among every run of its thread.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seq: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoints: Option<serde_json::Value>,
     #[serde(rename = "executionSource", skip_serializing_if = "Option::is_none")]
     pub execution_source: Option<serde_json::Value>,
-    pub state: String,
-    /// ace interrupted this run so the person's steer reached the model now.
-    #[serde(rename = "endedBy", skip_serializing_if = "Option::is_none")]
-    pub ended_by: Option<String>,
-    #[serde(rename = "startedAt", deserialize_with = "de_i64")]
-    pub started_at: i64,
-    #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
-    pub ended_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<crate::status::AgentError>,
 }
@@ -61,6 +61,7 @@ pub struct Run {
 fn next_run_seq(state: &mut ThreadState) -> i64 {
     let seq = state.run_seq.unwrap_or(0) + 1;
     state.run_seq = Some(seq);
+    state.appended("runSeq");
     seq
 }
 

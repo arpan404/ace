@@ -335,16 +335,20 @@ pub struct TextSourceView {
 }
 
 /// Append to a text, keeping its source's byte count exact.
-pub fn append_text(text: &mut String, source: &mut Option<TextSourceData>, append: &str) {
+pub fn append_text(
+    text: &mut ace_json::JsString,
+    source: &mut Option<TextSourceData>,
+    append: &ace_json::JsString,
+) {
     let holds = match source {
         None => true,
-        Some(source) => source.offset.unwrap_or(0) + utf16_len(text) as i64 * 2 == source.bytes,
+        Some(source) => source.offset.unwrap_or(0) + text.len_utf16() as i64 * 2 == source.bytes,
     };
     if holds {
-        text.push_str(append);
+        text.push_js(append);
     }
     if let Some(source) = source {
-        source.bytes += utf16_len(append) as i64 * 2;
+        source.bytes += append.len_utf16() as i64 * 2;
     }
 }
 

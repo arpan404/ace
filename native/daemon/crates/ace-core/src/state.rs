@@ -23,25 +23,24 @@ pub fn valid_provider(value: &str) -> bool {
     )
 }
 
-/// An agent in the thread's tree.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// An agent in the thread's tree. Its JSON order is written in `agent_json`.
+#[derive(Debug, Clone, Deserialize)]
 pub struct Agent {
     pub id: String,
     #[serde(rename = "threadId")]
     pub thread_id: String,
-    /// Independent ace child thread; this agent is its summary.
-    #[serde(rename = "childThreadId", skip_serializing_if = "Option::is_none")]
-    pub child_thread_id: Option<String>,
-    /// That child runs on another paired machine.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub machine: Option<AgentMachine>,
     #[serde(rename = "parentId")]
     pub parent_id: Option<String>,
     pub origin: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lineage: Option<ThreadLineage>,
     pub native: NativeRef,
     pub fidelity: String,
+    pub cwd: String,
+    pub status: AgentStatus,
+    /// Spawned to run in the background.
+    #[serde(default)]
+    pub background: bool,
+    #[serde(rename = "createdAt", deserialize_with = "de_i64")]
+    pub created_at: i64,
     /// Tool call in the parent's transcript that spawned this agent.
     #[serde(
         rename = "spawnedBy",
@@ -52,20 +51,34 @@ pub struct Agent {
     )]
     pub spawned_by: Maybe<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub lineage: Option<ThreadLineage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    pub cwd: String,
-    pub status: AgentStatus,
-    /// Spawned to run in the background.
-    #[serde(default)]
-    pub background: bool,
-    #[serde(rename = "createdAt", deserialize_with = "de_i64")]
-    pub created_at: i64,
+    /// That child runs on another paired machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine: Option<AgentMachine>,
+    /// Independent ace child thread; this agent is its summary.
+    #[serde(rename = "childThreadId", skip_serializing_if = "Option::is_none")]
+    pub child_thread_id: Option<String>,
     #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
+    /// Keys the fold added after the placeholder: JavaScript appends a new own key at the end,
+    /// so they serialize after the identity fields, in the order they first appeared.
+    #[serde(skip)]
+    pub appended: Vec<&'static str>,
+}
+
+impl Agent {
+    /// Record a key set for the first time, as `agent[key] = value` does for a new key.
+    pub fn appended(&mut self, key: &'static str) {
+        if !self.appended.contains(&key) {
+            self.appended.push(key);
+        }
+    }
 }
 
 /// Rate-limit evidence that survives retry expiry and process exit.
@@ -93,17 +106,24 @@ pub struct RetryInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentRecord {
     pub agent: Agent,
-    #[serde(rename = "externalStatus", skip_serializing_if = "Option::is_none")]
-    pub external_status: Option<ThreadStatus>,
-    #[serde(rename = "activeRun", skip_serializing_if = "Option::is_none")]
-    pub active_run: Option<String>,
+    pub activity: String,
+    #[serde(rename = "lastSignalAt", deserialize_with = "de_i64")]
+    pub last_signal_at: i64,
+    /// The key this record's agent hangs under; absent for a thread's root.
+    #[serde(rename = "parentKey", skip_serializing_if = "Option::is_none")]
+    pub parent_key: Option<String>,
+    /// Tool call in the parent's transcript that spawned this agent.
+    #[serde(rename = "spawnedByKey", skip_serializing_if = "Option::is_none")]
+    pub spawned_by_key: Option<String>,
     #[serde(rename = "completionRelevant", skip_serializing_if = "Option::is_none")]
     pub completion_relevant: Option<bool>,
-    #[serde(rename = "lastRun", skip_serializing_if = "Option::is_none")]
-    pub last_run: Option<String>,
     /// Process-namespaced native turn ids index the canonical run history.
     #[serde(rename = "nativeRuns", skip_serializing_if = "Option::is_none")]
     pub native_runs: Option<IndexMap<String, String>>,
+    #[serde(rename = "activeRun", skip_serializing_if = "Option::is_none")]
+    pub active_run: Option<String>,
+    #[serde(rename = "lastRun", skip_serializing_if = "Option::is_none")]
+    pub last_run: Option<String>,
     #[serde(rename = "lastOutcomeOrder", skip_serializing_if = "Option::is_none")]
     pub last_outcome_order: Option<i64>,
     #[serde(
@@ -111,6 +131,8 @@ pub struct AgentRecord {
         skip_serializing_if = "Option::is_none"
     )]
     pub last_successful_outcome_order: Option<i64>,
+    #[serde(rename = "externalStatus", skip_serializing_if = "Option::is_none")]
+    pub external_status: Option<ThreadStatus>,
     #[serde(rename = "lastError", skip_serializing_if = "Option::is_none")]
     pub last_error: Option<AgentError>,
     #[serde(
@@ -118,11 +140,8 @@ pub struct AgentRecord {
         skip_serializing_if = "Option::is_none"
     )]
     pub process_settled_status: Option<AgentStatus>,
-    pub activity: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
-    #[serde(rename = "lastSignalAt", deserialize_with = "de_i64")]
-    pub last_signal_at: i64,
     #[serde(rename = "disconnectedAt", skip_serializing_if = "Option::is_none")]
     pub disconnected_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -131,10 +150,6 @@ pub struct AgentRecord {
     pub retry: Option<RetryInfo>,
     #[serde(rename = "wakeUntil", skip_serializing_if = "Option::is_none")]
     pub wake_until: Option<i64>,
-    #[serde(rename = "parentKey", skip_serializing_if = "Option::is_none")]
-    pub parent_key: Option<String>,
-    #[serde(rename = "spawnedByKey", skip_serializing_if = "Option::is_none")]
-    pub spawned_by_key: Option<String>,
 }
 
 /// The live indexes over the state's maps.
@@ -205,8 +220,8 @@ pub struct ItemLink {
     pub waiting_for: Option<Vec<String>>,
 }
 
-/// The whole folded thread state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// The whole folded thread state. Its JSON order is written in `state_json`.
+#[derive(Debug, Clone, Deserialize)]
 pub struct ThreadState {
     #[serde(rename = "threadId")]
     pub thread_id: String,
@@ -271,6 +286,19 @@ pub struct ThreadState {
     #[serde(rename = "movedTo", skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<crate::status::MovedTo>,
     pub status: ThreadStatus,
+    /// Fields the fold added after creation, in the order it first set them: JavaScript appends
+    /// a new own key at the end, so the state's bytes follow the order the TypeScript built it.
+    #[serde(skip)]
+    pub appended: Vec<&'static str>,
+}
+
+impl ThreadState {
+    /// Record that an optional field was set for the first time, as `state[key] = value` does.
+    pub fn appended(&mut self, key: &'static str) {
+        if !self.appended.contains(&key) {
+            self.appended.push(key);
+        }
+    }
 }
 
 /// The engine and provider queue counts behind `queueCount`.
@@ -408,5 +436,6 @@ pub fn create_thread_state(
         has_run: false,
         moved_to: None,
         status: ThreadStatus::New,
+        appended: Vec::new(),
     })
 }

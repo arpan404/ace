@@ -16,14 +16,20 @@ pub struct Interaction {
     pub thread_id: String,
     #[serde(rename = "agentId")]
     pub agent_id: String,
-    /// Item that prompted this interaction.
-    #[serde(rename = "toolCallId", skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
     pub blocking: bool,
     pub request: InteractionRequest,
     pub state: String,
+    #[serde(rename = "createdAt", deserialize_with = "de_i64")]
+    pub created_at: i64,
+    #[serde(default)]
+    pub raw: Vec<RawPayload>,
+    /// Item that prompted this interaction.
+    #[serde(rename = "toolCallId", skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
     #[serde(rename = "expirationReason", skip_serializing_if = "Option::is_none")]
     pub expiration_reason: Option<String>,
+    #[serde(rename = "closedAt", skip_serializing_if = "Option::is_none")]
+    pub closed_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InteractionResolution>,
     /// Device that answered first.
@@ -32,12 +38,6 @@ pub struct Interaction {
     /// Explicit canonical automatic review; absence means unknown.
     #[serde(rename = "autoReviewed", skip_serializing_if = "Option::is_none")]
     pub auto_reviewed: Option<bool>,
-    #[serde(rename = "createdAt", deserialize_with = "de_i64")]
-    pub created_at: i64,
-    #[serde(rename = "closedAt", skip_serializing_if = "Option::is_none")]
-    pub closed_at: Option<i64>,
-    #[serde(default)]
-    pub raw: Vec<RawPayload>,
 }
 
 /// What the agent asks the person for.
@@ -224,17 +224,17 @@ pub enum InteractionResolution {
     BrowserHelp { outcome: String },
 }
 
-/// Work that can outlive the turn that started it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Work that can outlive the turn that started it. Its JSON order is written in `item_json`.
+#[derive(Debug, Clone, Deserialize)]
 pub struct BackgroundTask {
     pub id: String,
     /// Agent that owns the task.
     #[serde(rename = "agentId")]
     pub agent_id: String,
+    pub kind: String,
     /// Host-owned execution survives a provider session restarting.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
-    pub kind: String,
     pub title: String,
     /// `unknown`: ace lost track; shown as possibly running.
     pub status: String,
@@ -244,33 +244,46 @@ pub struct BackgroundTask {
     /// ace's own bookkeeping; never listed by clients.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub internal: Option<bool>,
-    /// TCP ports the task's processes listen on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub listening: Option<Vec<i64>>,
-    /// The provider takes no new prompt while this runs.
-    #[serde(rename = "blocksPrompts", skip_serializing_if = "Option::is_none")]
-    pub blocks_prompts: Option<bool>,
-    /// Ending its session ends it; nothing else can.
-    #[serde(rename = "endsWithSession", skip_serializing_if = "Option::is_none")]
-    pub ends_with_session: Option<bool>,
-    /// The provider never resumes the agent when this task ends.
-    #[serde(rename = "wakesAgent", skip_serializing_if = "Option::is_none")]
-    pub wakes_agent: Option<bool>,
-    /// File the provider writes the task's output to, if any.
-    #[serde(rename = "outputPath", skip_serializing_if = "Option::is_none")]
-    pub output_path: Option<String>,
+    /// Whether ace can stop it individually.
+    pub stoppable: bool,
+    #[serde(rename = "startedAt", deserialize_with = "de_i64")]
+    pub started_at: i64,
+    #[serde(default)]
+    pub raw: Vec<RawPayload>,
     /// Tool call that started it.
     #[serde(rename = "toolCallId", skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
     /// For `subagent` tasks: the agent doing the work.
     #[serde(rename = "childAgentId", skip_serializing_if = "Option::is_none")]
     pub child_agent_id: Option<String>,
-    /// Whether ace can stop it individually.
-    pub stoppable: bool,
-    #[serde(rename = "startedAt", deserialize_with = "de_i64")]
-    pub started_at: i64,
+    /// File the provider writes the task's output to, if any.
+    #[serde(rename = "outputPath", skip_serializing_if = "Option::is_none")]
+    pub output_path: Option<String>,
+    /// The provider never resumes the agent when this task ends.
+    #[serde(rename = "wakesAgent", skip_serializing_if = "Option::is_none")]
+    pub wakes_agent: Option<bool>,
+    /// The provider takes no new prompt while this runs.
+    #[serde(rename = "blocksPrompts", skip_serializing_if = "Option::is_none")]
+    pub blocks_prompts: Option<bool>,
+    /// Ending its session ends it; nothing else can.
+    #[serde(rename = "endsWithSession", skip_serializing_if = "Option::is_none")]
+    pub ends_with_session: Option<bool>,
+    /// TCP ports the task's processes listen on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listening: Option<Vec<i64>>,
     #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
     pub ended_at: Option<i64>,
-    #[serde(default)]
-    pub raw: Vec<RawPayload>,
+    /// Keys the fold added after the task was announced: JavaScript appends a new own key at
+    /// the end, so they serialize last.
+    #[serde(skip)]
+    pub trailing: Vec<&'static str>,
+}
+
+impl BackgroundTask {
+    /// Record a key the fold appended, as `task[key] = value` does for a new key.
+    pub fn appended(&mut self, key: &'static str) {
+        if !self.trailing.contains(&key) {
+            self.trailing.push(key);
+        }
+    }
 }

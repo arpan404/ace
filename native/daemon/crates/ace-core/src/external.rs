@@ -19,6 +19,8 @@ pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentSta
             until: None,
             attempt: None,
             message: None,
+
+            retry_order: false,
         },
         ThreadStatus::Working { .. } => AgentStatus::Working {
             activity: "responding".to_owned(),
@@ -31,6 +33,8 @@ pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentSta
             until: None,
             attempt: None,
             message: None,
+
+            retry_order: false,
         },
         ThreadStatus::Limited { until } => AgentStatus::Blocked {
             on: "rate_limit".to_owned(),
@@ -38,6 +42,8 @@ pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentSta
             until: *until,
             attempt: None,
             message: None,
+
+            retry_order: false,
         },
         ThreadStatus::Unresponsive => AgentStatus::Unresponsive { last_signal_at: 0 },
         ThreadStatus::New => AgentStatus::Starting,
@@ -60,6 +66,8 @@ pub fn external_agent_status(status: &ThreadStatus, thread_id: &str) -> AgentSta
             until: None,
             attempt: None,
             message: None,
+
+            retry_order: false,
         },
     }
 }

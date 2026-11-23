@@ -133,6 +133,8 @@ impl<'a> StatusResolver<'a> {
                 until: limited.until,
                 attempt: None,
                 message: limited.message.clone(),
+
+                retry_order: false,
             };
         }
         if let Some(exit) = &exit {
@@ -195,6 +197,8 @@ impl<'a> StatusResolver<'a> {
                 until: None,
                 attempt: None,
                 message: None,
+
+                retry_order: false,
             };
         }
         if let Some(disconnected_at) = record.disconnected_at {
@@ -209,6 +213,8 @@ impl<'a> StatusResolver<'a> {
                 until: retry.until,
                 attempt: retry.attempt,
                 message: retry.message.clone(),
+
+                retry_order: true,
             };
         }
         let empty_children: Vec<String> = Vec::new();
@@ -249,6 +255,8 @@ impl<'a> StatusResolver<'a> {
                 until: None,
                 attempt: None,
                 message: None,
+
+                retry_order: false,
             };
         }
         let last_run = record.last_run.as_deref().unwrap_or("");
@@ -315,6 +323,8 @@ impl<'a> StatusResolver<'a> {
                 until: None,
                 attempt: None,
                 message: None,
+
+                retry_order: false,
             };
         }
         let tools: Vec<&Item> = self
@@ -393,6 +403,8 @@ impl<'a> StatusResolver<'a> {
                 until: None,
                 attempt: None,
                 message: None,
+
+                retry_order: false,
             };
         }
         let signal = self.inputs.last_subtree_signal.read(key);

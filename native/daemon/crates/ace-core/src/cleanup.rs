@@ -16,7 +16,13 @@ fn cancel_tool(state: &mut ThreadState, key: &str, now: i64, events: &mut Vec<Ev
     let changed = match state.items.get_mut(key) {
         Some(Item::ToolCall { call, base, .. }) => {
             call.status = "cancelled".to_owned();
+            if call.error.is_none() {
+                call.appended("error");
+            }
             call.error = Some("turn ended without completion".to_owned());
+            if call.ended_at.is_none() {
+                call.appended("endedAt");
+            }
             call.ended_at = Some(now);
             base.complete = true;
             true
@@ -172,6 +178,7 @@ pub fn exit_process(
         .filter(|(_, record)| record.external_status.is_none() && !is_settled(&record.agent.status))
         .map(|(key, _)| key.clone())
         .collect();
+    state.appended("processExit");
     state.process_exit = Some(crate::state::ProcessExit {
         deliberate,
         message: message.clone(),

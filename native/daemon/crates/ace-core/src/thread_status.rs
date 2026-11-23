@@ -31,11 +31,8 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error as _;
-        // Typed decoding still runs on serde_json: capture there, then work
-        // on canonical ace-json (same logical value, JS order).
-        let sj = serde_json::Value::deserialize(deserializer)?;
-        let text = serde_json::to_string(&sj).map_err(D::Error::custom)?;
-        let value = ace_json::parse(&text).map_err(D::Error::custom)?;
+        // The doorway's own value: JavaScript's numbers and key order, no second parse.
+        let value = Json::deserialize(deserializer)?;
         let map = match &value {
             Json::Object(map) => map.clone(),
             _ => return Err(D::Error::custom("thread status must be an object")),

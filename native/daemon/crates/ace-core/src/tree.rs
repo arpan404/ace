@@ -105,6 +105,7 @@ fn insert_placeholder(
         background: false,
         created_at: ctx.now,
         ended_at: None,
+        appended: Vec::new(),
     };
     let record = AgentRecord {
         agent,
@@ -132,6 +133,7 @@ fn insert_placeholder(
     crate::indexes::refresh_agent_index(state, key, None);
     if state.root_key.is_none() {
         state.root_key = Some(key.to_owned());
+        state.appended("rootKey");
     }
     emit(events, Event::AgentCreated { agent: created });
     Some(())
@@ -174,6 +176,10 @@ fn same_json(left: &Json, right: &Json) -> bool {
 use crate::json_io::{Json, Maybe};
 
 /// Emit the changed fields of one agent, like `changeAgent`.
+///
+/// The emitted fields follow the literal order of the TypeScript call's change set (parent,
+/// origin, lineage, fidelity, native, cwd, name, role, model, background, machine), because
+/// that object's key order is what `JSON.stringify` persists.
 pub fn change_agent(
     state: &mut ThreadState,
     key: &str,
@@ -184,26 +190,6 @@ pub fn change_agent(
     let agent = &mut record.agent;
     let mut out = AgentChange::default();
     let mut any = false;
-    if let Some(value) = change.child_thread_id
-        && agent.child_thread_id != value
-    {
-        agent.child_thread_id = value.clone();
-        out.child_thread_id = Some(value);
-        any = true;
-    }
-    if let Some(value) = change.machine {
-        let same = agent.machine.as_ref().is_some_and(|current| {
-            same_json(
-                &crate::json_io::to_value(current),
-                &crate::json_io::to_value(&value),
-            )
-        });
-        if !same {
-            agent.machine = Some(value.clone());
-            out.machine = Some(value);
-            any = true;
-        }
-    }
     if let Some(value) = change.parent_id
         && agent.parent_id != value
     {
@@ -227,6 +213,7 @@ pub fn change_agent(
         });
         if !same {
             agent.lineage = Some(value.clone());
+            agent.appended("lineage");
             out.lineage = Some(value);
             any = true;
         }
@@ -260,6 +247,7 @@ pub fn change_agent(
         && agent.name.as_deref() != Some(value.as_str())
     {
         agent.name = Some(value.clone());
+        agent.appended("name");
         out.name = Some(value);
         any = true;
     }
@@ -267,6 +255,7 @@ pub fn change_agent(
         && agent.role.as_deref() != Some(value.as_str())
     {
         agent.role = Some(value.clone());
+        agent.appended("role");
         out.role = Some(value);
         any = true;
     }
@@ -274,7 +263,37 @@ pub fn change_agent(
         && agent.model.as_deref() != Some(value.as_str())
     {
         agent.model = Some(value.clone());
+        agent.appended("model");
         out.model = Some(value);
+        any = true;
+    }
+    if let Some(value) = change.background
+        && agent.background != value
+    {
+        agent.background = value;
+        out.background = Some(value);
+        any = true;
+    }
+    if let Some(value) = change.machine {
+        let same = agent.machine.as_ref().is_some_and(|current| {
+            same_json(
+                &crate::json_io::to_value(current),
+                &crate::json_io::to_value(&value),
+            )
+        });
+        if !same {
+            agent.machine = Some(value.clone());
+            agent.appended("machine");
+            out.machine = Some(value);
+            any = true;
+        }
+    }
+    if let Some(value) = change.child_thread_id
+        && agent.child_thread_id != value
+    {
+        agent.child_thread_id = value.clone();
+        agent.appended("childThreadId");
+        out.child_thread_id = Some(value);
         any = true;
     }
     if let Some(value) = change.spawned_by {
@@ -284,6 +303,9 @@ pub fn change_agent(
             Maybe::Value(name) => Some(Some(name.clone())),
         };
         if current != Some(value.clone()) {
+            if agent.spawned_by.is_missing() {
+                agent.appended("spawnedBy");
+            }
             agent.spawned_by = match value.clone() {
                 None => Maybe::Null,
                 Some(name) => Maybe::Value(name),
@@ -291,13 +313,6 @@ pub fn change_agent(
             out.spawned_by = Some(value);
             any = true;
         }
-    }
-    if let Some(value) = change.background
-        && agent.background != value
-    {
-        agent.background = value;
-        out.background = Some(value);
-        any = true;
     }
     if !any {
         return Some(());
@@ -307,8 +322,6 @@ pub fn change_agent(
         events,
         Event::AgentUpdated {
             agent_id,
-            child_thread_id: out.child_thread_id.unwrap_or(None),
-            machine: out.machine,
             parent_id: out.parent_id,
             origin: out.origin,
             lineage: out.lineage,
@@ -318,9 +331,10 @@ pub fn change_agent(
             name: out.name,
             role: out.role,
             model: out.model,
-            spawned_by: out.spawned_by,
             background: out.background,
-            ended_at: None,
+            machine: out.machine,
+            child_thread_id: out.child_thread_id.unwrap_or(None),
+            spawned_by: out.spawned_by,
         },
     );
     Some(())
@@ -398,6 +412,7 @@ fn adopt_root(
 ) -> Option<()> {
     let old_root_key = state.root_key.clone();
     state.root_key = Some(key.to_owned());
+    state.appended("rootKey");
     set_parent(state, key, None, ctx, events)?;
     ensure_agent(state, key, ctx, events)?;
     change_agent(

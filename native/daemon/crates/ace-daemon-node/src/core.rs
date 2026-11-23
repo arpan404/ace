@@ -14,7 +14,7 @@ pub struct CoreThreadNative {
     state: ace_core::ThreadState,
     batch: Option<ace_core::reduce::FactBatch>,
     /// Preallocated output buffer reused for every JSON response.
-    buffer: Vec<u8>,
+    buffer: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,10 +40,14 @@ struct NextId<'a> {
     failure: Option<String>,
 }
 
-#[derive(serde::Serialize)]
-struct CoreResponse<'a> {
-    events: &'a [ace_core::emit::Event],
-    state: &'a ace_core::ThreadState,
+/// One fold's answer, written straight into the reused buffer. The state is not sent: the
+/// facade re-reads it through `snapshot()` the next time TypeScript actually looks at a field,
+/// so a fold costs one crossing, not a whole state serialization per fact.
+fn write_response(buffer: &mut String, events: &[ace_core::emit::Event]) {
+    buffer.clear();
+    buffer.push_str("{\"events\":");
+    ace_core::event_json::write_events(events, buffer);
+    buffer.push('}');
 }
 
 impl ace_core::state::IdSource for NextId<'_> {
@@ -76,7 +80,8 @@ fn to_millis(now: f64) -> Result<i64, CoreBindError> {
 }
 
 fn parse_state(text: &str) -> Result<ace_core::ThreadState, CoreBindError> {
-    serde_json::from_str(text).map_err(|error| CoreBindError::InvalidThread(error.to_string()))
+    ace_core::json_io::parse_typed(text)
+        .map_err(|error| CoreBindError::InvalidThread(error.to_string()))
 }
 
 fn parse_fact(text: &str) -> Result<ace_json::Value, CoreBindError> {
@@ -100,7 +105,7 @@ impl CoreThreadNative {
             Ok(Ok(state)) => Ok(Self {
                 state,
                 batch: None,
-                buffer: Vec::with_capacity(65536),
+                buffer: String::with_capacity(65536),
             }),
             Ok(Err(error)) => Err(error.into()),
             Err(_) => Err(napi::Error::from_reason("core thread failed to start")),
@@ -115,7 +120,7 @@ impl CoreThreadNative {
             Ok(Ok(state)) => Ok(Self {
                 state,
                 batch: None,
-                buffer: Vec::with_capacity(65536),
+                buffer: String::with_capacity(65536),
             }),
             Ok(Err(error)) => Err(error.into()),
             Err(_) => Err(napi::Error::from_reason("core thread failed to import")),
@@ -155,15 +160,8 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core apply panicked")),
         };
-        self.buffer.clear();
-        let response = CoreResponse {
-            events: &events,
-            state: &self.state,
-        };
-        ace_core::json_io::write_json(&mut self.buffer, &response)
-            .map_err(|error| CoreBindError::Contract(error.to_string()))?;
-        String::from_utf8(std::mem::take(&mut self.buffer))
-            .map_err(|error| napi::Error::from_reason(error.to_string()))
+        write_response(&mut self.buffer, &events);
+        Ok(std::mem::take(&mut self.buffer))
     }
 
     /// Start one fact batch over this thread.
@@ -224,15 +222,8 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core batch apply panicked")),
         };
-        self.buffer.clear();
-        let response = CoreResponse {
-            events: &events,
-            state: &self.state,
-        };
-        ace_core::json_io::write_json(&mut self.buffer, &response)
-            .map_err(|error| CoreBindError::Contract(error.to_string()))?;
-        String::from_utf8(std::mem::take(&mut self.buffer))
-            .map_err(|error| napi::Error::from_reason(error.to_string()))
+        write_response(&mut self.buffer, &events);
+        Ok(std::mem::take(&mut self.buffer))
     }
 
     /// Derive this thread's deferred batch status.
@@ -249,15 +240,8 @@ impl CoreThreadNative {
             Ok(Err(error)) => return Err(error.into()),
             Err(_) => return Err(napi::Error::from_reason("core batch flush panicked")),
         };
-        self.buffer.clear();
-        let response = CoreResponse {
-            events: &events,
-            state: &self.state,
-        };
-        ace_core::json_io::write_json(&mut self.buffer, &response)
-            .map_err(|error| CoreBindError::Contract(error.to_string()))?;
-        String::from_utf8(std::mem::take(&mut self.buffer))
-            .map_err(|error| napi::Error::from_reason(error.to_string()))
+        write_response(&mut self.buffer, &events);
+        Ok(std::mem::take(&mut self.buffer))
     }
 
     /// Read the whole thread state back as JSON, for the facade's refresh.
@@ -279,12 +263,12 @@ fn create_inner(
     config_json: &str,
     root_json: Option<&str>,
 ) -> Result<ace_core::ThreadState, CoreBindError> {
-    let config: ace_core::state::CoreConfig = serde_json::from_str(config_json)
+    let config: ace_core::state::CoreConfig = ace_core::json_io::parse_typed(config_json)
         .map_err(|error| CoreBindError::InvalidThread(error.to_string()))?;
     let root = match root_json {
         None => None,
         Some(text) => Some(
-            serde_json::from_str(text)
+            ace_core::json_io::parse_typed(text)
                 .map_err(|error| CoreBindError::InvalidThread(error.to_string()))?,
         ),
     };

@@ -36,7 +36,7 @@ pub fn apply(
         Err(reason) => reject_fact(state, input, &reason, ctx, events),
         Ok(fact) => {
             let mut emitted = Vec::new();
-            fold_inner(state, &fact, ctx, &mut emitted)?;
+            fold_inner(state, &fact, input, ctx, &mut emitted)?;
             // `item.delta` returns early in the TypeScript fold (conditional
             // recompute only, no `finish`): skip the unconditional derivation
             // here, or root deltas re-derive silent children.
@@ -117,13 +117,14 @@ impl FactBatch {
                 _ => false,
             };
         let mut emitted = Vec::new();
-        fold_inner(state, &fact, ctx, &mut emitted)?;
+        fold_inner(state, &fact, input, ctx, &mut emitted)?;
         // `item.delta` never takes the batch's deferred derivation in the
         // TypeScript fold (it returns before `finish`): the conditional
         // recompute inside `fold_inner` is the only one.
         let is_delta = matches!(&fact, Fact::ItemDelta { .. });
         if stable_signal && emitted.is_empty() {
             state.status_observed_at = Some(now);
+            state.appended("statusObservedAt");
         } else if batchable {
             self.pending_at = Some(now);
         } else if !is_delta {
@@ -217,7 +218,6 @@ fn item_activity(state: &mut ThreadState, agent_key: &str, item: &Item) {
     };
     if let Some(record) = state.agents.get_mut(agent_key) {
         record.activity = activity.to_owned();
-        record.detail = None;
     }
 }
 
@@ -295,6 +295,7 @@ fn signal(
 fn fold_inner(
     state: &mut ThreadState,
     fact: &Fact,
+    input: &Json,
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
@@ -307,6 +308,7 @@ fn fold_inner(
         Fact::Tick | Fact::QueueChanged { .. } | Fact::ProcessExited { .. }
     ) {
         state.last_transport_signal_at = Some(now);
+        state.appended("lastTransportSignalAt");
     }
     signal(state, fact, ctx, events)?;
     if let Fact::ItemDelta {
@@ -372,7 +374,6 @@ fn fold_inner(
                         model: None,
                         spawned_by: None,
                         background: None,
-                        ended_at: None,
                     },
                 );
             }
@@ -456,27 +457,12 @@ fn fold_inner(
             record.detail = detail.clone();
         }
         Fact::ItemUpsert { agent, item, draft } => {
-            // Fact drafts decode via serde_json (typed); the fold works on
-            // canonical ace-json. Bridge via text (same logical value).
-            let draft_text = serde_json::to_string(&draft).ok()?;
-            let draft_value = ace_json::parse(&draft_text).ok()?;
-            let draft_map = match &draft_value {
-                crate::json_io::Json::Object(map) => map.clone(),
-                _ => return None,
-            };
-            let stored = crate::items::upsert_item(state, agent, item, &draft_map, ctx, events)?;
+            let stored = crate::items::upsert_item(state, agent, item, draft, ctx, events)?;
             item_activity(state, agent, &stored);
         }
         Fact::ItemReconciled { agent, item, draft } => {
-            let draft_text = serde_json::to_string(&draft).ok()?;
-            let draft_value = ace_json::parse(&draft_text).ok()?;
-            let draft_map = match &draft_value {
-                crate::json_io::Json::Object(map) => map.clone(),
-                _ => return None,
-            };
-            let stored = crate::reconciled_item::reconcile_item(
-                state, agent, item, &draft_map, ctx, events,
-            )?;
+            let stored =
+                crate::reconciled_item::reconcile_item(state, agent, item, draft, ctx, events)?;
             item_activity(state, agent, &stored);
         }
         Fact::SubagentsWaiting { item, targets, .. } => {
@@ -645,67 +631,25 @@ fn fold_inner(
         Fact::WakeExpected { agent, until } => {
             crate::tree::ensure_agent(state, agent, ctx, events)?.wake_until = Some(*until);
         }
-        Fact::ContextSample {
-            agent,
-            used_tokens,
-            window_tokens,
-            session_id,
-            model,
-        } => {
+        Fact::ContextSample { agent, .. } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let agent_id = record.agent.id.clone();
             crate::emit::emit(
                 events,
                 Event::ContextSampled {
                     agent_id,
-                    used_tokens: *used_tokens,
-                    window_tokens: *window_tokens,
-                    session_id: session_id.clone(),
-                    model: model.clone(),
+                    body: crate::json_io::spread_members(input),
                 },
             );
         }
-        Fact::Usage {
-            agent,
-            input_tokens,
-            output_tokens,
-            cached_input_tokens,
-            context_window,
-            cost_usd,
-            context_tokens,
-            context_session_id,
-            reasoning_tokens,
-            cache_write_tokens,
-            cache_write_1h_tokens,
-            model,
-            account_id,
-            billing_mode,
-            counter_mode,
-            counter_key,
-            usage_scope,
-        } => {
+        Fact::Usage { agent, .. } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let agent_id = record.agent.id.clone();
             crate::emit::emit(
                 events,
                 Event::UsageUpdated {
                     agent_id,
-                    input_tokens: *input_tokens,
-                    output_tokens: *output_tokens,
-                    cached_input_tokens: *cached_input_tokens,
-                    context_window: *context_window,
-                    cost_usd: *cost_usd,
-                    context_tokens: *context_tokens,
-                    context_session_id: context_session_id.clone(),
-                    reasoning_tokens: *reasoning_tokens,
-                    cache_write_tokens: *cache_write_tokens,
-                    cache_write_1h_tokens: *cache_write_1h_tokens,
-                    model: model.clone(),
-                    account_id: account_id.clone(),
-                    billing_mode: billing_mode.clone(),
-                    counter_mode: counter_mode.clone(),
-                    counter_key: counter_key.clone(),
-                    usage_scope: usage_scope.clone(),
+                    body: crate::json_io::spread_members(input),
                 },
             );
         }
@@ -725,6 +669,7 @@ fn fold_inner(
         }
         Fact::ThreadMoved { to } => {
             if let Some(to) = to {
+                state.appended("movedTo");
                 state.moved_to = Some(to.clone());
             } else {
                 state.moved_to = None;
@@ -750,11 +695,13 @@ fn fold_inner(
             state.queue_count = state.queue_sources.engine + state.queue_sources.provider;
             if source != "provider" {
                 if held == &Some(true) && *count > 0 {
+                    state.appended("queueHeld");
                     state.queue_held = Some(true);
                 } else {
                     state.queue_held = None;
                 }
                 if stopped == &Some(true) && *count > 0 {
+                    state.appended("queueStopped");
                     state.queue_stopped = Some(true);
                 } else {
                     state.queue_stopped = None;

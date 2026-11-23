@@ -28,7 +28,7 @@ pub fn valid_blocked_on(value: &str) -> bool {
 }
 
 /// An agent's status, exactly the protocol shape.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(tag = "state")]
 pub enum AgentStatus {
     /// Nothing runs yet, or the work has not started.
@@ -55,6 +55,11 @@ pub enum AgentStatus {
         attempt: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
+        /// The pending-retry rule spreads the retry object after `refs`, so its keys come out
+        /// `refs, on, attempt, until, message` (see `status.ts`'s `{ state: "blocked", refs:
+        /// [], ...record.retry }`). Every other rule writes `on, refs, ...`.
+        #[serde(skip)]
+        retry_order: bool,
     },
     /// Its last turn finished on its own.
     #[serde(rename = "idle")]
@@ -71,6 +76,96 @@ pub enum AgentStatus {
         #[serde(rename = "lastSignalAt")]
         last_signal_at: i64,
     },
+}
+
+impl Serialize for AgentStatus {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap as _;
+        match self {
+            Self::Starting => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("state", "starting")?;
+                map.end()
+            }
+            Self::Working {
+                activity,
+                item_id,
+                detail,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("state", "working")?;
+                map.serialize_entry("activity", activity)?;
+                if let Some(item_id) = item_id {
+                    map.serialize_entry("itemId", item_id)?;
+                }
+                if let Some(detail) = detail {
+                    map.serialize_entry("detail", detail)?;
+                }
+                map.end()
+            }
+            Self::Blocked {
+                on,
+                refs,
+                until,
+                attempt,
+                message,
+                retry_order,
+            } => {
+                let mut map = serializer.serialize_map(None)?;
+                map.serialize_entry("state", "blocked")?;
+                let optional = |map: &mut S::SerializeMap, key: &str, text: Option<&String>| {
+                    if let Some(text) = text {
+                        map.serialize_entry(key, text)
+                    } else {
+                        Ok(())
+                    }
+                };
+                let number = |map: &mut S::SerializeMap, key: &str, value: Option<i64>| {
+                    if let Some(value) = value {
+                        map.serialize_entry(key, &value)
+                    } else {
+                        Ok(())
+                    }
+                };
+                if *retry_order {
+                    map.serialize_entry("refs", refs)?;
+                    map.serialize_entry("on", on)?;
+                    number(&mut map, "attempt", *attempt)?;
+                    number(&mut map, "until", *until)?;
+                    optional(&mut map, "message", message.as_ref())?;
+                } else {
+                    map.serialize_entry("on", on)?;
+                    map.serialize_entry("refs", refs)?;
+                    number(&mut map, "until", *until)?;
+                    number(&mut map, "attempt", *attempt)?;
+                    optional(&mut map, "message", message.as_ref())?;
+                }
+                map.end()
+            }
+            Self::Idle => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("state", "idle")?;
+                map.end()
+            }
+            Self::Interrupted => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("state", "interrupted")?;
+                map.end()
+            }
+            Self::Failed { error } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("state", "failed")?;
+                map.serialize_entry("error", error)?;
+                map.end()
+            }
+            Self::Unresponsive { last_signal_at } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("state", "unresponsive")?;
+                map.serialize_entry("lastSignalAt", last_signal_at)?;
+                map.end()
+            }
+        }
+    }
 }
 
 /// Why an agent's turn failed.
@@ -474,6 +569,7 @@ fn live_thread_status(state: &ThreadState) -> ThreadStatus {
 /// Recompute every agent status and the thread status, emitting changes.
 pub fn recompute_statuses(state: &mut ThreadState, now: i64, events: &mut Vec<Event>) {
     state.status_observed_at = Some(now);
+    state.appended("statusObservedAt");
     let mut resolver = crate::status_resolve::StatusResolver::new(state, now);
     let keys: Vec<String> = state.agents.keys().cloned().collect();
     let mut derived: Vec<(String, AgentStatus, bool)> = Vec::new();

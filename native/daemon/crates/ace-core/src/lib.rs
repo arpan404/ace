@@ -5,6 +5,7 @@
 //! eventual `ace-json` switch touches one module.
 
 pub mod ace_tools;
+mod agent_json;
 pub mod background_hold;
 pub mod cleanup;
 pub mod deadlines;
@@ -14,6 +15,7 @@ pub mod emit;
 pub mod entities;
 pub mod entity_model;
 pub mod error;
+pub mod event_json;
 pub mod expiry_map;
 pub mod external;
 pub mod fact_data;
@@ -21,6 +23,7 @@ pub mod facts;
 pub mod human;
 pub mod indexes;
 pub mod item_input;
+mod item_json;
 pub mod item_meta;
 pub mod item_model;
 pub mod items;
@@ -28,9 +31,11 @@ pub mod json_io;
 pub mod liveness;
 pub mod output_snapshot;
 pub mod reconciled_item;
+mod record_json;
 pub mod reduce;
 pub mod runs;
 pub mod state;
+pub mod state_json;
 pub mod status;
 pub mod status_inputs;
 pub mod status_resolve;

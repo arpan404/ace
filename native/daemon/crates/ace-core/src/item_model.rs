@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::CoreError;
 use crate::json_io::{Json, Map, Maybe, de_i64};
+use ace_json::JsString;
 
 /// A provider's original payload, stored verbatim as canonical ace-json.
 #[derive(Debug, Clone, Serialize)]
@@ -48,60 +49,36 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error as _;
-        // Untagged enums buffer into content that raw slices cannot decode
-        // from, so discriminate manually on serde_json (typed decoding still
-        // runs there): a blob reference reads as a blob, everything else as
-        // inline data kept as canonical ace-json.
-        let value = serde_json::Value::deserialize(deserializer)?;
-        let map = match &value {
-            serde_json::Value::Object(map) => map,
-            _ => return Err(D::Error::custom("raw payload must be an object")),
+        // Untagged enums buffer into content that raw slices cannot decode from, so
+        // discriminate manually: a blob reference reads as a blob, everything else as inline
+        // data kept as canonical ace-json (JavaScript's numbers and key order, verbatim).
+        let value = Json::deserialize(deserializer)?;
+        let Json::Object(map) = &value else {
+            return Err(D::Error::custom("raw payload must be an object"));
         };
-        fn as_int(value: Option<&serde_json::Value>) -> Option<i64> {
-            match value? {
-                serde_json::Value::Number(number) => {
-                    if let Some(int) = number.as_i64() {
-                        return Some(int);
-                    }
-                    number.as_f64().and_then(|float| {
-                        if float.fract() == 0.0
-                            && float >= i64::MIN as f64
-                            && float <= i64::MAX as f64
-                        {
-                            Some(float as i64)
-                        } else {
-                            None
-                        }
-                    })
-                }
-                _ => None,
-            }
-        }
+        let payload_type = map
+            .get("type")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| D::Error::custom("raw payload needs a type"))?
+            .to_owned();
+        let name = match map.get("name") {
+            None => None,
+            Some(Json::String(name)) => Some(name.to_string()),
+            Some(_) => return Err(D::Error::custom("invalid raw payload")),
+        };
         if map.contains_key("blobRef") || map.contains_key("size") || map.contains_key("preview") {
-            let payload_type = map
-                .get("type")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| D::Error::custom("raw payload needs a type"))?
-                .to_owned();
-            let name = match map.get("name") {
-                None => None,
-                Some(serde_json::Value::String(name)) => Some(name.clone()),
-                Some(_) => return Err(D::Error::custom("invalid raw payload")),
-            };
             let blob_ref = map
                 .get("blobRef")
                 .and_then(|value| value.as_str())
                 .ok_or_else(|| D::Error::custom("invalid raw payload"))?
                 .to_owned();
-            let size = match map.get("size") {
-                Some(value) => {
-                    as_int(Some(value)).ok_or_else(|| D::Error::custom("invalid raw payload"))?
-                }
-                None => return Err(D::Error::custom("invalid raw payload")),
-            };
+            let size = map
+                .get("size")
+                .and_then(|value| value.as_i64())
+                .ok_or_else(|| D::Error::custom("invalid raw payload"))?;
             let preview = match map.get("preview") {
                 None => None,
-                Some(serde_json::Value::String(preview)) => Some(preview.clone()),
+                Some(Json::String(preview)) => Some(preview.to_string()),
                 Some(_) => return Err(D::Error::custom("invalid raw payload")),
             };
             Ok(Self::Blob {
@@ -112,27 +89,13 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
                 preview,
             })
         } else {
-            let payload_type = map
-                .get("type")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| D::Error::custom("raw payload needs a type"))?
-                .to_owned();
-            let name = match map.get("name") {
-                None => None,
-                Some(serde_json::Value::String(name)) => Some(name.clone()),
-                Some(_) => return Err(D::Error::custom("invalid raw payload")),
-            };
             let data = map
                 .get("data")
                 .ok_or_else(|| D::Error::custom("invalid raw payload"))?;
-            let text =
-                serde_json::to_string(data).map_err(|_| D::Error::custom("invalid raw payload"))?;
-            let data = ace_json::Raw::from_json(&text)
-                .map_err(|_| D::Error::custom("invalid raw payload"))?;
             Ok(Self::Inline {
                 payload_type,
                 name,
-                data,
+                data: ace_json::Raw::from_value(data),
             })
         }
     }
@@ -268,10 +231,12 @@ pub enum ContentPart {
         )]
         invocation: Option<ace_json::Raw>,
     },
-    /// Plain text, with its stream source when it is a preview.
+    /// Plain text, with its stream source when it is a preview. A JavaScript string: a
+    /// provider can split a surrogate pair across frames, and the units must survive.
     #[serde(rename = "text")]
     Text {
-        text: String,
+        #[serde(default = "JsString::new")]
+        text: JsString,
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<TextSource>,
     },
@@ -441,8 +406,8 @@ pub struct OutputSummary {
     pub truncated: bool,
 }
 
-/// One tool call in the transcript.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One tool call in the transcript. Its JSON order is written in `item_json`.
+#[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ToolCall {
     pub id: String,
@@ -467,6 +432,19 @@ pub struct ToolCall {
     /// Complete native call and result, verbatim.
     #[serde(default)]
     pub raw: Vec<RawPayload>,
+    /// Keys the fold added after the item was parsed (`item.call.backgroundTaskId = ...`):
+    /// JavaScript appends a new own key at the end, so they serialize last.
+    #[serde(skip)]
+    pub trailing: Vec<&'static str>,
+}
+
+impl ToolCall {
+    /// Record a key the fold appended, as `item.call[key] = value` does for a new key.
+    pub fn appended(&mut self, key: &'static str) {
+        if !self.trailing.contains(&key) {
+            self.trailing.push(key);
+        }
+    }
 }
 
 /// The JSON behind a vetted-but-opaque leaf: validated structurally,
@@ -482,7 +460,6 @@ impl serde::Serialize for Vetted {
     where
         S: serde::Serializer,
     {
-        use serde::Serialize as _;
         self.0.serialize(serializer)
     }
 }
@@ -492,15 +469,11 @@ impl<'de> serde::Deserialize<'de> for Vetted {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::Deserialize as _;
-        // Via `Value` (which survives the buffering internally tagged enums
-        // do), then canonical ace-json. Inputs are canonical, so this is
-        // verbatim.
-        let value =
-            serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
-        let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
-        let vetted = ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)?;
-        Ok(Self(vetted))
+        // Via `Value` (which survives the buffering internally tagged enums do), then
+        // canonical ace-json: the exact number and JavaScript's key order survive, so a
+        // re-read is verbatim.
+        let value = ace_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+        Ok(Self(ace_json::Raw::from_value(&value)))
     }
 }
 

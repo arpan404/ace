@@ -5,24 +5,19 @@
  * same `ThreadState` shape tests read today.
  *
  * `createThreadState` returns an object holding a native `CoreThread`;
- * `apply` and `FactBatch` fold on it and return events; the `ThreadState`
- * fields are refreshed from the native state after each call, so tests
- * reading them see the same shape (same field names, optional fields
- * omitted, never `null`).
+ * `apply` and `FactBatch` fold on it and return events. The native state is
+ * not copied back after every fold: the `ThreadState` fields are accessors
+ * that re-read the handle's snapshot the next time the field is looked at,
+ * so a fold costs one crossing and TypeScript still sees the same shape
+ * (same field names, optional fields absent as `undefined`, never `null`).
  */
 
 import type { AgentStatus, EventPayload, ThreadId, ThreadStatus } from "@ace/protocol";
 import { coreBackend } from "@ace/provider-kit/native-switches";
-import type { ApplyContext, CoreConfig, RootAgentInit, ThreadState } from "./state.ts";
+import type { ApplyContext, CoreConfig, ThreadState } from "./state.ts";
+import type { RootAgentInit } from "./facts.ts";
 import type { Fact } from "./facts.ts";
-
-interface CoreThreadHandle {
-  apply(factJson: string, now: number, nextId: (kind: string) => string): string;
-  batchBegin(deadlineJson: string | undefined): void;
-  batchApply(factJson: string, now: number, nextId: (kind: string) => string): string;
-  batchFlush(): string;
-  snapshot(): string;
-}
+import { applyResult, type CoreThreadHandle, handleFor, lazyThreadState } from "./native-state.ts";
 
 interface DeadlineIndexHandle {
   rebuild(stateJson: string): void;
@@ -61,7 +56,10 @@ interface WasmExports {
     signal(agent: string | undefined, at: number, silenceMs: number): void;
     next(providerDeadline?: number): number | undefined;
   };
-  WasmBatch: new (stateJson: string, deadlineJson?: string) => {
+  WasmBatch: new (
+    stateJson: string,
+    deadlineJson?: string,
+  ) => {
     apply(factJson: string, now: number, nextId: (kind: string) => string): string;
     flush(): string;
   };
@@ -92,7 +90,8 @@ function addon(): NativeAddon {
 }
 
 const isNode =
-  typeof process !== "undefined" && (process as { versions?: { node?: string } }).versions?.node !== undefined;
+  typeof process !== "undefined" &&
+  (process as { versions?: { node?: string } }).versions?.node !== undefined;
 
 /** Synchronous `require` on Node (Bun and Node 26 provide `import.meta.require`). */
 function nodeRequire(id: string): unknown {
@@ -146,37 +145,32 @@ function wasmAny(): WasmExports {
   return wasmBrowser;
 }
 
-/** The native handle behind one `ThreadState`, keyed by object identity. */
-const handles = new WeakMap<object, CoreThreadHandle>();
+/** The id kinds core allocates. */
+type IdKind = Parameters<ApplyContext["ids"]["next"]>[0];
 
-function handleFor(state: ThreadState): CoreThreadHandle {
-  const known = handles.get(state);
-  if (known) return known;
-  // A restored snapshot or a clone: fold it natively from its current JSON.
-  if (coreBackend() !== "native") throw new Error("native core is off");
-  const handle = addon().CoreThreadNative.fromState(JSON.stringify(state));
-  handles.set(state, handle);
-  return handle;
-}
-
-/** Refresh the test-visible fields from the native state after each call. */
-function refreshState(target: ThreadState, fresh: ThreadState): void {
-  for (const key of Object.keys(target)) delete (target as Record<string, unknown>)[key];
-  Object.assign(target, fresh);
+/** A restored state folds from its own JSON behind a fresh handle. */
+function openThread(stateJson: string): CoreThreadHandle {
+  return addon().CoreThreadNative.fromState(stateJson);
 }
 
 function idsNext(ctx: ApplyContext): (kind: string) => string {
   return (kind: string) => {
-    const id = ctx.ids.next(kind);
+    // Core asked for the id, so the kind is one of its own.
+    const id = ctx.ids.next(kind as IdKind);
     if (id === undefined) throw new Error("ids.next must return a string");
     return id;
   };
 }
 
-function applyResult(state: ThreadState, responseJson: string): EventPayload[] {
-  const response = JSON.parse(responseJson) as { events: EventPayload[]; state: ThreadState };
-  refreshState(state, response.state);
-  return response.events;
+/** `JSON.stringify` for a fact. The replacer only exists for `bigint`s, which JSON rejects. */
+function factJson(fact: unknown): string {
+  try {
+    return JSON.stringify(fact) as string;
+  } catch {
+    return JSON.stringify(fact, (_, value) =>
+      typeof value === "bigint" ? undefined : value,
+    ) as string;
+  }
 }
 
 /** Create a thread state holding a native `CoreThread`. */
@@ -192,9 +186,7 @@ export function createThreadState(init: {
       JSON.stringify(init.config),
       init.rootAgent === undefined ? undefined : JSON.stringify(init.rootAgent),
     );
-    const state = JSON.parse(handle.snapshot()) as ThreadState;
-    handles.set(state, handle);
-    return state;
+    return lazyThreadState(handle);
   }
   if (backend === "wasm") {
     const result = wasmAny().core_create_thread(
@@ -208,27 +200,15 @@ export function createThreadState(init: {
 }
 
 /** Fold one adapter fact and recompute statuses. */
-export function apply(
-  state: ThreadState,
-  fact: unknown,
-  ctx: ApplyContext,
-): EventPayload[] {
+export function apply(state: ThreadState, fact: unknown, ctx: ApplyContext): EventPayload[] {
   const backend = coreBackend();
-  // `JSON.stringify` throws on `bigint` (and circular refs); the core's
-  // `diagnosticData` turns those into `{unsupported: ...}` warnings, so omit
-  // them here and let validation reject the fact (which the core then
-  // notices with serializable data). Matches the TypeScript fold's
-  // rejection path for non-JSON facts.
-  const factJson = JSON.stringify(fact, (_, value) =>
-    typeof value === "bigint" ? undefined : value,
-  ) as string;
-  if (backend === "native") {
-    return applyResult(state, handleFor(state).apply(factJson, ctx.now, idsNext(ctx)));
-  }
+  const json = factJson(fact);
+  if (backend === "native")
+    return applyResult(state, handleFor(state, openThread).apply(json, ctx.now, idsNext(ctx)));
   if (backend === "wasm") {
     return applyResult(
       state,
-      wasmAny().core_apply(JSON.stringify(state), factJson, ctx.now, idsNext(ctx)),
+      wasmAny().core_apply(JSON.stringify(state), json, ctx.now, idsNext(ctx)),
     );
   }
   throw new Error("native core is off");
@@ -238,9 +218,7 @@ export function apply(
 export class FactBatch {
   private readonly state: ThreadState;
   private readonly backend: string;
-  private readonly wasmBatch:
-    | InstanceType<WasmExports["WasmBatch"]>
-    | undefined;
+  private readonly wasmBatch: InstanceType<WasmExports["WasmBatch"]> | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
     const backend = coreBackend();
@@ -249,34 +227,22 @@ export class FactBatch {
     const deadlineJson =
       stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
     if (backend === "native") {
-      handleFor(state).batchBegin(deadlineJson);
+      handleFor(state, openThread).batchBegin(deadlineJson);
       this.wasmBatch = undefined;
     } else {
       this.wasmBatch = new (wasmAny().WasmBatch)(JSON.stringify(state), deadlineJson);
     }
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
+    const json = factJson(fact);
     if (this.backend === "wasm") {
       const batch = this.wasmBatch;
       if (!batch) throw new Error("wasm batch is off");
-      return applyResult(
-        this.state,
-        batch.apply(
-          JSON.stringify(fact, (_, value) =>
-            typeof value === "bigint" ? undefined : value,
-          ) as string,
-          ctx.now,
-          idsNext(ctx),
-        ),
-      );
+      return applyResult(this.state, batch.apply(json, ctx.now, idsNext(ctx)));
     }
     return applyResult(
       this.state,
-      handleFor(this.state).batchApply(
-        JSON.stringify(fact, (_, value) => (typeof value === "bigint" ? undefined : value)) as string,
-        ctx.now,
-        idsNext(ctx),
-      ),
+      handleFor(this.state, openThread).batchApply(json, ctx.now, idsNext(ctx)),
     );
   }
   flush(): EventPayload[] {
@@ -285,20 +251,20 @@ export class FactBatch {
       if (!batch) throw new Error("wasm batch is off");
       return applyResult(this.state, batch.flush());
     }
-    return applyResult(this.state, handleFor(this.state).batchFlush());
+    return applyResult(this.state, handleFor(this.state, openThread).batchFlush());
   }
 }
 
 /** Derive one agent's status for the current fact, descendants first. */
-export function deriveAgentStatus(
-  state: ThreadState,
-  key: string,
-  now: number,
-): AgentStatus {
+export function deriveAgentStatus(state: ThreadState, key: string, now: number): AgentStatus {
   const backend = coreBackend();
   if (backend === "native")
-    return JSON.parse(addon().coreDeriveAgentStatus(JSON.stringify(state), key, now)) as AgentStatus;
-  return JSON.parse(wasmAny().core_derive_agent_status(JSON.stringify(state), key, now)) as AgentStatus;
+    return JSON.parse(
+      addon().coreDeriveAgentStatus(JSON.stringify(state), key, now),
+    ) as AgentStatus;
+  return JSON.parse(
+    wasmAny().core_derive_agent_status(JSON.stringify(state), key, now),
+  ) as AgentStatus;
 }
 
 /** Derive one thread's status from its agents. */
@@ -313,7 +279,12 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
 export function nextDeadline(state: ThreadState, providerDeadline?: number): number | undefined {
   const backend = coreBackend();
   if (backend === "native")
-    return (addon().coreNextDeadline(JSON.stringify(state), providerDeadline) as number | null | undefined) ?? undefined;
+    return (
+      (addon().coreNextDeadline(JSON.stringify(state), providerDeadline) as
+        | number
+        | null
+        | undefined) ?? undefined
+    );
   return wasmAny().core_next_deadline(JSON.stringify(state), providerDeadline);
 }
 
@@ -342,9 +313,7 @@ export function isActionableInteraction(
 /** Candidate eligibility changes at structural facts. */
 export class DeadlineIndex {
   private readonly handle: DeadlineIndexHandle | undefined;
-  private readonly wasmHandle:
-    | InstanceType<WasmExports["WasmDeadlineIndex"]>
-    | undefined;
+  private readonly wasmHandle: InstanceType<WasmExports["WasmDeadlineIndex"]> | undefined;
   constructor(state: ThreadState) {
     const backend = coreBackend();
     if (backend === "native") {
@@ -367,7 +336,8 @@ export class DeadlineIndex {
     else this.wasmHandle?.signal(agent, at, silenceMs);
   }
   next(providerDeadline?: number): number | undefined {
-    if (this.handle) return (this.handle.next(providerDeadline) as number | null | undefined) ?? undefined;
+    if (this.handle)
+      return (this.handle.next(providerDeadline) as number | null | undefined) ?? undefined;
     return this.wasmHandle?.next(providerDeadline);
   }
 }

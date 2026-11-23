@@ -5,7 +5,7 @@
 //! keys keep working even when they are JavaScript prototype property names
 //! like `__proto__`. Optional event fields are omitted, never `null`.
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::entity_model::{BackgroundTask, Interaction, InteractionResolution};
 use crate::items::Item;
@@ -34,7 +34,7 @@ pub fn remove<V>(records: &mut indexmap::IndexMap<String, V>, key: &str) -> Opti
 }
 
 /// One event the fold emits, exactly the protocol JSON.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum Event {
     /// A new agent joined the tree.
@@ -54,10 +54,6 @@ pub enum Event {
     AgentUpdated {
         #[serde(rename = "agentId")]
         agent_id: String,
-        #[serde(rename = "childThreadId", skip_serializing_if = "Option::is_none")]
-        child_thread_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        machine: Option<crate::item_meta::AgentMachine>,
         #[serde(rename = "parentId", skip_serializing_if = "Option::is_none")]
         parent_id: Option<Option<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -76,12 +72,14 @@ pub enum Event {
         role: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
-        #[serde(rename = "spawnedBy", skip_serializing_if = "Option::is_none")]
-        spawned_by: Option<Option<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         background: Option<bool>,
-        #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
-        ended_at: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        machine: Option<crate::item_meta::AgentMachine>,
+        #[serde(rename = "childThreadId", skip_serializing_if = "Option::is_none")]
+        child_thread_id: Option<String>,
+        #[serde(rename = "spawnedBy", skip_serializing_if = "Option::is_none")]
+        spawned_by: Option<Option<String>>,
     },
     /// Durable admission is distinct from execution and completion.
     #[serde(rename = "input.admitted")]
@@ -123,7 +121,8 @@ pub enum Event {
         #[serde(rename = "agentId")]
         agent_id: String,
         field: String,
-        append: String,
+        /// A JavaScript string: a provider can split a surrogate pair across frames.
+        append: ace_json::JsString,
     },
     /// A new interaction opened.
     #[serde(rename = "interaction.opened")]
@@ -155,57 +154,21 @@ pub enum Event {
         #[serde(rename = "endedAt", skip_serializing_if = "Option::is_none")]
         ended_at: Option<i64>,
     },
-    /// The provider reported usage.
+    /// The provider reported usage: the fact's own fields, spread after `agentId`.
     #[serde(rename = "usage.updated")]
     UsageUpdated {
         #[serde(rename = "agentId")]
         agent_id: String,
-        #[serde(rename = "inputTokens")]
-        input_tokens: i64,
-        #[serde(rename = "outputTokens")]
-        output_tokens: i64,
-        #[serde(rename = "cachedInputTokens", skip_serializing_if = "Option::is_none")]
-        cached_input_tokens: Option<i64>,
-        #[serde(rename = "contextWindow", skip_serializing_if = "Option::is_none")]
-        context_window: Option<i64>,
-        #[serde(rename = "costUsd", skip_serializing_if = "Option::is_none")]
-        cost_usd: Option<f64>,
-        #[serde(rename = "contextTokens", skip_serializing_if = "Option::is_none")]
-        context_tokens: Option<i64>,
-        #[serde(rename = "contextSessionId", skip_serializing_if = "Option::is_none")]
-        context_session_id: Option<String>,
-        #[serde(rename = "reasoningTokens", skip_serializing_if = "Option::is_none")]
-        reasoning_tokens: Option<i64>,
-        #[serde(rename = "cacheWriteTokens", skip_serializing_if = "Option::is_none")]
-        cache_write_tokens: Option<i64>,
-        #[serde(rename = "cacheWrite1hTokens", skip_serializing_if = "Option::is_none")]
-        cache_write_1h_tokens: Option<i64>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
-        #[serde(rename = "accountId", skip_serializing_if = "Option::is_none")]
-        account_id: Option<String>,
-        #[serde(rename = "billingMode", skip_serializing_if = "Option::is_none")]
-        billing_mode: Option<String>,
-        #[serde(rename = "counterMode", skip_serializing_if = "Option::is_none")]
-        counter_mode: Option<String>,
-        #[serde(rename = "counterKey", skip_serializing_if = "Option::is_none")]
-        counter_key: Option<String>,
-        #[serde(rename = "usageScope", skip_serializing_if = "Option::is_none")]
-        usage_scope: Option<String>,
+        /// `"key":value` members of the validated fact minus `type` and `agent`, in the
+        /// adapter's order (the TypeScript spreads the fact itself).
+        body: String,
     },
-    /// The provider sampled context usage.
+    /// The provider sampled context usage: its fact's fields, spread after `agentId`.
     #[serde(rename = "context.sampled")]
     ContextSampled {
         #[serde(rename = "agentId")]
         agent_id: String,
-        #[serde(rename = "usedTokens")]
-        used_tokens: i64,
-        #[serde(rename = "windowTokens", skip_serializing_if = "Option::is_none")]
-        window_tokens: Option<i64>,
-        #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
-        session_id: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        model: Option<String>,
+        body: String,
     },
     /// The thread's derived status changed.
     #[serde(rename = "thread.updated")]

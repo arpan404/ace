@@ -251,6 +251,7 @@ pub fn start_background(
         started_at: ctx.now,
         ended_at: None,
         raw: fact.raw,
+        trailing: Vec::new(),
     };
     state.uncertain_tasks.shift_remove(fact.task);
     put(&mut state.tasks, fact.task.to_owned(), task.clone());
@@ -263,6 +264,9 @@ pub fn start_background(
             .find(|item| item.id() == tool_call_id)
     {
         if let Item::ToolCall { call, .. } = item {
+            if call.background_task_id.is_none() {
+                call.appended("backgroundTaskId");
+            }
             call.background_task_id = Some(id);
         }
         let updated = item.clone();
@@ -349,6 +353,7 @@ fn refine_background(
             && task.child_agent_id.is_none()
         {
             task.child_agent_id = Some(child_id);
+            task.appended("childAgentId");
             changed = true;
         }
     }
@@ -364,10 +369,14 @@ fn refine_background(
             if needs_link {
                 if let Some(task) = state.tasks.get_mut(fact.task) {
                     task.tool_call_id = Some(item_id.clone());
+                    task.appended("toolCallId");
                 }
                 if let Some(Item::ToolCall { call, .. }) = state.items.get_mut(item_key)
                     && let Some(task_id) = get(&state.tasks, fact.task).map(|task| task.id.clone())
                 {
+                    if call.background_task_id.is_none() {
+                        call.appended("backgroundTaskId");
+                    }
                     call.background_task_id = Some(task_id);
                 }
                 if let Some(item) = get(&state.items, item_key) {
@@ -384,6 +393,7 @@ fn refine_background(
         if missing {
             if let Some(task) = state.tasks.get_mut(fact.task) {
                 task.output_path = Some(output_path.to_owned());
+                task.appended("outputPath");
             }
             changed = true;
         }
@@ -395,6 +405,7 @@ fn refine_background(
         if missing {
             if let Some(task) = state.tasks.get_mut(fact.task) {
                 task.wakes_agent = Some(false);
+                task.appended("wakesAgent");
             }
             changed = true;
         }
@@ -406,6 +417,7 @@ fn refine_background(
         if missing {
             if let Some(task) = state.tasks.get_mut(fact.task) {
                 task.blocks_prompts = Some(true);
+                task.appended("blocksPrompts");
             }
             changed = true;
         }
@@ -417,6 +429,7 @@ fn refine_background(
         if missing {
             if let Some(task) = state.tasks.get_mut(fact.task) {
                 task.ends_with_session = Some(true);
+                task.appended("endsWithSession");
             }
             changed = true;
         }
@@ -469,6 +482,9 @@ pub fn listen_background(
         if ports.is_empty() {
             task.listening = None;
         } else {
+            if task.listening.is_none() {
+                task.appended("listening");
+            }
             task.listening = Some(ports);
         }
     }
@@ -486,6 +502,7 @@ pub fn wait_background(state: &mut ThreadState, task_key: &str, waiting: bool) {
         return;
     }
     if waiting {
+        state.appended("personTasks");
         let people = state.person_tasks.get_or_insert_with(Default::default);
         put(people, task_key.to_owned(), true);
     } else if let Some(people) = state.person_tasks.as_mut() {

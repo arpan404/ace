@@ -454,7 +454,7 @@ pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact,
         Ok(false) => return Err("invalid adapter fact fields".to_owned()),
         Err(_) => return Err("invalid adapter fact data".to_owned()),
     }
-    crate::facts::convert(map, fact_type).ok_or_else(|| "invalid adapter fact data".to_owned())
+    crate::facts::convert(input).ok_or_else(|| "invalid adapter fact data".to_owned())
 }
 
 use crate::validate_shapes::{
@@ -519,9 +519,8 @@ pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -
         "agent.external" => {
             valid_thread_id(fact.get("threadId"))
                 && {
-                    let status = fact.get("status").cloned().unwrap_or(Json::Null);
-                    let text = ace_json::to_string(&status);
-                    serde_json::from_str::<crate::status::ThreadStatus>(&text).is_ok()
+                    let status = fact.get("status").unwrap_or(&Json::Null);
+                    crate::json_io::decode::<crate::status::ThreadStatus>(status).is_ok()
                 }
                 && get(&state.agents, fact.get("agent").and_then(|agent| agent.as_str()).unwrap_or(""))
                     .is_some_and(|record| record.agent.origin == "ace")
