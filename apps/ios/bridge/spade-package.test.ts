@@ -112,14 +112,26 @@ test("turning a declared effect off narrows the bot's package, on grants it agai
   };
 
   expect(
-    await ask({ type: "spade.package.effect", agentId: "flights", key: "network", on: false }),
+    await ask({
+      type: "spade.package.effect",
+      agentId: "flights",
+      key: "network",
+      on: false,
+      hash: "c".repeat(64),
+    }),
   ).toEqual({
     ok: true,
   });
   expect(stored().find((each) => each.key === "network")?.on).toBe(false);
   expect((await line())?.effects[0]).toMatchObject({ key: "network", on: false });
 
-  await ask({ type: "spade.package.effect", agentId: "flights", key: "network", on: true });
+  await ask({
+    type: "spade.package.effect",
+    agentId: "flights",
+    key: "network",
+    on: true,
+    hash: "c".repeat(64),
+  });
   expect(stored().find((each) => each.key === "network")?.on).toBe(true);
 
   const refused = await ask({
@@ -127,6 +139,7 @@ test("turning a declared effect off narrows the bot's package, on grants it agai
     agentId: "flights",
     key: "camera",
     on: true,
+    hash: "c".repeat(64),
   });
   expect(refused).toMatchObject({ ok: false, title: "Couldn't turn it on" });
 });
@@ -195,4 +208,130 @@ test("a template bot's update is reviewed in words, keeps the person's edits and
     sentence: "From ace's inbox template 1.0.0.",
     template: null,
   });
+});
+
+test("a switch read on a version the bot no longer has is refused and changes nothing", async () => {
+  const { ask, api } = await withBot(marketLink);
+  const pay = () => {
+    const link = api.agents.find((agent) => agent.id === "flights")?.package;
+    const effects = (link?.["effects"] ?? []) as { key: string; on: boolean }[];
+    return effects.find((each) => each.key === "pay")?.on;
+  };
+
+  const refused = await ask({
+    type: "spade.package.effect",
+    agentId: "flights",
+    key: "pay",
+    on: true,
+    hash: "d".repeat(64),
+  });
+
+  expect(refused).toMatchObject({ ok: false, title: "Couldn't turn it on" });
+  expect((refused as { message: string }).message).toMatch(/changed since you read it/);
+  expect(pay()).toBe(false);
+});
+
+test("a tool grant's argument limits travel with its switch", async () => {
+  const { line } = await withBot({
+    ...marketLink,
+    effects: [
+      {
+        key: "network:tool:deploy",
+        effect: "network",
+        hosts: [],
+        grant: { kind: "tool", tool: "deploy", arguments: { env: "staging", ref: "main" } },
+        why: "Ships the build.",
+        on: false,
+      },
+    ],
+  });
+
+  expect((await line())?.effects).toMatchObject([
+    {
+      words: "Uses deploy without asking",
+      limits: ["env matching staging", "ref matching main"],
+    },
+  ]);
+  expect((await line())?.hash).toBe("c".repeat(64));
+});
+
+test("a template update whose effects can't all be read offers nothing to take", async () => {
+  const { ask } = await withBot(
+    { source: "spade", name: "inbox", version: "0.9.0", hash: "a".repeat(64), effects: [] },
+    {
+      templateOffer: {
+        package: { source: "spade", name: "inbox", version: "1.0.0", hash: "b".repeat(64) },
+        recipe: {},
+        plan: {
+          name: "same",
+          task: "same",
+          face: "same",
+          personality: "same",
+          routines: [],
+          notes_kept: 0,
+          asks_more: [],
+          off: [],
+        },
+        effects: [
+          { key: "publish", effect: "publish", why: "Posts.", on: false },
+          { key: "x".repeat(3000), effect: "network", why: "Unreadable.", on: false },
+        ],
+      },
+    },
+  );
+
+  const review = await ask({ type: "spade.template", agentId: "flights" });
+
+  expect(review).toMatchObject({ ok: false, title: "Couldn't read the update" });
+  expect("offer" in review).toBe(false);
+});
+
+test("a template update names what it stops asking for and what it now asks for otherwise", async () => {
+  const tool = (env: string) => ({
+    key: "network:tool:deploy",
+    effect: "network",
+    hosts: [],
+    grant: { kind: "tool", tool: "deploy", arguments: { env } },
+    why: "Ships.",
+    on: true,
+  });
+  const { ask } = await withBot(
+    {
+      source: "spade",
+      name: "inbox",
+      version: "0.9.0",
+      hash: "a".repeat(64),
+      template_update: { version: "1.0.0" },
+      effects: [
+        tool("staging"),
+        { key: "publish", effect: "publish", hosts: [], why: "Posts.", on: true },
+      ],
+    },
+    {
+      templateOffer: {
+        package: { source: "spade", name: "inbox", version: "1.0.0", hash: "b".repeat(64) },
+        recipe: {},
+        plan: {
+          name: "same",
+          task: "same",
+          face: "same",
+          personality: "same",
+          routines: [],
+          notes_kept: 0,
+          asks_more: [],
+          off: ["publish"],
+        },
+        effects: [tool("*")],
+      },
+    },
+  );
+
+  const review = await ask({ type: "spade.template", agentId: "flights" });
+
+  if (!("offer" in review)) throw new Error(JSON.stringify(review));
+  expect(review.offer.changes).toEqual([
+    "No longer asks for this, so it's turned off: Publishes and posts.",
+    "Changes what it asks for: Uses deploy without asking, env matching *. Before: Uses deploy without asking, env matching staging.",
+  ]);
+  expect(review.offer.effects).toMatchObject([{ limits: ["env matching *"] }]);
 });
