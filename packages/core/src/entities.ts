@@ -161,6 +161,7 @@ export function startBackground(
     ...(fact.outputPath === undefined ? {} : { outputPath: fact.outputPath }),
     ...(fact.wakesAgent === false ? { wakesAgent: false as const } : {}),
     ...(fact.blocksPrompts ? { blocksPrompts: true as const } : {}),
+    ...(fact.endsWithSession ? { endsWithSession: true as const } : {}),
   };
   if (state.uncertainTasks) delete state.uncertainTasks[fact.task];
   put(state.tasks, fact.task, task);
@@ -220,6 +221,10 @@ function refineBackground(
   }
   if (task.blocksPrompts === undefined && fact.blocksPrompts) {
     task.blocksPrompts = true;
+    changed = true;
+  }
+  if (task.endsWithSession === undefined && fact.endsWithSession) {
+    task.endsWithSession = true;
     changed = true;
   }
   if (!changed) return;
