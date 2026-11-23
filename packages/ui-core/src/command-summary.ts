@@ -61,3 +61,12 @@ export function commandSummary(command: string): string {
     .replace(/[\t\r\n]+/g, " ")
     .trim();
 }
+
+/**
+ * What a command step is called: the provider's own description when it sent one (Claude's Bash
+ * `description`), else the command's one-line summary. Never the raw command with its setup noise.
+ */
+export function commandLabel(command: { command: string; description?: string | undefined }): string {
+  const described = command.description?.replace(/\s+/g, " ").trim();
+  return described || commandSummary(command.command);
+}

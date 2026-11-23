@@ -1,4 +1,5 @@
 import type { FileChange, Interaction, Item, ToolCall } from "@ace/protocol";
+import { commandLabel } from "./command-summary.ts";
 import { quickStat } from "./file-changes.ts";
 import { displayCommand, stepPath, type PathContext } from "./step-display.ts";
 import type { StepLabels } from "./tool-labels.ts";
@@ -41,6 +42,11 @@ export interface StepText {
   title?: string | undefined;
   /** The step waits on the person: an approval nobody has answered yet. */
   needsYou?: boolean | undefined;
+  /**
+   * A command step that ran (not one that only looked): its name in words (`commandLabel`), the
+   * whole command, and its exit code. A surface draws these in place of the raw command.
+   */
+  command?: { label: string; full: string; exitCode?: number | null | undefined } | undefined;
   /** One of ace's own tools: what it acted on, the images it returned, a failure in words. */
   ace?: AceToolView | undefined;
 }
@@ -180,6 +186,15 @@ function callText(call: ToolCall, context: StepContext): CallText {
         target: command.command,
         note: exit,
         title: command.raw ?? command.command,
+        ...(explored
+          ? {}
+          : {
+              command: {
+                label: commandLabel({ command: command.command, description: detail.description }),
+                full: command.command,
+                exitCode: detail.exitCode,
+              },
+            }),
       };
     }
     case "file.edit":

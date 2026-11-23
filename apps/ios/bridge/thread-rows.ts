@@ -79,6 +79,18 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
     removed: step.removed ?? (step.added !== undefined ? 0 : null),
     /** An agent opened a page in the thread's browser: the row opens the browser. */
     browser: opensAgentPage(item),
+    /**
+     * A command that ran: its name in words (the provider's description, else the command's
+     * summary), the whole command for its sheet, and whether it left a task running.
+     */
+    command: step.command
+      ? {
+          label: preview(step.command.label, 256),
+          full: preview(step.command.full, 8192),
+          exitCode: step.command.exitCode ?? null,
+          background: item.type === "tool_call" && item.call.backgroundTaskId !== undefined,
+        }
+      : null,
     /** A call still in flight: when it started, which its row counts up from. */
     startedAt: item.type === "tool_call" && !step.settled ? (item.call.startedAt ?? null) : null,
   };
