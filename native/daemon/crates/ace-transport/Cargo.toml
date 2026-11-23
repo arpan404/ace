@@ -41,3 +41,8 @@ tokio = { version = "1.54", features = [
 ] }
 # tokio-util: CancellationToken tells connection tasks and upgrade handlers the listener is closing.
 tokio-util = { version = "0.7.20" }
+# socket2: a second handle on the accepted socket so the hop can poll it for the
+# client's end of input while an upload is backpressured (SockRef::peek).
+socket2 = { version = "0.6" }
+# zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
+zeroize = { version = "1" }

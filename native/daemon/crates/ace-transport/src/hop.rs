@@ -7,6 +7,7 @@
 use crate::error::TransportError;
 use crate::head::connection_names;
 use crate::peer::Peer;
+use zeroize::Zeroize;
 
 /// The hop's secret: 32 bytes the OS CSPRNG produced once per boot, sent hex.
 pub const HOP_SECRET: &str = "x-ace-hop-secret";
@@ -73,7 +74,8 @@ impl HopSecret {
 
 impl Drop for HopSecret {
     fn drop(&mut self) {
-        self.0.fill(0);
+        // A plain fill can be optimized away; zeroize writes through a barrier.
+        self.0.zeroize();
     }
 }
 
@@ -89,12 +91,18 @@ fn nibble(digit: u8) -> Result<u8, TransportError> {
 /// What the hop sends on: every field as sent except the reserved four (every
 /// client-sent instance is dropped) and the hop-by-hop ones, then exactly one
 /// value of each reserved field, from the secret and the accepted socket.
+///
+/// `Transfer-Encoding: chunked` is hop-by-hop but it is the body's only
+/// framing: with no length and no `chunked`, hyper's client sends an empty body
+/// for GET, HEAD and CONNECT (its `set_length`), which would lose a valid
+/// chunked request's payload. So a chunked request keeps that one field, and
+/// every other hop-by-hop field is still dropped.
 pub fn request_headers(
     headers: &[(String, Vec<u8>)],
     secret: &HopSecret,
     peer: &Peer,
 ) -> Vec<(String, Vec<u8>)> {
-    let mut out = forwarded(headers);
+    let mut out = forwarded(headers, true);
     out.push((HOP_SECRET.to_owned(), secret.hex().into_bytes()));
     out.push((
         HOP_PEER_ADDRESS.to_owned(),
@@ -115,21 +123,34 @@ pub fn request_headers(
 /// The reserved four are dropped too, so a handler cannot echo the secret to a
 /// client by copying its request's fields.
 pub fn response_headers(headers: &[(String, Vec<u8>)]) -> Vec<(String, Vec<u8>)> {
-    forwarded(headers)
+    forwarded(headers, false)
 }
 
-fn forwarded(headers: &[(String, Vec<u8>)]) -> Vec<(String, Vec<u8>)> {
+fn forwarded(headers: &[(String, Vec<u8>)], request: bool) -> Vec<(String, Vec<u8>)> {
     let named = connection_names(headers);
     headers
         .iter()
-        .filter(|(name, _)| {
+        .filter(|(name, value)| {
             let lower = name.to_ascii_lowercase();
-            !HOP_BY_HOP.contains(&lower.as_str())
-                && !named.contains(&lower)
-                && !RESERVED.contains(&lower.as_str())
+            if RESERVED.contains(&lower.as_str()) {
+                return false;
+            }
+            if request && lower == "transfer-encoding" && chunked(value) {
+                return true;
+            }
+            !HOP_BY_HOP.contains(&lower.as_str()) && !named.contains(&lower)
         })
         .cloned()
         .collect()
+}
+
+/// Whether a `Transfer-Encoding` value ends in `chunked`, which is the only
+/// framing a request may leave out of a length but hyper's client keeps.
+fn chunked(value: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(value);
+    text.split(',')
+        .next_back()
+        .is_some_and(|last| last.trim().eq_ignore_ascii_case("chunked"))
 }
 
 #[cfg(test)]
@@ -210,7 +231,6 @@ mod tests {
             pair("Proxy-Connection", "keep-alive"),
             pair("TE", "trailers"),
             pair("Trailer", "x-checksum"),
-            pair("Transfer-Encoding", "chunked"),
             pair("Upgrade", "websocket"),
             pair("X-Dropped", "yes"),
             pair("Host", "127.0.0.1:7842"),
@@ -229,7 +249,6 @@ mod tests {
             "Proxy-Connection",
             "TE",
             "Trailer",
-            "Transfer-Encoding",
             "Upgrade",
             "X-Dropped",
         ] {
@@ -239,6 +258,35 @@ mod tests {
                 "{name} is hop-by-hop"
             );
         }
+    }
+
+    #[test]
+    fn a_chunked_request_keeps_the_one_field_that_frames_its_body() {
+        let sent = vec![
+            pair("Transfer-Encoding", "chunked"),
+            pair("Content-Length", "5"),
+            pair("Trailer", "x-checksum"),
+        ];
+        let out = request_headers(&sent, &secret(), &peer());
+        assert_eq!(
+            value_of(&out, "Transfer-Encoding"),
+            Some(b"chunked".as_slice()),
+            "a chunked body keeps its framing"
+        );
+        assert_eq!(value_of(&out, "Content-Length"), Some(b"5".as_slice()));
+        assert!(
+            out.iter()
+                .all(|(field, _)| !field.eq_ignore_ascii_case("trailer")),
+            "the other hop-by-hop fields still go"
+        );
+
+        let gzip = vec![pair("Transfer-Encoding", "gzip")];
+        let out = request_headers(&gzip, &secret(), &peer());
+        assert!(
+            out.iter()
+                .all(|(field, _)| !field.eq_ignore_ascii_case("transfer-encoding")),
+            "only chunked framing is kept"
+        );
     }
 
     #[test]
