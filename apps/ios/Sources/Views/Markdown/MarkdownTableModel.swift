@@ -84,7 +84,7 @@ struct MarkdownTable {
             let text = document.attributedText(in: span.range, theme: theme, traits: traits)
             let cell = Cell(row: rowIndex[span.row ?? 0] ?? 0, column: max(0, span.column ?? 0), header: span.header ?? false,
                             alignment: span.alignment == "right" ? .trailing : span.alignment == "center" ? .center : .leading,
-                            runs: runs(drawn, text).map { run in if case .text(let piece) = run { .text(breakable(piece)) } else { run } },
+                            runs: runs(document, in: span.range, theme: theme, traits: traits),
                             spoken: String(text.characters))
             return Measured(cell: cell, natural: width(of: drawn) + pad, minimum: widestPiece(of: drawn) + pad)
         }
@@ -99,31 +99,37 @@ struct MarkdownTable {
         return Measured(cell: cell, natural: width(of: drawn) + pad, minimum: widestPiece(of: drawn) + pad)
     }
 
-    /// A cell's runs: `text` as markit converts it for SwiftUI (formulas as their source), with
-    /// each formula `drawn` holds as an image put back in its place. The two are walked side by
-    /// side: each of `drawn`'s runs is its text in `text`, a formula its source.
-    static func runs(_ drawn: NSAttributedString, _ text: AttributedString) -> [Run] {
+    /// A cell's runs over `range` of `document`: the text between its formulas styled for SwiftUI,
+    /// and each formula as markit's image of it. Cut by the formulas' own ranges in the document,
+    /// so what markit writes differently from the source (entities, hard breaks, footnote marks)
+    /// can't shift a cut. A formula markit drew no image for stays as its source.
+    @MainActor static func runs(_ document: MarkitDocument, in range: NSRange, theme: MarkitTheme,
+                                traits: UITraitCollection) -> [Run] {
+        let formulas = document.spans
+            .filter { $0.kind == "math" && $0.start >= range.location && $0.end <= NSMaxRange(range) && $0.end > $0.start }
+            .sorted { $0.start < $1.start }
         var runs: [Run] = []
-        let characters = text.characters
-        var cursor = characters.startIndex
-        var pending = cursor
-        let string = drawn.string as NSString
-        func advance(_ count: Int) {
-            cursor = characters.index(cursor, offsetBy: count, limitedBy: characters.endIndex) ?? characters.endIndex
+        var at = range.location
+        func text(upTo end: Int) {
+            guard end > at else { return }
+            let piece = document.attributedText(in: NSRange(location: at, length: end - at), theme: theme, traits: traits)
+            if !piece.characters.isEmpty { runs.append(.text(breakable(piece))) }
         }
-        drawn.enumerateAttributes(in: NSRange(location: 0, length: drawn.length)) { attributes, range, _ in
-            let raw = attributes[.markitRaw] as? String
-            let attachment = attributes[.attachment] as? NSTextAttachment
-            if let raw, let attachment, let image = attachment.image {
-                if pending < cursor { runs.append(.text(AttributedString(text[pending..<cursor]))) }
-                runs.append(.math(sized(image, to: attachment.bounds.size), baseline: attachment.bounds.minY))
-                advance(raw.count)
-                pending = cursor
-            } else {
-                advance((raw ?? (attachment == nil ? string.substring(with: range) : "")).count)
+        for formula in formulas where formula.start >= at {
+            let drawn = document.attributedString(in: formula.range, theme: theme, traits: traits)
+            var image: (UIImage, CGRect)?
+            drawn.enumerateAttribute(.attachment, in: NSRange(location: 0, length: drawn.length)) { value, _, stop in
+                if let attachment = value as? NSTextAttachment, let picture = attachment.image {
+                    image = (picture, attachment.bounds)
+                    stop.pointee = true
+                }
             }
+            guard let (picture, bounds) = image else { continue }
+            text(upTo: formula.start)
+            runs.append(.math(sized(picture, to: bounds.size), baseline: bounds.minY))
+            at = formula.end
         }
-        if pending < characters.endIndex { runs.append(.text(AttributedString(text[pending...]))) }
+        text(upTo: NSMaxRange(range))
         return runs
     }
 

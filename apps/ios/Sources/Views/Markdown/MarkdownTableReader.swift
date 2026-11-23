@@ -11,6 +11,8 @@ import UIKit
         let flavor: MarkitFlavor
         let theme: MarkitTheme
         let size: UIContentSizeCategory
+        /// Light or dark: a formula's image is drawn in the ink of one.
+        let appearance: UIUserInterfaceStyle
     }
     private var style: Style?
     /// The header and delimiter rows (with the definitions) last read, and their cells.
@@ -19,7 +21,8 @@ import UIKit
     private var rows: [String: [MarkdownTable.Measured]] = [:]
 
     func table(source: String, flavor: MarkitFlavor, theme: MarkitTheme, traits: UITraitCollection) -> MarkdownTable {
-        let style = Style(flavor: flavor, theme: theme, size: traits.preferredContentSizeCategory)
+        let style = Style(flavor: flavor, theme: theme, size: traits.preferredContentSizeCategory,
+                          appearance: traits.userInterfaceStyle)
         if style != self.style {
             self.style = style
             head = nil

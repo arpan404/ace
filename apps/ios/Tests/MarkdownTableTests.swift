@@ -82,6 +82,33 @@ import UIKit
         #expect(!words.contains("mc^2"))
     }
 
+    @Test func textAroundAFormulaKeepsItsWordsWhereMarkitWritesThemDifferently() throws {
+        // An escaped pipe and an entity are shorter drawn than written: the cuts must not shift.
+        let table = MarkdownTable(source: "| Term | Value |\n| --- | --- |\n| a \\| b &amp; c | before $x^2$ after &lt;end&gt; |",
+                                  flavor: AnswerMarkdown.flavor, theme: AceMarkdownTheme.current(), traits: Self.traits)
+        let cell = try #require(table.cells.first { $0.row == 1 && $0.column == 1 })
+        let shape = cell.runs.map { run in
+            switch run {
+            case .text(let text): String(text.characters).replacingOccurrences(of: "\u{200B}", with: "")
+            case .math: "<formula>"
+            }
+        }
+        #expect(shape == ["before ", "<formula>", " after <end>"])
+    }
+
+    @Test func aFormulaInACellIsDrawnAgainInDarkInk() throws {
+        let source = "| Term |\n| --- |\n| $x^2$ |"
+        let reader = MarkdownTableReader()
+        func formula(_ style: UIUserInterfaceStyle) throws -> Data {
+            let traits = Self.traits.modifyingTraits { $0.userInterfaceStyle = style }
+            let table = reader.table(source: source, flavor: AnswerMarkdown.flavor, theme: AceMarkdownTheme.current(), traits: traits)
+            let cell = try #require(table.cells.first { $0.row == 1 })
+            let image = try #require(cell.runs.compactMap { if case .math(let image, _) = $0 { image } else { nil } }.first)
+            return try #require(image.pngData())
+        }
+        #expect(try formula(.light) != formula(.dark))
+    }
+
     @Test func aTableReadRowByRowAsItArrivesHasTheCellsOfReadingItWhole() {
         let answer = "| Area | State |\n| --- | :-: |\n| Recording | `done` |\n| Replay | not **started** |\n| [Plan][p] | $x^2$ |\n\n[p]: https://example.com"
         let reader = MarkdownTableReader()

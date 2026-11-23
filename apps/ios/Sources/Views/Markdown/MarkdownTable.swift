@@ -16,6 +16,8 @@ struct MarkdownTableView: View, Equatable {
     let onLink: (URL) -> Void
     let onReference: (MarkitReference) -> Void
     @Environment(\.dynamicTypeSize) private var dynamicType
+    /// Formulas are drawn in the text's ink for this appearance, so a change draws them again.
+    @Environment(\.colorScheme) private var colorScheme
     @State private var reader = MarkdownTableReader()
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
@@ -23,7 +25,9 @@ struct MarkdownTableView: View, Equatable {
     }
 
     var body: some View {
-        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicType))
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(dynamicType)).modifyingTraits {
+            $0.userInterfaceStyle = colorScheme == .dark ? .dark : .light
+        }
         let table = reader.table(source: source, flavor: flavor, theme: theme, traits: traits)
         let border = Color(uiColor: theme.tableBorder)
         let corner = RoundedRectangle(cornerRadius: theme.codeCornerRadius, style: .continuous)
