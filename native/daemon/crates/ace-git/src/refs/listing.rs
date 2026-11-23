@@ -95,11 +95,12 @@ pub(super) fn branch_names(
     };
     let mut out = Vec::new();
     for entry in listed {
-        // A ref whose object is gone is skipped or fatal depending on Git's hash and reader;
-        // let Git decide by running the same command.
-        if let Some(target) = entry.target
-            && !present(repo, graph.as_ref(), target)
-        {
+        // A dangling symbolic ref is one Git skips; a ref whose object is gone is skipped or
+        // fatal depending on Git's hash and reader, so Git decides by running the command.
+        let Some(target) = entry.target else {
+            continue;
+        };
+        if !present(repo, graph.as_ref(), target) {
             return None;
         }
         out.extend_from_slice(&shorten(entry.name.as_bstr(), &exists));

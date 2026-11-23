@@ -62,7 +62,11 @@ async function run<T>(
   attempt: () => Buffer | string,
   typescript: () => Promise<T>,
   accept: (reply: Buffer | string) => { data: T } | { fallback: string },
+  signal?: AbortSignal,
 ): Promise<T> {
+  // `GitCli` refuses an aborted call before dispatching; a cancelled call is no operation.
+  if (signal?.aborted)
+    throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
   const selected: NativeBackend = gitCrossSelected() ?? "native";
   if (selected === "typescript") {
     record({ op, selected, completed: "typescript" });
@@ -139,6 +143,7 @@ export async function worktreeRecords(
     () => gitAddon().gitRefsWorktrees(repo),
     typescript,
     listingReply,
+    signal,
   );
 }
 
@@ -238,6 +243,7 @@ export async function resolveCommitRef(
     () => gitAddon().gitRefsCommit(root, ref),
     typescript,
     (reply) => valueReply<CommitKind>(reply),
+    signal,
   );
 }
 
@@ -266,5 +272,6 @@ export async function branchCommit(
       const accepted = valueReply<string | null>(reply);
       return "data" in accepted ? { data: accepted.data ?? undefined } : accepted;
     },
+    signal,
   );
 }
