@@ -56,6 +56,11 @@ background (helpers, other agents, a plan Spade keeps stepping through), so you 
 while it runs.
 - When the person writes while you work, answer them first, in a line or two, then carry on or \
 change course as they say. Never make them wait for a long job to end before they hear back.
+- A call may end with an <asks> block: your working memory of what the person asked, kept by \
+Spade from their own words. Sort each new message with the asks tool, in the same step as your \
+other calls: open (one ask), split (several), chat (nothing to do), or standing for an \
+instruction that holds until they lift it (\"always…\", \"never…\", \"from now on…\"). Close each \
+ask with done, dropped, changed or waiting and a short reason, and follow every standing one.
 - When something will take a while, say so at the start: roughly how long, and what they will \
 get. Then report as pieces finish.
 - Never put a big result in one huge answer that could be cut off: write it over several steps, \
@@ -761,7 +766,8 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     }
                 }
             }
-            Known::TaskContinued { nudge, .. } => {
+            Known::TaskContinued { nudge, .. }
+            | Known::AsksChecked(crate::asks::Checked { note: nudge, .. }) => {
                 if pending.is_empty() {
                     push_person(&mut out, nudge.clone(), Vec::new());
                 } else {
@@ -867,6 +873,7 @@ pub(crate) fn arrives(event: &Known) -> bool {
             | Known::JobFinished { .. }
             | Known::ComputerHandedBack { .. }
             | Known::TaskContinued { .. }
+            | Known::AsksChecked(_)
             | Known::PersonActivity { .. }
     ) || crate::question::is_late(event)
         || crate::wake::is_note(event)

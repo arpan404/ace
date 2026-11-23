@@ -317,6 +317,7 @@ fn a_calls_output_is_untrusted_when_untrusted_content_was_in_view_or_read_since(
             images_left_out: None,
             untrusted: false,
             carried: None,
+            asks: None,
         }),
         call("c1", Vec::new()),
     ];

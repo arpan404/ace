@@ -198,7 +198,11 @@ pub(super) async fn step(
         model: cli.model.clone(),
         instructions: turn.instructions.clone(),
         instructions_changed: turn.changed,
-        message: turn.message.clone(),
+        // The person's asks close each turn's message too (ADR 0215 §2).
+        message: match spade_core::asks::block::text(&engine.asks_of(id, events)) {
+            Some(block) => format!("{}\n\n{block}", turn.message),
+            None => turn.message.clone(),
+        },
     };
     let (sender, mut calls) = mpsc::channel::<BrainCall>(16);
     engine

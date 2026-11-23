@@ -193,6 +193,8 @@ fn turn_part(event: &Event, seq: u64) -> Option<String> {
         }) => Some(context::job_result(job, name, content, *is_error)),
         // Spade carrying the bot's task on (ADR 0144) reaches a CLI turn the same way.
         Event::Known(Known::TaskContinued { nudge, .. }) => Some(nudge.clone()),
+        // The stop check's note (ADR 0215) too.
+        Event::Known(Known::AsksChecked(checked)) => Some(checked.note.clone()),
         // Spade's notes on the person's work at the bot's computer (ADR 0142, ADR 0143), with
         // their names as untrusted data, as an endpoint model reads them.
         Event::Known(Known::PersonActivity { text, data }) => {

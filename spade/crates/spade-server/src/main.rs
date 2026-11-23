@@ -17,7 +17,7 @@ use spade_server::presets;
 use spade_server::research::{LiveWeb, ResearchTool};
 use spade_server::skill_store::SkillStore;
 use spade_server::tools::{
-    AceLink, AceTarget, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
+    AceLink, AceTarget, Asks, ConnectorSource, DecisionLog, EngineHandle, Retry, SkillLibrary, SkillLoad,
     SkillSearch, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, ToolSource, Toolbox, WebFetch,
     WebSearch,
 };
@@ -355,6 +355,7 @@ async fn run() -> Result<(), Failure> {
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
+        Arc::new(Asks),
     ];
     let workspaces = Workspaces::new(home.dir.join("workspace"));
     // Each bot's commands, services and plugin servers run in its OS sandbox, with their traffic

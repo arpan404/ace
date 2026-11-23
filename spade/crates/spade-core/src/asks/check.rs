@@ -1,0 +1,87 @@
+//! The stop check (ADR 0215 §3): a reply that would end with an ask still open gets one more
+//! step naming it, once per reply. The engine adds what only it knows (a paused bot, a helper).
+
+use super::{Checked, Ledger};
+use crate::event::{Event, Known};
+use crate::question::{Standing, views};
+
+/// The `asks_checked` to store before one more step of `reply`, whose last step made no calls;
+/// `None` when the reply may end. It runs at most once per reply, names only open asks no
+/// earlier check named, and never while a question the bot asked waits on the person.
+pub fn due(events: &[Event], ledger: &Ledger, reply: &str) -> Option<Checked> {
+    if ledger.checked.as_deref() == Some(reply) {
+        return None;
+    }
+    let open: Vec<&super::Ask> = ledger.open_asks().filter(|a| !a.named).collect();
+    if open.is_empty() {
+        return None;
+    }
+    // Read only when there is something to name: a card can be from long before.
+    let asking = views(events)
+        .iter()
+        .any(|card| matches!(card.standing, Standing::Waiting | Standing::Deferred));
+    if asking {
+        return None;
+    }
+    let listed: Vec<String> = open
+        .iter()
+        .take(super::block::SHOWN)
+        .map(|a| format!("- {}: {}", a.id, super::block::quoted(&a.words)))
+        .collect();
+    let more = open.len().saturating_sub(listed.len());
+    let mut note = format!(
+        "<asks_check from=\"spade\">\nBefore this reply ends, these asks are still open:\n{}",
+        listed.join("\n")
+    );
+    if more > 0 {
+        note.push_str(&format!("\n…and {more} more."));
+    }
+    note.push_str(
+        "\nFinish them now, or mark each with the asks tool (done, dropped, changed, waiting or \
+         chat) and a short reason. If you only mark them, your reply ends with that.\n</asks_check>",
+    );
+    Some(Checked {
+        reply: reply.to_owned(),
+        asks: open.iter().map(|a| a.id.clone()).collect(),
+        note,
+    })
+}
+
+/// Whether `reply` may end now without another model call: its last step answered the stop
+/// check's note with `asks` calls only, and every one of them has its result. That step is the
+/// check's one extra step.
+pub fn settled(events: &[Event], reply: &str) -> bool {
+    let mut finished: Vec<&str> = Vec::new();
+    for (at, event) in events.iter().enumerate().rev() {
+        let Event::Known(known) = event else { continue };
+        match known {
+            Known::ToolFinished { call_id, .. } => finished.push(call_id),
+            Known::StepFinished { reply: r, calls, .. } if r == reply => {
+                if calls.is_empty()
+                    || calls.iter().any(|c| c.name != super::ASKS)
+                    || calls.iter().any(|c| !finished.contains(&c.id.as_str()))
+                {
+                    return false;
+                }
+                // The check must come before this step, within the same reply.
+                return checked_before(&events[..at], reply);
+            }
+            Known::ReplyStarted { .. } => return false,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// Whether the latest of `before` that matters is `reply`'s stop check, not one of its steps.
+fn checked_before(before: &[Event], reply: &str) -> bool {
+    for event in before.iter().rev() {
+        match event {
+            Event::Known(Known::AsksChecked(checked)) => return checked.reply == reply,
+            Event::Known(Known::StepFinished { reply: r, .. }) if r == reply => return false,
+            Event::Known(Known::ReplyStarted { .. }) => return false,
+            _ => {}
+        }
+    }
+    false
+}

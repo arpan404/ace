@@ -658,6 +658,9 @@ pub enum Known {
         /// before it was stored; the next compaction then walks from the start once.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         carried: Option<CarriedLedger>,
+        /// The person's asks as they stood (ADR 0215), so the next fold starts here.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        asks: Option<Box<crate::asks::Ledger>>,
     },
     /// A message in a group's transcript (ADR 0132): the person's (`from` is `None`) or a bot's
     /// answer to an ask.
@@ -801,6 +804,10 @@ pub enum Known {
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),
+    /// What one `asks` call changed in the person's asks (ADR 0215).
+    AsksUpdated(crate::asks::Updated),
+    /// The stop check ran in a reply (ADR 0215 §3); the model reads its note as Spade's.
+    AsksChecked(crate::asks::Checked),
     /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
     /// so no answer before this event is remembered (`since_arrival`).
     Arrived {
