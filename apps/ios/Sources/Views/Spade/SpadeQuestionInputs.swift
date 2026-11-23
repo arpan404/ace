@@ -6,9 +6,6 @@ import SwiftUI
 struct SpadeQuestionInputs: View {
     let question: SpadeQuestionCard.Question
     @Binding var draft: SpadeQuestionCard.Draft
-    /// A number's keypad may have no return key: Done above it puts the keyboard away so Send
-    /// shows.
-    @FocusState private var typingNumber: Bool
 
     var body: some View {
         switch question.kind {
@@ -26,21 +23,11 @@ struct SpadeQuestionInputs: View {
         Binding(get: { if case let .text(text) = draft { text } else { "" } }, set: { draft = .text($0) })
     }
 
-    /// Typed into, a number keeps the keyboard's language too, so it is read the way that
-    /// keyboard writes numbers, not the app's locale.
-    private var numberBinding: Binding<String> {
-        Binding(get: { if case let .number(text, _, _) = draft { text } else { "" } },
-                set: { draft = draft.typingNumber($0, on: KeyboardLanguage.typing()) })
-    }
-
     private func field(_ prompt: String, text: Binding<String>, lines: ClosedRange<Int>) -> some View {
         TextField(prompt, text: text, axis: .vertical)
             .aceFont(AceDesign.TextRole.message)
             .lineLimit(lines)
-            .padding(.horizontal, AceDesign.Space.row)
-            .padding(.vertical, AceDesign.Space.related)
-            .frame(minHeight: AceDesign.Size.tap)
-            .background(AceDesign.Surface.fill, in: AceDesign.Shape.field)
+            .boxed()
     }
 
     private func picks(many: Bool) -> some View {
@@ -98,20 +85,9 @@ struct SpadeQuestionInputs: View {
 
     private var number: some View {
         HStack(spacing: AceDesign.Space.related) {
-            field("Number", text: numberBinding, lines: 1...1)
-                // The decimal pad has no minus key.
-                .keyboardType(question.signed ? .numbersAndPunctuation : .decimalPad)
-                .focused($typingNumber)
-                .accessibilityIdentifier("spade.question.number")
-                .toolbar {
-                    if typingNumber {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("Done") { typingNumber = false }
-                                .accessibilityIdentifier("spade.question.numberDone")
-                        }
-                    }
-                }
+            // Typed into, a number keeps the keyboard's language too, so it is read the way that
+            // keyboard writes numbers, not the app's locale.
+            SpadeNumberField(draft: $draft, signed: question.signed).boxed()
             if let unit = question.unit {
                 Text(unit).aceFont(AceDesign.TextRole.message).foregroundStyle(AceDesign.Ink.muted)
             }
@@ -167,22 +143,12 @@ private struct SpadeDateInput: View {
     }
 }
 
-/// The language of the keyboard being typed on: the first responder's text input mode.
-@MainActor private enum KeyboardLanguage {
-    static func typing() -> String? {
-        let finder = FirstResponderFinder()
-        UIApplication.shared.sendAction(#selector(UIResponder.aceReportFirstResponder(_:)), to: nil, from: finder, for: nil)
-        return finder.found?.textInputMode?.primaryLanguage
-    }
-}
-
-private final class FirstResponderFinder: NSObject {
-    weak var found: UIResponder?
-}
-
-extension UIResponder {
-    /// Sent to the first responder (`sendAction` with no target), which reports itself.
-    @objc fileprivate func aceReportFirstResponder(_ sender: Any?) {
-        (sender as? FirstResponderFinder)?.found = self
+private extension View {
+    /// An answer field's box: padded to a tap's height on the field fill.
+    func boxed() -> some View {
+        padding(.horizontal, AceDesign.Space.row)
+            .padding(.vertical, AceDesign.Space.related)
+            .frame(minHeight: AceDesign.Size.tap)
+            .background(AceDesign.Surface.fill, in: AceDesign.Shape.field)
     }
 }
