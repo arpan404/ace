@@ -126,7 +126,8 @@ struct SpadeConversationView: View {
                             }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
                                 Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
                                         set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
-                            }, audio: { ref in await recording(ref) })
+                            }, audio: { ref in await recording(ref) },
+                            undoing: group == nil ? bot.map { SpadeUndoTarget(client: client, agent: $0.id) } : nil)
                             .id(key)
                         }
                     }

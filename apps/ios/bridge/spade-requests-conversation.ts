@@ -24,6 +24,7 @@ import type { NativeAttachment } from "./native-attachment.ts";
 import { setRunning } from "./spade-settings.ts";
 import type { NativeSpade } from "./spade.ts";
 import { segment } from "./spade-text.ts";
+import { previewUndo, spadeUndoRequests, undo } from "./spade-undo.ts";
 import {
   spadeConversationPath,
   spadeRefused,
@@ -34,7 +35,7 @@ import {
 /*
  * A conversation with a bot: send a message, stop a reply, answer an approval or a card of
  * questions, read back what the live stream missed, open a picture, file or recording, turn
- * Spade on, and pin the bot.
+ * Spade on, pin the bot, and undo what a reply changed in its files.
  */
 
 const conversationId = z.string().min(1).max(256);
@@ -89,11 +90,17 @@ export const spadeConversationRequests = spadeRequestArea(
     SpadeImageRequest,
     SpadeDocumentRequest,
     SpadeAudioRequest,
+    /** Undo a reply's or a step's changes to the bot's files (`spade-undo.ts`). */
+    ...spadeUndoRequests,
   ],
   async (
     { owner, spade, deps, ask, signal },
     request,
-  ): Promise<SpadeOutcome | ({ ok: true } & NativeAttachment)> => {
+  ): Promise<
+    | SpadeOutcome
+    | ({ ok: true } & NativeAttachment)
+    | Awaited<ReturnType<typeof previewUndo | typeof undo>>
+  > => {
     switch (request.type) {
       case "spade.send": {
         // Words alone show at once; a message carrying files waits until all of it is read.
@@ -164,6 +171,10 @@ export const spadeConversationRequests = spadeRequestArea(
         }
       case "spade.enable":
         return setRunning(owner, spade, true, signal);
+      case "spade.undo.preview":
+        return previewUndo(spade, request, ask, deps.now());
+      case "spade.undo":
+        return undo(spade, request, ask);
       case "spade.pin":
         try {
           await ask("PUT", `/v1/agents/${segment(request.agentId)}/pin`, {

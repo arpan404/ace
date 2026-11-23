@@ -167,6 +167,8 @@ import Observation
         /// A member's message in a group: its name above the first of a run, its face by the last.
         case member(name: String, text: String, face: Face, first: Bool, last: Bool)
         case workers(Workers)
+        /// A reply that changed the bot's files: its steps in one line, and what undo can reach.
+        case changes(SpadeChanges)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
@@ -197,6 +199,8 @@ import Observation
                 self = .question(try SpadeQuestionCard(from: decoder))
             case "workers":
                 self = .workers(try Workers(from: decoder))
+            case "changes":
+                self = .changes(try SpadeChanges(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
                                face: try box.decode(Face.self, forKey: .face),

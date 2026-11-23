@@ -39,4 +39,14 @@ extension ClientModel {
         await spadeRequest(["type": "spade.pin", "agentId": agent, "pinned": pinned],
                            failing: pinned ? "Couldn't pin" : "Couldn't unpin")
     }
+    /// What undoing from the step at `seq` would put back, before anything changes.
+    func spadeUndoPreview(_ agent: String, seq: Int) async -> SpadeUndoPreview {
+        let payload: [String: Any] = ["type": "spade.undo.preview", "agentId": agent, "seq": seq,
+                                      "timeZone": TimeZone.current.identifier]
+        return await spadeAnswer(payload, failing: "Couldn't undo") { SpadeUndoPreview(ok: false, title: $0, message: $1) }
+    }
+    /// Puts the checkpoint the preview named back; its `message` says it went.
+    func spadeUndo(_ agent: String, checkpoint: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.undo", "agentId": agent, "checkpoint": checkpoint], failing: "Couldn't undo")
+    }
 }

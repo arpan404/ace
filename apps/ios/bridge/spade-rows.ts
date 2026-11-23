@@ -224,6 +224,17 @@ export type SpadeBubbleRow =
   | SpadeQuestionCardRow
   /** The workers one call started, each as it stands now (ADR 0161). */
   | SpadeWorkersRow
+  /**
+   * A reply that changed the bot's files (ADR 0167): its steps in one quiet line (`text`, which
+   * an older phone shows as a note), undoing the whole reply from its first such step, or one
+   * step that changed files.
+   */
+  | {
+      kind: "changes";
+      text: string;
+      undo: { from: number; stays: string[] };
+      steps: { from: number; line: string; detail: string | null }[];
+    }
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
 
@@ -315,6 +326,20 @@ export function spadeBubbleRow(
       return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
+    // Only a reply undo can reach shows its steps: the rest of the work isn't drawn here yet.
+    case "steps":
+      return bubble.undo
+        ? {
+            kind: "changes",
+            text: bubble.summary,
+            undo: { from: bubble.undo.from, stays: [...new Set(bubble.undo.stays)] },
+            steps: bubble.steps.flatMap((step) =>
+              step.undoFrom === undefined
+                ? []
+                : [{ from: step.undoFrom, line: step.line, detail: step.detail ?? null }],
+            ),
+          }
+        : undefined;
     case "question":
       return spadeQuestionCardRow(bubble, who);
   }

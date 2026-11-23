@@ -51,6 +51,7 @@ import os
         case .member: "member"
         case .note: "note"
         case .workers: "workers"
+        case .changes: "changes"
         }
     }
 }
