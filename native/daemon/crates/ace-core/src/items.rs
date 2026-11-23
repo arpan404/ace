@@ -327,7 +327,10 @@ fn canonical_detail(
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<Map> {
-    let kind = draft.get("kind").and_then(|kind| kind.as_str())?;
+    let kind = draft
+        .get("kind")
+        .and_then(|kind| kind.as_str())
+        .unwrap_or("");
     if kind != "agent.spawn" && kind != "agent.message" {
         return Some(draft.clone());
     }

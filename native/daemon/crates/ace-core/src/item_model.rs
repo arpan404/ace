@@ -490,9 +490,13 @@ impl<'de> serde::Deserialize<'de> for Vetted {
         D: serde::Deserializer<'de>,
     {
         use serde::Deserialize as _;
-        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)
-            .map_err(serde::de::Error::custom)?;
-        let vetted = ace_json::Raw::from_json(raw.get()).map_err(serde::de::Error::custom)?;
+        // Via `Value` (which survives the buffering internally tagged enums
+        // do), then canonical ace-json. Inputs are canonical, so this is
+        // verbatim.
+        let value =
+            serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+        let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+        let vetted = ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)?;
         Ok(Self(vetted))
     }
 }

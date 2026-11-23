@@ -172,7 +172,11 @@ pub fn flush_notices(
     if state.pending_notices.is_empty() {
         return Some(());
     }
-    let owner_key = state.root_key.clone()?;
+    // Before the root exists notices wait; losing them would drop the
+    // rejection the tick is meant to carry once the root arrives.
+    let Some(owner_key) = state.root_key.clone() else {
+        return Some(());
+    };
     let notices = std::mem::take(&mut state.pending_notices);
     for notice in notices {
         publish_notice(

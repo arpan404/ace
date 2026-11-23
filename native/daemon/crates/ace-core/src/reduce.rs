@@ -257,7 +257,10 @@ fn signal(
             Some(())
         }
         Fact::BackgroundEnded { task, .. } => {
-            let owner = get(&state.tasks, task)?.agent_id.clone();
+            let Some(task_record) = get(&state.tasks, task) else {
+                return Some(());
+            };
+            let owner = task_record.agent_id.clone();
             let key = get(&state.indexes.agent_keys_by_id, &owner)?.clone();
             if let Some(record) = state.agents.get_mut(&key) {
                 record.last_signal_at = ctx.now;
@@ -265,7 +268,10 @@ fn signal(
             Some(())
         }
         Fact::InteractionClosed { interaction, .. } => {
-            let owner = get(&state.interactions, interaction)?.agent_id.clone();
+            let Some(interaction_record) = get(&state.interactions, interaction) else {
+                return Some(());
+            };
+            let owner = interaction_record.agent_id.clone();
             let key = get(&state.indexes.agent_keys_by_id, &owner)?.clone();
             if let Some(record) = state.agents.get_mut(&key) {
                 record.last_signal_at = ctx.now;

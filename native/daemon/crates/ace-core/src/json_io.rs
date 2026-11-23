@@ -218,16 +218,17 @@ impl<T> Maybe<T> {
 }
 
 /// Deserialize a verbatim payload (`ace_json::Raw`) through a serde
-/// deserializer (typed decoding still runs on serde_json): capture the raw
-/// text verbatim, then keep its canonical ace-json form.
+/// deserializer (typed decoding still runs on serde_json): via `Value`
+/// (which survives the buffering internally tagged enums do), then keep its
+/// canonical ace-json form. Inputs are canonical, so re-encoding is verbatim.
 pub fn deserialize_raw<'de, D>(deserializer: D) -> Result<ace_json::Raw, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     use serde::Deserialize as _;
-    let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)
-        .map_err(serde::de::Error::custom)?;
-    ace_json::Raw::from_json(raw.get()).map_err(serde::de::Error::custom)
+    let value = serde_json::Value::deserialize(deserializer).map_err(serde::de::Error::custom)?;
+    let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+    ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)
 }
 
 /// Serialize a verbatim payload: ace-json splices it, serde_json would
@@ -247,12 +248,14 @@ where
 {
     use serde::Deserialize as _;
     Ok(
-        match Option::<Box<serde_json::value::RawValue>>::deserialize(deserializer)
+        match Option::<serde_json::Value>::deserialize(deserializer)
             .map_err(serde::de::Error::custom)?
         {
             None => None,
-            Some(raw) => {
-                Some(ace_json::Raw::from_json(raw.get()).map_err(serde::de::Error::custom)?)
+            Some(serde_json::Value::Null) => None,
+            Some(value) => {
+                let text = serde_json::to_string(&value).map_err(serde::de::Error::custom)?;
+                Some(ace_json::Raw::from_json(&text).map_err(serde::de::Error::custom)?)
             }
         },
     )
