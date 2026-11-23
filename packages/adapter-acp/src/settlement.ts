@@ -20,6 +20,25 @@ export function promptEnd(
   if (typeof reason !== "string" || !reason) return undefined;
   return { reason, known: stopReason.safeParse(reason).success };
 }
+/**
+ * How the reply to one of the prompts still open (oldest first) settles them, as both translation
+ * and I/O read it. One prompt is the usual case. More are open only where a prompt sent during a
+ * turn steers it (Antigravity from 1.5.0): the turn goes on under the newest, so an earlier one's
+ * reply ends nothing, and a steer the agent refused with an error leaves the prompt it would have
+ * replaced running. Any other reply of the newest ends the turn and every prompt with it.
+ * `undefined` when `id` is not an open prompt.
+ */
+export function settlePrompt<T>(
+  open: readonly T[],
+  id: T,
+  failed: boolean,
+): { ends: boolean; open: T[] } | undefined {
+  const index = open.indexOf(id);
+  if (index === -1) return undefined;
+  const rest = open.filter((_, at) => at !== index);
+  if (index < open.length - 1 || (failed && rest.length)) return { ends: false, open: rest };
+  return { ends: true, open: [] };
+}
 export const cancellationGraceMs = 12_000;
 export function cancellationDeadline(now: number): number {
   return now + cancellationGraceMs;
@@ -35,6 +54,24 @@ export function cancellationDeadline(now: number): number {
 export function shellSurvivesPrompt(provider: string, reason: string, status: ToolStatus): boolean {
   if (status !== "running" || !stopReason.safeParse(reason).success) return false;
   return reason === "cancelled" || provider === "antigravity";
+}
+/**
+ * Whether a shell that outlives its prompt stays the agent's own, open across turns: Antigravity
+ * keeps a command still running at a finished turn (`persisted_open_tool_calls`) and reports its
+ * end only inside a later prompt. The session takes new prompts beside it, since refusing them
+ * would leave that end unreported for good (ADR 0109). A cancelled prompt's shells carry no such
+ * promise.
+ */
+export function shellCarriedAcrossTurns(
+  provider: string,
+  reason: string,
+  status: ToolStatus,
+): boolean {
+  return (
+    provider === "antigravity" &&
+    reason !== "cancelled" &&
+    shellSurvivesPrompt(provider, reason, status)
+  );
 }
 /** Whether an answer to a tool's request refuses the tool: a deny option, a rejected plan, or a cancelled request. */
 export function answerRefusesTool(

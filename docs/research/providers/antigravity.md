@@ -183,7 +183,8 @@ Capabilities advertised: `loadSession`, `sessionCapabilities.{list,resume}`, `pr
 ## 7. Control
 
 - **Cancel [confirmed]:** `session/cancel` calls `agent.conversation.cancel()`. The pending prompt then returns `stopReason:"cancelled"` after a text chunk. ace should also answer any outstanding permission request with `cancelled`.
-- **Steer:** there is no mid-turn input; `prompt` is serial per session. To steer, cancel, wait for the prompt to resolve, then re-prompt. [confirmed; the CLI's "send immediately" queue mode is CLI-only (CHANGELOG 1.2.14)]
+- **Steer:** before 1.5.0 there is no mid-turn input; `prompt` is serial per session. To steer, cancel, wait for the prompt to resolve, then re-prompt. [confirmed; the CLI's "send immediately" queue mode is CLI-only (CHANGELOG 1.2.14)]
+  - From 1.5.0 a `session/prompt` sent while one runs steers that turn: the running prompt answers and the turn goes on under the new one, with no `session/cancel`. [reported by another ACP client's release gate; not yet recorded against a live 1.5.x session by ace] ace sends a person's steer this way from 1.5.0 and treats the earlier prompt's reply as superseded; a steer the agent answers with an error leaves the earlier prompt running.
 - **Resume and load [confirmed]:**
   - `session/load` replays history as `user_message_chunk`, `agent_*_chunk` and `tool_call` updates.
   - `session/resume` restores without replaying.

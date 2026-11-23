@@ -15,6 +15,7 @@ import {
   answerRefusesTool,
   cancellationGraceMs,
   promptEnd,
+  settlePrompt,
 } from "./settlement.ts";
 import { Deadlines } from "./deadlines.ts";
 import { requestTool } from "./requests.ts";
@@ -116,7 +117,8 @@ function sanitizedError(error: unknown, ctx: SessionContext): Error {
   );
 }
 class AcpSession implements ProviderSession {
-  readonly steerViaCancel = true;
+  /** Set at initialize unless a prompt sent during a turn steers it (`steeringMode: "native"`). */
+  steerViaCancel?: true;
   nativeSessionId = "";
   readonly configuration: AcpConfiguration;
   get effectiveCapabilities() {
@@ -142,7 +144,11 @@ class AcpSession implements ProviderSession {
   readonly cancellingChildren = new Set<string>();
   fault?: Error;
   readonly queue: Queued[] = [];
-  active = false;
+  /** Prompts taken from the queue or steered in whose reply is still being settled. */
+  prompts = 0;
+  get active(): boolean {
+    return this.prompts > 0;
+  }
   selecting = false;
   /** session/load is in flight: its replayed updates are history, not live work. */
   loading = false;
@@ -159,7 +165,12 @@ class AcpSession implements ProviderSession {
   sequence = 0;
   /** session/prompt frames handed to the transport, to tell a written prompt from one that never left. */
   promptFrames = 0;
-  promptId: unknown;
+  /** Written session/prompt requests still unanswered, oldest first (`settlePrompt`). */
+  openPrompts: unknown[] = [];
+  /** The prompt the running turn goes on under. */
+  get promptId(): unknown {
+    return this.openPrompts.at(-1);
+  }
   /** The id of the session/new, load or resume request in flight. */
   openId: unknown;
   /** The session being opened, while it is: a resumed id, or the new one once it speaks. */
@@ -277,7 +288,7 @@ class AcpSession implements ProviderSession {
     const method = message["method"];
     if (method === "session/prompt") {
       this.promptFrames++;
-      this.promptId = message["id"];
+      this.openPrompts.push(message["id"]);
       this.shells.promptStarted();
     }
     if (method === "session/new" || method === "session/load" || method === "session/resume") {
@@ -302,12 +313,13 @@ class AcpSession implements ProviderSession {
       }
       return;
     }
-    if (id !== this.promptId) return;
+    if (!this.openPrompts.includes(id)) return;
     const end = promptEnd(message);
     // No stop reason: the continuation fails the session, completion being unconfirmed.
     if (!end) return;
-    this.promptId = undefined;
-    this.promptEnded(end.reason);
+    const settled = settlePrompt(this.openPrompts, id, end.reason === "");
+    this.openPrompts = settled?.open ?? [];
+    if (settled?.ends) this.promptEnded(end.reason);
   }
   /** The prompt's reply frame: everything its end closes closes now, before any later frame. */
   promptEnded(reason: string): void {
@@ -398,6 +410,8 @@ class AcpSession implements ProviderSession {
       ),
     );
     const negotiated = this.configuration.initialize(result);
+    // Where a prompt sent during a turn doesn't steer it, a steer cancels the turn first.
+    if (negotiated.capabilities.steeringMode !== "native") this.steerViaCancel = true;
     if (negotiated.versionChanged)
       this.frame("note", "diagnostic", {
         event: "acp-version-changed",
@@ -605,13 +619,17 @@ class AcpSession implements ProviderSession {
       throw new InputRejected("ACP input queue capacity reached");
     const batch: Batch = { written: false };
     try {
-      await this.enqueue(
-        inputs,
-        batch,
-        commandId,
-        origin,
-        delivery === "steer" ? fence : undefined,
-      );
+      const [steer] = inputs;
+      if (delivery === "steer" && steer && this.steersNow(inputs))
+        await this.steer(steer, batch, commandId, origin, fence);
+      else
+        await this.enqueue(
+          inputs,
+          batch,
+          commandId,
+          origin,
+          delivery === "steer" ? fence : undefined,
+        );
     } catch (error) {
       if (batch.written) throw error;
       // No prompt of this send reached the agent; drop the rest so none goes out later.
@@ -683,8 +701,20 @@ class AcpSession implements ProviderSession {
       return void this.drain();
     }
     this.queuedBytes -= next.bytes;
-    this.active = true;
     this.queueChanged();
+    await this.run(next);
+  }
+  /**
+   * Writes one prompt and settles it at its reply. `taken` hears once the frame is written. A
+   * prompt written while another is open steers that turn (`steeringMode: "native"`).
+   */
+  private async run(next: Queued, taken: () => void = () => {}): Promise<void> {
+    // ACP has no portable system-instruction field, so ace's guidance rides in prompt context:
+    // once per connection (a new or loaded session), never every turn, where each copy would
+    // stay in history and re-bill. ACP reports no compaction, so there is no signal to resend on.
+    // A steer joins a turn whose first prompt already carried it.
+    const guidance = this.guided || this.active ? undefined : this.ctx.mcp;
+    this.prompts++;
     try {
       if (next.commandId) {
         this.ctx.onInputMessage?.({ commandId: next.commandId, nativeId: next.commandId });
@@ -694,10 +724,6 @@ class AcpSession implements ProviderSession {
           ...(next.origin ? { origin: next.origin } : {}),
         });
       }
-      // ACP has no portable system-instruction field, so ace's guidance rides in prompt context:
-      // once per connection (a new or loaded session), never every turn, where each copy would
-      // stay in history and re-bill. ACP reports no compaction, so there is no signal to resend on.
-      const guidance = this.guided ? undefined : this.ctx.mcp;
       const written = this.promptFrames;
       const reply = this.rpc.request(
         "session/prompt",
@@ -719,7 +745,8 @@ class AcpSession implements ProviderSession {
       );
       // The request frame goes out synchronously, or the request fails without writing it.
       if (this.promptFrames !== written) next.batch.written = true;
-      const promptId = this.promptId;
+      const id = next.batch.written ? this.openPrompts.at(-1) : undefined;
+      if (next.batch.written) taken();
       try {
         const result = await reply;
         if (guidance) this.guided = true;
@@ -731,9 +758,9 @@ class AcpSession implements ProviderSession {
         }
       } finally {
         // No reply frame (the transport failed): the prompt's tools ended with it.
-        if (next.batch.written && this.promptId === promptId) {
-          this.promptId = undefined;
-          this.shells.promptEnded(this.nativeSessionId, "");
+        if (next.batch.written && this.openPrompts.includes(id)) {
+          this.openPrompts = this.openPrompts.filter((open) => open !== id);
+          if (!this.openPrompts.length) this.shells.promptEnded(this.nativeSessionId, "");
         }
       }
       if (this.shells.blocked)
@@ -742,10 +769,50 @@ class AcpSession implements ProviderSession {
     } catch (error) {
       next.reject(sanitizedError(error, this.ctx));
     } finally {
-      this.active = false;
+      this.prompts--;
       // drain() settles each turn it takes, so its rejection has no reporter here.
       void this.drain().catch(() => {});
     }
+  }
+  /** Whether a steer goes in now as a prompt of its own, joining the running turn. */
+  private steersNow(inputs: ContentPart[][]): boolean {
+    return (
+      this.steerViaCancel === undefined &&
+      inputs.length === 1 &&
+      this.promptId !== undefined &&
+      // An open question holds the turn; the steer waits for it like any input.
+      !this.pending.size &&
+      !this.selecting
+    );
+  }
+  /**
+   * Writes a steer into the running turn: taken once the frame is written, the turn's own end
+   * reporting how it went. One the agent refuses leaves the turn running, said in the thread.
+   */
+  private steer(
+    parts: ContentPart[],
+    batch: Batch,
+    commandId: string | undefined,
+    origin: InputSource | undefined,
+    fence: SteerFence | undefined,
+  ): Promise<void> {
+    if (fence && !fence.current()) return Promise.reject(new SteerTargetLost());
+    const { promise, resolve, reject } = Promise.withResolvers<void>();
+    const job: Queued = {
+      batch,
+      input: structuredClone(parts),
+      ...(commandId ? { commandId } : {}),
+      ...(origin ? { origin } : {}),
+      bytes: 0,
+      resolve,
+      // Once written, the turn reports what became of it; only an unwritten steer is refused.
+      reject: (error) => {
+        if (!batch.written) reject(error);
+      },
+    };
+    // run() settles the job itself, so its rejection has no reporter here.
+    void this.run(job, resolve).catch(() => {});
+    return promise;
   }
   handleRequest(request: ServerRequest): unknown | Promise<unknown> {
     const params = object(request.params);

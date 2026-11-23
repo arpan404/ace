@@ -55,14 +55,72 @@ it("a shell still awaiting approval when an Antigravity prompt ends never become
   expect(required(h.tools()[0]).call.status).toBe("cancelled");
 });
 
-it("an allowed Antigravity shell still running at prompt end stays a background task", () => {
+function prompt(h: ReturnType<typeof harness>, id: number, text: string) {
+  h.frame("send", {
+    id,
+    method: "session/prompt",
+    params: { sessionId: "root-session", prompt: [{ type: "text", text }] },
+  });
+}
+const tasks = (h: ReturnType<typeof harness>) =>
+  Object.values(h.state.tasks).map((task) => [task.kind, task.status, task.blocksPrompts]);
+it("an allowed Antigravity shell still running after a finished turn is left running, and a later prompt's report ends it", () => {
   const h = harness(antigravityQuirks);
   h.ready();
   shell(h, "pending");
   askPermission(h);
   h.frame("send", { id: 50, result: { outcome: { outcome: "selected", optionId: "once" } } });
   end(h);
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  // Antigravity takes the next prompt beside it: the thread is done, the command still listed.
+  expect(h.state.status.state).toBe("done");
+  expect(tasks(h)).toEqual([["shell", "running", undefined]]);
+  prompt(h, 3, "next");
+  h.update({ sessionUpdate: "tool_call_update", toolCallId: "shell", status: "completed" });
+  h.frame("recv", { id: 3, result: { stopReason: "end_turn" } });
+  expect(tasks(h)).toEqual([["shell", "completed", undefined]]);
+  expect(required(h.tools()[0]).call.status).toBe("succeeded");
+  expect(h.state.status.state).toBe("done");
+});
+it("stopping a later Antigravity turn leaves a shell carried from an earlier one running", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  shell(h, "in_progress");
+  end(h);
+  prompt(h, 3, "next");
+  h.frame("recv", { id: 3, result: { stopReason: "cancelled" } });
+  expect(tasks(h)).toEqual([["shell", "running", undefined]]);
+  expect(required(h.tools()[0]).call.status).toBe("running");
+});
+it("a prompt steered into a running Antigravity turn keeps it one turn until the steer's prompt answers", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  prompt(h, 3, "change course");
+  // The earlier prompt answers as the steer takes over: the turn goes on.
+  h.frame("recv", { id: 2, result: { stopReason: "end_turn" } });
+  expect(h.state.status.state).toBe("working");
+  h.frame("recv", { id: 3, result: { stopReason: "end_turn" } });
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.runs).map((run) => run.state)).toEqual(["completed"]);
+  const asked = Object.values(h.state.items).flatMap((item) =>
+    item.type === "message" && item.role === "user"
+      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+      : [],
+  );
+  expect(asked).toEqual(["Synthetic input", "change course"]);
+});
+it("a steer the agent refuses leaves the running turn going and says so", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  prompt(h, 3, "change course");
+  h.frame("recv", { id: 3, error: { code: -32603, message: "Overlapping prompt" } });
+  expect(h.state.status.state).toBe("working");
+  const notices = Object.values(h.state.items).flatMap((item) =>
+    item.type === "notice" ? [item.text] : [],
+  );
+  expect(notices).toEqual(["The agent didn't take this message: Overlapping prompt."]);
+  h.frame("recv", { id: 2, result: { stopReason: "end_turn" } });
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.runs).map((run) => run.state)).toEqual(["completed"]);
 });
 
 it("an error reply to the prompt ends a running Antigravity shell instead of holding prompts", () => {

@@ -11,7 +11,7 @@ import {
   createTranslatorIdentity,
 } from "./index.ts";
 import { object } from "./data.ts";
-async function setup(quirks = extensionQuirks, resume = false) {
+async function setup(quirks = extensionQuirks, resume = false, version = "1.2.1") {
   const threadId = ThreadId.parse("shell-queue");
   const state = createThreadState({
     threadId,
@@ -42,7 +42,7 @@ async function setup(quirks = extensionQuirks, resume = false) {
     {
       command: process.execPath,
       args: [fileURLToPath(new URL("./testing/uncertain-shell-server.ts", import.meta.url))],
-      version: "1.2.1",
+      version,
     },
   );
   function wait(predicate: (frame: Frame) => boolean): Promise<Frame> {
@@ -112,13 +112,67 @@ it("accepts new input after terminal execution evidence settles a cancelled shel
     await h.session.close("shutdown");
   }
 });
-it("rejects reprompting while an Antigravity shell survives a normal prompt end", async () => {
+it("takes a new prompt beside an Antigravity shell left running after a finished turn, and that prompt's report ends it", async () => {
   const h = await setup(antigravityQuirks);
   try {
     await h.session.send(input("antigravity-shell"), "queue");
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
-    await expect(h.session.send(input("next"), "queue")).rejects.toThrow("shell");
+    expect(h.state.status.state).toBe("done");
+    await h.session.send(input("report-shell"), "queue");
+    expect(promptCount(h.frames)).toBe(2);
+    expect(Object.values(h.state.tasks).map((task) => [task.kind, task.status])).toEqual([
+      ["shell", "completed"],
+    ]);
+    // Nothing left unconfirmed: the next message goes in too.
+    await h.session.send(input("next"), "queue");
+    expect(promptCount(h.frames)).toBe(3);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("a steer joins a running Antigravity 1.5 turn as a prompt of its own, without cancelling it", async () => {
+  const h = await setup(antigravityQuirks, false, "1.5.2");
+  try {
+    const first = h.session.send(input("steerable"), "queue");
+    await h.wait(
+      (frame) => object(object(object(frame.data)["params"])["update"])["toolCallId"] === "held",
+    );
+    await h.session.send(input("change course"), "steer");
+    // Taken once written; the turn the steer joined is still running.
+    expect(h.state.status.state).toBe("working");
+    await first;
+    // The earlier prompt answered as the steer took over: the turn goes on under the steer.
+    expect(h.state.status.state).toBe("working");
+    const steerId = object(
+      h.frames.findLast(
+        (frame) => frame.dir === "send" && object(frame.data)["method"] === "session/prompt",
+      )?.data,
+    )["id"];
+    await h.wait(
+      (frame) =>
+        frame.dir === "recv" &&
+        object(frame.data)["id"] === steerId &&
+        "result" in object(frame.data),
+    );
+    expect(h.state.status.state).toBe("done");
+    expect(Object.values(h.state.runs).map((run) => run.state)).toEqual(["completed"]);
+    expect(h.frames.some((frame) => object(frame.data)["method"] === "session/cancel")).toBe(false);
+    expect(promptCount(h.frames)).toBe(2);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+it("before Antigravity 1.5 a steer waits for the running turn instead of overlapping it", async () => {
+  const h = await setup(antigravityQuirks);
+  try {
+    void h.session.send(input("steerable"), "queue");
+    await h.wait(
+      (frame) => object(object(object(frame.data)["params"])["update"])["toolCallId"] === "held",
+    );
+    const steer = h.session.send(input("change course"), "steer");
+    await new Promise((resolve) => setTimeout(resolve, 100));
     expect(promptCount(h.frames)).toBe(1);
+    expect(h.session.steerViaCancel).toBe(true);
+    void steer.catch(() => {});
   } finally {
     await h.session.close("shutdown");
   }

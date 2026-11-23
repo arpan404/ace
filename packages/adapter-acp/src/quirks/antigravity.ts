@@ -1,7 +1,9 @@
 import type { ToolKind } from "@ace/protocol";
 import { object, string } from "../data.ts";
 import { admitsVersion } from "@ace/provider-kit/cli-requirements";
+import { checkCliVersion } from "@ace/provider-kit/cli-versions";
 import { baseCapabilities, type AcpQuirks } from "./types.ts";
+const promptSteeringRelease = "1.5.0";
 const names: Record<string, ToolKind> = {
   start_subagent: "agent.spawn",
   run_command: "shell",
@@ -59,6 +61,11 @@ export const antigravityQuirks: AcpQuirks = {
     const supported = admitsVersion("antigravity", version);
     return {
       ...baseCapabilities,
+      // From 1.5.0 a prompt sent while one runs steers that turn: the earlier prompt answers and
+      // the turn goes on under the new one. Older releases only queue it, so a steer cancels.
+      ...(checkCliVersion(promptSteeringRelease, version).status === "ok"
+        ? { steeringMode: "native" as const }
+        : {}),
       resume: supported,
       imageInput: supported,
       // Applied at session start through the agent's thinking-level option.
