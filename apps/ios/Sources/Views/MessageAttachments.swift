@@ -20,7 +20,7 @@ extension EnvironmentValues {
 
 /// A person's message's attachments, above its bubble and unframed, as the web draws them: the
 /// images as one rounded group (one keeps its shape, more share a 2×2 grid whose last cell says
-/// "+N"), then each file as a row with its name, size and type. A tile has its final size before
+/// "+N"), then each video as a tile that plays, then each file as a row with its name, size and type. A tile has its final size before
 /// its bytes arrive, so the transcript never moves while previews load. `itemId` names the message
 /// carrying them, as the source reads them.
 struct MessageAttachments: View {
@@ -28,11 +28,11 @@ struct MessageAttachments: View {
     let attachments: [AttachmentLine]
     let more: Int
     var body: some View {
-        let images = attachments.filter(\.previewed)
-        let files = attachments.filter { !$0.previewed }
+        let layout = AttachmentLayout(attachments)
         VStack(alignment: .trailing, spacing: AceDesign.Space.tight) {
-            if !images.isEmpty { ImageGroup(itemId: itemId, images: images) }
-            ForEach(Array(files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(itemId: itemId, line: file) }
+            if !layout.images.isEmpty { ImageGroup(itemId: itemId, images: layout.images) }
+            ForEach(Array(layout.videos.enumerated()), id: \.offset) { _, video in AttachmentVideoTile(itemId: itemId, line: video) }
+            ForEach(Array(layout.files.enumerated()), id: \.offset) { _, file in AttachmentFileLine(itemId: itemId, line: file) }
             if more > 0 {
                 Text("\(more) more").aceFont(AceTheme.Typography.caption, relativeTo: .caption)
                     .foregroundStyle(AceTheme.Colours.mutedForeground)
@@ -228,13 +228,14 @@ enum MessageAttachmentSource: Equatable, Sendable {
     private static let spadeDocument = "document:"
 }
 
-/// Where a message's attachments open: an image in the full-screen viewer, any other file
-/// fetched because that message carries it and shown in Quick Look (which can share it).
+/// Where a message's attachments open: an image in the full-screen viewer, a video in the player,
+/// any other file fetched because that message carries it and shown in Quick Look (which can share it).
 struct MessageAttachmentRoutes: ViewModifier {
     let model: ClientModel
     let source: MessageAttachmentSource
     @State private var viewing: AttachmentTarget?
     @State private var preview: URL?
+    @State private var playing: MessageVideoTarget?
     @State private var opening: String?
     @State private var problem: String?
 
@@ -245,6 +246,9 @@ struct MessageAttachmentRoutes: ViewModifier {
                 MediaPager(pages: target.pictures.map { line in
                     MediaPager.Page(title: line.name.isEmpty ? "Image" : line.name) { await original(target.itemId, line) }
                 }, start: target.start)
+            }
+            .fullScreenCover(item: $playing) { video in
+                VideoViewer(title: video.name, url: video.url, mimeType: video.mimeType)
             }
             .quickLookPreview($preview)
             .overlay(alignment: .top) {
@@ -312,7 +316,9 @@ struct MessageAttachmentRoutes: ViewModifier {
                 let reply = try await model.service(source.request(itemId, ref, variant: "original", name: line.name),
                                                     as: AttachmentBytes.self)
                 guard let data = Data(base64Encoded: reply.data) else { throw ServiceFailure(message: "The file couldn't be decoded.") }
-                preview = try Self.keep(data, named: reply.name)
+                let kept = try Self.keep(data, named: reply.name)
+                if line.plays { playing = MessageVideoTarget(name: line.name, url: kept, mimeType: line.mimeType ?? reply.mimeType) }
+                else { preview = kept }
             } catch {
                 problem = "\(line.name) couldn't be read. Check the connection and try again."
             }
