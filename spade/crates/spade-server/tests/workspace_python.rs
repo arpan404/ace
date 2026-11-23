@@ -1206,15 +1206,19 @@ async fn a_stopped_run_in_the_terminal_keeps_its_environment_until_its_processes
         std::thread::spawn(move || {
             let mut samples = Vec::new();
             while looking.load(std::sync::atomic::Ordering::SeqCst) {
-                let alive = std::process::Command::new("pgrep")
-                    .args(["-f", &mark])
-                    .output()
-                    .is_ok_and(|o| !o.stdout.is_empty());
+                // The lease first, then the processes: they only ever end, so processes seen
+                // after the lease was found free were already there while it was free. The
+                // other order reads a process that ends between the two looks as alive with
+                // its lease already let go.
                 let held = std::fs::OpenOptions::new()
                     .read(true)
                     .write(true)
                     .open(&lease)
                     .is_ok_and(|file| file.try_lock().is_err());
+                let alive = std::process::Command::new("pgrep")
+                    .args(["-f", &mark])
+                    .output()
+                    .is_ok_and(|o| !o.stdout.is_empty());
                 samples.push((held, alive));
                 std::thread::sleep(Duration::from_millis(50));
             }

@@ -23,6 +23,14 @@ import Testing
         #expect(merged.sections[0].rows == [key("b", "y"), key("a", "x")])
     }
 
+    @Test func compactRanksBreakTiesTheSameWayAsFullRanks() {
+        var compact = layout([section("done", order: 4, ["z": "0001"])])
+        compact.rankMachine = "a"
+        let full = layout([section("done", order: 4, ["é": "0001\u{0}a\u{0}é"])])
+        let merged = MergedInbox.merge([("legacy", full), ("compact", compact)])
+        #expect(merged.sections[0].rows == [key("compact", "z"), key("legacy", "é")])
+    }
+
     @Test func aMachineThatHasNotRankedItsRowsKeepsItsOrderAfterRankedOnes() {
         let unranked = InboxLayout.Section(key: "done", label: "Done", ids: ["b", "a"])
         let merged = MergedInbox.merge([
