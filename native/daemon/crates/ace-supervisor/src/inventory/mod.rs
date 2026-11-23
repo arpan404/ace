@@ -61,8 +61,8 @@ pub enum RetryPlan {
 
 /// Recheck delay while a release is still confirming its group empty: the
 /// check wakes its release loop to scan now, so confirmation is near;
-/// until then the row stays for crash recovery to find.
-#[cfg(not(windows))]
+/// until then the row stays for crash recovery to find. Every platform
+/// uses it as the retry-delay floor.
 const GATE_RECHECK_MS: u64 = 250;
 
 /// The process inventory over `path`, opened through the store's connection
@@ -326,11 +326,12 @@ impl<R: InventoryRuntime> Inventory<R> {
     ) -> bool {
         // The check wakes the release loop to scan now when unconfirmed.
         if let Some(leader) = crate::leader::group_leader(entry.pid, &entry.start) {
-            // The latched result is only meaningful while ace still holds
-            // the leader's pid: that pin is what makes the group number
-            // ours. Once released, a fresh snapshot must decide.
-            if leader.pin_held() {
-                return leader.group_gone();
+            // The latch counts only if the pin was held in the same read:
+            // a release that reaped in between leaves the group number
+            // free for reuse, so a fresh snapshot must decide.
+            let (pinned, gone) = leader.pin_and_gone();
+            if pinned {
+                return gone;
             }
         }
         if snapshots.is_none() {

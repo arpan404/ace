@@ -27,10 +27,14 @@ impl Leader {
             match self.state.lock() {
                 Ok(mut state) if state.exited && state.holds == 0 => {
                     state.released = true;
-                    // A /proc that hides processes can never prove a group
-                    // empty: the leader is still reaped, as before, but the
-                    // result is not reported as "empty" (a journal row is
-                    // never deleted on a scan that could miss members).
+                    // hidepid hides only other users' processes; ace's own
+                    // descendants stay visible because they keep the
+                    // daemon's uid (unless they change uid), so this series
+                    // still reaps as before. A member that did change uid
+                    // could be missed, though, so the result is never
+                    // reported as "empty" and no journal row is deleted
+                    // from a scan that could be blind. Re-read per release,
+                    // so a remount is seen.
                     state.confirmed_empty = !crate::system::proc_hides_pids();
                 }
                 _ => return ReleaseStep::Held,
@@ -43,11 +47,15 @@ impl Leader {
         }
     }
 
-    /// Whether the leader's pid is still pinned: its handle (POSIX: the
-    /// unreaped child; Windows: the process handle) is still held. Once it
-    /// is released, only a fresh snapshot can say anything about the group.
-    pub fn pin_held(&self) -> bool {
-        self.state.lock().is_ok_and(|state| state.child.is_some())
+    /// The pin and the latch read in one lock: `(pin_held, group_gone)`.
+    /// The pin is what makes the latched "empty" meaningful, so a caller
+    /// must never pair a result read under one lock with a pin read under
+    /// another; the release worker may reap in between. Once the pin is
+    /// gone, only a fresh snapshot can say anything about the group.
+    pub fn pin_and_gone(&self) -> (bool, bool) {
+        self.state.lock().map_or((false, false), |state| {
+            (state.child.is_some(), state.confirmed_empty)
+        })
     }
 
     /// POSIX: one scan of the group; true when it and the scan before both
