@@ -629,6 +629,7 @@ impl Delivery {
         for key in keys {
             self.message = self.message.wrapping_add(1);
             let message = self.message;
+            let page = self.sources.get(source).and_then(|facts| facts.page);
             let Some(view) = self.views.get_mut(&key) else {
                 continue;
             };
@@ -644,6 +645,7 @@ impl Delivery {
                     view.sequence,
                     self.stamp,
                     frame,
+                    page,
                 ) else {
                     continue;
                 };
@@ -713,13 +715,21 @@ impl Delivery {
         out: &mut Vec<Effect>,
     ) {
         {
+            let page = self.sources.get(source).and_then(|facts| facts.page);
             let Some(view) = self.views.get_mut(key) else {
                 return;
             };
             view.sequence += 1;
             let sequence = view.sequence;
-            let Some(built) = build(&view.target, source, message, sequence, self.stamp, frame)
-            else {
+            let Some(built) = build(
+                &view.target,
+                source,
+                message,
+                sequence,
+                self.stamp,
+                frame,
+                page,
+            ) else {
                 return;
             };
             let mut events = Vec::new();

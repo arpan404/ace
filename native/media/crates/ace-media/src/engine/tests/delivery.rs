@@ -915,6 +915,39 @@ fn a_views_bytes_in_flight_cover_its_round_trip_and_one_tail_loss_stall() {
 }
 
 #[test]
+fn a_browser_view_header_gives_the_page_css_size_beside_the_coded_size() {
+    let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
+    // The daemon said the page is 640x400 CSS px at scale 2; the encoder sends 1280x800.
+    send(
+        &mut engine,
+        json!({ "type": "source.page", "source": "s1", "width": 640, "height": 400, "scale": 2 }),
+        &[],
+        NOW,
+    );
+    let mut key = h264(true, 0, 1, Vec::new());
+    key.width = 1280;
+    key.height = 800;
+    key.display_width = 1280;
+    key.display_height = 800;
+    let effects = ingest(&mut engine, 1, key, NOW);
+    let mut assembler = Assembler::new();
+    let header = binaries(&effects).iter().find_map(|p| {
+        let envelope = assembler.push(p).ok().flatten()?;
+        if envelope.kind != 2 {
+            return None;
+        }
+        media_core::headers::decode_video(envelope.meta, envelope.payload)
+            .ok()
+            .map(|v| (v.width, v.height, v.coded_width, v.coded_height))
+    });
+    let Some((width, height, coded_width, coded_height)) = header else {
+        panic!("no browser video reached the view");
+    };
+    assert_eq!((width, height), (640, 400));
+    assert_eq!((coded_width, coded_height), (1280, 800));
+}
+
+#[test]
 fn a_page_that_changes_size_plans_its_views_again_at_its_new_shape() {
     let mut engine = watched(json!({ "kind": "browser", "threadId": "t1" }));
     // Planned at the first unit's size: a phone-shaped page.
