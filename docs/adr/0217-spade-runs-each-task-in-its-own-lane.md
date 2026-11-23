@@ -284,15 +284,16 @@ chrome; one place per fact. It describes the design only, with no UI code.
   or "Task stopped" for the other endings. Either line opens the lane. A person's message routed
   by a reply carries "Sent to *Fix the March invoice*" under its bubble. There are no task cards
   in the transcript.
-- **The pills over the composer.** Main's own status pill shows only while main itself works
-  ("Working · 12s"). One more pill names the lanes: "2 tasks", or "2 tasks · 1 needs you". It opens
-  the task list. While lanes are live the pill names them and the transcript lines are the record;
+- **The tasks pill.** Main's own status pill shows only while main itself works
+  ("Working · 12s"). One more pill, beside the bot's pill at the top of the conversation, names the
+  lanes: "2 tasks", or "2 tasks · 1 needs you". It opens the task list. While lanes are live the pill names them and the transcript lines are the record;
   this is the rule the design language already sets for subagents.
 - **Main's moved work** reads as the plain line Spade writes (2a), "This is taking a while, so I
   moved it to its own task: *title*. I'm free to talk.", in the same quiet style as the started
   line, and it opens the lane.
-- **The task list** is a sheet on the iPhone. On desktop and web it is either a popover from the
-  pill or a panel beside the chat; both are mocked and the owner picks. Either way it is one flat list
+- **The task list** is a sheet on the iPhone, and on desktop and web a popover from the tasks pill
+  (the owner's pick, 2026-11-23, from the prototype's screenshot 01). A panel beside the chat was
+  also mocked and not chosen. The list is one flat list
   ordered by needs you, then running, then finished unseen, then queued. Each row has a still
   status icon and a running time, the title (full ink when the person is needed), and one quieter
   line: the current plan step and count ("2 of 5 · Drafting the email"), or "Queued", or the
@@ -429,6 +430,18 @@ real background workers, and each is named for the behaviour it guards:
 - the person's words in a lane's first message are trusted, and a brief written with untrusted
   content in view taints the lane's writes.
 
+## Build notes
+
+From the prototype (`ace/spade-lanes-prototype`, PR #2668):
+
+- **The popover is solid.** The prototype's popover used the glass material, and the chat showed
+  through behind its rows. The task list uses the solid popover surface that ace's other content
+  popovers use.
+- **Requests read plainly.** The prototype's payment request read "wants to send payment to TAP
+  Air Portugal", because the words came from the tool's name. A lane's request is worded from
+  what the call does, as any request should be: "*Book flights to Lisbon* wants to pay €412 to TAP
+  Air Portugal".
+
 ## Questions the owner resolved (2026-11-22)
 
 1. **Default limit:** 16 lanes at once per bot (8).
@@ -438,7 +451,6 @@ real background workers, and each is named for the behaviour it guards:
    so plainly in the chat (2a).
 4. **CLI brains:** none. Spade bots never run on CLI subscriptions; lanes have no CLI case. Spade's
    own ChatGPT sign-in is not a CLI subscription and is unaffected.
-5. **Where the task list lives on desktop:** the owner asked for mockups of every lane surface,
-   with both a popover from the pill and a panel beside the chat, built in the real web app on fake
-   data (prototype branch `ace/spade-lanes-prototype`). The layout is chosen from those
-   screenshots, and this section will be updated when it is.
+5. **Where the task list lives on desktop:** a popover from the tasks pill beside the bot's pill
+   (2026-11-23, chosen from the mockups built in the real web app on fake data). The panel beside
+   the chat was considered and not chosen.
