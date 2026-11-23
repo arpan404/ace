@@ -166,9 +166,9 @@ pub fn edit_result_detail(
     if name != "edit" {
         return None;
     }
-    let result = match result_raw {
-        Some(raw) => parse_object(raw).unwrap_or_default(),
-        None => return None,
+    let result = {
+        let raw = result_raw?;
+        parse_object(raw).unwrap_or_default()
     };
     let details_raw = field(&result, "details")?;
     let details = parse_object(details_raw).unwrap_or_default();

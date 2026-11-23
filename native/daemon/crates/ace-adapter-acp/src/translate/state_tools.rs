@@ -102,29 +102,18 @@ impl TranslationState {
     }
 
     pub fn arm_cancel(&mut self, agent_key: &str, at: i64) {
-        if agent_key == self.root.key {
-            self.root.cancel_at = Some(at);
-        } else if let Some(agent) = self
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
-            agent.cancel_at = Some(at);
-        } else {
+        if self.agent_by_key_mut(agent_key).is_none() {
             // The root may be addressed before it has a native id.
             return;
+        }
+        if let Some(agent) = self.agent_by_key_mut(agent_key) {
+            agent.cancel_at = Some(at);
         }
         self.cancelling.insert(agent_key.to_owned());
     }
 
     pub fn disarm_cancel(&mut self, agent_key: &str) {
-        if agent_key == self.root.key {
-            self.root.cancel_at = None;
-        } else if let Some(agent) = self
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = self.agent_by_key_mut(agent_key) {
             agent.cancel_at = None;
         }
         self.cancelling.shift_remove(agent_key);

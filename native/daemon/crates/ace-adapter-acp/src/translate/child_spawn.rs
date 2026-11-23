@@ -22,7 +22,10 @@ pub fn background_child(state: &mut TranslationState, tool_key: &str, facts: &mu
     let Some(child_native_id) = child_native_id else {
         return;
     };
-    let child = state.agents.get(&child_native_id).cloned();
+    let child = state
+        .agents
+        .get(&ace_json::JsString::from(child_native_id.as_str()))
+        .cloned();
     let Some(mut child) = child else {
         return;
     };
@@ -42,7 +45,10 @@ pub fn background_child(state: &mut TranslationState, tool_key: &str, facts: &mu
     }
     child.background = true;
     let child_key_clone = child.key.clone();
-    if let Some(stored) = state.agents.get_mut(&child_native_id) {
+    if let Some(stored) = state
+        .agents
+        .get_mut(&ace_json::JsString::from(child_native_id.as_str()))
+    {
         stored.background = true;
     }
     state.background_tools.insert(tool_key.to_owned());
@@ -92,8 +98,8 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
         .and_then(|tool| tool.child_key.clone());
     if has_child.is_none() {
         let id = state.key("placeholder");
-        let child_key = state.agent_key(&id, facts);
-        if let Some(child) = state.agents.get_mut(&id) {
+        let child_key = state.agent_key(&ace_json::JsString::from(id.as_str()), facts);
+        if let Some(child) = state.agents.get_mut(&ace_json::JsString::from(id.as_str())) {
             child.placeholder = true;
         }
         // The agent_key call creates a full child; adjust to placeholder.
@@ -111,7 +117,7 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
             .map(|tool| tool.owner_key.clone())
             .unwrap_or_default();
         let tool_key_owned = tool_key.to_owned();
-        if let Some(child) = state.agents.get_mut(&id) {
+        if let Some(child) = state.agents.get_mut(&ace_json::JsString::from(id.as_str())) {
             child.placeholder = true;
             child.spawn = Some(tool_key_owned.clone());
         }
@@ -187,7 +193,7 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
                 .and_then(|tool| tool.child_native_id.clone());
             let terminal = child_native
                 .as_ref()
-                .and_then(|id| state.agents.get(id))
+                .and_then(|id| state.agents.get(&ace_json::JsString::from(id.as_str())))
                 .is_some_and(|child| child.terminal);
             if !terminal {
                 let outcome = match status.as_str() {
@@ -198,22 +204,28 @@ pub fn placeholder_child(state: &mut TranslationState, tool_key: &str, facts: &m
                 state.end(&child_key, facts, outcome, None);
             }
             if let Some(native_id) = child_native {
-                if let Some(child) = state.agents.get_mut(&native_id) {
+                if let Some(child) = state
+                    .agents
+                    .get_mut(&ace_json::JsString::from(native_id.as_str()))
+                {
                     child.terminal = true;
                 }
                 state.disarm_cancel(&child_key);
                 if state
                     .agents
-                    .get(&native_id)
+                    .get(&ace_json::JsString::from(native_id.as_str()))
                     .is_some_and(|child| child.key == child_key)
                 {
                     // Only placeholder children are removed from the index.
                     let is_placeholder = state
                         .agents
-                        .get(&native_id)
+                        .get(&ace_json::JsString::from(native_id.as_str()))
                         .is_some_and(|child| child.placeholder);
                     if is_placeholder {
-                        state.agents.shift_remove(&native_id);
+                        state
+                            .agents
+                            .shift_remove(&ace_json::JsString::from(native_id.as_str()));
+                        state.unindex_agent(&child_key);
                     }
                 }
             } else {

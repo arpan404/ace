@@ -4,7 +4,7 @@
 use crate::translate::answers::answer_request;
 use crate::translate::child_expiry::expire_children;
 use crate::translate::content::decode_content;
-use crate::translate::data::{RpcId, list, object, raw, rpc_id, string};
+use crate::translate::data::{RpcId, js_string, list, object, raw, rpc_id, string};
 use crate::translate::implicit::settle_implicit_turn;
 use crate::translate::lifecycle::end_prompt;
 use crate::translate::quirks::QuirksKind;
@@ -96,7 +96,9 @@ impl AcpTranslator {
                 self.state.request(&id, &method, &params_map);
             }
             if method == "session/cancel" {
-                let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+                let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+                    .cloned()
+                    .unwrap_or_default();
                 let child_native = session_id.clone();
                 let should_arm = state_child_should_arm(&self.state, &child_native);
                 if should_arm {
@@ -121,41 +123,22 @@ impl AcpTranslator {
                 }
             }
             if method == "session/prompt" {
-                let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+                let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+                    .cloned()
+                    .unwrap_or_default();
                 let agent_key = self.state.agent_key(&session_id, &mut facts);
-                if agent_key == self.state.root.key {
-                    self.state.root.terminal = false;
-                } else if let Some(agent) = self
-                    .state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *agent_key)
-                {
+                if let Some(agent) = self.state.agent_by_key_mut(&agent_key) {
                     agent.terminal = false;
                 }
                 self.state.prompt_open = true;
                 self.state.root_cancelled = false;
-                if agent_key == self.state.root.key {
-                    self.state.root.implicit_turn = false;
-                } else if let Some(agent) = self
-                    .state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *agent_key)
-                {
+                if let Some(agent) = self.state.agent_by_key_mut(&agent_key) {
                     agent.implicit_turn = false;
                 }
                 self.state.finish_stream(&agent_key, &mut facts);
                 self.state.start(&agent_key, &mut facts, "user");
                 let input_key = self.state.key("input");
-                if agent_key == self.state.root.key {
-                    self.state.root.input_key = Some(input_key.clone());
-                } else if let Some(agent) = self
-                    .state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *agent_key)
-                {
+                if let Some(agent) = self.state.agent_by_key_mut(&agent_key) {
                     agent.input_key = Some(input_key.clone());
                 }
                 let prompt = params.get("prompt").unwrap_or(&Value::Null);
@@ -213,9 +196,11 @@ impl AcpTranslator {
                     .push(raw(&data, "session/load replay", None));
                 return facts;
             }
-            let session_id = string(params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+            let session_id = js_string(params.get("sessionId").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default();
             let agent_key = self.state.agent_key(&session_id, &mut facts);
-            let agent_native = session_id.clone();
+            let agent_native = session_id.as_str().to_owned();
             let update = object(params.get("update").unwrap_or(&Value::Null)).clone();
             let update_value = Value::Object(update);
             if handle_update(
@@ -313,7 +298,9 @@ impl AcpTranslator {
                         && let Some((reason, known)) = ended
                     {
                         let session_id =
-                            string(sent.params.get("sessionId").unwrap_or(&Value::Null)).to_owned();
+                            js_string(sent.params.get("sessionId").unwrap_or(&Value::Null))
+                                .cloned()
+                                .unwrap_or_default();
                         let agent_key = self.state.agent_key(&session_id, &mut facts);
                         let error = data_map
                             .get("error")
@@ -361,7 +348,7 @@ fn rpc_id_owned(value: &Value) -> Option<RpcId> {
     rpc_id(value)
 }
 
-fn state_child_should_arm(state: &TranslationState, native_id: &str) -> bool {
+fn state_child_should_arm(state: &TranslationState, native_id: &ace_json::JsString) -> bool {
     if native_id.is_empty() {
         return false;
     }

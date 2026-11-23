@@ -92,16 +92,10 @@ pub fn settle_finish(
         if detail_kind == "shell" {
             shell_output.append(state, tool_key, update, facts);
         }
-        if detail_kind == "plan" {
-            if agent_key == state.root.key {
-                state.root.plan_tool_key = Some(tool_key.to_owned());
-            } else if let Some(agent) = state
-                .agents
-                .values_mut()
-                .find(|agent| agent.key == *agent_key)
-            {
-                agent.plan_tool_key = Some(tool_key.to_owned());
-            }
+        if detail_kind == "plan"
+            && let Some(agent) = state.agent_by_key_mut(agent_key)
+        {
+            agent.plan_tool_key = Some(tool_key.to_owned());
         }
         if state.quirks.provider() == "antigravity" && detail_kind == "agent.spawn" {
             placeholder_child(state, tool_key, facts);
