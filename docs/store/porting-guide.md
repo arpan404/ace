@@ -319,81 +319,150 @@ reviewer signs every entry off before 4.2 starts.
    `migrate`, the store reads it with one primary-key lookup. If it exists, the store calls the
    addon's `bodyCodecVersion()` and refuses to open (`IncompatibleDataError`, naming the addon
    path) when the addon is missing or its version is lower. It never falls back to reading stubs.
-3. **Builds older than R refuse the home, and R's own writes keep working.** `migrate` refuses
-   a newer `schema_version` (`migrations.ts:221` to `:235`: `version > migrations.length`
-   throws `IncompatibleDataError`). R adds exactly one migration step, and that step only runs
-   `ALTER TABLE ... ADD COLUMN` and `CREATE TABLE IF NOT EXISTS` (O(1), ADR 0170). `migrate`
-   runs every step and the `schema_version` bump in one `BEGIN IMMEDIATE` transaction, so the
-   columns and the version land together or not at all. In the same release, before the step is
-   added, every positional insert into a changed table becomes a named-column insert, in both
-   writer modes: `event-writer.ts:180` (`INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)` becomes
-   `INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`),
-   `history-index.ts:142` (`INSERT INTO history_item_revisions VALUES (?,?,?)` becomes
-   `(item_id, seq, item)`), task 5.3a's Rust, and every other match of
-   `rg -n "INSERT (OR [A-Z]+ )?INTO \"?(events|history_item_revisions)\"? *(VALUES|SELECT)" apps packages native`.
-   Release gate (a manual check, not a vitest file, run on a throwaway `ACE_HOME`): with the
-   R+1 build and the switch on, write format-2 rows with the scripted provider, then `kill -9`
-   the daemon before any checkpoint so the committed rows are still in the WAL; open that home
-   with the last build before R. It must refuse with "newer than this build's", and the
-   `events.sqlite`, `-wal` and `-shm` files must hash the same afterwards.
-4. **SQL that looks inside a body keeps working.** 4.1a lists every consumer of a body column,
-   per row kind, in `docs/store/format-inventory.md`. Find them with
+3. **Builds older than R refuse the home, and R's own writes keep working.**
+   - `migrate` refuses a newer `schema_version` (`migrations.ts:221` to `:235`:
+     `version > migrations.length` throws `IncompatibleDataError`). It runs every step and the
+     version bump in one `BEGIN IMMEDIATE` transaction, so the step and the bump land together.
+   - R adds one migration step, written so it works on fresh and existing homes alike. Not every
+     changed table exists when `migrate` runs: `events` is created by an earlier step
+     (`migrations.ts:31`), but `history_item_revisions` is created later, by the `HistoryIndex`
+     constructor (`store.ts:328`, `history-index.ts:89` to `:102`), so on a fresh home it does
+     not exist yet. For each changed table, the step looks the table up in `sqlite_master`. If
+     the table exists, the step reads `PRAGMA table_info` and runs
+     `ALTER TABLE <t> ADD COLUMN <c> <type>` for each new column it lacks (so running it twice is
+     harmless). If the table does not exist, the step does nothing for it, and the table's
+     creator gets the new columns: `history-index.ts`'s `CREATE TABLE IF NOT EXISTS
+     history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
+     paths give the same columns in the same order. New tables (`storage_format`,
+     `body_dictionaries`, `body_dictionary_sources`) and their indexes are created by the step
+     with `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`; they are empty, so this
+     costs nothing.
+   - Every new column on an existing table is nullable, with no default, no `CHECK`, no
+     `REFERENCES`, no `UNIQUE` and no `PRIMARY KEY`, and is not generated. SQLite then adds it by
+     rewriting the schema only: no row is read and no index is rebuilt (ADR 0170). A `CHECK` or
+     a `NOT NULL` column would make SQLite test existing rows. No index is created on an existing
+     table.
+   - In the same release, before the step is added, every positional insert into a changed table
+     becomes a named-column insert, in both writer modes: `event-writer.ts:180`
+     (`INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)` becomes
+     `INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`),
+     `history-index.ts:142` (`INSERT INTO history_item_revisions VALUES (?,?,?)` becomes
+     `(item_id, seq, item)`), task 5.3a's Rust, and every other match of
+     `rg -n "INSERT (OR [A-Z]+ )?INTO \"?(events|history_item_revisions)\"? *(VALUES|SELECT)" apps packages native`.
+   - Release gate, a manual check on a throwaway `ACE_HOME` (never `~/.ace` or a copy of it). An
+     older build sets pragmas before it reads the schema, then closes the connection when it
+     refuses (`store.ts:272` to `:291`, `:440` to `:442`). Closing the last connection may
+     checkpoint and remove the WAL and SHM files, so file hashes prove nothing. The gate checks
+     logical contents instead:
+     1. With the R+1 build and the switch on, write format-2 rows with the scripted provider, then
+        `kill -9` the daemon before any checkpoint.
+     2. Prove the format-2 commit is only in the WAL. `cp -c` all three files to scratch
+        directory A, and `events.sqlite` alone (no `-wal`, no `-shm`) to scratch directory B.
+        `sqlite3 -readonly` finds the `storage_format` row in A and not in B.
+     3. Record the logical contents from A: with the R+1 build, open A with a `Store` (not a
+        daemon) and hash every event `readEvents` returns from seq 0, in order, plus every
+        revision `readHistorical*` returns for each thread.
+     4. Open the original home with the last build before R. It must refuse with "newer than
+        this build's" and exit non-zero.
+     5. Open the original home with the R+1 build. It opens, the `storage_format` row is there,
+        and the hashes from step 3 are equal.
+     6. Delete A, B and the throwaway home.
+4. **SQL that looks inside a body keeps working, within the bounds it has today.** 4.1a lists
+   every consumer of a body column, per row kind, in `docs/store/format-inventory.md`. Find them
+   with
    `rg -n "json_extract|json_type|json_each|json_tree|json_set|json_group_array|json_array_length|->>|->|octet_length|length\(CAST" apps packages native --glob '!*.test.ts'`,
-   then read each hit: much of this SQL is built at runtime from helpers (for example
-   `field(path)`, `optional(...)` and `asks` in `usage-replay.ts:20` to `:109`), and the
-   inventory records the expanded paths, not the helper. Also list every TypeScript or Rust
-   reader that reads a whole body column. Classify each consumer:
-   - **F (fixed paths):** reads named paths only. Known so far: `usage-replay.ts:20` to `:109`
-     (usage and session counters, `usageScope`, `delegatedBy`, `delegatedFrom`, `startedBy`,
-     skill names, the ask test on `item.type`, `item.role`, `item.synthetic`, `item.inherited`,
-     `item.origin.kind`), `search-replay.ts:53` (`thread.id`, `thread.workspaceId`,
-     `thread.provider`, `thread.createdAt`, `thread.updatedAt`, `thread.status`, `status`, and
-     the rest of that statement), `draft-migration.ts:12` (`type`, `role`, `synthetic` on
-     `items` and revisions), `engine/handler.ts:419`, `engine/transition-history.ts:45`, and the
-     partial index `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
-   - **W (whole body or computed paths):** walks the body or builds paths from data. Known so
-     far: `history-search-replay.ts:50` to `:66` (`json_tree(r.item)` over revisions of every
-     item type) and `history-message-replay.ts:16` to `:24` (`json_each` over `$.parts` with
-     part ordinals and `$.source` objects).
-     A row kind may be written in format 2 only when every consumer of it is F with all its paths
-     in the stub, or has moved to a format-aware reader (4.1b). Until then that kind stays whole.
-     With the two W consumers above, **every revision stays format 1** (no references, no
-     compression) until 4.1b has moved both. The stub is a JSON object holding exactly the union
-     of that kind's F paths, values copied unchanged, keys in the order the logical body has them,
-     nested objects cut down to the paths needed. A path absent from the body is absent from the
-     stub, so `json_type(...) IS NULL` answers the same. A kind whose stub would be more than half
-     its logical body stays format 1.
-5. **Sizes.** Every format-2 row, in `events` and in `history_item_revisions` (references
-   included), stores its logical size in `body_size`, computed from the logical body before
-   anything is stored. Every query that measures a body for a budget, a page or a trust batch
-   reads `coalesce(body_size, octet_length(<column>))` in place of the bare expression, and keeps
-   the terms around it: `bounded-events.ts:37`
-   (`+ octet_length(id) + octet_length(thread_id)`), `history-index.ts:191`
-   (`length(CAST(item AS BLOB))`, the history budget), `stored-trust-batch.ts:83` (each
-   statement), `search-replay.ts:50`, and every other size hit from rule 4's search.
-   Stored-size accounting stays separate and never stands in for a logical size:
-   `storage/transcript.ts:65` (`transcriptQueries`) sums stored bytes; its per-column sum picks
-   up the new BLOB columns by itself, and its `events` query adds `octet_length(body)`.
+   then read each hit. Much of this SQL is built at runtime from helpers (for example
+   `field(path)`, `optional(...)`, `asks` and `skills` in `usage-replay.ts:20` to `:109`), and
+   the inventory records the expanded paths, not the helper. Also list every TypeScript or Rust
+   reader that reads a whole body column, and every reader that keeps a byte bound by measuring
+   or slicing a body inside SQL. Classify each consumer:
+   - **F (fixed paths):** reads named scalar or object paths only. Known so far: the
+     `json_extract` and `json_type` paths of `usage-replay.ts:20` to `:109` (usage and session
+     counters, `usageScope`, `delegatedBy`, `delegatedFrom`, `startedBy`, the ask test on
+     `item.type`, `item.role`, `item.synthetic`, `item.inherited`, `item.origin.kind`,
+     `item.origin.role`), `search-replay.ts:53` (`thread.id`, `thread.workspaceId`,
+     `thread.provider`, `thread.createdAt`, `thread.updatedAt`, `thread.status`, `status`, and the
+     rest of that statement), `draft-migration.ts:12` (`type`, `role`, `synthetic` on `items` and
+     revisions), `engine/handler.ts:419`, `engine/transition-history.ts:45`, and the partial index
+     `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
+   - **A (array walk):** walks one array with `json_each`, reading named paths off each element.
+     Known so far: `usage-replay.ts:56` to `:60` (the skill names: `json_each(payload,
+     '$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
+     served by an **array projection** in the stub: the array keeps every element, in order (so
+     `json_each`'s keys, the ordinals, are the same), and each element is cut down to the paths
+     the consumer reads off `part.value`, a path absent from an element staying absent.
+   - **W (whole body, computed paths, or a byte bound kept in SQL):** walks the body, builds paths
+     from data, or measures or slices a body in SQL so as not to materialise it. Known so far:
+     `history-search-replay.ts:43` to `:69` (`json_tree(r.item)` over revisions of every item
+     type, slicing large leaves as BLOBs before they reach JavaScript), which `history-index.ts:190`
+     to `:205` routes every revision larger than the budget to; and `history-message-replay.ts:16`
+     to `:24` (`json_each` over `$.parts` with part ordinals and `$.source` objects).
+     A row kind may be written in format 2 only when every consumer of it is F or A with all its
+     paths in the stub. A W consumer is never served by decoding a whole row: decoding an oversized
+     revision, or the larger event a reference points at, would materialise on the daemon thread
+     exactly what the SQL slicing avoids. So **every revision stays format 1 in phase 4** (no
+     references, no compression). Revisions move only after a later task gives the W consumers a
+     bounded reader: one that reads `body_size` first and, over the budget, decodes with streaming
+     zstd and slices leaves without holding more than today's bound. That task is not part of this
+     guide. The stub is a JSON object holding exactly the union of the kind's F paths and A
+     projections, values copied unchanged, keys in the order the logical body has them, nested
+     objects cut down to the paths needed. A path absent from the body is absent from the stub, so
+     `json_type(...) IS NULL` answers the same. A kind whose stub would be more than half its
+     logical body stays format 1.
+5. **Sizes.** Every format-2 row stores its logical size in `body_size`, computed from the
+   logical body before anything is stored. In phase 4 only `events` has format-2 rows (rule 4),
+   but `history_item_revisions` gets the column in R too, so the revision task needs no second
+   schema step; there, a reference's `body_size` is the logical size of the revision it stands
+   for. Every query that measures a body for a budget, a page or a trust batch reads
+   `coalesce(body_size, octet_length(<column>))` in place of the bare expression, and keeps the
+   terms around it: `bounded-events.ts:37` (`+ octet_length(id) + octet_length(thread_id)`),
+   `history-index.ts:191` (`length(CAST(item AS BLOB))`, the history budget),
+   `stored-trust-batch.ts:83` (each statement), `search-replay.ts:50`, and every other size hit
+   from rule 4's search.
+   Stored-size accounting is separate and never stands in for a logical size.
+   `storage/transcript.ts:63` to `:89` (`transcriptQueries`) sums stored bytes per thread. Its
+   automatic per-column sum covers only tables with a `thread_id` column, so it never counts
+   `history_item_revisions` today. R adds one query for them, joined through their owner:
+   `SELECT COALESCE(SUM(octet_length(r.item) + COALESCE(octet_length(r.body),0)),0) AS bytes FROM history_item_revisions r JOIN history_items h ON h.id = r.item_id WHERE h.thread_id = ?`.
+   It is bounded per thread by the `history_items_creation` index and the revisions' primary
+   key. The `events` query adds `COALESCE(octet_length(body),0)`. The revision query changes
+   today's numbers, so it is its own commit, with `storage/data-retention.process.test.ts`,
+   `storage/retention.process.test.ts`, `storage/space-reclaim.process.test.ts` and
+   `storage/transcript-indexes.process.test.ts` run with it. If any fails because the totals
+   moved, stop and report.
    Diagnostics (`packages/diagnostics/src/thread-worker.ts:22`) decode a format-2 row through
-   the addon and apply the 60,000-byte cap to the logical size; when the addon cannot be
-   loaded, they emit `"<ENCODED EVENT OMITTED>"`. They never emit a stub as if it were the
-   payload.
-6. **One function changes a body.** `rewriteStoredBody(db, table, key, logicalJson)` in
-   `apps/daemon/src/stored-body.ts`, and `format::rewrite` in Rust for Rust callers, do all of
-   this in the caller's transaction: (a) materialise the references to the old body (rule 7);
-   (b) write the new stub, `body`, `body_size`, format tag and dictionary id together, or the
-   plain JSON with those columns NULL for a format-1 row; (c) drop the trust of the rewritten
-   row so it is validated again (ADR 0125): `forgetStoredTrust` (`stored-shape.ts:269`) for a
-   bulk rewrite, as `permission-mode-migration.ts:33` does today, or the per-row equivalent the
-   builder finds in `stored-trust-rows.ts`. No other code updates a body column. Each raw
-   rewrite that exists today either gets a written proof in the checklist that it can only run
-   on a home with no format-2 row, or is converted to `rewriteStoredBody`. The proof is: its
-   marker is written on every home at or before R, and a fresh home runs it at creation, before
-   any row exists. The two known rewrites are `payload-store.ts:139` (`UPDATE events SET
-   payload`, marker `payload_migration`) and `permission-mode-migration.ts:38` (`json_set` over
-   `payload`, marker in `upgrade_cleanup`). A rewrite that cannot be proven safe this way is
-   converted. Review rejects any new raw update of a body column; find them with
-   `rg -n "UPDATE \"?(events|history_item_revisions)\"? SET" apps packages native`.
+   the addon and apply the 60,000-byte cap to the logical size. When the addon cannot be loaded,
+   they emit `"<ENCODED EVENT OMITTED>"`. They never emit a stub as if it were the payload.
+6. **One function changes a body, and trust follows it.** `rewriteStoredBody(db, table, key,
+   logicalJson, origin)` in `apps/daemon/src/stored-body.ts`, and `format::rewrite` in Rust for
+   Rust callers, do all of this in the caller's transaction:
+   - (a) materialise the references to the old body (rule 7);
+   - (b) write the new stub, `body`, `body_size`, format tag and dictionary id together, or the
+     plain JSON with those columns NULL for a format-1 row;
+   - (c) trust. `origin` is `"validated"` when `logicalJson` was serialised from a value this
+     build parsed or built (trust is unchanged, ADR 0125), and `"raw"` otherwise. For `"raw"`,
+     the rewritten row's seq is rejected in two places. Persisted: `INSERT OR IGNORE INTO
+     stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
+     with the rewrite. Live: the store's in-memory `StoredTrust` (`trust.rejected`, the set
+     `readStoredTrust` loads, `stored-shape.ts:225` to `:236`) gets the seq at once, so a read
+     inside the same transaction validates the row. The store records which seqs this
+     transaction added that were not in the set before, and a rollback removes exactly those
+     (a `TransactionOutcome`). Rejecting too much only costs a validation; rejecting too little
+     is the bug. Rejection is by seq, so it covers every row at that seq, events and revisions
+     alike, which `stored-trust-rows.ts:38` to `:59` maps by `(seq, kind, item_id)`. A second
+     connection (the history publication worker) reloads with `readStoredTrust` as it does today.
+   - `forgetStoredTrust` (`stored-shape.ts:269`) stays for bulk raw rewrites at open, before
+     `openStoredTrust`, as `permission-mode-migration.ts:33` uses it. It is never called at
+     runtime, because it would clear persisted trust while the live set stays as it was.
+     No other code updates a body column. Each raw rewrite that exists today either gets a written
+     proof in the checklist that it can only run on a home with no format-2 row, or is converted
+     to `rewriteStoredBody`. The proof is: its marker is written on every home at or before R, and
+     a fresh home runs it at creation, before any row exists. The two known rewrites are
+     `payload-store.ts:139` (`UPDATE events SET payload`, marker `payload_migration`) and
+     `permission-mode-migration.ts:38` (`json_set` over `payload`, marker in `upgrade_cleanup`). A
+     rewrite that cannot be proven safe this way is converted. Review rejects any new raw update of
+     a body column; find them with
+     `rg -n "UPDATE \"?(events|history_item_revisions)\"? SET" apps packages native`.
 7. **References and deletes.** A reference revision stands for the item in the event row with
    the same seq and the same thread, whose payload is `item.created` or `item.updated` of the
    same item id. From an event to its references is one primary-key lookup on
@@ -418,33 +487,56 @@ reviewer signs every entry off before 4.2 starts.
      transaction, through rule 6's function.
      A reader that meets a reference whose event row is missing throws an error naming the thread
      id and seq. It never returns an empty or partial item.
-8. **Dictionaries.** R creates
-   `body_dictionaries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, dictionary BLOB NOT NULL, retired INTEGER NOT NULL DEFAULT 0)`
-   and `body_dictionary_sources(dictionary_id INTEGER NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY(dictionary_id, thread_id))`.
+8. **Dictionaries.** R creates:
+   - `body_dictionaries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, dictionary BLOB NOT NULL, retired INTEGER NOT NULL DEFAULT 0)`,
+     with `CREATE INDEX body_dictionaries_active ON body_dictionaries(kind, id) WHERE retired = 0`
+     for the active-kind lookup (newest non-retired id of a kind);
+   - `body_dictionary_sources(dictionary_id INTEGER NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY(dictionary_id, thread_id)) WITHOUT ROWID`,
+     with `CREATE INDEX body_dictionary_sources_thread ON body_dictionary_sources(thread_id)` for
+     retirement by source thread.
+
+   The rules:
    - `AUTOINCREMENT` makes ids fresh and never reused in this database, even after a delete. An
      id means something only in the database that holds it: a frame's id is resolved against
      that database's table, through a cache owned by that connection, never a process-wide one.
-   - The cache takes a dictionary only after the transaction that inserted it has committed. A
-     rolled-back insert leaves nothing cached.
-   - A dictionary's bytes never change. Which dictionary a kind uses now is the newest
+   - A dictionary's bytes never change. Which dictionary a kind writes with is the newest
      non-retired id of that kind, so a kind can change dictionaries without changing what any
      existing id means.
    - Phase 4 deletes no dictionary: its bytes stay while any frame might use them. Deletion
      comes with recompression (owner's answer 4).
-   - Training (4.3b) samples only threads that are not deleted, not tombstoned and not host
-     threads (ADR 0121). It runs in idle batches bounded by rows (2,000), sample bytes (8 MiB) and
-     time (50 ms per batch), and pauses while writes run (ADR 0170). It records every source
-     thread in `body_dictionary_sources`.
-   - Purging, deleting or retaining away a source thread marks its dictionaries retired in the
-     same transaction, so no new frame uses them. Their bytes keep fragments of that thread until
-     recompression rewrites the frames that use them. The 4.3b PR states this limit in its
-     description.
+   - **The write selection** (kind → dictionary id), cached per connection, changes only at
+     commit. A transaction that installs or retires a dictionary marks the selection stale for
+     the kinds it touched. For the rest of that transaction, writes of those kinds use plain zstd
+     (id 0). After `COMMIT` returns, the selection reloads those kinds. On rollback, the marks
+     clear and nothing reloads. The decode cache takes a dictionary only after the transaction
+     that inserted it has committed.
+   - **Training** (4.3b) samples only threads that are not deleted, not tombstoned
+     (`thread-gone.ts:54` to `:59` writes the tombstone as a `deletedAt` change) and not host
+     threads (ADR 0121). It runs in idle batches bounded by rows (2,000), sample bytes (8 MiB)
+     and time (50 ms per batch), pauses while writes run (ADR 0170), and keeps the source thread
+     ids in memory.
+   - **Installation** is one transaction. It checks every source thread again (it still exists,
+     has no `deletedAt`, has no row in `usage_deletions`, `thread_purges` or `storage_purged`,
+     and is not a host thread); inserts the dictionary and its `body_dictionary_sources` rows;
+     and marks the selection stale. If any source fails the check, it inserts nothing, and
+     training starts again later from new samples. A source tombstoned between sample batches
+     (`thread-gone.ts:88` to `:105` purges in many transactions) is caught here.
+   - **Retirement at the tombstone's commit.** One function,
+     `retireDictionariesOf(db, threadId)`, runs
+     `UPDATE body_dictionaries SET retired = 1 WHERE retired = 0 AND id IN (SELECT dictionary_id FROM body_dictionary_sources WHERE thread_id = ?)`
+     (through the `body_dictionary_sources_thread` index) and marks the selection stale. It runs
+     in the same transaction as every event that sets a thread's `deletedAt` (a write hook,
+     `Store.onWrite`, that checks the batch's `thread.client.updated` changes), and in
+     `deleteThread`, `purgeThreadData` and retention. A retired dictionary keeps decoding the
+     frames that already use it. Its bytes keep fragments of the source thread until
+     recompression rewrites those frames; the 4.3b PR states this limit in its description.
    - A copy of the database (backup, clone) carries dictionaries as it carries rows. An export
      that leaves transcripts out (diagnostics, triage bundles) also leaves `body_dictionaries`
      out. Find the export paths with
      `rg -n "events\.sqlite|\.backup\(|VACUUM INTO" apps packages tools`.
    - Until the reviewer signs off this rule's checklist, no dictionary is trained on a real
      home: frames are plain zstd (dictionary id 0). Tests and benches train on throwaway homes.
+
 9. **Turning the switch off changes no stored bytes**, and turning it back on resumes. Nothing
    converts rows in either direction at open.
 
@@ -468,18 +560,18 @@ only; reviewed before 4.1b.
   of a body column from 4.1a calls them in place of reading the column.
 - The schema step (rule 3), named inserts (rule 3), the open-time check (rule 2), the size
   queries (rule 5), the diagnostics change (rule 5).
-- The W consumers move to format-aware readers that decode one row at a time inside the bounds
-  they have today (page sizes, byte budgets, statement counts). These are
-  `history-search-replay.ts:50` to `:66` and `history-message-replay.ts:16` to `:24`, plus any
-  others 4.1a finds. Their results stay identical; the search-replay files below prove it.
+- The W consumers are not changed in R. They keep reading format-1 revisions, which is all
+  phase 4 writes (rule 4).
 
 Proof, with `ACE_STORE` off and on, on homes with no format-2 row (nothing may change): every
 (a) file in behaviour.md §15, run one at a time. Bench: `sqlite-store.ts --split` before and
 after; reads must not get slower on a format-1 home.
 
-### 4.2 Write side: one body per revision (`refs`)
+### 4.2 Write side: one body per revision (`refs`), deferred
 
-Starts only after 4.1b has moved the W consumers of revisions and R has shipped.
+Not built in phase 4. Revisions stay format 1 (rule 4) until a later task gives the W consumers
+of revisions a bounded reader, and that task is reviewed. The outline below is for the brief that
+follows it.
 
 - Module: `history-index.ts` `record` (`:227`, the insert at `:142`). When the revision's logical
   JSON is byte-equal to the item JSON in the event row written at the same seq, compared before
@@ -504,16 +596,15 @@ Starts only after 4.1b has moved the W consumers of revisions and R has shipped.
 
 **4.3a Plain zstd.** Row kinds the inventory cleared get a stub, `body` (format byte, dictionary
 id 0, zstd level 3 frame) and `body_size`. Modules: the `events` insert (`event-writer.ts:180`,
-or `EventWriter::store_event` once 5.3a has landed), and `history-index.ts` `record` for
-revision kinds once 4.2's precondition holds.
+or `EventWriter::store_event` once 5.3a has landed). Revisions stay format 1 (rule 4).
 
 **4.3b Dictionaries.** Rule 8's tables and rules, the trainer in
 `crates/ace-store/src/format/train.rs`, and an idle shell beside `stored-trust-pass.ts`. Kinds:
 one dictionary per measured event type (`item.updated`, `item.created`, `item.delta`,
-`thread.client.updated`, `agent.status`) and one for revisions; every other kind stays plain
-zstd.
+`thread.client.updated`, `agent.status`), each only once the inventory has cleared it; every
+other cleared kind stays plain zstd. Revisions stay format 1 (rule 4).
 
-- Proof, on and off: as 4.2, plus `stored-trust-pass.test.ts`, `stored-trust-rows.test.ts`,
+- Proof, on and off: the 4.2 outline's list, plus `stored-trust-pass.test.ts`, `stored-trust-rows.test.ts`,
   `stored-trust-coverage.test.ts`, `stored-shape.test.ts`, `usage-replay.test.ts`,
   `usage-reads.process.test.ts`, `wal-maintenance.process.test.ts`,
   `daemon-crash-recovery.process.test.ts`; the cross-mode gate.
@@ -525,28 +616,47 @@ zstd.
 
 ### 4.4 Search: index long tool output up to 64 KiB (`search-cap`)
 
-- Modules: `packages/search/src/thread-writer.ts` (the delta path at `:85` and the bounded tail
-  segments at `:200`), `writer.ts`, and the rebuild paths (`apps/daemon/src/search-replay.ts`,
-  `history-search-replay.ts`).
-- Rule: message and reasoning bodies stay whole. Every other body is indexed up to 64 KiB
-  **per logical body**, meaning per item and field, cumulatively across `item.created`, every
-  `item.delta` append, `item.updated`, the overlapping and sealed chunks of the tail segments,
-  and rebuild or replay, so a rebuilt index holds exactly what live indexing wrote. The count is
-  UTF-8 bytes of the indexed text (`Buffer.byteLength`), whatever the stream's encoding. It is
-  kept per segment in a new `indexed_bytes` column (`ALTER TABLE ... ADD COLUMN`). Once it
-  reaches the cap, later appends index nothing. The cut falls on a code point boundary, never
-  between the halves of a surrogate pair. An authoritative replacement starts the count again
-  only where today's writer replaces the indexed text; the builder reads that path and records
-  what it does in the PR. Rows already indexed stay as they are, and nothing reindexes at open.
+How the search writer takes a body today (`packages/search/src/thread-writer.ts`): each item
+field has a segment row in `search_full_segments`. An inline delta appends its text to the
+segment at once (`append`, `:200`), which keeps a bounded tail and indexes each sealed chunk
+once; sealed chunks overlap. A delta of a body backed by a stored output stream only raises the
+segment's `target` by its byte length (`:77` to `:85`). `flush` (`:249` to `:289`) then drains
+the source: while `offset < target` it reads up to 32 KiB from the output store, appends it, and
+persists `offset`.
+
+- Modules: `thread-writer.ts` (the delta path, `append`, `flush` and the segment reset on
+  replacement), `writer.ts`, and the rebuild paths (`apps/daemon/src/search-replay.ts`,
+  `history-search-replay.ts`), which feed the same writer.
+- Columns: R adds `indexed_bytes INTEGER` and `capped INTEGER` to `search_full_segments` (rule
+  3's form: nullable, read as 0).
+- Rule: message and reasoning bodies stay whole. Every other body is indexed up to 64 KiB per
+  logical body, meaning per segment, cumulatively across every way text reaches it: inline
+  deltas, the source drain, `item.created`, `item.updated` and rebuild. So a rebuild indexes
+  exactly what live indexing did.
+  - Count: `indexed_bytes` grows by the UTF-8 bytes (`Buffer.byteLength`) of the new text each
+    `append` takes in, whatever the stream's encoding. Each source byte is counted once, never
+    the overlap the sealed chunks repeat.
+  - Cut: the append that reaches 64 KiB takes text only up to the last whole code point at or
+    below the cap, never between the halves of a surrogate pair. In the same statement it sets
+    `capped = 1`, and for a stream-backed segment it sets `offset = target`.
+  - Stop: on a capped segment, an inline delta appends nothing. A stream delta raises `target`
+    and `offset` together, so `flush` never reads its source again. `flush` skips capped rows.
+  - Reset: whenever today's writer clears a segment's indexed text (the replacement path the
+    builder finds in `thread-writer.ts` and names in the PR), `indexed_bytes`, `capped` and
+    `offset` reset in the same statement, and the cap applies afresh to the new body. Where
+    today's writer keeps the indexed text, the count and the cap persist. The count follows the
+    indexed text and nothing else.
+- Existing rows stay as they are, and nothing reindexes at open.
 - Proof, on and off: `packages/search/src/search.process.test.ts`,
-  `thread-search.process.test.ts`, `outputs.process.test.ts`, `pagination.process.test.ts`,
-  `apps/daemon/src/search.outputs.process.test.ts`, the four `search-replay-*.process.test.ts`.
-  One new test is allowed, because nothing covers this behaviour today: with the cap on, a tool
-  output streamed in many deltas past 64 KiB is not found by text after the cutoff, neither
-  live nor after a rebuild.
-- Bench: index size (`dbstat` on the search tables) and in-thread search p50 from
-  `sqlite-store.ts --split`, on a clone rebuilt with the cap on and off. Dropped if it saves less
-  than a gigabyte there (owner's answer 2).
+  `thread-search.process.test.ts`, `outputs.process.test.ts` (stream-backed bodies),
+  `pagination.process.test.ts`, `apps/daemon/src/search.outputs.process.test.ts`, the four
+  `search-replay-*.process.test.ts`. One new test file is allowed, because nothing covers this
+  behaviour today. With the cap on, text after the first 64 KiB is not found in three cases: a
+  tool output streamed inline in many deltas, a stream-backed output drained by `flush` (it also
+  asserts the drain stops reading the source at the cap), and both after a rebuild.
+- Bench: index size (`dbstat` on the search tables), source bytes the drain reads, and in-thread
+  search p50 from `sqlite-store.ts --split`, on a clone rebuilt with the cap on and off. Dropped
+  if it saves less than a gigabyte there (owner's answer 2).
 
 ## Phase 5: the writer, as builder tasks
 
@@ -1022,6 +1132,28 @@ path, the `Promise` check (`Store transactions must be synchronous`), the thread
 wake, `transactions++`, `eventRows`, `publishFresh` (it filters at or below `publishedSeq`), the
 usage listeners, and running `steps` (each `Settle` callback in its own try, as `settle` does).
 Shell: `apps/daemon/src/native-writer/transaction.ts`, selected inside `transaction`.
+
+**Errors out of `Finish`.** `nativeCall` (rule 11) only translates errors the addon throws, but
+`succeed` and `fail` return SQLite failures as data. So the binding serialises every
+`ace_store::Error` in `Finish` (`error` and `reports`) as the same
+`{kind, errcode, message, errstr}` object `fail()` puts after `ace-store:`. In
+`packages/provider-kit/src/native-sqlite.ts`, the error-building half of `rethrow` (`:82`)
+becomes an exported `sqliteError(failure): Error`, which returns the `SqliteError` instead of
+throwing it, and `rethrow` calls it. The shell then runs, in this order:
+
+1. Truncate its event list to `events_len`.
+2. Run `steps`, each `Settle` callback in its own try, reporting a throw through `onError`.
+3. Report each entry of `reports` through `onError` as `sqliteError(entry)`.
+4. Throw:
+   - when the caller's `run` threw, that same JavaScript exception, unchanged;
+   - else for `FinishError::Sqlite`, `sqliteError(error)`, so `errcode` and `errstr` reach
+     `isStoreBusy` and `isStoreRetry` as they do today;
+   - else for `FinishError::Doomed`,
+     `new Error("A failed step could not be undone, so the transaction rolled back", { cause })`,
+     where `cause` is the JavaScript exception the nested `run` threw (`store.ts:605`:
+     `this.doomed ??= error`). Rust only knows that the frame is doomed, so `FinishError::Doomed`
+     carries no error. The shell keeps the first nested exception for which `Finish` reported a
+     new doom, and clears it when the outermost frame finishes (`store.ts:625` to `:628`).
 
 **Proof, on and off:** `store.test.ts`, `store-auto-rollback.test.ts`,
 `store-held-view-rollback.test.ts`, `store-live-write-recovery.test.ts`,
