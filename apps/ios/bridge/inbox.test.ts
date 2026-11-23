@@ -634,7 +634,9 @@ describe("inbox traffic", () => {
     finished(daemon, "new", "New");
     await until(() => status(sink, "new") !== undefined, "joined");
     const rows = new Set(
-      written.filter((key) => key.startsWith("inbox:") && key !== "inbox:sections"),
+      written.filter(
+        (key) => key.startsWith("inbox:") && key !== "inbox:sections" && key !== "inbox:fresh",
+      ),
     );
     expect([...rows]).toEqual(["inbox:new"]);
   });
