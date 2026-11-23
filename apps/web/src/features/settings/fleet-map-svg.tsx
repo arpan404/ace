@@ -1,6 +1,5 @@
 import { useId, type KeyboardEvent } from "react";
-import type { MapLayout, PlacedWire, Point } from "./data/fleet-map-layout.ts";
-import type { FleetMap, MapNode } from "@ace/ui-core/fleet-map";
+import type { FleetMap, MapLayout, MapNode, PlacedWire, Point } from "@ace/ui-core/fleet-map";
 import { DeviceArt, RelayCloud, tileHalf, toneColor } from "./fleet-map-art.tsx";
 import { part } from "@/lib/suit-part.ts";
 

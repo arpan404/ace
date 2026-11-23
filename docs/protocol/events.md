@@ -155,6 +155,7 @@ Example:
 | delegatedFrom | no | [DelegatedFrom.json](schema/DelegatedFrom.json) |  |
 | startedBy | no | [StartedBy.json](schema/StartedBy.json) |  |
 | startedByClient | no | [StartedByClient.json](schema/StartedByClient.json) |  |
+| treeRootId | no | [TreeRootId.json](schema/TreeRootId.json) |  |
 | queuedLaunch | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/QueuedLaunch.json"},{"type":"null"}]} |
 | execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
 | switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
@@ -169,42 +170,30 @@ Example:
 
 ```json
 {
-  "archivedAt": 6,
-  "effectiveCapabilities": {
-    "backgroundTaskControl": true,
-    "backgroundVisibility": "partial",
-    "childControls": "read-only",
-    "childFidelity": "placeholder",
-    "fork": true,
-    "forkTranscript": false,
-    "imageInput": true,
-    "interruptCascades": true,
-    "planMode": false,
-    "resume": true,
-    "rewindFiles": false,
-    "sessionOptions": false,
-    "steer": true,
-    "steerTiming": "immediate",
-    "subagentTranscripts": true,
-    "tokenUsage": true
+  "acpSupport": {
+    "capabilities": {
+      "imageInput": true,
+      "planMode": true,
+      "resume": false
+    },
+    "coverage": "generic",
+    "mcp": "http",
+    "modeSelection": true,
+    "modelSelection": false,
+    "raw": {
+      "json": "example",
+      "truncated": false
+    },
+    "visibility": "limited"
+  },
+  "archivedAt": 4,
+  "execution": {
+    "provider": "antigravity"
   },
   "startedBy": "example",
   "status": {
-    "state": "moved",
-    "to": {
-      "hostId": "example",
-      "name": "example",
-      "threadId": "example"
-    }
-  },
-  "switch": {
-    "at": 2,
-    "lossy": false,
-    "recommendation": "delegate_task",
-    "selection": {
-      "provider": "antigravity"
-    },
-    "state": "applied"
+    "agents": 8,
+    "state": "working"
   },
   "type": "thread.updated",
   "workspaceId": "example"

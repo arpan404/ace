@@ -40,6 +40,10 @@ pub const NEVER: &[&str] = &[
     crate::decision::DECISION_LOG,
     "bot_message",
     "group_ask",
+    crate::lane::TASK_START,
+    crate::lane::TASK_MESSAGE,
+    crate::lane::TASK_STOP,
+    crate::lane::TASKS,
 ];
 
 /// What a helper is for: its instructions and the tools it may use.

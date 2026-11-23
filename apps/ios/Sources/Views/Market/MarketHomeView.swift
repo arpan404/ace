@@ -204,9 +204,7 @@ struct MarketPlaceRow: View {
     }
 }
 
-/// Discover's hero: the one entry the market leads with, its picture large, then its row. A
-/// listing without a picture gets a shorter banner instead of an empty card: its type's glyph on
-/// a wash of the theme's action tint, which also stands in while a picture is still loading.
+/// Discover's lead listing with its artwork above the title and action.
 struct MarketHero: View {
     let listing: MarketListing
     @Environment(\.marketRows) private var rows
@@ -215,58 +213,20 @@ struct MarketHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AceDesign.Space.related) {
             if !typeSize.isAccessibilitySize {
-                Button { rows.open(.entry(listing.key)) } label: { art }
-                    .buttonStyle(.plain)
-                    .accessibilityHidden(true)
+                Button { rows.open(.entry(listing.key)) } label: {
+                    GeometryReader { space in
+                        MarketListingIcon(listing: listing, size: space.size.width, height: space.size.height)
+                    }
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .clipShape(AceDesign.Shape.block)
+                    .contentShape(AceDesign.Shape.block)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHidden(true)
             }
             MarketRow(listing: listing)
         }
         .padding(.horizontal, AceDesign.Space.margin)
-    }
-
-    @ViewBuilder private var art: some View {
-        if listing.picture == nil {
-            MarketHeroBanner(type: listing.type)
-                .aspectRatio(Self.bannerRatio, contentMode: .fit)
-                .clipShape(AceDesign.Shape.block)
-        } else {
-            GeometryReader { space in
-                MarketPictureView(hash: listing.picture, kind: "preview", size: space.size.width) {
-                    MarketHeroBanner(type: listing.type)
-                }
-                .frame(height: space.size.height).clipped()
-                .clipShape(AceDesign.Shape.block)
-            }
-            .aspectRatio(16 / 9, contentMode: .fit)
-        }
-    }
-
-    /// The banner is wider than a picture's 16:9, so the glyph doesn't sit in a tall empty box.
-    static let bannerRatio: CGFloat = 12 / 5
-}
-
-/// The hero without a picture: the listing type's glyph in a tile, on the theme's action tint
-/// fading across the fill, so it reads as the store's lead in light and dark and in any Suit.
-struct MarketHeroBanner: View {
-    let type: String
-    private let tile = AceDesign.Size.tap + AceDesign.Space.group
-    /// The tint's strength at the banner's top-leading corner and where it fades to.
-    private let washFrom = 0.28, washTo = 0.04
-
-    var body: some View {
-        ZStack {
-            AceDesign.Surface.fill
-            LinearGradient(colors: [AceDesign.Ink.action.opacity(washFrom), AceDesign.Ink.action.opacity(washTo)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            RoundedRectangle(cornerRadius: AceDesign.Size.rowCorner, style: .continuous)
-                .fill(AceDesign.Surface.raised)
-                .frame(width: tile, height: tile)
-                .overlay {
-                    AceIcon(MarketListingIcon.glyph(type), size: AceDesign.Size.emptyIcon, relativeTo: .title)
-                        .foregroundStyle(AceDesign.Ink.action)
-                }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

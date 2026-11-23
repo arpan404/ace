@@ -181,11 +181,7 @@ struct RemoteScreenSessionView: View {
         Task { _ = await screen.input(model, id: sessionId, ["kind": "text.type", "text": input]) }
     }
     private func gesture(_ start: CGPoint, _ end: CGPoint) {
-        var input: [String: Any] = ["kind": "pointer.click", "x": start.x, "y": start.y]
-        if hypot(end.x - start.x, end.y - start.y) > AceDesign.Space.related {
-            if drag { input = ["kind": "pointer.drag", "x": start.x, "y": start.y, "toX": end.x, "toY": end.y, "durationMs": 350] }
-            else { input = ["kind": "scroll", "x": start.x, "y": start.y, "dx": max(-1000, min(1000, Int(start.x - end.x))), "dy": max(-1000, min(1000, Int(start.y - end.y)))] }
-        }
+        let input = RemoteScreen.pointer(from: start, to: end, drag: drag)
         Task { _ = await screen.input(model, id: sessionId, input) }
     }
 }

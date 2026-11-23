@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { ListRowFrame, ProviderListRow } from "@/features/provider-setup/index.ts";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { useNow } from "@/lib/time.ts";
 import { AddAgentByCommandRow } from "../add-acp-agent.tsx";
 import { isMissing, type ProviderEntry } from "../provider-entries.ts";
@@ -171,8 +172,7 @@ function AgentRow(props: { agent: RegistryAgent; unavailable: string | undefined
   if (props.unavailable)
     return (
       <ListRowFrame
-        provider="acp"
-        acpAgentId={agent.acpAgentId}
+        mark={<ProviderIcon provider="acp" acpAgentId={agent.acpAgentId} size={20} decorative />}
         name={agent.name}
         version={agent.version}
         sub={sub}

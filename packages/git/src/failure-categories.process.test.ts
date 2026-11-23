@@ -141,3 +141,57 @@ test("a failed command keeps only a bounded, redacted tail of its stderr", async
   expect(stderr).not.toContain("ghp_0123456789");
   expect(stderr.length).toBeLessThanOrEqual(4096);
 });
+
+/** Git's failure stderr when the fake writes `parts` as separate pipe reads, 100 ms apart. */
+async function stderrOfWrites(parts: string) {
+  const root = await repository();
+  await git(root, "remote", "add", "origin", "https://example.org/repo");
+  const binary = await proxyGit(
+    `if (args.includes('push')) { for (const part of ${parts}) { fs.writeSync(2, part); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100); } process.exit(1); }`,
+  );
+  const failure = await new GitService({ gitBinary: binary })
+    .push({ worktree: root, remote: "origin" })
+    .catch((error: unknown) => error);
+  return z.object({ details: z.object({ stderr: z.string() }) }).parse(failure).details.stderr;
+}
+
+test("a kept window that starts on a line boundary keeps its first line", async () => {
+  // 16 KiB dropped, then exactly 16 KiB kept: one diagnostic line and Trace2 records.
+  const stderr = await stderrOfWrites(
+    `["x".repeat(16383) + "\\n", (() => { const head = "fatal: the whole first line\\n"; const record = '{"event":"data"}\\n'; let kept = head; while (kept.length + record.length <= 16384) kept += record; return kept + "y".repeat(16383 - kept.length) + "\\n"; })()]`,
+  );
+  expect(stderr).toContain("fatal: the whole first line");
+});
+
+test("a credential label the window's cut leaves behind still redacts its value on the next line", async () => {
+  // The kept window starts inside the label's line, so only its end is kept.
+  const stderr = await stderrOfWrites(
+    `["x".repeat(16384), "x".repeat(16000) + " Authorization: Bearer", "\\nabcdef0123456789secretvalue\\n" + "fatal: denied\\n".repeat(30)]`,
+  );
+  expect(stderr).toContain("fatal: denied");
+  expect(stderr).not.toContain("secretvalue");
+});
+
+test("a secret that the reported tail's cut would split is still redacted", async () => {
+  const root = await repository();
+  await git(root, "remote", "add", "origin", "https://example.org/repo");
+  // The token's line, then one filler line of a length that puts the 4,000-character cut 30
+  // characters before the token's end: only its tail would be kept, too short to recognise.
+  const binary = await proxyGit(
+    `if (args.includes('push')) { fs.writeSync(2, "fatal: token ghp_0123456789abcdefghijklmnopqrstuvwxyzAB\\n" + "x".repeat(3969) + "\\n"); process.exit(1); }`,
+  );
+  const failure = await new GitService({ gitBinary: binary })
+    .push({ worktree: root, remote: "origin" })
+    .catch((error: unknown) => error);
+  const stderr = z.object({ details: z.object({ stderr: z.string() }) }).parse(failure)
+    .details.stderr;
+  expect(stderr).toContain("x".repeat(3969));
+  expect(stderr).not.toContain("abcdefghijklmnopqrstuvwxyzAB");
+  expect(stderr.length).toBeLessThanOrEqual(4000);
+  // An oversized read after a buffered whole line: the cut falls 30 characters before the
+  // token's end, and Trace2 records (not reported) fill the rest of the kept window.
+  const afterBuffered = await stderrOfWrites(
+    `["fatal: buffered line\\n", "x".repeat(4000) + " ghp_0123456789abcdefghijklmnopqrstuvwxyzAB" + (() => { const record = '{"event":"data"}\\n'; let rest = "\\n"; while (rest.length + record.length <= 16354) rest += record; return rest + "z".repeat(16353 - rest.length) + "\\n"; })()]`,
+  );
+  expect(afterBuffered).not.toContain("abcdefghijklmnopqrstuvwxyzAB");
+});

@@ -33,6 +33,9 @@ for (const args of [
   ["fmt", "--all", "--check"],
   ["clippy", "--workspace", "--all-targets", "--locked"],
   ["build", "--release", "--locked", "-p", "ace-daemon-node"],
-  ["deny", "check", "licenses", "sources"],
+  // The resolved workspace graph: licences and sources stay allowlisted, and
+  // the bans (e.g. `uluru`, which would arrive with `gix`'s
+  // `pack-cache-lru-static`) stay out.
+  ["deny", "check", "bans", "licenses", "sources"],
 ])
   cargo(args);

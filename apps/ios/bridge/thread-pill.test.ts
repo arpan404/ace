@@ -159,29 +159,41 @@ test("a request card takes the pill's place while it is open, and the pill comes
 
 const leftRunning = () =>
   latest("thread.pill")?.leftRunning as
-    | { strip: { sentence: string; payload: string; lead: unknown }; taskIds: string[] }
+    | {
+        strip: { sentence: string; payload: string; lead: unknown };
+        commands: string[];
+        taskIds: string[];
+      }
     | null
     | undefined;
 
-function relay(stopped: boolean) {
+function runningShell(id: string, command: string) {
   return [
-    facts.rootAgent("claude"),
-    facts.turn("root"),
-    facts.message("root", "ask", "user", "Start the relay."),
-    facts.tool("root", "relay", {
+    facts.tool("root", id, {
       kind: "shell",
-      title: "bun run dev:relay",
-      detail: { kind: "shell", command: "bun run dev:relay" },
+      title: command,
+      detail: { kind: "shell", command },
     }),
     {
       type: "background.started" as const,
       agent: "root",
-      task: "relay",
+      task: id,
       kind: "shell" as const,
-      title: "bun run dev:relay",
-      item: "relay",
+      title: command,
+      item: id,
       stoppable: true,
     },
+  ];
+}
+
+function relay(stopped: boolean, ...lines: string[]) {
+  return [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Start the relay."),
+    ...(lines.length ? lines : ["bun run dev:relay"]).flatMap((command, index) =>
+      runningShell(`relay-${index}`, command),
+    ),
     ...(stopped ? [facts.endTurn("root", "interrupted")] : []),
   ];
 }
@@ -189,15 +201,29 @@ function relay(stopped: boolean) {
 test("a command a stopped turn left running shows on the strip with its command and one Stop", async () => {
   const fake = fixture();
   fake.createThread({ id: "stopped", workspaceId: "ace", title: "Relay", provider: "claude" });
-  fake.apply("stopped", relay(true));
+  const command = `export CARGO_TARGET_DIR="/tmp/target";\ncd ace && bun run dev:relay ${"x".repeat(4096)}`;
+  fake.apply("stopped", relay(true, command));
   open(connect(fake), "stopped");
   const left = await until(() => leftRunning() ?? undefined, "what the stop left running");
   expect(left.strip).toMatchObject({
     lead: { icon: "background", tone: "background" },
     sentence: "Running",
-    payload: "bun run dev:relay",
+    payload: expect.stringMatching(/^bun run dev:relay x+…$/),
   });
+  expect(left.commands).toEqual([command]);
   expect(left.taskIds).toHaveLength(1);
+});
+
+test("the count strip carries every original command in task order", async () => {
+  const fake = fixture();
+  fake.createThread({ id: "two", workspaceId: "ace", title: "Relays", provider: "claude" });
+  const running = ["env PORT=3000 bun run dev", 'bash -lc "bun run dev:relay"'];
+  fake.apply("two", relay(true, ...running));
+  open(connect(fake), "two");
+  const left = await until(() => leftRunning() ?? undefined, "both running commands");
+  expect(left.strip).toMatchObject({ sentence: "Running 2 commands", payload: "" });
+  expect(left.commands).toEqual(running);
+  expect(left.taskIds).toHaveLength(running.length);
 });
 
 test("while the turn still works, nothing is said to be left running", async () => {

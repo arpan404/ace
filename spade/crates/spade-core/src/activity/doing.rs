@@ -195,6 +195,8 @@ pub fn tool(name: &str, arguments: &Value) -> Option<String> {
         "workspace_edit" => file(arguments, "Editing", "Editing a file"),
         "workspace_write" => file(arguments, "Writing", "Writing a file"),
         "workspace_search" => "Searching its files".to_owned(),
+        "workspace_find" => "Finding files".to_owned(),
+        "python" => file(arguments, "Running", "Running a Python script"),
         "workspace_list" => "Looking through its files".to_owned(),
         "todo" => plan_step(arguments).unwrap_or_else(|| "Planning".to_owned()),
         "delegate" => match count_of(arguments, "tasks") {

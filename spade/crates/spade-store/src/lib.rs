@@ -33,7 +33,7 @@ pub use agents::{
 };
 pub use cases::StoredCase;
 pub use digests::{BRIEF, DIGESTS, NewDigest, SPEND_ALERT, StoredDigest, digests_key};
-pub use endpoints::{StoredEndpoint, StoredModel};
+pub use endpoints::{StoredEndpoint, StoredModel, StoredSignIn};
 pub use episodes::{NewEpisode, StoredEpisode};
 pub use helpers::StoredHelper;
 pub use knowledge::{Changed, EntryChange, EntryLink, NewEntry, StoredEntry, Written};

@@ -13,6 +13,8 @@ struct MarketReviewSheet: View {
         case install(MarketEntryKey)
         /// Update an installed entry (a bot made from a package, by its bot).
         case update(MarketInstalledKey)
+        /// Roll a bot made from a package back to the version it had before.
+        case rollback(MarketInstalledKey)
     }
     let model: ClientModel
     let mode: Mode
@@ -183,6 +185,7 @@ struct MarketReviewSheet: View {
             switch mode {
             case .install(let key): review = try await model.marketPrepare(key)
             case .update(let key): review = try await model.marketPrepareUpdate(key)
+            case .rollback(let key): review = try await model.marketPrepareRollback(key)
             }
             // Closed while it was being prepared: the machine shouldn't hold it until it expires.
             guard lease.hold(review, model) else { return }

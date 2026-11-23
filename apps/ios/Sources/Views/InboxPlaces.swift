@@ -89,7 +89,7 @@ struct SidebarPlaces: View {
 
 /// A place's glyph at the iPad sidebar's foot: ace's own icon at the bar's size, filled while its
 /// place shows; Spade's is its whole face, the same chosen or not, its eyes moving while a Spade
-/// bot works (`spadeWorking`), which the system's tab bar can't draw.
+/// bot works (`spadeWorking`).
 struct HomePlaceGlyph: View {
     let place: InboxTab
     let chosen: Bool
@@ -100,7 +100,7 @@ struct HomePlaceGlyph: View {
             if place == .spade {
                 SpadeMark(size: AceDesign.Size.barIcon, moving: spadeWorking)
             } else {
-                Image(HomeTabs.tabImage(place, chosen: chosen))
+                Image(HomeTabs.tabImage(place) + (chosen ? "-fill" : ""))
                     .resizable()
                     .scaledToFit()
                     .frame(width: AceDesign.Size.barIcon, height: AceDesign.Size.barIcon)
@@ -123,12 +123,19 @@ struct HomeTabBar: ViewModifier {
     /// Changes when the tabs may be laid out again (`TabBarPlace.relayout`).
     var relayout = "home"
     @Environment(\.homeTab) private var selected
+    @Environment(\.showsSpade) private var showsSpade
+    @Environment(\.spadeWorking) private var spadeWorking
+    @Environment(\.aceReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.spadeTabMotion) private var spadeMotion
     @Environment(\.homePlace) private var place
     func body(content: Content) -> some View {
         content
             .toolbarVisibility(hidden ? .hidden : .visible, for: .tabBar)
             .background {
-                TabBarPlace(hidden: hidden, animated: animated, relayout: relayout, selected: place == nil || place == selected)
+                TabBarPlace(hidden: hidden, animated: animated, relayout: relayout, selected: place == nil || place == selected,
+                            spadeMotion: spadeMotion,
+                            animatesSpade: showsSpade && spadeWorking && !reduceMotion && scenePhase == .active)
                     .frame(width: 0, height: 0)
             }
     }

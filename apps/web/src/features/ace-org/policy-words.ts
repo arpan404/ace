@@ -1,59 +1,10 @@
 import { orgRole } from "@ace/client/ace-org";
-import { AceOrgPolicy } from "@ace/protocol/ace-org";
+import type { AceOrgPolicy } from "@ace/protocol/ace-org";
 
 /*
- * An organization's policy in the app (ADR 0206 §3), pure: reading the stored text, the lines
- * the page edits lists as, and what a policy rule means for one member's switch on an install
- * review. A policy only narrows, so a part ace can't read is shown as unset and left as it was.
+ * What an organization's policy rule means for one member's switch on an install review
+ * (ADR 0206 §3), pure. Reading the policy and its lists as lines is `@ace/ui-core/org`.
  */
-
-/** The stored version's text as a policy; a text this build can't read is no ceiling of its own. */
-export function readPolicy(body: string): AceOrgPolicy {
-  try {
-    const parsed = AceOrgPolicy.safeParse(JSON.parse(body));
-    return parsed.success ? parsed.data : {};
-  } catch {
-    return {};
-  }
-}
-
-/** Lines of a list field: trimmed, blank ones dropped, each once. */
-export function lines(text: string): string[] {
-  return [
-    ...new Set(
-      text
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean),
-    ),
-  ];
-}
-
-type Allow = NonNullable<NonNullable<AceOrgPolicy["packages"]>["allow"]>[number];
-type Block = NonNullable<NonNullable<AceOrgPolicy["packages"]>["block"]>[number];
-const sourceOf = (word: string): Allow["source"] | undefined =>
-  word === "market" || word === "registry" || word === "git" ? word : undefined;
-
-/** "market spade-bot/ci-watcher" per line; a line without a known source is from the market. */
-export function allowEntries(text: string): Allow[] {
-  return lines(text).map((line) => {
-    const [first = "", ...rest] = line.split(/\s+/);
-    const source = sourceOf(first);
-    if (source && rest.length > 0) return { source, name: rest.join(" ") };
-    return { source: "market", name: line };
-  });
-}
-export const allowText = (allow: readonly Allow[] | undefined) =>
-  (allow ?? []).map((entry) => `${entry.source} ${entry.name}`).join("\n");
-
-/** A `sha256:…` line blocks that exact archive; any other line blocks a package by name. */
-export function blockEntries(text: string): Block[] {
-  return lines(text).map((line) =>
-    /^sha256:[0-9a-f]{64}$/.test(line) ? { hash: line } : { name: line },
-  );
-}
-export const blockText = (block: readonly Block[] | undefined) =>
-  (block ?? []).map((entry) => ("hash" in entry ? entry.hash : entry.name)).join("\n");
 
 /** The effects a policy rules on, as the install review's effect keys name them. */
 export type PolicyEffect = keyof NonNullable<AceOrgPolicy["effects"]>;

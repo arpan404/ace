@@ -185,10 +185,10 @@ export function signalTreeMember(
   io: TreeIo = systemTreeIo,
 ): "sent" | "gone" | "unsafe" {
   if (supervisorBackend() === "native" && io === systemTreeIo) {
-    return supervisorAddon().supervisorSignalMember(
-      JSON.stringify(member),
-      signal,
-    ) as "sent" | "gone" | "unsafe";
+    return supervisorAddon().supervisorSignalMember(JSON.stringify(member), signal) as
+      | "sent"
+      | "gone"
+      | "unsafe";
   }
   return signalMember(member, signal, {
     start: (pid) => readIdentity(io, pid)?.start,
@@ -220,11 +220,7 @@ export async function stopMembers(
           // napi calls threadsafe functions error-first.
           (_error: unknown, leftJson: string) => {
             try {
-              resolve(
-                (JSON.parse(leftJson) as { pid: number; start: string }[]).map((member) => ({
-                  ...member,
-                })),
-              );
+              resolve(JSON.parse(leftJson) as { pid: number; start: string }[]);
             } catch (error) {
               reject(error);
             }

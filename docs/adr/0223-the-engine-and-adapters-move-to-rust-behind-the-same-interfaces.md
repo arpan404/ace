@@ -604,6 +604,37 @@ on by default until the cross-backend journal recovery gate of §8 passes.
   behind the session bridge (§7, `JsSession`), for now. Claude's translator moves in E1; there is
   no E3 item for Claude. A host child per account or speaking the CLI's stream-json protocol from
   Rust is reconsidered after Pi, Codex and ACP sessions are native.
+
+  **The owner, 2026-11-23: the Claude session moves to Rust later, in the providers work, not
+  now.** Facts gathered for that work, so it starts from here:
+  - **Why it pays.** Each line `claude` prints is parsed three times today: by ace
+    (`adapter-claude/src/sdk-process.ts`, to inspect it), again by the SDK after ace writes it back
+    as text into the SDK's stream, and again in Rust after the SDK's object is re-encoded to cross
+    into the native translator (`ACE_TRANSLATORS=claude`). A Rust session parses each line once and
+    hands JavaScript finished events only. The SDK (about 5 MB) and its per-session objects leave
+    the daemon's heap. Facts still cross into JavaScript for the engine and store until E5 and
+    store phase 5 land, so the CPU gain is partial before then; the memory gain is not.
+  - **How.** A Rust session speaking the CLI's stream-json protocol directly (`-p
+--input-format stream-json --output-format stream-json`), spawned through the E2 supervisor,
+    behind the same session interface as the other E3 sessions and its own switch. Built as a
+    standalone crate in `native/daemon` with a clean public API, so it may be published later.
+  - **Terms.** Anthropic's Agent SDK docs support driving the CLI as a subprocess from other
+    languages. The SDK itself is proprietary: write from the published headless docs and ace's
+    recorded fixtures (`fixtures/claude/`); its `.d.ts` files may show which interfaces exist,
+    its implementation is never read. ace drives the person's own unmodified `claude`, signed in
+    through Anthropic's flow, and never touches credentials (ADR 0002). A published crate is never
+    named `claude-code-*` or `anthropic-*`, and says products built on it should use API keys.
+  - **Proof and gate.** The existing `adapter-claude` tests run against the Rust session (tests
+    move, not multiply). `tools/daemon-bench`, whose fake provider is the `claude` CLI, gives the
+    before and after for `cpuMsPerTurn` and heap; the switch defaults on only if they improve.
+  - **Cost.** The SDK follows each CLI release for us today; once ace owns the protocol it must.
+    Unknown control and stream messages are kept as raw data, never fatal.
+  - **Cursor stays as it is.** `@cursor/sdk` is Cursor's whole proprietary agent talking to
+    Cursor's private backend, so it is not ported. It keeps running in its own host child on the
+    bundled runtime; only ace's side of that link moves to Rust (E3). With the daemon all Rust, the
+    host becomes its own small bundle (or a `bun build --compile` program) started only for Cursor
+    sessions.
+
 - **`@ace/core` in the browser (former question 2)**: `ace-core` is built to WebAssembly as well
   (`ace-core-wasm`, a thin `wasm-bindgen` crate beside the napi binding, no logic of its own), and
   `fake-daemon` loads the `@ace/core` facade over it. One reducer, two loaders; no TypeScript

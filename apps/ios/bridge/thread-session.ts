@@ -50,7 +50,12 @@ import {
 } from "./thread-attachments.ts";
 import { ThreadAnnotations, withAnnotations } from "./thread-annotations.ts";
 import { QuoteShelf, quoteText, ThreadQuotes, withQuotes } from "./thread-quotes.ts";
-import { codeText, ThreadCodeNotes, withCodeNotes } from "./thread-code-notes.ts";
+import {
+  codeText,
+  ThreadCodeNotes,
+  withCodeNotes,
+  type CodeNotesHandOff,
+} from "./thread-code-notes.ts";
 import { followBlocks, placedMoments } from "./thread-blocks.ts";
 import { followLaneInfo } from "./lane-info.ts";
 import { endingOf, SubagentRetries } from "./subagent-retries.ts";
@@ -379,7 +384,12 @@ export class ThreadSession {
   handle(raw: unknown): void {
     const parsed = ThreadAction.safeParse(raw);
     if (!parsed.success) {
-      this.#pump.put("error", () => ({ type: "error", message: "That action isn't supported." }));
+      // A request the phone waits on is answered as itself, so its composer frees and what it
+      // held (words, notes) comes back: it never reached the outbox.
+      const asked = rejectedRequest(raw);
+      if (asked) this.#admission(asked.id, false, asked.message);
+      else
+        this.#pump.put("error", () => ({ type: "error", message: "That action isn't supported." }));
       return;
     }
     const action = parsed.data;
@@ -767,6 +777,8 @@ export class ThreadSession {
         if (quoted) this.#quotes.sent(quoted);
         if (coded) this.#code.sent(coded);
       },
+      // The phone settles exactly the notes the message carried (`ClientModel.sendingCodeNotes`).
+      admitted: () => carried(coded),
       receipt: ({ ok }) => {
         if (ok && spends) this.#tune.spent(spends);
       },
@@ -816,6 +828,7 @@ export class ThreadSession {
         tray.unlock();
       },
       refusal: (error) => `The new thread didn't start: ${error ?? "your computer refused it"}.`,
+      received: (result) => (result.ok ? carried(coded) : undefined),
       receipt: (result) => {
         this.#sheet.continuationSettled(result.ok);
         if (!("refused" in files) && result.ok) tray.sent(files.ids);
@@ -852,6 +865,7 @@ export class ThreadSession {
         void dispatchCommand(this.#client, payload, requestId, this.#pump, {
           ...hooks,
           refusal: (error) => `The fork didn't start: ${error ?? "your computer refused it"}.`,
+          received: (result) => (result.ok ? carried(coded) : undefined),
         }),
       (requestId, ok, message) => this.#admission(requestId, ok, message),
       // Only the files and notes this fork carried leave; any added since stay for the next message.
@@ -1018,4 +1032,27 @@ export class ThreadSession {
       this.#admission(id, false, "Couldn't send it again. It is still here.");
     }
   }
+}
+
+/** The code notes a saved message or started thread carried, as its answer names them. */
+function carried(coded: CodeNotesHandOff | undefined): { notes: string[] } | undefined {
+  return coded ? { notes: coded.ids } : undefined;
+}
+
+/** The longest message the bridge takes, in UTF-16 units (`ThreadAction`'s `send`). */
+const messageLimit = 100_000;
+
+/** A rejected action's own request, and why, when it names one the phone waits on. */
+function rejectedRequest(raw: unknown): { id: string; message: string } | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const { requestId, type, text } = raw as { requestId?: unknown; type?: unknown; text?: unknown };
+  if (typeof requestId !== "string" || requestId.length === 0 || requestId.length > 64)
+    return undefined;
+  const long = type === "send" && typeof text === "string" && text.length > messageLimit;
+  return {
+    id: requestId,
+    message: long
+      ? `This message is too long to send. Shorten it to ${messageLimit.toLocaleString("en-US")} characters.`
+      : "That action isn't supported.",
+  };
 }

@@ -63,6 +63,27 @@ struct ChangesRow: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+extension ChangesRow {
+    /// The new side's lines these rows show whole, by number: what a code note on the file is
+    /// checked against when its diff is read again (`CodeNotes.shown`).
+    static func newSide(_ rows: [ChangesRow]) -> [Int: String] {
+        var shown: [Int: String] = [:]
+        for row in rows where (row.kind == "add" || row.kind == "context") && !row.clipped {
+            if let number = row.new { shown[number] = row.text }
+        }
+        return shown
+    }
+
+    /// The whole texts of new-side lines `start…end` among `rows`; nil unless every one of them is
+    /// loaded and whole, so a note is never built from a shortened line.
+    static func newLines(_ rows: [ChangesRow], start: Int, end: Int) -> [String]? {
+        guard start > 0, end >= start else { return nil }
+        let shown = newSide(rows)
+        let texts = (start...end).compactMap { shown[$0] }
+        return texts.count == end - start + 1 ? texts : nil
+    }
+}
+
 struct ChangesPair: Codable, Sendable, Equatable {
     /// `fold` or `pair`.
     let kind: String

@@ -204,6 +204,16 @@ export function openScrcpySocket(
 
 const deviceNameBytes = 64;
 
+const defaultConnect = (port: number): Socket =>
+  connect({ host: "127.0.0.1", port, noDelay: true });
+
+const closedDuringStartup = () =>
+  new DeviceError(
+    "command_failed",
+    "scrcpy-server closed during startup",
+    "Start the device view again.",
+  );
+
 /**
  * Reads `count` bytes from a forward-tunnel connection, then pauses it. adb accepts the TCP
  * connection even while nothing listens on the device, then closes that: that is `undefined`.
@@ -242,9 +252,9 @@ function preamble(
   });
 }
 
-function open(port: number): Promise<Socket> {
+/** Waits for `socket` to connect; rejects if it fails first. */
+function connected(socket: Socket): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const socket = connect({ host: "127.0.0.1", port, noDelay: true });
     socket.once("connect", () => {
       socket.off("error", reject);
       // Startup waits on this socket across awaits before the capture listens to it: a reset
@@ -283,37 +293,67 @@ export async function startScrcpyServer(options: {
       await tunnel.close();
     })());
   try {
+    // The server's exit, which does not reject, ends every startup step at once.
+    const serverExit = tunnel.exited.then(() => {});
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
+    /**
+     * One startup step, bounded by the single startup deadline and by the server's exit:
+     * either ends it at once with `undefined`.
+     */
+    const step = <T>(work: Promise<T>): Promise<T | undefined> =>
+      new Promise<T | undefined>((resolve, reject) => {
+        const cancel = runtime.after(remaining(), () => resolve(undefined));
+        void serverExit.then(() => {
+          cancel();
+          resolve(undefined);
+        });
+        void work.then(resolve, reject).finally(cancel);
+      });
+    /** A new forward-tunnel connection, closed with the rest (and at once if startup ended). */
+    const dial = (): Socket => {
+      const socket = (runtime.connect ?? defaultConnect)(tunnel.port);
+      sockets.push(socket);
+      if (closing) socket.destroy();
+      return socket;
+    };
     let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
     while (!first) {
       check();
       if (tunnel.isExited() || runtime.now() > deadline) throw scrcpyDidNotStart(tunnel.said());
-      const socket = await open(tunnel.port).catch(() => undefined);
-      if (socket) {
-        sockets.push(socket);
+      const socket = dial();
+      const open = await step(connected(socket).catch(() => undefined));
+      if (open) {
         // The server answers its first socket with one dummy byte once it is listening.
-        const greeting = await preamble(socket, 1, runtime, remaining());
+        const greeting = await step(preamble(socket, 1, runtime, remaining()));
         if (greeting) {
           first = socket;
           early = greeting.subarray(1);
-        } else socket.destroy();
+        }
       }
-      if (!first) await new Promise<void>((resolve) => runtime.after(100, resolve));
+      if (!first) {
+        socket.destroy();
+        await step(new Promise<void>((resolve) => runtime.after(100, resolve)));
+      }
     }
     const hasVideo = options.profile.video !== false;
-    const control = hasVideo ? await open(tunnel.port) : first;
-    if (hasVideo) sockets.push(control);
+    let control = first;
+    if (hasVideo) {
+      const socket = dial();
+      const open = await step(connected(socket));
+      if (!open) {
+        socket.destroy();
+        throw scrcpyClosedDuringStartup();
+      }
+      control = open;
+    }
     check();
     // The device name follows on the first socket once every socket is connected.
-    const rest = await preamble(
-      first,
-      Math.max(0, deviceNameBytes - early.length),
-      runtime,
-      remaining(),
+    const rest = await step(
+      preamble(first, Math.max(0, deviceNameBytes - early.length), runtime, remaining()),
     );
-    if (!rest) throw scrcpyClosedDuringStartup();
+    if (!rest || tunnel.isExited()) throw scrcpyClosedDuringStartup();
     const meta = Buffer.concat([early, rest]);
     const nameBytes = meta.subarray(0, deviceNameBytes);
     const end = nameBytes.indexOf(0);

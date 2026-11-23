@@ -19,6 +19,7 @@ pub(super) fn routes() -> Router<AppState> {
         .route("/agents/{id}/services", get(services))
         .route("/agents/{id}/services/{service}", delete(stop_service))
         .route("/agents/{id}/services/{service}/logs", get(logs))
+        .route("/agents/{id}/services/{service}/start", post(start_service))
 }
 
 fn failed(error: &impl ToString) -> Response {
@@ -119,6 +120,29 @@ async fn stop_service(
     match state.engine.stop_agent_service(&id, &service) {
         Ok(Some(true)) => StatusCode::NO_CONTENT.into_response(),
         Ok(Some(false)) => problem(StatusCode::CONFLICT, "that service is not running"),
+        Ok(None) => problem(StatusCode::NOT_FOUND, "no such agent"),
+        Err(error) => failed(&error),
+    }
+}
+
+/// Starts an ended service again, as it started before (`Engine::start_agent_service`).
+async fn start_service(
+    State(state): State<AppState>,
+    Path((id, service)): Path<(String, String)>,
+) -> Response {
+    use crate::engine::StartAgain;
+    match state.engine.start_agent_service(&id, &service) {
+        Ok(Some(StartAgain::Started)) => StatusCode::ACCEPTED.into_response(),
+        Ok(Some(StartAgain::Running)) => problem(StatusCode::CONFLICT, "that service is running"),
+        Ok(Some(StartAgain::Paused)) => problem(
+            StatusCode::CONFLICT,
+            "this bot is paused; resuming it starts its services",
+        ),
+        Ok(Some(StartAgain::NoSuchService)) => problem(StatusCode::NOT_FOUND, "no such service"),
+        Ok(Some(StartAgain::Unavailable)) => problem(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "services are not available here",
+        ),
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such agent"),
         Err(error) => failed(&error),
     }

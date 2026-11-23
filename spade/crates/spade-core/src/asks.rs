@@ -264,6 +264,12 @@ impl Ledger {
                     }
                 }
             }
+            // Asks a lane owns are the lane's (ADR 0217 §3): main's stop check skips them, and
+            // main's prompt names the lane in its tasks block instead.
+            Known::LaneStarted(started) => self.hand_over(&started.asks),
+            Known::ReplyMoved(moved) => self.hand_over(&moved.asks),
+            Known::AskRouted(routed) => self.hand_over(std::slice::from_ref(&routed.message)),
+            Known::LaneMessaged(messaged) => self.hand_over(&messaged.asks),
             Known::UserMessage { .. } if persons => {
                 if let Some(words) = words_of(event) {
                     let id = crate::chat_markup::id(at as u64 + 1, 0);
@@ -290,6 +296,20 @@ impl Ledger {
             self.asks.remove(0);
             self.earlier += 1;
         }
+    }
+
+    /// Leaves out the asks a lane took, and their parts once split.
+    fn hand_over(&mut self, asks: &[String]) {
+        self.asks.retain(|ask| {
+            !asks.iter().any(|moved| {
+                ask.id == *moved
+                    || ask
+                        .id
+                        .strip_prefix(moved.as_str())
+                        .is_some_and(|rest| rest.starts_with('.'))
+            })
+        });
+        self.watched.retain(|w| !asks.contains(&w.id));
     }
 
     /// The asks still open (unsorted ones included), oldest first.

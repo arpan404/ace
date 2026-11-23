@@ -146,7 +146,7 @@ export function ModelSettingRow(props: {
 export function Beside(props: { beside?: ReactNode; children: ReactNode }) {
   if (!props.beside) return props.children;
   return (
-    <div className="flex flex-wrap items-start justify-end gap-2">
+    <div className="flex items-center justify-end gap-2">
       {props.children}
       {props.beside}
     </div>

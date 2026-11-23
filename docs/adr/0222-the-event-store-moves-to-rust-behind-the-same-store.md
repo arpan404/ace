@@ -348,19 +348,31 @@ TypeScript interface.
 - Questions 1 to 4 below change or delete stored data: nothing of phase 4 or cold storage is
   built until the owner answers them.
 
-## Questions for the owner
+## The owner's answers (2026-11-23)
 
-1. Item bodies are stored up to five times (events, history revision, `items`, engine `items`
-   record, preview). Which copies may the writer stop making? The history reference (70% of
-   revisions) is safe by construction; the engine record and the preview are the engine's.
-2. Search takes 8.9 GB (19.6%), of which the trigram indexes are about 3 GB. Keep trigram search
-   over every body, or index bodies only up to a size?
-3. Cold storage for long-settled threads: wanted, and after how long?
-4. Compression is forward-only: old rows stay as they are, so the file stops growing as fast but
-   does not shrink. Should an idle, bounded recompression of old rows run (it rewrites history,
-   in batches, and leaves free pages that space reclaim returns)?
-5. Confirm the orchestrator's calls above (in-process addon; 1a behind the switch).
-6. `status-storage.process.test.ts` uses node:sqlite's `db.function` (a JavaScript SQL
-   function) to trap reads of event bodies; no daemon code uses it. Offer `function` on the
-   native connection (a JavaScript callback from inside a SQLite step, which needs an N-API env
-   held across calls in the binding), or let that test trap the reads another way?
+The owner answered the storage questions with "do whatever is best". Decided on that basis:
+
+1. **Item copies.** The writer stops storing a history revision's body when it equals the item in
+   the event row at its sequence (section 6, step 1), behind the phase 4 rollback contract above.
+   The engine `items` record and the preview stay until E5, when the engine that owns them is in
+   Rust and can say which reads still need them; the event row stays the source of truth.
+2. **Search.** Trigram indexing keeps every message and reasoning body whole, and indexes tool
+   output and other bodies up to their first 64 KiB. A search for text past that point in a long
+   tool output no longer finds it; nothing else changes. Measured on a clone before and after
+   (index size, search p50), and dropped if it saves less than a gigabyte there.
+3. **Cold storage: yes.** A thread whose whole tree has been settled and unopened for 60 days moves
+   to the segment file in idle, bounded batches (ADR 0170). Opening one, or any write to it, brings
+   it back first; a thread with any part working or waiting on the person never moves. Built after
+   phase 4, with its own switch and rollback rule: a build with it off still opens every thread.
+4. **Recompression: yes**, idle and bounded like cold storage, pausing whenever the daemon is
+   busy, with space reclaim returning the freed pages. It runs only after phase 4 has been on for
+   a release, so there is one stored format to convert to.
+5. **Confirmed**: the in-process addon, and 1a behind its switch.
+6. **No JavaScript callback inside SQLite steps.** `status-storage.process.test.ts` traps body
+   reads another way (a statement trace on the native connection, or asserting the query plan);
+   the binding holds no N-API env across calls.
+
+The owner also decided (2026-11-23) that the daemon leaves Bun entirely: the store's reads and
+writes and the socket transport move to Rust (ADR 0226). With the transport in Rust, a read can be
+encoded to the wire without crossing into JavaScript, which removes the cost that made phases 1b
+and 3 slower; they are reconsidered there.

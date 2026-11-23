@@ -9,7 +9,8 @@ import { createSpadeSession } from "./spade-session.ts";
  * A member's answer to a shared bot's request on an organization's host (ADR 0206 §6, §8.1):
  * the daemon stamps it only while the member's standing is current, and a standing proven more
  * than 60 seconds ago is checked with the account backend first. A check that says no, or that
- * can't be made, refuses the answer before it reaches Spade.
+ * can't be made, refuses the answer before it reaches Spade. The host's audit log is read only by
+ * a member whose role allows `audit:read`, on the same checked standing.
  */
 
 const T0 = 1_800_000_000_000;
@@ -19,6 +20,8 @@ const approval = "/v1/conversations/c1/approvals/call1";
 async function orgHostSession(
   answers: (grant: string) => Promise<{ current: boolean; role?: string }>,
   onTestFinished: (close: () => Promise<void>) => void,
+  role = gus.role,
+  hostCredential = false,
 ) {
   let clock = T0;
   const asked: string[] = [];
@@ -45,7 +48,13 @@ async function orgHostSession(
   });
   /** Proves `grant`, issued at `issuedAt`, on the socket, as each `account.standing` does. */
   const prove = (issuedAt = T0, grant = "grant-gus") =>
-    standing.prove({ until: issuedAt + 300_000, generation: 1, member: gus, grant, issuedAt });
+    standing.prove({
+      until: issuedAt + 300_000,
+      generation: 1,
+      member: { ...gus, role },
+      grant,
+      issuedAt,
+    });
   prove();
   const sent: ServerMessage[] = [];
   const service = createSpadeSession({
@@ -66,21 +75,20 @@ async function orgHostSession(
     send: (message) => sent.push(message as ServerMessage),
     device: () => DeviceId.parse("phone"),
     orgHost: () => true,
+    hostCredential: () => hostCredential,
     memberStanding: () => standing.current(),
     memberStandingChecked: () => standing.checked(),
     now: () => clock,
   });
   onTestFinished(async () => service.close?.());
   let requests = 0;
-  const answer = async () => {
-    const requestId = `answer-${++requests}`;
+  const send = async (request: { method: "GET" | "POST"; path: string; body?: string }) => {
+    const requestId = `request-${++requests}`;
     await service.handle?.(
       SpadeClientMessage.parse({
         type: "spade.http",
         requestId,
-        method: "POST",
-        path: approval,
-        body: JSON.stringify({ allowed: true }),
+        ...request,
       } satisfies z.input<typeof SpadeClientMessage>),
       DeviceId.parse("phone"),
     );
@@ -93,8 +101,12 @@ async function orgHostSession(
     }
     throw new Error(`No result for ${requestId}`);
   };
+  const answer = () =>
+    send({ method: "POST", path: approval, body: JSON.stringify({ allowed: true }) });
+  const readAudit = () => send({ method: "GET", path: "/v1/org/audit/export" });
   return {
     answer,
+    readAudit,
     prove,
     asked,
     seen,
@@ -199,4 +211,53 @@ test("a grant's confirmation lasts its minute however many other grants are conf
   host.prove(T0);
   expect(await host.answer()).toMatchObject({ status: 200 });
   expect(host.asked).toHaveLength(10);
+});
+
+test("a member's read of the host's audit log is refused before it reaches Spade", async ({
+  onTestFinished,
+}) => {
+  const host = await orgHostSession(
+    async () => ({ current: true, role: "member" }),
+    onTestFinished,
+  );
+
+  expect(await host.readAudit()).toMatchObject({
+    kind: "error",
+    code: "forbidden",
+    message: "Only your organization's admins can read its audit log.",
+  });
+  expect(host.seen).toEqual([]);
+});
+
+test("an admin reads the host's audit log, and an admin the backend no longer has can't", async ({
+  onTestFinished,
+}) => {
+  const admin = await orgHostSession(
+    async () => ({ current: true, role: "admin" }),
+    onTestFinished,
+    "admin",
+  );
+  expect(await admin.readAudit()).toMatchObject({ status: 200 });
+  expect(admin.seen).toHaveLength(1);
+
+  const removed = await orgHostSession(async () => ({ current: false }), onTestFinished, "admin");
+  removed.advance(61_000);
+  expect(await removed.readAudit()).toMatchObject({ kind: "error", code: "forbidden" });
+  expect(removed.asked).toEqual(["grant-gus"]);
+  expect(removed.seen).toEqual([]);
+});
+
+test("the host's own command line reads its audit log without a member's standing", async ({
+  onTestFinished,
+}) => {
+  const host = await orgHostSession(
+    async () => ({ current: false }),
+    onTestFinished,
+    "member",
+    true,
+  );
+  host.advance(61_000);
+
+  expect(await host.readAudit()).toMatchObject({ status: 200 });
+  expect(host.asked).toEqual([]);
 });

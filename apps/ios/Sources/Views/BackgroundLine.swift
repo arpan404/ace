@@ -9,51 +9,49 @@ struct BackgroundLine: View {
     @Environment(\.stopBackground) private var stopBackground
     @Environment(\.stripTasks) private var stripTasks
     @State private var stopping = false
+    @State private var showCommand = false
+    private var title: String { line.description.flatMap { $0.isEmpty ? nil : $0 } ?? line.command }
+    /// The same row a foreground command has: description, "background", time, chevron. Stop
+    /// stays at the right while the strip doesn't offer it.
     var body: some View {
-        VStack(alignment: .leading, spacing: AceTheme.Spacing.xxs) {
-            HStack(spacing: AceDesign.Space.related) {
-                // The strip's own terminal glyph, quiet here.
-                RowStatusIcon(kind: "background", tone: "idle")
-                    .frame(minWidth: AceDesign.Size.lead).accessibilityHidden(true)
-                Text(line.label).lineLimit(1)
-                Spacer(minLength: AceDesign.Space.related)
-                if line.running, line.stoppable, !stripTasks.contains(line.taskId), let stopBackground {
-                    Button {
-                        stopping = true
-                        stopBackground(line.taskId)
-                    } label: {
-                        AceIcon(.stop, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
-                            .foregroundStyle(AceTheme.Colours.mutedForeground)
-                            .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(stopping)
-                    .accessibilityLabel(stopping ? "Stopping" : "Stop background command")
-                    .accessibilityIdentifier("background.stop.\(line.taskId)")
+        HStack(spacing: AceTheme.Spacing.none) {
+            Button { showCommand = true } label: {
+                LogRowBox(open: false) {
+                    AceIcon(.terminal, size: AceDesign.Size.stepGlyph, relativeTo: .footnote)
+                } title: {
+                    CommandTitle(label: title, background: true)
+                } meta: {
+                    age
                 }
             }
-            HStack(spacing: AceDesign.Space.related) {
-                // The command, drawn as the work log's target chips are.
-                ExpandableText(line.command, id: "background:\(line.taskId)", lines: 1)
-                    .aceMonospace(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.foreground)
-                    .padding(.horizontal, AceDesign.Space.related).padding(.vertical, AceTheme.Spacing.xxs)
-                    .background(AceTheme.Colours.fill, in: AceShape.capsule)
-                Spacer(minLength: AceDesign.Space.related)
-                age.aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                    .foregroundStyle(AceTheme.Colours.subtleForeground).monospacedDigit()
+            .buttonStyle(.plain)
+            .accessibilityLabel(line.running ? "Running in background: \(title)" : "\(line.label): \(title)")
+            .accessibilityHint("Opens the full command")
+            .accessibilityAction(named: "Open full command") { showCommand = true }
+            .accessibilityIdentifier("background.\(line.taskId)")
+            if line.running, line.stoppable, !stripTasks.contains(line.taskId), let stopBackground {
+                Button {
+                    stopping = true
+                    stopBackground(line.taskId)
+                } label: {
+                    AceIcon(.stop, size: AceDesign.Size.glyphMeta, relativeTo: .footnote)
+                        .foregroundStyle(AceTheme.Colours.mutedForeground)
+                        .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(stopping)
+                .accessibilityLabel(stopping ? "Stopping" : "Stop background command")
+                .accessibilityIdentifier("background.stop.\(line.taskId)")
             }
         }
-        .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
-        .foregroundStyle(AceTheme.Colours.mutedForeground)
-        .frame(minHeight: AceDesign.Size.tap, alignment: .leading)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("background.\(line.taskId)")
+        .sheet(isPresented: $showCommand) { CommandSheet(command: line.command) }
     }
     @ViewBuilder private var age: some View {
         if line.running {
-            TimelineView(.periodic(from: .now, by: 30)) { context in Text(Self.age(line.startedAt, context.date.timeIntervalSince1970 * 1000)) }
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                Text(ActivityTime.running(since: Date(timeIntervalSince1970: line.startedAt / 1000), now: context.date))
+            }
         } else if let ended = line.endedAt {
             Text(Self.age(line.startedAt, ended))
         }

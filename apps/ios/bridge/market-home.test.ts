@@ -70,6 +70,14 @@ test("discover says it is empty when every shelf is, so the home falls back to t
   expect(discoverAnswer(discover({ hero: summary("suit", "dusk") }), { now }).empty).toBe(false);
 });
 
+test("Featured leaves out the hero and keeps listings with the same name from other sources", () => {
+  const hero = summary("suit", "mizzle");
+  const other = summary("suit", "mizzle", { source: "git:alternate" });
+  const answer = discoverAnswer(discover({ hero, featured: [hero, other] }), { now });
+  expect(answer.hero?.id).toBe("market/suit/mizzle");
+  expect(answer.featured.map((row) => row.id)).toEqual(["git:alternate/suit/mizzle"]);
+});
+
 test("a collection with no entries this build can list is left off the home", () => {
   const answer = discoverAnswer(
     discover({

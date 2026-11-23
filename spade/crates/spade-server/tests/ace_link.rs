@@ -323,14 +323,19 @@ async fn after_a_connection_worked_the_backoff_starts_over() -> Result {
 async fn an_action_the_person_was_busy_for_reaches_the_model_as_not_run_and_not_a_failure() -> Result
 {
     let home = tempfile::tempdir()?;
-    let mcp = FakeMcp::start(vec![tool("browser_busy", Some(false), None)]).await;
+    let mut act = tool("browser_act", Some(false), None);
+    std::sync::Arc::make_mut(&mut act.input_schema).insert(
+        "properties".into(),
+        json!({ "expect": { "type": "object" } }),
+    );
+    let mcp = FakeMcp::start(vec![act, tool("browser_tabs", Some(false), None)]).await;
     daemon_files(home.path(), &mcp)?;
     let spade = Spade::start_with(
         vec![
             Script::reply("").call(
                 "c1",
                 "call_tool",
-                json!({ "name": "browser_busy", "arguments": {} }),
+                json!({ "name": "browser_act", "arguments": { "action": "click", "ref": "e1" } }),
             ),
             Script::reply("I'll come back to the page."),
             Script::reply("").plain(r#"{"title":"Page"}"#),
@@ -343,17 +348,33 @@ async fn an_action_the_person_was_busy_for_reaches_the_model_as_not_run_and_not_
         .put("/v1/ace", json!({ "grant": fake_mcp::TOKEN }))
         .await?;
     wait_connected(&spade, true).await?;
-    let id = spade.ask("Click the button").await?;
-    // A browser action changes things, so it asks first.
-    spade.wait_for(&id, "approval_requested").await?;
-    let (status, _) = spade
-        .post(
-            &format!("/v1/conversations/{id}/approvals/c1"),
-            json!({ "allowed": true }),
+    support::packaged::secure(&spade).await?;
+    let stamp =
+        support::person_stamp(&spade.person_key_path, "machine", "permission:browser:true")?;
+    let (status, view) = spade
+        .put_with(
+            "/v1/security/permissions",
+            json!({ "key": "browser", "on": true }),
+            &[(spade_server::security::attest::HEADER, &stamp)],
         )
         .await?;
-    assert_eq!(status, 202);
+    assert_eq!(status, 200, "{view}");
+
+    let id = spade.ask("Click the button").await?;
     let events = spade.wait_for(&id, "reply_finished").await?;
+    let actions: Vec<_> = mcp
+        .ran()
+        .into_iter()
+        .filter(|(name, _)| name == "browser_act")
+        .map(|(_, args)| args)
+        .collect();
+    assert_eq!(
+        actions,
+        vec![json!({
+            "action": "click", "ref": "e1",
+            "expect": { "tabId": "t1", "url": "https://example.com/" }
+        })]
+    );
     let finished = events
         .iter()
         .find(|e| e["type"] == "tool_finished" && e["call_id"] == "c1")

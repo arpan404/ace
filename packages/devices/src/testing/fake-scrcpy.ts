@@ -60,7 +60,10 @@ function greet(socket: Socket): void {
  * pinned server it pairs one video socket with one control socket per greeting: a new video
  * socket is only greeted after the next control socket connects, never from a prior one.
  */
-export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
+export async function fakeDevice(
+  cleanup: Cleanup,
+  options: { resetAtControl?: boolean; atControl?: () => void } = {},
+) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
   let video: Socket | undefined;
@@ -81,7 +84,8 @@ export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: b
       socket.write(Buffer.from([0]));
       return;
     }
-    if (options.resetAtControl && !controlSeen) {
+    if (options.atControl) options.atControl();
+    else if (options.resetAtControl && !controlSeen) {
       controlSeen = true;
       // The emulator dies before it names itself: control is reset at once, and the first
       // socket, still awaited for the device name, ends a moment later.
@@ -123,8 +127,12 @@ export async function fixture(
   options: {
     /** The device resets both sockets once control connects, before naming itself. */
     resetAtControl?: boolean;
+    /** The server process exits once control connects, leaving both sockets open and silent. */
+    exitAtControl?: boolean;
     media?: DeviceMedia;
     now?: () => number;
+    /** Opens each forward-tunnel connection, in place of a real TCP connect. */
+    connect?: (port: number) => Socket;
     /** Each published frame, as it is published. */
     onFrame?: (frame: Frame) => void;
   } = {},
@@ -133,14 +141,23 @@ export async function fixture(
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "sdk/platform-tools"), { recursive: true });
   await mkdir(join(root, "sdk/emulator"), { recursive: true });
-  // The long-running `adb shell app_process ...` stays up until ace stops it.
-  await nodeBinary(join(root, "sdk/platform-tools"), "adb", "process.stdin.resume();");
+  // The long-running `adb shell app_process ...` stays up until ace stops it, or until the
+  // marker appears when the test has it exit mid-handshake.
+  const exitMarker = join(root, "server-exit");
+  await nodeBinary(
+    join(root, "sdk/platform-tools"),
+    "adb",
+    `process.stdin.resume(); setInterval(() => require("node:fs").existsSync(${JSON.stringify(exitMarker)}) && process.exit(1), 10);`,
+  );
   await nodeBinary(join(root, "sdk/emulator"), "emulator", "");
   // PATH holds only this folder, so no tool from the host is found.
   await mkdir(join(root, "bin"));
   const jar = join(root, "scrcpy-server");
   await writeFile(jar, "server");
-  const device = await fakeDevice(cleanup, { resetAtControl: options.resetAtControl ?? false });
+  const device = await fakeDevice(cleanup, {
+    resetAtControl: options.resetAtControl ?? false,
+    ...(options.exitAtControl ? { atControl: () => void writeFile(exitMarker, "") } : {}),
+  });
   const commands: string[] = [];
   const env = {
     PATH: join(root, "bin"),
@@ -189,6 +206,7 @@ export async function fixture(
         return () => clearTimeout(timer);
       },
       spawn: spawnRawSupervised,
+      ...(options.connect ? { connect: options.connect } : {}),
     },
     publish: (frame) => {
       frames.push(frame);

@@ -407,6 +407,49 @@ fn only_one_main_agent_can_exist() -> Result<()> {
 }
 
 #[test]
+fn a_sign_in_accounts_facts_are_kept_and_change_and_a_keyed_account_has_none() -> Result<()> {
+    let (_dir, path) = temp();
+    let store = Store::open(&path)?;
+    let mut account = StoredEndpoint {
+        id: "chatgpt".into(),
+        name: "sam@example.com".into(),
+        format: "openai-responses".into(),
+        base_url: "https://chatgpt.example/codex/".into(),
+        headers: Vec::new(),
+        session_header: None,
+        sign_in: Some(crate::StoredSignIn {
+            kind: "chatgpt".into(),
+            account_id: "acct-1".into(),
+            email: Some("sam@example.com".into()),
+            plan: Some("plus".into()),
+            signed_in: true,
+        }),
+        needs_key: false,
+        key_env: None,
+        preset: None,
+        created_ms: 1,
+        models: Vec::new(),
+    };
+    let keyed = StoredEndpoint {
+        id: "openai".into(),
+        sign_in: None,
+        needs_key: true,
+        preset: Some("openai".into()),
+        created_ms: 2,
+        ..account.clone()
+    };
+    store.insert_endpoint(&account)?;
+    store.insert_endpoint(&keyed)?;
+    assert_eq!(store.endpoints()?, vec![account.clone(), keyed.clone()]);
+    if let Some(sign_in) = account.sign_in.as_mut() {
+        sign_in.signed_in = false;
+    }
+    assert!(store.update_endpoint(&account)?);
+    assert_eq!(store.endpoints()?, vec![account, keyed]);
+    Ok(())
+}
+
+#[test]
 fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     let (_dir, path) = temp();
     let store = Store::open(&path)?;
@@ -417,6 +460,7 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
         base_url: "https://example.test/v1/".into(),
         headers: vec![("x-team".into(), "blue".into())],
         session_header: Some("x-session".into()),
+        sign_in: None,
         needs_key: true,
         key_env: Some("GO_KEY".into()),
         preset: Some("opencode-go".into()),
@@ -449,7 +493,13 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     assert_eq!(store.setting("fast_model")?, Some("go/kimi".into()));
     store.set_setting("fast_model", None)?;
     assert_eq!(store.setting("fast_model")?, None);
-    assert!(store.delete_endpoint("go")?);
+    assert!(store.delete_endpoint("go", 9)?);
+    // Its id is retired for good: nothing takes it again.
+    assert!(store.endpoint_retired("go")?);
+    assert!(matches!(
+        store.insert_endpoint(&endpoint),
+        Err(crate::StoreError::Exists(_))
+    ));
     assert!(store.endpoints()?.is_empty());
     Ok(())
 }
@@ -470,6 +520,8 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         )?;
         // Back to before the faces migration; the ones after it (routines' `untrusted`, the
         // skill store, helpers, seen cursors) are undone so they can run again.
+        connection.execute("DROP TABLE lane_copies", [])?;
+        connection.execute("DROP TABLE lanes_live", [])?;
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.execute_batch(
@@ -479,12 +531,12 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
+                 DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
         )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 15,
+            crate::schema::current_version() as i64 - 19,
         )?;
     }
     let store = Store::open(&path)?;
@@ -594,11 +646,11 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = crate::Store::connect(&path)?;
         connection
-            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE lane_copies; DROP TABLE lanes_live; DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 6,
+            crate::schema::current_version() as i64 - 10,
         )?;
     }
     let store = Store::open(&path)?;

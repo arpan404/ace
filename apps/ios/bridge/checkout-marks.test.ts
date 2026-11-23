@@ -9,11 +9,12 @@ import { highlightLanguage } from "./checkout-marks.ts";
 test("a file the shared highlighter names keeps that language", () => {
   expect(highlightLanguage("apps/web/main.tsx")).toBe("tsx");
   expect(highlightLanguage("crates/markit/src/lib.rs")).toBe("rust");
+  expect(highlightLanguage(".github/workflows/ios.yml")).toBe("yaml");
+  expect(highlightLanguage("docs/README.MD")).toBe("markdown");
 });
 
 test("a file the shared highlighter doesn't name is coloured by its extension", () => {
-  expect(highlightLanguage(".github/workflows/ios.yml")).toBe("yml");
-  expect(highlightLanguage("docs/README.MD")).toBe("md");
+  expect(highlightLanguage("examples/query.JSONL")).toBe("jsonl");
 });
 
 test("a file without an extension shows plain", () => {

@@ -279,7 +279,7 @@ test("Apps lists each connected app with its health and the bots that use it, an
     {
       id: "linear",
       name: "Linear",
-      health: "Needs reconnect",
+      health: "Signed out",
       ok: false,
       account: null,
       line: "Spade · Not used yet",

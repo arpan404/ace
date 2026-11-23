@@ -177,13 +177,30 @@ function InPlace(props: {
 
 /** The goal: its title and the person's words, each criterion with the check's verdict. */
 export function WorkGoal(props: { bot: RosterBot; task: SpadeTask }) {
-  const { bot, task } = props;
-  const save = useSaveGoal(bot, task);
+  const save = useSaveGoal(props.bot, props.task);
+  return <GoalSection task={props.task} save={save} />;
+}
+
+/**
+ * A task lane's goal (ADR 0217 §7): the same section, read only, since a lane's goal is the
+ * bot's to set and the person steers it by writing to the task.
+ */
+export function TaskGoal(props: { task: SpadeTask }) {
+  return <GoalSection task={props.task} />;
+}
+
+function GoalSection(props: {
+  task: SpadeTask;
+  /** Changes the goal in place; without it the goal reads only. */
+  save?: ReturnType<typeof useSaveGoal>;
+}) {
+  const { task, save } = props;
   const [adding, setAdding] = useState(false);
   const { criteria, note } = spadeCriteriaMarks(task);
   const texts = task.goal.criteria.map((criterion) => criterion.text);
   const heading = spadeGoalHeading(task.progress);
-  const open = task.goal.closed === undefined;
+  // An open goal changes in place, where it can be changed at all.
+  const edit = task.goal.closed === undefined ? save : undefined;
   return (
     <ProfileSection
       label="Goal"
@@ -201,12 +218,12 @@ export function WorkGoal(props: { bot: RosterBot; task: SpadeTask }) {
       }
     >
       <div className="flex flex-col gap-0.5 py-3">
-        {open ? (
+        {edit ? (
           <InPlace
             value={task.goal.title}
             label="the goal"
             className="py-0.5 text-md leading-[22px] font-medium"
-            save={(title) => save({ title })}
+            save={(title) => edit({ title })}
           >
             {task.goal.title}
           </InPlace>
@@ -224,12 +241,12 @@ export function WorkGoal(props: { bot: RosterBot; task: SpadeTask }) {
             label={criterion.met ? "Met" : "Not met yet"}
           />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            {open ? (
+            {edit ? (
               <InPlace
                 value={criterion.text}
                 label="the criterion"
                 className="text-ui leading-5 text-foreground"
-                save={(text) => save({ criteria: texts.with(index, text) })}
+                save={(text) => edit({ criteria: texts.with(index, text) })}
               >
                 {criterion.text}
               </InPlace>
@@ -240,16 +257,16 @@ export function WorkGoal(props: { bot: RosterBot; task: SpadeTask }) {
               <p className="text-xs leading-4 text-muted-foreground">{criterion.why}</p>
             )}
           </div>
-          {open && texts.length > 1 && (
+          {edit && texts.length > 1 && (
             <RemoveCriterion
               text={criterion.text}
-              onRemove={() => save({ criteria: texts.toSpliced(index, 1) })}
+              onRemove={() => edit({ criteria: texts.toSpliced(index, 1) })}
             />
           )}
         </div>
       ))}
       {note && <p className="py-2.5 text-xs leading-4 text-muted-foreground">{note}</p>}
-      {open &&
+      {edit &&
         (adding ? (
           <div className="flex gap-2.5 py-2.5">
             <Mark mark="open" label="Not met yet" />
@@ -259,7 +276,7 @@ export function WorkGoal(props: { bot: RosterBot; task: SpadeTask }) {
               placeholder="What must hold for it to be done"
               editing
               className="text-ui leading-5"
-              save={(text) => save({ criteria: [...texts, text] })}
+              save={(text) => edit({ criteria: [...texts, text] })}
               onDone={() => setAdding(false)}
             >
               {""}

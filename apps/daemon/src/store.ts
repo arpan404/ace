@@ -39,7 +39,7 @@ import { timeOrderedIds } from "./time-ordered-id.ts";
 import { NativeImageStore } from "./native-image-store.ts";
 import { ToolResultStore } from "./tool-result-store.ts";
 import { MeasurementStore } from "./measurement-store.ts";
-import { migrateProjects, decodeProjectRow } from "./project-storage.ts";
+import { migrateProjects } from "./project-storage.ts";
 import { LongThreadIndex } from "./long-thread/index.ts";
 import { type TurnStepsSource } from "./long-thread/steps.ts";
 import {
@@ -50,8 +50,8 @@ import {
   type ThreadCatchUpRequest as CatchUpQuery,
 } from "@ace/protocol";
 import { WorkspaceReservations } from "./workspace-reservations.ts";
+import { WorkspaceStore, type WorkspaceDetails } from "./workspace-store.ts";
 import { migrateRunClient } from "./run-client-storage.ts";
-import { executionWorkspace } from "./workspace-root.ts";
 import { migrateThreadClient, seedThreadClient } from "./thread-client-storage.ts";
 import { migrateThreadCold } from "./thread-cold.ts";
 import { HistoryIndex } from "./history-index.ts";
@@ -73,7 +73,6 @@ import {
   ThreadId,
   type ItemId,
   type ThreadView,
-  type ProjectKind,
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
@@ -140,7 +139,7 @@ export class Store {
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
-  private engineSessionsKnown = false;
+  private readonly workspaces: WorkspaceStore;
   private statements = new BoundedCache<string, StatementSync>(256, 256);
   private transactionEvents: Event[] | undefined;
   private settlements: { at: number; outcome: TransactionOutcome }[] = [];
@@ -296,6 +295,18 @@ export class Store {
       openThreadRowTrust(this.db, options.threadRowShape ?? threadRowShape(schemaVersion));
       migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
+      this.workspaces = new WorkspaceStore({
+        statement: (sql) => this.statement(sql),
+        atomic: (run) => this.atomic(run),
+        transaction: (run) => this.transaction(run),
+        nextId: () => this.nextId(),
+        appendEvents: (threadId, payloads) => {
+          this.appendEvents(threadId, payloads);
+        },
+        getThread: (id) => this.getThread(id),
+        readThread: (id) => this.readThread(id),
+        reservations: this.workspaceReservations,
+      });
       this.atomic(migrateThreadClient);
       this.atomic(migrateThreadCold);
       // Needs every threads column the sidebar reads; its triggers cover the passes below.
@@ -946,61 +957,14 @@ export class Store {
       this.deferredAfter = Math.max(this.deferredAfter, through);
     this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   }
-  getWorkspace(id: WorkspaceId):
-    | {
-        path: string;
-        name: string;
-        icon?: string | null;
-        defaultIcon?: string | null;
-        kind?: ProjectKind;
-      }
-    | undefined {
-    const row = this.statement(
-      "SELECT w.id,w.path,w.name,m.icon,m.default_icon AS defaultIcon,m.kind FROM workspaces w LEFT JOIN workspace_metadata m ON m.workspace_id=w.id WHERE w.id=?",
-    ).get(id);
-    if (!row) return undefined;
-    const project = decodeProjectRow(row);
-    return {
-      path: project.path,
-      name: project.name,
-      ...(project.icon === undefined ? {} : { icon: project.icon }),
-      ...(project.defaultIcon === undefined ? {} : { defaultIcon: project.defaultIcon }),
-      ...(project.kind ? { kind: project.kind } : {}),
-    };
+  getWorkspace(id: WorkspaceId): WorkspaceDetails | undefined {
+    return this.workspaces.getWorkspace(id);
   }
   executionWorkspace(id: ThreadId) {
-    const thread = this.getThread(id);
-    if (!thread) throw new Error("thread_not_found");
-    if (!this.engineSessionsKnown)
-      this.engineSessionsKnown = Boolean(
-        this.statement(
-          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'",
-        ).get(),
-      );
-    const session = this.engineSessionsKnown
-      ? this.statement("SELECT * FROM engine_sessions WHERE thread_id=?").get(id)
-      : undefined;
-    const binding = executionWorkspace(
-      thread,
-      session,
-      session === undefined ? this.getWorkspacePath(thread.workspaceId) : undefined,
-    );
-    const root =
-      session === undefined
-        ? this.workspaceReservations.workspaceRoot(thread.workspaceId, binding.path)
-        : binding.path;
-    this.workspaceReservations.assertAvailable(root);
-    return binding;
+    return this.workspaces.executionWorkspace(id);
   }
   completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
-    const thread = this.readThread(id);
-    if (!thread || thread.deletedAt !== undefined) return false;
-    this.workspaceReservations.assertAvailable(expectedPath);
-    this.workspaceReservations.assertAvailable(path);
-    const result = this.statement(
-      "UPDATE engine_sessions SET cwd=?,workspace_ready=1 WHERE thread_id=? AND cwd=? AND workspace_ready=0",
-    ).run(path, id, expectedPath);
-    return result.changes === 1;
+    return this.workspaces.completeWorkspacePreparation(id, expectedPath, path);
   }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
@@ -1013,53 +977,17 @@ export class Store {
     this.sidebarReads.invalidate();
   }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
-    return this.atomic(() => {
-      const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
-      const id = WorkspaceId.parse(existing?.id ?? this.nextId());
-      if (!existing)
-        this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
-      this.workspaceReservations.registerWorkspace(id, path);
-      return id;
-    });
+    return this.workspaces.createWorkspace(path, name, at);
   }
   getWorkspacePath(id: WorkspaceId): string | undefined {
-    const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
-    return typeof row?.path === "string" ? row.path : undefined;
+    return this.workspaces.getWorkspacePath(id);
   }
-  /**
-   * Indexed fan-out to the current threads running in `root`: those whose session runs there,
-   * and those not yet started whose project is that root. Threads in the project's other
-   * checkouts never hear about it. Never scans event or transcript history.
-   */
   recordWorkspaceFileChange(
     workspaceId: WorkspaceId,
     root: string,
     input: WorkspaceFileChange,
   ): void {
-    const change = WorkspaceFileChange.parse(input);
-    const sessions = Boolean(
-      this.statement(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'",
-      ).get(),
-    );
-    const projectRoot = this.workspaceReservations.workspaceRoot(workspaceId, "");
-    const scope = sessions
-      ? `(t.id IN (SELECT thread_id FROM engine_sessions WHERE cwd=?) OR (? AND NOT EXISTS (SELECT 1 FROM engine_sessions s WHERE s.thread_id=t.id)))`
-      : `(? IS NOT NULL AND ?)`;
-    let after = "";
-    for (;;) {
-      const rows = this.statement(
-        `SELECT t.id FROM threads t WHERE t.workspace_id=? AND t.archived_at IS NULL AND json_extract(t.client,'$.deletedAt') IS NULL AND ${scope} AND t.id>? ORDER BY t.id LIMIT 64`,
-      ).all(workspaceId, root, projectRoot === root ? 1 : 0, after);
-      if (!rows.length) return;
-      this.transaction(() => {
-        for (const row of rows) {
-          const id = ThreadId.parse(row.id);
-          this.appendEvents(id, [{ type: "workspace.files_changed", workspaceId, change }]);
-          after = id;
-        }
-      });
-    }
+    this.workspaces.recordWorkspaceFileChange(workspaceId, root, input);
   }
   /** The caller's own copy, free to change. */
   getThread(id: ThreadId): Thread | undefined {

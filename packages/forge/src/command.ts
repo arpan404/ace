@@ -134,9 +134,15 @@ export function createCommandRunner(options: {
       }
       chunks.push(chunk);
     });
-    let diagnostics = "";
+    // The first 4 KiB of stderr, as bytes: decoded once, so a character split across chunks
+    // is read whole.
+    const stderrHead: Buffer[] = [];
+    let stderrBytes = 0;
     child.stderr.on("data", (chunk: Buffer) => {
-      if (diagnostics.length < 4_096) diagnostics += chunk.toString("utf8", 0, 4_096);
+      if (stderrBytes >= stderrHeadBytes) return;
+      const kept = chunk.subarray(0, stderrHeadBytes - stderrBytes);
+      stderrHead.push(kept);
+      stderrBytes += kept.length;
     });
     child.stdin.on("error", () => {});
     try {
@@ -152,6 +158,9 @@ export function createCommandRunner(options: {
         child.stdin.end(request.input);
       });
       if (failure) throw failure;
+      // Classified as the CLI wrote it: this text never leaves the runner, so it is neither
+      // redacted (a token's redaction can swallow a marker after it) nor cut to whole lines.
+      const diagnostics = Buffer.concat(stderrHead, stderrBytes).toString("utf8");
       const output =
         request.mode === "tail"
           ? tail.finish()
@@ -212,6 +221,8 @@ async function windowsLaunch(command: string, env: NodeJS.ProcessEnv) {
   if (found === undefined) throw new ForgeError("cli", undefined, false);
   return { command: found, createJob: () => createKillOnCloseJob() };
 }
+
+const stderrHeadBytes = 4_096;
 
 /** tea --include writes HTTP metadata to stderr. Keep a narrow nonsecret projection. */
 function teaHttp(stderr: string): CommandResult["http"] {

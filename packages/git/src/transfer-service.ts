@@ -1,5 +1,9 @@
 import type { ProjectGitPolicy } from "./projects.ts";
 import { mkdir } from "node:fs/promises";
+import type { GitPart } from "@ace/provider-kit/native-switches";
+import { runNativeCheckpoints } from "./native-checkpoints.ts";
+import { runNativeReads } from "./native-reads.ts";
+import { runNativeWrites } from "./native-writes.ts";
 import type { Repository } from "./repository.ts";
 import { applyChanges } from "./transfer-apply.ts";
 import { createBundle, fetchBundle, verifyBundle } from "./transfer-bundle.ts";
@@ -30,9 +34,12 @@ export interface Held {
  */
 export class GitTransfer {
   private readonly repository: Repository;
+  /** The git parts served natively, from the owning `GitService`. */
+  private readonly gitParts: ReadonlySet<GitPart>;
 
-  constructor(repository: Repository) {
+  constructor(repository: Repository, parts: ReadonlySet<GitPart>) {
     this.repository = repository;
+    this.gitParts = parts;
   }
 
   private async within<T>(path: string, operation: (root: string) => Promise<T>): Promise<T> {
@@ -57,18 +64,30 @@ export class GitTransfer {
 
   /** Whether `path` is in a work tree (and where its top is), a plain folder, or refused. */
   sourceCheckout(path: string): Promise<SourceCheckout> {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.sourceCheckout", () => sourceCheckout(this.repository, path));
     return sourceCheckout(this.repository, path);
   }
   /** `origin`'s fetch URL and its `normalizeRemoteUrl` key; undefined without an origin. */
   transferOrigin(path: string) {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.transferOrigin", () =>
+        this.within(path, (root) => transferOrigin(this.repository, root)),
+      );
     return this.within(path, (root) => transferOrigin(this.repository, root));
   }
   /** Every remote and the folder inside the work tree; undefined outside Git (ADR 0180). */
   checkoutFacts(path: string) {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.checkoutFacts", () => checkoutFacts(this.repository, path));
     return checkoutFacts(this.repository, path);
   }
   /** Uncommitted changes as a commit on HEAD at `ref`; checkout and index untouched. */
   captureChanges(path: string, options: { ref: string; message?: string | undefined }) {
+    if (this.gitParts.has("checkpoints"))
+      return runNativeCheckpoints("transfer.captureChanges", () =>
+        this.within(path, (root) => captureChanges(this.repository, root, options)),
+      );
     return this.within(path, (root) => captureChanges(this.repository, root, options));
   }
   /**
@@ -76,25 +95,49 @@ export class GitTransfer {
    * `/`. `under` (work-tree relative) narrows them to one folder. See `ignoredPaths`.
    */
   ignoredPaths(path: string, under?: string): Promise<string[]> {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.ignoredPaths", () =>
+        this.within(path, (root) => ignoredPaths(this.repository, root, under)),
+      );
     return this.within(path, (root) => ignoredPaths(this.repository, root, under));
   }
   bundleRefs(path: string) {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.bundleRefs", () =>
+        this.within(path, (root) => bundleRefs(this.repository, root)),
+      );
     return this.within(path, (root) => bundleRefs(this.repository, root));
   }
   createBundle(
     path: string,
     options: { file: string; refs: readonly string[]; exclude?: readonly string[] | undefined },
   ) {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.createBundle", () =>
+        this.within(path, (root) => createBundle(this.repository, root, options)),
+      );
     return this.within(path, (root) => createBundle(this.repository, root, options));
   }
   deleteRef(path: string, ref: string, held?: Held): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.deleteRef", () =>
+        this.at(path, held, (root, fd) => deleteRef(this.repository, root, ref, fd)),
+      );
     return this.at(path, held, (root, fd) => deleteRef(this.repository, root, ref, fd));
   }
   /** Points `ref` at `commit`, e.g. a detached HEAD so its bundle carries it. */
   pinRef(path: string, ref: string, commit: string): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.pinRef", () =>
+        this.within(path, (root) => pinRef(this.repository, root, ref, commit)),
+      );
     return this.within(path, (root) => pinRef(this.repository, root, ref, commit));
   }
   createBranch(path: string, name: string, commit: string): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.createBranch", () =>
+        this.within(path, (root) => createBranch(this.repository, root, name, commit)),
+      );
     return this.within(path, (root) => createBranch(this.repository, root, name, commit));
   }
 
@@ -103,12 +146,20 @@ export class GitTransfer {
     input: BundleCloneOptions,
     policy?: ProjectGitPolicy,
   ): Promise<{ branch: string | undefined }> {
-    if (input.directoryFd === undefined) await mkdir(input.path);
-    return this.repository.serial(input.path, () =>
-      cloneFromBundle(this.repository, input, policy),
-    );
+    const run = async (): Promise<{ branch: string | undefined }> => {
+      if (input.directoryFd === undefined) await mkdir(input.path);
+      return this.repository.serial(input.path, () =>
+        cloneFromBundle(this.repository, input, policy),
+      );
+    };
+    if (this.gitParts.has("writes")) return runNativeWrites("transfer.cloneFromBundle", run);
+    return run();
   }
   verifyBundle(path: string, bundle: string, held?: Held): Promise<boolean> {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.verifyBundle", () =>
+        this.at(path, held, (root, fd) => verifyBundle(this.repository, root, bundle, fd)),
+      );
     return this.at(path, held, (root, fd) => verifyBundle(this.repository, root, bundle, fd));
   }
   fetchBundle(
@@ -117,12 +168,22 @@ export class GitTransfer {
     refspecs: readonly string[],
     held?: Held,
   ): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.fetchBundle", () =>
+        this.at(path, held, (root, directoryFd) =>
+          fetchBundle(this.repository, root, bundle, refspecs, { directoryFd }),
+        ),
+      );
     return this.at(path, held, (root, directoryFd) =>
       fetchBundle(this.repository, root, bundle, refspecs, { directoryFd }),
     );
   }
   /** Whether the repository has `commit`; never fetches. */
   hasCommit(path: string, commit: string, held?: Held): Promise<boolean> {
+    if (this.gitParts.has("reads"))
+      return runNativeReads("transfer.hasCommit", () =>
+        this.at(path, held, (root, fd) => hasCommit(this.repository, root, commit, fd)),
+      );
     return this.at(path, held, (root, fd) => hasCommit(this.repository, root, commit, fd));
   }
   /** Every branch of `origin` into `refs/remotes/origin/*`; local branches untouched. */
@@ -131,18 +192,34 @@ export class GitTransfer {
     options: { timeoutMs?: number; signal?: AbortSignal | undefined } = {},
     policy?: ProjectGitPolicy,
   ): Promise<void> {
-    const timeoutMs = options.timeoutMs ?? 60_000;
-    return this.within(path, (root) =>
-      fetchOrigin(this.repository, root, { ...options, timeoutMs }, policy),
-    );
+    const run = (): Promise<void> => {
+      const timeoutMs = options.timeoutMs ?? 60_000;
+      return this.within(path, (root) =>
+        fetchOrigin(this.repository, root, { ...options, timeoutMs }, policy),
+      );
+    };
+    if (this.gitParts.has("writes")) return runNativeWrites("transfer.fetchOrigin", run);
+    return run();
   }
   applyChanges(path: string, commit: string, held?: Held): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.applyChanges", () =>
+        this.at(path, held, (root, fd) => applyChanges(this.repository, root, commit, fd)),
+      );
     return this.at(path, held, (root, fd) => applyChanges(this.repository, root, commit, fd));
   }
   landingBranch(path: string, options: { branch: string; commit: string; machine: string }) {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.landingBranch", () =>
+        this.within(path, (root) => landingBranch(this.repository, root, options)),
+      );
     return this.within(path, (root) => landingBranch(this.repository, root, options));
   }
   checkoutState(path: string) {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.checkoutState", () =>
+        this.within(path, (root) => checkoutState(this.repository, root)),
+      );
     return this.within(path, (root) => checkoutState(this.repository, root));
   }
   checkoutBranch(
@@ -150,15 +227,29 @@ export class GitTransfer {
     options: { name: string; commit: string },
     held?: Held,
   ): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.checkoutBranch", () =>
+        this.at(path, held, (root, directoryFd) =>
+          checkoutBranch(this.repository, root, { ...options, directoryFd }),
+        ),
+      );
     return this.at(path, held, (root, directoryFd) =>
       checkoutBranch(this.repository, root, { ...options, directoryFd }),
     );
   }
   fastForward(path: string, commit: string): Promise<void> {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.fastForward", () =>
+        this.within(path, (root) => fastForward(this.repository, root, commit)),
+      );
     return this.within(path, (root) => fastForward(this.repository, root, commit));
   }
   /** Serialises inside `createWorktree`. */
   addBranchWorktree(repo: string, options: { path: string; branch: string }) {
+    if (this.gitParts.has("writes"))
+      return runNativeWrites("transfer.addBranchWorktree", () =>
+        addBranchWorktree(this.repository, repo, options),
+      );
     return addBranchWorktree(this.repository, repo, options);
   }
 }

@@ -17,6 +17,7 @@ fn endpoint(id: &str) -> StoredEndpoint {
         base_url: "http://127.0.0.1:9".to_owned(),
         headers: Vec::new(),
         session_header: None,
+        sign_in: None,
         needs_key: false,
         key_env: None,
         preset: None,

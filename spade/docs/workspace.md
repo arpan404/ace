@@ -1,6 +1,6 @@
 # Workspaces and skills a bot writes
 
-Date: 2026-11-12, the skill store 2026-11-14. As built for
+Date: 2026-11-12, the skill store 2026-11-14, file tools and `python` 2026-11-23 (ADR 0220). As built for
 [ADR 0130](../../docs/adr/0130-spade-skills-and-workspace.md) and points 1–7 of
 [ADR 0151](../../docs/adr/0151-spade-skills-and-plugins.md), in `spade-server` (`workspace/`,
 `learning/`, `skill_store/`, `api/workspace.rs`, `api/skills.rs`). Extends
@@ -26,16 +26,46 @@ never waits on one. Searches skip anything but regular files without opening it.
 
 ### Tools
 
-| Tool               | Arguments                   | Risk  | What it does                                                                              |
-| ------------------ | --------------------------- | ----- | ----------------------------------------------------------------------------------------- |
-| `workspace_list`   | `path?`                     | read  | One folder: folders first (`name/`), files with their size, links marked; 500 entries max |
-| `workspace_read`   | `path, offset?, limit?`     | read  | Numbered lines `offset..offset+limit` (default 1 and 400, at most 2,000) of a text file   |
-| `workspace_search` | `text, path?, ignore_case?` | read  | `path:line: text` for lines containing `text`; links not followed, 200 matches max        |
-| `workspace_write`  | `path, content`             | write | Writes the whole file (2 MiB max), creating folders                                       |
-| `workspace_edit`   | `path, old, new`            | write | Replaces the one place `old` appears; refused when it appears 0 or several times          |
-| `shell`            | `command, timeout_s?`       | write | Runs the command in the folder (see below)                                                |
+| Tool               | Arguments                                                                   | Risk  | What it does                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------- |
+| `workspace_list`   | `path?`                                                                     | read  | One folder: folders first (`name/`), files with their size, links marked; 500 entries max                        |
+| `workspace_read`   | `path, offset?, limit?`                                                     | read  | Numbered lines `offset..offset+limit` (default 1 and 400, at most 2,000) of a text file; an image or a document  |
+| `workspace_search` | `text, path?, ignore_case?, regex?, glob?`                                  | read  | `path:line: text` for lines holding `text` (or matching it, with `regex`); links not followed, 200 matches max   |
+| `workspace_find`   | `pattern, path?`                                                            | read  | `N files:` then `path (size bytes)` for each file whose path fits the glob, by path; links not followed, 500 max |
+| `workspace_write`  | `path, content`                                                             | write | Writes the whole file (2 MiB max), creating folders                                                              |
+| `workspace_edit`   | `path, old, new, replace_all?` or `path, edits: [{old, new, replace_all?}]` | write | Replaces `old` at its one place (every place with `replace_all`); several edits apply in order, all or none      |
+| `shell`            | `command, timeout_s?, outside_sandbox?`                                     | write | Runs the command in the folder (see below)                                                                       |
+| `python`           | `code` or `path, args?`, `timeout_s?`                                       | write | Runs Python in the folder, in the bot's sandbox only (see below)                                                 |
 
 Text files are read up to 4 MiB; anything not UTF-8 is reported as binary.
+
+**Reading images and documents.** `workspace_read` looks at a file's first bytes. A PNG, JPEG,
+GIF or WebP (up to 3.75 MB) comes back as the image, beside the line `path: a PNG image, N
+bytes.`; a model that doesn't see images reads `[workspace_read returned an image (image/png),
+but this model cannot see images.]` instead, as for any tool's image. A PDF, Word or Excel file
+(up to 32 MiB) goes through the document reader ([media.md](media.md)): it is stored like a file
+the person attached and the model reads its `<document …>` view, reading on with
+`document_read`. Anything else is read as text as before. The trust rule is the same for all of
+them: trusted only when the bytes are the ones Spade's file tools recorded.
+
+**Searching.** `text` is found as written (`ignore_case` lower-cases both sides) or, with
+`regex: true`, read as a regular expression by the `regex` crate, which runs in time linear in
+the text whatever the pattern; a pattern over 1,000 characters, nested past 64 or compiling past
+1 MiB is refused in words. `glob` keeps the search to files whose path fits it. A pattern without
+`/` (`*.csv`) is matched against the file's name in any folder, one with `/` (`data/*.csv`,
+`src/**/*.rs`) against its path from the top; `*` and `?` stay within a name, `**` crosses
+folders and `[a-z]`, `[!a-z]` match one character. A glob is compiled to a regular expression, so
+it matches in linear time whatever its wildcards. A search or find opens the start folder and
+every folder under it one name at a time without following a link, opens each file the same way and checks it is a regular file on the opened handle (never by its name first), visits 20,000 entries (files
+and folders) at most, checks its 5-second deadline at every entry and every 4,096 lines it
+scans, reads no more of a file than its 2 MiB cap whatever the file has grown to, and says when
+it stopped early.
+
+**Edits.** Each edit must find its `old`: once, or any number of times with `replace_all`. In a
+batch each applies to what the ones before it left; when one can't, the call fails with `Edit 2
+of 3 ("old text…"): why. Nothing was changed.` and the file is left as it was. Each edit's
+resulting size is worked out first, with checked arithmetic, and one past 2 MiB is refused before
+anything is built. The answer says how many places changed. Trust is recorded as for a single edit.
 
 ### The shell
 
@@ -79,6 +109,131 @@ as the command, and the gate looks for an `approval_answered` with `always` whos
 `approval_requested` had the same tool and scope in the conversation's events. A turn that read
 untrusted content asks for every command, `always` or not; since shell output is untrusted, that
 includes a second command in the same turn.
+
+### Python
+
+`python` runs Python 3 for the bot: `code`, or a script in the workspace (`path`, with `args`),
+in the workspace folder, with a fixed set of packages. It runs only where Spade's sandbox holds
+the bot's commands (macOS and Linux with the sandbox, and not for a bot set to run outside it);
+anywhere else it answers `Not run: the python tool runs only inside Spade's sandbox, which isn't
+holding your commands here. Run python3 with shell instead.` before anything is written. Windows
+says it isn't available there yet. ADR 0220.
+
+**One environment per machine, built by Spade.** The packages are pandas, numpy, matplotlib,
+openpyxl, python-docx, pypdf and requests, with everything they need, as `spade/config/python-lock.txt`
+pins them: exact versions and every wheel's hash, from `https://pypi.org/simple`. Nothing else can
+be installed, and nothing is resolved at runtime. Spade builds the environment itself, on the
+host, never in a bot's sandbox, the first time any bot runs `python` (never at start), into
+`<data folder>/workspace/.python/shared/`:
+
+| In `shared/`                  | What it is                                                        |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `control/`                    | `run.sh` and `boot.py`                                            |
+| `environments/<name>/`        | One environment, read-only once built, named by the lock it holds |
+| `current.json`                | Which environment bots run with now                               |
+| `pythons/`, `cache/`, `home/` | uv's downloaded CPython, its cache, its home                      |
+| `locks/`, `leases/`           | The lock installed, and the files runs hold their environment by  |
+
+Every bot's runs read `control/`, `environments/` and `pythons/` (the sandbox reopens them
+read-only, `Facts.runtime`, inside Spade's data only); nothing in any sandbox writes there.
+
+**What Spade runs to build it.** Before a build, Spade looks once for uv and the Pythons in those
+folders and vets each one it finds (`python::vetting`): resolved fully, the program and every
+folder above it (and above the name it was found by) must be owned by root or the user Spade runs
+as, never writable by others (a root-owned sticky folder such as `/tmp` passes), and writable by
+their group only when that group is root's or, on macOS, `admin` (whose members can become root
+anyway, as Homebrew's folders are); and neither the program nor the folder it was found in may
+lie inside any bot's workspace or any folder any bot may write (every write grant of every bot).
+A program that fails is never run, and the result says which and why (`Spade didn't use
+/usr/local/bin/uv: …`). uv never picks a Python by itself: it gets its pinned uv-managed CPython
+or the vetted Python by path. The environment is named from this one look (with uv, or the
+standard library), and the result names the programs that made it (`Made with uv …, uv's own
+CPython 3.12.`).
+
+**Building.** Under a machine-wide lock (`leases/build.lock`), with an environment that has only
+the system folders on `PATH`, a home of its own, uv's configuration discovery off
+(`UV_NO_CONFIG`, `--no-config`), files copied (`UV_LINK_MODE=copy`) and the machine's proxy and
+certificate variables passed on:
+
+1. **With uv** (looked for in `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`, `/bin`): `uv venv`
+   with a pinned uv-managed CPython 3.12 (downloaded once into `pythons/`), else a Python 3.10 or
+   newer on the machine; uv's own start-up hook (`_virtualenv.pth`) is removed; then `uv pip
+install --no-deps --require-hashes --only-binary :all: --index-url https://pypi.org/simple -r
+<the lock>`. Spade then checks what got installed: every package locked at its installed
+   version, every one of the seven there, and no `.pth` start-up file among them (a lock entry
+   that installs one is refused).
+2. **Without uv:** `python3 -I -S -m venv --without-pip` (no `site`, so nothing of that Python's
+   own packages runs as Spade) from the first vetted Python 3.10 or newer in
+   those folders: the standard library only, said plainly (`with its standard library only: uv
+isn't on this machine, and Spade installs packages only with uv…`). Spade doesn't fetch uv:
+   one command installs it, and a fetched binary would be one more pinned, hash-checked download
+   per platform to keep.
+3. **Neither:** `Python could not be set up: No Python 3.10 or newer was found on this machine
+(looked for uv and python3 in …). The person can install one, for example with Homebrew:
+brew install python.`
+
+The environment is built in `environments/.building-<random>`, made read-only, and moved to its
+name with one rename; only then is `current.json` replaced (one rename), and only then are other
+environments swept. A failure at any step deletes only the folder being built and leaves
+`current.json` naming a whole environment. It is built again only when Spade's lock changes (a
+new name), or uv comes or goes. The first call waits for the build and its result starts with
+`[Set up Python for Spade's bots: 3.12.14, with pandas, numpy, matplotlib, openpyxl,
+python-docx, pypdf, requests.]`.
+
+**Leases.** A run takes a shared lock on `leases/<environment>.lock` before it starts and holds
+it until its script has ended, however long that takes (a background job included). In the bot's
+terminal the lease goes to the terminal's supervisor with the command, so a call that is stopped
+or dropped first still holds the environment until everything the script started has ended. An
+environment other than the current one is deleted only when Spade can take that lock
+exclusively, so never under a running script; one still held is kept until a later sweep.
+
+**Staged scripts.** When the gate classes a call, Spade reads its script (the code, or the
+workspace file opened through real folders only, 2 MiB at most) and stages it as
+`.python/bots/<bot id>/scripts/<sha256>.py`, written by Spade through no-follow handles; the
+bot's runs read it and nothing in any sandbox writes it. A workspace script's whole text goes to
+the reviewer (`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to
+the person. Staging is required: a call whose staged copy couldn't be written, is missing at
+launch or no longer holds its bytes is refused (`Not run: Spade runs only the copy of the script
+it took when the call was checked…`), and the workspace is never read again. What a reviewer or the person
+is shown is read back from the staged copy itself, and the scope they are asked with names that
+same copy's hashes, never a copy staged again (with none still held the scope names nothing and
+the run refuses); a call they allowed runs only if those are the bytes
+staged when it runs, so a copy staged again (after a restart) from a changed file isn't run on
+their answer (`Not run: the script (or a module it imports) isn't the one the person allowed…`).
+
+**Workspace modules.** With the script Spade stages the modules it may import: each `.py` under
+the script's folder (the workspace for code, `.spade` left out, 500 at most) that Spade's file
+tools wrote from a clean prompt (a trust record whose hash its bytes still match), staged as read
+then, listed in a staged JSON. `boot.py` adds a finder at the END of `sys.meta_path`, after the
+standard library and the installed packages: a listed module is imported from its staged copy;
+any other module in the workspace raises `ImportError: <name> is a module in your workspace, but
+Spade imports only modules its file tools wrote from a clean prompt…`. The workspace is never on
+`sys.path`, so no workspace file can stand in for a standard, installed or missing module.
+`__file__` and `argv[0]` are the script's path in the workspace (`<code>` for code), the working
+folder is the workspace, and no bytecode is written.
+
+**One runner.** The call is classed as sandboxed like a contained command and goes through
+`shell`'s runner (`shell_tool::cleared` and `run_cleared`): the gate's launch is taken once, and
+the script runs in the bot's terminal on macOS and Linux (the person sees `/bin/sh
+<shared>/control/run.sh <environment> <workspace> <script> <modules> <name> <args>…`, every word
+absolute or quoted, so no name reads as an option) or the one-shot shell, with the same timeout
+(60 s unless `timeout_s`), the 30-second foreground window and background job, output caps,
+large-output file, `command_ran` and blocked hint. `run.sh` starts the environment's Python with
+`-I -S -u boot.py`: no `PYTHON*` variable, no user site, no `site` at all (so no `.pth` file and no
+`sitecustomize` runs at start), and `boot.py` adds the environment's installed packages to
+`sys.path` itself. `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window), with
+matplotlib's settings in the run's `TMPDIR`.
+
+**What it answers.** What the set-up said, if it ran, then the command's result as `shell` gives
+it (exit code, stdout, `[stderr]`), then `Files it made or changed:` with each new or changed
+file and its size and each removed one. Changes are told from each regular file's size,
+modification time to the nanosecond and inode, before and after (links never followed, Spade's
+`.spade` folder left out, 50 named at most); a same-size rewrite in place within the file
+system's timestamp precision is not seen, and a workspace past 20,000 entries says some may be
+missing. Each PNG, JPEG, GIF or WebP among them (up to 3.75 MB, 8 at most), opened without
+following a link and checked to be a file once opened, is attached to the result for the model
+and shown in the chat (a `shared` event). Its output is untrusted like any command's, and nothing
+it writes is trusted.
 
 ### Trust
 

@@ -495,6 +495,38 @@ async fn a_webhook_runs_only_with_its_own_secret() -> Result {
 }
 
 #[tokio::test]
+async fn run_now_refuses_a_paused_routine_and_runs_it_once_resumed() -> Result {
+    let clock = ManualClock::at(at("2026-11-12T10:00:00Z"));
+    let spade = start(&clock, vec![reply("Brief sent.")]).await?;
+    let (agent, conversation) = bot(&spade).await?;
+    let made = add_routine(
+        &spade,
+        &agent,
+        json!({ "name": "Brief", "instruction": "Brief me.",
+                "trigger": { "kind": "schedule", "schedule": "weekdays at 9:00" },
+                "time_zone": "UTC" }),
+    )
+    .await?;
+    let id = made["id"].as_str().unwrap_or_default();
+    let path = format!("/v1/routines/{id}");
+    let run = format!("{path}/run");
+    let (status, _) = spade.patch(&path, json!({ "paused": true })).await?;
+    assert_eq!(status, 200);
+    // Paused elsewhere after a client read it: Run now from that stale row is refused.
+    let (status, body) = spade.post(&run, json!({})).await?;
+    assert_eq!(status, 409, "{body}");
+    assert!(fired(&spade, &conversation).await?.is_empty());
+
+    let (status, _) = spade.patch(&path, json!({ "paused": false })).await?;
+    assert_eq!(status, 200);
+    let (status, body) = spade.post(&run, json!({})).await?;
+    assert_eq!(status, 202, "{body}");
+    assert_eq!(body["run"]["cause"], "manual");
+    assert_eq!(fired(&spade, &conversation).await?.len(), 1);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_bot_creates_its_own_routine_in_a_clean_turn_without_asking() -> Result {
     let clock = ManualClock::at(at("2026-11-12T10:00:00Z"));
     let scripts = vec![

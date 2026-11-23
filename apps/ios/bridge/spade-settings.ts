@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import {
   parseSpadeConnectors,
+  parseSpadeEndpoint,
   parseSpadeModels,
   parseSpadeSearchUsage,
   parseSpadeSkillStore,
@@ -23,6 +24,13 @@ import {
   type SpadeModelSettingRow,
   type SpadeModelsPageRow,
 } from "./spade-settings-rows.ts";
+import {
+  isSecurityWrite,
+  readSecurityPage,
+  spadeSecurityRequests,
+  writeSecurity,
+} from "./spade-settings-security.ts";
+import type { SpadeSecurityPageRow } from "./spade-settings-rows.ts";
 import { appName, reconnectApp } from "./spade-reconnect.ts";
 import { keepKey, keepToken, removeKey, secretRefusal } from "./spade-secret-writes.ts";
 import type { NativeSpade } from "./spade.ts";
@@ -39,10 +47,13 @@ const model = z.string().min(1).max(512).nullable();
 /** A key as pasted: no API key is near this long, and none is empty. */
 const key = z.string().trim().min(1).max(8_192);
 
+const pages = ["general", "models", "apps", "security"] as const;
+type PageName = (typeof pages)[number];
+
 export const spadeSettingsRequests = [
   z.object({
     type: z.literal("spade.settings.read"),
-    page: z.enum(["general", "models", "apps"]),
+    page: z.enum(pages),
   }),
   /** Run Spade on this machine, or stop it: the global setting, admin only. */
   z.object({ type: z.literal("spade.settings.run"), on: z.boolean() }),
@@ -58,6 +69,7 @@ export const spadeSettingsRequests = [
     connector: id,
     token: key.optional(),
   }),
+  ...spadeSecurityRequests,
 ] as const;
 export const NativeSpadeSettingsRequest = z.discriminatedUnion("type", spadeSettingsRequests);
 export type NativeSpadeSettingsRequest = z.infer<typeof NativeSpadeSettingsRequest>;
@@ -85,6 +97,7 @@ export type SpadeSettingsAnswer =
       | { general: SpadeGeneralPageRow }
       | { models: SpadeModelsPageRow }
       | { apps: SpadeAppsPageRow }
+      | { security: SpadeSecurityPageRow }
       | Record<never, never>
     ));
 
@@ -130,7 +143,12 @@ export async function answerSpadeSettings(
   ask: Ask,
   signal: AbortSignal,
 ): Promise<SpadeSettingsAnswer> {
-  const page = (name: "general" | "models" | "apps") => readPage(spade, name, ask, deps.now());
+  const page = (name: PageName) => readPage(spade, name, ask, deps.now());
+  if (isSecurityWrite(request)) {
+    const { status, enabled } = spade.setting;
+    const answer = await writeSecurity(ask, request);
+    return answer.ok ? { ...answer, line: spadePlaceLine(status, enabled) } : answer;
+  }
   /**
    * A change, then the page as it now is. A failed change says why (`fail`); one that went
    * through says so even when the page can't be read again, so nothing is sent twice.
@@ -211,25 +229,32 @@ export async function answerSpadeSettings(
   }
 }
 
-/** An endpoint as a preset describes it; its key is set on its own, once it is added. */
-async function addFromPreset(ask: Ask, presetId: string) {
+/**
+ * An endpoint as a preset describes it; its key is set on its own, once it is added. Answers the
+ * endpoint Spade made, or undefined when its answer didn't say.
+ */
+export async function addFromPreset(
+  ask: (method: "GET" | "POST", route: string, body?: unknown) => Promise<string>,
+  presetId: string,
+) {
   const models = sure(parseSpadeModels(await ask("GET", "/v1/models")), "models");
   const choice = spadePresetChoices(models.presets).find((each) => each.preset.id === presetId);
   const preset = choice?.preset;
   if (!choice || !preset?.format)
     throw new Error("This machine's Spade doesn't offer that service any more.");
-  await ask("POST", "/v1/endpoints", {
+  const made = await ask("POST", "/v1/endpoints", {
     name: choice.label,
     format: preset.format,
     base_url: preset.baseUrl,
     preset: preset.id,
     ...(preset.sessionHeader ? { session_header: preset.sessionHeader } : {}),
   });
+  return parseSpadeEndpoint(made);
 }
 
 async function readPage(
   spade: NativeSpade,
-  name: "general" | "models" | "apps",
+  name: PageName,
   ask: Ask,
   now: number,
 ): Promise<SpadeSettingsAnswer> {
@@ -270,6 +295,8 @@ async function readPage(
         const apps = spadeAppsPage(connectors.connectors, store, spade.names, now);
         return { ok: true, line, apps };
       }
+      case "security":
+        return { ok: true, line, security: await readSecurityPage(ask) };
     }
   } catch (error) {
     return refused("Couldn't read Spade's settings", error);

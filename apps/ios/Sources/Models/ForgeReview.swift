@@ -164,6 +164,19 @@ struct ForgeFileDiff: Decodable, Sendable, Equatable {
     var host: String?
 }
 
+extension ForgeFileDiff {
+    /// The new side's lines this diff shows whole, by number: what a code note on the file is
+    /// checked against when the diff is read again (`CodeNotes.shown`).
+    var newSide: [Int: String] { Self.newSide(of: lines) }
+    static func newSide(of lines: [Line]) -> [Int: String] {
+        var shown: [Int: String] = [:]
+        for line in lines where (line.kind == "add" || line.kind == "context") && !line.clipped {
+            if let number = line.new { shown[number] = line.text }
+        }
+        return shown
+    }
+}
+
 /// What a review write did: done, refused with why, or unconfirmed (to reconcile, never resend).
 struct ForgeReviewOutcome: Decodable, Sendable, Equatable {
     let ok: Bool

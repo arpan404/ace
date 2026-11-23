@@ -185,6 +185,21 @@ const known = z.discriminatedUnion("type", [
       .object({ job: z.string(), conversation: z.string(), call_id: z.string() })
       .nullish()
       .catch(undefined),
+    /**
+     * A task lane's call (ADR 0217 §4), asked here in main too: answered here, and the answer
+     * reaches the lane. `task` is the lane's id, `call_id` the call's id in the lane.
+     */
+    lane: z
+      .object({
+        task: z.string(),
+        conversation: z.string(),
+        call_id: z.string(),
+        title: z.string().catch(""),
+        /** The lane's run that asked; its copy here closes only with that run's end. */
+        epoch: z.string().nullish().catch(undefined),
+      })
+      .nullish()
+      .catch(undefined),
   }),
   /**
    * A plugin's server or hook the sandbox can't seal off asks to run outside it (ADR 0167): it
@@ -283,6 +298,18 @@ const known = z.discriminatedUnion("type", [
     call_id: z.string(),
     question: z.string().catch(""),
     questions: z.unknown().optional(),
+    /** A task lane's card (ADR 0217 §4), asked here in main too: answered here, sent to the lane. */
+    lane: z
+      .object({
+        task: z.string(),
+        conversation: z.string(),
+        call_id: z.string(),
+        title: z.string().catch(""),
+        /** The lane's run that asked; its copy here closes only with that run's end. */
+        epoch: z.string().nullish().catch(undefined),
+      })
+      .nullish()
+      .catch(undefined),
   }),
   /** Left for later, by the person or by the bot asking without waiting. */
   z.object({
