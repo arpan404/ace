@@ -1,5 +1,5 @@
 import type { StatementSync } from "node:sqlite";
-import type { TransactionOutcome } from "./store-stream.ts";
+import type { FailureReport, TransactionOutcome } from "./store-stream.ts";
 
 /** Reserve ranges durably before publishing events. Old builds also skip this high-water mark, so
  * the existing host_sequence format remains readable in both directions. Every sequence handed
@@ -15,7 +15,7 @@ export class StreamSequences {
     /** Runs the reservation; settles only when the outermost transaction that wrote it does. */
     commit(run: () => void, outcome: TransactionOutcome): void;
     /** A range through `through` is reserved by a committed transaction and about to be used. */
-    reserved?(through: number): void;
+    reserved?(through: number, report?: FailureReport): void;
   }) {
     this.options = privateOptions;
   }
@@ -71,13 +71,13 @@ export class StreamSequences {
         },
         {
           // Only the outermost commit counts: a rollback forgets the pending range.
-          committed: () => {
+          committed: (report) => {
             settle();
             const raised = Number.isNaN(this.reserved) || through > this.reserved;
             this.reserved = Number.isNaN(this.reserved)
               ? through
               : Math.max(this.reserved, through);
-            if (raised) this.options.reserved?.(through);
+            if (raised) this.options.reserved?.(through, report);
           },
           rolledBack: settle,
         },

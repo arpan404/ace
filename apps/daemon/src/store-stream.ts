@@ -12,13 +12,18 @@ import {
   type BufferedSnapshot,
 } from "./live-write-buffer.ts";
 
+/** Reports a settlement's failure to the post-commit pass that owns it. */
+export type FailureReport = (error: unknown) => void;
+
 /**
  * How a write learns the fate of its rows. A top-level transaction settles before it returns.
  * One nested in an open transaction settles only when the outermost one commits or rolls back.
  */
 export interface TransactionOutcome {
-  committed(): void;
-  rolledBack(): void;
+  /** The live buffer's rows publish in this pass before its usage notification. */
+  publishes?: boolean;
+  committed(report?: FailureReport): void;
+  rolledBack(report?: FailureReport): void;
 }
 
 /**
@@ -69,13 +74,14 @@ export class SettlementPass {
 /** Settle nested outcomes, reporting each failure once through `pass` (or `onError` directly). */
 export function settleOutcomes(
   settlements: { outcome: TransactionOutcome }[],
-  result: keyof TransactionOutcome,
+  result: "committed" | "rolledBack",
   onError: (error: unknown) => void,
   pass?: SettlementPass,
 ): void {
+  const report = pass ? (error: unknown) => pass.report(error) : undefined;
   for (const { outcome } of settlements) {
     try {
-      outcome[result]();
+      outcome[result](report);
     } catch (error) {
       try {
         if (pass?.threw(error)) continue;
@@ -118,7 +124,7 @@ export class StoreStream {
     append(event: Event): Event[];
     /** Whether this exact envelope (sequence and id) is already stored. */
     stored(event: Event): boolean;
-    publish(events: Event[]): void;
+    publish(events: Event[], report?: FailureReport): void;
     /** Shared with the server's wire encoder: each published event is serialised once. */
     encodings?: EventEncodings;
     report(error: unknown): void;
@@ -306,12 +312,13 @@ export class StoreStream {
           if (!recovering || written.has(id) || !eventful.has(id)) snapshot.persist();
       },
       {
-        committed: () => {
+        publishes: true,
+        committed: (report) => {
           settled = true;
           this.sealed = false;
           this.buffer.committed(threads, published.length + stored.length);
           if (!this.buffer.size) this.publishedThrough = 0;
-          this.options.publish(stored);
+          this.options.publish(stored, report);
         },
         rolledBack: () => {
           this.sealed = false;

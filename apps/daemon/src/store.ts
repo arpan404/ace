@@ -20,6 +20,7 @@ import {
   SettlementPass,
   settleOutcomes,
   StoreStream,
+  type FailureReport,
   type TransactionOutcome,
 } from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
@@ -234,7 +235,7 @@ export class Store {
     this.sequences = new StreamSequences({
       statement: (sql) => this.statement(sql),
       commit: (run, outcome) => this.transaction(run, outcome),
-      reserved: (through) => this.markLineage(through),
+      reserved: (through, report) => this.markLineage(through, report),
     });
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? timeOrderedIds();
@@ -257,7 +258,7 @@ export class Store {
       stored: (event) =>
         this.statement("SELECT 1 FROM events WHERE seq=? AND id=?").get(event.seq, event.id) !==
         undefined,
-      publish: (events) => this.publish(events),
+      publish: (events, report) => this.publish(events, report),
       encodings: this.encodings,
       report: (error) => this.onError(error),
       quarantined: (thread, error) => this.quarantine(thread, error),
@@ -463,7 +464,6 @@ export class Store {
   /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
   readonly storedTrustBuild: string | undefined;
   private onError: (error: unknown) => void;
-  private settlementsPass: SettlementPass | undefined;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
     if (mode === "PASSIVE")
@@ -643,31 +643,29 @@ export class Store {
     // subscribers have already received. A committed settlement runs even if publication throws.
     const settlements = this.settlements.splice(0);
     const pass = new SettlementPass(this.onError);
-    const enclosing = this.settlementsPass;
-    this.settlementsPass = pass;
-    try {
-      if (outcome) pass.step(() => outcome.committed());
-      let from = 0;
-      for (const settlement of settlements) {
-        if (!outcome) pass.step(() => this.publishFresh(events.slice(from, settlement.at)));
-        from = settlement.at;
-        settleOutcomes([settlement], "committed", this.onError, pass);
-      }
-      if (!outcome) pass.step(() => this.publishFresh(events.slice(from)));
-      for (const listener of this.usageListeners) {
+    const report: FailureReport = (error) => pass.report(error);
+    // The buffer's rows settle first; the reservation confirms last, as it did before it moved
+    // into the commit callback, so listeners never run under its reporter.
+    if (outcome?.publishes) pass.step(() => outcome.committed(report));
+    let from = 0;
+    for (const settlement of settlements) {
+      if (!outcome) pass.step(() => this.publishFresh(events.slice(from, settlement.at), report));
+      from = settlement.at;
+      settleOutcomes([settlement], "committed", this.onError, pass);
+    }
+    if (!outcome) pass.step(() => this.publishFresh(events.slice(from), report));
+    for (const listener of this.usageListeners) {
+      try {
+        listener();
+      } catch (error) {
         try {
-          listener();
-        } catch (error) {
-          try {
-            this.onError(error);
-          } catch {
-            /* committed */
-          }
+          this.onError(error);
+        } catch {
+          /* committed */
         }
       }
-    } finally {
-      this.settlementsPass = enclosing;
     }
+    if (outcome && !outcome.publishes) pass.step(() => outcome.committed(report));
     pass.rethrow();
     return result;
   }
@@ -701,8 +699,11 @@ export class Store {
       this.reportQuietly(error);
     }
   }
-  private publishFresh(events: Event[]): void {
-    this.publish(events.filter((event) => event.seq > this.publishedSeq));
+  private publishFresh(events: Event[], report?: FailureReport): void {
+    this.publish(
+      events.filter((event) => event.seq > this.publishedSeq),
+      report,
+    );
   }
   /** A thread's live batch could not be stored: drop its views and stop its session. */
   private quarantine(thread: ThreadId, error: Error): void {
@@ -735,7 +736,7 @@ export class Store {
   capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
     return this.transaction(() => this.payloads.capRaw(raw, threadId));
   }
-  private publish(events: Event[]): void {
+  private publish(events: Event[], report?: FailureReport): void {
     if (!events.length) return;
     if (this.historyWriting && !this.notifyingHistory) {
       const after = (events[0]?.seq ?? this.headSeq() + 1) - 1;
@@ -752,7 +753,7 @@ export class Store {
         this.publishedSeq = Math.max(this.publishedSeq, batch.at(-1)?.seq ?? this.publishedSeq);
         // Committed, and about to reach clients: mark it, every so often, before they hear it.
         if (this.publishedSeq >= this.markedSeq + lineageStride)
-          this.markLineage(this.publishedSeq);
+          this.markLineage(this.publishedSeq, report);
         this.threadReads.updateViews(batch);
         const listeners = [...this.listeners];
         for (const listener of listeners) {
@@ -1123,16 +1124,15 @@ export class Store {
     this.markLineage(reserved);
   }
   /** Mark `seq`, a sequence this database has committed, as reached (`sequence-lineage.ts`). */
-  private markLineage(seq: number): void {
+  private markLineage(seq: number, report?: FailureReport): void {
     if (!this.lineage || seq < this.markedSeq) return;
     this.markedSeq = seq;
     try {
       this.lineage.write({ token: this.sidebarToken(), reserved: seq });
     } catch (error) {
       // A mark not written only narrows what a rollback can be told by; never fatal to a write.
-      const pass = this.settlementsPass;
-      if (!pass) this.onError(error);
-      else if (!pass.threw(error)) pass.report(error);
+      if (report) report(error);
+      else this.onError(error);
     }
   }
   /**
