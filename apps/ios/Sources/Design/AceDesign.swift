@@ -96,6 +96,8 @@ import UIKit
         static let barIcon: CGFloat = 20
         /// An empty state's glyph.
         static let emptyIcon: CGFloat = 28
+        /// The portrait in the Account sheet.
+        static let accountPortrait: CGFloat = 56
         /// Spade's face in its tab.
         static let spade: CGFloat = 56
     }

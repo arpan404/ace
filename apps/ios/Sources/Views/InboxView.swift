@@ -280,8 +280,7 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions,
-                   account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
-                                               settings: { open(.settings) }),
+                   account: AccountToolbarItem(open: openAccount),
                    query: $searchQuery, focusAsks: searchFocusAsks,
                    hasLock: lock != nil)
             .inboxFootBar {
@@ -370,6 +369,7 @@ struct InboxView: View {
         guard let sheet else { return }
         place = sheet
     }
+    private func openAccount() { present(PlaceSheet(id: nextSerial(), root: .accountHome)) }
     private func nextSerial() -> Int { placeSerial += 1; return placeSerial }
     private func open(_ searchPlace: SearchPlace) {
         present(PlaceSheet.of(searchPlace, machine: toolsMachine, id: nextSerial()))
@@ -454,7 +454,7 @@ struct InboxView: View {
                                               place: { open($0) },
                                               compose: { compose(chat: list == .chats) },
                                               review: { openReview() },
-                                              page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
+                                              account: openAccount),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.

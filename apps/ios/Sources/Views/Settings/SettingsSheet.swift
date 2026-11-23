@@ -4,7 +4,7 @@ import SwiftUI
 enum SettingsRoute: Hashable {
     /// More's own places: Settings' list, and Pull requests with its pages.
     case settings, pulls, forge(ForgeRoute)
-    case account
+    case accountHome, account
     case machines, machine(String), pair
     case notifications, lock, appearance, keyboard
     case archive, history, profiles, cache, thread(machine: String, id: String)
@@ -78,11 +78,17 @@ struct SettingsSheet: View {
                 if let root { destination(root) } else { more }
             }
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    // ✕ as the thread's bar buttons draw it: the plain glyph in the body ink.
-                    Button { dismiss() } label: { Image(bar: .x).foregroundStyle(AceTheme.Colours.foreground) }
-                        .barGlyph()
-                        .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
+                if root == .accountHome {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                            .accessibilityIdentifier("account.sheet.done")
+                    }
+                } else {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button { dismiss() } label: { Image(bar: .x).foregroundStyle(AceTheme.Colours.foreground) }
+                            .barGlyph()
+                            .accessibilityLabel("Close").accessibilityIdentifier("settings.close")
+                    }
                 }
             }
             .navigationDestination(for: SettingsRoute.self) { route in destination(route) }
@@ -92,7 +98,7 @@ struct SettingsSheet: View {
         .escapeCloses { dismiss() }
         .tint(AceDesign.Ink.action)
         .toggleStyle(.systemSwitch)
-        .presentationDetents([.large]).presentationDragIndicator(.visible)
+        .presentationDetents(root == .accountHome ? [.medium, .large] : [.large]).presentationDragIndicator(.visible)
         .onChange(of: path) { old, new in navigated(from: old, to: new) }
         .onDisappear { closeMachineViews() }
     }
@@ -215,6 +221,7 @@ struct SettingsSheet: View {
 
     @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
         switch route {
+        case .accountHome: AccountSheet()
         case .account: AceAccountView(machines: machines, inbox: inbox)
         case .settings: settingsList
         case .pulls: pullRequests
