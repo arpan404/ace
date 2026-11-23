@@ -17,7 +17,15 @@ workspace = true
 ace-protocol = { path = "../ace-protocol" }
 # serde: the fold's state and facts serialize for tests and for the facade's state refresh.
 serde = { version = "1", features = ["derive"] }
-# serde_json: facts and diagnostics keep provider data as JSON, never re-encoded.
-serde_json = { version = "1", features = ["raw_value"] }
+# serde_json: facts cross the napi boundary as JSON and state refreshes as
+# JSON; preserve_order keeps every map in insertion order like the
+# TypeScript, raw_value borrows opaque payloads without re-parsing, and
+# unbounded_depth accepts deep provider data (depth is bounded later by
+# json_io, never by the parser). All JSON goes through json_io so a later
+# ace-json switch touches one module.
+serde_json = { version = "1", features = ["raw_value", "preserve_order", "unbounded_depth"] }
+# stacker: grows the stack around parsing, so deeply nested provider data
+# fails as a diagnostic downstream, never aborts the process.
+stacker = "0.1"
 # thiserror: the fold's typed errors (invalid facts are rejected, never fatal, in E4).
 thiserror = { version = "2" }
