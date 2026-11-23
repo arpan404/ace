@@ -78,6 +78,7 @@ pub use code::CodeCall;
 pub(crate) mod retired_models;
 mod self_edit;
 mod services;
+pub use services::StartAgain;
 mod speech;
 mod style;
 mod suggest;

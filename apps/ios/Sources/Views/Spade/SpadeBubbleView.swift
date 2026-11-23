@@ -4,7 +4,8 @@ import SwiftUI
 /// person's on the right in the accent with its pictures and documents above it as a thread
 /// message's and a voice message's Play, the bot's on the left on the page's fill with its words
 /// as markdown and what its tools showed under them, an approval as a raised card
-/// with its answers, a card of questions, a quiet line for the rest.
+/// with its answers, a card of questions, a reply's changes to its files with their Undo
+/// (`SpadeChangesLine`), a quiet line for the rest.
 struct SpadeBubbleView: View {
     let bubble: SpadeModel.Bubble
     /// An approval's answer: its call, allowed or not, and whether always; true once it went.
@@ -20,6 +21,8 @@ struct SpadeBubbleView: View {
     var drafts: (String) -> Binding<[SpadeQuestionCard.Draft]> = { _ in .constant([]) }
     /// A voice message's recording, by its hash; nil when it couldn't be read.
     var audio: @MainActor (String) async -> Data? = { _ in nil }
+    /// The bot whose files a reply's Undo puts back; nil where there is none (a group's chat).
+    var undoing: SpadeUndoTarget? = nil
 
     var body: some View {
         switch bubble {
@@ -81,6 +84,8 @@ struct SpadeBubbleView: View {
         // Drawn by the chat, which has the client its requests answer through (`SpadeWorkersCard`).
         case .workers:
             EmptyView()
+        case let .changes(changes):
+            SpadeChangesLine(changes: changes, target: undoing)
         case let .note(text):
             Text(text)
                 .aceFont(AceDesign.TextRole.meta)
