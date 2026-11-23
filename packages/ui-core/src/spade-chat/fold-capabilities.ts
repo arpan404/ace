@@ -1,13 +1,30 @@
 import type { SpadeStartedWorker } from "./delegations.ts";
-import type { SpadeQuiet } from "./quiet.ts";
+import type { SpadeLaneEvent, SpadeQuiet } from "./quiet.ts";
 import { spadeWakeOf, type SpadeWake } from "./wakes.ts";
 import type { SpadeKnownEvent } from "./wire.ts";
+import type { SpadeWorkerState } from "./wire-capabilities.ts";
 
 /*
  * The capability events in a conversation's fold (`foldSpade`): goals and checks of done
  * (ADR 0159), workers (ADR 0161) on cards where they started, and wakes (ADR 0160) as the
  * open set the resting line reads. Each event does work in proportion to itself.
  */
+
+/** A lane's report as its line says it; stopping, parked and others say nothing yet. */
+const laneReport: Partial<Record<SpadeWorkerState, SpadeLaneEvent>> = {
+  done: "done",
+  finished: "done",
+  failed: "failed",
+  stopped: "stopped",
+  needs_you: "needs_you",
+};
+
+const laneQuiet = (lane: string, title: string, event: SpadeLaneEvent): SpadeQuiet => ({
+  kind: "lane",
+  lane,
+  title: title.trim(),
+  event,
+});
 
 /** What the fold keeps of them, beside its entries. */
 export interface SpadeCapabilityState {
@@ -17,10 +34,15 @@ export interface SpadeCapabilityState {
   workers: Map<string, string>;
   /** Each owned service's name by its id, for the words of a wait on it. */
   services: Map<string, string>;
+  /**
+   * Each task lane's title since the title role named it (`lane_titled`, ADR 0217 §2a), by its
+   * id: every place that names the task reads it from here first. A new map on each change.
+   */
+  laneTitles: ReadonlyMap<string, string>;
 }
 
 export function emptySpadeCapabilities(): SpadeCapabilityState {
-  return { wakes: new Map(), workers: new Map(), services: new Map() };
+  return { wakes: new Map(), workers: new Map(), services: new Map(), laneTitles: new Map() };
 }
 
 /**
@@ -49,7 +71,7 @@ export function foldSpadeCapability(
       return true;
     case "worker_started":
       state.workers.set(event.worker, event.name);
-      // A helper is its own line already (ADR 0152), and a lane has its own events (ADR 0217).
+      // A helper is its own line already (ADR 0152); a task its own `lane_started` (ADR 0217).
       if (event.kind === "helper" || event.kind === "lane") return true;
       started(event.call, {
         id: event.worker,
@@ -57,7 +79,45 @@ export function foldSpadeCapability(
         name: event.name || (event.kind === "ace" ? "An ace agent" : "A worker"),
       });
       return true;
+    case "lane_started":
+      // Moved work reads as Spade's own line, from `reply_moved` (ADR 0217 §2a).
+      if (event.moved_from) return false;
+      place(laneQuiet(event.lane, event.title, event.queued ? "queued" : "started"));
+      return true;
+    case "reply_moved":
+      place(laneQuiet(event.lane, event.title, "moved"));
+      return true;
+    // A person's reply routed to a task, or the bot's own words sent to it (`task_message`).
+    case "ask_routed":
+    case "lane_messaged":
+      place(laneQuiet(event.lane, event.title, "routed"));
+      return true;
+    case "lane_titled": {
+      const title = event.title.trim();
+      if (!title || state.laneTitles.get(event.lane) === title) return false;
+      state.laneTitles = new Map(state.laneTitles).set(event.lane, title);
+      return true;
+    }
+    case "lanes_overlapped":
+      place({
+        kind: "lanes-overlapped",
+        lane: event.lane,
+        title: event.title.trim(),
+        other: event.other,
+        otherTitle: event.other_title.trim(),
+        path: event.path,
+      });
+      return true;
     case "worker_reported":
+      if (event.kind === "lane") {
+        const said = laneReport[event.state];
+        if (!said) return false;
+        place({
+          ...laneQuiet(event.worker, event.name, said),
+          ...(said === "failed" && event.epoch ? { reply: event.epoch } : {}),
+        });
+        return true;
+      }
       // Stopping still counts as running: its stopped report follows. A worker started here
       // has its card, which says how it stands now; a report line would only go stale.
       if (event.kind === "helper" || event.state === "stopping") return false;

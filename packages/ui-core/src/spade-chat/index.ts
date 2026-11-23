@@ -67,6 +67,7 @@ export * from "./personality.ts";
 export * from "./services.ts";
 export * from "./workspace.ts";
 export * from "./lanes.ts";
+export * from "./lane-words.ts";
 export * from "./roles.ts";
 export * from "./goal.ts";
 export * from "./workers.ts";

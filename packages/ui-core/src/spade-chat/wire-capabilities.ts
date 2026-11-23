@@ -73,6 +73,8 @@ export const spadeCapabilityEvents = [
     name: words,
     state: z.enum(spadeWorkerStates).catch("other"),
     summary: words,
+    /** The worker's reply it reports on: what a lane's Try again names (ADR 0217 §5). */
+    epoch: words,
     /** A failed worker's error, as the endpoint or a tool gave it: never Spade's words. */
     error: z.string().nullish().catch(undefined),
     /** What it reports may carry content from outside Spade. */

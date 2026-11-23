@@ -27,8 +27,13 @@ export interface FakeLane {
   main: string;
   title: string;
   state: FakeLaneState;
-  /** The plan, as `task_plan` left it: each item's words and whether it is done. */
-  plan: readonly { text: string; done: boolean }[];
+  /** The plan, as `task_plan` left it: each item's words, whether it is done, its evidence. */
+  plan: readonly { text: string; done: boolean; evidence?: string }[];
+  /** The person's words that asked for it. */
+  words: string;
+  /** Its goal's title and criteria, when it set one; the title stands in otherwise. */
+  goal?: string;
+  criteria?: readonly string[];
   startedMs: number;
   endedMs?: number;
   costMicros: number;
@@ -37,6 +42,8 @@ export interface FakeLane {
   model: string;
   /** Its last words once it has ended. */
   report?: string;
+  /** How many lanes had ended before it: which ended last when the clock reads the same. */
+  endedSeq?: number;
 }
 
 /** What the lanes need of the fake API. */
@@ -68,6 +75,8 @@ const live = (state: FakeLaneState) =>
 export class FakeSpadeLanes {
   readonly lanes = new Map<string, FakeLane>();
   readonly #host: FakeLanesHost;
+  #ends = 0;
+  readonly #mirrors = new Map<string, { lane: FakeLane; call: string }>();
 
   constructor(host: FakeLanesHost) {
     this.#host = host;
@@ -82,9 +91,9 @@ export class FakeSpadeLanes {
    * Starts a lane of `main`: its conversation with `lane_of` and the person's words, and
    * `lane_started` in main (Spade's moved line too when `moved`).
    */
-  start(lane: Omit<FakeLane, "startedMs"> & { startedMs?: number; words: string }): FakeLane {
-    const { words, ...rest } = lane;
-    const made: FakeLane = { ...rest, startedMs: lane.startedMs ?? this.#host.now() };
+  start(lane: Omit<FakeLane, "startedMs"> & { startedMs?: number }): FakeLane {
+    const { words } = lane;
+    const made: FakeLane = { ...lane, startedMs: lane.startedMs ?? this.#host.now() };
     this.lanes.set(made.task, made);
     const host = this.#host;
     host.store(made.task, {
@@ -140,6 +149,7 @@ export class FakeSpadeLanes {
     if (!lane) return;
     lane.state = state;
     lane.endedMs = this.#host.now();
+    lane.endedSeq = ++this.#ends;
     lane.report = words;
     const host = this.#host;
     const closed =
@@ -160,11 +170,50 @@ export class FakeSpadeLanes {
         state === "done"
           ? `the check of its goal passed (${lane.plan.length} of ${lane.plan.length} items verified).`
           : state === "failed"
-            ? `its reply failed: ${words}.`
+            ? "its reply failed."
             : state === "stopped"
               ? "it was stopped."
               : "it ended its turn with no goal checked.",
       ...(state === "stopped" ? {} : { words }),
+      // A failure's error is the endpoint's or a tool's, quoted as untrusted: never Spade's.
+      ...(state === "failed" ? { error: words, untrusted: true } : {}),
+    }); // Its requests still open in main close with it, listed by main's ids (ADR 0217 §4).
+    const calls = this.#openRequests(lane, state === "stopped");
+    // Only this run's copies (its epoch); an earlier run's are its own to close.
+    if (calls.length)
+      host.store(lane.main, {
+        type: "lane_requests_closed",
+        lane: task,
+        epoch: `r-${task}`,
+        calls,
+      });
+  }
+
+  /**
+   * Main's ids of `lane`'s requests still open there: approvals not answered and cards waiting on
+   * the person, and its deferred cards too when it was stopped (otherwise a deferred card stays
+   * answerable, and its answer reopens the task).
+   */
+  #openRequests(lane: FakeLane, withDeferred: boolean): string[] {
+    const events = this.#host.events(lane.main);
+    const settled = (call: unknown) =>
+      events.some(
+        (event) =>
+          event.call_id === call &&
+          (event.type === "approval_answered" ||
+            event.type === "question_answered" ||
+            event.type === "question_dismissed"),
+      );
+    const deferred = (call: unknown) =>
+      events.some((event) => event.call_id === call && event.type === "question_deferred");
+    return events.flatMap((event) => {
+      const of = event.lane as { task?: unknown } | undefined;
+      if (of?.task !== lane.task) return [];
+      if (event.type !== "approval_requested" && event.type !== "question_asked") return [];
+      const call = event.call_id;
+      if (typeof call !== "string" || settled(call)) return [];
+      if (event.type === "question_asked" && deferred(call) && !withDeferred) return [];
+      return [call];
     });
   }
 
@@ -183,16 +232,172 @@ export class FakeSpadeLanes {
     this.#host.store(lane.main, {
       type: "approval_requested",
       reply: `r-${task}`,
-      call_id: `${task}.${call}`,
       ...asked,
-      lane: { task, conversation: task, call_id: call, title: lane.title },
+      ...this.#mirror(lane, call),
+    });
+    this.#host.store(lane.main, {
+      type: "worker_reported",
+      worker: task,
+      kind: "lane",
+      name: lane.title,
+      state: "needs_you",
+      epoch: `r-${task}`,
+      summary: "it waits on you to allow a step.",
     });
   }
 
-  /** `GET /v1/conversations/{main}/tasks`. */
-  tasks(main: string): FakeSpadeAnswer {
-    const rows = [...this.lanes.values()]
-      .filter((lane) => lane.main === main)
+  /** Stops every lane of `main` that hasn't ended, queued ones too; how many it stopped. */
+  stopAll(main: string): number {
+    let stopped = 0;
+    for (const lane of this.lanes.values())
+      if (lane.main === main && live(lane.state)) {
+        this.settle(lane.task, "stopped", "");
+        stopped++;
+      }
+    return stopped;
+  }
+
+  /**
+   * A lane's call answered in main, by main's id for its copy: the answer reaches the lane, which
+   * works on (or carries on without the step).
+   */
+  answered(callId: string, allowed: boolean): void {
+    const mirror = this.#mirrors.get(callId);
+    const lane = mirror?.lane;
+    if (!mirror || !lane || lane.state !== "needs_you") return;
+    lane.state = "working";
+    this.#host.store(lane.task, {
+      type: "approval_answered",
+      reply: `r-${lane.task}`,
+      call_id: mirror.call,
+      allowed,
+      always: false,
+    });
+  }
+
+  /**
+   * A lane's card of one question waits on the person: asked in the lane, and in main naming the
+   * lane under main's own id for the copy, where it is answered.
+   */
+  askQuestion(task: string, call: string, question: string): void {
+    const lane = this.lanes.get(task);
+    if (!lane) return;
+    lane.state = "needs_you";
+    const asked = { type: "question_asked", reply: `r-${task}`, question };
+    this.#host.store(task, { ...asked, call_id: call });
+    this.#host.store(lane.main, { ...asked, ...this.#mirror(lane, call) });
+  }
+
+  /** A lane's card answered in main: the answer reaches the lane, which works on. */
+  questionAnswered(callId: string, answers: unknown[]): void {
+    const mirror = this.#mirrors.get(callId);
+    if (!mirror) return;
+    const { lane } = mirror;
+    lane.state = "working";
+    this.#host.store(lane.task, {
+      type: "question_answered",
+      call_id: mirror.call,
+      answers,
+    });
+  }
+
+  /** The title role named a lane (ADR 0217 §2a): stored in main and in the lane. */
+  retitle(task: string, title: string): void {
+    const lane = this.lanes.get(task);
+    if (!lane) return;
+    lane.title = title;
+    for (const conversation of [lane.main, task])
+      this.#host.store(conversation, { type: "lane_titled", lane: task, title });
+  }
+
+  /** Two running lanes wrote one file (ADR 0217 §3): main's note. */
+  overlapped(task: string, other: string, path: string): void {
+    const lane = this.lanes.get(task);
+    const second = this.lanes.get(other);
+    if (!lane || !second) return;
+    this.#host.store(lane.main, {
+      type: "lanes_overlapped",
+      lane: task,
+      title: lane.title,
+      path,
+      other,
+      other_title: second.title,
+    });
+  }
+
+  /** Try again on a lane's failed reply: it works again. */
+  retried(task: string): void {
+    const lane = this.lanes.get(task);
+    if (!lane) return;
+    lane.state = "working";
+    delete lane.endedMs;
+    delete lane.report;
+  }
+
+  /** `GET /v1/conversations/{lane}/task`: its goal and plan, as `/v1/agents/{id}/task` reads. */
+  task(id: string): FakeSpadeAnswer {
+    const lane = this.lanes.get(id);
+    if (!lane) return reply({ error: "Not a task." }, 404);
+    if (!lane.plan.length) return reply({ task: null });
+    const done = lane.plan.filter((item) => item.done).length;
+    const working = lane.plan.findIndex((item) => !item.done);
+    const checked = lane.state === "done";
+    return reply({
+      task: {
+        goal: {
+          id: "g1",
+          title: lane.goal ?? lane.title,
+          text: lane.words,
+          criteria: (lane.criteria ?? []).map((text, at) => ({ id: String(at + 1), text })),
+          by: "bot",
+        },
+        items: lane.plan.map((item, at) => ({
+          id: String(at + 1),
+          text: item.text,
+          status: item.done ? "done" : at === working && live(lane.state) ? "working" : "open",
+          evidence: item.evidence ? [{ kind: "file", path: item.evidence }] : [],
+          verified: item.done && checked,
+        })),
+        verdict: null,
+        checkpoint: null,
+        progress: {
+          state: checked ? "done" : "working",
+          items_total: lane.plan.length,
+          items_closed: done,
+          items_verified: checked ? done : 0,
+        },
+      },
+    });
+  }
+
+  /**
+   * Main's copy of a lane's request: its id there (`<lane>.<run>.<call>`, opaque to the app) and
+   * its `lane` link, remembered so an answer in main finds the lane's call without parsing ids.
+   */
+  #mirror(lane: FakeLane, call: string) {
+    const epoch = `r-${lane.task}`;
+    const id = `${lane.task}.${epoch}.${call}`;
+    this.#mirrors.set(id, { lane, call });
+    return {
+      call_id: id,
+      lane: { task: lane.task, conversation: lane.task, call_id: call, title: lane.title, epoch },
+    };
+  }
+
+  /** `GET /v1/conversations/{main}/tasks?ended=N`. */
+  tasks(main: string, ended = 20): FakeSpadeAnswer {
+    const mine = [...this.lanes.values()].filter((lane) => lane.main === main);
+    // Every lane that hasn't ended, and the `ended` that ended last.
+    const last = new Set(
+      mine
+        .filter((lane) => !live(lane.state))
+        .toSorted(
+          (a, b) => (b.endedMs ?? 0) - (a.endedMs ?? 0) || (b.endedSeq ?? 0) - (a.endedSeq ?? 0),
+        )
+        .slice(0, Math.max(0, Math.min(ended, 500))),
+    );
+    const rows = mine
+      .filter((lane) => live(lane.state) || last.has(lane))
       .toSorted((a, b) => rank[a.state] - rank[b.state] || a.startedMs - b.startedMs)
       .map((lane) => {
         const done = lane.plan.filter((item) => item.done).length;
@@ -218,153 +423,4 @@ export class FakeSpadeLanes {
       });
     return reply({ tasks: rows });
   }
-}
-
-const plan = (texts: readonly string[], done: number) =>
-  texts.map((text, at) => ({ text, done: at < done }));
-
-/**
- * Stores a realistic set of lanes for the bot whose conversation is `main`, with the person's
- * messages that asked for them, as `?fakeWorld` and tests use: one waits on the person to pay,
- * two run (one Spade moved from main), one failed, one is done and one waits for a slot.
- */
-export function stageFakeLanes(lanes: FakeSpadeLanes, host: FakeLanesHost, main: string): void {
-  const now = host.now();
-  const minute = 60_000;
-  const model = "openai/gpt-5.4";
-  const person = (text: string) => host.store(main, { type: "user_message", text });
-  person("The March invoice has the VAT line wrong. Fix it and send it to Dana once it's right.");
-  lanes.start({
-    task: `${main}-lane-invoice`,
-    main,
-    title: "Fix the March invoice",
-    words: "The March invoice has the VAT line wrong. Fix it and send it to Dana once it's right.",
-    state: "working",
-    plan: plan(
-      [
-        "Find why the VAT line is wrong",
-        "Correct VAT and the totals",
-        "Draft the email to Dana",
-        "Send it to dana@northwind.co",
-        "Save the sent copy",
-      ],
-      2,
-    ),
-    startedMs: now - 12 * minute,
-    costMicros: 380_000,
-    asks: ["m1"],
-    moved: false,
-    model,
-  });
-  person("Draft the quarterly note from the numbers in Q3.xlsx.");
-  lanes.start({
-    task: `${main}-lane-quarterly`,
-    main,
-    title: "Draft the quarterly note",
-    words: "Draft the quarterly note from the numbers in Q3.xlsx.",
-    state: "working",
-    plan: plan(
-      [
-        "Read Q3.xlsx",
-        "Pull last quarter's note for the sections",
-        "Outline the note",
-        "Write the revenue section",
-        "Write costs and hiring",
-        "Check every number against the sheet",
-      ],
-      3,
-    ),
-    startedMs: now - 6 * minute,
-    costMicros: 610_000,
-    asks: ["m4"],
-    moved: true,
-    model,
-  });
-  person("Also book flights to Lisbon, out on the 14th and back the 18th. Window seat.");
-  const flights = `${main}-lane-flights`;
-  lanes.start({
-    task: flights,
-    main,
-    title: "Book flights to Lisbon",
-    words: "Also book flights to Lisbon, out on the 14th and back the 18th. Window seat.",
-    state: "working",
-    plan: plan(
-      [
-        "Compare fares for the 14th and the 18th",
-        "Pick the cheapest with window seats",
-        "Fill in the booking",
-        "Pay and save the confirmation",
-      ],
-      3,
-    ),
-    startedMs: now - 10 * minute,
-    costMicros: 220_000,
-    asks: ["m8"],
-    moved: false,
-    model,
-  });
-  lanes.ask(flights, "k1", "browser_act", {
-    action: "click",
-    target: "Pay €412 to TAP Air Portugal",
-  });
-  person("And compare the three CRM quotes in /quotes.");
-  const crm = `${main}-lane-crm`;
-  lanes.start({
-    task: crm,
-    main,
-    title: "Compare the three CRM quotes",
-    words: "And compare the three CRM quotes in /quotes.",
-    state: "working",
-    plan: plan(
-      [
-        "Read the Pipedrive and Attio quotes",
-        "Put them side by side in crm.md",
-        "Check HubSpot's list prices",
-      ],
-      2,
-    ),
-    startedMs: now - 4 * minute,
-    costMicros: 290_000,
-    asks: ["m13"],
-    moved: false,
-    model,
-  });
-  lanes.settle(crm, "failed", "HubSpot's pricing page wouldn't load after three tries");
-  person("Clean up the shared drive: one folder per client.");
-  const drive = `${main}-lane-drive`;
-  lanes.start({
-    task: drive,
-    main,
-    title: "Clean up the shared drive",
-    words: "Clean up the shared drive: one folder per client.",
-    state: "working",
-    plan: plan(
-      [
-        "List every file and its client",
-        "Move them into one folder per client",
-        "Check nothing was left at the top",
-      ],
-      3,
-    ),
-    startedMs: now - 5 * minute,
-    costMicros: 170_000,
-    asks: ["m19"],
-    moved: false,
-    model,
-  });
-  lanes.settle(drive, "done", "214 files in six client folders; nothing deleted.");
-  person("Then renew the domain before it lapses.");
-  lanes.start({
-    task: `${main}-lane-domain`,
-    main,
-    title: "Renew the domain",
-    words: "Then renew the domain before it lapses.",
-    state: "queued",
-    plan: [],
-    startedMs: now - minute,
-    costMicros: 0,
-    asks: ["m25"],
-    moved: false,
-    model,
-  });
 }

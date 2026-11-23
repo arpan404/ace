@@ -1237,7 +1237,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
-    if (sub === "tasks" && request.method === "GET") return this.lanes.tasks(id);
+    if (sub === "tasks" && request.method === "GET")
+      return this.lanes.tasks(id, Number(new URLSearchParams(query).get("ended") ?? 20));
+    if (sub === "task" && !subId && request.method === "GET") return this.lanes.task(id);
     if (sub === "panels")
       return this.panels.conversationRoute(
         request.method,
@@ -1327,6 +1329,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
             answers: body.answers,
             late: deferred || undefined,
           });
+        // A task's card answered in main reaches the task (ADR 0217 §4).
+        if (Array.isArray(body.answers)) this.lanes.questionAnswered(subId, body.answers);
         if (agent) {
           const later =
             (agent.questions_for_later ?? 0) +
@@ -1387,6 +1391,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         allowed: body.allowed === true,
         always: body.always === true,
       });
+      this.lanes.answered(subId, body.allowed === true);
       if (agent?.task_state?.status === "blocked_on_person")
         agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
@@ -1403,14 +1408,22 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(409, "only the last reply can be tried again, and only when it failed");
       this.store(id, { type: "reply_retried", reply: body.reply });
       this.store(id, { type: "reply_started", reply: `${String(body.reply)}~again` });
+      this.lanes.retried(id);
       if (agent) this.status(agent, "working", "Thinking");
       return reply({}, 202);
     }
     if (sub === "stop" && request.method === "POST") {
+      // A lane stops alone, and main hears it stopped (ADR 0217 §5).
+      if (this.lanes.lane(id)) {
+        this.lanes.settle(id, "stopped", "");
+        return reply({});
+      }
       const open = list.findLast((stored) => stored.event.type === "reply_started");
       if (open) this.store(id, { type: "reply_stopped", reply: open.event.reply, text: "" });
+      // Stop on the bot stops every task of it too, even with the chat idle (ADR 0217 §5).
+      const tasks = this.lanes.stopAll(id);
       if (agent) this.status(agent, "idle", null);
-      return reply({});
+      return reply({}, open || tasks > 0 ? 202 : 200);
     }
     return problem(404, "Not found.");
   }
