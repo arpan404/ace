@@ -426,7 +426,7 @@ pub fn untrusted(event: &Known) -> bool {
     match event {
         Known::WakeFired { data, .. } => !data.is_empty(),
         Known::JobProgress { tail, .. } => !tail.is_empty(),
-        Known::WorkerReported(report) => report.words.is_some(),
+        Known::WorkerReported(report) => crate::tree::report_untrusted(report),
         Known::LaneMessage(message) => message.untrusted,
         _ => false,
     }

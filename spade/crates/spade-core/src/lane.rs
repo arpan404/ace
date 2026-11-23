@@ -252,6 +252,16 @@ pub fn overlaps(
     found
 }
 
+/// `lane_messaged`, in main: main sent `lane` a message, handing it `asks`. Every one is stored, so
+/// a stop the person asked for before it is stale (`stop_allowed`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Messaged {
+    pub lane: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub asks: Vec<String>,
+}
+
 /// `lane_message`, in a lane: main's words to it (`task_message`). `untrusted` when main had
 /// untrusted content in view as it wrote them, which taints the lane's turn as it would main's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -466,6 +476,7 @@ fn lane_of_line(event: &Event) -> Option<String> {
         Event::Known(Known::LaneStarted(started)) => Some(started.lane.clone()),
         Event::Known(Known::ReplyMoved(moved)) => Some(moved.lane.clone()),
         Event::Known(Known::AskRouted(routed)) => Some(routed.lane.clone()),
+        Event::Known(Known::LaneMessaged(messaged)) => Some(messaged.lane.clone()),
         Event::Known(Known::WorkerReported(report)) if report.kind == crate::tree::Kind::Lane => {
             Some(report.worker.clone())
         }
@@ -473,27 +484,59 @@ fn lane_of_line(event: &Event) -> Option<String> {
     }
 }
 
-/// The lane whose report opened `reply`: the report stored in the same write as the reply's
-/// start (only the waits it settled may sit between them). A quiet report (a stop) opens no
-/// reply, so it is never taken for one that did.
-fn opened_by(before: &[Event], reply: &str) -> Option<String> {
-    let start = before.iter().rposition(
-        |e| matches!(e, Event::Known(Known::ReplyStarted { reply: r, .. }) if r == reply),
-    )?;
-    let opener = before[..start].iter().rev().find(|e| {
-        !matches!(
-            e,
-            Event::Known(Known::WakeFired { .. } | Known::WakeCancelled { .. })
-        )
-    })?;
-    match opener {
-        Event::Known(Known::WorkerReported(report))
-            if report.kind == crate::tree::Kind::Lane && report.state.opens_reply() =>
-        {
-            Some(report.worker.clone())
-        }
+/// The lane whose report opened `reply`, as its `reply_started` records it: never inferred from
+/// what was stored next to it.
+pub fn opened_by(before: &[Event], reply: &str) -> Option<String> {
+    before.iter().rev().find_map(|e| match e {
+        Event::Known(Known::ReplyStarted { reply: r, lane, .. }) if r == reply => lane.clone(),
         _ => None,
+    })
+}
+
+/// The lane to record as opening the reply about to start on `events` (everything stored, the
+/// input that opens it included): the lane whose report is all that came since the last reply,
+/// when a report that opens replies did. Anything else in between (a message, a job's result)
+/// and the reply is nobody's lane.
+pub fn opener(events: &[Event]) -> Option<String> {
+    opener_with(events, &[])
+}
+
+/// [`opener`] over `events` followed by `more` (the batch about to be stored with the reply's
+/// start), reading only what came since the last reply: work proportional to that, never to the
+/// history.
+pub fn opener_with(events: &[Event], more: &[Event]) -> Option<String> {
+    let boundary =
+        |e: &Event| is_reply_end(e) || matches!(e, Event::Known(Known::ReplyStarted { .. }));
+    let (stored, fresh) = match more.iter().rposition(boundary) {
+        Some(at) => (&[][..], &more[at + 1..]),
+        None => {
+            let since = events.iter().rposition(boundary).map_or(0, |at| at + 1);
+            (&events[since..], more)
+        }
+    };
+    let mut lane: Option<String> = None;
+    for event in stored.iter().chain(fresh) {
+        match event {
+            Event::Known(Known::WorkerReported(report))
+                if report.kind == crate::tree::Kind::Lane && report.state.opens_reply() =>
+            {
+                match &lane {
+                    Some(known) if known != &report.worker => return None,
+                    _ => lane = Some(report.worker.clone()),
+                }
+            }
+            Event::Known(known) if is_input(known) => return None,
+            _ => {}
+        }
     }
+    lane
+}
+
+/// Whether `event` is something a reply answers: a message, a job's result, a note.
+fn is_input(event: &Known) -> bool {
+    matches!(event, Known::UserMessage { .. } | Known::JobFinished { .. })
+        || crate::question::is_late(event)
+        || crate::wake::is_note(event)
 }
 
 /// Whether `task_stop` may stop a lane because of `because` (ADR 0217 §3): it must name a
@@ -501,42 +544,53 @@ fn opened_by(before: &[Event], reply: &str) -> Option<String> {
 pub fn stop_allowed(events: &[Event], lane: &str, because: &str) -> Result<(), String> {
     let refused = || {
         Err(
-            "task_stop needs `because`: the id of the person's message in this chat, sent since \
-             the task last started or reported, that asks to stop it. Only the person stops a \
-             task; if one is stuck, tell them and let them decide."
+            "task_stop needs `because`: the id of the person's message asking to stop this task, \
+             sent to the task first (task_message with that message in asks) with nothing sent \
+             to it or reported since. Only the person stops a task; if one is stuck, tell them \
+             and let them decide, or tell them they can press Stop on it."
                 .to_owned(),
         )
     };
-    // Only a message newer than the task's latest start, report or routed message can be about
-    // the task as it runs now: an old greeting can't be cited to cancel it.
-    let since = events
-        .iter()
-        .rposition(|e| match e {
-            Event::Known(Known::LaneStarted(started)) => started.lane == lane,
-            Event::Known(Known::WorkerReported(report)) => {
-                report.kind == crate::tree::Kind::Lane && report.worker == lane
-            }
-            Event::Known(Known::AskRouted(routed)) => routed.lane == lane,
-            _ => false,
-        })
-        .map_or(0, |at| at + 1);
-    let Some(seq) = crate::chat_markup::seq_of(because.trim()) else {
-        return refused();
-    };
-    let Some((at, event)) = usize::try_from(seq)
-        .ok()
+    let because = because.trim();
+    let Some(at) = crate::chat_markup::seq_of(because)
+        .and_then(|seq| usize::try_from(seq).ok())
         .and_then(|seq| seq.checked_sub(1))
-        .and_then(|at| Some((at, events.get(at)?)))
     else {
         return refused();
     };
-    if at < since {
+    let Some(event) = events.get(at) else {
+        return refused();
+    };
+    if !crate::asks::is_persons(event, crate::asks::maker_of(events)) {
         return refused();
     }
-    match crate::asks::is_persons(event, crate::asks::maker_of(events)) {
-        true => Ok(()),
-        false => refused(),
+    // The message was given to this task (routed to it, or handed to it with task_message),
+    // and that is the latest thing that happened to the task: a later start, report or message
+    // makes it stale. An unrelated message the model cites was never given to the task.
+    let given = |e: &Event| match e {
+        Event::Known(Known::AskRouted(routed)) => routed.lane == lane && routed.message == because,
+        Event::Known(Known::LaneMessaged(messaged)) => {
+            messaged.lane == lane && messaged.asks.iter().any(|a| a == because)
+        }
+        _ => false,
+    };
+    let touches = |e: &Event| match e {
+        Event::Known(Known::LaneStarted(started)) => started.lane == lane,
+        Event::Known(Known::WorkerReported(report)) => {
+            report.kind == crate::tree::Kind::Lane && report.worker == lane
+        }
+        Event::Known(Known::AskRouted(routed)) => routed.lane == lane,
+        Event::Known(Known::LaneMessaged(messaged)) => messaged.lane == lane,
+        _ => false,
+    };
+    let Some(given_at) = events.iter().rposition(given) else {
+        return refused();
+    };
+    let later = events[given_at + 1..].iter().any(touches);
+    if given_at < at || later {
+        return refused();
     }
+    Ok(())
 }
 
 /// Whether main's open `reply` is due to move to a lane (ADR 0217 §2a): it took

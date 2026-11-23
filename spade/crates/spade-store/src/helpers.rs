@@ -202,6 +202,36 @@ impl Store {
         Ok(lanes)
     }
 
+    /// Every helper, and every task lane that hasn't ended, oldest first: what is settled after a
+    /// restart, never the lanes that ended.
+    pub fn helpers_and_live_lanes(&self) -> Result<Vec<StoredHelper>> {
+        self.helpers_where(
+            "AND (profile != 'lane' OR conversation_id IN (SELECT conversation_id FROM lanes_live))",
+            params![],
+        )
+    }
+
+    /// Task lanes off the live list whose last event may leave them working (anything but a
+    /// reply's end or a report), for putting back after a crash. One lookup per such lane by the
+    /// events' key, never a read of their history.
+    pub fn lanes_maybe_working(&self) -> Result<Vec<StoredHelper>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT {} FROM helpers h
+             WHERE h.profile = 'lane'
+               AND h.conversation_id NOT IN (SELECT conversation_id FROM lanes_live)
+               AND h.parent_id NOT IN {ARRIVING_CONVERSATIONS}
+               AND COALESCE((SELECT json_extract(e.body, '$.type') FROM events e
+                    WHERE e.conversation_id = h.conversation_id
+                    ORDER BY e.seq DESC LIMIT 1), '') NOT IN
+                   ('reply_finished', 'reply_stopped', 'reply_failed', 'reply_interrupted',
+                    'stop_requested', 'lane_titled', 'lanes_overlapped')",
+            prefixed("h")
+        ))?;
+        let rows = statement.query_map([], helper)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
     /// Marks task lane `lane` (of `parent`) as not ended, or ended.
     pub fn set_lane_live(&self, lane: &str, parent: &str, live: bool) -> Result<()> {
         let connection = self.lock()?;

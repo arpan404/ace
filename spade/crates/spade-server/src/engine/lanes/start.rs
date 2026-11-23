@@ -179,7 +179,7 @@ impl Engine {
         // Read before the record lock, which reading a lane's state takes; it only says whether
         // `lane_started` reads queued: `fill_lanes` decides what starts.
         let running_before = self
-            .lanes_of(main)
+            .live_lanes_of(main)
             .iter()
             .filter(|l| {
                 let state = self.lane_state(&l.conversation);

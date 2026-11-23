@@ -39,10 +39,17 @@ impl Engine {
     /// The lane of `main` that `reference` names: its id, or its title.
     fn find_lane(&self, main: &str, reference: &str) -> Result<StoredHelper, String> {
         let reference = reference.trim();
-        let lanes = self.lanes_of(main);
-        if let Some(row) = lanes.iter().find(|row| row.conversation == reference) {
-            return Ok(row.clone());
+        // By id directly; by title among the lanes that haven't ended and those that ended last,
+        // never every lane the bot ran.
+        if let Some(row) = self.lane_row(reference).filter(|row| row.parent == main) {
+            return Ok(row);
         }
+        let mut lanes = self.live_lanes_of(main);
+        lanes.extend(
+            self.store
+                .ended_lanes(main, super::view::ENDED_SHOWN)
+                .unwrap_or_default(),
+        );
         let titled: Vec<&StoredHelper> = lanes
             .iter()
             .filter(|row| {
@@ -104,16 +111,13 @@ impl Engine {
         // The asks are the lane's now: main's ledger hands them over (ADR 0217 §2), in the same
         // write as the lane hears of them.
         let title = self.lane_title(&row.conversation);
-        let to_main: Vec<Event> = asks
-            .iter()
-            .map(|ask| {
-                Event::Known(Known::AskRouted(Routed {
-                    lane: row.conversation.clone(),
-                    title: title.clone(),
-                    message: ask.clone(),
-                }))
-            })
-            .collect();
+        // Every message is marked in main, with the asks it took, so main's ledger hands them
+        // over and a stop asked for before it reads stale (ADR 0217 §3).
+        let to_main = vec![Event::Known(Known::LaneMessaged(lane::Messaged {
+            lane: row.conversation.clone(),
+            title,
+            asks,
+        }))];
         if let Err(error) = self.send_to_lane(&row, to_lane, |_| Some(to_main)) {
             return ToolOutput::error(format!("Spade could not send it: {error}"));
         }
@@ -427,6 +431,51 @@ impl Engine {
         match stored {
             Ok(_) => self.announce(&row.parent),
             Err(error) => tracing::error!(%error, "could not close a task lane's question in main"),
+        }
+    }
+}
+
+impl Engine {
+    /// How lane `lane`'s card `call_id` closed, when it has: its answer or dismissal as stored.
+    pub(in super::super) fn lane_card_closed(&self, lane: &str, call_id: &str) -> Option<Event> {
+        let events = self.load(lane).ok()?;
+        events.iter().rev().find_map(|event| match event {
+            Event::Known(
+                Known::QuestionAnswered { call_id: c, .. }
+                | Known::QuestionDismissed { call_id: c, .. },
+            ) if c == call_id => Some(event.clone()),
+            _ => None,
+        })
+    }
+
+    /// When Spade opens: every copy in `main` of a lane's card that the lane answered but main
+    /// never closed (a crash between the two writes of a late answer) closes now (ADR 0217 §4).
+    /// Reads only the lanes of cards still open in main.
+    pub(crate) fn reconcile_lane_cards(&self, events: &[Event]) {
+        let open: Vec<(String, String)> = events
+            .iter()
+            .filter_map(|event| match event {
+                Event::Known(Known::QuestionAsked {
+                    call_id,
+                    lane: Some(lane),
+                    ..
+                }) if matches!(
+                    spade_core::question::standing(events.iter(), call_id),
+                    Some(
+                        spade_core::question::Standing::Waiting
+                            | spade_core::question::Standing::Deferred
+                    )
+                ) =>
+                {
+                    Some((lane.conversation.clone(), lane.call_id.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (lane, call_id) in open {
+            if let Some(closed) = self.lane_card_closed(&lane, &call_id) {
+                self.close_in_main(&lane, &call_id, &closed);
+            }
         }
     }
 }

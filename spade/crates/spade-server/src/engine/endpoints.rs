@@ -567,7 +567,7 @@ impl Engine {
             let pinned = events.iter().any(|event| {
                 matches!(
                     event,
-                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model })
+                    spade_core::Event::Known(spade_core::event::Known::ReplyStarted { reply, model, .. })
                         if Some(reply) == open.as_ref() && model.starts_with(&prefix)
                 )
             });

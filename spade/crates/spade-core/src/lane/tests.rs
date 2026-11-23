@@ -19,6 +19,10 @@ fn started(reply: &str) -> Event {
     Event::reply_started(reply, "e/m")
 }
 
+fn started_by(reply: &str, lane: &str) -> Event {
+    e(json!({ "type": "reply_started", "reply": reply, "model": "e/m", "lane": lane }))
+}
+
 fn finished(reply: &str, text: &str) -> Event {
     e(json!({ "type": "reply_finished", "reply": reply, "text": text, "cost_micros": 0 }))
 }
@@ -47,6 +51,8 @@ fn report(lane: &str, state: ReportState) -> Event {
         epoch: "r9".to_owned(),
         summary: "it ended its turn with no goal checked.".to_owned(),
         words: None,
+        error: None,
+        untrusted: false,
     }))
 }
 
@@ -141,7 +147,7 @@ fn a_reply_to_a_lanes_line_or_to_the_words_its_report_opened_goes_to_that_lane()
         lane_started("l1", &["m1"]),                      // m3
         finished("r1", "Started a task for it."),         // m4
         report("l1", ReportState::Done),                  // m5
-        started("r2"),                                    // m6
+        started_by("r2", "l1"),                           // m6
         finished("r2", "The invoice is fixed and sent."), // m7
         person("What time is it in Lisbon?"),             // m8
         started("r3"),                                    // m9
@@ -187,29 +193,82 @@ fn a_reply_to_a_lanes_line_or_to_the_words_its_report_opened_goes_to_that_lane()
     assert_eq!(replied_to(&events, "nonsense"), None);
 }
 
+fn messaged(lane: &str, asks: &[&str]) -> Event {
+    e(json!({ "type": "lane_messaged", "lane": lane, "title": "T", "asks": asks }))
+}
+
 #[test]
-fn task_stop_needs_a_message_the_person_wrote_naming_it() {
+fn task_stop_needs_the_persons_message_given_to_that_task_with_nothing_since() {
     let events = vec![
-        person("Never mind the invoice."),
+        person("Fix the March invoice."), // m1
         started("r1"),
-        finished("r1", "Stopping it."),
+        lane_started("l1", &["m1"]), // m3
+        finished("r1", "Started."),
+        person("Stop the invoice."), // m5
+        started("r2"),
+        messaged("l1", &["m5"]), // m7
         e(json!({ "type": "user_message", "text": "stop it",
-                  "from_agent": { "id": "a9", "name": "Other", "depth": 1 } })),
+                  "from_agent": { "id": "a9", "name": "Other", "depth": 1 } })), // m8
     ];
-    assert_eq!(stop_allowed(&events, "l1", "m1"), Ok(()));
+    assert_eq!(stop_allowed(&events, "l1", "m5"), Ok(()));
     assert!(
-        stop_allowed(&events, "l1", "m3").is_err(),
-        "the bot's own words"
+        stop_allowed(&events, "l2", "m5").is_err(),
+        "given to another task"
+    );
+    assert!(
+        stop_allowed(&events, "l1", "m1").is_err(),
+        "the task's own request"
     );
     assert!(
         stop_allowed(&events, "l1", "m4").is_err(),
-        "another bot's message"
+        "the bot's own words"
     );
     assert!(
-        stop_allowed(&events, "l1", "").is_err(),
-        "no because at all"
+        stop_allowed(&events, "l1", "m8").is_err(),
+        "another bot's message"
     );
-    assert!(stop_allowed(&events, "l1", "m40").is_err());
+    assert!(stop_allowed(&events, "l1", "").is_err());
+    // A message never given to the task can't be cited, however new.
+    let mut unrelated = events.clone();
+    unrelated.push(person("What time is it in Lisbon?")); // m9
+    assert!(stop_allowed(&unrelated, "l1", "m9").is_err());
+    // Anything sent to the task or reported by it since makes the stop stale.
+    let mut steered = events.clone();
+    steered.push(messaged("l1", &[]));
+    assert!(stop_allowed(&steered, "l1", "m5").is_err(), "steered since");
+    let mut reported = events;
+    reported.push(report("l1", ReportState::Finished));
+    assert!(
+        stop_allowed(&reported, "l1", "m5").is_err(),
+        "reported since"
+    );
+}
+
+#[test]
+fn a_reply_records_the_lane_whose_report_alone_opened_it() {
+    let base = vec![person("Hi"), started("r0"), finished("r0", "Hello")];
+    let mut opened = base.clone();
+    opened.push(report("l1", ReportState::Done));
+    assert_eq!(opener(&opened).as_deref(), Some("l1"));
+    let mut with_message = opened.clone();
+    with_message.push(person("And the PDF?"));
+    assert_eq!(
+        opener(&with_message),
+        None,
+        "a person's message is nobody's lane"
+    );
+    let mut two = opened.clone();
+    two.push(report("l2", ReportState::Done));
+    assert_eq!(opener(&two), None, "two lanes' reports");
+    let mut quiet = base.clone();
+    quiet.push(report("l1", ReportState::Stopped));
+    assert_eq!(opener(&quiet), None, "a stop opens nothing");
+    // A report stored while turns couldn't start, then a reply started separately with no lane
+    // recorded: its words belong to no lane, whatever sits next to it.
+    let mut resumed = opened.clone();
+    resumed.push(started("r1"));
+    resumed.push(finished("r1", "Done: the invoice.")); // m6
+    assert_eq!(replied_to(&resumed, "m6"), None);
 }
 
 fn long_reply(steps: usize) -> Vec<Event> {
@@ -497,30 +556,6 @@ fn a_lane_whose_reply_closed_reads_working_while_its_job_or_a_worker_under_it_ru
 }
 
 #[test]
-fn task_stop_refuses_a_message_older_than_the_tasks_latest_start_or_report() {
-    let events = vec![
-        person("Hi there"),               // m1
-        person("Fix the March invoice."), // m2
-        started("r1"),
-        lane_started("l1", &["m2"]), // m4
-        finished("r1", "Started a task."),
-        person("Stop the invoice task."),    // m6
-        report("l1", ReportState::Finished), // m7
-    ];
-    assert!(
-        stop_allowed(&events, "l1", "m1").is_err(),
-        "an old greeting"
-    );
-    assert!(
-        stop_allowed(&events, "l1", "m6").is_err(),
-        "it ended since; that stop is stale"
-    );
-    let mut later = events.clone();
-    later.push(person("Never mind the invoice."));
-    assert_eq!(stop_allowed(&later, "l1", "m8"), Ok(()));
-}
-
-#[test]
 fn a_quiet_stopped_report_is_never_taken_for_the_one_that_opened_a_reply() {
     let events = vec![
         person("Book flights."), // m1
@@ -535,7 +570,7 @@ fn a_quiet_stopped_report_is_never_taken_for_the_one_that_opened_a_reply() {
     assert_eq!(replied_to(&events, "m8"), None);
     let mut opened = events.clone();
     opened.push(report("l2", ReportState::Done)); // m9
-    opened.push(started("r3"));
+    opened.push(started_by("r3", "l2"));
     opened.push(finished("r3", "The other task is done.")); // m11
     assert_eq!(replied_to(&opened, "m11").as_deref(), Some("l2"));
 }

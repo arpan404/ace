@@ -374,6 +374,7 @@ impl Transcript {
             | Known::LaneTitled(_)
             | Known::LanesOverlapped(_)
             | Known::LaneMessage(_)
+            | Known::LaneMessaged(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)
