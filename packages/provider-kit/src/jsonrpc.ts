@@ -4,7 +4,7 @@ import { byteLimit } from "./byte-limit.ts";
 import { scheduleDeadline, type DeadlineScheduler } from "./rpc-timers.ts";
 import { z } from "zod";
 import { supervisorBackend } from "./native-switches.ts";
-import { nativeRpcErrorCode, nativeRpcWire } from "./native-streams.ts";
+import { nativeInspect, nativeRpcErrorCode } from "./native-streams.ts";
 import type { SupervisedProcess } from "./process.ts";
 
 export class MethodNotFound extends Error {
@@ -60,8 +60,6 @@ export function rpcErrorCode(error: unknown): number | undefined {
 }
 const noop = () => {};
 
-/** One message ready for the wire, and the object its observer sees. */
-type EncodedMessage = { line: string; bytes: number; message: () => unknown };
 /** What a received line is, with the observer's copy when one asked for it. */
 type Inspected =
   | { kind: "unparsable"; raw: undefined }
@@ -69,71 +67,34 @@ type Inspected =
   | { kind: "request"; raw: unknown; id: RpcId; method: string; params: unknown }
   | { kind: "notification"; raw: unknown; method: string; params: unknown }
   | { kind: "response"; raw: unknown; id: RpcId; result: unknown; error: string | undefined };
+/** One received line's shape; the native one classifies, then this parses once. */
+type RpcInspector = (line: string) => Inspected;
 
-/** The protocol primitives: JSON encodings and envelope classification. */
-type RpcWire = {
-  request(id: RpcId, method: string, params: unknown): EncodedMessage;
-  notification(method: string, params: unknown): EncodedMessage;
-  answer(
-    id: RpcId,
-    result: unknown,
-    error: { code: number; message: string } | undefined,
-  ): EncodedMessage;
-  inspect(line: string, withMessage: boolean): Inspected;
-};
-
-/** Today's `JSON.stringify`/`JSON.parse` primitives, kept for the switch's off side. */
-function encodeMessage(message: object): EncodedMessage {
-  const line = `${JSON.stringify(message)}\n`;
-  return { line, bytes: Buffer.byteLength(line), message: () => message };
-}
-
-function typeScriptRpcWire(): RpcWire {
-  return {
-    request(id, method, params) {
-      return encodeMessage({
-        jsonrpc: "2.0",
-        id,
-        method,
-        ...(params === undefined ? {} : { params }),
-      });
-    },
-    notification(method, params) {
-      return encodeMessage({ jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) });
-    },
-    answer(id, result, error) {
-      return encodeMessage(
-        error === undefined
-          ? { jsonrpc: "2.0", id, result: result ?? null }
-          : { jsonrpc: "2.0", id, error },
-      );
-    },
-    inspect(line) {
-      let raw: unknown;
-      try {
-        raw = JSON.parse(line);
-      } catch {
-        return { kind: "unparsable", raw: undefined };
-      }
-      if (!isEnvelope(raw)) return { kind: "malformed", raw };
-      const message = raw;
-      const id = message["id"];
-      const method = message["method"];
-      if (typeof method === "string" && isId(id))
-        return { kind: "request", raw, id, method, params: message["params"] };
-      if (typeof method === "string" && id === undefined)
-        return { kind: "notification", raw, method, params: message["params"] };
-      if (isId(id) && ("result" in message || "error" in message))
-        return {
-          kind: "response",
-          raw,
-          id,
-          result: message["result"],
-          error: message["error"] === undefined ? undefined : JSON.stringify(message["error"]),
-        };
-      return { kind: "malformed", raw };
-    },
-  };
+/** Today's parse and classification, kept for the switch's off side. */
+function typeScriptInspect(line: string): Inspected {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(line);
+  } catch {
+    return { kind: "unparsable", raw: undefined };
+  }
+  if (!isEnvelope(raw)) return { kind: "malformed", raw };
+  const message = raw;
+  const id = message["id"];
+  const method = message["method"];
+  if (typeof method === "string" && isId(id))
+    return { kind: "request", raw, id, method, params: message["params"] };
+  if (typeof method === "string" && id === undefined)
+    return { kind: "notification", raw, method, params: message["params"] };
+  if (isId(id) && ("result" in message || "error" in message))
+    return {
+      kind: "response",
+      raw,
+      id,
+      result: message["result"],
+      error: message["error"] === undefined ? undefined : JSON.stringify(message["error"]),
+    };
+  return { kind: "malformed", raw };
 }
 
 /** Lenient stdio framing: extension methods and absent jsonrpc tags are accepted. */
@@ -146,7 +107,7 @@ export class JsonRpcPeer {
   readonly #maxMessageBytes: number;
   readonly #maxPendingRequests: number;
   readonly #maxIncomingRequests: number;
-  readonly #wire: RpcWire;
+  readonly #inspect: RpcInspector;
   #incoming = 0;
   readonly #schedule: DeadlineScheduler;
   #closed: Error | undefined;
@@ -168,7 +129,7 @@ export class JsonRpcPeer {
     byteLimit(options.maxExplicitIds ?? 4096, "maxExplicitIds");
     byteLimit(options.maxQueuedBytes ?? 32 * 1024 * 1024, "maxQueuedBytes");
     this.#owner = rpcOwner(proc.stdin, options);
-    this.#wire = supervisorBackend() === "native" ? nativeRpcWire() : typeScriptRpcWire();
+    this.#inspect = supervisorBackend() === "native" ? nativeInspect : typeScriptInspect;
     this.#schedule = options.schedule ?? scheduleDeadline;
     this.#process = proc;
     this.#options = options;
@@ -225,9 +186,15 @@ export class JsonRpcPeer {
           return;
         }
       }
-      void this.#send(() => this.#wire.request(requestId, method, params), writeAbort.signal).catch(
-        (error: unknown) => this.#settle(requestId, asError(error)),
-      );
+      void this.#send(
+        {
+          jsonrpc: "2.0",
+          id: requestId,
+          method,
+          ...(params === undefined ? {} : { params }),
+        },
+        writeAbort.signal,
+      ).catch((error: unknown) => this.#settle(requestId, asError(error)));
     });
   }
 
@@ -239,7 +206,11 @@ export class JsonRpcPeer {
   }
 
   notify(method: string, params?: unknown): Promise<void> {
-    const sent = this.#send(() => this.#wire.notification(method, params));
+    const sent = this.#send({
+      jsonrpc: "2.0",
+      method,
+      ...(params === undefined ? {} : { params }),
+    });
     void sent.catch((error: unknown) => this.#report(asError(error)));
     return sent;
   }
@@ -283,20 +254,21 @@ export class JsonRpcPeer {
     if (error) pending.reject(error);
     else pending.resolve(result);
   }
-  async #send(build: () => EncodedMessage, signal?: AbortSignal): Promise<void> {
+  async #send(message: object, signal?: AbortSignal): Promise<void> {
     if (this.#closed || this.#process.signal.aborted)
       throw this.#closed ?? new Error("process exited");
-    const encoded = build();
-    if (encoded.bytes > this.#maxMessageBytes) throw new Error("JSON-RPC message exceeded limit");
-    this.#options.onFrame?.("send", encoded.message());
+    const line = `${JSON.stringify(message)}\n`;
+    const bytes = Buffer.byteLength(line);
+    if (bytes > this.#maxMessageBytes) throw new Error("JSON-RPC message exceeded limit");
+    this.#options.onFrame?.("send", message);
     await this.#owner.writer.send(
-      encoded.line,
-      encoded.bytes,
+      line,
+      bytes,
       signal ? AbortSignal.any([signal, this.#outgoing.signal]) : this.#outgoing.signal,
     );
   }
   #receive = (line: string): void => {
-    const inspected = this.#wire.inspect(line, this.#options.onFrame !== undefined);
+    const inspected = this.#inspect(line);
     if (inspected.kind === "unparsable") {
       this.#options.onMalformed?.(line);
       return;
@@ -340,18 +312,22 @@ export class JsonRpcPeer {
     }
   };
   async #answer(request: ServerRequest): Promise<void> {
-    let response: EncodedMessage;
+    let response: object;
     try {
       const result = await this.onRequest(request);
-      response = this.#wire.answer(request.id, result, undefined);
+      response = { jsonrpc: "2.0", id: request.id, result: result ?? null };
     } catch (error) {
-      response = this.#wire.answer(request.id, null, {
-        code: error instanceof MethodNotFound ? -32601 : -32603,
-        message: asError(error).message,
-      });
+      response = {
+        jsonrpc: "2.0",
+        id: request.id,
+        error: {
+          code: error instanceof MethodNotFound ? -32601 : -32603,
+          message: asError(error).message,
+        },
+      };
     }
     try {
-      await this.#send(() => response);
+      await this.#send(response);
     } catch (error) {
       if (!this.#closed) this.#report(asError(error));
     }
