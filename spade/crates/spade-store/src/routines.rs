@@ -466,6 +466,7 @@ mod tests {
             // As a database from before the column: the column goes and the version steps back,
             // past the skill store, the helpers table, seen cursors and pins that came after it.
             let connection = crate::Store::connect(&path)?;
+            connection.execute("DROP TABLE lanes_live", [])?;
             connection.execute("DROP TABLE helpers", [])?;
             connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
             connection
@@ -481,7 +482,7 @@ mod tests {
             connection.pragma_update(
                 None,
                 "user_version",
-                crate::schema::current_version() as i64 - 14,
+                crate::schema::current_version() as i64 - 15,
             )?;
         }
         let store = Store::open(&path)?;

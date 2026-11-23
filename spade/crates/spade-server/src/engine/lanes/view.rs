@@ -7,18 +7,24 @@ use spade_store::{StoreError, StoredHelper};
 
 use super::super::Engine;
 
+/// The ended lanes the task list shows when the caller names no number.
+pub const ENDED_SHOWN: usize = 20;
+
 /// The most of a lane's last words a row quotes, in characters.
 const REPORT_CHARS: usize = 200;
 
 impl Engine {
-    /// `main`'s lanes in the list's order: needs you, running, ended, queued. `None` for an
-    /// unknown conversation.
-    pub fn lanes_view(&self, main: &str) -> Result<Option<Vec<Value>>, StoreError> {
+    /// `main`'s lanes in the list's order: needs you, running, ended, queued. Every lane that
+    /// hasn't ended, and the `ended` that ended most recently; never every lane the bot ran
+    /// (ADR 0170). `None` for an unknown conversation.
+    pub fn lanes_view(&self, main: &str, ended: usize) -> Result<Option<Vec<Value>>, StoreError> {
         if !self.reachable(main)? {
             return Ok(None);
         }
+        let mut lanes = self.live_lanes_of(main);
+        lanes.extend(self.store.ended_lanes(main, ended)?);
         let mut rows: Vec<(State, i64, Value)> = Vec::new();
-        for row in self.lanes_of(main) {
+        for row in lanes {
             let view = self.lane_view(&row, false)?;
             rows.push((self.lane_state(&row.conversation), row.created_ms, view));
         }

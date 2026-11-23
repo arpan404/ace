@@ -13,6 +13,8 @@ mod start;
 mod talk;
 mod view;
 
+pub use view::ENDED_SHOWN;
+
 use std::sync::Arc;
 
 use spade_core::event::Known;
@@ -80,6 +82,12 @@ impl Engine {
             .unwrap_or_default()
     }
 
+    /// The lanes of `main` that haven't ended, oldest first: what slots, roll-up, Stop, the
+    /// tasks block and the tree read, never every lane the bot ran (ADR 0170).
+    pub(super) fn live_lanes_of(&self, main: &str) -> Vec<StoredHelper> {
+        self.store.live_lanes(Some(main)).unwrap_or_default()
+    }
+
     /// A lane's title, from its first event.
     pub(super) fn lane_title(&self, id: &str) -> String {
         self.load(id)
@@ -107,7 +115,7 @@ impl Engine {
     /// running lane that has none (after a restart or a pause). Nothing starts while Spade is
     /// closing or the bot is being deleted.
     pub(super) fn fill_lanes(self: &Arc<Self>, main: &str) {
-        let lanes = self.lanes_of(main);
+        let lanes = self.live_lanes_of(main);
         if lanes.is_empty() {
             return;
         }
@@ -174,7 +182,7 @@ impl Engine {
     pub(super) fn lanes_rolled(&self, main: &str) -> (Activity, usize) {
         let mut state = Activity::Idle;
         let mut live = 0;
-        for row in self.lanes_of(main) {
+        for row in self.live_lanes_of(main) {
             let lane = self.lane_state(&row.conversation);
             let own = match lane {
                 State::NeedsYou => Activity::Waiting,
@@ -220,6 +228,7 @@ impl Engine {
             None => return,
         };
         let title = lane::title(&events).unwrap_or_else(|| "A task".to_owned());
+        let ended_state = settled.state != tree::ReportState::NeedsYou;
         let report = Event::Known(Known::WorkerReported(Report {
             worker: id.to_owned(),
             kind: Kind::Lane,
@@ -229,7 +238,15 @@ impl Engine {
             summary: settled.summary,
             words: settled.words,
         }));
+        let ended = ended_state;
         match self.deliver_as(&row.parent, &report, None) {
+            // Reported (now or before): a lane that ended leaves the live list (ADR 0170), and
+            // comes back when it opens a new reply.
+            Ok(_) if ended => {
+                if let Err(error) = self.store.set_lane_live(id, &row.parent, false) {
+                    tracing::error!(%error, "could not mark a task lane ended");
+                }
+            }
             Ok(_) => {}
             Err(StoreError::NoConversation(_)) => {}
             Err(error) => tracing::error!(%error, "could not report a task lane to its bot"),
@@ -319,7 +336,7 @@ impl Engine {
     /// When Spade opens for work: every bot's lanes carry on (queued ones start as slots free),
     /// and every lane is checked, so a report owed from before a restart arrives once.
     pub(super) fn resume_lanes(self: &Arc<Self>) {
-        let lanes = self.all_lanes();
+        let lanes = self.live_lane_rows();
         let mut mains: Vec<String> = lanes.iter().map(|row| row.parent.clone()).collect();
         mains.sort();
         mains.dedup();
@@ -343,14 +360,23 @@ impl Engine {
         if self.hidden_of(main).is_some() {
             return prompt;
         }
-        let Ok(events) = self.load(main) else {
-            return prompt;
-        };
-        let lanes: Vec<(lane::Started, State)> = lane::started(&events)
+        // From the lanes that haven't ended alone, each read from its own first events.
+        let lanes: Vec<(lane::Started, State)> = self
+            .live_lanes_of(main)
             .into_iter()
-            .map(|started| {
-                let state = self.lane_state(&started.conversation);
-                (started, state)
+            .filter_map(|row| {
+                let events = self.load(&row.conversation).ok()?;
+                let link = lane::link(&events)?.clone();
+                let started = lane::Started {
+                    lane: row.conversation.clone(),
+                    conversation: row.conversation.clone(),
+                    title: lane::title(&events).unwrap_or(link.title),
+                    call: link.call,
+                    asks: link.asks,
+                    moved_from: link.moved_from,
+                    queued: false,
+                };
+                Some((started, self.lane_state(&row.conversation)))
             })
             .collect();
         if let Some(text) = lane::block(&lanes) {
@@ -379,7 +405,7 @@ impl Engine {
             return false;
         }
         let others: Vec<(String, String, std::collections::BTreeSet<String>)> = self
-            .lanes_of(&row.parent)
+            .live_lanes_of(&row.parent)
             .into_iter()
             .filter(|other| other.conversation != id)
             .filter(|other| self.lane_state(&other.conversation).live())

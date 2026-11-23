@@ -47,7 +47,7 @@ impl Engine {
             }));
         }
         // Its task lanes (ADR 0217 §10), oldest first.
-        for lane in self.lanes_of(id) {
+        for lane in self.live_lanes_of(id) {
             let view = self.lane_view(&lane, false)?;
             children.push(json!({
                 "kind": "lane",

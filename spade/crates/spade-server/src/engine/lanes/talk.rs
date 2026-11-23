@@ -235,7 +235,15 @@ impl Engine {
                 Ok(row) => vec![row],
                 Err(refused) => return ToolOutput::error(refused),
             },
-            None => self.lanes_of(main),
+            None => {
+                let mut lanes = self.live_lanes_of(main);
+                lanes.extend(
+                    self.store
+                        .ended_lanes(main, super::view::ENDED_SHOWN)
+                        .unwrap_or_default(),
+                );
+                lanes
+            }
         };
         let shown: Vec<Value> = rows
             .iter()

@@ -11,6 +11,7 @@ pub mod code;
 pub mod contracts;
 pub mod fleet;
 pub mod gated;
+pub mod lanes;
 pub mod market;
 #[cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 pub mod org;

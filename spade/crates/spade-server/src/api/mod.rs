@@ -417,11 +417,26 @@ async fn helpers(State(state): State<AppState>, Path(id): Path<String>) -> Respo
     }
 }
 
+#[derive(Deserialize, Default)]
+struct TasksQuery {
+    #[serde(default)]
+    ended: Option<usize>,
+}
+
 /// A bot's task lanes (ADR 0217 §10), in the task list's order. Each lane's own conversation is
 /// read with `/events` and `/live`, written to with `/messages`, stopped with `/stop` and tried
 /// again with `/retry`, like any conversation.
-async fn tasks(State(state): State<AppState>, Path(id): Path<String>) -> Response {
-    match state.engine.lanes_view(&id) {
+/// `?ended=N` lists the N lanes that ended most recently (20 by default) after the live ones.
+async fn tasks(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(query): Query<TasksQuery>,
+) -> Response {
+    let ended = query
+        .ended
+        .unwrap_or(crate::engine::ENDED_TASKS_SHOWN)
+        .min(500);
+    match state.engine.lanes_view(&id, ended) {
         Ok(Some(tasks)) => Json(json!({ "tasks": tasks })).into_response(),
         Ok(None) => problem(StatusCode::NOT_FOUND, "no such conversation"),
         Err(error) => problem(StatusCode::INTERNAL_SERVER_ERROR, &error.to_string()),

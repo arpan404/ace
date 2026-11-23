@@ -26,6 +26,16 @@ pub(crate) const SCHEMA: &str = "
     CREATE INDEX helpers_by_parent ON helpers (parent_id, created_ms);
 ";
 
+/// The schema step that adds the task lanes that haven't ended (ADR 0217): a lane is listed from
+/// its start until its last report, and again once it opens a new reply.
+pub(crate) const LANES_LIVE: &str = "
+    CREATE TABLE lanes_live (
+        conversation_id TEXT PRIMARY KEY REFERENCES conversations (id),
+        parent_id TEXT NOT NULL
+    );
+    CREATE INDEX lanes_live_by_parent ON lanes_live (parent_id);
+";
+
 /// A helper as stored. The profile is kept as it was when the helper started, so its prompt
 /// rebuilds to the same bytes after a restart even if the profile changed or went away.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -50,6 +60,15 @@ pub struct StoredHelper {
 
 const COLUMNS: &str =
     "conversation_id, parent_id, job, reply, profile, system, reads_only, tools, model, created_ms";
+
+/// [`COLUMNS`], each named in table `alias`.
+fn prefixed(alias: &str) -> String {
+    COLUMNS
+        .split(", ")
+        .map(|column| format!("{alias}.{column}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 
 fn helper(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredHelper> {
     let tools: Option<String> = row.get(7)?;
@@ -110,6 +129,10 @@ impl Store {
                 params![lane.conversation, lane.parent, job],
             )?;
         }
+        tx.execute(
+            "INSERT OR IGNORE INTO lanes_live (conversation_id, parent_id) VALUES (?1, ?2)",
+            params![lane.conversation, lane.parent],
+        )?;
         let parent = crate::append_in(&tx, &lane.parent, parent_events, now_ms)?;
         tx.commit()?;
         Ok(Some((own, parent)))
@@ -143,6 +166,57 @@ impl Store {
                 helper,
             )
             .optional()?)
+    }
+
+    /// The task lanes of `parent` that haven't ended (ADR 0217), oldest first; every bot's
+    /// with `None`. Reads only those, however many a bot ran.
+    pub fn live_lanes(&self, parent: Option<&str>) -> Result<Vec<StoredHelper>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT {} FROM helpers h JOIN lanes_live l ON l.conversation_id = h.conversation_id
+             WHERE h.parent_id NOT IN {ARRIVING_CONVERSATIONS}
+               AND (?1 IS NULL OR l.parent_id = ?1)
+             ORDER BY h.created_ms, h.conversation_id",
+            prefixed("h")
+        ))?;
+        let rows = statement.query_map(params![parent], helper)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// The `limit` task lanes of `parent` that ended most recently first, the oldest of them
+    /// first: the task list shows these after the live ones.
+    pub fn ended_lanes(&self, parent: &str, limit: usize) -> Result<Vec<StoredHelper>> {
+        let connection = self.lock()?;
+        let mut statement = connection.prepare(&format!(
+            "SELECT {} FROM helpers h
+             WHERE h.parent_id = ?1 AND h.profile = 'lane'
+               AND h.conversation_id NOT IN (SELECT conversation_id FROM lanes_live)
+               AND h.parent_id NOT IN {ARRIVING_CONVERSATIONS}
+             ORDER BY h.created_ms DESC, h.conversation_id DESC LIMIT ?2",
+            prefixed("h")
+        ))?;
+        let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let rows = statement.query_map(params![parent, limit], helper)?;
+        let mut lanes = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        lanes.reverse();
+        Ok(lanes)
+    }
+
+    /// Marks task lane `lane` (of `parent`) as not ended, or ended.
+    pub fn set_lane_live(&self, lane: &str, parent: &str, live: bool) -> Result<()> {
+        let connection = self.lock()?;
+        match live {
+            true => connection.execute(
+                "INSERT OR IGNORE INTO lanes_live (conversation_id, parent_id)
+                 SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM conversations WHERE id = ?1)",
+                params![lane, parent],
+            )?,
+            false => connection.execute(
+                "DELETE FROM lanes_live WHERE conversation_id = ?1",
+                params![lane],
+            )?,
+        };
+        Ok(())
     }
 
     /// The bot's helpers, oldest first (the order queued ones start in).
@@ -250,6 +324,10 @@ pub(crate) fn delete_of(tx: &rusqlite::Transaction<'_>, parent: &str) -> rusqlit
         let rows = statement.query_map(params![parent], |row| row.get(0))?;
         rows.collect::<rusqlite::Result<_>>()?
     };
+    tx.execute(
+        "DELETE FROM lanes_live WHERE parent_id = ?1",
+        params![parent],
+    )?;
     tx.execute("DELETE FROM helpers WHERE parent_id = ?1", params![parent])?;
     for conversation in conversations {
         tx.execute(

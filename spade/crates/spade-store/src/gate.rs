@@ -68,7 +68,9 @@ fn owner_hidden(table: &str, row: &str) -> Option<String> {
     Some(match table {
         "conversations" => conversation(&format!("{row}.id")),
         "agents" => agent(&format!("{row}.id")),
-        "events" | "spend" | "seen" | "inbox" => conversation(&format!("{row}.conversation_id")),
+        "events" | "spend" | "seen" | "inbox" | "lanes_live" => {
+            conversation(&format!("{row}.conversation_id"))
+        }
         "helpers" => format!(
             "({} OR {})",
             conversation(&format!("{row}.conversation_id")),

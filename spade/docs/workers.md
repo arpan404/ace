@@ -165,7 +165,11 @@ check of done and asks, takes the person's messages, and reports back to main.
 
   `task` is a lane's id or its title. `asks` names main's asks (`m12`) the lane takes; with none,
   `task_start` takes the newest open one. `task_stop` is refused unless `because` names a message
-  the person wrote in main. A `task_start` run again finds its lane by the call's key.
+  the person wrote in main since the task last started, reported or was sent a message. A
+  `task_start` run again finds its lane by the call's key. `task_message` stores main's words as
+  `lane_message {text, untrusted}` (the bot's, never the person's, tainting when main wrote them
+  with untrusted content in view); the person's own words for the asks it names go verbatim as
+  theirs. It and a routed reply store both sides in one write.
 
 - **First events.** `lane_of {parent_conversation, call, title, asks, untrusted, moved_from?}`,
   then one message from the person quoting their asks verbatim, with Spade's note on the task and
@@ -202,15 +206,28 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   shared path is stored once as `lanes_overlapped {lane, title, path, other, other_title}` in the
   writing lane (read as an `<overlap>` warning) and in main. No lock.
 - **State.** `lane::state`: `queued`, `working`, `needs_you`, `done` (its check passed),
-  `finished`, `failed`, `stopped`. The bot rolls its lanes up like workers: working while one
+  `finished`, `failed`, `stopped`. One fold decides a lane's state, its slot and its report: a
+  lane whose reply closed reads working while its own job, a wait, its task's next step or check,
+  or a worker under it runs, and needs you while anything under it waits on the person. The bot rolls its lanes up like workers: working while one
   works or is queued, waiting (`waiting_for: "task"`, "A task is waiting for you") while one waits
   on the person, never idle or done meanwhile. The roster adds `tasks` (lanes not ended).
 - **Reports.** A lane that settles stores one `worker_reported {kind: lane, worker: <lane>, …}`
   in main per state per epoch, read by main as `<task_report>`; a `stopped` one opens no reply.
   Every lane is checked when Spade opens, so a report owed from before a restart arrives once.
-- **Stop.** Stop on a lane (`POST /v1/conversations/{lane}/stop`) stops it alone; a queued one
-  never starts. Stop on the bot stops main and every lane.
-- **Restarts.** A lane cut off mid-step carries on from its events, as a helper does.
+- **Stop.** Stop on a lane (`POST /v1/conversations/{lane}/stop`) stops it alone; a queued one is
+  marked and never starts. Stop on the bot stops every lane first, also when main itself runs
+  nothing: queued ones are marked in one write, so none takes a slot a stopping lane frees.
+- **Restarts.** A lane cut off mid-step carries on from its events, as a helper does. When Spade
+  opens, each lane that started and hasn't ended is resumed like any conversation, so a task left
+  working after its reply closed takes its next step or its check of done; its lost jobs are
+  reported.
+- **Trust.** `lane_of.untrusted` is read by the trust fold: a lane started or moved while main had
+  untrusted content in view asks where main would.
+- **Writes in pairs.** A lane's request and its copy in main, an answer and every copy it closes
+  (with its audit entry), a routed reply on both sides: each is one write (`Store::append_across`).
+- **What is read.** `lanes_live` lists the lanes that haven't ended (a lane leaves it with its last
+  report and comes back when it opens a reply). Slots, roll-up, Stop, the tasks block, the tree,
+  resuming and startup read only those, never every lane a bot ran (ADR 0170).
 - **Spend.** Each lane's steps are recorded under its bot as the `task` role; a row's
   `cost_micros` is what its steps cost. Nothing stops on it (ADR 0166).
 
