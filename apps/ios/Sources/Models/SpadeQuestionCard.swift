@@ -79,15 +79,25 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             }
         }
 
-        /// The number edited to `text` on a keyboard of `language` (nil when not known). Edits
-        /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English
-        /// with `4` added in German is neither 1.234 nor 1,234; so is a number begun where the
-        /// keyboard wasn't known and finished on a known one. Only what is left of the earlier
-        /// text counts, and digits mean the same on any keyboard: an edit that keeps no decimal
-        /// or grouping mark of it (cleared, or Select All and paste) starts over.
-        func typingNumber(_ text: String, on language: String?) -> Draft {
-            guard case let .number(typed, had, mixed) = self, !text.isEmpty,
-                  Draft.kept(typed, editedTo: text).contains(where: { !$0.isNumber && $0 != "-" && $0 != "\u{2212}" }) else {
+        /// The number after the person replaced `range` of it (UTF-16 offsets, as the text field
+        /// reports the edit) with `string` on a keyboard of `language` (nil when not known). Edits
+        /// from two languages leave it `mixed`, so it is sent unread: `1,23` typed in English with
+        /// `4` added in German is neither 1.234 nor 1,234; so is a number begun where the keyboard
+        /// wasn't known and finished on a known one. Only what the edit left of the earlier text
+        /// counts, and digits mean the same on any keyboard: an edit that keeps no decimal or
+        /// grouping mark of it (cleared, or Select All and paste) starts over. The range is the
+        /// field's own, never guessed from how the old and new text compare (#2297).
+        func editingNumber(replacing range: NSRange, with string: String, on language: String?) -> Draft {
+            guard case let .number(typed, had, mixed) = self else {
+                return .number(string, language: string.isEmpty ? nil : language)
+            }
+            let units = Array(typed.utf16)
+            let lower = min(max(range.location, 0), units.count)
+            let upper = min(max(range.location + range.length, lower), units.count)
+            let before = String(decoding: units[..<lower], as: UTF16.self)
+            let after = String(decoding: units[upper...], as: UTF16.self)
+            let text = before + string + after
+            guard !text.isEmpty, Draft.marked(before + after) else {
                 return .number(text, language: text.isEmpty ? nil : language)
             }
             // Begun where the keyboard wasn't known, a known one taking over is a switch too.
@@ -95,15 +105,19 @@ struct SpadeQuestionCard: Decodable, Equatable, Sendable {
             return .number(text, language: had ?? language, mixed: mixed || switched)
         }
 
-        /// What of `old` an edit to `new` left in place: their common start and end.
-        private static func kept(_ old: String, editedTo new: String) -> [Character] {
-            let before = Array(old), after = Array(new)
-            var start = 0
-            while start < before.count, start < after.count, before[start] == after[start] { start += 1 }
-            var end = 0
-            while end < before.count - start, end < after.count - start,
-                  before[before.count - 1 - end] == after[after.count - 1 - end] { end += 1 }
-            return Array(before[..<start] + before[(before.count - end)...])
+        /// The number changed to `text` by an edit the field didn't report a range for (Undo, or
+        /// text still being composed). What it kept isn't known, so a number with a mark in it
+        /// is sent unread rather than read on one keyboard; digits alone read the same anywhere.
+        func changingNumber(to text: String) -> Draft {
+            guard case let .number(_, had, _) = self, !text.isEmpty else {
+                return .number(text, language: nil)
+            }
+            return .number(text, language: had, mixed: Draft.marked(text))
+        }
+
+        /// Whether `text` holds a decimal or grouping mark: anything but digits and a minus sign.
+        private static func marked(_ text: String) -> Bool {
+            text.contains { !$0.isNumber && $0 != "-" && $0 != "\u{2212}" }
         }
 
         /// Pick `label`: the one pick for `choice`, toggled for `choices`. A single pick clears

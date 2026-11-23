@@ -114,7 +114,12 @@ export class FakeSpadeConnectors {
     if (method === "GET") return reply(this.access.get(agent) ?? { all: isMain, connectors: [] });
     if (method === "PUT") {
       const ids = Array.isArray(body.connectors) ? body.connectors.map(String) : [];
-      const unknown = ids.find((each) => !this.connectors.some((c) => c.id === each));
+      const saved = this.access.get(agent);
+      const unknown = ids.find(
+        (each) =>
+          !this.connectors.some((c) => c.id === each) &&
+          !(saved?.all === false && saved.connectors.includes(each)),
+      );
       if (unknown) return problem(400, `no connector named ${unknown}`);
       const list = { all: body.all === true, connectors: body.all === true ? [] : ids };
       this.access.set(agent, list);

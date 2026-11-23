@@ -74,7 +74,7 @@ extension NotificationCoordinator {
     func backgroundCatchUp() async -> Bool {
         if permission == .unknown { await refreshPermission() }
         guard delivering else { return true }
-        if machines.isEmpty { transient = await connectInBackground(self) }
+        await openTransient()
         let ready = await readyMachines(within: .seconds(10))
         guard !ready.isEmpty else { await releaseTransient(); return false }
         var waiters: [Waiter<Bool>] = []
@@ -92,7 +92,7 @@ extension NotificationCoordinator {
     /// The machine's attached connection, or a short-lived one to every paired machine. Nil unless
     /// that machine (the first, when none is named) is ready within the budget.
     func session(_ hostId: String? = nil, budget: Duration) async -> ClientModel? {
-        if machines.isEmpty { transient = await connectInBackground(self) }
+        await openTransient()
         guard let current = client(hostId) ?? (hostId == nil ? nil : transient.first) else { return nil }
         if current.connection != "ready" { current.retry() }
         var waited = Duration.zero
@@ -112,7 +112,34 @@ extension NotificationCoordinator {
         }
         return machines.filter { $0.model.connection == "ready" }
     }
+    /// Opens short-lived connections to every paired machine when none is attached, once however
+    /// many callers ask at the same time.
+    func openTransient() async {
+        if let opening = transientOpening { await opening.value; return }
+        guard machines.isEmpty else { return }
+        let opening = Task { @MainActor in
+            let models = await BackgroundOpening.$active.withValue(true) { await connectInBackground(self) }
+            transient = models
+            transientOpening = nil
+        }
+        transientOpening = opening
+        await opening.value
+    }
+    /// Opens the short-lived connections, or joins those open, and keeps them until `letGoTransient`.
+    func holdTransient() async {
+        transientHolds += 1
+        await openTransient()
+    }
+    func letGoTransient() async {
+        transientHolds = max(0, transientHolds - 1)
+        await releaseTransient()
+    }
+    /// The short-lived connections close, unless a caller still holds them.
     func releaseTransient() async {
+        guard transientHolds == 0 else { return }
+        await closeTransient()
+    }
+    func closeTransient() async {
         let models = transient
         transient = []
         for model in models {
@@ -128,4 +155,10 @@ extension NotificationCoordinator {
         if foreground, let threadId, machines.contains(where: { ($0.hostId == hostId || hostId == nil) && $0.model.thread?.id == threadId }) { return [] }
         return banner ? [.banner, .list, .sound] : [.list]
     }
+}
+
+/// Set while `connectInBackground` attaches the runtimes it opens, so their attach doesn't wait on
+/// the opening it is part of.
+enum BackgroundOpening {
+    @TaskLocal static var active = false
 }

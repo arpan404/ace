@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { orgAllows } from "@ace/account-grant/org-roles";
 import { maxSpadeResponseBytes, type SpadeLiveEndReason, type SpadeStatus } from "@ace/protocol";
 import { personOnlyChangeRefusal } from "../answer-gate.ts";
 import { spadeLive } from "../spade/forward.ts";
@@ -8,6 +9,9 @@ import { memberRequestStamp, memberStamp } from "../spade/member-stamp.ts";
 import { checkLivePath } from "../spade/rules.ts";
 import { createSpadeHttp } from "./spade-http.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
+
+/** Spade's audit routes on an organization's host (`/v1/org/audit/export`, ADR 0206 §4.2). */
+const isAuditRead = (path: string) => /^\/v1\/org\/audit(?:[/?]|$)/.test(path);
 
 /** Live streams one connection may hold open at once. */
 const maxStreams = 16;
@@ -22,6 +26,7 @@ type SpadeSocket = Pick<SocketContext, "authorize" | "connected" | "send"> &
       | "personProven"
       | "memberStanding"
       | "memberStandingChecked"
+      | "hostCredential"
       | "orgHost"
       | "spadeAuthorize"
       | "bindHandle"
@@ -112,6 +117,21 @@ export function createSpadeSession(context: SpadeSocket): SocketService {
       const now = (context.now ?? Date.now)();
       const stamp = memberStamp(key, write, member.account, now, randomBytes(16).toString("hex"));
       return stamp ? { stamp } : { refused: "This account can't answer here." };
+    },
+    readRefusal: async (path) => {
+      // A person's machine keeps no organization's log; Spade answers 404 there itself.
+      if (!isAuditRead(path) || context.orgHost?.() !== true) return undefined;
+      // The host's own token file (`ace org audit export` at the host): whoever holds it can read
+      // Spade's log from the disk as well.
+      if (context.hostCredential?.() === true) return undefined;
+      // Spade's read scope isn't enough: the log is for roles with `audit:read`, on a standing
+      // confirmed with the backend once it is over a minute old (§8.1).
+      const member = await context.memberStandingChecked?.();
+      if (!member)
+        return "Prove you're a member of this organization on this connection to read its audit log.";
+      return orgAllows(member.role, "audit:read")
+        ? undefined
+        : "Only your organization's admins can read its audit log.";
     },
     requestStamp: (write) => {
       if (context.orgHost?.() !== true) return undefined;

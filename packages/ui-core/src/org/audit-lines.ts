@@ -4,7 +4,9 @@ import { z } from "zod";
  * An org host's audit export (ADR 0206 §4.2), read for the page, pure: a header naming the
  * organization, the host and its audit key, then each entry chained to the one before, each
  * checkpoint after the entry it covers. Lines this build doesn't know are kept out of the list,
- * never fatal. Checking the chain is Spade's (`ace org audit verify`), not this.
+ * never fatal. Checking the chain is Spade's (`ace org audit verify`), not this. The line shape is
+ * Spade's serializer's (`spade/crates/spade-core/src/org/audit.rs`): an entry's fields are
+ * camelCase (`occurredAt`), flattened beside `seq`, `prev` and `hash`.
  */
 
 const Ref = z.object({ type: z.string(), id: z.string(), name: z.string().optional() });
@@ -15,7 +17,7 @@ const Line = z.discriminatedUnion("kind", [
     seq: z.number().int(),
     hash: z.string(),
     action: z.string(),
-    occurred_at: z.number(),
+    occurredAt: z.number(),
     actor: Ref,
     targets: z.array(Ref),
     metadata: z.record(z.string(), z.unknown()).optional(),
@@ -85,7 +87,7 @@ export function readAuditLines(text: string): {
         seq: parsed.seq,
         action: parsed.action,
         title: titles[parsed.action] ?? parsed.action,
-        at: parsed.occurred_at,
+        at: parsed.occurredAt,
         actor: named(parsed.actor),
         targets: parsed.targets.map(named).join(", "),
         allowedBy: typeof by === "string" ? by : undefined,

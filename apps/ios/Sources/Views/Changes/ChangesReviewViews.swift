@@ -140,8 +140,14 @@ struct ReviewCommentCard: View {
 }
 
 /// Write or edit a comment on picked lines, with an optional suggested change that starts as the
-/// lines' current text.
+/// lines' current text. A new comment on lines of the new side can go as a note for the agent
+/// instead (`CodeNotes`): on the thread's next message, as the editor's notes go, not in the review.
 struct ReviewComposer: View {
+    struct Note {
+        let thread: String
+        /// The picked lines' whole texts.
+        let lines: [String]
+    }
     @Bindable var model: ClientModel
     let path: String
     let side: String
@@ -150,6 +156,11 @@ struct ReviewComposer: View {
     /// The lines as they read now, to start a suggestion from.
     let current: String
     var editing: ChangesReview.Draft?
+    /// Where the words can go as a note instead; nil when they can't.
+    var note: Note? = nil
+    @State private var noteRefused: String?
+    /// A note is being left: a second tap can't leave another.
+    @State private var noting = false
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var suggesting = false
@@ -159,6 +170,8 @@ struct ReviewComposer: View {
 
     private var notice: ChangesNotice? { request.flatMap { model.sheets.notices[$0] } }
     private var saving: Bool { request != nil && notice == nil }
+    /// A comment or a note is under way: one in-flight guard for Save and Note for the agent.
+    private var busy: Bool { saving || noting }
 
     var body: some View {
         NavigationStack {
@@ -182,6 +195,16 @@ struct ReviewComposer: View {
                         if suggesting { Text("Apply suggestion writes this over the lines in the checkout.") }
                     }
                 }
+                if let note, editing == nil {
+                    Section {
+                        Button("Note for the agent") { leave(note) }
+                            .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || busy || !model.canOperate)
+                            .accessibilityHint("Puts it on the thread's next message instead of the review")
+                            .accessibilityIdentifier("review.note")
+                    } footer: {
+                        if let noteRefused { Text(noteRefused).foregroundStyle(AceTheme.StatusText.failed) }
+                    }
+                }
                 if let notice, !notice.ok {
                     Text(notice.message).foregroundStyle(AceTheme.StatusText.failed)
                 }
@@ -190,7 +213,7 @@ struct ReviewComposer: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    if saving { ProgressView() } else {
+                    if busy { ProgressView() } else {
                         Button("Save") { save() }.fontWeight(.semibold)
                             .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                             .accessibilityIdentifier("review.save")
@@ -210,7 +233,25 @@ struct ReviewComposer: View {
         .presentationDetents([.medium, .large])
     }
 
+    private func leave(_ note: Note) {
+        guard !busy else { return }
+        noting = true
+        let comment = text
+        Task {
+            await model.checkoutKey(note.thread)
+            switch model.addDiffNote(note.thread, path: path, first: start, texts: note.lines, comment: comment) {
+            case .success:
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                dismiss()
+            case .failure(let refusal):
+                noteRefused = refusal.message
+                noting = false
+            }
+        }
+    }
+
     private func save() {
+        guard !busy else { return }
         var fields: [String: Any] = ["path": path, "side": side, "start": start, "end": end, "text": String(text.prefix(4096))]
         if suggesting { fields["suggestion"] = String(suggestion.prefix(8192)) }
         if let editing { fields["key"] = editing.key }

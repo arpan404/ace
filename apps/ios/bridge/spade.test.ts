@@ -535,3 +535,43 @@ test("a picture's thumbnail asks for the daemon's small preview, its viewer for 
   expect(api.sent("GET", `/v1/images/${hash}?preview`)).toHaveLength(1);
   expect(api.sent("GET", `/v1/images/${hash}`)).toHaveLength(1);
 });
+
+test("a bot pinned from the phone is pinned in Spade, and its row says since when; unpinning clears it", async () => {
+  const { api, patches, ask } = await setUp((fake) => {
+    fake.addAgent({ id: "spade", name: "Spade", kind: "main" });
+    fake.addAgent({ id: "notes", name: "Notes" });
+  });
+  const notes = () => patches.state?.list.rows?.find((row) => row.id === "notes");
+  await until(() => notes()?.pinnedAt === null);
+
+  expect(await ask({ type: "spade.pin", agentId: "notes", pinned: true })).toEqual({ ok: true });
+
+  const pinnedAt = api.agents.find((agent) => agent.id === "notes")?.pinned_at;
+  expect(typeof pinnedAt).toBe("number");
+  await until(() => notes()?.pinnedAt === pinnedAt);
+  expect(notes()?.pinned).toBe(true);
+
+  expect(await ask({ type: "spade.pin", agentId: "notes", pinned: false })).toEqual({ ok: true });
+  await until(() => notes()?.pinnedAt === null);
+  expect(api.agents.find((agent) => agent.id === "notes")?.pinned_at).toBeNull();
+});
+
+test("pinning a bot Spade no longer has says so in the person's words", async () => {
+  const { ask } = await setUp();
+  expect(await ask({ type: "spade.pin", agentId: "gone", pinned: true })).toMatchObject({
+    ok: false,
+    title: "Couldn't pin",
+  });
+});
+
+test("the phone refuses to pin the main agent before the roster loads", async () => {
+  const { api, ask } = await setUp((fake) => {
+    fake.addAgent({ id: "main-bot", name: "Spade", kind: "main", pinned_at: null });
+  });
+  expect(await ask({ type: "spade.pin", agentId: "main-bot", pinned: true })).toMatchObject({
+    ok: false,
+    title: "Couldn't pin",
+    message: "Spade already has its own place in the list.",
+  });
+  expect(api.agents.find((agent) => agent.id === "main-bot")?.pinned_at).toBeNull();
+});

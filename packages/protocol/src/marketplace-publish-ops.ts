@@ -41,7 +41,9 @@ import {
   marketPrivacyOperations,
   marketPrivacyResults,
 } from "./marketplace-publish-pick.ts";
+import { RegistryAdmin } from "./marketplace-registry.ts";
 import { MarketScanReport } from "./marketplace-scan.ts";
+import { MarketOrgId } from "./marketplace-signed.ts";
 import { SuitId } from "./suits.ts";
 
 /*
@@ -127,6 +129,18 @@ export const MarketPublishAction = z.discriminatedUnion("action", [
     reason: trimmedText(1, 500),
   }),
   z.strictObject({ action: z.literal("deleteEntry"), ...entry }),
+  /**
+   * An organization's registry as its admins read it, every version with its scan result
+   * (ADR 0206 amendment 5). Sent with the person's grant for this one read, acting in `org`.
+   */
+  z.strictObject({ action: z.literal("registry"), org: MarketOrgId }),
+  /** Withdraws a version of `org`'s registry: queued for the registry's signer. Person-only. */
+  z.strictObject({
+    action: z.literal("registryWithdraw"),
+    org: MarketOrgId,
+    ...versionKey,
+    reason: trimmedText(1, 500),
+  }),
   z.strictObject({ action: z.literal("visibility"), ...entry, visibility: MarketVisibility }),
   z.strictObject({ action: z.literal("archive"), ...entry, archived: z.boolean() }),
   z.strictObject({ action: z.literal("transfer"), ...entry, to: MarketPublisherName }),
@@ -171,6 +185,7 @@ export const MarketPublishAnswer = z.discriminatedUnion("kind", [
     what: z.enum(["listing", "withdrawal"]),
     scan: MarketScanReport.optional(),
   }),
+  z.strictObject({ kind: z.literal("registry"), registry: RegistryAdmin }),
   z.strictObject({ kind: z.literal("done") }),
 ]);
 export type MarketPublishAnswer = z.infer<typeof MarketPublishAnswer>;

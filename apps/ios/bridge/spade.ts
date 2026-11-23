@@ -188,6 +188,14 @@ export class NativeSpade {
     this.refresh();
   }
 
+  /** The person's messages Siri's asks already took, by conversation route and seq (`spade-ask.ts`). */
+  readonly askClaims = new Set<string>();
+
+  /** Resolves after `ms` on the runtime's own timers, for a request that waits on Spade. */
+  pause(ms: number): Promise<void> {
+    return new Promise((resolve) => void this.deps.later(ms, resolve));
+  }
+
   /** The open conversation's follow, for sends that should show at once. */
   follow(conversationId: string): SpadeConversationFollow | undefined {
     return this.chat.follow(conversationId);
@@ -394,6 +402,11 @@ export class NativeSpade {
   /** The machine's name, for a profile's Runs on. */
   get machineName(): string {
     return this.machine ?? "This machine";
+  }
+
+  /** This machine's ace host id, as groups name their members' machines; undefined until said. */
+  get host(): string | undefined {
+    return this.hostId;
   }
 
   /** A group's name, once the list has said; undefined before. */

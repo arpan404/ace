@@ -266,10 +266,16 @@ async fn update(
 struct SwitchBody {
     key: String,
     on: bool,
+    /// The package version the person read the switch on. A switch the package changed since
+    /// (an update or rollback landed while they looked) is refused rather than set on what they
+    /// didn't see.
+    #[serde(default)]
+    hash: Option<String>,
 }
 
-/// `PUT /v1/agents/{id}/package/effects {key, on}`: the person turns one declared effect on or
-/// off for the bot.
+/// `PUT /v1/agents/{id}/package/effects {key, on, hash?}`: the person turns one declared effect
+/// on or off for the bot; with `hash`, only while the bot's package is still that version
+/// (`409` otherwise).
 async fn switch(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -306,6 +312,7 @@ async fn switch(
                 &id,
                 &body.key,
                 body.on,
+                body.hash.as_deref(),
                 &says,
             ))
         })

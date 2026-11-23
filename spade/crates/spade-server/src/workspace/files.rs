@@ -285,9 +285,18 @@ impl Workspace {
     /// Answers `false`, writing nothing, when the name is taken (by a file, a folder or a link),
     /// so two writers racing for one name never overwrite each other.
     pub fn create_new(&self, relative: &str, content: &str) -> Result<bool, PathError> {
-        if content.len() > LARGEST_WRITE {
+        self.create_new_bytes(relative, content.as_bytes(), LARGEST_WRITE)
+    }
+
+    pub fn create_new_bytes(
+        &self,
+        relative: &str,
+        content: &[u8],
+        largest: usize,
+    ) -> Result<bool, PathError> {
+        if content.len() > largest {
             return Err(PathError::Io(format!(
-                "that is {} bytes; files are written {LARGEST_WRITE} bytes at most",
+                "that is {} bytes; files are written {largest} bytes at most",
                 content.len()
             )));
         }
@@ -312,9 +321,7 @@ impl Workspace {
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
             Err(error) => return Err(PathError::at(relative, error)),
         };
-        let written = file
-            .write_all(content.as_bytes())
-            .and_then(|()| file.sync_all());
+        let written = file.write_all(content).and_then(|()| file.sync_all());
         if let Err(error) = written {
             let _ = at.remove_file(&name);
             return Err(PathError::at(relative, error));
