@@ -106,14 +106,7 @@ struct SpadeModelsPage: View {
 
     private func keyRow(_ endpoint: SpadeSettings.Endpoint, chevron: Bool) -> some View {
         InsetRow(icon: nil, title: "Key", subtitle: endpoint.address) {
-            HStack(spacing: AceDesign.Space.tight) {
-                InsetValue(text: endpoint.key.words)
-                if chevron {
-                    AceIcon(.caretUpDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
-                        .foregroundStyle(AceDesign.Ink.subtle)
-                        .accessibilityHidden(true)
-                }
-            }
+            SpadeMenuValue(text: endpoint.key.words, chevron: chevron)
         }
         .accessibilityElement(children: .combine)
     }
@@ -121,6 +114,23 @@ struct SpadeModelsPage: View {
     private func modelLine(_ endpoint: SpadeSettings.Endpoint) -> String {
         let names = endpoint.models.joined(separator: ", ")
         return endpoint.more > 0 ? "\(names) and \(endpoint.more) more" : names
+    }
+}
+
+/// What a row that opens a menu is set to, muted on the right, with the menu's up-down caret.
+/// Shared by Settings › Spade's pages and the setup card at the foot of Spade's chat.
+struct SpadeMenuValue: View {
+    let text: String?
+    var chevron = true
+    var body: some View {
+        HStack(spacing: AceDesign.Space.tight) {
+            InsetValue(text: text)
+            if chevron {
+                AceIcon(.caretUpDown, size: AceDesign.Size.glyphSmall, relativeTo: .caption)
+                    .foregroundStyle(AceDesign.Ink.subtle)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 }
 

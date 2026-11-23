@@ -64,6 +64,9 @@ pub enum SecurityError {
     Invalid(String),
     #[error("the settings could not be saved: {0}")]
     Store(String),
+    /// The change was made from a view of the settings that has changed since.
+    #[error("{0}")]
+    Stale(&'static str),
 }
 
 /// A network policy with each addition's form checked and every dropped name a default.
@@ -479,9 +482,21 @@ impl Security {
         &self,
         apply: impl FnOnce(&mut MachineSecurity),
     ) -> Result<MachineSecurity, SecurityError> {
+        self.try_change_machine(|machine| {
+            apply(machine);
+            Ok(())
+        })
+    }
+
+    /// The same, for a change that decides from the settings as they are once it holds the
+    /// lock, and may refuse: nothing is saved when `apply` errs.
+    pub fn try_change_machine(
+        &self,
+        apply: impl FnOnce(&mut MachineSecurity) -> Result<(), SecurityError>,
+    ) -> Result<MachineSecurity, SecurityError> {
         let _held = self.changing.lock().unwrap_or_else(|p| p.into_inner());
         let mut current = self.machine();
-        apply(&mut current);
+        apply(&mut current)?;
         let text = serde_json::to_string(&current)
             .map_err(|error| SecurityError::Store(error.to_string()))?;
         self.store

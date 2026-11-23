@@ -76,6 +76,7 @@ fn failed(error: SecurityError) -> Response {
         SecurityError::Invalid(_) => StatusCode::BAD_REQUEST,
         SecurityError::PersonOnly(_) => StatusCode::FORBIDDEN,
         SecurityError::Store(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        SecurityError::Stale(_) => StatusCode::CONFLICT,
     };
     problem(status, &error.to_string())
 }
@@ -277,6 +278,9 @@ async fn machine_permission(
 #[derive(Deserialize)]
 struct NeverApps {
     apps: Vec<String>,
+    /// The list the client changed; a list held now that differs refuses the change (409).
+    #[serde(default)]
+    expected: Option<Vec<String>>,
 }
 
 /// The apps no bot uses through Computer use; dropping one is the person's alone.
@@ -289,12 +293,12 @@ async fn never_apps(
         return unavailable();
     };
     let stamp = person_stamp(&headers);
-    off_thread(
-        move || match security.set_never_apps(&body.apps, stamp.as_deref()) {
+    off_thread(move || {
+        match security.set_never_apps(&body.apps, body.expected.as_deref(), stamp.as_deref()) {
             Ok(_) => Json(machine_view(&security)).into_response(),
             Err(error) => failed(error),
-        },
-    )
+        }
+    })
     .await
 }
 

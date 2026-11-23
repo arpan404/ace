@@ -6,18 +6,25 @@ import {
   spadeLastUsedWords,
   spadeModelGroups,
   spadeModelLabel,
+  spadeFullAccessSentence,
+  spadePermissionSwitches,
   spadePresetChoices,
+  spadeSandboxSentence,
+  type SpadeAutonomy,
   type SpadeConnector,
   type SpadeEndpoint,
   type SpadeModelSources,
   type SpadeModels,
+  type SpadePermissionKey,
+  type SpadePermissions,
+  type SpadeSecurityMachine,
   type SpadeSkillStore,
 } from "@ace/ui-core/spade-chat";
 import { utf8Bytes } from "./spade-profile.ts";
 
 /*
  * Settings › Spade's pages as the phone draws them (web's Settings › Spade): General's models,
- * Models and keys, and Apps, every word decided here. Pure. A key's value never
+ * Models and keys, Apps and Security, every word decided here. Pure. A key's value never
  * appears in any row: Spade only says whether one is set, and where it comes from (ADR 0119).
  */
 
@@ -276,4 +283,71 @@ export function spadeAppsPage(
     return [{ name: skill.name, line: line || skill.description }];
   });
   return { apps: connectors.map((connector) => appRow(connector, names, now)), skills };
+}
+
+/** One of the Permissions (ADR 0171, amendment 7): its switch, as a bot or the default holds it. */
+export interface SpadePermissionRow {
+  key: SpadePermissionKey;
+  title: string;
+  line: string;
+  on: boolean;
+  /** A bot sets this one itself, so it offers Use default; never on the machine's defaults. */
+  own: boolean;
+}
+
+/**
+ * The Permissions as rows, in web's order. `bot` false for the machine's defaults, which no bot
+ * sets; the bot profile's Permissions tab draws the same rows over these defaults.
+ */
+export function spadePermissionRows(
+  permissions: SpadePermissions,
+  bot: boolean,
+): SpadePermissionRow[] {
+  return spadePermissionSwitches.map(({ key, title, line }) => ({
+    key,
+    title,
+    line,
+    on: permissions.on[key],
+    own: bot && permissions.own[key],
+  }));
+}
+
+export interface SpadeSecurityPageRow {
+  /** Whether this machine seals commands off, and that every bot follows what's below. */
+  line: string;
+  /** Null from a Spade before Permissions: the page shows the rest. */
+  permissions: SpadePermissionRow[] | null;
+  /** The apps bots never use through Computer use, shown under its switch. */
+  neverApps: string[] | null;
+  autonomy: {
+    value: SpadeAutonomy;
+    choices: { value: SpadeAutonomy; label: string }[];
+    /** What still asks while Full access is on; null while it isn't. */
+    fullAccess: string | null;
+    /** Turning Full access on asks first, in these words. */
+    confirm: { title: string; message: string; button: string };
+  };
+}
+
+export function spadeSecurityPage(machine: SpadeSecurityMachine): SpadeSecurityPageRow {
+  const permissions = machine.permissions;
+  const value = machine.bots.autonomy;
+  return {
+    line: `${spadeSandboxSentence(machine)} Every bot uses these unless it sets its own.`,
+    permissions: permissions ? spadePermissionRows(permissions, false) : null,
+    neverApps: permissions ? permissions.neverApps : null,
+    autonomy: {
+      value,
+      choices: [
+        { value: "auto_review", label: "Auto-review" },
+        { value: "full_access", label: "Full access" },
+      ],
+      fullAccess: value === "full_access" ? spadeFullAccessSentence : null,
+      confirm: {
+        title: "Turn on Full access for every bot that doesn't set its own?",
+        message: `${spadeFullAccessSentence} Full access doesn't change what the sandbox allows, and every step still shows in the chat.`,
+        button: "Turn on Full access",
+      },
+    },
+  };
 }
