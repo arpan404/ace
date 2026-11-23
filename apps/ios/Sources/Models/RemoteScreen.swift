@@ -17,9 +17,32 @@ struct RemoteScreenState: Decodable, Identifiable {
     let secureInputAllowed: Bool?
     let target: RemoteScreenTarget
     let holder: Holder?
+    /// The thread the session was started for; unlike `holder`, it stays when the person takes
+    /// control or nobody has it.
+    let threadId: String?
     let error: String?
     var id: String { sessionId }
     var title: String { target.bundleId ?? "Display \(target.displayId ?? 0)" }
+
+    /// A bot's session (web's `botSession`): the starting or live one its thread holds now, else
+    /// the newest unheld one its thread started, so it stays shown while the person has its controls.
+    static func bot(_ states: [RemoteScreenState], threadId: String) -> RemoteScreenState? {
+        let shown = states.filter { $0.lifecycle == "starting" || $0.lifecycle == "live" }
+        return shown.first { $0.holder?.threadId == threadId } ?? shown.last { $0.holder == nil && $0.threadId == threadId }
+    }
+}
+
+extension RemoteScreen {
+    /// A touch on a shared screen as computer-use input: a tap clicks; a move scrolls, or drags
+    /// when `drag` is on.
+    static func pointer(from start: CGPoint, to end: CGPoint, drag: Bool) -> [String: Any] {
+        guard hypot(end.x - start.x, end.y - start.y) > AceDesign.Space.related else {
+            return ["kind": "pointer.click", "x": start.x, "y": start.y]
+        }
+        if drag { return ["kind": "pointer.drag", "x": start.x, "y": start.y, "toX": end.x, "toY": end.y, "durationMs": 350] }
+        return ["kind": "scroll", "x": start.x, "y": start.y,
+                "dx": max(-1000, min(1000, Int(start.x - end.x))), "dy": max(-1000, min(1000, Int(start.y - end.y)))]
+    }
 }
 /// One app as computer use lists it, in the web's words (`bridge/screen-view.ts`).
 struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
@@ -119,6 +142,8 @@ enum RemoteScreenPage: Equatable {
     private(set) var readProblem: String?
     private(set) var busy = false
     private var owned: Set<String> = []
+    private var acquiring: Set<String> = []
+    private var releaseAfterAcquisition: Set<String> = []
     @ObservationIgnored private var subscription: UUID?
     private var previous: [String: RemoteScreenState.Holder] = [:]
     let live = ScreenLiveModel()
@@ -214,13 +239,61 @@ enum RemoteScreenPage: Equatable {
         _ = await perform(model, ["op": "stop", "sessionId": id])
     }
     func takeControl(_ model: ClientModel, id: String) async {
-        if let holder = state(id)?.holder { previous[id] = holder }
-        if await perform(model, ["op": "controller", "sessionId": id, "controller": "human"]) { owned.insert(id) }
+        guard model.connection == "ready", model.canOperate else { return }
+        await takeControl(model.screenAsk, id: id)
+        if !Task.isCancelled { await refresh(model) }
     }
+
+    func takeControl(_ ask: @escaping ScreenAsk, id: String) async {
+        guard !Task.isCancelled, !busy, acquiring.insert(id).inserted else { return }
+        if let holder = state(id)?.holder { previous[id] = holder }
+        busy = true; problem = nil
+        // A view's task can end before the daemon's reply. Keep waiting so a release
+        // requested by Hand back or page exit follows the acquisition on the wire.
+        let attempt = Task {
+            defer {
+                busy = false
+                acquiring.remove(id)
+                releaseAfterAcquisition.remove(id)
+            }
+            do {
+                let _: ServiceValue = try await request(ask, ["op": "controller", "sessionId": id, "controller": "human"])
+                if !releaseAfterAcquisition.contains(id) {
+                    owned.insert(id)
+                    return
+                }
+            } catch let refusal as ScreenRefusal {
+                problem = refusal.localizedDescription
+                return
+            } catch {
+                problem = error.localizedDescription
+                guard releaseAfterAcquisition.contains(id) else { return }
+            }
+            do { try await releaseControl(ask, id: id) }
+            catch { problem = error.localizedDescription }
+        }
+        await attempt.value
+    }
+
+    /// Queues a handback for an acquisition still awaiting its reply. An already-owned
+    /// session can be released immediately.
+    func relinquish(_ id: String) -> Bool {
+        if acquiring.contains(id) { releaseAfterAcquisition.insert(id) }
+        return owned.remove(id) != nil
+    }
+
+    private func releaseControl(_ ask: ScreenAsk, id: String) async throws {
+        let _: ServiceValue = try await request(ask, ["op": "controller", "sessionId": id, "controller": "none"])
+    }
+
     func release(_ model: ClientModel, id: String) async {
-        guard owned.remove(id) != nil else { return }
-        do { let _: ServiceValue = try await request(model, ["op": "controller", "sessionId": id, "controller": "none"]); await refresh(model) }
-        catch { problem = error.localizedDescription }
+        guard relinquish(id) else { return }
+        let release = Task {
+            do { try await releaseControl(model.screenAsk, id: id) }
+            catch { problem = error.localizedDescription }
+        }
+        await release.value
+        if !Task.isCancelled { await refresh(model) }
     }
     func input(_ model: ClientModel, id: String, _ input: [String: Any]) async -> Bool {
         guard model.connection == "ready", model.canOperate, controls(id) else { return false }
@@ -254,7 +327,7 @@ enum RemoteScreenPage: Equatable {
         subscription = nil
         live.close()
         model.action(["type": "native.screen.unwatch", "sessionId": id])
-        if owned.remove(id) != nil { model.action(["type": "native.screen.release", "sessionId": id]) }
+        if relinquish(id) { model.action(["type": "native.screen.release", "sessionId": id]) }
     }
     /// The machine went away: nothing is read until it is back.
     func disconnected() {
