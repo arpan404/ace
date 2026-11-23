@@ -7,7 +7,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::json_io::{Maybe, de_i64, de_opt_i64, de_vec_i64};
-use serde_json::value::RawValue;
 
 use crate::entity_model::{InteractionRequest, InteractionResolution};
 use crate::item_meta::AgentMachine;
@@ -20,13 +19,14 @@ pub type Key = String;
 
 /// A translator-built fact as untyped JSON: the `type` tag names the fold,
 /// and the body crosses verbatim. Translators build these; only the core
-/// allocates ace ids.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// allocates ace ids. Write-only: bindings splice `data` verbatim, never
+/// through serde.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct RawFact {
     /// The fact's `type` tag, which the core's `Fact` enum matches on.
     pub fact_type: String,
-    /// The fact's body as JSON, kept whole.
-    pub data: Box<serde_json::value::RawValue>,
+    /// The fact's body as canonical JSON, kept whole.
+    pub data: ace_json::Raw,
 }
 
 /// What a translator says a frame means, in adapter-owned native keys.
@@ -154,14 +154,14 @@ pub enum Fact {
     ItemUpsert {
         agent: String,
         item: String,
-        draft: crate::json_io::Map,
+        draft: serde_json::Map<String, serde_json::Value>,
     },
     /// Idempotent snapshot reconciliation.
     #[serde(rename = "item.reconciled")]
     ItemReconciled {
         agent: String,
         item: String,
-        draft: crate::json_io::Map,
+        draft: serde_json::Map<String, serde_json::Value>,
     },
     /// A streaming append to a transcript item.
     #[serde(rename = "item.delta")]
@@ -209,7 +209,7 @@ pub enum Fact {
         #[serde(rename = "childAgent", skip_serializing_if = "Option::is_none")]
         child_agent: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        ambient: Option<crate::json_io::Json>,
+        ambient: Option<serde_json::Value>,
         /// ace's own bookkeeping: holds the thread open, never listed.
         #[serde(skip_serializing_if = "Option::is_none")]
         internal: Option<bool>,
@@ -237,10 +237,7 @@ pub enum Fact {
     },
     /// ace's own task waits on the person elsewhere, or no longer does.
     #[serde(rename = "background.waiting")]
-    BackgroundWaiting {
-        task: String,
-        waiting: bool,
-    },
+    BackgroundWaiting { task: String, waiting: bool },
     /// A background task ended.
     #[serde(rename = "background.ended")]
     BackgroundEnded {
@@ -255,33 +252,33 @@ pub enum Fact {
     Retry {
         agent: String,
         on: String,
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         attempt: Option<i64>,
-        #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         until: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<String>,
     },
     /// The agent's transport disconnected.
     #[serde(rename = "agent.disconnected")]
-    AgentDisconnected {
-        agent: String,
-    },
+    AgentDisconnected { agent: String },
     /// The agent's transport reconnected.
     #[serde(rename = "agent.reconnected")]
-    AgentReconnected {
-        agent: String,
-    },
+    AgentReconnected { agent: String },
     /// The provider's retry cleared.
     #[serde(rename = "retry.cleared")]
-    RetryCleared {
-        agent: String,
-    },
+    RetryCleared { agent: String },
     /// Explicit quota recovery.
     #[serde(rename = "limit.cleared")]
-    LimitCleared {
-        agent: String,
-    },
+    LimitCleared { agent: String },
     /// A wake the provider expects.
     #[serde(rename = "wake.expected")]
     WakeExpected {
@@ -305,21 +302,51 @@ pub enum Fact {
         #[serde(rename = "outputTokens")]
         #[serde(deserialize_with = "crate::json_io::de_i64")]
         output_tokens: i64,
-        #[serde(rename = "cachedInputTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "cachedInputTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         cached_input_tokens: Option<i64>,
-        #[serde(rename = "contextWindow", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "contextWindow",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         context_window: Option<i64>,
         #[serde(rename = "costUsd", skip_serializing_if = "Option::is_none")]
         cost_usd: Option<f64>,
-        #[serde(rename = "contextTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "contextTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         context_tokens: Option<i64>,
         #[serde(rename = "contextSessionId", skip_serializing_if = "Option::is_none")]
         context_session_id: Option<String>,
-        #[serde(rename = "reasoningTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "reasoningTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         reasoning_tokens: Option<i64>,
-        #[serde(rename = "cacheWriteTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "cacheWriteTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         cache_write_tokens: Option<i64>,
-        #[serde(rename = "cacheWrite1hTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "cacheWrite1hTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         cache_write_1h_tokens: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
@@ -341,7 +368,12 @@ pub enum Fact {
         #[serde(rename = "usedTokens")]
         #[serde(deserialize_with = "crate::json_io::de_i64")]
         used_tokens: i64,
-        #[serde(rename = "windowTokens", default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::json_io::de_opt_i64")]
+        #[serde(
+            rename = "windowTokens",
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::de_opt_i64"
+        )]
         window_tokens: Option<i64>,
         #[serde(rename = "sessionId", skip_serializing_if = "Option::is_none")]
         session_id: Option<String>,
@@ -380,9 +412,7 @@ pub enum Fact {
     },
     /// The thread's work moved to another machine, or runs here again.
     #[serde(rename = "thread.moved")]
-    ThreadMoved {
-        to: Option<crate::status::MovedTo>,
-    },
+    ThreadMoved { to: Option<crate::status::MovedTo> },
     /// A clock tick: time passed with no provider output.
     #[serde(rename = "tick")]
     Tick,
@@ -412,14 +442,16 @@ pub struct ProviderGoal {
 pub struct UnknownFact {
     /// The fact's `type` tag, which no known variant matched.
     pub fact_type: String,
-    /// The fact's body as JSON, kept verbatim.
-    pub data: Box<RawValue>,
+    /// The fact's body as canonical JSON, kept verbatim.
+    pub data: ace_json::Raw,
 }
 
 /// Convert a validated fact value into the typed fold input. Validation has
 /// already established every shape, so a failure here is a caller-contract
-/// violation, never provider data.
+/// violation, never provider data. Bridges ace-json (transient) to serde
+/// (typed) via canonical text until the Value deserializer lands.
 pub fn convert(value: &crate::json_io::Map, fact_type: &str) -> Option<Fact> {
     let _ = fact_type;
-    serde_json::from_value(crate::json_io::Json::Object(value.clone())).ok()
+    let text = ace_json::to_string(&crate::json_io::Json::Object(value.clone()));
+    serde_json::from_str(&text).ok()
 }

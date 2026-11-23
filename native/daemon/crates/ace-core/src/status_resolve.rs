@@ -237,7 +237,9 @@ impl<'a> StatusResolver<'a> {
             }
             let signal = self.inputs.last_subtree_signal.read(key);
             if (self.now - signal) as f64 > self.state.config.silence_ms {
-                return AgentStatus::Unresponsive { last_signal_at: signal };
+                return AgentStatus::Unresponsive {
+                    last_signal_at: signal,
+                };
             }
             return AgentStatus::Starting;
         }
@@ -256,14 +258,17 @@ impl<'a> StatusResolver<'a> {
         match run_state.as_deref() {
             Some("interrupted") => AgentStatus::Interrupted,
             Some("failed") => AgentStatus::Failed {
-                error: record.last_error.clone().unwrap_or(crate::status::AgentError {
-                    kind: "unknown".to_owned(),
-                    message: "Agent turn failed".to_owned(),
-                    code: None,
-                    title: None,
-                    detail: None,
-                    details: None,
-                }),
+                error: record
+                    .last_error
+                    .clone()
+                    .unwrap_or(crate::status::AgentError {
+                        kind: "unknown".to_owned(),
+                        message: "Agent turn failed".to_owned(),
+                        code: None,
+                        title: None,
+                        detail: None,
+                        details: None,
+                    }),
             },
             _ => AgentStatus::Idle,
         }
@@ -325,7 +330,10 @@ impl<'a> StatusResolver<'a> {
         let mut foreground: Vec<String> = Vec::new();
         for item in tools.iter() {
             if let Item::ToolCall { call, .. } = item {
-                if !matches!(&call.detail, crate::item_model::ToolDetail::AgentSpawn { .. }) {
+                if !matches!(
+                    &call.detail,
+                    crate::item_model::ToolDetail::AgentSpawn { .. }
+                ) {
                     continue;
                 }
                 let child_id = match &call.detail {
@@ -393,10 +401,16 @@ impl<'a> StatusResolver<'a> {
         }
         let signal = self.inputs.last_subtree_signal.read(key);
         if self.state.config.liveness.as_deref() != Some("transport")
-            && !suppresses_active_silence(&self.inputs.waiting_owners, &agent_id, live_children.len())
+            && !suppresses_active_silence(
+                &self.inputs.waiting_owners,
+                &agent_id,
+                live_children.len(),
+            )
             && (self.now - signal) as f64 > self.state.config.silence_ms
         {
-            return AgentStatus::Unresponsive { last_signal_at: signal };
+            return AgentStatus::Unresponsive {
+                last_signal_at: signal,
+            };
         }
         AgentStatus::Working {
             activity: record.activity.clone(),

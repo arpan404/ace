@@ -42,17 +42,18 @@ pub fn reconcile_item(
         Some(Json::Object(map)) => map.clone(),
         _ => Map::new(),
     };
-    let first_raw = previous_call
-        .raw
-        .first()
-        .and_then(|raw| serde_json::to_value(raw).ok());
+    let first_raw = previous_call.raw.first().and_then(|raw| {
+        ace_json::ser::to_string(raw)
+            .ok()
+            .and_then(|text| ace_json::parse(&text).ok())
+    });
     if let (Some(first), Some(Json::Array(raw))) = (first_raw, call.get("raw")) {
         if !raw.is_empty() {
             let mut kept = vec![first];
             if let Some(last) = raw.last() {
                 kept.push(last.clone());
             }
-            call.insert("raw".to_owned(), Json::Array(kept));
+            call.insert("raw".to_owned(), Json::from(kept));
         }
     }
     if let Some(Json::Object(detail)) = call.get("detail").cloned() {

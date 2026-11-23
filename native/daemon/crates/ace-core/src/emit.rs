@@ -40,9 +40,7 @@ pub fn remove<V>(records: &mut indexmap::IndexMap<String, V>, key: &str) -> Opti
 pub enum Event {
     /// A new agent joined the tree.
     #[serde(rename = "agent.created")]
-    AgentCreated {
-        agent: Agent,
-    },
+    AgentCreated { agent: Agent },
     /// An agent's derived status changed.
     #[serde(rename = "agent.status")]
     AgentStatus {
@@ -98,9 +96,7 @@ pub enum Event {
     },
     /// A new turn started.
     #[serde(rename = "run.started")]
-    RunStarted {
-        run: Run,
-    },
+    RunStarted { run: Run },
     /// A turn ended, with its outcome.
     #[serde(rename = "run.ended")]
     RunEnded {
@@ -116,14 +112,10 @@ pub enum Event {
     },
     /// A new transcript item.
     #[serde(rename = "item.created")]
-    ItemCreated {
-        item: Item,
-    },
+    ItemCreated { item: Item },
     /// A transcript item changed; the payload is authoritative.
     #[serde(rename = "item.updated")]
-    ItemUpdated {
-        item: Item,
-    },
+    ItemUpdated { item: Item },
     /// A streaming append; the next `item.updated` is authoritative.
     #[serde(rename = "item.delta")]
     ItemDelta {
@@ -136,9 +128,7 @@ pub enum Event {
     },
     /// A new interaction opened.
     #[serde(rename = "interaction.opened")]
-    InteractionOpened {
-        interaction: Interaction,
-    },
+    InteractionOpened { interaction: Interaction },
     /// An interaction closed.
     #[serde(rename = "interaction.closed")]
     InteractionClosed {
@@ -156,9 +146,7 @@ pub enum Event {
     },
     /// A background task started.
     #[serde(rename = "background_task.started")]
-    BackgroundTaskStarted {
-        task: BackgroundTask,
-    },
+    BackgroundTaskStarted { task: BackgroundTask },
     /// A background task changed state.
     #[serde(rename = "background_task.updated")]
     BackgroundTaskUpdated {
@@ -222,7 +210,5 @@ pub enum Event {
     },
     /// The thread's derived status changed.
     #[serde(rename = "thread.updated")]
-    ThreadUpdated {
-        status: ThreadStatus,
-    },
+    ThreadUpdated { status: ThreadStatus },
 }

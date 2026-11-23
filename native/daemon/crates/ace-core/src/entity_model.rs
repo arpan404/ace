@@ -125,7 +125,7 @@ pub struct McpServer {
     pub name: String,
     pub source: String,
     #[serde(flatten, default)]
-    pub extra: crate::json_io::Map,
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// One approval option.
@@ -199,7 +199,7 @@ pub enum InteractionResolution {
     #[serde(rename = "question")]
     Question {
         /// Question id to selected option ids, or free text.
-        answers: crate::json_io::Map,
+        answers: serde_json::Map<String, serde_json::Value>,
         #[serde(skip_serializing_if = "Option::is_none")]
         dismissed: Option<bool>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,9 +221,7 @@ pub enum InteractionResolution {
     },
     /// The person finished in the tab, or chose not to.
     #[serde(rename = "browser_help")]
-    BrowserHelp {
-        outcome: String,
-    },
+    BrowserHelp { outcome: String },
 }
 
 /// Work that can outlive the turn that started it.
@@ -242,7 +240,7 @@ pub struct BackgroundTask {
     pub status: String,
     /// Long-lived helpers never hold a thread open. The TypeScript never
     /// validates this field, so any JSON value survives verbatim.
-    pub ambient: crate::json_io::Json,
+    pub ambient: serde_json::Value,
     /// ace's own bookkeeping; never listed by clients.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub internal: Option<bool>,

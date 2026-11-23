@@ -112,15 +112,15 @@ pub fn merge_candidate(
     candidate.insert("complete".to_owned(), Json::Bool(false));
     match patch_type {
         Some("message") => {
-            candidate.insert("role".to_owned(), Json::String("assistant".to_owned()));
-            candidate.insert("parts".to_owned(), Json::Array(Vec::new()));
+            candidate.insert("role".to_owned(), Json::from("assistant".to_owned()));
+            candidate.insert("parts".to_owned(), Json::from(Vec::<Json>::new()));
         }
         Some("reasoning") => {
-            candidate.insert("text".to_owned(), Json::String(String::new()));
+            candidate.insert("text".to_owned(), Json::from(String::new()));
         }
         Some("notice") => {
-            candidate.insert("level".to_owned(), Json::String("info".to_owned()));
-            candidate.insert("text".to_owned(), Json::String(String::new()));
+            candidate.insert("level".to_owned(), Json::from("info".to_owned()));
+            candidate.insert("text".to_owned(), Json::from(String::new()));
         }
         _ => {}
     }
@@ -130,11 +130,11 @@ pub fn merge_candidate(
         }
     }
     overlay(&mut candidate, patch);
-    candidate.insert("id".to_owned(), Json::String(base.id.clone()));
-    candidate.insert("agentId".to_owned(), Json::String(base.agent_id.clone()));
+    candidate.insert("id".to_owned(), Json::from(base.id.clone()));
+    candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
     candidate.insert("createdAt".to_owned(), Json::Number(now.into()));
     if let Some(run_id) = &base.run_id {
-        candidate.insert("runId".to_owned(), Json::String(run_id.clone()));
+        candidate.insert("runId".to_owned(), Json::from(run_id.clone()));
     }
     candidate
 }
@@ -155,20 +155,21 @@ fn merge_tool_candidate(
     let normalized = crate::ace_tools::normalize_ace_call(patch_call, previous_call);
     let mut call_map = normalized;
     let mut detail_patch = detail_patch.cloned().unwrap_or_default();
-    if call_map
-        .get("detail")
-        .and_then(|detail| match detail {
-            Json::Object(map) => str_field(map, "kind"),
-            _ => None,
-        })
-        == Some("mcp")
+    if call_map.get("detail").and_then(|detail| match detail {
+        Json::Object(map) => str_field(map, "kind"),
+        _ => None,
+    }) == Some("mcp")
     {
         if let Some(Json::Object(detail)) = call_map.get("detail") {
             detail_patch = detail.clone();
         }
     }
     let prior_call_value = previous_call
-        .and_then(|call| serde_json::to_value(call).ok())
+        .and_then(|call| {
+            ace_json::ser::to_string(call)
+                .ok()
+                .and_then(|text| ace_json::parse(&text).ok())
+        })
         .unwrap_or(Json::Null);
     let kind = str_field(&call_map, "kind")
         .map(str::to_owned)
@@ -184,16 +185,16 @@ fn merge_tool_candidate(
     if merged_detail.get("kind").and_then(|kind| kind.as_str()) == Some("shell") {
         if let Some(Json::String(output)) = merged_detail.get("output").cloned() {
             let summary: OutputSummaryData = summarize_output(&base.id, &output, None);
-            merged_detail.insert(
-                "output".to_owned(),
-                serde_json::to_value(&OutputSummary {
-                    stream_id: summary.stream_id,
-                    bytes: summary.bytes,
-                    tail: summary.tail,
-                    truncated: summary.truncated,
-                })
-                .unwrap_or(Json::Null),
-            );
+            let output_value = ace_json::ser::to_string(&OutputSummary {
+                stream_id: summary.stream_id,
+                bytes: summary.bytes,
+                tail: summary.tail,
+                truncated: summary.truncated,
+            })
+            .ok()
+            .and_then(|text| ace_json::parse(&text).ok())
+            .unwrap_or(Json::Null);
+            merged_detail.insert("output".to_owned(), output_value);
         }
         merged_detail.remove("outputTruncated");
     }
@@ -205,24 +206,24 @@ fn merge_tool_candidate(
         }
     }
     overlay(&mut candidate, patch);
-    candidate.insert("id".to_owned(), Json::String(base.id.clone()));
-    candidate.insert("agentId".to_owned(), Json::String(base.agent_id.clone()));
+    candidate.insert("id".to_owned(), Json::from(base.id.clone()));
+    candidate.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
     candidate.insert("createdAt".to_owned(), Json::Number(now.into()));
     if let Some(run_id) = &base.run_id {
-        candidate.insert("runId".to_owned(), Json::String(run_id.clone()));
+        candidate.insert("runId".to_owned(), Json::from(run_id.clone()));
     }
     let mut call = Map::new();
-    call.insert("title".to_owned(), Json::String(kind.clone()));
-    call.insert("status".to_owned(), Json::String("pending".to_owned()));
+    call.insert("title".to_owned(), Json::from(kind.clone()));
+    call.insert("status".to_owned(), Json::from("pending".to_owned()));
     call.insert("startedAt".to_owned(), Json::Number(now.into()));
-    call.insert("raw".to_owned(), Json::Array(Vec::new()));
+    call.insert("raw".to_owned(), Json::from(Vec::<Json>::new()));
     if let Json::Object(prior) = &prior_call_value {
         overlay(&mut call, prior);
     }
     overlay(&mut call, &call_map);
-    call.insert("id".to_owned(), Json::String(base.id.clone()));
-    call.insert("agentId".to_owned(), Json::String(base.agent_id.clone()));
-    call.insert("kind".to_owned(), Json::String(kind));
+    call.insert("id".to_owned(), Json::from(base.id.clone()));
+    call.insert("agentId".to_owned(), Json::from(base.agent_id.clone()));
+    call.insert("kind".to_owned(), Json::from(kind));
     call.insert("detail".to_owned(), Json::Object(merged_detail));
     candidate.insert("call".to_owned(), Json::Object(call));
     candidate
@@ -234,17 +235,18 @@ fn prior_merged_detail(
     normalized_detail_kind: Option<&str>,
     kind: &str,
 ) -> Map {
-    let prior_detail = prior_call_value.get("detail").and_then(|detail| match detail {
-        Json::Object(map) => Some(map),
-        _ => None,
-    });
-    let same = prior_detail.is_some_and(|prior| {
-        str_field(prior, "kind") == normalized_detail_kind.or(Some(kind))
-    });
+    let prior_detail = prior_call_value
+        .get("detail")
+        .and_then(|detail| match detail {
+            Json::Object(map) => Some(map),
+            _ => None,
+        });
+    let same = prior_detail
+        .is_some_and(|prior| str_field(prior, "kind") == normalized_detail_kind.or(Some(kind)));
     if same {
         prior_detail.cloned().unwrap_or_default()
     } else {
-        Map::from_iter([("kind".to_owned(), Json::String(kind.to_owned()))])
+        Map::from_iter([("kind".to_owned(), Json::from(kind.to_owned()))])
     }
 }
 
@@ -261,5 +263,8 @@ fn overlay_value(target: &mut Map, source: &Json) {
 }
 
 fn to_map(item: &Item) -> Json {
-    serde_json::to_value(item).unwrap_or(Json::Null)
+    ace_json::ser::to_string(item)
+        .ok()
+        .and_then(|text| ace_json::parse(&text).ok())
+        .unwrap_or(Json::Null)
 }

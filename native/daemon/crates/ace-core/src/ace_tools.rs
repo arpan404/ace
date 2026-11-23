@@ -70,7 +70,8 @@ fn bare_family(bare: &str) -> bool {
         "measure",
     ];
     const SIM: &[&str] = &["list", "start", "stop", "ui", "act", "screenshot", "logs"];
-    const FAMILIES: &[(&str, &[&str])] = &[("browser_", BROWSER), ("screen_", SCREEN), ("sim_", SIM)];
+    const FAMILIES: &[(&str, &[&str])] =
+        &[("browser_", BROWSER), ("screen_", SCREEN), ("sim_", SIM)];
     FAMILIES.iter().any(|(prefix, names)| {
         bare.strip_prefix(prefix)
             .is_some_and(|rest| names.contains(&rest))
@@ -168,11 +169,7 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
         .map(|raw| {
             raw.iter()
                 .rev()
-                .filter_map(|payload| {
-                    payload
-                        .get("data")
-                        .map(|data| (data.clone(), 0, false))
-                })
+                .filter_map(|payload| payload.get("data").map(|data| (data.clone(), 0, false)))
                 .collect()
         })
         .unwrap_or_default();
@@ -209,12 +206,10 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
             && input_json
             && let Some(text) = get_str(data, "text")
             && text.len() <= 65_536
+            && let Ok(parsed) = ace_json::parse(text)
+            && let Some(record) = as_object(&parsed)
         {
-            if let Ok(parsed) = serde_json::from_str::<Json>(text) {
-                if let Some(record) = as_object(&parsed) {
-                    input = Some(Json::Object(record.clone()));
-                }
-            }
+            input = Some(Json::Object(record.clone()));
         }
         if let (Some(name), Some(resolved)) = (name, input) {
             let returned = match as_object(&resolved) {
@@ -227,7 +222,14 @@ fn called_ace_tool(call: &Map) -> Option<(String, Json)> {
             return Some((name, returned));
         }
         if depth < 5 {
-            for key in ["initialFrame", "toolCall", "update", "params", "body", "data"] {
+            for key in [
+                "initialFrame",
+                "toolCall",
+                "update",
+                "params",
+                "body",
+                "data",
+            ] {
                 if let Some(nested) = data.get(key) {
                     let nested_input_json = data
                         .get("type")
@@ -264,14 +266,7 @@ pub fn private_ace_input(tool: &str, input: &Json) -> bool {
             .and_then(|actions| actions.as_array())
             .is_some_and(|actions| actions.iter().any(private_step));
     }
-    if ![
-        "screen_input",
-        "screen_ui_act",
-        "sim_act",
-        "browser_act",
-    ]
-    .contains(&bare.as_str())
-    {
+    if !["screen_input", "screen_ui_act", "sim_act", "browser_act"].contains(&bare.as_str()) {
         return false;
     }
     let Some(payload) = payload else {
@@ -287,9 +282,9 @@ fn private_step(entry: &Json) -> bool {
     let Some(step) = as_object(entry) else {
         return false;
     };
-    step.get("type").and_then(|kind| kind.as_str()).is_some_and(|kind| {
-        matches!(kind, "type" | "paste" | "set_value" | "select_text")
-    })
+    step.get("type")
+        .and_then(|kind| kind.as_str())
+        .is_some_and(|kind| matches!(kind, "type" | "paste" | "set_value" | "select_text"))
 }
 
 /// Redact private input, keeping the call's shape.
@@ -308,10 +303,7 @@ pub fn redact_ace_arguments(name: &str, value: &Json) -> Json {
         return Json::Object(merged);
     }
     let Some(record) = as_object(value) else {
-        return Json::Object(Map::from_iter([(
-            "redacted".to_owned(),
-            Json::Bool(true),
-        )]));
+        return Json::Object(Map::from_iter([("redacted".to_owned(), Json::Bool(true))]));
     };
     let bare = bare_tool_name(&call_name);
     let keys: &[&str] = if bare == "image_show" {
@@ -322,12 +314,16 @@ pub fn redact_ace_arguments(name: &str, value: &Json) -> Json {
     let mut redacted = Map::new();
     for (key, child) in record.iter() {
         if keys.contains(&key.as_str()) {
-            redacted.insert(key.clone(), Json::String("[redacted]".to_owned()));
+            redacted.insert(key.clone(), Json::from("[redacted]".to_owned()));
         } else {
             redacted.insert(key.clone(), child.clone());
         }
     }
-    if let Some(actions) = redacted.get("actions").and_then(|value| value.as_array()).cloned() {
+    if let Some(actions) = redacted
+        .get("actions")
+        .and_then(|value| value.as_array())
+        .cloned()
+    {
         let mut cleaned = Vec::with_capacity(actions.len());
         for entry in actions {
             if !private_step(&entry) {
@@ -338,7 +334,7 @@ pub fn redact_ace_arguments(name: &str, value: &Json) -> Json {
             if let Some(record) = as_object(&entry) {
                 for (key, child) in record.iter() {
                     if ["text", "value", "prefix", "suffix"].contains(&key.as_str()) {
-                        step.insert(key.clone(), Json::String("[redacted]".to_owned()));
+                        step.insert(key.clone(), Json::from("[redacted]".to_owned()));
                     } else {
                         step.insert(key.clone(), child.clone());
                     }
@@ -346,14 +342,14 @@ pub fn redact_ace_arguments(name: &str, value: &Json) -> Json {
             }
             cleaned.push(Json::Object(step));
         }
-        redacted.insert("actions".to_owned(), Json::Array(cleaned));
+        redacted.insert("actions".to_owned(), Json::from(cleaned));
     }
     for field in ["action", "interaction"] {
         if let Some(nested) = redacted.get(field).and_then(as_object).cloned() {
             let mut cleaned = Map::new();
             for (key, child) in nested.iter() {
                 if ["text", "value", "html", "title", "promptText"].contains(&key.as_str()) {
-                    cleaned.insert(key.clone(), Json::String("[redacted]".to_owned()));
+                    cleaned.insert(key.clone(), Json::from("[redacted]".to_owned()));
                 } else {
                     cleaned.insert(key.clone(), child.clone());
                 }
@@ -368,32 +364,29 @@ pub fn redact_ace_arguments(name: &str, value: &Json) -> Json {
 /// dispatched, with private input redacted before storage.
 pub fn normalize_ace_call(call: &Map, previous: Option<&ToolCall>) -> Map {
     let mut current = call.clone();
-    if let Some(previous) = previous {
-        if matches!(&previous.detail, ToolDetail::Mcp { .. }) {
-            let incoming = ace_tool_input(&current);
-            let mut merged = Map::new();
-            merged.insert(
-                "kind".to_owned(),
-                Json::String(previous.kind.clone()),
-            );
-            merged.insert(
-                "title".to_owned(),
-                Json::String(previous.title.clone()),
-            );
-            if let Ok(detail) = serde_json::to_value(&previous.detail) {
-                merged.insert("detail".to_owned(), detail);
-            }
-            for (key, value) in current.iter() {
-                merged.insert(key.clone(), value.clone());
-            }
-            current = merged;
-            if let Some((_, input)) = incoming {
-                let empty = as_object(&input).is_some_and(|record| record.is_empty());
-                if empty {
-                    if let Ok(detail) = serde_json::to_value(&previous.detail) {
-                        current.insert("detail".to_owned(), detail);
-                    }
-                }
+    if let Some(previous) = previous
+        && matches!(&previous.detail, ToolDetail::Mcp { .. })
+    {
+        let incoming = ace_tool_input(&current);
+        let mut merged = Map::new();
+        merged.insert("kind".to_owned(), Json::from(previous.kind.clone()));
+        merged.insert("title".to_owned(), Json::from(previous.title.clone()));
+        if let Ok(text) = ace_json::ser::to_string(&previous.detail)
+            && let Ok(detail) = ace_json::parse(&text)
+        {
+            merged.insert("detail".to_owned(), detail);
+        }
+        for (key, value) in current.iter() {
+            merged.insert(key.clone(), value.clone());
+        }
+        current = merged;
+        if let Some((_, input)) = incoming {
+            let empty = as_object(&input).is_some_and(|record| record.is_empty());
+            if empty
+                && let Ok(text) = ace_json::ser::to_string(&previous.detail)
+                && let Ok(detail) = ace_json::parse(&text)
+            {
+                current.insert("detail".to_owned(), detail);
             }
         }
     }
@@ -402,35 +395,32 @@ pub fn normalize_ace_call(call: &Map, previous: Option<&ToolCall>) -> Map {
     };
     let redacted = redact_ace_arguments(&tool_name, &tool_input);
     let mut detail = Map::new();
-    detail.insert("kind".to_owned(), Json::String("mcp".to_owned()));
-    detail.insert("server".to_owned(), Json::String("ace".to_owned()));
-    detail.insert("tool".to_owned(), Json::String(tool_name.clone()));
+    detail.insert("kind".to_owned(), Json::from("mcp".to_owned()));
+    detail.insert("server".to_owned(), Json::from("ace".to_owned()));
+    detail.insert("tool".to_owned(), Json::from(tool_name.clone()));
     detail.insert("arguments".to_owned(), redacted);
-    current.insert("kind".to_owned(), Json::String("mcp".to_owned()));
+    current.insert("kind".to_owned(), Json::from("mcp".to_owned()));
     current.insert("detail".to_owned(), Json::Object(detail));
     if private_ace_input(&tool_name, &tool_input) {
-        current.insert("title".to_owned(), Json::String(tool_name));
+        current.insert("title".to_owned(), Json::from(tool_name));
         if current.contains_key("error") {
             current.insert(
                 "error".to_owned(),
-                Json::String("Ace input failed".to_owned()),
+                Json::from("Ace input failed".to_owned()),
             );
         }
         let mut private_raw = Map::new();
         private_raw.insert(
             "type".to_owned(),
-            Json::String("ace.private-input".to_owned()),
+            Json::from("ace.private-input".to_owned()),
         );
         private_raw.insert(
             "data".to_owned(),
-            Json::Object(Map::from_iter([(
-                "redacted".to_owned(),
-                Json::Bool(true),
-            )])),
+            Json::Object(Map::from_iter([("redacted".to_owned(), Json::Bool(true))])),
         );
         current.insert(
             "raw".to_owned(),
-            Json::Array(vec![Json::Object(private_raw)]),
+            Json::from(vec![Json::Object(private_raw)]),
         );
     }
     current

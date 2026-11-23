@@ -28,7 +28,14 @@ fn allowed_fields(fact_type: &str) -> Option<&'static [&'static str]> {
             "background",
             "machine",
         ],
-        "agent.linked" => &["agent", "parent", "spawnedBy", "background", "name", "model"],
+        "agent.linked" => &[
+            "agent",
+            "parent",
+            "spawnedBy",
+            "background",
+            "name",
+            "model",
+        ],
         "input.admitted" => &["agent", "nativeInputId", "commandId"],
         "input.consumed" => &["agent", "nativeInputIds"],
         "turn.started" => &["agent", "nativeTurnId", "trigger", "permissionMode"],
@@ -47,7 +54,13 @@ fn allowed_fields(fact_type: &str) -> Option<&'static [&'static str]> {
         "subagents.waiting" => &["agent", "item", "targets"],
         "item.delta" => &["agent", "item", "field", "append"],
         "interaction.opened" => &["agent", "interaction", "blocking", "request", "item", "raw"],
-        "interaction.closed" => &["interaction", "state", "resolution", "resolvedBy", "autoReviewed"],
+        "interaction.closed" => &[
+            "interaction",
+            "state",
+            "resolution",
+            "resolvedBy",
+            "autoReviewed",
+        ],
         "background.started" => &[
             "owner",
             "agent",
@@ -123,7 +136,11 @@ pub(crate) fn relation_error(state: &ThreadState, agent: &str, parent: &str) -> 
     if parent == agent {
         return Some("an agent cannot be its own parent".to_owned());
     }
-    if state.initial_root.as_ref().is_some_and(|root| root.agent == agent) {
+    if state
+        .initial_root
+        .as_ref()
+        .is_some_and(|root| root.agent == agent)
+    {
         return Some("a configured root cannot be re-parented".to_owned());
     }
     if state.root_key.as_deref() == Some(agent) {
@@ -211,11 +228,7 @@ fn valid_permission_mode(value: Option<&Json>) -> bool {
 }
 
 /// Preflight only reads state. No ids, signals, rows or indexes are changed.
-pub fn checked_fact(
-    state: &ThreadState,
-    input: &Json,
-    now: i64,
-) -> Result<Fact, String> {
+pub fn checked_fact(state: &ThreadState, input: &Json, now: i64) -> Result<Fact, String> {
     if !crate::fact_data::is_fact_data(input) {
         return Err("adapter facts must contain JSON data".to_owned());
     }
@@ -266,7 +279,10 @@ pub fn checked_fact(
     }
     if fact_type == "agent.seen" || fact_type == "agent.linked" {
         let agent = get_str(map, "agent").unwrap_or("");
-        if fact_type == "agent.seen" && map.get("origin").and_then(|origin| origin.as_str()) == Some("root") && map.contains_key("parent") {
+        if fact_type == "agent.seen"
+            && map.get("origin").and_then(|origin| origin.as_str()) == Some("root")
+            && map.contains_key("parent")
+        {
             return Err("a root cannot have a parent".to_owned());
         }
         if let Some(parent) = get_str(map, "parent") {
@@ -306,7 +322,10 @@ pub fn checked_fact(
             }
         }
         if let Some(item) = item {
-            let field = map.get("field").and_then(|field| field.as_str()).unwrap_or("");
+            let field = map
+                .get("field")
+                .and_then(|field| field.as_str())
+                .unwrap_or("");
             let valid = (field == "output"
                 && matches!(
                     item,
@@ -368,17 +387,18 @@ pub fn checked_fact(
                 }
             };
             if live {
-                let owner = map.get("agent").and_then(|key| key.as_str()).and_then(|key| {
-                    get(&state.agents, key).map(|record| record.agent.id.clone())
-                });
+                let owner = map
+                    .get("agent")
+                    .and_then(|key| key.as_str())
+                    .and_then(|key| get(&state.agents, key).map(|record| record.agent.id.clone()));
                 let narrowed = fact_type == "background.started"
                     && map
                         .get("agent")
                         .and_then(|key| key.as_str())
                         .is_some_and(|agent| {
-                            owner_id.as_ref().is_some_and(|current| {
-                                descends_from(state, agent, current)
-                            })
+                            owner_id
+                                .as_ref()
+                                .is_some_and(|current| descends_from(state, agent, current))
                         });
                 if owner != owner_id && !narrowed {
                     return Err("live key has a different owner".to_owned());
@@ -394,7 +414,10 @@ pub fn checked_fact(
                     .and_then(|key| key.as_str())
                     .and_then(|key| get(&state.interactions, key));
                 if let Some(current) = current {
-                    let kinds_match = match (&current.request, object.get("kind").and_then(|kind| kind.as_str())) {
+                    let kinds_match = match (
+                        &current.request,
+                        object.get("kind").and_then(|kind| kind.as_str()),
+                    ) {
                         (
                             crate::entity_model::InteractionRequest::Approval { .. },
                             Some("approval"),
@@ -442,10 +465,9 @@ pub fn checked_fact(
 }
 
 use crate::validate_shapes::{
-    valid_agent_machine, valid_context_sample, valid_goal,
-    valid_interaction_request, valid_interaction_resolution, valid_native_ref,
-    valid_provider_kind, valid_raw_list, valid_thread_id, valid_thread_lineage,
-    valid_timestamp, valid_usage_like,
+    valid_agent_machine, valid_context_sample, valid_goal, valid_interaction_request,
+    valid_interaction_resolution, valid_native_ref, valid_provider_kind, valid_raw_list,
+    valid_thread_id, valid_thread_lineage, valid_timestamp, valid_usage_like,
 };
 
 fn valid_agent_seen(_state: &ThreadState, map: &Map) -> bool {
@@ -469,7 +491,10 @@ fn valid_agent_seen(_state: &ThreadState, map: &Map) -> bool {
         return false;
     }
     for key in ["name", "role", "model"] {
-        if !matches!(map.get(key), None | Some(Json::Null) | Some(Json::String(_))) {
+        if !matches!(
+            map.get(key),
+            None | Some(Json::Null) | Some(Json::String(_))
+        ) {
             return false;
         }
     }
@@ -494,19 +519,15 @@ fn valid_agent_seen(_state: &ThreadState, map: &Map) -> bool {
 
 /// The shape half of preflight: every field has the right JSON shape.
 /// Returns `Ok(false)` for a shape mismatch and `Err` for unreadable data.
-pub fn shape_valid(
-    state: &ThreadState,
-    fact: &Map,
-    fact_type: &str,
-    now: i64,
-) -> Result<bool, ()> {
+pub fn shape_valid(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) -> Result<bool, ()> {
     let valid = match fact_type {
         "agent.external" => {
             valid_thread_id(fact.get("threadId"))
-                && serde_json::from_value::<crate::status::ThreadStatus>(
-                    fact.get("status").cloned().unwrap_or(Json::Null),
-                )
-                .is_ok()
+                && {
+                    let status = fact.get("status").cloned().unwrap_or(Json::Null);
+                    let text = ace_json::to_string(&status);
+                    serde_json::from_str::<crate::status::ThreadStatus>(&text).is_ok()
+                }
                 && get(&state.agents, fact.get("agent").and_then(|agent| agent.as_str()).unwrap_or(""))
                     .is_some_and(|record| record.agent.origin == "ace")
         }
@@ -796,7 +817,8 @@ fn valid_usage_facts(fact: &Map) -> bool {
 }
 
 fn ensure_moved_target(to: &Map) -> bool {
-    to.keys().all(|key| ["hostId", "name", "threadId"].contains(&key.as_str()))
+    to.keys()
+        .all(|key| ["hostId", "name", "threadId"].contains(&key.as_str()))
         && matches!(to.get("hostId"), Some(Json::String(id)) if !id.is_empty())
         && matches!(to.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
         && matches!(to.get("threadId"), Some(Json::String(id)) if !id.is_empty())

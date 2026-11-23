@@ -43,6 +43,8 @@ napi-derive = "3"
 # semantics; fact bodies splice as canonical Raw text, and nothing recurses, so deeply
 # nested provider data needs no stack growth.
 ace-json = { path = "../ace-json" }
+# serde: the core response struct derives Serialize for ace-json emits.
+serde = { version = "1", features = ["derive"] }
 # serde_json: the one serde_json entry for the addon; the translators no longer use it.
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
 

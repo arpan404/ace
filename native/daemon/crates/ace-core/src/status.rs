@@ -10,7 +10,6 @@
 
 use crate::json_io::{Json, json_equal};
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 /// What the agent is doing right now while `working`.
 pub fn valid_activity(value: &str) -> bool {
@@ -65,9 +64,7 @@ pub enum AgentStatus {
     Interrupted,
     /// Its last turn failed.
     #[serde(rename = "failed")]
-    Failed {
-        error: AgentError,
-    },
+    Failed { error: AgentError },
     /// Silent past the silence threshold.
     #[serde(rename = "unresponsive")]
     Unresponsive {
@@ -119,13 +116,9 @@ pub struct MovedTo {
 #[derive(Debug, Clone)]
 pub enum ThreadStatus {
     /// Someone's attention is needed, with the count.
-    NeedsYou {
-        interactions: i64,
-    },
+    NeedsYou { interactions: i64 },
     /// At least one agent works.
-    Working {
-        agents: i64,
-    },
+    Working { agents: i64 },
     /// Held on a background task, a limit, or the queue.
     Waiting {
         on: String,
@@ -135,25 +128,19 @@ pub enum ThreadStatus {
         waiting_for: Option<String>,
     },
     /// Blocked on a usage limit.
-    Limited {
-        until: Option<i64>,
-    },
+    Limited { until: Option<i64> },
     /// Something failed after the root's last success.
     Failed,
     /// A live agent went silent.
     Unresponsive,
     /// Its work moved to another machine.
-    Moved {
-        to: MovedTo,
-    },
+    Moved { to: MovedTo },
     /// Every agent idle, nothing pending.
     Done,
     /// Never run.
     New,
     /// A state newer than this build: kept whole, never settled.
-    Unknown {
-        raw: Box<RawValue>,
-    },
+    Unknown { raw: ace_json::Raw },
 }
 
 impl ThreadStatus {
@@ -199,15 +186,15 @@ pub fn is_settled(status: &AgentStatus) -> bool {
 
 /// JSON equality independent of object property order, like `equal`.
 pub fn status_equal(left: &AgentStatus, right: &AgentStatus) -> bool {
-    let left_value = serde_json::to_value(left).unwrap_or(Json::Null);
-    let right_value = serde_json::to_value(right).unwrap_or(Json::Null);
+    let left_value = crate::json_io::to_value(left);
+    let right_value = crate::json_io::to_value(right);
     json_equal(&left_value, &right_value)
 }
 
 /// JSON equality for thread statuses.
 pub fn thread_status_equal(left: &ThreadStatus, right: &ThreadStatus) -> bool {
-    let left_value = serde_json::to_value(left).unwrap_or(Json::Null);
-    let right_value = serde_json::to_value(right).unwrap_or(Json::Null);
+    let left_value = crate::json_io::to_value(left);
+    let right_value = crate::json_io::to_value(right);
     json_equal(&left_value, &right_value)
 }
 
@@ -403,9 +390,10 @@ fn live_thread_status(state: &ThreadState) -> ThreadStatus {
             };
         }
     }
-    if running_task_keys(state, None).iter().any(|key| {
-        get(&state.tasks, key).is_some_and(|task| task_holds_thread(state, task))
-    }) {
+    if running_task_keys(state, None)
+        .iter()
+        .any(|key| get(&state.tasks, key).is_some_and(|task| task_holds_thread(state, task)))
+    {
         return ThreadStatus::Waiting {
             on: "background_task".to_owned(),
             slot_limit: None,
@@ -416,10 +404,7 @@ fn live_thread_status(state: &ThreadState) -> ThreadStatus {
     }
     if records.iter().any(|record| {
         (record.disconnected_at.is_some()
-            || matches!(
-                &record.external_status,
-                Some(ThreadStatus::Unresponsive)
-            ))
+            || matches!(&record.external_status, Some(ThreadStatus::Unresponsive)))
             && record.agent.status.state() == "unresponsive"
     }) {
         return ThreadStatus::Unresponsive;
@@ -456,19 +441,19 @@ fn live_thread_status(state: &ThreadState) -> ThreadStatus {
         };
     }
     let reader = completion_relevance_reader(state);
-    if state
-        .agents
-        .keys()
-        .any(|key| {
-            get(&state.agents, key).is_some_and(|record| {
-                record.agent.status.state() == "unresponsive" && reader(key)
-            })
-        })
-    {
+    if state.agents.keys().any(|key| {
+        get(&state.agents, key)
+            .is_some_and(|record| record.agent.status.state() == "unresponsive" && reader(key))
+    }) {
         return ThreadStatus::Unresponsive;
     }
-    let root = state.root_key.as_ref().and_then(|key| get(&state.agents, key));
-    let success_order = root.and_then(|record| record.last_successful_outcome_order).unwrap_or(0);
+    let root = state
+        .root_key
+        .as_ref()
+        .and_then(|key| get(&state.agents, key));
+    let success_order = root
+        .and_then(|record| record.last_successful_outcome_order)
+        .unwrap_or(0);
     if root.is_some_and(|record| record.agent.status.state() == "failed")
         || records.iter().any(|record| {
             record.agent.status.state() == "failed"

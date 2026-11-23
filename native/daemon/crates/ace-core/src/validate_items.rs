@@ -201,7 +201,6 @@ pub(crate) fn screen_key_valid(key: &str) -> bool {
     SCREEN_KEYS.contains(&key)
 }
 
-
 /// Whether the merged candidate validates.
 pub enum ItemCheck {
     /// The candidate forms a canonical item.
@@ -266,7 +265,10 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
     let draft_type = draft.get("type").and_then(|kind| kind.as_str());
     let draft_call = draft.get("call").and_then(as_map);
     if draft_type == Some("tool_call") {
-        if draft.get("call").is_some_and(|call| !matches!(call, Json::Object(_))) {
+        if draft
+            .get("call")
+            .is_some_and(|call| !matches!(call, Json::Object(_)))
+        {
             return Some("tool draft must be an object".to_owned());
         }
         if let Some(call) = draft_call {
@@ -323,7 +325,10 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
                     )
             )
         {
-            let aggregate = detail.get("output").and_then(|output| output.as_str()).unwrap_or("");
+            let aggregate = detail
+                .get("output")
+                .and_then(|output| output.as_str())
+                .unwrap_or("");
             let prior = match previous {
                 Some(Item::ToolCall { call, .. }) => match &call.detail {
                     crate::item_model::ToolDetail::Shell { output, .. } => output.clone(),
@@ -363,7 +368,12 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
         }
     }
     let call = candidate.get("call").and_then(as_map);
-    let (kind, detail_kind) = match (call.and_then(|call| get_str(call, "kind")), call.and_then(|call| call.get("detail")).and_then(as_map).and_then(|detail| get_str(detail, "kind"))) {
+    let (kind, detail_kind) = match (
+        call.and_then(|call| get_str(call, "kind")),
+        call.and_then(|call| call.get("detail"))
+            .and_then(as_map)
+            .and_then(|detail| get_str(detail, "kind")),
+    ) {
         (Some(kind), Some(detail_kind)) => (kind, detail_kind),
         _ => ("", ""),
     };
@@ -389,7 +399,9 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
                     .collect()
             })
             .unwrap_or_default();
-        if let Some(linked) = get(&state.item_links, item_key).and_then(|links| links.child_agent.clone()) {
+        if let Some(linked) =
+            get(&state.item_links, item_key).and_then(|links| links.child_agent.clone())
+        {
             if !children.contains(&linked) {
                 children.push(linked);
             }
@@ -405,26 +417,33 @@ pub fn item_error(state: &ThreadState, fact: &Map, fact_type: &str, now: i64) ->
 fn valid_base(candidate: &Map) -> bool {
     is_string(candidate.get("id"))
         && is_string(candidate.get("agentId"))
-        && candidate.get("runId").map_or(true, |run| is_string(Some(run)))
+        && candidate
+            .get("runId")
+            .map_or(true, |run| is_string(Some(run)))
         && valid_timestamp(candidate.get("createdAt"))
-        && candidate.get("nativeId").map_or(true, |id| {
-            matches!(id, Json::String(id) if id.len() <= 256)
-        })
-        && candidate.get("executionSource").map_or(true, valid_execution_source)
-        && candidate.get("complete").map_or(true, |complete| {
-            matches!(complete, Json::Bool(_))
-        })
+        && candidate
+            .get("nativeId")
+            .map_or(true, |id| matches!(id, Json::String(id) if id.len() <= 256))
+        && candidate
+            .get("executionSource")
+            .map_or(true, valid_execution_source)
+        && candidate
+            .get("complete")
+            .map_or(true, |complete| matches!(complete, Json::Bool(_)))
         && candidate.get("inherited").map_or(true, valid_inherited)
-        && candidate.get("rawOmitted").map_or(true, |raw| {
-            matches!(raw, Json::Bool(true))
-        })
+        && candidate
+            .get("rawOmitted")
+            .map_or(true, |raw| matches!(raw, Json::Bool(true)))
 }
 
 fn valid_execution_source(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    if map.keys().any(|key| !["nativeSessionId", "selection"].contains(&key.as_str())) {
+    if map
+        .keys()
+        .any(|key| !["nativeSessionId", "selection"].contains(&key.as_str()))
+    {
         return false;
     }
     if !is_string(map.get("nativeSessionId")) {
@@ -433,9 +452,10 @@ fn valid_execution_source(value: &Json) -> bool {
     let Some(selection) = map.get("selection").and_then(as_map) else {
         return false;
     };
-    if selection.keys().any(|key| {
-        !["provider", "model", "instanceId", "options"].contains(&key.as_str())
-    }) {
+    if selection
+        .keys()
+        .any(|key| !["provider", "model", "instanceId", "options"].contains(&key.as_str()))
+    {
         return false;
     }
     if !valid_provider_kind(selection.get("provider")) {
@@ -523,7 +543,8 @@ pub(crate) fn valid_attachment(value: &Json) -> bool {
     }) {
         return false;
     }
-    if !matches!(map.get("sha256"), Some(Json::String(hash)) if hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit())) {
+    if !matches!(map.get("sha256"), Some(Json::String(hash)) if hash.len() == 64 && hash.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
         return false;
     }
     if as_count(map.get("bytes")).is_none() {
@@ -558,16 +579,12 @@ pub(crate) fn valid_attachment(value: &Json) -> bool {
     }
     for key in ["width", "height"] {
         if let Some(size) = map.get(key) {
-            if !matches!(as_count(Some(size)), Some(size) if size > 0)
-            {
+            if !matches!(as_count(Some(size)), Some(size) if size > 0) {
                 return false;
             }
         }
     }
-    matches!(
-            map.get("thumbnailAvailable"),
-            None | Some(Json::Bool(_))
-        )
+    matches!(map.get("thumbnailAvailable"), None | Some(Json::Bool(_)))
 }
 
 fn valid_file_content(value: &Json) -> bool {
@@ -576,11 +593,13 @@ fn valid_file_content(value: &Json) -> bool {
     };
     match map.get("encoding").and_then(|encoding| encoding.as_str()) {
         Some("base64") => {
-            map.keys().all(|key| ["encoding", "data"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["encoding", "data"].contains(&key.as_str()))
                 && matches!(map.get("data"), Some(Json::String(data)) if data.len() <= 44 * 1024 * 1024)
         }
         Some("text") => {
-            map.keys().all(|key| ["encoding", "data"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["encoding", "data"].contains(&key.as_str()))
                 && matches!(map.get("data"), Some(Json::String(data)) if data.len() <= 128 * 1024)
         }
         _ => false,
@@ -596,12 +615,13 @@ fn valid_content_part(value: &Json) -> bool {
             map.keys()
                 .all(|key| ["type", "text", "source"].contains(&key.as_str()))
                 && is_string(map.get("text"))
-                && map.get("source").map_or(true, |source| {
-valid_text_source(source)
-                })
+                && map
+                    .get("source")
+                    .map_or(true, |source| valid_text_source(source))
         }
         Some("image") => {
-            map.keys().all(|key| ["type", "mimeType", "url"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "mimeType", "url"].contains(&key.as_str()))
                 && is_string(map.get("mimeType"))
                 && is_string(map.get("url"))
         }
@@ -610,12 +630,13 @@ valid_text_source(source)
                 .all(|key| ["type", "path", "mimeType", "name", "content"].contains(&key.as_str()))
                 && is_string(map.get("path"))
                 && optional_string(map.get("mimeType"))
-                && map.get("name").map_or(true, |name| {
-matches!(name, Json::String(name) if name.len() <= 255)
-                })
-                && map.get("content").map_or(true, |content| {
-valid_file_content(content)
-                })
+                && map.get("name").map_or(
+                    true,
+                    |name| matches!(name, Json::String(name) if name.len() <= 255),
+                )
+                && map
+                    .get("content")
+                    .map_or(true, |content| valid_file_content(content))
         }
         Some("mention") => valid_mention(map),
         _ => false,
@@ -642,12 +663,12 @@ fn valid_mention(map: &Map) -> bool {
     if !matches!(map.get("entryId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256) {
         return false;
     }
-    if !matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256) {
+    if !matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+    {
         return false;
     }
     if let Some(title) = map.get("title") {
-        if !matches!(title, Json::String(title) if !title.is_empty() && title.len() <= 256)
-        {
+        if !matches!(title, Json::String(title) if !title.is_empty() && title.len() <= 256) {
             return false;
         }
     }
@@ -668,8 +689,7 @@ fn valid_mention(map: &Map) -> bool {
         return false;
     }
     if let Some(icon) = map.get("icon") {
-        if !matches!(icon, Json::String(icon) if icon.len() <= 4096)
-        {
+        if !matches!(icon, Json::String(icon) if icon.len() <= 4096) {
             return false;
         }
     }
@@ -694,9 +714,13 @@ fn valid_mention(map: &Map) -> bool {
 fn valid_palette_name(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 128
-        && name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'.' || byte == b':' || byte == b'-')
+        && name.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric()
+                || byte == b'_'
+                || byte == b'.'
+                || byte == b':'
+                || byte == b'-'
+        })
 }
 
 fn valid_prompt_value(value: &Json) -> bool {
@@ -721,16 +745,20 @@ fn valid_prompt_argument(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    map.keys().all(|key| ["type", "required", "default"].contains(&key.as_str()))
+    map.keys()
+        .all(|key| ["type", "required", "default"].contains(&key.as_str()))
         && matches!(
             map.get("type"),
             Some(Json::String(kind)) if kind == "string" || kind == "number" || kind == "boolean"
         )
-        && map.get("required").map_or(true, |required| {
-            matches!(required, Json::Bool(_))
-        })
+        && map
+            .get("required")
+            .map_or(true, |required| matches!(required, Json::Bool(_)))
         && map.get("default").map_or(true, valid_prompt_value)
-        && match (map.get("type").and_then(|kind| kind.as_str()), map.get("default")) {
+        && match (
+            map.get("type").and_then(|kind| kind.as_str()),
+            map.get("default"),
+        ) {
             (Some("string"), Some(Json::String(_)))
             | (Some("number"), Some(Json::Number(_)))
             | (Some("boolean"), Some(Json::Bool(_)))
@@ -745,40 +773,47 @@ fn valid_catalog_invocation(value: &Json) -> bool {
     };
     match map.get("type").and_then(|kind| kind.as_str()) {
         Some("slash") => {
-            map.keys().all(|key| ["type", "name"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "name"].contains(&key.as_str()))
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
         }
         Some("skill" | "mention") => {
-            map.keys().all(|key| ["type", "name", "path"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "name", "path"].contains(&key.as_str()))
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
                 && matches!(map.get("path"), Some(Json::String(path)) if !path.is_empty() && path.len() <= 4096)
         }
         Some("plugin" | "agent") => {
-            map.keys().all(|key| ["type", "name"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "name"].contains(&key.as_str()))
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
         }
         Some("tool") => {
-            map.keys().all(|key| ["type", "name", "server"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "name", "server"].contains(&key.as_str()))
                 && matches!(map.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
                 && matches!(map.get("server"), Some(Json::String(server)) if server.len() <= 256)
         }
         Some("prompt") => {
-            map.keys().all(|key| ["type", "commandId", "parameters"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "commandId", "parameters"].contains(&key.as_str()))
                 && matches!(map.get("commandId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 256)
                 && map.get("parameters").map_or(true, |parameters| {
                     matches!(parameters, Json::Object(parameters)
-                        if parameters.len() <= 64
-                            && parameters.iter().all(|(key, value)| {
-                                valid_palette_name(key) && valid_prompt_argument(value)
-                            }))
+                    if parameters.len() <= 64
+                        && parameters.iter().all(|(key, value)| {
+                            valid_palette_name(key) && valid_prompt_argument(value)
+                        }))
                 })
         }
         Some("action") => {
-            map.keys().all(|key| ["type", "action"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "action"].contains(&key.as_str()))
                 && matches!(map.get("action"), Some(Json::String(action)) if !action.is_empty() && action.len() <= 128)
         }
         Some("unavailable") => {
-            map.keys().all(|key| ["type", "reason"].contains(&key.as_str()))
+            map.keys()
+                .all(|key| ["type", "reason"].contains(&key.as_str()))
                 && matches!(map.get("reason"), Some(Json::String(reason)) if !reason.is_empty() && reason.len() <= 2048)
         }
         _ => false,
@@ -789,9 +824,9 @@ fn valid_file_change(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    map.keys()
-        .all(|key| ["path", "kind", "movePath", "diff", "oldText", "newText"].contains(&key.as_str()))
-        && is_string(map.get("path"))
+    map.keys().all(|key| {
+        ["path", "kind", "movePath", "diff", "oldText", "newText"].contains(&key.as_str())
+    }) && is_string(map.get("path"))
         && matches!(
             map.get("kind"),
             Some(Json::String(kind)) if ["add", "update", "delete", "move"].contains(&kind.as_str())
@@ -809,7 +844,8 @@ fn valid_tool_detail(detail: &Map) -> bool {
     match kind {
         Some("shell") => {
             detail.keys().all(|key| {
-                ["kind", "command", "rawCommand", "cwd", "exitCode", "output"].contains(&key.as_str())
+                ["kind", "command", "rawCommand", "cwd", "exitCode", "output"]
+                    .contains(&key.as_str())
             }) && is_string(detail.get("command"))
                 && optional_string(detail.get("rawCommand"))
                 && optional_string(detail.get("cwd"))
@@ -819,7 +855,9 @@ fn valid_tool_detail(detail: &Map) -> bool {
                 && detail.get("output").map_or(true, valid_output_summary)
         }
         Some("file.read") => {
-            detail.keys().all(|key| ["kind", "path", "range"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "path", "range"].contains(&key.as_str()))
                 && is_string(detail.get("path"))
                 && detail.get("range").map_or(true, |range| {
                     matches!(as_map(range), Some(range)
@@ -829,33 +867,44 @@ fn valid_tool_detail(detail: &Map) -> bool {
                 })
         }
         Some("file.edit" | "file.write" | "file.delete" | "file.move") => {
-            detail.keys().all(|key| ["kind", "changes"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "changes"].contains(&key.as_str()))
                 && detail
                     .get("changes")
                     .and_then(|changes| changes.as_array())
                     .is_some_and(|changes| changes.iter().all(valid_file_change))
         }
         Some("search") => {
-            detail.keys().all(|key| ["kind", "query", "path", "matches", "scope"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "query", "path", "matches", "scope"].contains(&key.as_str()))
                 && is_string(detail.get("query"))
                 && optional_string(detail.get("path"))
-                && detail.get("matches").map_or(true, |matches| {
-                    as_integer(Some(matches)).is_some()
-                })
-                && detail.get("scope").map_or(true, |scope| {
-                    matches!(scope, Json::String(scope) if scope == "tools")
-                })
+                && detail
+                    .get("matches")
+                    .map_or(true, |matches| as_integer(Some(matches)).is_some())
+                && detail.get("scope").map_or(
+                    true,
+                    |scope| matches!(scope, Json::String(scope) if scope == "tools"),
+                )
         }
         Some("web.search") => {
-            detail.keys().all(|key| ["kind", "query"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "query"].contains(&key.as_str()))
                 && is_string(detail.get("query"))
         }
         Some("web.fetch") => {
-            detail.keys().all(|key| ["kind", "url"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "url"].contains(&key.as_str()))
                 && is_string(detail.get("url"))
         }
         Some("mcp") => {
-            detail.keys().all(|key| ["kind", "server", "tool", "arguments"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "server", "tool", "arguments"].contains(&key.as_str()))
                 && is_string(detail.get("server"))
                 && is_string(detail.get("tool"))
         }
@@ -869,39 +918,43 @@ fn valid_tool_detail(detail: &Map) -> bool {
                 && optional_string(detail.get("childAgentId"))
         }
         Some("agent.message") => {
-            detail.keys().all(|key| ["kind", "targetAgentId", "message"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "targetAgentId", "message"].contains(&key.as_str()))
                 && optional_string(detail.get("targetAgentId"))
                 && optional_string(detail.get("message"))
         }
         Some("todo") => {
-            detail.keys().all(|key| ["kind", "todos"].contains(&key.as_str()))
+            detail
+                .keys()
+                .all(|key| ["kind", "todos"].contains(&key.as_str()))
                 && detail
                     .get("todos")
                     .and_then(|todos| todos.as_array())
                     .is_some_and(|todos| todos.iter().all(valid_todo_entry))
         }
-        Some("plan") => {
-            detail.keys().all(|key| ["kind", "markdown", "todos"].contains(&key.as_str()))
-                && optional_string(detail.get("markdown"))
-                && detail.get("todos").map_or(true, |todos| {
-                    matches!(todos, Json::Array(todos) if todos.iter().all(valid_todo_entry))
-                })
-        }
+        Some("plan") => detail
+            .keys()
+            .all(|key| ["kind", "markdown", "todos"].contains(&key.as_str()))
+            && optional_string(detail.get("markdown"))
+            && detail.get("todos").map_or(
+                true,
+                |todos| matches!(todos, Json::Array(todos) if todos.iter().all(valid_todo_entry)),
+            ),
         Some("ask_user") => detail.keys().all(|key| key == "kind"),
         Some("image") => {
             detail.keys().all(|key| {
-                ["kind", "path", "sourcePath", "attachment", "unavailable"]
-                    .contains(&key.as_str())
-            }) && detail.get("path").map_or(true, |path| {
-                matches!(path, Json::String(path) if path.len() <= 4096)
-            }) && detail.get("sourcePath").map_or(true, |path| {
-                matches!(path, Json::String(path) if path.len() <= 4096)
-            }) && detail.get("attachment").map_or(true, valid_attachment)
-            && optional_string(detail.get("unavailable"))
+                ["kind", "path", "sourcePath", "attachment", "unavailable"].contains(&key.as_str())
+            }) && detail.get("path").map_or(
+                true,
+                |path| matches!(path, Json::String(path) if path.len() <= 4096),
+            ) && detail.get("sourcePath").map_or(
+                true,
+                |path| matches!(path, Json::String(path) if path.len() <= 4096),
+            ) && detail.get("attachment").map_or(true, valid_attachment)
+                && optional_string(detail.get("unavailable"))
         }
-        Some("browser" | "notebook" | "custom") => {
-            detail.keys().all(|key| key == "kind")
-        }
+        Some("browser" | "notebook" | "custom") => detail.keys().all(|key| key == "kind"),
         _ => false,
     }
 }
@@ -911,8 +964,17 @@ fn valid_tool_result(value: &Json) -> bool {
         return false;
     };
     if map.keys().any(|key| {
-        !["isError", "content", "structuredContent", "durationMs", "target", "mode", "scale", "size"]
-            .contains(&key.as_str())
+        ![
+            "isError",
+            "content",
+            "structuredContent",
+            "durationMs",
+            "target",
+            "mode",
+            "scale",
+            "size",
+        ]
+        .contains(&key.as_str())
     }) {
         return false;
     }
@@ -956,7 +1018,10 @@ fn valid_tool_result(value: &Json) -> bool {
         let Some(target) = as_map(target) else {
             return false;
         };
-        if target.keys().any(|key| !["bundleId", "windowId", "displayName"].contains(&key.as_str())) {
+        if target
+            .keys()
+            .any(|key| !["bundleId", "windowId", "displayName"].contains(&key.as_str()))
+        {
             return false;
         }
         if !matches!(target.get("bundleId"), Some(Json::String(id)) if id.len() <= 256) {
@@ -998,11 +1063,15 @@ fn valid_tool_result(value: &Json) -> bool {
         let Some(size) = as_map(size) else {
             return false;
         };
-        if size.keys().any(|key| !["width", "height"].contains(&key.as_str())) {
+        if size
+            .keys()
+            .any(|key| !["width", "height"].contains(&key.as_str()))
+        {
             return false;
         }
         for key in ["width", "height"] {
-            if !matches!(as_integer(size.get(key)), Some(dimension) if dimension > 0 && dimension <= 16_384) {
+            if !matches!(as_integer(size.get(key)), Some(dimension) if dimension > 0 && dimension <= 16_384)
+            {
                 return false;
             }
         }
@@ -1087,7 +1156,11 @@ fn valid_tool_call(call: &Map) -> bool {
     ) {
         return false;
     }
-    if !call.get("detail").and_then(as_map).is_some_and(valid_tool_detail) {
+    if !call
+        .get("detail")
+        .and_then(as_map)
+        .is_some_and(valid_tool_detail)
+    {
         return false;
     }
     if !optional_string(call.get("backgroundTaskId")) {
@@ -1172,13 +1245,18 @@ fn valid_message_origin(value: &Json) -> bool {
         let Some(client) = as_map(client) else {
             return false;
         };
-        if client.keys().any(|key| !["grantId", "name"].contains(&key.as_str())) {
+        if client
+            .keys()
+            .any(|key| !["grantId", "name"].contains(&key.as_str()))
+        {
             return false;
         }
-        if !matches!(client.get("grantId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128) {
+        if !matches!(client.get("grantId"), Some(Json::String(id)) if !id.is_empty() && id.len() <= 128)
+        {
             return false;
         }
-        if !matches!(client.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256) {
+        if !matches!(client.get("name"), Some(Json::String(name)) if !name.is_empty() && name.len() <= 256)
+        {
             return false;
         }
     }
@@ -1204,15 +1282,17 @@ fn valid_message_origin(value: &Json) -> bool {
             let Some(endpoint) = as_map(endpoint) else {
                 return false;
             };
-            if endpoint.keys().any(|key| !["provider", "model"].contains(&key.as_str())) {
+            if endpoint
+                .keys()
+                .any(|key| !["provider", "model"].contains(&key.as_str()))
+            {
                 return false;
             }
             if !valid_provider_kind(endpoint.get("provider")) {
                 return false;
             }
             if let Some(model) = endpoint.get("model") {
-                if !matches!(model, Json::String(model) if !model.is_empty())
-                {
+                if !matches!(model, Json::String(model) if !model.is_empty()) {
                     return false;
                 }
             }
@@ -1254,15 +1334,17 @@ fn valid_message_origin(value: &Json) -> bool {
         let Some(via) = as_map(via) else {
             return false;
         };
-        if via.keys().any(|key| !["threadId", "title"].contains(&key.as_str())) {
+        if via
+            .keys()
+            .any(|key| !["threadId", "title"].contains(&key.as_str()))
+        {
             return false;
         }
         if !is_string(via.get("threadId")) {
             return false;
         }
         if let Some(title) = via.get("title") {
-            if !matches!(title, Json::String(title) if title.len() <= 256)
-            {
+            if !matches!(title, Json::String(title) if title.len() <= 256) {
                 return false;
             }
         }
@@ -1453,7 +1535,8 @@ fn valid_handoff_citation(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    map.keys().all(|key| ["threadId", "itemId"].contains(&key.as_str()))
+    map.keys()
+        .all(|key| ["threadId", "itemId"].contains(&key.as_str()))
         && is_string(map.get("threadId"))
         && optional_string(map.get("itemId"))
 }
@@ -1462,15 +1545,18 @@ fn valid_merged_fork(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    map.keys()
-        .all(|key| ["sourceThreadId", "summary", "citations", "patchApplied"].contains(&key.as_str()))
-        && is_string(map.get("sourceThreadId"))
+    map.keys().all(|key| {
+        ["sourceThreadId", "summary", "citations", "patchApplied"].contains(&key.as_str())
+    }) && is_string(map.get("sourceThreadId"))
         && matches!(map.get("summary"), Some(Json::String(summary)) if !summary.is_empty() && summary.len() <= 256 * 1024)
-        && map.get("citations").and_then(|citations| citations.as_array()).is_some_and(|citations| {
-            !citations.is_empty()
-                && citations.len() <= 100
-                && citations.iter().all(valid_handoff_citation)
-        })
+        && map
+            .get("citations")
+            .and_then(|citations| citations.as_array())
+            .is_some_and(|citations| {
+                !citations.is_empty()
+                    && citations.len() <= 100
+                    && citations.iter().all(valid_handoff_citation)
+            })
         && matches!(map.get("patchApplied"), Some(Json::Bool(_)))
 }
 
@@ -1479,7 +1565,15 @@ fn valid_delegation_outcome(value: &Json) -> bool {
         return false;
     };
     if map.keys().any(|key| {
-        !["failure", "threadId", "outcome", "result", "truncated", "before"].contains(&key.as_str())
+        ![
+            "failure",
+            "threadId",
+            "outcome",
+            "result",
+            "truncated",
+            "before",
+        ]
+        .contains(&key.as_str())
     }) {
         return false;
     }
@@ -1495,21 +1589,21 @@ fn valid_delegation_outcome(value: &Json) -> bool {
         }) {
             return false;
         }
-        if !matches!(failure.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 64) {
+        if !matches!(failure.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 64)
+        {
             return false;
         }
-        if !matches!(failure.get("message"), Some(Json::String(message)) if !message.is_empty() && message.len() <= 512) {
+        if !matches!(failure.get("message"), Some(Json::String(message)) if !message.is_empty() && message.len() <= 512)
+        {
             return false;
         }
         if let Some(account) = failure.get("accountId") {
-            if !matches!(account, Json::String(account) if account.len() <= 256)
-            {
+            if !matches!(account, Json::String(account) if account.len() <= 256) {
                 return false;
             }
         }
         if let Some(label) = failure.get("accountLabel") {
-            if !matches!(label, Json::String(label) if label.len() <= 256)
-            {
+            if !matches!(label, Json::String(label) if label.len() <= 256) {
                 return false;
             }
         }
@@ -1544,10 +1638,9 @@ fn valid_delegation_outcome(value: &Json) -> bool {
 fn valid_delegation_status(value: Option<&Json>) -> bool {
     match value {
         Some(Json::String(_)) | Some(Json::Object(_)) => {
-            serde_json::from_value::<crate::status::ThreadStatus>(
-                value.cloned().unwrap_or(Json::Null),
-            )
-            .is_ok()
+            let status = value.cloned().unwrap_or(Json::Null);
+            let text = ace_json::to_string(&status);
+            serde_json::from_str::<crate::status::ThreadStatus>(&text).is_ok()
         }
         _ => false,
     }
@@ -1576,17 +1669,41 @@ fn valid_item_shape(candidate: &Map) -> bool {
     match kind {
         Some("html") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "visualization", "raw"]
-                    .contains(&key.as_str())
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "visualization",
+                    "raw",
+                ]
+                .contains(&key.as_str())
             }) && valid_html_visualization(candidate.get("visualization"))
                 && valid_raw_array(candidate.get("raw"))
         }
         Some("image") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "image", "raw"]
-                    .contains(&key.as_str())
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "image",
+                    "raw",
+                ]
+                .contains(&key.as_str())
             }) && valid_shared_image(candidate.get("image"))
                 && valid_raw_array(candidate.get("raw"))
         }
@@ -1594,25 +1711,58 @@ fn valid_item_shape(candidate: &Map) -> bool {
         Some("delegation.started") => valid_delegation_started(candidate),
         Some("delegation.settled") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "origin", "results", "delivery", "raw"]
-                    .contains(&key.as_str())
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "origin",
+                    "results",
+                    "delivery",
+                    "raw",
+                ]
+                .contains(&key.as_str())
             }) && matches!(candidate.get("origin"), Some(Json::String(origin)) if origin == "ace")
-                && candidate.get("results").and_then(|results| results.as_array()).is_some_and(|results| {
-                    !results.is_empty() && results.len() <= 64 && results.iter().all(valid_delegation_outcome)
-                })
+                && candidate
+                    .get("results")
+                    .and_then(|results| results.as_array())
+                    .is_some_and(|results| {
+                        !results.is_empty()
+                            && results.len() <= 64
+                            && results.iter().all(valid_delegation_outcome)
+                    })
                 && matches!(candidate.get("delivery"), Some(Json::String(delivery)) if delivery == "tool" || delivery == "ace-input")
                 && valid_raw_array(candidate.get("raw"))
         }
         Some("reasoning") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "text", "source", "summary", "raw"]
-                    .contains(&key.as_str())
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "text",
+                    "source",
+                    "summary",
+                    "raw",
+                ]
+                .contains(&key.as_str())
             }) && is_string(candidate.get("text"))
-                && candidate.get("source").map_or(true, |source| {
-valid_text_source(source)
-                })
+                && candidate
+                    .get("source")
+                    .map_or(true, |source| valid_text_source(source))
                 && candidate.get("summary").map_or(true, |summary| {
                     matches!(summary, Json::Null | Json::Bool(_))
                 })
@@ -1620,10 +1770,25 @@ valid_text_source(source)
         }
         Some("tool_call") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "call", "measurement"]
-                    .contains(&key.as_str())
-            }) && candidate.get("call").and_then(as_map).is_some_and(valid_tool_call)
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "call",
+                    "measurement",
+                ]
+                .contains(&key.as_str())
+            }) && candidate
+                .get("call")
+                .and_then(as_map)
+                .is_some_and(valid_tool_call)
                 && candidate.get("measurement").map_or(true, |measurement| {
                     crate::validate_shapes::valid_step_measurement(measurement)
                 })
@@ -1631,44 +1796,87 @@ valid_text_source(source)
         Some("notice") => valid_notice_shape(candidate),
         Some("compaction") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "tokensBefore", "tokensAfter", "summary", "raw"]
-                    .contains(&key.as_str())
-            }) && candidate.get("tokensBefore").map_or(true, |value| {
-                as_integer(Some(value)).is_some()
-            }) && candidate.get("tokensAfter").map_or(true, |value| {
-                as_integer(Some(value)).is_some()
-            }) && optional_string(candidate.get("summary"))
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "tokensBefore",
+                    "tokensAfter",
+                    "summary",
+                    "raw",
+                ]
+                .contains(&key.as_str())
+            }) && candidate
+                .get("tokensBefore")
+                .map_or(true, |value| as_integer(Some(value)).is_some())
+                && candidate
+                    .get("tokensAfter")
+                    .map_or(true, |value| as_integer(Some(value)).is_some())
+                && optional_string(candidate.get("summary"))
                 && valid_raw_array(candidate.get("raw"))
         }
         Some("unknown") => {
             candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "raw", "data"]
-                    .contains(&key.as_str())
+                [
+                    "id",
+                    "agentId",
+                    "runId",
+                    "createdAt",
+                    "nativeId",
+                    "executionSource",
+                    "complete",
+                    "inherited",
+                    "rawOmitted",
+                    "type",
+                    "raw",
+                    "data",
+                ]
+                .contains(&key.as_str())
             }) && valid_raw_array(candidate.get("raw"))
                 && candidate.contains_key("data")
         }
-        Some("artifact") => {
-            candidate.keys().all(|key| {
-                ["id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-                 "inherited", "rawOmitted", "type", "filename", "flags", "source", "artifactId",
-                 "path", "mimeType", "bytes"]
-                    .contains(&key.as_str())
-            }) && optional_string(candidate.get("filename"))
-                && candidate.get("flags").map_or(true, |flags| {
-                    matches!(flags, Json::Array(flags) if flags.iter().all(|flag| {
-                            matches!(flag, Json::String(flag) if flag == "executable" || flag == "archive")
-                        }))
-                })
-                && matches!(candidate.get("source"), Some(Json::String(source)) if source == "browser" || source == "device")
-                && candidate.get("artifactId").map_or(true, |id| {
-                    matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 256)
-                })
-                && is_string(candidate.get("path"))
-                && is_string(candidate.get("mimeType"))
-                && as_count(candidate.get("bytes")).is_some()
-        }
+        Some("artifact") => candidate.keys().all(|key| {
+            [
+                "id",
+                "agentId",
+                "runId",
+                "createdAt",
+                "nativeId",
+                "executionSource",
+                "complete",
+                "inherited",
+                "rawOmitted",
+                "type",
+                "filename",
+                "flags",
+                "source",
+                "artifactId",
+                "path",
+                "mimeType",
+                "bytes",
+            ]
+            .contains(&key.as_str())
+        }) && optional_string(candidate.get("filename"))
+            && candidate.get("flags").map_or(true, |flags| {
+                matches!(flags, Json::Array(flags) if flags.iter().all(|flag| {
+                    matches!(flag, Json::String(flag) if flag == "executable" || flag == "archive")
+                }))
+            })
+            && matches!(candidate.get("source"), Some(Json::String(source)) if source == "browser" || source == "device")
+            && candidate.get("artifactId").map_or(
+                true,
+                |id| matches!(id, Json::String(id) if !id.is_empty() && id.len() <= 256),
+            )
+            && is_string(candidate.get("path"))
+            && is_string(candidate.get("mimeType"))
+            && as_count(candidate.get("bytes")).is_some(),
         _ => false,
     }
 }
@@ -1685,7 +1893,8 @@ fn valid_html_visualization(value: Option<&Json>) -> bool {
     let Some(map) = value.and_then(as_map) else {
         return false;
     };
-    map.keys().all(|key| ["title", "document", "height", "mode", "kit"].contains(&key.as_str()))
+    map.keys()
+        .all(|key| ["title", "document", "height", "mode", "kit"].contains(&key.as_str()))
         && matches!(map.get("title"), Some(Json::String(title)) if !title.is_empty() && title.len() <= 160)
         && map.get("document").is_some_and(valid_attachment)
 }
@@ -1698,9 +1907,25 @@ fn valid_shared_image(value: Option<&Json>) -> bool {
 fn valid_message_shape(candidate: &Map) -> bool {
     if candidate.keys().any(|key| {
         ![
-            "id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-            "inherited", "rawOmitted", "type", "role", "parts", "attachments", "synthetic",
-            "origin", "notAnswered", "mergedContext", "speaker", "raw",
+            "id",
+            "agentId",
+            "runId",
+            "createdAt",
+            "nativeId",
+            "executionSource",
+            "complete",
+            "inherited",
+            "rawOmitted",
+            "type",
+            "role",
+            "parts",
+            "attachments",
+            "synthetic",
+            "origin",
+            "notAnswered",
+            "mergedContext",
+            "speaker",
+            "raw",
         ]
         .contains(&key.as_str())
     }) {
@@ -1766,10 +1991,30 @@ fn valid_message_shape(candidate: &Map) -> bool {
 fn valid_notice_shape(candidate: &Map) -> bool {
     if candidate.keys().any(|key| {
         ![
-            "id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-            "inherited", "rawOmitted", "type", "level", "commandId", "interactionId", "code",
-            "diagnostic", "title", "detail", "details", "toolCallId", "measurement", "asked",
-            "text", "source", "raw",
+            "id",
+            "agentId",
+            "runId",
+            "createdAt",
+            "nativeId",
+            "executionSource",
+            "complete",
+            "inherited",
+            "rawOmitted",
+            "type",
+            "level",
+            "commandId",
+            "interactionId",
+            "code",
+            "diagnostic",
+            "title",
+            "detail",
+            "details",
+            "toolCallId",
+            "measurement",
+            "asked",
+            "text",
+            "source",
+            "raw",
         ]
         .contains(&key.as_str())
     }) {
@@ -1781,7 +2026,14 @@ fn valid_notice_shape(candidate: &Map) -> bool {
     ) {
         return false;
     }
-    for key in ["commandId", "interactionId", "code", "title", "detail", "toolCallId"] {
+    for key in [
+        "commandId",
+        "interactionId",
+        "code",
+        "title",
+        "detail",
+        "toolCallId",
+    ] {
         if let Some(value) = candidate.get(key) {
             if matches!(value, Json::Null) || !is_string(Some(value)) {
                 return false;
@@ -1823,15 +2075,16 @@ fn valid_provider_error_details(value: &Json) -> bool {
     let Some(map) = as_map(value) else {
         return false;
     };
-    map.keys().all(|key| {
-        ["code", "provider", "title", "detail", "model"].contains(&key.as_str())
-    }) && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 256)
+    map.keys()
+        .all(|key| ["code", "provider", "title", "detail", "model"].contains(&key.as_str()))
+        && matches!(map.get("code"), Some(Json::String(code)) if !code.is_empty() && code.len() <= 256)
         && valid_provider_kind(map.get("provider"))
         && map.get("title").map_or(true, |title| {
             matches!(title, Json::Null) | matches!(title, Json::String(title) if title.len() <= 256)
         })
         && map.get("detail").map_or(true, |detail| {
-            matches!(detail, Json::Null) | matches!(detail, Json::String(detail) if detail.len() <= 2048)
+            matches!(detail, Json::Null)
+                | matches!(detail, Json::String(detail) if detail.len() <= 2048)
         })
         && map.get("model").map_or(true, |model| {
             matches!(model, Json::Null)
@@ -1842,10 +2095,30 @@ fn valid_provider_error_details(value: &Json) -> bool {
 fn valid_delegation_started(candidate: &Map) -> bool {
     if candidate.keys().any(|key| {
         ![
-            "id", "agentId", "runId", "createdAt", "nativeId", "executionSource", "complete",
-            "inherited", "rawOmitted", "type", "origin", "childThreadId", "provider", "model",
-            "accountId", "title", "role", "phase", "status", "updatedAt", "generation",
-            "outcome", "machine", "raw",
+            "id",
+            "agentId",
+            "runId",
+            "createdAt",
+            "nativeId",
+            "executionSource",
+            "complete",
+            "inherited",
+            "rawOmitted",
+            "type",
+            "origin",
+            "childThreadId",
+            "provider",
+            "model",
+            "accountId",
+            "title",
+            "role",
+            "phase",
+            "status",
+            "updatedAt",
+            "generation",
+            "outcome",
+            "machine",
+            "raw",
         ]
         .contains(&key.as_str())
     }) {

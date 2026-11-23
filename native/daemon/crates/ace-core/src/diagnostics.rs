@@ -121,8 +121,12 @@ pub fn reject_fact(
                     notice.count = count + 1;
                 }
             }
-            if let Some(Item::Notice { base: _, text: item_text, raw: item_raw, .. }) =
-                state.items.get_mut(&item_key)
+            if let Some(Item::Notice {
+                base: _,
+                text: item_text,
+                raw: item_raw,
+                ..
+            }) = state.items.get_mut(&item_key)
             {
                 *item_text = format!("{text} ({} times)", count + 1);
                 if item_raw.len() < REPEAT_RAW_LIMIT {
@@ -150,7 +154,10 @@ pub fn reject_fact(
         put(
             &mut notices.notices,
             signature,
-            crate::state::RejectionNotice { item: key, count: 1 },
+            crate::state::RejectionNotice {
+                item: key,
+                count: 1,
+            },
         );
     }
     Some(())

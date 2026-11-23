@@ -4,8 +4,8 @@
 
 use crate::emit::{get, put, remove};
 use crate::items::Item;
-use indexmap::IndexMap;
 use crate::state::ThreadState;
+use indexmap::IndexMap;
 
 /// Text the provider is still streaming: a turn's end closes it.
 fn is_open_text(item: Option<&Item>) -> bool {
@@ -47,9 +47,14 @@ pub fn refresh_item_index(state: &mut ThreadState, key: &str) {
 
 /// Refresh the pending flag for one interaction key.
 pub fn refresh_interaction_index(state: &mut ThreadState, key: &str) {
-    let pending = get(&state.interactions, key).is_some_and(|interaction| interaction.state == "pending");
+    let pending =
+        get(&state.interactions, key).is_some_and(|interaction| interaction.state == "pending");
     if pending {
-        put(&mut state.indexes.pending_interactions, key.to_owned(), true);
+        put(
+            &mut state.indexes.pending_interactions,
+            key.to_owned(),
+            true,
+        );
     } else {
         remove(&mut state.indexes.pending_interactions, key);
     }
@@ -60,10 +65,9 @@ pub fn refresh_task_index(state: &mut ThreadState, key: &str) {
     let task = get(&state.tasks, key);
     let running = match task {
         Some(task) if task.status == "running" => true,
-        Some(task) if task.status == "unknown" => state
-            .uncertain_tasks
-            .get(key)
-            .is_some_and(|held| *held),
+        Some(task) if task.status == "unknown" => {
+            state.uncertain_tasks.get(key).is_some_and(|held| *held)
+        }
         _ => false,
     };
     if running {
@@ -128,9 +132,8 @@ pub fn live_tool_keys(state: &ThreadState, agent_id: Option<&str>) -> Vec<String
         .live_tools
         .keys()
         .filter(|key| {
-            agent_id.is_none_or(|id| {
-                get(&state.items, key).is_some_and(|item| item.agent_id() == id)
-            })
+            agent_id
+                .is_none_or(|id| get(&state.items, key).is_some_and(|item| item.agent_id() == id))
         })
         .cloned()
         .collect()
@@ -158,9 +161,7 @@ pub fn running_task_keys(state: &ThreadState, agent_id: Option<&str>) -> Vec<Str
         .running_tasks
         .keys()
         .filter(|key| {
-            agent_id.is_none_or(|id| {
-                get(&state.tasks, key).is_some_and(|task| task.agent_id == id)
-            })
+            agent_id.is_none_or(|id| get(&state.tasks, key).is_some_and(|task| task.agent_id == id))
         })
         .cloned()
         .collect()
@@ -173,9 +174,8 @@ pub fn open_text_keys(state: &ThreadState, agent_id: Option<&str>) -> Vec<String
         .open_text
         .keys()
         .filter(|key| {
-            agent_id.is_none_or(|id| {
-                get(&state.items, key).is_some_and(|item| item.agent_id() == id)
-            })
+            agent_id
+                .is_none_or(|id| get(&state.items, key).is_some_and(|item| item.agent_id() == id))
         })
         .cloned()
         .collect()

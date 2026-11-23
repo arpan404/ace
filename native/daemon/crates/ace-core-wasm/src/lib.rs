@@ -17,7 +17,7 @@ fn parse_state(text: &str) -> Result<ThreadState, String> {
     serde_json::from_str(text).map_err(|error| error.to_string())
 }
 
-fn parse_fact(text: &str) -> Result<serde_json::Value, String> {
+fn parse_fact(text: &str) -> Result<ace_json::Value, String> {
     ace_core::json_io::parse_untrusted(text).map_err(|error| error.to_string())
 }
 
@@ -80,9 +80,9 @@ fn create_inner(
         None => None,
         Some(text) => Some(serde_json::from_str(text).map_err(|error| error.to_string())?),
     };
-    let state =
-        ace_core::state::create_thread_state(thread_id.to_owned(), root, config).map_err(|error| error.to_string())?;
-    serde_json::to_string(&state).map_err(|error| error.to_string())
+    let state = ace_core::state::create_thread_state(thread_id.to_owned(), root, config)
+        .map_err(|error| error.to_string())?;
+    ace_json::ser::to_string(&state).map_err(|error| error.to_string())
 }
 
 /// Fold one fact, returning events and the refreshed state as JSON.
@@ -127,22 +127,26 @@ fn apply_inner(
         return Err(failure);
     }
     outcome.ok_or_else(|| "core contract: fold failed".to_owned())?;
-    let response = serde_json::json!({ "events": events, "state": state });
-    serde_json::to_string(&response).map_err(|error| error.to_string())
+    #[derive(serde::Serialize)]
+    struct Response<'a> {
+        events: &'a [ace_core::emit::Event],
+        state: &'a ace_core::ThreadState,
+    }
+    let response = Response {
+        events: &events,
+        state: &state,
+    };
+    ace_json::ser::to_string(&response).map_err(|error| error.to_string())
 }
 
 /// Derive one agent's status from a state snapshot.
 #[wasm_bindgen]
-pub fn core_derive_agent_status(
-    state_json: &str,
-    key: &str,
-    now: f64,
-) -> Result<String, JsValue> {
+pub fn core_derive_agent_status(state_json: &str, key: &str, now: f64) -> Result<String, JsValue> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(state_json)?;
         let now = to_millis(now)?;
         let status = ace_core::status::derive_agent_status(&state, key, now);
-        serde_json::to_string(&status).map_err(|error| error.to_string())
+        ace_json::ser::to_string(&status).map_err(|error| error.to_string())
     }));
     match result {
         Ok(Ok(json)) => Ok(json),
@@ -157,7 +161,7 @@ pub fn core_derive_thread_status(state_json: &str) -> Result<String, JsValue> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(state_json)?;
         let status = ace_core::status::derive_thread_status(&state);
-        serde_json::to_string(&status).map_err(|error| error.to_string())
+        ace_json::ser::to_string(&status).map_err(|error| error.to_string())
     }));
     match result {
         Ok(Ok(json)) => Ok(json),
@@ -168,7 +172,10 @@ pub fn core_derive_thread_status(state_json: &str) -> Result<String, JsValue> {
 
 /// The next deadline from a state snapshot.
 #[wasm_bindgen]
-pub fn core_next_deadline(state_json: &str, provider_deadline: Option<f64>) -> Result<JsValue, JsValue> {
+pub fn core_next_deadline(
+    state_json: &str,
+    provider_deadline: Option<f64>,
+) -> Result<JsValue, JsValue> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(state_json)?;
         let provider = match provider_deadline {
@@ -240,8 +247,7 @@ impl WasmDeadlineIndex {
             return Err(failure("deadline signal needs finite times".to_owned()));
         }
         let result = catch_unwind(AssertUnwindSafe(|| {
-            self.inner
-                .signal(agent.as_deref(), at as i64, silence_ms);
+            self.inner.signal(agent.as_deref(), at as i64, silence_ms);
         }));
         match result {
             Ok(()) => Ok(()),
@@ -292,9 +298,12 @@ pub fn core_is_actionable_interaction(
     owner_json: Option<String>,
 ) -> Result<bool, JsValue> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let interaction: serde_json::Value =
-            serde_json::from_str(interaction_json).map_err(|error: serde_json::Error| error.to_string())?;
-        let state = interaction.get("state").and_then(|state| state.as_str()).unwrap_or("");
+        let interaction: serde_json::Value = serde_json::from_str(interaction_json)
+            .map_err(|error: serde_json::Error| error.to_string())?;
+        let state = interaction
+            .get("state")
+            .and_then(|state| state.as_str())
+            .unwrap_or("");
         let blocking = interaction
             .get("blocking")
             .and_then(|blocking| blocking.as_bool())
@@ -302,8 +311,8 @@ pub fn core_is_actionable_interaction(
         let owner_state = match owner_json.as_deref() {
             None => None,
             Some(text) => {
-                let owner: serde_json::Value =
-                    serde_json::from_str(text).map_err(|error: serde_json::Error| error.to_string())?;
+                let owner: serde_json::Value = serde_json::from_str(text)
+                    .map_err(|error: serde_json::Error| error.to_string())?;
                 owner
                     .get("state")
                     .and_then(|state| state.as_str())

@@ -46,9 +46,7 @@ pub fn task_holds_thread(state: &ThreadState, task: &BackgroundTask) -> bool {
         .as_ref()
         .and_then(|key| get(&state.agents, key));
     let replied = owner_turn_finished(state, task)
-        && root.is_none_or(|root| {
-            agent_turn_finished_by_id(state, &root.agent.id)
-        });
+        && root.is_none_or(|root| agent_turn_finished_by_id(state, &root.agent.id));
     holds_thread(
         &crate::background_hold::HoldFacts {
             ambient: task_ambient(task),
@@ -63,12 +61,12 @@ pub fn task_holds_thread(state: &ThreadState, task: &BackgroundTask) -> bool {
 /// Human truthiness for the stored ambient flag (never validated).
 fn task_ambient(task: &BackgroundTask) -> bool {
     match &task.ambient {
-        crate::json_io::Json::Null => false,
-        crate::json_io::Json::Bool(value) => *value,
-        crate::json_io::Json::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-        crate::json_io::Json::String(value) => !value.is_empty(),
-        crate::json_io::Json::Array(items) => !items.is_empty(),
-        crate::json_io::Json::Object(map) => !map.is_empty(),
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(value) => *value,
+        serde_json::Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
+        serde_json::Value::String(value) => !value.is_empty(),
+        serde_json::Value::Array(items) => !items.is_empty(),
+        serde_json::Value::Object(map) => !map.is_empty(),
     }
 }
 

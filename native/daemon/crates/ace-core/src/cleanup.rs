@@ -65,10 +65,7 @@ fn set_complete(item: &mut Item) {
 }
 
 /// The requests a turn that ended on its own leaves open.
-pub fn outliving_turn(
-    state: &ThreadState,
-    resolving: &HashSet<String>,
-) -> HashSet<String> {
+pub fn outliving_turn(state: &ThreadState, resolving: &HashSet<String>) -> HashSet<String> {
     let mut kept: HashSet<String> = resolving.clone();
     for key in pending_interaction_keys(state, None) {
         if let Some(interaction) = get(&state.interactions, &key) {
@@ -173,9 +170,7 @@ pub fn exit_process(
     let unsettled: Vec<String> = state
         .agents
         .iter()
-        .filter(|(_, record)| {
-            record.external_status.is_none() && !is_settled(&record.agent.status)
-        })
+        .filter(|(_, record)| record.external_status.is_none() && !is_settled(&record.agent.status))
         .map(|(key, _)| key.clone())
         .collect();
     state.process_exit = Some(crate::state::ProcessExit {

@@ -5,7 +5,6 @@
 //! clients read back exactly what the adapter sent.
 
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 pub use crate::item_model::Attachment;
 pub use crate::item_model::Vetted;
@@ -213,14 +212,10 @@ pub struct DelegationSettled {
 pub enum ToolResultContent {
     /// Text, at most 32 KiB.
     #[serde(rename = "text")]
-    Text {
-        text: String,
-    },
+    Text { text: String },
     /// An image by thread-owned attachment endpoint.
     #[serde(rename = "image")]
-    Image {
-        attachment: Attachment,
-    },
+    Image { attachment: Attachment },
 }
 
 /// Daemon-captured ace results.
@@ -230,8 +225,13 @@ pub struct ToolResult {
     #[serde(rename = "isError")]
     pub is_error: bool,
     pub content: Vec<ToolResultContent>,
-    #[serde(rename = "structuredContent", skip_serializing_if = "Option::is_none")]
-    pub structured_content: Option<Box<RawValue>>,
+    #[serde(
+        rename = "structuredContent",
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::json_io::deserialize_opt_raw",
+        serialize_with = "crate::json_io::serialize_opt_raw"
+    )]
+    pub structured_content: Option<ace_json::Raw>,
     #[serde(rename = "durationMs")]
     pub duration_ms: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -305,8 +305,9 @@ pub mod leaf_keys {
         "via",
     ];
     /// `Speaker`: every key the schema accepts.
-    pub const SPEAKER: &[&str] =
-        &["kind", "id", "name", "avatar", "club", "machine", "about", "ask"];
+    pub const SPEAKER: &[&str] = &[
+        "kind", "id", "name", "avatar", "club", "machine", "about", "ask",
+    ];
     /// `MergedForkContext`: every key the schema accepts.
     pub const MERGED_FORK: &[&str] = &["sourceThreadId", "summary", "citations", "patchApplied"];
     /// `ExecutionSource`: every key the schema accepts.
@@ -339,5 +340,6 @@ pub mod leaf_keys {
         "repeat",
     ];
     /// `InteractionMeasurement` content blocks the reducer never inspects.
-    pub const MEASUREMENT_DEEP: &[&str] = &["target", "action", "verdict", "confidence", "filmstrip"];
+    pub const MEASUREMENT_DEEP: &[&str] =
+        &["target", "action", "verdict", "confidence", "filmstrip"];
 }

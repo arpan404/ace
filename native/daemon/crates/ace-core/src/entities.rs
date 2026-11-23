@@ -6,9 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::emit::{Event, emit, get, put};
-use crate::entity_model::{
-    BackgroundTask, Interaction, InteractionRequest, InteractionResolution,
-};
+use crate::entity_model::{BackgroundTask, Interaction, InteractionRequest, InteractionResolution};
 use crate::item_model::{RawPayload, ToolCall, Vetted, vet_json, vetted_json};
 use crate::items::Item;
 use crate::json_io::de_i64;
@@ -32,7 +30,11 @@ pub fn open_interaction(
         return Some(());
     }
     if let Some(previous) = get(&state.interactions, interaction_key).cloned() {
-        put(&mut state.interaction_history, previous.id.clone(), previous);
+        put(
+            &mut state.interaction_history,
+            previous.id.clone(),
+            previous,
+        );
     }
     let record_id = {
         let record = crate::tree::ensure_agent(state, agent_key, ctx, events)?;
@@ -47,25 +49,25 @@ pub fn open_interaction(
                     let mut draft = crate::json_io::Map::new();
                     draft.insert(
                         "type".to_owned(),
-                        crate::json_io::Json::String("tool_call".to_owned()),
+                        crate::json_io::Json::from("tool_call".to_owned()),
                     );
                     let mut call = crate::json_io::Map::new();
                     call.insert(
                         "kind".to_owned(),
-                        crate::json_io::Json::String("ask_user".to_owned()),
+                        crate::json_io::Json::from("ask_user".to_owned()),
                     );
                     call.insert(
                         "title".to_owned(),
-                        crate::json_io::Json::String("Awaiting input".to_owned()),
+                        crate::json_io::Json::from("Awaiting input".to_owned()),
                     );
                     call.insert(
                         "status".to_owned(),
-                        crate::json_io::Json::String("awaiting_approval".to_owned()),
+                        crate::json_io::Json::from("awaiting_approval".to_owned()),
                     );
                     let mut detail = crate::json_io::Map::new();
                     detail.insert(
                         "kind".to_owned(),
-                        crate::json_io::Json::String("ask_user".to_owned()),
+                        crate::json_io::Json::from("ask_user".to_owned()),
                     );
                     call.insert("detail".to_owned(), crate::json_io::Json::Object(detail));
                     draft.insert("call".to_owned(), crate::json_io::Json::Object(call));
@@ -94,7 +96,11 @@ pub fn open_interaction(
         closed_at: None,
         raw,
     };
-    put(&mut state.interactions, interaction_key.to_owned(), interaction.clone());
+    put(
+        &mut state.interactions,
+        interaction_key.to_owned(),
+        interaction.clone(),
+    );
     crate::indexes::refresh_interaction_index(state, interaction_key);
     emit(events, Event::InteractionOpened { interaction });
     Some(())
@@ -154,7 +160,7 @@ pub struct BackgroundStarted<'a> {
     pub title: &'a str,
     pub item: Option<&'a str>,
     pub child_agent: Option<&'a str>,
-    pub ambient: Option<crate::json_io::Json>,
+    pub ambient: Option<serde_json::Value>,
     pub internal: Option<bool>,
     pub stoppable: bool,
     pub output_path: Option<&'a str>,
@@ -214,7 +220,7 @@ pub fn start_background(
         }
     };
     let id = ctx.ids.next("task")?;
-    let ambient = fact.ambient.unwrap_or(crate::json_io::Json::Bool(false));
+    let ambient = fact.ambient.unwrap_or(serde_json::Value::Bool(false));
     let task = BackgroundTask {
         id: id.clone(),
         agent_id: record_id,
@@ -272,33 +278,37 @@ pub fn start_background(
 }
 
 /// A placeholder tool call for a background task announced before its tool.
-fn placeholder_tool_draft(title: &str, kind: &str, child_agent: Option<&str>) -> crate::json_io::Map {
+fn placeholder_tool_draft(
+    title: &str,
+    kind: &str,
+    child_agent: Option<&str>,
+) -> crate::json_io::Map {
     use crate::json_io::{Json, Map};
     let mut call = Map::new();
-    call.insert("title".to_owned(), Json::String(title.to_owned()));
-    call.insert("status".to_owned(), Json::String("running".to_owned()));
+    call.insert("title".to_owned(), Json::from(title.to_owned()));
+    call.insert("status".to_owned(), Json::from("running".to_owned()));
     if kind == "shell" {
-        call.insert("kind".to_owned(), Json::String("shell".to_owned()));
+        call.insert("kind".to_owned(), Json::from("shell".to_owned()));
         let mut detail = Map::new();
-        detail.insert("kind".to_owned(), Json::String("shell".to_owned()));
-        detail.insert("command".to_owned(), Json::String(String::new()));
+        detail.insert("kind".to_owned(), Json::from("shell".to_owned()));
+        detail.insert("command".to_owned(), Json::from(String::new()));
         call.insert("detail".to_owned(), Json::Object(detail));
     } else if child_agent.is_some() {
-        call.insert("kind".to_owned(), Json::String("agent.spawn".to_owned()));
+        call.insert("kind".to_owned(), Json::from("agent.spawn".to_owned()));
         let mut detail = Map::new();
-        detail.insert("kind".to_owned(), Json::String("agent.spawn".to_owned()));
+        detail.insert("kind".to_owned(), Json::from("agent.spawn".to_owned()));
         if let Some(child) = child_agent {
-            detail.insert("childAgent".to_owned(), Json::String(child.to_owned()));
+            detail.insert("childAgent".to_owned(), Json::from(child.to_owned()));
         }
         call.insert("detail".to_owned(), Json::Object(detail));
     } else {
-        call.insert("kind".to_owned(), Json::String("custom".to_owned()));
+        call.insert("kind".to_owned(), Json::from("custom".to_owned()));
         let mut detail = Map::new();
-        detail.insert("kind".to_owned(), Json::String("custom".to_owned()));
+        detail.insert("kind".to_owned(), Json::from("custom".to_owned()));
         call.insert("detail".to_owned(), Json::Object(detail));
     }
     let mut draft = Map::new();
-    draft.insert("type".to_owned(), Json::String("tool_call".to_owned()));
+    draft.insert("type".to_owned(), Json::from("tool_call".to_owned()));
     draft.insert("call".to_owned(), Json::Object(call));
     draft
 }
@@ -346,7 +356,9 @@ fn refine_background(
                         task.tool_call_id = Some(item_id.clone());
                     }
                     if let Some(Item::ToolCall { call, .. }) = state.items.get_mut(item_key) {
-                        if let Some(task_id) = get(&state.tasks, fact.task).map(|task| task.id.clone()) {
+                        if let Some(task_id) =
+                            get(&state.tasks, fact.task).map(|task| task.id.clone())
+                        {
                             call.background_task_id = Some(task_id);
                         }
                     }
@@ -406,10 +418,7 @@ fn refine_background(
         return Some(());
     }
     if let Some(task) = get(&state.tasks, fact.task) {
-        emit(
-            events,
-            Event::BackgroundTaskStarted { task: task.clone() },
-        );
+        emit(events, Event::BackgroundTaskStarted { task: task.clone() });
     }
     if let Some(child) = fact.child_agent {
         crate::tree::link_agent(
@@ -457,19 +466,15 @@ pub fn listen_background(
         }
     }
     if let Some(task) = get(&state.tasks, task_key) {
-        emit(
-            events,
-            Event::BackgroundTaskStarted { task: task.clone() },
-        );
+        emit(events, Event::BackgroundTaskStarted { task: task.clone() });
     }
     Some(())
 }
 
 /// Only ace's own running task waits on the person.
 pub fn wait_background(state: &mut ThreadState, task_key: &str, waiting: bool) {
-    let ace_owned = get(&state.tasks, task_key).is_some_and(|task| {
-        task.status == "running" && task.owner.as_deref() == Some("ace")
-    });
+    let ace_owned = get(&state.tasks, task_key)
+        .is_some_and(|task| task.status == "running" && task.owner.as_deref() == Some("ace"));
     if !ace_owned {
         return;
     }
@@ -495,7 +500,10 @@ pub fn end_background(
     }
     let task = get(&state.tasks, task_key)?.clone();
     let flagged = task.status == "unknown"
-        && state.uncertain_tasks.get(task_key).is_some_and(|held| *held);
+        && state
+            .uncertain_tasks
+            .get(task_key)
+            .is_some_and(|held| *held);
     // A task ace lost track of takes later terminal evidence; its end time
     // stays when it was lost.
     let lost = task.status == "unknown" && !flagged && status != "unknown";

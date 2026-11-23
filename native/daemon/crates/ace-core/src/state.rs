@@ -11,9 +11,9 @@ use crate::item_meta::{AgentMachine, ThreadLineage};
 use crate::item_model::NativeRef;
 use crate::items::Item;
 use crate::json_io::{Maybe, de_i64};
-use indexmap::IndexMap;
 use crate::runs::Run;
 use crate::status::{AgentError, AgentStatus, ThreadStatus};
+use indexmap::IndexMap;
 
 /// One provider the thread can run on.
 pub fn valid_provider(value: &str) -> bool {
@@ -113,7 +113,10 @@ pub struct AgentRecord {
     pub last_successful_outcome_order: Option<i64>,
     #[serde(rename = "lastError", skip_serializing_if = "Option::is_none")]
     pub last_error: Option<AgentError>,
-    #[serde(rename = "processSettledStatus", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "processSettledStatus",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub process_settled_status: Option<AgentStatus>,
     pub activity: String,
     #[serde(skip_serializing_if = "Option::is_none")]

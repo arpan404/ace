@@ -40,6 +40,12 @@ struct NextId<'a> {
     failure: Option<String>,
 }
 
+#[derive(serde::Serialize)]
+struct CoreResponse<'a> {
+    events: &'a [ace_core::emit::Event],
+    state: &'a ace_core::ThreadState,
+}
+
 impl ace_core::state::IdSource for NextId<'_> {
     fn next(&mut self, kind: &str) -> Option<String> {
         if self.failure.is_some() {
@@ -73,8 +79,9 @@ fn parse_state(text: &str) -> Result<ace_core::ThreadState, CoreBindError> {
     serde_json::from_str(text).map_err(|error| CoreBindError::InvalidThread(error.to_string()))
 }
 
-fn parse_fact(text: &str) -> Result<serde_json::Value, CoreBindError> {
-    ace_core::json_io::parse_untrusted(text).map_err(|error| CoreBindError::InvalidFact(error.to_string()))
+fn parse_fact(text: &str) -> Result<ace_json::Value, CoreBindError> {
+    ace_core::json_io::parse_untrusted(text)
+        .map_err(|error| CoreBindError::InvalidFact(error.to_string()))
 }
 
 #[napi]
@@ -149,10 +156,10 @@ impl CoreThreadNative {
             Err(_) => return Err(napi::Error::from_reason("core apply panicked")),
         };
         self.buffer.clear();
-        let response = serde_json::json!({
-            "events": events,
-            "state": self.state,
-        });
+        let response = CoreResponse {
+            events: &events,
+            state: &self.state,
+        };
         ace_core::json_io::write_json(&mut self.buffer, &response)
             .map_err(|error| CoreBindError::Contract(error.to_string()))?;
         String::from_utf8(std::mem::take(&mut self.buffer))
@@ -218,10 +225,10 @@ impl CoreThreadNative {
             Err(_) => return Err(napi::Error::from_reason("core batch apply panicked")),
         };
         self.buffer.clear();
-        let response = serde_json::json!({
-            "events": events,
-            "state": self.state,
-        });
+        let response = CoreResponse {
+            events: &events,
+            state: &self.state,
+        };
         ace_core::json_io::write_json(&mut self.buffer, &response)
             .map_err(|error| CoreBindError::Contract(error.to_string()))?;
         String::from_utf8(std::mem::take(&mut self.buffer))
@@ -243,10 +250,10 @@ impl CoreThreadNative {
             Err(_) => return Err(napi::Error::from_reason("core batch flush panicked")),
         };
         self.buffer.clear();
-        let response = serde_json::json!({
-            "events": events,
-            "state": self.state,
-        });
+        let response = CoreResponse {
+            events: &events,
+            state: &self.state,
+        };
         ace_core::json_io::write_json(&mut self.buffer, &response)
             .map_err(|error| CoreBindError::Contract(error.to_string()))?;
         String::from_utf8(std::mem::take(&mut self.buffer))
@@ -257,7 +264,7 @@ impl CoreThreadNative {
     #[napi(catch_unwind)]
     pub fn snapshot(&self) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
-            serde_json::to_string(&self.state).map_err(|error| error.to_string())
+            ace_json::ser::to_string(&self.state).map_err(|error| error.to_string())
         }));
         match result {
             Ok(Ok(json)) => Ok(json),
@@ -277,7 +284,8 @@ fn create_inner(
     let root = match root_json {
         None => None,
         Some(text) => Some(
-            serde_json::from_str(text).map_err(|error| CoreBindError::InvalidThread(error.to_string()))?,
+            serde_json::from_str(text)
+                .map_err(|error| CoreBindError::InvalidThread(error.to_string()))?,
         ),
     };
     ace_core::state::create_thread_state(thread_id.to_owned(), root, config)
@@ -291,7 +299,8 @@ pub fn core_derive_agent_status(state_json: String, key: String, now: f64) -> na
         let now = to_millis(now)?;
         let state = parse_state(&state_json)?;
         let status = ace_core::status::derive_agent_status(&state, &key, now);
-        serde_json::to_string(&status).map_err(|error| CoreBindError::Contract(error.to_string()))
+        ace_json::ser::to_string(&status)
+            .map_err(|error| CoreBindError::Contract(error.to_string()))
     }));
     match result {
         Ok(Ok(json)) => Ok(json),
@@ -306,7 +315,8 @@ pub fn core_derive_thread_status(state_json: String) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(&state_json)?;
         let status = ace_core::status::derive_thread_status(&state);
-        serde_json::to_string(&status).map_err(|error| CoreBindError::Contract(error.to_string()))
+        ace_json::ser::to_string(&status)
+            .map_err(|error| CoreBindError::Contract(error.to_string()))
     }));
     match result {
         Ok(Ok(json)) => Ok(json),
@@ -317,7 +327,10 @@ pub fn core_derive_thread_status(state_json: String) -> napi::Result<String> {
 
 /// The next deadline from a state snapshot.
 #[napi(catch_unwind)]
-pub fn core_next_deadline(state_json: String, provider_deadline: Option<f64>) -> napi::Result<Option<f64>> {
+pub fn core_next_deadline(
+    state_json: String,
+    provider_deadline: Option<f64>,
+) -> napi::Result<Option<f64>> {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let state = parse_state(&state_json)?;
         let provider = match provider_deadline {
@@ -440,16 +453,25 @@ pub fn core_is_actionable_interaction(
     owner_json: Option<String>,
 ) -> napi::Result<bool> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let interaction: serde_json::Value =
-            serde_json::from_str(&interaction_json).map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
-        let state = interaction.get("state").and_then(|state| state.as_str()).unwrap_or("");
-        let blocking = interaction.get("blocking").and_then(|blocking| blocking.as_bool()).unwrap_or(false);
+        let interaction: serde_json::Value = serde_json::from_str(&interaction_json)
+            .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+        let state = interaction
+            .get("state")
+            .and_then(|state| state.as_str())
+            .unwrap_or("");
+        let blocking = interaction
+            .get("blocking")
+            .and_then(|blocking| blocking.as_bool())
+            .unwrap_or(false);
         let owner_state = match owner_json.as_deref() {
             None => None,
             Some(text) => {
-                let owner: serde_json::Value =
-                    serde_json::from_str(text).map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
-                owner.get("state").and_then(|state| state.as_str()).map(str::to_owned)
+                let owner: serde_json::Value = serde_json::from_str(text)
+                    .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+                owner
+                    .get("state")
+                    .and_then(|state| state.as_str())
+                    .map(str::to_owned)
             }
         };
         Ok::<bool, CoreBindError>(ace_core::human::is_actionable_interaction(

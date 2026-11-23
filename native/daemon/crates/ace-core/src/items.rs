@@ -314,7 +314,6 @@ impl Item {
     }
 }
 
-
 use crate::delta_text::{
     OutputSummaryData, OutputSummaryView, append_text, output_deltas, summarize_output,
 };
@@ -352,7 +351,7 @@ fn canonical_detail(
     crate::indexes::register_item_link(state, key);
     let mut detail = draft.clone();
     detail.remove(native_key);
-    detail.insert(id_key.to_owned(), Json::String(linked));
+    detail.insert(id_key.to_owned(), Json::from(linked));
     Some(detail)
 }
 
@@ -409,7 +408,8 @@ pub fn upsert_item(
         ctx.now,
         detail_patch.as_ref(),
     );
-    let mut item: Item = serde_json::from_value(Json::Object(candidate)).ok()?;
+    let candidate_text = ace_json::to_string(&Json::Object(candidate));
+    let mut item: Item = serde_json::from_str(&candidate_text).ok()?;
     // Legacy output strings become suffix deltas: restore the verified stream
     // first, then append only the new aggregate bytes.
     let legacy = legacy_aggregate(previous.as_ref(), draft, &item);
@@ -464,9 +464,7 @@ pub fn upsert_item(
     if let Some(Item::ToolCall { call, .. }) = get(&state.items, key) {
         if matches!(&call.detail, ToolDetail::AgentSpawn { .. }) {
             let child = get(&state.item_links, key).and_then(|links| links.child_agent.clone());
-            let child_record = child
-                .as_ref()
-                .and_then(|child| get(&state.agents, child));
+            let child_record = child.as_ref().and_then(|child| get(&state.agents, child));
             let explicit_spawn = draft_detail.is_some_and(|detail| {
                 detail.get("kind").and_then(|kind| kind.as_str()) == Some("agent.spawn")
                     && detail.get("childAgent").is_some()
@@ -476,7 +474,8 @@ pub fn upsert_item(
             if child.is_some()
                 && (previous.is_none()
                     || explicit_spawn
-                    || child_record.is_some_and(|record| record.parent_key.as_deref() == Some(agent_key)))
+                    || child_record
+                        .is_some_and(|record| record.parent_key.as_deref() == Some(agent_key)))
             {
                 let child = child.unwrap_or_default();
                 crate::tree::link_agent(
@@ -630,7 +629,8 @@ fn apply_delta_to_stored(
                     bytes: summary.bytes,
                     tail: summary.tail.clone(),
                 });
-                let summary: OutputSummaryData = summarize_output(&call.id, append, previous.as_ref());
+                let summary: OutputSummaryData =
+                    summarize_output(&call.id, append, previous.as_ref());
                 *output = Some(OutputSummary {
                     stream_id: summary.stream_id,
                     bytes: summary.bytes,
@@ -642,15 +642,18 @@ fn apply_delta_to_stored(
             return None;
         }
         Item::Reasoning { text, source, .. } if field != "output" => {
-            let mut source_data = source.as_ref().map(|source| {
-                crate::delta_text::TextSourceData {
+            let mut source_data = source
+                .as_ref()
+                .map(|source| crate::delta_text::TextSourceData {
                     bytes: source.bytes,
                     offset: source.offset,
-                }
-            });
+                });
             append_text(text, &mut source_data, append);
             *source = source_data.map(|data| crate::item_model::TextSource {
-                stream_id: source.as_ref().map(|source| source.stream_id.clone()).unwrap_or_default(),
+                stream_id: source
+                    .as_ref()
+                    .map(|source| source.stream_id.clone())
+                    .unwrap_or_default(),
                 bytes: data.bytes,
                 encoding: "utf-16le".to_owned(),
                 offset: data.offset,
@@ -658,15 +661,18 @@ fn apply_delta_to_stored(
             return Some(());
         }
         Item::Notice { text, source, .. } if field != "output" => {
-            let mut source_data = source.as_ref().map(|source| {
-                crate::delta_text::TextSourceData {
+            let mut source_data = source
+                .as_ref()
+                .map(|source| crate::delta_text::TextSourceData {
                     bytes: source.bytes,
                     offset: source.offset,
-                }
-            });
+                });
             append_text(text, &mut source_data, append);
             *source = source_data.map(|data| crate::item_model::TextSource {
-                stream_id: source.as_ref().map(|source| source.stream_id.clone()).unwrap_or_default(),
+                stream_id: source
+                    .as_ref()
+                    .map(|source| source.stream_id.clone())
+                    .unwrap_or_default(),
                 bytes: data.bytes,
                 encoding: "utf-16le".to_owned(),
                 offset: data.offset,
@@ -676,15 +682,19 @@ fn apply_delta_to_stored(
         Item::Message { parts, .. } if field == "text" => {
             match parts.last_mut() {
                 Some(ContentPart::Text { text, source }) => {
-                    let mut source_data = source.as_ref().map(|source| {
-                        crate::delta_text::TextSourceData {
-                            bytes: source.bytes,
-                            offset: source.offset,
-                        }
-                    });
+                    let mut source_data =
+                        source
+                            .as_ref()
+                            .map(|source| crate::delta_text::TextSourceData {
+                                bytes: source.bytes,
+                                offset: source.offset,
+                            });
                     append_text(text, &mut source_data, append);
                     *source = source_data.map(|data| crate::item_model::TextSource {
-                        stream_id: source.as_ref().map(|source| source.stream_id.clone()).unwrap_or_default(),
+                        stream_id: source
+                            .as_ref()
+                            .map(|source| source.stream_id.clone())
+                            .unwrap_or_default(),
                         bytes: data.bytes,
                         encoding: "utf-16le".to_owned(),
                         offset: data.offset,
@@ -720,29 +730,29 @@ pub fn append_item(
         let draft = match field {
             "reasoning" => {
                 let mut draft = Map::new();
-                draft.insert("type".to_owned(), Json::String("reasoning".to_owned()));
-                draft.insert("text".to_owned(), Json::String(String::new()));
+                draft.insert("type".to_owned(), Json::from("reasoning".to_owned()));
+                draft.insert("text".to_owned(), Json::from(String::new()));
                 draft
             }
             "output" => {
                 let mut call = Map::new();
-                call.insert("kind".to_owned(), Json::String("shell".to_owned()));
-                call.insert("title".to_owned(), Json::String("Output".to_owned()));
-                call.insert("status".to_owned(), Json::String("running".to_owned()));
+                call.insert("kind".to_owned(), Json::from("shell".to_owned()));
+                call.insert("title".to_owned(), Json::from("Output".to_owned()));
+                call.insert("status".to_owned(), Json::from("running".to_owned()));
                 let mut detail = Map::new();
-                detail.insert("kind".to_owned(), Json::String("shell".to_owned()));
-                detail.insert("command".to_owned(), Json::String(String::new()));
+                detail.insert("kind".to_owned(), Json::from("shell".to_owned()));
+                detail.insert("command".to_owned(), Json::from(String::new()));
                 call.insert("detail".to_owned(), Json::Object(detail));
                 let mut draft = Map::new();
-                draft.insert("type".to_owned(), Json::String("tool_call".to_owned()));
+                draft.insert("type".to_owned(), Json::from("tool_call".to_owned()));
                 draft.insert("call".to_owned(), Json::Object(call));
                 draft
             }
             _ => {
                 let mut draft = Map::new();
-                draft.insert("type".to_owned(), Json::String("message".to_owned()));
-                draft.insert("role".to_owned(), Json::String("assistant".to_owned()));
-                draft.insert("parts".to_owned(), Json::Array(Vec::new()));
+                draft.insert("type".to_owned(), Json::from("message".to_owned()));
+                draft.insert("role".to_owned(), Json::from("assistant".to_owned()));
+                draft.insert("parts".to_owned(), Json::from(Vec::<Json>::new()));
                 draft
             }
         };

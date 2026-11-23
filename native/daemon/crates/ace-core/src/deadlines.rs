@@ -160,13 +160,11 @@ impl DeadlineIndex {
         for (key, record) in state.agents.iter() {
             self.parents.insert(
                 key.clone(),
-                record.agent.parent_id.clone().and_then(|parent_id| {
-                    state
-                        .indexes
-                        .agent_keys_by_id
-                        .get(&parent_id)
-                        .cloned()
-                }),
+                record
+                    .agent
+                    .parent_id
+                    .clone()
+                    .and_then(|parent_id| state.indexes.agent_keys_by_id.get(&parent_id).cloned()),
             );
         }
     }
@@ -175,9 +173,7 @@ impl DeadlineIndex {
     pub fn signal(&mut self, agent: Option<&str>, at: i64, silence_ms: f64) {
         let deadline = (at as f64 + silence_ms).floor() as i64 + 1;
         if self.transport_at.is_some() {
-            self.transport_at = self
-                .transport_at
-                .map(|current| current.max(deadline));
+            self.transport_at = self.transport_at.map(|current| current.max(deadline));
         }
         let Some(agent) = agent else {
             self.global_signal_at = self.global_signal_at.max(deadline);
@@ -201,7 +197,10 @@ impl DeadlineIndex {
         if self.exited {
             return None;
         }
-        let silence = self.silence.first().map(|(_, _, at)| at.max(self.global_signal_at));
+        let silence = self
+            .silence
+            .first()
+            .map(|(_, _, at)| at.max(self.global_signal_at));
         let wake = self.wakes.first().map(|(_, _, at)| at);
         let mut values = Vec::new();
         if let Some(at) = silence {

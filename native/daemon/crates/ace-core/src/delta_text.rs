@@ -241,7 +241,11 @@ fn utf8_slice_head(text: &str, limit: usize) -> Vec<u8> {
 
 /// Summarize a shell stream after one more append: the whole stream's byte
 /// count and its last 4 KiB, exactly like `summarizeOutput`.
-pub fn summarize_output(item_id: &str, append: &str, previous: Option<&OutputSummaryView>) -> OutputSummaryData {
+pub fn summarize_output(
+    item_id: &str,
+    append: &str,
+    previous: Option<&OutputSummaryView>,
+) -> OutputSummaryData {
     let added_bytes = utf8_length(append);
     let bytes = previous.map_or(0, |summary| summary.bytes) + added_bytes as i64;
     let stream_id = previous.map_or_else(
@@ -309,9 +313,7 @@ pub struct OutputSummaryData {
 pub fn holds_tail(text: &str, source: Option<&TextSourceView>) -> bool {
     match source {
         None => true,
-        Some(source) => {
-            source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes
-        }
+        Some(source) => source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes,
     }
 }
 
@@ -327,9 +329,7 @@ pub struct TextSourceView {
 pub fn append_text(text: &mut String, source: &mut Option<TextSourceData>, append: &str) {
     let holds = match source {
         None => true,
-        Some(source) => {
-            source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes
-        }
+        Some(source) => source.offset.unwrap_or(0) + units(text).len() as i64 * 2 == source.bytes,
     };
     if holds {
         text.push_str(append);

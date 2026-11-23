@@ -7,12 +7,11 @@
 //! `Box<RawValue>`.
 
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 
 use crate::error::CoreError;
 use crate::json_io::{Json, Map, Maybe, de_i64};
 
-/// A provider's original payload, stored verbatim.
+/// A provider's original payload, stored verbatim as canonical ace-json.
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum RawPayload {
@@ -22,7 +21,11 @@ pub enum RawPayload {
         payload_type: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         name: Option<String>,
-        data: Box<RawValue>,
+        #[serde(
+            deserialize_with = "crate::json_io::deserialize_raw",
+            serialize_with = "crate::json_io::serialize_raw"
+        )]
+        data: ace_json::Raw,
     },
     /// A blob reference the daemon resolves on demand.
     Blob {
@@ -45,16 +48,36 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error as _;
-        // Untagged enums buffer into content that `Box<RawValue>` cannot
-        // decode from, so discriminate manually: a blob reference reads as
-        // a blob, everything else as inline data kept verbatim.
-        let value = Json::deserialize(deserializer)?;
+        // Untagged enums buffer into content that raw slices cannot decode
+        // from, so discriminate manually on serde_json (typed decoding still
+        // runs there): a blob reference reads as a blob, everything else as
+        // inline data kept as canonical ace-json.
+        let value = serde_json::Value::deserialize(deserializer)?;
         let map = match &value {
-            Json::Object(map) => map,
+            serde_json::Value::Object(map) => map,
             _ => return Err(D::Error::custom("raw payload must be an object")),
         };
-        if map.contains_key("blobRef") || map.contains_key("size") || map.contains_key("preview")
-        {
+        fn as_int(value: Option<&serde_json::Value>) -> Option<i64> {
+            match value? {
+                serde_json::Value::Number(number) => {
+                    if let Some(int) = number.as_i64() {
+                        return Some(int);
+                    }
+                    number.as_f64().and_then(|float| {
+                        if float.fract() == 0.0
+                            && float >= i64::MIN as f64
+                            && float <= i64::MAX as f64
+                        {
+                            Some(float as i64)
+                        } else {
+                            None
+                        }
+                    })
+                }
+                _ => None,
+            }
+        }
+        if map.contains_key("blobRef") || map.contains_key("size") || map.contains_key("preview") {
             let payload_type = map
                 .get("type")
                 .and_then(|value| value.as_str())
@@ -62,7 +85,7 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
                 .to_owned();
             let name = match map.get("name") {
                 None => None,
-                Some(Json::String(name)) => Some(name.clone()),
+                Some(serde_json::Value::String(name)) => Some(name.clone()),
                 Some(_) => return Err(D::Error::custom("invalid raw payload")),
             };
             let blob_ref = map
@@ -71,13 +94,14 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
                 .ok_or_else(|| D::Error::custom("invalid raw payload"))?
                 .to_owned();
             let size = match map.get("size") {
-                Some(value) => crate::json_io::as_integer(Some(value))
-                    .ok_or_else(|| D::Error::custom("invalid raw payload"))?,
+                Some(value) => {
+                    as_int(Some(value)).ok_or_else(|| D::Error::custom("invalid raw payload"))?
+                }
                 None => return Err(D::Error::custom("invalid raw payload")),
             };
             let preview = match map.get("preview") {
                 None => None,
-                Some(Json::String(preview)) => Some(preview.clone()),
+                Some(serde_json::Value::String(preview)) => Some(preview.clone()),
                 Some(_) => return Err(D::Error::custom("invalid raw payload")),
             };
             Ok(Self::Blob {
@@ -95,11 +119,15 @@ impl<'de> serde::Deserialize<'de> for RawPayload {
                 .to_owned();
             let name = match map.get("name") {
                 None => None,
-                Some(Json::String(name)) => Some(name.clone()),
+                Some(serde_json::Value::String(name)) => Some(name.clone()),
                 Some(_) => return Err(D::Error::custom("invalid raw payload")),
             };
-            let data = map.get("data").ok_or_else(|| D::Error::custom("invalid raw payload"))?;
-            let data = serde_json::from_value(data.clone())
+            let data = map
+                .get("data")
+                .ok_or_else(|| D::Error::custom("invalid raw payload"))?;
+            let text =
+                serde_json::to_string(data).map_err(|_| D::Error::custom("invalid raw payload"))?;
+            let data = ace_json::Raw::from_json(&text)
                 .map_err(|_| D::Error::custom("invalid raw payload"))?;
             Ok(Self::Inline {
                 payload_type,
@@ -202,14 +230,10 @@ pub struct TodoEntry {
 pub enum FileContent {
     /// Base64 bytes, at most 44 MiB of characters.
     #[serde(rename = "base64")]
-    Base64 {
-        data: String,
-    },
+    Base64 { data: String },
     /// Text, at most 128 KiB.
     #[serde(rename = "text")]
-    Text {
-        data: String,
-    },
+    Text { data: String },
 }
 
 /// One content part of a message.
@@ -229,10 +253,18 @@ pub enum ContentPart {
         icon: Option<String>,
         #[serde(default)]
         arguments: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        values: Option<Box<RawValue>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        invocation: Option<Box<RawValue>>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::deserialize_opt_raw",
+            serialize_with = "crate::json_io::serialize_opt_raw"
+        )]
+        values: Option<ace_json::Raw>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::deserialize_opt_raw",
+            serialize_with = "crate::json_io::serialize_opt_raw"
+        )]
+        invocation: Option<ace_json::Raw>,
     },
     /// Plain text, with its stream source when it is a preview.
     #[serde(rename = "text")]
@@ -287,24 +319,16 @@ pub enum ToolDetail {
     },
     /// Editing, writing, deleting or moving files.
     #[serde(rename = "file.edit")]
-    FileEdit {
-        changes: Vec<FileChange>,
-    },
+    FileEdit { changes: Vec<FileChange> },
     /// Writing a file.
     #[serde(rename = "file.write")]
-    FileWrite {
-        changes: Vec<FileChange>,
-    },
+    FileWrite { changes: Vec<FileChange> },
     /// Deleting a file.
     #[serde(rename = "file.delete")]
-    FileDelete {
-        changes: Vec<FileChange>,
-    },
+    FileDelete { changes: Vec<FileChange> },
     /// Moving a file.
     #[serde(rename = "file.move")]
-    FileMove {
-        changes: Vec<FileChange>,
-    },
+    FileMove { changes: Vec<FileChange> },
     /// Searching code or the tool list.
     #[serde(rename = "search")]
     Search {
@@ -318,21 +342,21 @@ pub enum ToolDetail {
     },
     /// A web search.
     #[serde(rename = "web.search")]
-    WebSearch {
-        query: String,
-    },
+    WebSearch { query: String },
     /// Fetching a URL.
     #[serde(rename = "web.fetch")]
-    WebFetch {
-        url: String,
-    },
+    WebFetch { url: String },
     /// An MCP tool call with its verbatim arguments.
     #[serde(rename = "mcp")]
     Mcp {
         server: String,
         tool: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        arguments: Option<Box<RawValue>>,
+        #[serde(
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::json_io::deserialize_opt_raw",
+            serialize_with = "crate::json_io::serialize_opt_raw"
+        )]
+        arguments: Option<ace_json::Raw>,
     },
     /// Spawning a subagent.
     #[serde(rename = "agent.spawn")]
@@ -356,9 +380,7 @@ pub enum ToolDetail {
     },
     /// A todo list.
     #[serde(rename = "todo")]
-    Todo {
-        todos: Vec<TodoEntry>,
-    },
+    Todo { todos: Vec<TodoEntry> },
     /// A plan with its markdown and todos.
     #[serde(rename = "plan")]
     Plan {
@@ -445,18 +467,19 @@ pub struct ToolCall {
 }
 
 /// The JSON behind a vetted-but-opaque leaf: validated structurally,
-/// stored verbatim so clients read back exactly what the adapter sent.
-/// Deserialization goes through a plain value (untagged and tagged enums
-/// buffer content that raw slices cannot decode from), then re-encodes
-/// once; serialization from then on is byte-verbatim.
+/// stored as canonical ace-json so clients read back exactly what the
+/// adapter sent. Deserialization captures the raw text verbatim through
+/// serde_json (typed decoding still runs there), then keeps its canonical
+/// ace-json form; serialization from then on splices verbatim.
 #[derive(Debug, Clone)]
-pub struct Vetted(pub Box<RawValue>);
+pub struct Vetted(pub ace_json::Raw);
 
 impl serde::Serialize for Vetted {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
+        use serde::Serialize as _;
         self.0.serialize(serializer)
     }
 }
@@ -466,22 +489,22 @@ impl<'de> serde::Deserialize<'de> for Vetted {
     where
         D: serde::Deserializer<'de>,
     {
-        let value = Json::deserialize(deserializer).map_err(serde::de::Error::custom)?;
-        vet_json(&value).map_err(serde::de::Error::custom)
+        use serde::Deserialize as _;
+        let raw = Box::<serde_json::value::RawValue>::deserialize(deserializer)
+            .map_err(serde::de::Error::custom)?;
+        let vetted = ace_json::Raw::from_json(raw.get()).map_err(serde::de::Error::custom)?;
+        Ok(Self(vetted))
     }
 }
 
 /// Read a vetted leaf back as JSON for validation.
-pub fn vetted_json(raw: &RawValue) -> Result<Json, CoreError> {
-    serde_json::from_str(raw.get()).map_err(CoreError::invalid_json)
+pub fn vetted_json(raw: &ace_json::Raw) -> Result<Json, CoreError> {
+    ace_json::parse(raw.get()).map_err(CoreError::invalid_json)
 }
 
-/// Re-encode a JSON subtree verbatim for vetted storage.
+/// Keep a JSON subtree as canonical ace-json for vetted storage.
 pub fn vet_json(value: &Json) -> Result<Vetted, CoreError> {
-    let text = serde_json::to_string(value).map_err(CoreError::invalid_json)?;
-    Ok(Vetted(
-        crate::json_io::raw_from(&text).map_err(CoreError::invalid_json)?,
-    ))
+    Ok(Vetted(ace_json::Raw::from_value(value)))
 }
 
 /// The passthrough extras of an approval's MCP server: kept, never dropped.

@@ -123,7 +123,9 @@ impl FactBatch {
         // Any non-signal control fact invalidates the cached eligibility
         // window for this batch.
         if !matches!(&fact, Fact::Signal { .. } | Fact::ItemDelta { .. })
-            || emitted.iter().any(|event| !matches!(event, Event::ItemDelta { .. }))
+            || emitted
+                .iter()
+                .any(|event| !matches!(event, Event::ItemDelta { .. }))
         {
             self.preserve_signals = false;
         }
@@ -155,7 +157,9 @@ fn is_batchable(state: &ThreadState, fact: &Fact) -> bool {
         Fact::InteractionOpened { item, .. } => item.is_none(),
         Fact::ItemUpsert { item, draft, .. } => {
             let kind = draft.get("type").and_then(|kind| kind.as_str());
-            let complete = draft.get("complete").and_then(|complete| complete.as_bool());
+            let complete = draft
+                .get("complete")
+                .and_then(|complete| complete.as_bool());
             (kind == Some("message") || kind == Some("notice"))
                 && complete == Some(true)
                 && !matches!(
@@ -290,7 +294,13 @@ fn fold_inner(
         state.last_transport_signal_at = Some(now);
     }
     signal(state, fact, ctx, events)?;
-    if let Fact::ItemDelta { agent, item, field, append } = fact {
+    if let Fact::ItemDelta {
+        agent,
+        item,
+        field,
+        append,
+    } = fact
+    {
         let changed = crate::items::append_item(state, agent, item, field, append, ctx, events)?;
         if changed
             || transport_recovered
@@ -303,7 +313,11 @@ fn fold_inner(
         return Some(());
     }
     match fact {
-        Fact::AgentExternal { agent, thread_id, status } => {
+        Fact::AgentExternal {
+            agent,
+            thread_id,
+            status,
+        } => {
             let failed_before = matches!(
                 get(&state.agents, agent).and_then(|record| record.external_status.as_ref()),
                 Some(crate::status::ThreadStatus::Failed)
@@ -360,7 +374,12 @@ fn fold_inner(
         Fact::AgentLinked { .. } => {
             crate::tree::link_agent(state, fact, ctx, events)?;
         }
-        Fact::TurnStarted { agent, native_turn_id, trigger, permission_mode } => {
+        Fact::TurnStarted {
+            agent,
+            native_turn_id,
+            trigger,
+            permission_mode,
+        } => {
             crate::runs::start_turn(
                 state,
                 agent,
@@ -371,7 +390,15 @@ fn fold_inner(
                 events,
             )?;
         }
-        Fact::TurnEnded { agent, native_turn_id, outcome, ended_by, trigger, error, historical } => {
+        Fact::TurnEnded {
+            agent,
+            native_turn_id,
+            outcome,
+            ended_by,
+            trigger,
+            error,
+            historical,
+        } => {
             crate::runs::end_turn(
                 state,
                 agent,
@@ -385,7 +412,11 @@ fn fold_inner(
                 events,
             )?;
         }
-        Fact::InputAdmitted { agent, native_input_id, command_id } => {
+        Fact::InputAdmitted {
+            agent,
+            native_input_id,
+            command_id,
+        } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let agent_id = record.agent.id.clone();
             crate::emit::emit(
@@ -400,17 +431,37 @@ fn fold_inner(
         Fact::InputConsumed { .. } => {
             // Run binding of transcript inputs belongs to the engine's input journal.
         }
-        Fact::Activity { agent, activity, detail } => {
+        Fact::Activity {
+            agent,
+            activity,
+            detail,
+        } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             record.activity = activity.clone();
             record.detail = detail.clone();
         }
         Fact::ItemUpsert { agent, item, draft } => {
-            let stored = crate::items::upsert_item(state, agent, item, draft, ctx, events)?;
+            // Fact drafts decode via serde_json (typed); the fold works on
+            // canonical ace-json. Bridge via text (same logical value).
+            let draft_text = serde_json::to_string(&draft).ok()?;
+            let draft_value = ace_json::parse(&draft_text).ok()?;
+            let draft_map = match &draft_value {
+                crate::json_io::Json::Object(map) => map.clone(),
+                _ => return None,
+            };
+            let stored = crate::items::upsert_item(state, agent, item, &draft_map, ctx, events)?;
             item_activity(state, agent, &stored);
         }
         Fact::ItemReconciled { agent, item, draft } => {
-            let stored = crate::reconciled_item::reconcile_item(state, agent, item, draft, ctx, events)?;
+            let draft_text = serde_json::to_string(&draft).ok()?;
+            let draft_value = ace_json::parse(&draft_text).ok()?;
+            let draft_map = match &draft_value {
+                crate::json_io::Json::Object(map) => map.clone(),
+                _ => return None,
+            };
+            let stored = crate::reconciled_item::reconcile_item(
+                state, agent, item, &draft_map, ctx, events,
+            )?;
             item_activity(state, agent, &stored);
         }
         Fact::SubagentsWaiting { item, targets, .. } => {
@@ -421,7 +472,14 @@ fn fold_inner(
         Fact::ItemDelta { .. } => {
             // Handled above, before the switch.
         }
-        Fact::InteractionOpened { agent, interaction, blocking, request, item, raw } => {
+        Fact::InteractionOpened {
+            agent,
+            interaction,
+            blocking,
+            request,
+            item,
+            raw,
+        } => {
             crate::entities::open_interaction(
                 state,
                 agent,
@@ -434,7 +492,13 @@ fn fold_inner(
                 events,
             )?;
         }
-        Fact::InteractionClosed { interaction, state: close_state, resolution, resolved_by, auto_reviewed } => {
+        Fact::InteractionClosed {
+            interaction,
+            state: close_state,
+            resolution,
+            resolved_by,
+            auto_reviewed,
+        } => {
             crate::entities::close_interaction(
                 state,
                 interaction,
@@ -446,7 +510,23 @@ fn fold_inner(
                 events,
             )?;
         }
-        Fact::BackgroundStarted { owner, agent, task, kind, title, item, child_agent, ambient, internal, stoppable, output_path, wakes_agent, blocks_prompts, ends_with_session, raw } => {
+        Fact::BackgroundStarted {
+            owner,
+            agent,
+            task,
+            kind,
+            title,
+            item,
+            child_agent,
+            ambient,
+            internal,
+            stoppable,
+            output_path,
+            wakes_agent,
+            blocks_prompts,
+            ends_with_session,
+            raw,
+        } => {
             crate::entities::start_background(
                 state,
                 crate::entities::BackgroundStarted {
@@ -476,10 +556,27 @@ fn fold_inner(
         Fact::BackgroundWaiting { task, waiting } => {
             crate::entities::wait_background(state, task, *waiting);
         }
-        Fact::BackgroundEnded { task, status, uncertain } => {
-            crate::entities::end_background(state, task, status, uncertain.unwrap_or(false), now, events)?;
+        Fact::BackgroundEnded {
+            task,
+            status,
+            uncertain,
+        } => {
+            crate::entities::end_background(
+                state,
+                task,
+                status,
+                uncertain.unwrap_or(false),
+                now,
+                events,
+            )?;
         }
-        Fact::Retry { agent, on, attempt, until, message } => {
+        Fact::Retry {
+            agent,
+            on,
+            attempt,
+            until,
+            message,
+        } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let active = record.active_run.is_some();
             // Only a running turn retries. A limit reported after its turn
@@ -503,11 +600,12 @@ fn fold_inner(
         }
         Fact::RetryCleared { agent } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
-            let rate_limited = record.retry.as_ref().is_none_or(|retry| retry.on == "rate_limit");
+            let rate_limited = record
+                .retry
+                .as_ref()
+                .is_none_or(|retry| retry.on == "rate_limit");
             if rate_limited {
-                if transport_recovered
-                    || crate::liveness::has_unresponsive_ancestor(state, agent)
-                {
+                if transport_recovered || crate::liveness::has_unresponsive_ancestor(state, agent) {
                     crate::tree::reconcile_links(state, ctx, events)?;
                     crate::status::recompute_statuses(state, now, events);
                 }
@@ -520,7 +618,11 @@ fn fold_inner(
         }
         Fact::LimitCleared { agent } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
-            if record.retry.as_ref().is_some_and(|retry| retry.on == "rate_limit") {
+            if record
+                .retry
+                .as_ref()
+                .is_some_and(|retry| retry.on == "rate_limit")
+            {
                 record.retry = None;
             }
             record.limited = None;
@@ -528,7 +630,13 @@ fn fold_inner(
         Fact::WakeExpected { agent, until } => {
             crate::tree::ensure_agent(state, agent, ctx, events)?.wake_until = Some(*until);
         }
-        Fact::ContextSample { agent, used_tokens, window_tokens, session_id, model } => {
+        Fact::ContextSample {
+            agent,
+            used_tokens,
+            window_tokens,
+            session_id,
+            model,
+        } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let agent_id = record.agent.id.clone();
             crate::emit::emit(
@@ -542,7 +650,25 @@ fn fold_inner(
                 },
             );
         }
-        Fact::Usage { agent, input_tokens, output_tokens, cached_input_tokens, context_window, cost_usd, context_tokens, context_session_id, reasoning_tokens, cache_write_tokens, cache_write_1h_tokens, model, account_id, billing_mode, counter_mode, counter_key, usage_scope } => {
+        Fact::Usage {
+            agent,
+            input_tokens,
+            output_tokens,
+            cached_input_tokens,
+            context_window,
+            cost_usd,
+            context_tokens,
+            context_session_id,
+            reasoning_tokens,
+            cache_write_tokens,
+            cache_write_1h_tokens,
+            model,
+            account_id,
+            billing_mode,
+            counter_mode,
+            counter_key,
+            usage_scope,
+        } => {
             let record = crate::tree::ensure_agent(state, agent, ctx, events)?;
             let agent_id = record.agent.id.clone();
             crate::emit::emit(
@@ -568,7 +694,11 @@ fn fold_inner(
                 },
             );
         }
-        Fact::ProcessExited { deliberate, message, unconfirmed } => {
+        Fact::ProcessExited {
+            deliberate,
+            message,
+            unconfirmed,
+        } => {
             crate::cleanup::exit_process(
                 state,
                 *deliberate,
@@ -590,7 +720,12 @@ fn fold_inner(
             state.queue_count = state.queue_sources.engine;
             state.process_exit = None;
         }
-        Fact::QueueChanged { count, source, held, stopped } => {
+        Fact::QueueChanged {
+            count,
+            source,
+            held,
+            stopped,
+        } => {
             let source = source.as_deref().unwrap_or("engine");
             if source == "engine" {
                 state.queue_sources.engine = *count;

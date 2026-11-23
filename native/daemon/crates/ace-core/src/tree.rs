@@ -39,9 +39,12 @@ pub fn announce_agent_branch(state: &mut ThreadState, key: &str, events: &mut Ve
     for agent in branch.iter().rev() {
         if !announced.iter().any(|id| id == &agent.id) {
             announced.push(agent.id.clone());
-            emit(events, Event::AgentCreated {
-                agent: agent.clone(),
-            });
+            emit(
+                events,
+                Event::AgentCreated {
+                    agent: agent.clone(),
+                },
+            );
         }
     }
 }
@@ -145,7 +148,6 @@ pub fn ensure_agent<'a>(
     state.agents.get_mut(key)
 }
 
-
 /// An `agent.updated` change set: only changed fields are emitted.
 #[derive(Debug, Default)]
 pub struct AgentChange {
@@ -192,8 +194,8 @@ pub fn change_agent(
     if let Some(value) = change.machine {
         let same = agent.machine.as_ref().is_some_and(|current| {
             same_json(
-                &serde_json::to_value(current).unwrap_or(Json::Null),
-                &serde_json::to_value(&value).unwrap_or(Json::Null),
+                &crate::json_io::to_value(current),
+                &crate::json_io::to_value(&value),
             )
         });
         if !same {
@@ -219,8 +221,8 @@ pub fn change_agent(
     if let Some(value) = change.lineage {
         let same = agent.lineage.as_ref().is_some_and(|current| {
             same_json(
-                &serde_json::to_value(current).unwrap_or(Json::Null),
-                &serde_json::to_value(&value).unwrap_or(Json::Null),
+                &crate::json_io::to_value(current),
+                &crate::json_io::to_value(&value),
             )
         });
         if !same {
@@ -238,8 +240,8 @@ pub fn change_agent(
     }
     if let Some(value) = change.native {
         let same = same_json(
-            &serde_json::to_value(&agent.native).unwrap_or(Json::Null),
-            &serde_json::to_value(&value).unwrap_or(Json::Null),
+            &crate::json_io::to_value(&agent.native),
+            &crate::json_io::to_value(&value),
         );
         if !same {
             agent.native = value.clone();
@@ -363,11 +365,10 @@ pub fn set_parent(
             record.spawned_by_key = None;
         }
     }
-    let parent_agent_id = parent_key
-        .and_then(|parent| {
-            ensure_agent(state, parent, ctx, events)?;
-            get(&state.agents, parent).map(|record| record.agent.id.clone())
-        });
+    let parent_agent_id = parent_key.and_then(|parent| {
+        ensure_agent(state, parent, ctx, events)?;
+        get(&state.agents, parent).map(|record| record.agent.id.clone())
+    });
     if let Some(parent) = parent_key {
         if let Some(record) = state.agents.get_mut(key) {
             record.parent_key = Some(parent.to_owned());
@@ -607,7 +608,8 @@ pub fn reconcile_links(
             continue;
         }
         for key in agents {
-            let spawned_by = get(&state.agents, &key).and_then(|record| record.spawned_by_key.clone());
+            let spawned_by =
+                get(&state.agents, &key).and_then(|record| record.spawned_by_key.clone());
             if spawned_by.as_deref() != Some(item_key.as_str()) {
                 continue;
             }
@@ -621,7 +623,9 @@ pub fn reconcile_links(
                 },
                 events,
             )?;
-            let links = get(&state.item_links, &item_key).cloned().unwrap_or_default();
+            let links = get(&state.item_links, &item_key)
+                .cloned()
+                .unwrap_or_default();
             if links.child_agent.is_none() {
                 let mut links = links;
                 links.child_agent = Some(key.clone());
@@ -679,8 +683,9 @@ pub fn reconcile_links(
                     if let Some(crate::items::Item::ToolCall { call, .. }) =
                         state.items.get_mut(&key)
                     {
-                        if let crate::item_model::ToolDetail::AgentSpawn { child_agent_id, .. } =
-                            &mut call.detail
+                        if let crate::item_model::ToolDetail::AgentSpawn {
+                            child_agent_id, ..
+                        } = &mut call.detail
                         {
                             *child_agent_id = Some(linked_id.clone());
                         }
@@ -707,9 +712,9 @@ pub fn reconcile_links(
             crate::item_model::ToolDetail::AgentMessage { .. } => {
                 let current = match get(&state.items, &key) {
                     Some(crate::items::Item::ToolCall { call, .. }) => match &call.detail {
-                        crate::item_model::ToolDetail::AgentMessage { target_agent_id, .. } => {
-                            target_agent_id.clone()
-                        }
+                        crate::item_model::ToolDetail::AgentMessage {
+                            target_agent_id, ..
+                        } => target_agent_id.clone(),
                         _ => None,
                     },
                     _ => None,
@@ -718,8 +723,9 @@ pub fn reconcile_links(
                     if let Some(crate::items::Item::ToolCall { call, .. }) =
                         state.items.get_mut(&key)
                     {
-                        if let crate::item_model::ToolDetail::AgentMessage { target_agent_id, .. } =
-                            &mut call.detail
+                        if let crate::item_model::ToolDetail::AgentMessage {
+                            target_agent_id, ..
+                        } = &mut call.detail
                         {
                             *target_agent_id = Some(linked_id.clone());
                         }

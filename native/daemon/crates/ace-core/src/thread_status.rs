@@ -31,7 +31,15 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
         D: serde::Deserializer<'de>,
     {
         use serde::de::Error as _;
-        let map = Map::deserialize(deserializer)?;
+        // Typed decoding still runs on serde_json: capture there, then work
+        // on canonical ace-json (same logical value, JS order).
+        let sj = serde_json::Value::deserialize(deserializer)?;
+        let text = serde_json::to_string(&sj).map_err(D::Error::custom)?;
+        let value = ace_json::parse(&text).map_err(D::Error::custom)?;
+        let map = match &value {
+            Json::Object(map) => map.clone(),
+            _ => return Err(D::Error::custom("thread status must be an object")),
+        };
         let state = map
             .get("state")
             .and_then(|value| value.as_str())
@@ -41,8 +49,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
             if state.len() < 1 || state.len() > 64 {
                 return Err(D::Error::custom("invalid thread status"));
             }
-            let raw = serde_json::to_string(&map).map_err(D::Error::custom)?;
-            let raw = serde_json::from_str(&raw).map_err(D::Error::custom)?;
+            let raw = ace_json::Raw::from_value(&Json::Object(map));
             return Ok(Self::Unknown { raw });
         }
         let value = Json::Object(map);
@@ -91,7 +98,10 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                     .ok_or_else(|| D::Error::custom("invalid thread status"))?,
             }),
             "waiting" => {
-                let on = value.get("on").and_then(|value| value.as_str()).unwrap_or("");
+                let on = value
+                    .get("on")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 if !matches!(
                     on,
                     "background_task" | "rate_limit" | "network" | "upstream" | "queue"
@@ -115,7 +125,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                             return Err(D::Error::custom("invalid thread status"));
                         }
                         Some(Json::String(waiting)) if waiting == "storage" => {
-                            Some(waiting.clone())
+                            Some(String::from(waiting))
                         }
                         _ => return Err(D::Error::custom("invalid thread status")),
                     },
@@ -128,16 +138,19 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                 Ok(Self::Limited {
                     until: match value.get("until") {
                         None => None,
-                        Some(until) => Some(crate::json_io::as_count(Some(until)).ok_or_else(|| {
-                            D::Error::custom("invalid thread status")
-                        })?),
+                        Some(until) => Some(
+                            crate::json_io::as_count(Some(until))
+                                .ok_or_else(|| D::Error::custom("invalid thread status"))?,
+                        ),
                     },
                 })
             }
             "failed" => Ok(Self::Failed),
             "unresponsive" => Ok(Self::Unresponsive),
             "moved" => {
-                let to = value.get("to").ok_or_else(|| D::Error::custom("invalid thread status"))?;
+                let to = value
+                    .get("to")
+                    .ok_or_else(|| D::Error::custom("invalid thread status"))?;
                 let to_map = match to {
                     Json::Object(map) => map,
                     _ => return Err(D::Error::custom("invalid thread status")),
@@ -145,12 +158,21 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                 if !ensure_only(to_map, &["hostId", "name", "threadId"]) {
                     return Err(D::Error::custom("invalid thread status"));
                 }
-                let host_id = to.get("hostId").and_then(|value| value.as_str()).unwrap_or("");
-                let name = to.get("name").and_then(|value| value.as_str()).unwrap_or("");
+                let host_id = to
+                    .get("hostId")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
+                let name = to
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 if host_id.is_empty() || name.len() < 1 || name.len() > 256 {
                     return Err(D::Error::custom("invalid thread status"));
                 }
-                let thread_id = to.get("threadId").and_then(|value| value.as_str()).unwrap_or("");
+                let thread_id = to
+                    .get("threadId")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("");
                 if thread_id.is_empty() {
                     return Err(D::Error::custom("invalid thread status"));
                 }
@@ -176,8 +198,7 @@ impl<'de> serde::Deserialize<'de> for ThreadStatus {
                     Some(Json::Object(_)) => map.get("raw").unwrap_or(&Json::Null).clone(),
                     _ => return Err(D::Error::custom("invalid thread status")),
                 };
-                let raw = serde_json::to_string(&raw).map_err(D::Error::custom)?;
-                let raw = serde_json::from_str(&raw).map_err(D::Error::custom)?;
+                let raw = ace_json::Raw::from_value(&raw);
                 Ok(Self::Unknown { raw })
             }
             _ => Err(D::Error::custom("invalid thread status")),
@@ -262,7 +283,8 @@ impl serde::Serialize for ThreadStatus {
                 map.end()
             }
             Self::Limited { until } => {
-                let mut map = serializer.serialize_map(Some(if until.is_some() { 2 } else { 1 }))?;
+                let mut map =
+                    serializer.serialize_map(Some(if until.is_some() { 2 } else { 1 }))?;
                 map.serialize_entry("state", "limited")?;
                 if let Some(value) = until {
                     map.serialize_entry("until", value)?;
