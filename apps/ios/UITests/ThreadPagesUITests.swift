@@ -33,7 +33,7 @@ import XCTest
         XCTAssertTrue(app.descendants(matching: .any)["thread.page.changes.body"].waitForExistence(timeout: 10), "Changes shows its page")
         shot("changes-changes")
         app.showThreadPage("chat")
-        XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 10), "Chat comes back")
+        XCTAssertTrue(app.collectionViews["transcript"].waitForExistence(timeout: 10), "Chat comes back")
 
         // Files pushes over the thread; back returns to it.
         menu.tap()
@@ -99,7 +99,7 @@ import XCTest
     func testStayingAtTheLastAnswerMarksTheThreadRead() async throws {
         let thread = try await readMarkThread()
         let app = launch(opening: thread, extra: [])
-        XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.collectionViews["transcript"].waitForExistence(timeout: 25))
         let marks = try await readMarks(thread, past: 0)
         XCTAssertFalse(marks.isEmpty, "staying at the last answer sends a read mark")
         shot("read-at-end")
@@ -110,7 +110,7 @@ import XCTest
     func testAnAnswerArrivingWhileChangesShowsIsReadOnlyBackOnChat() async throws {
         let thread = try await readMarkThread()
         let app = launch(opening: thread, extra: [])
-        XCTAssertTrue(app.scrollViews["transcript"].waitForExistence(timeout: 25))
+        XCTAssertTrue(app.collectionViews["transcript"].waitForExistence(timeout: 25))
         let first = try await readMarks(thread, past: 0)
         let read = try XCTUnwrap(first.max())
         app.showThreadPage("changes")

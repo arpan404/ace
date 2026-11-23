@@ -4,7 +4,7 @@ import SwiftUI
 /// navigation change: returning to the end, revealing, holding an older page, turns and jumps.
 extension ConversationFeed {
     /// A sent message or a Scroll to end tap: back to the live end, following it.
-    func returnToEnd(proxy: ScrollViewProxy) {
+    func returnToEnd(proxy: TranscriptSurface) {
         readerTookOver(proxy)
         reading.toEnd(model: model, thread: thread)
         setFollowing(true)
@@ -20,38 +20,14 @@ extension ConversationFeed {
         applyLayoutRevision()
     }
     /// A new history window: its rows replace the extent's.
-    func windowReplaced(proxy: ScrollViewProxy) {
+    func windowReplaced(proxy: TranscriptSurface) {
         extent.update(change: TranscriptExtent.WindowChange(
             ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
         let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
         anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
-        restack(rows: rows.count, moving: intent.active || intent.animating, replaced: true, proxy: proxy)
-    }
-    /// The rows' count changed, their window was replaced, or the feed came to rest: move the rows
-    /// to the other stack if `TranscriptStackChoice` says so. A switch lays every row out again,
-    /// so the reader's place is installed as a session anchor, restored once the rows measure, and
-    /// a feed following the end goes back to it.
-    func restack(rows: Int, moving: Bool, replaced: Bool, proxy: ScrollViewProxy) {
-        guard ready, let switched = anchor.stack.update(rows: rows, moving: moving, replaced: replaced) else { return }
-        TranscriptJumpHooks.note("restack \(switched) rows=\(rows) following=\(following) revealed=\(revealed)")
-        if !following, let top = currentTopRow() {
-            viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
-        }
-        // Laying the rows out again in the other stack redraws every one of them. A reader away
-        // from the end never sees it: what is drawn stays frozen while the top row is put back
-        // where it was (`holdOlderPage`), then the feed thaws. If the page already holds the
-        // frame, it also covers the rebuild.
-        if !following, revealed, !surface.running(.page) {
-            intent.olderPage = true
-            captureTop()
-            holdOlderPage()
-        }
-        stackSwitches += 1
-        PerfProbe.add("feed.restacks", 1)
-        if following { toEnd(proxy) }
     }
     /// The history window's rows changed: restore, focus or hold the reader's place.
-    func readingRevised(proxy: ScrollViewProxy) {
+    func readingRevised(proxy: TranscriptSurface) {
         guard reading.thread != nil else { return }
         if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
         if intent.appendedRevision == reading.revision { return }
@@ -68,7 +44,7 @@ extension ConversationFeed {
                 // measures, then refine to the exact offset below.
                 if anchor.keeper.frames.frame(session.rowID) == nil {
                     if viewport.correctionFrames == 0 {
-                        surface.scroll(proxy, to: session.rowID, anchor: .center)
+                        surface.scroll(to: session.rowID, anchor: .center)
                     }
                     viewport.noteCorrectionApplied()
                 } else {
@@ -100,13 +76,13 @@ extension ConversationFeed {
                     keep(.placedHeldRow, proxy: proxy)
                 }
             case .aim(let index):
-                if rows.indices.contains(index) { surface.scroll(proxy, to: rows[index].id, anchor: .center) }
+                if rows.indices.contains(index) { surface.scroll(to: rows[index].id, anchor: .center) }
             case .end, .none: break
             }
         }
         pageIfNeeded(proxy)
     }
-    func threadLoaded(_ loaded: Bool, proxy: ScrollViewProxy) {
+    func threadLoaded(_ loaded: Bool, proxy: TranscriptSurface) {
         guard loaded else { focusRequested(); return }
         restoreSessionIfReady()
         if !initialScroll {
@@ -129,7 +105,7 @@ extension ConversationFeed {
     /// scroll can't, as it runs on the scroll view's own curve and starts frames late. The room
     /// changes at once; only drawing moves until the ride lands (`keyboardLanded`), and the only
     /// part of the feed it brings into view is the empty room under the last row.
-    func keyboardWillMove(proxy: ScrollViewProxy) {
+    func keyboardWillMove(proxy: TranscriptSurface) {
         let lift = keyboard.target
         guard lift != keyboardLift else { return }
         let growth = lift - keyboardLift
@@ -149,11 +125,11 @@ extension ConversationFeed {
     }
     /// The keyboard and the composer have landed: rows riding with them hand their offset to the
     /// scroll in one frame that moves nothing, and the closing keyboard's room below the end goes.
-    func keyboardLanded(proxy: ScrollViewProxy) {
+    func keyboardLanded(proxy: TranscriptSurface) {
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            if keyboardFollow.landed(lift: Double(keyboardLift)) { surface.scroll(proxy, to: TranscriptTail.id, anchor: .top) }
+            if keyboardFollow.landed(lift: Double(keyboardLift)) { surface.scroll(to: TranscriptTail.id, anchor: .top) }
         }
         keyboardMoving = false
         // The scroll's target is above it, so it goes without moving the rows.
@@ -161,11 +137,11 @@ extension ConversationFeed {
         // Text that streamed in while the keyboard moved.
         if pinned && !intent.active { toEnd(proxy) }
     }
-    func appeared(proxy: ScrollViewProxy) {
+    func appeared(proxy: TranscriptSurface) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
         model.prepareReadingAnswers = transcriptMarkdown?.prepare
         model.admitsOlderAppend = { reply, patches in
-            guard let base = reading.thread, anchor.stack.stack == .lazy, !reading.landing.holdsPlace,
+            guard let base = reading.thread, !reading.landing.holdsPlace,
                   viewport.sessionAnchor == nil, reply.freshness != .cached,
                   (reply.evictedLeading ?? []).isEmpty else { return false }
             let shown = reading.shown ?? thread
@@ -263,14 +239,14 @@ extension ConversationFeed {
     /// The room at the end changed (the composer or its strip). Following the end,
     /// the last row moves with it, in the same motion; reading elsewhere, the rows stay put and
     /// are covered, unless the smaller room would park the view past the end.
-    func roomChanged(by growth: CGFloat, motion: Animation?, proxy: ScrollViewProxy) {
+    func roomChanged(by growth: CGFloat, motion: Animation?, proxy: TranscriptSurface) {
         // Rows riding the keyboard (`KeyboardRide`) catch up with the end when they land.
         guard !intent.active, growth != 0, !keyboardFollow.riding, pinned || intent.metrics.bottom + growth < 0 else { return }
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         settle.cancel()
         holdEndWhileRoomGrows(by: growth)
-        withAnimation(motion) { toEnd(proxy) }
+        toEnd(proxy, animated: motion != nil)
     }
     /// A growing bar's room lands in one update, and rows above the screen may measure after it:
     /// the bottom holds still until the content has held for two frames (`TranscriptSettle`), so
@@ -360,11 +336,11 @@ extension ConversationFeed {
         surface.thaw()
         TranscriptJumpHooks.covered(false)
     }
-    func toEnd(_ proxy: ScrollViewProxy) {
+    func toEnd(_ proxy: TranscriptSurface, animated: Bool = false) {
         // Before the rows land there is no end to reach: a settle started on the placeholder
         // would hold the budget the first real scroll to the end needs.
         guard ready, !settle.isRunning else { return }
-        surface.scroll(proxy, to: TranscriptTail.id, anchor: .top)
+        surface.scroll(to: TranscriptTail.id, anchor: .top, animated: animated)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
         // An animated scroll the settle waits on is one still moving the rows: a scroll with
@@ -375,11 +351,11 @@ extension ConversationFeed {
                        let moving = intent.animating && intent.metrics.y != lastY
                        lastY = intent.metrics.y
                        return moving
-                   }) { surface.scroll(proxy, to: TranscriptTail.id, anchor: .top) }
+                   }) { surface.scroll(to: TranscriptTail.id, anchor: .top) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
-    func stepTurn(_ direction: Int, proxy: ScrollViewProxy) {
+    func stepTurn(_ direction: Int, proxy: TranscriptSurface) {
         readerTookOver(proxy)
         let rows = TranscriptFeedRow.rows(shown)
         let starts = rows.indices.filter { rows[$0].block.row.kind == "user" }
@@ -399,9 +375,9 @@ extension ConversationFeed {
     }
     /// Scrolls the turn's ask to the top and holds it, never the turn the reader left, refreshed
     /// to where it lands (`TranscriptPlaceKeeper`).
-    func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
+    func jump(to row: TranscriptFeedRow, proxy: TranscriptSurface) {
         keep(.jumped(row.id), proxy: proxy)
-        withAnimation { surface.scroll(proxy, to: row.id, anchor: .bottom) }
+        surface.scroll(to: row.id, anchor: .bottom, animated: !reduceMotion)
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     func focusRequested() {
@@ -413,7 +389,7 @@ extension ConversationFeed {
     }
     /// The reader took the feed somewhere themselves (a drag, a turn key, Scroll to end, a
     /// send, VoiceOver): a focus still landing or still awaited stops pulling them back.
-    func readerTookOver(_ proxy: ScrollViewProxy) {
+    func readerTookOver(_ proxy: TranscriptSurface) {
         place(.takeover, proxy: proxy)
         // Rows riding the keyboard stay where the scroll has them, and its landing leaves them
         // there instead of going to the end under the reader's finger.

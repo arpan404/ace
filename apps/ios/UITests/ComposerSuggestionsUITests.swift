@@ -94,7 +94,7 @@ import XCTest
         XCTAssertTrue(list.waitForNonExistence(timeout: 5))
         XCTAssertEqual(input.value as? String, "@README.md ")
         // With the list gone, a tap on the transcript reaches it again: it puts the keyboard away.
-        app.scrollViews["transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+        app.collectionViews["transcript"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "a transcript tap after the list closed")
     }
 

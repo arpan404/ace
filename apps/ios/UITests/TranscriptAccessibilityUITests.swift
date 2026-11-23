@@ -18,7 +18,7 @@ import XCTest
             .waitForExistence(timeout: 25))
         for _ in 0..<10 where !(row.exists && row.isHittable) { app.swipeUp() }
         row.tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         // The last turn, which a restart interrupted, is in view at the end.
         let last = message("Keep the relay cursor for step 120 too.", in: app)
@@ -61,7 +61,7 @@ import XCTest
             self.add(counts)
         }
         app.revealRow("thread.ios-log-long").tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         // A finished log is on screen before any swipe: an empty transcript or one stuck on its
         // placeholder fails here, not on the timing. The feed opens at its end, so the earlier
@@ -104,7 +104,7 @@ import XCTest
             self.add(counts)
         }
         app.revealRow("thread.ios-log-long").tap()
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         var slowest: TimeInterval = 0
         for _ in 0..<6 {
@@ -121,7 +121,7 @@ import XCTest
     func testSwipingTheMomentALongLiveWindowOpensStaysResponsive() {
         let app = launchProbed()
         XCTAssertTrue(app.openThread("ios-stream"))
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         swipesSettle(transcript, "right after the live tail opened")
     }
@@ -130,7 +130,7 @@ import XCTest
     func testSwipingTheMomentAHistoryWindowPagesInStaysResponsive() {
         let app = launchProbed()
         XCTAssertTrue(app.openThread("ios-stream"))
-        let transcript = app.scrollViews["transcript"]
+        let transcript = app.collectionViews["transcript"]
         XCTAssertTrue(transcript.waitForExistence(timeout: 25))
         var flings = 0
         while (app.probeValue("pages.older") ?? 0) < 3, flings < 120 {
