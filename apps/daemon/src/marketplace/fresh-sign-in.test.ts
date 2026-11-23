@@ -97,6 +97,14 @@ describe("a person-only market action without a thread", () => {
   });
 });
 
+const asMember = (operation: MarketOperation, member?: { org: string }) =>
+  hostMarketStanding({
+    operation,
+    unproven: true,
+    contentOnly: () => false,
+    member: () => member,
+  });
+
 describe("an organization's registry on its host, where no socket holds the person's standing", () => {
   const withdraw = publish({
     action: "registryWithdraw",
@@ -105,13 +113,6 @@ describe("an organization's registry on its host, where no socket holds the pers
     version: "1.0.0",
     reason: "Leaks a token",
   });
-  const asMember = (operation: MarketOperation, member?: { org: string }) =>
-    hostMarketStanding({
-      operation,
-      unproven: true,
-      contentOnly: () => false,
-      member: () => member,
-    });
 
   it("a withdrawal runs from a socket with the organization's member standing", () => {
     expect(asMember(withdraw, { org: "org_acme" })).toEqual({ run: "person" });
