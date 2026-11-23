@@ -50,26 +50,32 @@ struct AccountAvatar: View {
 }
 
 /// The avatar at the leading edge of the Threads and Chats header and its menu, as the web's
-/// account menu: the person first (name, and their ace account's email), opening Profile; then
+/// account menu: the person first (their picture and name), opening Profile; then
 /// Archived threads and Settings. Signing in and out is on Profile, as on the web.
 struct AccountMenuButton: View {
     let open: (SettingsRoute) -> Void
     let settings: () -> Void
     @Environment(AceAccountModel.self) private var model: AceAccountModel?
     @Environment(SpacesModel.self) private var spaces: SpacesModel?
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.displayScale) private var scale
 
     var body: some View {
         let identity = model?.account
         let name = identity?.name ?? ""
         let shown = name.trimmingCharacters(in: .whitespaces).isEmpty ? "You" : name
         Menu {
-            Section {
-                Button { open(.account) } label: {
+            Button { open(.account) } label: {
+                Label {
                     Text(shown)
-                    Text(identity?.email ?? (model?.configured == true ? "Not signed in" : "Your profile"))
+                } icon: {
+                    profileImage(name: name)
                 }
-                .accessibilityIdentifier("account.menu.profile")
+                // No subtitle: a menu this narrow wraps any email across lines and ignores
+                // truncation. The email shows on Profile, which this row opens.
+                if identity == nil { Text(model?.configured == true ? "Not signed in" : "Your profile") }
             }
+            .accessibilityIdentifier("account.menu.profile")
             // The space switcher, as the web's account menu holds it (ADR 0206 §1.4).
             if let spaces, let listed = spaces.spaces, !listed.isEmpty {
                 Picker("Space", selection: Binding(get: { spaces.shown?.id ?? spaces.chosen }, set: { spaces.choose($0) })) {
@@ -85,6 +91,7 @@ struct AccountMenuButton: View {
         } label: {
             AccountAvatar(name: name, picture: model?.picture)
         }
+        .menuOrder(.fixed)
         .barGlyph()
         .accessibilityShowsLargeContentViewer {
             AccountAvatar(name: name, picture: model?.picture)
@@ -92,6 +99,17 @@ struct AccountMenuButton: View {
         }
         .accessibilityLabel("\(shown), account")
         .accessibilityIdentifier("inbox.account")
+    }
+
+    private func profileImage(name: String) -> Image {
+        let avatar = AccountAvatar(name: name, picture: model?.picture, size: AceDesign.Size.barIcon)
+            .environment(\.colorScheme, scheme)
+        let renderer = ImageRenderer(content: avatar)
+        renderer.scale = scale
+        if let image = renderer.uiImage {
+            return Image(uiImage: image).renderingMode(.original)
+        }
+        return Image(ace: .user)
     }
 }
 

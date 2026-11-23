@@ -152,7 +152,7 @@ struct MarketListingIcon: View {
 
     var body: some View {
         MarketPictureView(hash: listing.picture, kind: "preview", size: size, height: height) {
-            MarketPackageArt(listing: listing, size: height.map { min($0 / 2, size) } ?? size)
+            MarketPackageArt(listing: listing, size: height.map { min($0 / 2, size) } ?? size, featured: height != nil)
                 .id(LookKey(entry: listing.key, version: listing.version))
         }
         .accessibilityHidden(true)
@@ -167,6 +167,7 @@ struct MarketListingIcon: View {
 private struct MarketPackageArt: View {
     let listing: MarketListing
     let size: CGFloat
+    let featured: Bool
     @Environment(\.marketRows) private var rows
     @Environment(\.colorScheme) private var scheme
     @State private var look: MarketLook?
@@ -181,8 +182,7 @@ private struct MarketPackageArt: View {
                     ForEach(swatches.indices, id: \.self) { swatches[$0] }
                 }
             } else {
-                AceIcon(glyph, size: size * 0.45, relativeTo: .title3)
-                    .foregroundStyle(AceDesign.Ink.muted)
+                MarketFallbackTile(type: listing.type, title: featured ? listing.title : nil)
             }
         }
         .task(id: rows.model?.marketGeneration) {
@@ -192,14 +192,68 @@ private struct MarketPackageArt: View {
             look = result
         }
     }
+}
 
-    private var glyph: AceIcon.Name {
-        switch listing.type {
-        case "suit": .palette
-        case "spade-bot": .robot
-        case "spade-skill": .lightning
-        case "spade-plugin", "ace-plugin": .plug
-        default: .package
+enum MarketFallbackKind {
+    case suit, bot, skill, plugin, app, other
+
+    init(type: String) {
+        switch type {
+        case "suit": self = .suit
+        case "spade-bot": self = .bot
+        case "spade-skill": self = .skill
+        case "spade-plugin", "ace-plugin": self = .plugin
+        case "app": self = .app
+        default: self = .other
+        }
+    }
+
+    var glyph: AceIcon.Name {
+        switch self {
+        case .suit: .palette
+        case .bot: .robot
+        case .skill: .puzzlePiece
+        case .plugin: .plug
+        case .app: .squaresLinked
+        case .other: .package
+        }
+    }
+
+    var tint: String {
+        switch self {
+        case .suit: "violet"
+        case .bot: "blue"
+        case .skill: "green"
+        case .plugin: "amber"
+        case .app: "rose"
+        case .other: "neutral"
+        }
+    }
+}
+
+private struct MarketFallbackTile: View {
+    let type: String
+    let title: String?
+
+    var body: some View {
+        let kind = MarketFallbackKind(type: type)
+        let tint = ProjectTint.chosen(kind.tint) ?? AceDesign.Ink.muted
+        VStack(spacing: AceDesign.Space.related) {
+            AceIcon(kind.glyph, size: title == nil ? AceDesign.Size.barIcon : AceDesign.Size.emptyIcon)
+                .foregroundStyle(tint)
+            if let title {
+                Text(title)
+                    .aceFont(AceDesign.TextRole.rowTitle)
+                    .fontWeight(AceDesign.Typeface.strong)
+                    .foregroundStyle(AceDesign.Ink.primary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, AceDesign.Space.margin)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background {
+            LinearGradient(colors: [tint.opacity(0.24), tint.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)
         }
     }
 }
