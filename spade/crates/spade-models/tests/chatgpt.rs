@@ -841,3 +841,47 @@ async fn a_typed_answer_echoing_the_token_in_valid_json_never_hands_it_on() -> R
     assert!(!note.value.said.contains("access-1"), "{}", note.value.said);
     Ok(())
 }
+
+#[tokio::test]
+async fn a_typed_answer_spelling_the_token_with_a_json_escape_never_hands_it_on() -> Result {
+    // The answer's text spells the token with a `u0061` escape: it is the token only once parsed.
+    let answer = format!(r#"{{"said":"the token is {}"}}"#, escaped_token());
+    let fake = FakeProvider::start(&answer).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let note = client
+        .models
+        .generate::<Note>("chatgpt/gpt-5.5", &Prompt::ask("say it"))
+        .await?;
+    assert!(!note.value.said.contains("access-1"), "{}", note.value.said);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_tool_argument_holding_json_with_an_escaped_token_never_hands_it_on() -> Result {
+    // The argument is a string of JSON spelling the token with an escape, which a tool decodes.
+    let payload = format!(r#"{{"said":"{}"}}"#, escaped_token());
+    let fake = FakeProvider::start_with(Script::reply("ok").call(
+        "c1",
+        "run",
+        serde_json::json!({ "payload": payload }),
+    ))
+    .await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let reply = client
+        .models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await?;
+    let payload = reply.calls[0].arguments["payload"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let decoded: serde_json::Value = serde_json::from_str(&payload)?;
+    assert!(!decoded.to_string().contains("access-1"), "{decoded}");
+    assert!(!payload.contains("access-1"), "{payload}");
+    Ok(())
+}
+
+/// `access-1` as JSON may spell it: its `a` written as a backslash, `u0061`.
+fn escaped_token() -> String {
+    format!("{}u0061ccess-1", char::from(92u8))
+}

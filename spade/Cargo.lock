@@ -3732,6 +3732,7 @@ dependencies = [
  "base64",
  "futures-util",
  "keyring-core",
+ "libc",
  "reqwest",
  "ring",
  "serde",

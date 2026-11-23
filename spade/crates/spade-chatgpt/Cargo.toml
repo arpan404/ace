@@ -21,6 +21,9 @@ tokio = { workspace = true, features = ["sync", "time", "rt", "net", "io-util", 
 tracing.workspace = true
 url = "2"
 
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
 [target."cfg(windows)".dependencies]
 spade-sandbox-windows = { path = "../spade-sandbox-windows" }
 

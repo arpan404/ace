@@ -64,12 +64,15 @@ impl<S> State<S> {
     fn take(&mut self, item: Result<Delta, ModelError>) {
         match item {
             Ok(Delta::Text(piece)) => {
+                // What reasoning held back is older than this text: it goes first, in order.
+                self.flush_reasoning();
                 let ready = pass(&mut self.text, &piece, &self.secrets);
                 if !ready.is_empty() {
                     self.out.push_back(Ok(Delta::Text(ready)));
                 }
             }
             Ok(Delta::Reasoning(piece)) => {
+                self.flush_text();
                 let ready = pass(&mut self.reasoning, &piece, &self.secrets);
                 if !ready.is_empty() {
                     self.out.push_back(Ok(Delta::Reasoning(ready)));
@@ -97,12 +100,21 @@ impl<S> State<S> {
         }
     }
 
-    /// Sends what was held back: nothing more is coming that could complete a token.
+    /// Sends what was held back: nothing more is coming that could complete a token. Only one
+    /// kind ever holds anything (a new kind flushes the other first), so the order is kept.
     fn flush(&mut self) {
+        self.flush_text();
+        self.flush_reasoning();
+    }
+
+    fn flush_text(&mut self) {
         let text = std::mem::take(&mut self.text);
         if !text.is_empty() {
             self.out.push_back(Ok(Delta::Text(text)));
         }
+    }
+
+    fn flush_reasoning(&mut self) {
         let reasoning = std::mem::take(&mut self.reasoning);
         if !reasoning.is_empty() {
             self.out.push_back(Ok(Delta::Reasoning(reasoning)));
@@ -138,9 +150,30 @@ fn hidden(text: &str, secrets: &[String]) -> String {
     })
 }
 
+/// A typed answer's text with every secret taken out of its decoded strings too: JSON may spell
+/// a token with escapes (`\u0061`, `\/`) that only decode when it is parsed.
+pub(crate) fn decoded_text(text: &str, secrets: &[String]) -> String {
+    match serde_json::from_str::<Value>(text) {
+        Ok(value) => hidden_value(value, secrets).to_string(),
+        Err(_) => hidden(text, secrets),
+    }
+}
+
 fn hidden_value(value: Value, secrets: &[String]) -> Value {
     match value {
-        Value::String(text) => Value::String(hidden(&text, secrets)),
+        // A string that is itself JSON (arguments a tool parses later) is cleaned decoded, so an
+        // escaped token can't come back out of it.
+        Value::String(text) => match serde_json::from_str::<Value>(&text) {
+            Ok(inner @ (Value::Object(_) | Value::Array(_) | Value::String(_))) => {
+                let cleaned = hidden_value(inner.clone(), secrets);
+                if cleaned == inner {
+                    Value::String(hidden(&text, secrets))
+                } else {
+                    Value::String(cleaned.to_string())
+                }
+            }
+            _ => Value::String(hidden(&text, secrets)),
+        },
         Value::Array(items) => Value::Array(
             items
                 .into_iter()
@@ -177,6 +210,58 @@ fn hidden_thought(thought: Thought, secrets: &[String]) -> Thought {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text(t: &str) -> Result<Delta, ModelError> {
+        Ok(Delta::Text(t.to_owned()))
+    }
+
+    fn reasoning(t: &str) -> Result<Delta, ModelError> {
+        Ok(Delta::Reasoning(t.to_owned()))
+    }
+
+    #[tokio::test]
+    async fn text_and_reasoning_leave_in_the_order_they_came_with_a_split_secret_taken_out() {
+        let secrets = vec!["tok-123456".to_owned()];
+        let came = futures_util::stream::iter(vec![
+            text("a tok-12"),
+            text("3456 b tok-"),
+            reasoning("thinking"),
+            text("rest"),
+        ]);
+        let out: Vec<(bool, String)> = stream(came, secrets)
+            .map(|d| match d {
+                Ok(Delta::Text(t)) => (true, t),
+                Ok(Delta::Reasoning(t)) => (false, t),
+                other => (false, format!("{other:?}")),
+            })
+            .collect()
+            .await;
+        let wanted: Vec<(bool, String)> = [
+            (true, "a "),
+            (true, "[hidden] b "),
+            (true, "tok-"),
+            (false, "thinking"),
+            (true, "res"),
+            (true, "t"),
+        ]
+        .into_iter()
+        .map(|(kind, t)| (kind, t.to_owned()))
+        .collect();
+        assert_eq!(out, wanted);
+    }
+
+    #[test]
+    fn an_escaped_secret_in_json_held_in_a_string_or_a_typed_answer_is_taken_out() {
+        let secrets = vec!["access-1".to_owned()];
+        let nested = Value::String(r#"{"said":"\u0061ccess-1","path":"access\/x"}"#.to_owned());
+        let cleaned = hidden_value(serde_json::json!({ "payload": nested }), &secrets);
+        let decoded: Value = serde_json::from_str(cleaned["payload"].as_str().unwrap_or_default())
+            .unwrap_or_default();
+        assert_eq!(decoded["said"], "[hidden]");
+        let typed = decoded_text(r#"{"said":"the token is \u0061ccess-1"}"#, &secrets);
+        let value: Value = serde_json::from_str(&typed).unwrap_or_default();
+        assert_eq!(value["said"], "the token is [hidden]");
+    }
 
     #[test]
     fn a_secret_split_across_pieces_never_gets_out_and_the_rest_does() {

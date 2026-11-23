@@ -28,13 +28,22 @@ pub struct Vault {
     dir: PathBuf,
     keys: KeyStore,
     random: Arc<dyn Random>,
+    /// For tests: run with a sealed file's path right before it is opened.
+    #[cfg(test)]
+    before_open: Option<Arc<BeforeOpen>>,
 }
+
+/// A test's step between finding a sealed file's path and opening it.
+#[cfg(test)]
+type BeforeOpen = dyn Fn(&Path) + Send + Sync;
 
 impl Vault {
     pub fn new(dir: impl Into<PathBuf>, keys: KeyStore, random: Arc<dyn Random>) -> Self {
         Self {
             dir: dir.into(),
             keys,
+            #[cfg(test)]
+            before_open: None,
             random,
         }
     }
@@ -124,17 +133,28 @@ impl Vault {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             _ => self.checked_dir()?,
         }
-        let meta = match fs::symlink_metadata(path) {
-            Ok(meta) => meta,
+        #[cfg(test)]
+        if let Some(hook) = &self.before_open {
+            hook(path);
+        }
+        // Opened first, then the opened file is checked: nothing can be swapped in between. The
+        // open never follows a link and never waits on a pipe.
+        let file = match open_plain(path) {
+            Ok(file) => file,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) if is_link(&error) => {
+                tracing::warn!("a sealed sign-in is a link; it reads as none");
+                return Ok(None);
+            }
             Err(error) => return Err(format!("the sealed sign-in could not be read: {error}")),
         };
+        let meta = file
+            .metadata()
+            .map_err(|e| format!("the sealed sign-in could not be read: {e}"))?;
         if meta.file_type().is_symlink() || !meta.is_file() || meta.len() > MOST_SEALED {
             tracing::warn!("a sealed sign-in is not a plain file of its size; it reads as none");
             return Ok(None);
         }
-        let file = fs::File::open(path)
-            .map_err(|e| format!("the sealed sign-in could not be read: {e}"))?;
         let mut sealed = Vec::new();
         std::io::Read::read_to_end(&mut std::io::Read::take(file, MOST_SEALED + 1), &mut sealed)
             .map_err(|e| format!("the sealed sign-in could not be read: {e}"))?;
@@ -223,6 +243,40 @@ fn open(key: &[u8; KEY], account: &str, sealed: Vec<u8>) -> Option<Vec<u8>> {
         )
         .ok()?;
     Some(plain.to_vec())
+}
+
+/// Opens `path` for reading without following a link at it and without waiting on a pipe or
+/// device: `O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC` on Unix, `FILE_FLAG_OPEN_REPARSE_POINT` on
+/// Windows (a link or reparse point is opened as itself, and then refused as not a plain file).
+fn open_plain(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        /// `FILE_FLAG_OPEN_REPARSE_POINT`.
+        const OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(OPEN_REPARSE_POINT);
+    }
+    options.open(path)
+}
+
+/// Whether opening failed because the path is a link (`ELOOP` under `O_NOFOLLOW`).
+fn is_link(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ELOOP)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 /// Makes the folder only this user can open: `0700` on Unix, an owner-only DACL on Windows, set
@@ -430,6 +484,48 @@ mod tests {
         assert!(vault.holds("chatgpt-a")?);
         assert!(vault.erase("chatgpt-a")?);
         assert_eq!(keys.sign_in_key("chatgpt-a")?, None);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_or_a_pipe_swapped_in_just_before_the_open_reads_as_none_without_blocking()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let keys = KeyStore::with_store(keyring_core::mock::Store::new()?, spade_keys::SERVICE);
+        let pipe = dir.path().join("pipe");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&pipe)
+                .status()?
+                .success()
+        );
+        for swap_in_link in [true, false] {
+            let mut vault = Vault::new(
+                dir.path(),
+                keys.clone(),
+                Arc::new(Counter(Default::default())),
+            );
+            vault.write("chatgpt-a", "access-a", "refresh-a")?;
+            // A plain sealed file when looked at; something else by the time it is opened.
+            let pipe = pipe.clone();
+            vault.before_open = Some(Arc::new(move |path: &Path| {
+                let _ = fs::remove_file(path);
+                if swap_in_link {
+                    let _ = std::os::unix::fs::symlink(&pipe, path);
+                } else {
+                    let _ = std::process::Command::new("mkfifo").arg(path).status();
+                }
+            }));
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(vault.read("chatgpt-a"));
+            });
+            let read = rx
+                .recv_timeout(std::time::Duration::from_secs(3))
+                .map_err(|_| "the read blocked")?;
+            assert_eq!(read?, None, "link: {swap_in_link}");
+        }
         Ok(())
     }
 }

@@ -428,13 +428,16 @@ impl Models {
     {
         if call.streamed_only {
             let reference = call.reference.clone();
+            let secrets = call.secrets.clone();
             let stream = self
                 .stream_once(call, prompt, Some(typed::spec::<T>()?.into()))
                 .await?;
             let reply = fold(reference.clone(), stream).await?;
+            // Parsed only once the account's tokens are out of its decoded strings too.
+            let text = crate::scrub::decoded_text(&reply.text, &secrets);
             return Ok(Generated {
                 // What didn't parse is never repeated: it may echo the account's token.
-                value: typed::parse(&reference, &reply.text)
+                value: typed::parse(&reference, &text)
                     .map_err(|e| error::charged(fixed_shape(e), reply.usage))?,
                 usage: reply.usage,
             });
