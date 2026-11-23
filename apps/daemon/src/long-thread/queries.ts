@@ -18,6 +18,13 @@ import type { SearchIndex } from "@ace/search";
 import type { LongThreadIndex } from "./index.ts";
 import type { PayloadStore } from "../payload-store.ts";
 import { readTurnSteps, stepSurface, type TurnStepsSource } from "./steps.ts";
+import { nativeReads } from "../native-reads/switch.ts";
+import {
+  threadCatchUpNative,
+  threadSearchNative,
+  turnStepsNative,
+  turnsPageNative,
+} from "../native-reads/long-thread.ts";
 interface NavigationSource {
   index: LongThreadIndex;
   payloads: PayloadStore;
@@ -49,6 +56,7 @@ export class LongThreadQueries {
     return thread;
   }
   turnsPage(input: Omit<TurnsQuery, "type" | "requestId"> & { requestId?: string }) {
+    if (nativeReads("long")) return turnsPageNative(this.source, input);
     const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
     this.readableThread(query.threadId);
     return this.source.index.reader.page(query, this.source.headSeq());
@@ -60,6 +68,7 @@ export class LongThreadQueries {
     },
     cachedIcon?: TurnStepsSource["cachedIcon"],
   ) {
+    if (nativeReads("long")) return turnStepsNative(this.source, input, cachedIcon, this.stepSites);
     const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
     this.readableThread(query.threadId);
     return readTurnSteps(
@@ -193,6 +202,7 @@ export class LongThreadQueries {
     input: Omit<ThreadSearchQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
+    if (nativeReads("long")) return threadSearchNative(this.source, input, authorize);
     const query = ThreadSearchRequest.parse({
       type: "thread.search",
       requestId: "search",
@@ -216,6 +226,7 @@ export class LongThreadQueries {
     input: Omit<CatchUpQuery, "type" | "requestId"> & { requestId?: string },
     authorize: (id: ThreadId) => boolean = () => true,
   ) {
+    if (nativeReads("long")) return threadCatchUpNative(this.source, input, authorize);
     const query = ThreadCatchUpRequest.parse({
       type: "thread.catchUp",
       requestId: "catch-up",

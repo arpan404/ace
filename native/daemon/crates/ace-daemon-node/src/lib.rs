@@ -134,6 +134,7 @@ impl NativeDatabase {
 
     #[napi(catch_unwind)]
     pub fn close(&self) -> napi::Result<()> {
+        ace_store::stmt_cache::clear(&self.connection);
         self.connection.close().map_err(fail)
     }
 }

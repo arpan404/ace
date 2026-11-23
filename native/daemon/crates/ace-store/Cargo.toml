@@ -19,4 +19,11 @@ workspace = true
 libsqlite3-sys = { version = "0.39", features = ["bundled"] }
 # Native reads build wire JSON; RawValue keeps stored JSON as stored.
 serde_json = { version = "1", features = ["raw_value"] }
+# Phase 2 wire types borrow from rows and serialize without intermediate trees.
+serde = { version = "1", features = ["derive"] }
+# Phase 2 cursors are SHA-256 fingerprints and base64url, as `@ace/search` writes them.
+sha2 = { version = "0.10" }
+base64 = { version = "0.22" }
+# Search terms match `/[\p{L}\p{N}\p{M}_]+/u`, as `@ace/search` tokenises them.
+unicode-general-category = { version = "1.1.0" }
 

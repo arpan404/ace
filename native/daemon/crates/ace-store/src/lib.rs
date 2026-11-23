@@ -7,5 +7,6 @@
 pub mod reads;
 #[allow(unsafe_code)]
 pub mod sqlite;
+pub mod stmt_cache;
 
 pub use sqlite::{Connection, Error, ErrorKind, OpenOptions, Result, Statement, Value};
