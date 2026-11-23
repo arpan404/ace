@@ -49,6 +49,7 @@ export class FakeTurnIndex {
   private itemSeqs = new Map<string, number>();
   private itemAgents = new Map<string, string>();
   private turns = new Map<string, Map<number, TurnRecord>>();
+  private turnStarts = new Map<string, number[]>();
   private runs = new Map<string, number>();
   private agents = new Map<string, number>();
   private items = new Map<string, number>();
@@ -92,6 +93,9 @@ export class FakeTurnIndex {
         agents: new Set(),
       };
       thread.set(ordinal, turn);
+      const starts = this.turnStarts.get(event.threadId);
+      if (starts) starts.push(event.seq);
+      else this.turnStarts.set(event.threadId, [event.seq]);
     }
     return turn;
   }
@@ -337,6 +341,23 @@ export class FakeTurnIndex {
     return [...(this.turns.get(threadId)?.values() ?? [])]
       .map((turn) => turn.summary)
       .toSorted((left, right) => left.ordinal - right.ordinal);
+  }
+  firstTurnStartAfter(threadId: string, seq: number): number | undefined {
+    const starts = this.turnStarts.get(threadId);
+    if (!starts) return undefined;
+    let low = 0;
+    let high = starts.length;
+    while (low < high) {
+      const mid = low + Math.floor((high - low) / 2);
+      if ((starts[mid] ?? Infinity) <= seq) low = mid + 1;
+      else high = mid;
+    }
+    return starts[low];
+  }
+  turnStart(threadId: string, ordinal: number | undefined): number | undefined {
+    return ordinal === undefined
+      ? undefined
+      : this.turns.get(threadId)?.get(ordinal)?.summary.startSeq;
   }
   currentStatus(threadId: string): TurnSummary["status"] | undefined {
     const ordinal = this.current.get(threadId);

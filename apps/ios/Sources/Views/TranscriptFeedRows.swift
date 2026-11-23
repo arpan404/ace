@@ -15,6 +15,11 @@ struct TranscriptFeedRow: Identifiable {
             return TranscriptFeedRow(id: "block:\(entry.0)", block: entry.1, room: max(after, before))
         }
     }
+
+    @MainActor static func block(_ id: String, in thread: ThreadModel) -> BlockModel? {
+        guard id.hasPrefix("block:") else { return nil }
+        return thread.screen.blocks[String(id.dropFirst(6))]
+    }
 }
 /// The feed's rows in the stack `TranscriptStackChoice` picked: a plain one that lays every row
 /// out (a short window), or the lazy one that lays out the rows near the screen (a long one).
@@ -53,6 +58,7 @@ struct TranscriptFeedRowView: View, Equatable {
         // The web's rhythm: 8 between rows, 16 around a bubble or card, 24 after an answer;
         // Compact trims it (Settings › Appearance).
         BlockView(block: row.block, thread: thread, links: links)
+            .environment(\.markdownOwner, row.block.id)
             .onGeometryChange(for: Bool.self) { $0.size.height < 1 } action: { empty = $0 }
             // The approved feed: one 14pt gap between its parts; its sides are the composer's edge.
             .padding(.bottom, empty ? AceTheme.Spacing.none : AceDesign.Space.feedGap * AceTheme.density(densityId).transcriptRoom)

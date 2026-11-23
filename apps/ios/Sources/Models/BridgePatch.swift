@@ -322,6 +322,8 @@ struct InboxLayout: Codable, Sendable, Equatable {
     /// A choice of the machine's Sort threads setting, worded by the shared rules.
     struct SortOption: Codable, Sendable, Identifiable, Equatable { let id: String; let label: String }
     let sections: [Section]
+    /// When present, thread ranks omit the machine and row ID suffix. Unsent ranks are complete.
+    var rankMachine: String? = nil
     /// The daemon has older threads beyond the loaded window.
     let more: Bool
     let snooze: [SnoozeOption]

@@ -1,6 +1,7 @@
 {
   "about": "Test files allowed over their time budget (fast tier 5s, process tier 30s), each with a reason. Remove an entry once its file is under budget. See scripts/test-run.ts.",
   "fast": {
+    "apps/ios/bridge/native-transcript.test.ts": "Pages through 8,000 items in both directions across the SDK, fake daemon and acknowledged native bridge. The suite took 8.6s locally with the 30-page workload.",
     "apps/web/src/features/home/new-thread/new-thread.test.tsx": "TODO cleanup (57.6s in the 2026-10 timing run)",
     "apps/web/src/features/thread/header.test.tsx": "TODO cleanup (29.9s in the 2026-10 timing run)",
     "apps/web/src/features/panels/changes/composition.test.tsx": "TODO cleanup (28.5s in the 2026-10 timing run)",

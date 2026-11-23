@@ -115,6 +115,8 @@ import Darwin
     /// A frame moved the reading rows; `started` is when it began applying. The time runs to the
     /// next run-loop turn, so the layout and commit the rows caused count with it.
     static func readingFrame(started: Double) {
+        let applied = (CACurrentMediaTime() - started) * 1000
+        PerfProbe.add("page.applyMsTotal", applied)
         RunLoop.main.perform(inModes: [.common]) {
             let ms = (CACurrentMediaTime() - started) * 1000
             let mib = Double(footprint()) ?? 0

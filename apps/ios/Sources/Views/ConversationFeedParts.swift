@@ -50,18 +50,20 @@ struct TapPutsKeyboardAway: ViewModifier {
     }
 }
 
-/// Fixture builds count the spacers' changes (`PerfCounters`); elsewhere it adds nothing.
-struct SpacerCounts: ViewModifier {
-    let before: Double
-    let after: Double
-    func body(content: Content) -> some View {
-        #if ACE_FIXTURE
-        content
-            .onChange(of: before) { _, _ in PerfCounters.bump("extent.spacers") }
-            .onChange(of: after) { _, _ in PerfCounters.bump("extent.spacers") }
-        #else
-        content
-        #endif
+/// A height correction invalidates the affected spacer independently of the row list.
+struct TranscriptSpacer: View {
+    let extent: TranscriptExtent
+    let height: KeyPath<TranscriptExtent, Double>
+
+    var body: some View {
+        let value = extent[keyPath: height]
+        Color.clear.frame(height: value).accessibilityHidden(true)
+            .onChange(of: value) { old, new in
+                PerfCounters.bump("extent.spacers")
+                #if ACE_FIXTURE
+                TranscriptJumpHooks.note("\(height == \TranscriptExtent.before ? "before" : "after") \(Int(old))>\(Int(new))")
+                #endif
+            }
     }
 }
 

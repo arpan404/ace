@@ -4,7 +4,10 @@ import XCTest
 /// older page landing leaves the reader's line where it was. Read each frame from what is drawn
 /// (`TranscriptJumpProbe`).
 @MainActor final class TranscriptJumpUITests: XCTestCase {
-    override func setUp() { continueAfterFailure = false }
+    override func setUp() async throws {
+        continueAfterFailure = false
+        try await FixtureStream.restart()
+    }
 
     /// A long finished thread opens at its end: from the first frame its rows are drawn, they
     /// don't move.
@@ -73,7 +76,8 @@ import XCTest
 
     /// The probe's last `name` run, once it has recorded one.
     private func jumpRun(_ app: XCUIApplication, _ name: String) -> JumpRun {
-        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30), "the probe recorded a \(name) run")
+        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30),
+                        "the probe recorded a \(name) run; it holds: \(app.probe.keys.filter { $0.hasPrefix("jump.") }.sorted())")
         let probe = app.probe
         func number(_ key: String) -> Int { Int(probe["jump.\(name).\(key)"] ?? "") ?? -1 }
         return JumpRun(frames: number("frames"), moved: number("moved"), total: number("total"), max: number("max"),

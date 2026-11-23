@@ -24,7 +24,7 @@ extension ConversationFeed {
         extent.update(change: TranscriptExtent.WindowChange(
             ids: shown.screen.blockOrder.map { "block:\($0)" }, movement: .replace))
         let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
-        lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
+        anchor.lastBlockItems = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0.block.row.items) })
         restack(rows: rows.count, moving: intent.active || intent.animating, replaced: true, proxy: proxy)
     }
     /// The rows' count changed, their window was replaced, or the feed came to rest: move the rows
@@ -32,9 +32,19 @@ extension ConversationFeed {
     /// so the reader's place is installed as a session anchor, restored once the rows measure, and
     /// a feed following the end goes back to it.
     func restack(rows: Int, moving: Bool, replaced: Bool, proxy: ScrollViewProxy) {
-        guard ready, anchor.stack.update(rows: rows, moving: moving, replaced: replaced) != nil else { return }
+        guard ready, let switched = anchor.stack.update(rows: rows, moving: moving, replaced: replaced) else { return }
+        TranscriptJumpHooks.note("restack \(switched) rows=\(rows) following=\(following) revealed=\(revealed)")
         if !following, let top = currentTopRow() {
             viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
+        }
+        // Laying the rows out again in the other stack redraws every one of them. A reader away
+        // from the end never sees it: what is drawn stays frozen while the top row is put back
+        // where it was (`holdOlderPage`), then the feed thaws. If the page already holds the
+        // frame, it also covers the rebuild.
+        if !following, revealed, !surface.running(.page) {
+            intent.olderPage = true
+            captureTop()
+            holdOlderPage()
         }
         stackSwitches += 1
         PerfProbe.add("feed.restacks", 1)
@@ -44,8 +54,8 @@ extension ConversationFeed {
     func readingRevised(proxy: ScrollViewProxy) {
         guard reading.thread != nil else { return }
         if UIAccessibility.isVoiceOverRunning { viewport.clearSessionAnchor() }
-        updateExtent()
         let rows = TranscriptFeedRow.rows(shown)
+        updateExtent(rows: rows)
         if reading.landing.holdsPlace {
             // A focus still landing owns the place until its row has been shown: no saved
             // session or held row takes it over, whatever row is on top as pages land.
@@ -152,7 +162,11 @@ extension ConversationFeed {
     }
     func appeared(proxy: ScrollViewProxy) {
         TranscriptJumpHooks.begin("open", hidden: !revealed)
-        model.readingWillMove = { captureTop(); holdOlderPage() }
+        model.prepareReadingAnswers = transcriptMarkdown?.prepare
+        model.readingWillMove = {
+            captureTop()
+            if reading.operation == "older" { holdOlderPage() }
+        }
         // The window the thread opened from (kept rows, a screenful) grows: held in place.
         model.liveWindowWillGrow = { liveWindowWillGrow() }
         model.readingMoved = { reading.moved() }
@@ -177,10 +191,10 @@ extension ConversationFeed {
         return {
             guard reading.thread != nil, !reading.loading else { return }
             let shown: ThreadModel = reading.shown ?? thread
-            let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
-            let topID: String? = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
-            let first: TranscriptFeedRow? = rows.first { $0.id == topID }
-            let item: String? = first?.block.row.items.first ?? reading.lastAnchorItemId
+            let topID = anchor.keeper.frames.topRow(inset: intent.metrics.topInset, containing: {
+                TranscriptFeedRow.block($0, in: shown) != nil
+            })
+            let item = topID.flatMap { TranscriptFeedRow.block($0, in: shown)?.row.items.first } ?? reading.lastAnchorItemId
             if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
         }
     }
@@ -190,6 +204,8 @@ extension ConversationFeed {
         surface.thaw()
         saveSession()
         reading.cancel(model: model)
+        transcriptMarkdown?.moving = false
+        model.prepareReadingAnswers = nil
         model.readingWillMove = nil
         model.readingMoved = nil
         model.liveWindowWillGrow = nil
@@ -215,7 +231,20 @@ extension ConversationFeed {
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         settle.cancel()
+        holdEndWhileRoomGrows(by: growth)
         withAnimation(motion) { toEnd(proxy) }
+    }
+    /// A growing bar's room lands in one update, and rows above the screen may measure after it:
+    /// the bottom holds still until the content has held for two frames (`TranscriptSettle`), so
+    /// rows never move down under the reader.
+    private func holdEndWhileRoomGrows(by growth: CGFloat) {
+        guard !surface.running(.page), self.growth.roomGrowing(following: pinned, by: Double(growth)) else { return }
+        let intent = intent
+        var held = TranscriptSettle(at: CACurrentMediaTime())
+        surface.untilSettled(.page, { time in
+            let placed = TranscriptSettle.opened(following: true, fromEnd: Double(intent.metrics.bottom), restoring: false)
+            return held.frame([Double(intent.metrics.height)], placed: placed, at: time)
+        }) { _ in self.growth.windowHoldEnded() }
     }
     /// A thread opening draws its first frames short of where it opens: lazy rows correct their
     /// heights and the scroll catches up with the end. The rows stay hidden until the content's
@@ -251,14 +280,18 @@ extension ConversationFeed {
         // Under VoiceOver and Switch Control the feed makes no automatic corrections, so none here
         // either.
         guard intent.olderPage, !surface.running(.page), !Self.assistiveScrolling, let top = currentTopRow(),
-              let held = anchor.keeper.frames.inContent(top.rowID) else { return }
+              let held = anchor.keeper.frames.inContent(top.rowID) else {
+            TranscriptJumpHooks.note("hold skipped page=\(intent.olderPage) running=\(surface.running(.page)) top=\(currentTopRow() != nil)")
+            return
+        }
         let onScreen = Double(held.minY) - surface.offset
         // A feed still hidden on open has nothing drawn to freeze: its row is held all the same,
         // and the reveal, running on its own, shows it once both have settled.
         let frozen = revealed
         if frozen {
-            guard surface.freeze() else { return }
+            guard surface.freeze() else { TranscriptJumpHooks.note("hold not frozen"); return }
             TranscriptJumpHooks.covered(true)
+            TranscriptJumpHooks.note("hold start")
         }
         intent.olderPage = false
         let anchor = anchor, intent = intent, surface = surface
@@ -275,6 +308,7 @@ extension ConversationFeed {
             guard frozen else { return }
             surface.thaw()
             TranscriptJumpHooks.covered(false)
+            TranscriptJumpHooks.note("hold end")
         }
     }
     /// The reader took the feed mid-hold: it's theirs as it is.

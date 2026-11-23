@@ -72,6 +72,10 @@ import UIKit
         self.link = link
     }
 
+    /// Something besides the rows changed size or place: kept in the run's trace as `[text]`, between
+    /// the frames, so a jump can be read against what moved under it. Never a frame, never a jump.
+    func note(_ text: String) { run?.trace.append("[\(text)]") }
+
     /// The feed was hidden or frozen (`true`), or shown again.
     func covered(_ value: Bool) { covered = value }
 
@@ -232,6 +236,12 @@ enum TranscriptJumpHooks {
     @MainActor static func begin(_ name: String, hidden: Bool = false, span: Double = 2.5) {
         #if ACE_FIXTURE
         if PerfProbe.enabled { TranscriptJumpProbe.shared.begin(name, hidden: hidden, span: span) }
+        #endif
+    }
+    /// A named change to the room around the rows (the bar, a spacer), noted in the open run's trace.
+    @MainActor static func note(_ text: @autoclosure () -> String) {
+        #if ACE_FIXTURE
+        if PerfProbe.enabled { TranscriptJumpProbe.shared.note(text()) }
         #endif
     }
     /// The feed is frozen over (`true`) or shown again.
