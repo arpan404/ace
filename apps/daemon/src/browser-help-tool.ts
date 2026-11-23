@@ -1,3 +1,4 @@
+import { PublicToolError } from "@ace/mcp-server/errors";
 import type { BrowserService } from "@ace/browser";
 import { z } from "zod";
 import type { BrowserMachineRoute } from "@ace/browser";
@@ -35,8 +36,15 @@ export function browserHelpTab(current: () => BrowserService | undefined): Brows
   };
 }
 
-/** `browser_request_help`, beside the browser tools (ADR 0067, collaboration). */
-export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRoute): Toolkit {
+/**
+ * `browser_request_help`, beside the browser tools (ADR 0067, collaboration). With `browser`,
+ * a call on this machine while ace's browser is down says so, rather than that the tab is gone.
+ */
+export function browserHelpToolkit(
+  help: BrowserHelp,
+  route?: BrowserMachineRoute,
+  browser?: () => BrowserService | undefined,
+): Toolkit {
   return {
     register(registry) {
       registry.registerContent({
@@ -62,6 +70,7 @@ export function browserHelpToolkit(help: BrowserHelp, route?: BrowserMachineRout
               { machine, tool: "browser_request_help", args, timeoutMs: 245_000 },
               context,
             );
+          if (browser && !browser()) throw new PublicToolError("browser_unavailable");
           const result = BrowserHelpResult.parse(
             await help.request(context.caller, BrowserHelpInput.parse(args), context.signal),
           );
