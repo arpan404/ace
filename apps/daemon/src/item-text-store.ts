@@ -5,6 +5,65 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Item, EventPayload, ThreadId, type TextSource } from "@ace/protocol";
 const StreamSize = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const StreamRow = z.object({ id: z.string(), size: StreamSize });
+
+/** A byte range `[start, end)` of one stream. */
+export interface StreamRange {
+  id: string;
+  start: number;
+  end: number;
+}
+
+/** One stored chunk row, as the slice reads it. */
+export interface StreamChunk {
+  offset: number;
+  bytes: Uint8Array;
+}
+
+/** The first `units` of a stream live in `[0, min(units * 2, size))`. */
+export function headRange(size: number, units: number): [number, number] {
+  return [0, Math.min(units * 2, size)];
+}
+
+/** The last `units` of a stream live in `[max(0, size - units * 2), size)`. */
+export function tailRange(size: number, units: number): [number, number] {
+  return [Math.max(0, size - units * 2), size];
+}
+
+/** Drop a leading low surrogate and its byte offset, so text never starts mid-pair. */
+export function trimLowStart(text: string, start: number): { text: string; start: number } {
+  const first = text.charCodeAt(0);
+  if (first >= 0xdc00 && first <= 0xdfff) return { text: text.slice(1), start: start + 2 };
+  return { text, start };
+}
+
+/** The text in bytes `[start, end)` of already-read chunk rows, decoded as UTF-16LE. */
+export function sliceByteRows(rows: StreamChunk[], start: number, end: number): string {
+  if (end <= start) return "";
+  const pieces: Buffer[] = [];
+  // A chunk holds at most 32,768 units (`write`), so one starting before `start - 65536` ends
+  // before it: the primary key bounds the scan to the chunks that hold the range.
+  for (const row of rows) {
+    // Checked by its internal slot, not instanceof: a host realm (a jsdom test) has its own Uint8Array.
+    if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
+    const offset = Number(row.offset);
+    const bytes = Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
+    const from = Math.max(0, start - offset);
+    const to = Math.min(bytes.length, end - offset);
+    if (to > from) pieces.push(bytes.subarray(from, to));
+  }
+  return Buffer.concat(pieces).toString("utf16le");
+}
+
+/** An item's text sources in the order `fill` reads them: streaming reads newest first. */
+export function sourcesInFillOrder(item: Item): TextSource[] {
+  const streaming = !item.complete;
+  if (item.type === "message") {
+    const parts = streaming ? item.parts.toReversed() : item.parts;
+    return parts.flatMap((part) => (part.type === "text" && part.source ? [part.source] : []));
+  }
+  if ((item.type === "reasoning" || item.type === "notice") && item.source) return [item.source];
+  return [];
+}
 /** Page previews and indexed UTF-16 text streams. Delta work touches one target
  * and new bytes only; preview materialization happens on an explicit page read. */
 export class ItemTextStore {
@@ -185,53 +244,40 @@ export class ItemTextStore {
     const head = (source: TextSource, units: number): string => {
       source.bytes = sizeOf(source);
       delete source.offset;
-      return slice(source.streamId, 0, Math.min(units * 2, source.bytes));
+      const [start, end] = headRange(source.bytes, units);
+      return slice(source.streamId, start, end);
     };
     const tail = (source: TextSource, units: number): string => {
       source.bytes = sizeOf(source);
-      let start = Math.max(0, source.bytes - units * 2);
-      let text = slice(source.streamId, start, source.bytes);
-      const first = text.charCodeAt(0);
-      if (first >= 0xdc00 && first <= 0xdfff) {
-        text = text.slice(1);
-        start += 2;
-      }
-      if (start) source.offset = start;
+      const [start, end] = tailRange(source.bytes, units);
+      const cut = trimLowStart(slice(source.streamId, start, end), start);
+      if (cut.start) source.offset = cut.start;
       else delete source.offset;
-      return text;
+      return cut.text;
     };
     const read = (source: TextSource) =>
       streaming ? tail(source, remaining) : head(source, remaining);
-    if (item.type === "message") {
-      const parts = streaming ? item.parts.toReversed() : item.parts;
-      for (const part of parts)
-        if (part.type === "text" && part.source) {
-          part.text = read(part.source);
-          remaining -= part.text.length;
-        }
+    for (const source of sourcesInFillOrder(item)) {
+      const text = read(source);
+      // The part or item carrying this source holds the text just read.
+      if (item.type === "message") {
+        const part = item.parts.find((entry) => entry.type === "text" && entry.source === source);
+        if (part?.type === "text") part.text = text;
+      } else if (item.type === "reasoning" || item.type === "notice") {
+        if (item.source === source) item.text = text;
+      }
+      remaining -= text.length;
     }
-    if ((item.type === "reasoning" || item.type === "notice") && item.source)
-      item.text = read(item.source);
     return item;
   }
   /** The text in bytes [start, end) of a stream, read from the chunks that hold it. */
   private slice(streamId: string, start: number, end: number): string {
-    if (end <= start) return "";
-    const pieces: Buffer[] = [];
-    // A chunk holds at most 32,768 units (`write`), so one starting before `start - 65536` ends
-    // before it: the primary key bounds the scan to the chunks that hold the range.
+    const rows: StreamChunk[] = [];
     for (const row of this.statement(
       "SELECT offset, bytes FROM item_source_chunks WHERE stream_id = ? AND offset > ? AND offset < ? ORDER BY offset",
-    ).iterate(streamId, start - 65536, end)) {
-      // Checked by its internal slot, not instanceof: a host realm (a jsdom test) has its own Uint8Array.
-      if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
-      const offset = Number(row.offset);
-      const bytes = Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
-      const from = Math.max(0, start - offset);
-      const to = Math.min(bytes.length, end - offset);
-      if (to > from) pieces.push(bytes.subarray(from, to));
-    }
-    return Buffer.concat(pieces).toString("utf16le");
+    ).iterate(streamId, start - 65536, end))
+      rows.push({ offset: Number(row.offset), bytes: row.bytes as Uint8Array });
+    return sliceByteRows(rows, start, end);
   }
   read(id: string): Item {
     const item = this.preview(id)?.item;
@@ -243,7 +289,7 @@ export class ItemTextStore {
     );
   }
   /** A stored preview row fetched in batch, parsed exactly as `preview` parses it. */
-  previewFromRow(row: { item: string; target: unknown; created_seq: number | null }): {
+  previewFromRow(row: { item: unknown; target: unknown; created_seq: unknown }): {
     item: Item;
     target: unknown;
   } {
@@ -257,39 +303,15 @@ export class ItemTextStore {
    */
   readBatched(
     id: string,
-    preview: { item: string; target: unknown; created_seq: number | null } | undefined,
-    sizes: Map<string, number>,
+    preview: { item: unknown; target: unknown; created_seq: unknown } | undefined,
+    sizes: Map<string, unknown>,
     byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>,
   ): Item {
     const stored = preview ? this.previewFromRow(preview) : undefined;
     if (!stored) throw new Error("Missing item preview");
     const sizeOf = (source: TextSource): number => StreamSize.parse(sizes.get(source.streamId));
-    const slice = (streamId: string, start: number, end: number): string => {
-      if (end <= start) return "";
-      const pieces: Buffer[] = [];
-      for (const row of byteRows.get(streamId) ?? []) {
-        if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
-        const offset = Number(row.offset);
-        const bytes = Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
-        const from = Math.max(0, start - offset);
-        const to = Math.min(bytes.length, end - offset);
-        if (to > from) pieces.push(bytes.subarray(from, to));
-      }
-      return Buffer.concat(pieces).toString("utf16le");
-    };
+    const slice = (streamId: string, start: number, end: number): string =>
+      sliceByteRows(byteRows.get(streamId) ?? [], start, end);
     return this.fill(stored.item, sizeOf, slice);
-  }
-  /** Every text source a preview carries, with whether its item streams (tail) or not (head). */
-  sourcesOf(item: Item): { streamId: string; streaming: boolean }[] {
-    const streaming = !item.complete;
-    const out: { streamId: string; streaming: boolean }[] = [];
-    if (item.type === "message") {
-      for (const part of item.parts)
-        if (part.type === "text" && part.source)
-          out.push({ streamId: part.source.streamId, streaming });
-    } else if ((item.type === "reasoning" || item.type === "notice") && item.source) {
-      out.push({ streamId: item.source.streamId, streaming });
-    }
-    return out;
   }
 }
