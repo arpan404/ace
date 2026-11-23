@@ -35,6 +35,16 @@ struct TranscriptGrowthAnchor: Equatable, Sendable {
         return .end
     }
 
+    /// The room under the rows grows (a pill or strip arrives) while the feed follows the end: the
+    /// bottom holds until it has settled, so rows measuring above the screen as it lands move
+    /// nothing on it. False when it doesn't apply: not following, or the end is already held.
+    mutating func roomGrowing(following: Bool, by growth: Double) -> Bool {
+        guard following, growth > 0, !opening else { return false }
+        opening = true
+        windowHeld = true
+        return true
+    }
+
     /// The window's hold ended, settled or cut short by a scroll: if it was what held the bottom,
     /// size changes keep the top again.
     mutating func windowHoldEnded() {
