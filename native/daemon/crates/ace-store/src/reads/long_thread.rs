@@ -6,6 +6,7 @@ pub mod catchup_time;
 pub mod common;
 pub mod digests;
 pub mod range;
+pub mod row;
 pub mod search;
 pub mod status;
 pub mod steps;

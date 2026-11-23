@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Shared helpers for phase 2 long-thread reads.
+//! Shared validation for phase 2 long-thread reads.
+//!
+//! Index rows were written by whichever build indexed them, so every value taken
+//! from them is validated here before it reaches a response. Values this build
+//! wrote are trusted; anything else fails the read with the loader's message.
 
 use crate::{Error as StoreError, Value};
 
-pub use crate::stmt_cache::{Row, all_rows, all_rows_raw, get_row, get_row_raw};
+pub use crate::stmt_cache::{all_rows_raw, get_row_raw};
 
 pub const MAX_SAFE: i64 = 9007199254740991;
 
@@ -72,6 +76,15 @@ pub fn as_count(value: &Value) -> Result<i64, LongError> {
     }
 }
 
+/// A count already read as `i64`.
+pub fn check_count(n: i64) -> Result<i64, LongError> {
+    if (0..=MAX_SAFE).contains(&n) {
+        Ok(n)
+    } else {
+        Err(invalid("invalid index row"))
+    }
+}
+
 /// A turn ordinal: an integer 1..=MAX_SAFE.
 pub fn as_ordinal(value: &Value) -> Result<i64, LongError> {
     let n = integer_value(value)?;
@@ -82,9 +95,27 @@ pub fn as_ordinal(value: &Value) -> Result<i64, LongError> {
     }
 }
 
+/// An ordinal already read as `i64`.
+pub fn check_ordinal(n: i64) -> Result<i64, LongError> {
+    if (1..=MAX_SAFE).contains(&n) {
+        Ok(n)
+    } else {
+        Err(invalid("invalid index row"))
+    }
+}
+
 /// A timestamp: a nonnegative integer.
 pub fn as_timestamp(value: &Value) -> Result<i64, LongError> {
     let n = integer_value(value)?;
+    if n >= 0 {
+        Ok(n)
+    } else {
+        Err(invalid("invalid index row"))
+    }
+}
+
+/// A timestamp already read as `i64`.
+pub fn check_timestamp(n: i64) -> Result<i64, LongError> {
     if n >= 0 {
         Ok(n)
     } else {
@@ -112,7 +143,14 @@ pub fn as_id(value: &Value) -> Result<&str, LongError> {
 }
 
 pub fn as_preview(value: &Value) -> Result<&str, LongError> {
-    let text = as_text(value)?;
+    check_preview(as_text(value)?)
+}
+
+pub fn as_preview_raw(text: &str) -> Result<&str, LongError> {
+    check_preview(text)
+}
+
+fn check_preview(text: &str) -> Result<&str, LongError> {
     if js_len(text) > 1024 {
         return Err(invalid("invalid index row"));
     }
@@ -121,41 +159,40 @@ pub fn as_preview(value: &Value) -> Result<&str, LongError> {
 
 pub fn as_path(value: &Value) -> Result<&str, LongError> {
     let text = as_text(value)?;
+    check_path(text)
+}
+
+pub fn check_path(text: &str) -> Result<&str, LongError> {
     if js_len(text) > 4096 {
         return Err(invalid("invalid index row"));
     }
     Ok(text)
 }
 
-pub fn opt_text(value: Option<&Value>) -> Result<Option<String>, LongError> {
+pub fn check_id(text: &str) -> Result<&str, LongError> {
+    if text.is_empty() {
+        return Err(invalid("invalid index row"));
+    }
+    Ok(text)
+}
+
+/// A borrowed text cell: NULL or missing reads as none.
+pub fn opt_text(value: Option<&Value>) -> Result<Option<&str>, LongError> {
     match value {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
-        Some(Value::Text(text)) => Ok(Some(text.clone())),
+        Some(Value::Text(text)) => Ok(Some(text.as_str())),
         Some(_) => Err(invalid("invalid index row")),
     }
 }
 
+/// A borrowed count cell: NULL or missing reads as none.
 pub fn opt_count(value: Option<&Value>) -> Result<Option<i64>, LongError> {
     match value {
         None => Ok(None),
         Some(Value::Null) => Ok(None),
         Some(value) => Ok(Some(as_count(value)?)),
     }
-}
-
-pub fn row_value<'a>(row: &'a Row, name: &str) -> Result<&'a Value, LongError> {
-    row.get(name).ok_or_else(|| invalid("invalid index row"))
-}
-
-pub fn row_opt<'a>(row: &'a Row, name: &str) -> Option<&'a Value> {
-    row.get(name)
-}
-
-/// The UTF-8 bytes of the JSON this response carries, as `Buffer.byteLength` counts them.
-pub fn json_bytes(value: &serde_json::Value) -> Result<usize, LongError> {
-    let text = serde_json::to_string(value).map_err(|error| invalid(&error.to_string()))?;
-    Ok(text.len())
 }
 
 pub fn is_tool_kind(kind: &str) -> bool {
