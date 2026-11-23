@@ -303,7 +303,7 @@ async fn removing_an_account_while_its_token_refreshes_leaves_no_token_behind() 
     assert!(
         matches!(
             accounts.bearer(&id).await,
-            Err(spade_chatgpt::BearerError::SignedOut(_))
+            Err(spade_chatgpt::BearerError::SignedOut(..))
         ),
         "nothing is left in memory either"
     );
@@ -320,7 +320,7 @@ async fn a_removed_accounts_token_is_not_left_in_memory() -> Result {
     assert_eq!(spade.delete(&format!("/v1/endpoints/{id}")).await?.0, 204);
     assert!(matches!(
         accounts.bearer(&id).await,
-        Err(spade_chatgpt::BearerError::SignedOut(_))
+        Err(spade_chatgpt::BearerError::SignedOut(..))
     ));
     Ok(())
 }
@@ -532,6 +532,15 @@ async fn an_account_removed_between_its_tokens_and_its_commit_leaves_nothing_beh
     assert_eq!(spade.keys.sign_in_secret(&gone, "refresh")?, None);
     assert_eq!(spade.keys.sign_in_secret(&gone, "access")?, None);
     assert_eq!(account(&spade, &gone).await?, Value::Null);
+    // Nothing takes its id again, an endpoint named after it included.
+    let (status, made) = spade
+        .post(
+            "/v1/endpoints",
+            json!({ "name": gone, "format": "openai-chat", "base_url": "https://spare.example/v1" }),
+        )
+        .await?;
+    assert_eq!(status, 201, "{made}");
+    assert_ne!(made["endpoint"]["id"], gone.as_str());
     // The account that was there before is untouched.
     assert!(spade.keys.sign_in_secret(&other, "refresh")?.is_some());
     assert_eq!(account(&spade, &other).await?["account"]["signed_in"], true);
@@ -555,5 +564,126 @@ async fn an_account_named_after_its_email_shows_only_the_provider_to_other_calle
     let (_, models) = spade.get_unstamped("/v1/models").await?;
     assert!(!models.to_string().contains("sam@example.com"), "{models}");
     assert_eq!(account(&spade, &id).await?["name"], "sam@example.com");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_backend_that_never_starts_answering_cannot_hold_off_a_sign_out() -> Result {
+    // The backend takes every request and says nothing for half a minute.
+    let spade = Spade::start(
+        vec![Script::reply("late").held(Duration::from_secs(30))],
+        Vec::new(),
+    )
+    .await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    spade
+        .engine
+        .models()
+        .set_first_answer_wait(Duration::from_millis(300));
+    let id = signed_in(&spade).await?;
+    let (_, bot) = spade
+        .post(
+            "/v1/agents",
+            json!({ "name": "Waiter", "model": format!("{id}/gpt-5.5") }),
+        )
+        .await?;
+    let conversation = bot["agent"]["conversation"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    spade.say(&conversation, "hi").await?;
+    // The call is on its way to the stalled backend.
+    for _ in 0..200 {
+        if !spade.fake.seen().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let signed_out = tokio::time::timeout(
+        Duration::from_secs(10),
+        spade.post(&format!("/v1/endpoints/{id}/sign-out"), json!({})),
+    )
+    .await
+    .map_err(|_| "the sign-out waited on the stalled call")??;
+    assert_eq!(signed_out.0, 200, "{}", signed_out.1);
+    spade
+        .wait_for_any(&conversation, &["reply_failed", "reply_finished"])
+        .await?;
+    let calls = spade
+        .fake
+        .seen()
+        .iter()
+        .filter(|s| s.path.ends_with("/responses"))
+        .count();
+    assert_eq!(
+        calls, 1,
+        "a stall may have been billed: it is never sent again"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_sign_out_between_a_sign_ins_tokens_and_its_commit_wins() -> Result {
+    let spade = Spade::start(vec![Script::reply("unused")], Vec::new()).await?;
+    let fake = FakeSignIn::start().await?;
+    let flows = flows_for(&spade, &fake)?;
+    let id = signed_in(&spade).await?;
+    // The account is signed in again; right after the new tokens are kept, it is signed out.
+    let engine = spade.engine.clone();
+    flows.set_after_keep(Arc::new(move |account: String| {
+        let engine = engine.clone();
+        Box::pin(async move {
+            let _ = engine.sign_out(&account).await;
+        })
+    }));
+    let flow = sign_in(
+        &spade,
+        json!({ "method": "browser", "terms_read": true, "account": id }),
+    )
+    .await?;
+    assert_eq!(flow["state"], "failed", "{flow}");
+    assert_eq!(account(&spade, &id).await?["account"]["signed_in"], false);
+    assert_eq!(spade.keys.sign_in_secret(&id, "refresh")?, None);
+    Ok(())
+}
+
+/// Ids that make every new sign-in's suffix the same, and count for everything else.
+struct Colliding(std::sync::atomic::AtomicU64);
+
+impl spade_server::clock::Ids for Colliding {
+    fn next(&self, prefix: &str) -> String {
+        if prefix.is_empty() {
+            return "_samesame".to_owned();
+        }
+        let n = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        format!("{prefix}_{n}")
+    }
+}
+
+#[tokio::test]
+async fn a_sign_in_whose_id_was_ever_used_is_refused_rather_than_given_it_again() -> Result {
+    let spade = Spade::start_with(
+        vec![Script::reply("unused")],
+        Vec::new(),
+        support::Options {
+            ids: Some(Arc::new(Colliding(std::sync::atomic::AtomicU64::new(0)))),
+            ..support::Options::default()
+        },
+    )
+    .await?;
+    let fake = FakeSignIn::start().await?;
+    sign_ins(&spade, &fake)?;
+    let first = signed_in(&spade).await?;
+    assert_eq!(first, "chatgpt-samesame");
+    assert_eq!(
+        spade.delete(&format!("/v1/endpoints/{first}")).await?.0,
+        204
+    );
+    // Every id the next sign-in could take is the removed one's: it fails, and takes nothing.
+    let flow = sign_in(&spade, json!({ "method": "browser", "terms_read": true })).await?;
+    assert_eq!(flow["state"], "failed", "{flow}");
+    assert_eq!(account(&spade, &first).await?, Value::Null);
+    assert_eq!(spade.keys.sign_in_secret(&first, "refresh")?, None);
     Ok(())
 }

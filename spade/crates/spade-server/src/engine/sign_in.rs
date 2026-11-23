@@ -44,9 +44,9 @@ impl Engine {
                     token: bearer.token,
                     generation: bearer.generation,
                 }),
-                Err(BearerError::SignedOut(line)) => {
+                Err(BearerError::SignedOut(line, generation)) => {
                     if let Some(engine) = engine.upgrade() {
-                        let _ = engine.mark_signed_in(&id, false);
+                        let _ = engine.mark_signed_out_at(&id, generation);
                     }
                     Err(line)
                 }
@@ -175,14 +175,19 @@ impl Engine {
         if stored.sign_in.is_none() {
             return Err(invalid("that account uses a key; remove its key instead"));
         }
-        if let Some(flows) = self.sign_ins.get() {
-            flows
-                .accounts()
-                .forget(id)
-                .await
-                .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+        match self.sign_ins.get() {
+            Some(flows) => {
+                let generation = flows
+                    .accounts()
+                    .sign_out(id)
+                    .await
+                    .map_err(|e| EndpointError::Keychain(e.to_string()))?;
+                self.mark_signed_out_at(id, generation)?;
+            }
+            None => {
+                self.forget_sign_in(id)?;
+            }
         }
-        self.mark_signed_in(id, false)?;
         self.endpoint_views()?
             .into_iter()
             .find(|v| v.stored.id == id)
@@ -211,19 +216,24 @@ impl Engine {
             .ok_or(EndpointError::NotFound)
     }
 
-    /// Records whether an account's tokens are in the keychain.
-    fn mark_signed_in(&self, id: &str, signed_in: bool) -> Result<(), StoreError> {
+    /// Records that an account is signed out, as of credential `generation`: only while that is
+    /// still its generation, so a sign-in that came since is never marked signed out.
+    fn mark_signed_out_at(&self, id: &str, generation: u64) -> Result<(), StoreError> {
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let current = self
+            .sign_ins
+            .get()
+            .is_none_or(|flows| flows.accounts().is_current(id, generation));
+        if !current {
+            return Ok(());
+        }
         let Some(mut stored) = self.store.endpoints()?.into_iter().find(|e| e.id == id) else {
             return Ok(());
         };
-        let Some(sign_in) = stored.sign_in.as_mut() else {
+        let Some(sign_in) = stored.sign_in.as_mut().filter(|s| s.signed_in) else {
             return Ok(());
         };
-        if sign_in.signed_in == signed_in {
-            return Ok(());
-        }
-        sign_in.signed_in = signed_in;
+        sign_in.signed_in = false;
         self.store.update_endpoint(&stored)?;
         Ok(())
     }
@@ -262,39 +272,53 @@ impl Engine {
         // From here to the commit below, this sign-in holds its reservation: the row under an
         // id no other account ever had or will have, so whatever happens to it, the cleanup
         // touches only what this sign-in made.
-        if let Err(error) = accounts.keep(&id, &done.tokens).await {
-            if added {
-                let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-                let _ = self.store.delete_endpoint(&id, self.now_ms());
-                let _ = self.sync_endpoints();
+        let generation = match accounts.keep(&id, &done.tokens).await {
+            Ok(generation) => generation,
+            Err(error) => {
+                // A new account's reservation goes with whatever it wrote (one entry: all or
+                // nothing); an account being renewed keeps the tokens it had.
+                if added {
+                    let _ = accounts.forget(&id).await;
+                    let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
+                    let _ = self.store.delete_endpoint(&id, self.now_ms());
+                    let _ = self.sync_endpoints();
+                }
+                return Err(error.to_string());
             }
-            return Err(error.to_string());
-        }
+        };
         flows.after_keep(&id).await;
-        let kept = {
+        // Committed only while these tokens are still the account's: a sign-out or removal that
+        // came in between wins, and the account is never shown signed in without them.
+        let committed = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-            match self
+            let row = self
                 .store
                 .endpoints()
                 .map_err(|e| e.to_string())?
                 .into_iter()
                 .find(|e| e.id == id)
-            {
-                Some(mut row) if !self.retiring(&id) => {
+                .filter(|_| !self.retiring(&id));
+            match row {
+                Some(_) if !accounts.is_current(&id, generation) => Some(false),
+                Some(mut row) => {
                     row.sign_in = Some(facts);
                     self.store
                         .update_endpoint(&row)
                         .map_err(|e| e.to_string())?;
                     self.sync_endpoints().map_err(|e| e.to_string())?;
-                    true
+                    Some(true)
                 }
-                _ => false,
+                None => None,
             }
         };
-        if !kept {
-            // Removed while it signed in: the tokens just kept go too.
-            let _ = accounts.forget(&id).await;
-            return Err("the account was removed while signing in".to_owned());
+        match committed {
+            Some(true) => {}
+            Some(false) => return Err("the account was signed out while signing in".to_owned()),
+            None => {
+                // Removed while it signed in: the tokens just kept go too.
+                let _ = accounts.forget(&id).await;
+                return Err("the account was removed while signing in".to_owned());
+            }
         }
         if added {
             self.save_listed_models(&id).await;

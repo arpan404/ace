@@ -51,7 +51,7 @@ clients do, rather than only through the Codex CLI.
    ("This ChatGPT account reached its usage limit; it resets at 14:00.").
 4. **Where sign-in tokens live: the keychain only.** ADR 0119's exception now covers OAuth
    tokens Spade obtains itself: stored in the OS credential store under
-   `oauth:<account>:access` and `oauth:<account>:refresh`, held in memory while in use, and never
+   one entry holding both tokens, `oauth:<home>:<account>`, held in memory while in use, and never
    written to SQLite, the event log, logs, traces, crash reports, settings files or sync, never
    returned by any API, and never sent to the relay or ace's cloud. Only facts that are not
    secrets (email, plan, the ChatGPT account id) are kept in Spade's database. Signing out deletes
@@ -66,6 +66,13 @@ clients do, rather than only through the Codex CLI.
    its accounts (add, rename, remove, sign in and out, which bots use it) and each account's
    models; the defaults (new bots, fast work, roles) pick from them. Each bot and each role picks
    an account's model, so it picks provider, account and model at once.
+
+7. **Each Spade home keeps its own keychain entries.** One machine may run several Spade homes
+   (a person's and a development one) whose endpoint ids overlap. Every key and sign-in is filed
+   under the home's own id (made once and kept in the home), so no home reads, overwrites or
+   erases another's. A home copies, once, the keys an earlier build filed for the whole machine,
+   only for the endpoints it already has, and leaves the shared entry for any other home; a
+   sign-in from before this is never taken over and is signed in again.
 
 ## Consequences
 

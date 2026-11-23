@@ -37,12 +37,17 @@ pub struct Models {
     pub(crate) http: reqwest::Client,
     pub(crate) listing: ListBounds,
     refusals: Refusals,
+    /// How long a signed-in account's stream may take to start answering, in milliseconds.
+    first_answer_ms: Arc<std::sync::atomic::AtomicU64>,
     /// Access tokens for accounts that sign in (ADR 0214), set by the server.
     pub(crate) bearers: Arc<RwLock<Option<Bearers>>>,
 }
 
 /// A streamed reply, its first item already read.
 type Deltas = Pin<Box<dyn Stream<Item = Result<Delta, ModelError>> + Send>>;
+
+/// How long a signed-in account's stream may take to start answering by default: two minutes.
+const FIRST_ANSWER_MS: u64 = 120_000;
 
 /// Sent to an endpoint that needs no key (a local server), which ignores it.
 pub const KEYLESS: &str = "no-key";
@@ -133,8 +138,23 @@ impl Models {
             http,
             listing: ListBounds::default(),
             refusals: Refusals::default(),
+            first_answer_ms: Arc::new(std::sync::atomic::AtomicU64::new(FIRST_ANSWER_MS)),
             bearers: Arc::default(),
         })
+    }
+
+    /// How long a signed-in account's stream may take to start answering (ADR 0214).
+    pub fn set_first_answer_wait(&self, wait: std::time::Duration) {
+        let ms = u64::try_from(wait.as_millis()).unwrap_or(u64::MAX);
+        self.first_answer_ms
+            .store(ms, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn first_answer_wait(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(
+            self.first_answer_ms
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// How much of an endpoint's model list is read, and for how long.
@@ -418,8 +438,9 @@ impl Models {
                 .await?;
             let reply = fold(reference.clone(), stream).await?;
             return Ok(Generated {
+                // What didn't parse is never repeated: it may echo the account's token.
                 value: typed::parse(&reference, &reply.text)
-                    .map_err(|e| error::charged(e, reply.usage))?,
+                    .map_err(|e| error::charged(fixed_shape(e), reply.usage))?,
                 usage: reply.usage,
             });
         }
@@ -461,10 +482,26 @@ impl Models {
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<Deltas, ModelError> {
         let mut call = call;
-        // Held until the first item: by then the request is on the wire.
+        // Held until the first item: by then the request is on the wire. For a signed-in
+        // account, never longer than the first answer's wait, so a backend that stalls can't
+        // hold off a sign-out; a stall may have been billed, so it is never sent again.
         let held = call.held.take();
-        let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
-        let first = stream.next().await;
+        let reference = call.reference.clone();
+        let opening = async {
+            let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
+            let first = stream.next().await;
+            Ok::<_, ModelError>((stream, first))
+        };
+        let (stream, first) = if held.is_some() {
+            tokio::time::timeout(self.first_answer_wait(), opening)
+                .await
+                .map_err(|_| ModelError::Provider {
+                    model: reference,
+                    message: "the ChatGPT backend did not start answering in time".to_owned(),
+                })??
+        } else {
+            opening.await?
+        };
         drop(held);
         match first {
             Some(Err(error)) => Err(error),
@@ -612,6 +649,24 @@ impl Models {
             streamed_only,
             signed: token,
         })
+    }
+}
+
+/// A shape error in fixed words, for a signed-in account's reply.
+fn fixed_shape(error: ModelError) -> ModelError {
+    match error {
+        ModelError::Shape {
+            model,
+            type_name,
+            usage,
+            ..
+        } => ModelError::Shape {
+            model,
+            type_name,
+            reason: "the reply was not in the shape asked for".to_owned(),
+            usage,
+        },
+        other => other,
     }
 }
 

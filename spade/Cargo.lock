@@ -3864,6 +3864,7 @@ version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "windows-native-keyring-store",

@@ -172,7 +172,7 @@ impl Models {
             )
             .await
             {
-                Ok(listed) => return Ok(listed),
+                Ok(listed) => return Ok(without_token(listed, &signed.credential.token)),
                 Err(failure) => failure,
             };
             drop(_sending);
@@ -194,6 +194,20 @@ impl Models {
             }));
         }
     }
+}
+
+/// A signed-in account's model list with nothing that carries its token: a model whose id holds
+/// it is left out, a name that holds it goes, and the raw item is never kept.
+fn without_token(listed: Vec<Listed>, token: &str) -> Vec<Listed> {
+    listed
+        .into_iter()
+        .filter(|m| !m.id.contains(token))
+        .map(|mut m| {
+            m.name = m.name.filter(|name| !name.contains(token));
+            m.raw = serde_json::Value::Null;
+            m
+        })
+        .collect()
 }
 
 fn refuse(endpoint: &Endpoint, message: &str) -> ModelError {

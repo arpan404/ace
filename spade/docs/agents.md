@@ -377,6 +377,13 @@ target `accounts` (starting, reading and cancelling sign-ins, and `GET /v1/model
 `account:<id>`, and value `<METHOD> <path and query>:<SHA-256 of the body, hex>`, so it holds for
 that request and no other. A new ChatGPT account is named `ChatGPT`, then `ChatGPT 2` and on,
 never its email; an older account named after its email shows to other callers as `ChatGPT`.
+Keys and sign-ins are filed per Spade home (`endpoint:<home>:<id>`, `oauth:<home>:<id>`, the
+home's id kept in `keychain-scope` in its data folder): another home on the same machine with the
+same endpoint ids never reads, overwrites or erases them. On its first start with this, a home
+copies the machine-wide keys an earlier build kept for the endpoints it already has, and leaves
+them for any other home. A sign-in's two tokens are one entry, written and erased together.
+A signed-in account's stream must start answering within two minutes (`first answer wait`), so a
+backend that stalls can't hold the dispatch gate; a stall is possibly billed and never resent.
 A send on a signed-in account holds the account's dispatch gate until the request is on the wire:
 a sign-out, removal or new sign-in waits for those sends, and none under the old credential starts
 after. The model SDK's own diagnostics are never logged, whatever `RUST_LOG` says: they carry

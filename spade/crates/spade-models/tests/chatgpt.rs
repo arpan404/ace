@@ -639,3 +639,92 @@ async fn a_401_model_list_too_large_to_read_is_still_a_401_and_refreshes() -> Re
     );
     Ok(())
 }
+
+/// A model list that names each model after the token it was asked with, and counts the asks;
+/// with `refuse`, it refuses every ask with a `401`.
+async fn naming_list(refuse: bool) -> Result<(String, Arc<std::sync::atomic::AtomicUsize>)> {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = asked.clone();
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(move |headers: HeaderMap| {
+            let count = count.clone();
+            async move {
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if refuse {
+                    return StatusCode::UNAUTHORIZED.into_response();
+                }
+                let sent = headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or_default()
+                    .to_owned();
+                axum::Json(serde_json::json!({ "models": [
+                    { "slug": "gpt-5.5", "display_name": format!("GPT for {sent}") },
+                    { "slug": format!("leak-{sent}") }
+                ] }))
+                .into_response()
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok((root, asked))
+}
+
+#[tokio::test]
+async fn a_model_list_that_echoes_the_token_never_hands_it_on() -> Result {
+    let (root, _) = naming_list(false).await?;
+    let client = client_for(&root, &root, Some("access-1"))?;
+    let listed = client.models.list("chatgpt").await?;
+    let shown = format!("{listed:?}");
+    assert!(!shown.contains("access-1"), "{shown}");
+    assert_eq!(
+        listed.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["gpt-5.5"]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_list_refresh_that_gives_back_the_same_token_asks_nothing_more() -> Result {
+    let (root, asked) = naming_list(true).await?;
+    let models = Models::new(
+        Catalog::from_json(r#"{"endpoints":[]}"#)?,
+        Keys::new(|_| None),
+        "1.2.3",
+    )?;
+    models.set_endpoints(vec![account(&root)]);
+    let same = || Credential {
+        token: "access-1".to_owned(),
+        generation: 1,
+    };
+    models.set_bearers(Bearers::new(
+        root.clone(),
+        move |_| Box::pin(async move { Ok(same()) }),
+        move |_, old: Credential| Box::pin(async move { Ok(old) }),
+        |_, _| Box::pin(async { Ok(Box::new(()) as DispatchGuard) }),
+    ));
+    assert!(models.list("chatgpt").await.is_err());
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_typed_reply_that_echoes_the_token_never_carries_it_into_the_error() -> Result {
+    let fake = FakeProvider::start(r#"{"relevant":"access-1"}"#).await?;
+    let client = client_for(&fake.root, &fake.root, Some("access-1"))?;
+    let error = client
+        .models
+        .generate::<Verdict>("chatgpt/gpt-5.5", &Prompt::ask("relevant?"))
+        .await
+        .err()
+        .ok_or("the reply should not parse")?;
+    let shown = format!("{error} {error:?}");
+    assert!(matches!(error, ModelError::Shape { .. }), "{shown}");
+    assert!(!shown.contains("access-1"), "{shown}");
+    Ok(())
+}

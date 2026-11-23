@@ -23,11 +23,9 @@ pub const SERVICE: &str = "dev.acehq.spade";
 /// The keychain account Spade's ace grant is filed under (docs/ace-integration.md).
 pub const ACE_GRANT: &str = "ace:grant";
 
-/// The longest key accepted. Sign-in tokens are JSON Web Tokens, which run to a few kilobytes.
-const LONGEST: usize = 16_384;
-
-/// The kinds of sign-in token kept per account (ADR 0214).
-pub const SIGN_IN_KINDS: [&str; 2] = ["access", "refresh"];
+/// The longest key accepted. A sign-in keeps two JSON Web Tokens in one entry, a few kilobytes
+/// each.
+const LONGEST: usize = 32_768;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum KeyError {
@@ -49,6 +47,10 @@ pub struct KeyStore {
     service: String,
     /// Whether each endpoint has a key, as last read, shared by every clone.
     presence: Arc<presence::Presence>,
+    /// The Spade home these keys are this home's in (ADR 0214): one machine may run several
+    /// homes (a person's and a development one), and each home's endpoint ids are its own, so
+    /// its keys and sign-ins are filed apart. `None` files them as earlier builds did.
+    scope: Option<Arc<str>>,
 }
 
 impl fmt::Debug for KeyStore {
@@ -71,7 +73,38 @@ impl KeyStore {
             store,
             service: service.to_owned(),
             presence: Arc::default(),
+            scope: None,
         }
+    }
+
+    /// These keys, filed for the Spade home `home` (a stable id the home keeps): another home's
+    /// keys and sign-ins are never read, written or erased through it.
+    pub fn scoped(mut self, home: &str) -> Self {
+        self.scope = Some(Arc::from(home));
+        self.presence = Arc::default();
+        self
+    }
+
+    /// Copies each of `endpoints`' keys an earlier build filed for every home on this machine
+    /// into this home's own place, where this home doesn't have one yet: the endpoints this home
+    /// already had, which used that shared key. The shared entry stays, for another home that
+    /// used it too. Returns how many were copied. Nothing to do without a scope.
+    pub fn adopt_unscoped_keys(&self, endpoints: &[&str]) -> Result<usize, KeyError> {
+        if self.scope.is_none() {
+            return Ok(0);
+        }
+        let mut copied = 0;
+        for endpoint in endpoints {
+            if endpoint.trim().is_empty() || self.get(endpoint)?.is_some() {
+                continue;
+            }
+            let shared = self.account(&format!("endpoint:{endpoint}"))?;
+            if let Some(key) = self.read(&shared)? {
+                self.set(endpoint, &key)?;
+                copied += 1;
+            }
+        }
+        Ok(copied)
     }
 
     /// The key for `endpoint`, if one is stored.
@@ -118,39 +151,62 @@ impl KeyStore {
         Self::remove(&self.connector_entry(id, kind)?)
     }
 
-    /// A sign-in token of `kind` (`access`, `refresh`) for account `endpoint`, if stored
-    /// (ADR 0214). Account `oauth:<endpoint>:<kind>`.
-    pub fn sign_in_secret(&self, endpoint: &str, kind: &str) -> Result<Option<String>, KeyError> {
-        self.read(&self.sign_in_entry(endpoint, kind)?)
+    /// A signed-in account's tokens, access then refresh, if stored (ADR 0214): one entry, so
+    /// the two are always written, read and erased together. Account `oauth:<home>:<account>`.
+    pub fn sign_in_pair(&self, endpoint: &str) -> Result<Option<(String, String)>, KeyError> {
+        let Some(text) = self.read(&self.sign_in_entry(endpoint)?)? else {
+            return Ok(None);
+        };
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|_| KeyError::Failed("a sign-in entry is not readable".to_owned()))?;
+        let part = |name: &str| value.get(name).and_then(|v| v.as_str()).map(str::to_owned);
+        Ok(part("access").zip(part("refresh")))
     }
 
-    /// Stores a sign-in token of `kind`, replacing any earlier one.
-    pub fn set_sign_in_secret(
+    /// Stores a signed-in account's tokens, replacing any earlier pair in one write.
+    pub fn set_sign_in_pair(
         &self,
         endpoint: &str,
-        kind: &str,
-        secret: &str,
+        access: &str,
+        refresh: &str,
     ) -> Result<(), KeyError> {
-        let secret = checked(secret)?;
-        self.sign_in_entry(endpoint, kind)?
-            .set_password(secret)
+        let (access, refresh) = (checked(access)?, checked(refresh)?);
+        let pair = serde_json::json!({ "access": access, "refresh": refresh }).to_string();
+        let pair = checked(&pair)?;
+        self.sign_in_entry(endpoint)?
+            .set_password(pair)
             .map_err(|error| classify(&error))
     }
 
-    /// Forgets every sign-in token of account `endpoint`. Returns whether there was one.
-    pub fn delete_sign_in(&self, endpoint: &str) -> Result<bool, KeyError> {
-        let mut any = false;
-        for kind in SIGN_IN_KINDS {
-            any |= Self::remove(&self.sign_in_entry(endpoint, kind)?)?;
-        }
-        Ok(any)
+    /// One of a signed-in account's tokens (`access` or `refresh`), if stored.
+    pub fn sign_in_secret(&self, endpoint: &str, kind: &str) -> Result<Option<String>, KeyError> {
+        Ok(self
+            .sign_in_pair(endpoint)?
+            .and_then(|(access, refresh)| match kind {
+                "access" => Some(access),
+                "refresh" => Some(refresh),
+                _ => None,
+            }))
     }
 
-    fn sign_in_entry(&self, endpoint: &str, kind: &str) -> Result<Entry, KeyError> {
-        if endpoint.trim().is_empty() || kind.trim().is_empty() {
+    /// Forgets a signed-in account's tokens. Returns whether there were any.
+    pub fn delete_sign_in(&self, endpoint: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.sign_in_entry(endpoint)?)
+    }
+
+    fn sign_in_entry(&self, endpoint: &str) -> Result<Entry, KeyError> {
+        if endpoint.trim().is_empty() {
             return Err(KeyError::Invalid("the account id is empty"));
         }
-        self.account(&format!("oauth:{endpoint}:{kind}"))
+        self.account(&self.scoped_name("oauth", endpoint))
+    }
+
+    /// `<kind>:<home>:<id>` in a home's scope, else `<kind>:<id>` as earlier builds filed it.
+    fn scoped_name(&self, kind: &str, id: &str) -> String {
+        match &self.scope {
+            Some(home) => format!("{kind}:{home}:{id}"),
+            None => format!("{kind}:{id}"),
+        }
     }
 
     /// An org host's audit key (ADR 0206 §4.2), the hex Ed25519 seed that signs its log's
@@ -250,7 +306,7 @@ impl KeyStore {
         if endpoint.trim().is_empty() {
             return Err(KeyError::Invalid("the endpoint id is empty"));
         }
-        self.account(&format!("endpoint:{endpoint}"))
+        self.account(&self.scoped_name("endpoint", endpoint))
     }
 
     fn account(&self, account: &str) -> Result<Entry, KeyError> {

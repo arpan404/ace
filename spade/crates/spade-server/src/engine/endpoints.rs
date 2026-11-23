@@ -554,7 +554,10 @@ impl Engine {
                 .delete(id)
                 .map_err(|e| EndpointError::Keychain(e.to_string()))?;
         }
-        self.forget_sign_in(id)?;
+        // Sign-in tokens only for a signed-in account: a key account's id erases nothing else.
+        if row.sign_in.is_some() {
+            self.forget_sign_in(id)?;
+        }
         let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
         // Only the very row this delete started with, never a replacement under the same id.
         match self.store.endpoints()?.into_iter().find(|e| e.id == id) {

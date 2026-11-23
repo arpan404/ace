@@ -83,6 +83,22 @@ impl Home {
         self.dir.join("spade.sqlite")
     }
 
+    /// This home's own id among the Spade homes on this machine (ADR 0214): its keychain entries
+    /// are filed under it, so another home's endpoints with the same ids never see them. Made once
+    /// with `id` (a fresh random one) and kept in the home for good.
+    pub fn keychain_scope(&self, id: impl FnOnce() -> String) -> Result<String, HomeError> {
+        let path = self.dir.join("keychain-scope");
+        match fs::read_to_string(&path) {
+            Ok(text) if !text.trim().is_empty() => return Ok(text.trim().to_owned()),
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(io(&path)(error)),
+        }
+        let made = id();
+        write_atomic(&path, made.as_bytes(), true)?;
+        Ok(made)
+    }
+
     /// Writes the API token, readable only by this user.
     pub fn write_token(&self, token: &str) -> Result<(), HomeError> {
         write_atomic(&self.dir.join("token"), token.as_bytes(), true)
@@ -139,6 +155,19 @@ pub fn new_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_homes_keychain_scope_is_made_once_and_kept_and_another_home_has_its_own()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let (one, two) = (tempfile::tempdir()?, tempfile::tempdir()?);
+        let first = Home::open(one.path())?.keychain_scope(|| "made-1".to_owned())?;
+        // Opened again, the home keeps the id it made, whatever a new one would be.
+        let again = Home::open(one.path())?.keychain_scope(|| "made-2".to_owned())?;
+        let other = Home::open(two.path())?.keychain_scope(|| "made-3".to_owned())?;
+        assert_eq!((first.as_str(), again.as_str()), ("made-1", "made-1"));
+        assert_eq!(other, "made-3");
+        Ok(())
+    }
 
     #[test]
     fn server_json_names_the_address_pid_version_and_api() -> Result<(), Box<dyn std::error::Error>>

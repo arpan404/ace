@@ -245,12 +245,12 @@ async fn a_refused_refresh_signs_the_account_out_and_its_tokens_go() -> Result {
     s.fake.kill("refresh-0");
     s.now.store(10_000, Ordering::SeqCst);
     let error = accounts.bearer("chatgpt").await.err().ok_or("no error")?;
-    assert!(matches!(error, BearerError::SignedOut(_)), "{error:?}");
+    assert!(matches!(error, BearerError::SignedOut(..)), "{error:?}");
     assert_eq!(s.keys.sign_in_secret("chatgpt", "refresh")?, None);
     assert_eq!(s.keys.sign_in_secret("chatgpt", "access")?, None);
     // Signed out stays signed out, with no call to the server.
     let again = accounts.bearer("chatgpt").await.err().ok_or("no error")?;
-    assert!(matches!(again, BearerError::SignedOut(_)));
+    assert!(matches!(again, BearerError::SignedOut(..)));
     Ok(())
 }
 
@@ -263,7 +263,7 @@ async fn signing_out_forgets_the_tokens_and_another_account_keeps_its_own() -> R
     assert!(accounts.forget("chatgpt").await?);
     assert!(matches!(
         accounts.bearer("chatgpt").await,
-        Err(BearerError::SignedOut(_))
+        Err(BearerError::SignedOut(..))
     ));
     assert!(accounts.bearer("chatgpt-2").await.is_ok());
     Ok(())

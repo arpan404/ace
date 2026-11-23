@@ -274,8 +274,13 @@ async fn run() -> Result<(), Failure> {
         e => other(e),
     })?;
 
+    // Filed under this home's own id, so another Spade home on this machine never reads,
+    // overwrites or erases this one's keys and sign-ins (ADR 0214).
+    let scope = home
+        .keychain_scope(|| uuid::Uuid::new_v4().simple().to_string())
+        .map_err(other)?;
     let keychain = match KeyStore::os() {
-        Ok(store) => Some(store),
+        Ok(store) => Some(store.scoped(&scope)),
         Err(error) => {
             tracing::warn!(%error, "no keychain; endpoint keys come from the environment only");
             None

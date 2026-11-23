@@ -1,6 +1,7 @@
-//! The signed-in accounts' tokens: in the OS keychain (`oauth:<account>:access` and `:refresh`,
-//! ADR 0214), held in memory while in use, refreshed when the access token nears its end. One
-//! refresh per account at a time, so a refresh token is never sent twice.
+//! The signed-in accounts' tokens: in the OS keychain, both in one entry per account
+//! (`oauth:<home>:<account>`, ADR 0214), held in memory while in use, refreshed when the access
+//! token nears its end. One refresh per account at a time, so a refresh token is never sent
+//! twice.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -17,9 +18,11 @@ pub const REFRESH_EARLY_S: i64 = 5 * 60;
 /// Why an account has no token to call with.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BearerError {
-    /// No tokens, or the server refused the refresh: the person has to sign in again.
+    /// No tokens, or the server refused the refresh: the person has to sign in again. With the
+    /// account's generation once signed out, so whoever records it can tell a newer sign-in
+    /// since from this one.
     #[error("{0}")]
-    SignedOut(String),
+    SignedOut(String, u64),
     /// The keychain or the network failed; a later call may work.
     #[error("{0}")]
     Failed(String),
@@ -160,7 +163,7 @@ impl Accounts {
     pub async fn current_bearer(&self, account: &str) -> Result<Bearer, BearerError> {
         match self.locked(account, Op::Bearer(None)).await? {
             Done::Token(bearer) => Ok(bearer),
-            Done::Forgot(_) | Done::Kept => Err(BearerError::Failed("no token".to_owned())),
+            Done::Forgot(..) | Done::Kept(_) => Err(BearerError::Failed("no token".to_owned())),
         }
     }
 
@@ -187,7 +190,7 @@ impl Accounts {
             .await?
         {
             Done::Token(bearer) => Ok(bearer),
-            Done::Forgot(_) | Done::Kept => Err(BearerError::Failed("no token".to_owned())),
+            Done::Forgot(..) | Done::Kept(_) => Err(BearerError::Failed("no token".to_owned())),
         }
     }
 
@@ -213,18 +216,30 @@ impl Accounts {
     }
 
     /// Keeps a sign-in's tokens for `account`, replacing any earlier ones.
-    pub async fn keep(&self, account: &str, tokens: &Tokens) -> Result<(), BearerError> {
-        self.locked(account, Op::Keep(tokens.clone()))
-            .await
-            .map(|_| ())
+    /// Returns the generation of the credential kept: a status recorded for it holds only while
+    /// it is still current.
+    pub async fn keep(&self, account: &str, tokens: &Tokens) -> Result<u64, BearerError> {
+        match self.locked(account, Op::Keep(tokens.clone())).await? {
+            Done::Kept(generation) => Ok(generation),
+            Done::Token(_) | Done::Forgot(..) => Err(BearerError::Failed("not kept".to_owned())),
+        }
     }
 
     /// Signs `account` out: its tokens leave memory and the keychain, after any refresh or keep
     /// of it under way. Returns whether it had any.
     pub async fn forget(&self, account: &str) -> Result<bool, BearerError> {
         match self.locked(account, Op::Forget).await? {
-            Done::Forgot(had) => Ok(had),
-            Done::Token(_) | Done::Kept => Ok(false),
+            Done::Forgot(had, _) => Ok(had),
+            Done::Token(_) | Done::Kept(_) => Ok(false),
+        }
+    }
+
+    /// [`Accounts::forget`], returning the generation it leaves: a "signed out" recorded for it
+    /// holds only while no sign-in came since.
+    pub async fn sign_out(&self, account: &str) -> Result<u64, BearerError> {
+        match self.locked(account, Op::Forget).await? {
+            Done::Forgot(_, generation) => Ok(generation),
+            Done::Token(_) | Done::Kept(_) => Err(BearerError::Failed("not signed out".to_owned())),
         }
     }
 
@@ -262,8 +277,10 @@ enum Op {
 
 enum Done {
     Token(Bearer),
-    Kept,
-    Forgot(bool),
+    /// The generation of the credential kept.
+    Kept(u64),
+    /// Whether there were tokens, and the generation after.
+    Forgot(bool, u64),
 }
 
 impl Parts {
@@ -368,12 +385,13 @@ impl Parts {
                     refresh: tokens.refresh_token,
                 });
                 self.next_generation(id).await;
-                Ok(Done::Kept)
+                Ok(Done::Kept(self.generation(id)))
             }
             Op::Forget => {
                 *held = None;
                 self.next_generation(id).await;
-                self.erase(id).await.map(Done::Forgot)
+                let had = self.erase(id).await?;
+                Ok(Done::Forgot(had, self.generation(id)))
             }
         }
     }
@@ -389,7 +407,10 @@ impl Parts {
             *held = self.load(account).await?;
         }
         let Some(current) = held.clone() else {
-            return Err(BearerError::SignedOut(SIGNED_OUT.to_owned()));
+            return Err(BearerError::SignedOut(
+                SIGNED_OUT.to_owned(),
+                self.generation(account),
+            ));
         };
         let fresh = current
             .expires
@@ -414,7 +435,7 @@ impl Parts {
                 *held = None;
                 self.next_generation(account).await;
                 self.erase(account).await?;
-                Err(BearerError::SignedOut(line))
+                Err(BearerError::SignedOut(line, self.generation(account)))
             }
             Err(OauthError::Failed(line)) => Err(BearerError::Failed(line)),
         }
@@ -425,28 +446,16 @@ impl Parts {
             return Ok(None);
         };
         let id = account.to_owned();
-        let read = tokio::task::spawn_blocking(move || {
-            let access = keys.sign_in_secret(&id, "access")?;
-            let refresh = keys.sign_in_secret(&id, "refresh")?;
-            Ok::<_, spade_keys::KeyError>((access, refresh))
-        })
-        .await
-        .map_err(|_| BearerError::Failed("the keychain read stopped".to_owned()))?
-        .map_err(|e| BearerError::Failed(e.to_string()))?;
-        Ok(match read {
-            (Some(access), Some(refresh)) => Some(Held {
-                expires: crate::claims::expires(&access),
-                access,
-                refresh,
-            }),
-            // A refresh token alone still signs in: its first call refreshes.
-            (None, Some(refresh)) => Some(Held {
-                access: String::new(),
-                refresh,
-                expires: Some(i64::MIN),
-            }),
-            _ => None,
-        })
+        // One entry holds both tokens: never one sign-in's access with another's refresh.
+        let read = tokio::task::spawn_blocking(move || keys.sign_in_pair(&id))
+            .await
+            .map_err(|_| BearerError::Failed("the keychain read stopped".to_owned()))?
+            .map_err(|e| BearerError::Failed(e.to_string()))?;
+        Ok(read.map(|(access, refresh)| Held {
+            expires: crate::claims::expires(&access),
+            access,
+            refresh,
+        }))
     }
 
     async fn write(&self, account: &str, access: &str, refresh: &str) -> Result<(), BearerError> {
@@ -456,13 +465,11 @@ impl Parts {
             ));
         };
         let (id, access, refresh) = (account.to_owned(), access.to_owned(), refresh.to_owned());
-        tokio::task::spawn_blocking(move || {
-            keys.set_sign_in_secret(&id, "refresh", &refresh)?;
-            keys.set_sign_in_secret(&id, "access", &access)
-        })
-        .await
-        .map_err(|_| BearerError::Failed("the keychain write stopped".to_owned()))?
-        .map_err(|e| BearerError::Failed(e.to_string()))
+        // Both in one write: it lands whole, or not at all.
+        tokio::task::spawn_blocking(move || keys.set_sign_in_pair(&id, &access, &refresh))
+            .await
+            .map_err(|_| BearerError::Failed("the keychain write stopped".to_owned()))?
+            .map_err(|e| BearerError::Failed(e.to_string()))
     }
 
     async fn erase(&self, account: &str) -> Result<bool, BearerError> {
