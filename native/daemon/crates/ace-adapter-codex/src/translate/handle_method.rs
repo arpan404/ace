@@ -197,7 +197,7 @@ pub fn handle_method(
         return;
     }
     if method == "serverRequest/resolved" {
-        let key = translator.interaction_key(map.get("requestId").unwrap_or(&Value::Null));
+        let key = translator.interaction_key(p.get("requestId").unwrap_or(&Value::Null));
         let mut body = Map::with_capacity(2);
         body.insert("interaction".to_owned(), Value::String(key.clone()));
         body.insert("state".to_owned(), Value::String("resolved".to_owned()));
