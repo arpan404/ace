@@ -136,3 +136,55 @@ async fn the_persons_file_changes_are_confined_trusted_and_announced() -> Result
     assert_eq!(std::fs::read_dir(outside.path())?.count(), 0);
     Ok(())
 }
+
+#[tokio::test]
+async fn an_upload_sent_as_new_never_replaces_a_file_made_meanwhile() -> Result {
+    let machine = Machine::new()?;
+    let spade = start(&machine, vec![Script::reply("Hi")], Vec::new()).await?;
+    let (agent, _) = bot(&spade).await?;
+    let workspace = machine.workspaces.of(&agent)?;
+    let upload = format!("/v1/agents/{agent}/files/upload");
+
+    let (status, _) = spade
+        .post(
+            &upload,
+            json!({ "path": "new.txt", "data_b64": b64("mine"), "if_absent": true }),
+        )
+        .await?;
+    assert_eq!(status, 204, "nothing was there: it is written");
+    assert!(workspace.file_trusted("new.txt", b"mine"));
+
+    // The bot wrote the file after the person picked theirs as a new one.
+    workspace.write_bytes("made.txt", b"the bot's", 1024)?;
+    let (status, _) = spade
+        .post(
+            &upload,
+            json!({ "path": "made.txt", "data_b64": b64("mine"), "if_absent": true }),
+        )
+        .await?;
+    assert_eq!(status, 409);
+    assert_eq!(
+        std::fs::read(workspace.path()?.join("made.txt"))?,
+        b"the bot's"
+    );
+    std::fs::create_dir(workspace.path()?.join("folder"))?;
+    let (status, _) = spade
+        .post(
+            &upload,
+            json!({ "path": "folder", "data_b64": b64("x"), "if_absent": true }),
+        )
+        .await?;
+    assert_eq!(status, 409, "a folder occupies the name too");
+
+    let large = workspace.path()?.join("large.bin");
+    std::fs::File::create(&large)?.set_len(33 * 1024 * 1024)?;
+    let (status, _) = spade
+        .post(
+            &upload,
+            json!({ "path": "large.bin", "data_b64": b64("x"), "if_absent": true }),
+        )
+        .await?;
+    assert_eq!(status, 409);
+    assert_eq!(std::fs::metadata(large)?.len(), 33 * 1024 * 1024);
+    Ok(())
+}

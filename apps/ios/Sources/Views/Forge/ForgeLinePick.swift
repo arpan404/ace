@@ -31,9 +31,15 @@ struct ForgeLinePick: Equatable {
 
     /// Display previews must never become a destructive replacement.
     func suggestion(in lines: [ForgeFileDiff.Line]) -> String? {
+        newSide(in: lines)?.joined(separator: "\n")
+    }
+
+    /// The picked lines of the new side, whole, in order; nil on the old side or when any is
+    /// shortened for display, so neither a suggestion nor a note is ever built from a preview.
+    func newSide(in lines: [ForgeFileDiff.Line]) -> [String]? {
         let picked = lines.filter { holds($0) }
         guard side == "RIGHT", !picked.isEmpty, !picked.contains(where: \.clipped) else { return nil }
-        return picked.map(\.text).joined(separator: "\n")
+        return picked.map(\.text)
     }
 
     /// Extends the span to `anchor`; false when it is on another side or change.

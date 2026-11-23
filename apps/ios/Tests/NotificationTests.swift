@@ -860,6 +860,49 @@ import Testing
         alert.cursor = cursor
         return alert
     }
+    @Test func theAppsOwnMachineAttachingDuringABackgroundOpeningClosesTheShortLivedRuntimeFirst() async throws {
+        let sessions = Sessions()
+        let gate = OpeningGate()
+        let target = try target()
+        let background = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        let coordinator = NotificationCoordinator(center: FakeCenter(), authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { coordinator in
+            await coordinator.attach(background, target: target)
+            await gate.wait()
+            return [background]
+        })
+        let opening = Task { await coordinator.holdTransient() }
+        try await until("the background runtime attaches") { coordinator.client("host") === background }
+        let app = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        let attaching = Task { await coordinator.attach(app, target: target) }
+        for _ in 0..<20 { await Task.yield() }
+        // The app's attach waits while the opening is still under way.
+        #expect(coordinator.client("host") === background)
+        gate.open()
+        await opening.value
+        await attaching.value
+        #expect(coordinator.client("host") === app)
+        #expect(coordinator.machines.count == 1)
+        #expect(coordinator.transient.isEmpty)
+    }
+
+    @Test func aHeldShortLivedConnectionOutlastsAnotherCallerLettingGo() async throws {
+        let sessions = Sessions()
+        let target = try target()
+        let background = ClientModel(now: { 0 }, frames: .immediate, makeRuntime: sessions.make)
+        let coordinator = NotificationCoordinator(center: FakeCenter(), authorizer: FakeAuthorizer(), defaults: try defaults(), now: { 0 },
+                                                  sleep: fastSleep, connectInBackground: { coordinator in
+            await coordinator.attach(background, target: target)
+            return [background]
+        })
+        await coordinator.holdTransient()
+        // A notification answer's own release leaves Siri's ask its connection.
+        await coordinator.releaseTransient()
+        #expect(coordinator.client("host") === background)
+        await coordinator.letGoTransient()
+        #expect(coordinator.client("host") == nil)
+    }
+
     private func plainNotifier() throws -> (LocalNotifier, FakeCenter) {
         let center = FakeCenter()
         let notifier = LocalNotifier(center: center, hostId: "studio")
@@ -1106,6 +1149,20 @@ private final class Session: ClientSession, @unchecked Sendable {
             #"{"requestId":"\#(id)","clientName":"Claude","domain":"claude.ai","verified":true,"matchCode":"7KQ2XM","expiresAt":1800000000000,"redirect":"Signs in to claude.ai","choices":[],"expiries":[],"expiry":"month"}"#
         }.joined(separator: ",")
         return #"{"type":"outside.state","access":[\#(access)],"screen":[],"opened":\#(opened),"live":\#(live)}"#
+    }
+}
+/// Holds a background opening until the test lets it finish.
+@MainActor private final class OpeningGate {
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var opened = false
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiting = $0 }
+    }
+    func open() {
+        opened = true
+        waiting?.resume()
+        waiting = nil
     }
 }
 /// How many waiting copies have returned.

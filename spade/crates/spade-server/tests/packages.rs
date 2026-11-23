@@ -76,6 +76,44 @@ async fn installing_a_package_makes_a_linked_bot_with_triggers_paused_and_only_t
 }
 
 #[tokio::test]
+async fn a_switch_read_on_another_version_is_refused_and_changes_nothing() -> Result {
+    let spade = secured(Vec::new(), Vec::new()).await?;
+    let key = "network:hosts:api.example-fares.com";
+    let agent = installed(
+        &spade,
+        json!({ key: false, "send_as_person": false }),
+        false,
+    )
+    .await?;
+    let bot = text(&agent["id"]);
+    let path = format!("/v1/agents/{bot}/package/effects");
+    // The person read the switch on a version the bot no longer has.
+    let (status, body) = spade
+        .put(
+            &path,
+            json!({ "key": key, "on": true, "hash": "0".repeat(64) }),
+        )
+        .await?;
+    assert_eq!(status, 409, "{body}");
+    let (_, now) = spade.get(&format!("/v1/agents/{bot}/package")).await?;
+    assert!(
+        switches_of(&now["package"]).contains(&(key.to_owned(), false)),
+        "{now}"
+    );
+    // On the version they read, it goes on.
+    let hash = text(&agent["package"]["hash"]);
+    let (status, body) = spade
+        .put(&path, json!({ "key": key, "on": true, "hash": hash }))
+        .await?;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        switches_of(&body["package"]).contains(&(key.to_owned(), true)),
+        "{body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_failure_part_way_leaves_nothing_installed() -> Result {
     // No security service: the switch the person left on can't be set up once the bot exists.
     let spade = Spade::start(Vec::new(), Vec::new()).await?;

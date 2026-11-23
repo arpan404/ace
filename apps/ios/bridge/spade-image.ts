@@ -102,7 +102,7 @@ export async function readSpadeFile(
     request.type === "spade.document"
       ? [`/v1/documents/${request.sha256}?name=${encodeURIComponent(request.name)}`, request.name]
       : [`/v1/audio/${request.sha256}`, "Voice message"];
-  const read = await readBytes(owner, id, path, "application/octet-stream", signal);
+  const read = await readSpadeBytes(owner, id, path, "application/octet-stream", signal);
   return { kind: "file", name, ...read };
 }
 
@@ -120,14 +120,14 @@ export async function readSpadeImage(
     async () => ({
       kind: "image",
       name: "Image",
-      ...(await readBytes(owner, id, path, "image/png", signal)),
+      ...(await readSpadeBytes(owner, id, path, "image/png", signal)),
     }),
     signal,
   );
 }
 
 /** Spade's answer to a read, as base64 with its media type (`fallback` when it names none). */
-async function readBytes(
+export async function readSpadeBytes(
   owner: ClientCore,
   id: () => string,
   path: string,

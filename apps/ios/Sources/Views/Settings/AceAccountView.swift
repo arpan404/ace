@@ -265,7 +265,7 @@ struct AceAccountView: View {
         Binding(get: { forgetting?.hostId == machine.hostId }, set: { if !$0 { forgetting = nil } })
     }
 
-    private static func name(_ machine: AceMachine) -> String { machine.name.isEmpty ? "Machine" : machine.name }
+    static func name(_ machine: AceMachine) -> String { machine.name.isEmpty ? "Machine" : machine.name }
 
     /// "Seen 4 min. ago"; "Paired" first when this phone is also paired with it.
     private func subtitle(_ machine: AceMachine) -> String? {

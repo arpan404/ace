@@ -26,6 +26,31 @@ import Foundation
         #expect(left.suggestion(in: [whole]) == nil)
     }
 
+    @Test func aNoteForTheAgentFromAPullRequestFileTakesWholeNewSideLinesAndIsCheckedWhenItReloads() {
+        func line(_ kind: String, old: Int?, new: Int?, _ text: String, clipped: Bool = false) -> ForgeFileDiff.Line {
+            let anchor: ForgeFileDiff.Anchor? = kind == "del" ? .init(line: old ?? 0, side: "LEFT") : new.map { .init(line: $0, side: "RIGHT") }
+            return ForgeFileDiff.Line(kind: kind, old: old, new: new, text: text, clipped: clipped, anchor: anchor, hunk: 0, threads: [], drafts: [])
+        }
+        let lines = [line("hunk", old: nil, new: nil, "@@ -1,2 +1,3 @@"), line("context", old: 1, new: 1, "let sum = 0"),
+                     line("del", old: 2, new: nil, "sum += 1"), line("add", old: nil, new: 2, "sum += price"),
+                     line("add", old: nil, new: 3, "return sum")]
+        var pick = ForgeLinePick(hunk: 0, anchor: .init(line: 2, side: "RIGHT"))
+        _ = pick.extend(to: .init(line: 3, side: "RIGHT"), hunk: 0)
+        let texts = pick.newSide(in: lines)
+        #expect(texts == ["sum += price", "return sum"])
+        #expect(ForgeLinePick(hunk: 0, anchor: .init(line: 2, side: "LEFT")).newSide(in: lines) == nil)
+        #expect(pick.newSide(in: [lines[3], line("add", old: nil, new: 3, "ret…", clipped: true)]) == nil)
+
+        var notes = CodeNotes()
+        notes.add("t", path: "cart.ts", first: pick.start, texts: texts ?? [], comment: "Round it", id: "n")
+        // The same lines read again keep the note; a push that rewrote them makes it outdated.
+        notes.shown("t", path: "cart.ts", lines: ForgeFileDiff.newSide(of: lines))
+        #expect(notes["t"].first?.outdated == false)
+        let pushed = [lines[1], line("add", old: nil, new: 2, "sum += round(price)"), line("add", old: nil, new: 3, "return sum")]
+        notes.shown("t", path: "cart.ts", lines: ForgeFileDiff.newSide(of: pushed))
+        #expect(notes["t"].first?.outdated == true)
+    }
+
     @Test func anIssueEditSendsTheTextOnceAndLabelsAndAssigneesAsWhatToAddAndRemove() {
         let was = ForgeIssueBaseline(title: "Crash", body: "Steps", labels: ["bug", "ios"], assignees: ["mona"],
                                      revision: "2026-11-11T00:00:00Z", bodyComplete: true)

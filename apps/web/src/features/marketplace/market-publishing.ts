@@ -166,14 +166,20 @@ export function usePublishSend() {
  * This window's market grants for one sensitive request each (ADR 0190), from its own ace
  * session: what the market takes withdrawals, transfers, handle changes and the like from.
  */
-function usePersonGrant(): PersonGrant {
+export function usePersonGrant(): PersonGrant {
   const store = useAceAccountStore();
-  return async (action) => {
+  return async (action, org) => {
     const session = store?.get().session;
     if (!store || !session) return undefined;
     const grant = await store.client.grant(
       session.token,
-      { kind: "device", subject: browserInstallId(), purpose: "market-publish", action },
+      {
+        kind: "device",
+        subject: browserInstallId(),
+        purpose: "market-publish",
+        action,
+        ...(org === undefined ? {} : { org }),
+      },
       AbortSignal.timeout(15_000),
     );
     return grant.token;

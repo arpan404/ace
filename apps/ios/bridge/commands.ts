@@ -66,6 +66,10 @@ export async function dispatchCommand(
     unsaved?(): void;
     /** Words for the daemon's refusal; its own error by default. */
     refusal?(error: string | undefined): string;
+    /** More fields for the admission once saved (the code notes a message carried). */
+    admitted?(): Record<string, unknown> | undefined;
+    /** More fields for the receipt (the code notes a new thread or fork took). */
+    received?(result: Receipt): Record<string, unknown> | undefined;
   } = {},
 ): Promise<void> {
   try {
@@ -74,16 +78,20 @@ export async function dispatchCommand(
       CommandPayload.parse(raw),
       () => {
         hooks.saved?.();
+        const extra = hooks.admitted?.();
         pump.put(`admission:${requestId}`, () => ({
           type: "admission",
           id: requestId,
           ok: true,
           message: "",
+          ...extra,
         }));
       },
       (result) => {
         hooks.receipt?.(result);
+        const extra = hooks.received?.(result);
         pump.put(`receipt:${requestId}`, () => ({
+          ...extra,
           type: "receipt",
           id: requestId,
           ok: result.ok,

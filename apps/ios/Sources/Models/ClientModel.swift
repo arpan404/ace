@@ -102,8 +102,19 @@ import QuartzCore
     var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
-    /// Notes pinned to code in the editor, by thread, for each one's next message.
-    var codeNotes = CodeNotes()
+    /// Notes pinned to code in the editor, by thread, for each one's next message; kept on this
+    /// phone for the machine connected (`codeNotesKept`).
+    var codeNotes = CodeNotes() { didSet { if codeNotes != oldValue { codeNotesKept?.changed(codeNotes) } } }
+    @ObservationIgnored var codeNotesKept: CodeNotesKept?
+    /// How many notes each thread's message in flight took (`sendingCodeNotes`): they count toward
+    /// the limit, and the bridge keeps its list until the message is saved or refused.
+    @ObservationIgnored var codeNotesInFlight: [String: Int] = [:]
+    /// Which principal's notes are loaded (`restoreCodeNotes`): a send answered after a switch
+    /// settles its notes in the store it took them from, never the current one.
+    @ObservationIgnored var codeNotesEpoch = 0
+    /// The code notes each saved message or started thread carried, by request id, as the
+    /// machine's answer named them; read once by the send that waits on it.
+    @ObservationIgnored var carriedNotes: [String: [String]] = [:]
     /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
     @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -240,9 +251,25 @@ import QuartzCore
     @ObservationIgnored private var sawFrame = false
     /// A row the daemon confirmed has arrived on this connection (`LaunchTrace` marks the first).
     @ObservationIgnored private var sawConfirmedRow = false
+    /// The bridge says the list is the daemon's current one (`inbox.fresh`), so an empty list
+    /// counts too, and it drops back to false when the connection is lost.
+    private(set) var listFresh = false
+    /// The list holds every thread: no older page is left to load.
+    private(set) var listComplete = false
+    /// Threads outside the loaded list the bridge read by id, and whether each exists.
+    private(set) var located: [String: Bool] = [:]
+    /// Threads the bridge could not read by id after trying again: neither found nor gone.
+    private(set) var locateFailed: Set<String> = []
     /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
     /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
-    var inboxConfirmed: Bool { inboxLoaded && sawConfirmedRow }
+    var inboxConfirmed: Bool { inboxLoaded && listFresh && connection == "ready" }
+    /// An explicit Open starts over: what an earlier read by id found or failed at no longer stands.
+    func forgetLocate(_ id: String) { located[id] = nil; locateFailed.remove(id) }
+    /// Asks the bridge to read a thread by its id, once; the answer lands in `located`.
+    func locate(_ id: String) {
+        guard located[id] == nil, !locateFailed.contains(id) else { return }
+        inboxRequest(["kind": "locate", "threadId": id])
+    }
     @ObservationIgnored let admissions = CommandAdmissions()
     /// Goal changes waiting on the daemon's receipt, apart from the screen-wide error.
     @ObservationIgnored let receipts = CommandReceipts()
@@ -279,6 +306,9 @@ import QuartzCore
         if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
+        // Another route to the same machine, as the same principal, keeps the notes in hand;
+        // another machine's or account's are its own (`keptScope` is still the last connection's).
+        if !sameMachine || keptScope != target.keptScope { restoreCodeNotes(keptScope: target.keptScope, in: directory) }
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
@@ -296,7 +326,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false
+        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false; listFresh = false; listComplete = false; located = [:]; locateFailed = []
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -572,7 +602,19 @@ import QuartzCore
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
                 historyRevision.reset()
+            case .inboxFresh(let confirmed, let complete):
+                if listFresh != confirmed { listFresh = confirmed }
+                if listComplete != complete { listComplete = complete }
+                // What was read by id belongs to the list it was read against.
+                if !located.isEmpty { located = [:] }
+                if !locateFailed.isEmpty { locateFailed = [] }
+            case .inboxLocated(let id, let found):
+                if let found { located[id] = found } else {
+                    locateFailed.insert(id)
+                    error = "Couldn't reach that thread. Try Open again."
+                }
             case .inbox(let id, let row):
+                located[id] = nil; locateFailed.remove(id)
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()
@@ -643,19 +685,21 @@ import QuartzCore
             case .words(let id, let ok, let text, let message, let revision):
                 wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
             case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
-            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+            case .receipt(let id, let ok, let message, let notes) where receipts.tracks(id):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
-            case .admission(let id, let ok, let message) where receipts.tracks(id):
+            case .admission(let id, let ok, let message, _) where receipts.tracks(id):
                 if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
-            case .receipt(let id, let ok, let message):
+            case .receipt(let id, let ok, let message, _):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refused Stop leaves the tree working: offer Stop again.
                 if !ok { error = message; thread?.screen.stopFailed(id) }
-            case .admission(let id, let ok, let message):
+            case .admission(let id, let ok, let message, let notes):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -849,7 +893,7 @@ import QuartzCore
                 if case .codeSent(let ids) = screen {
                     // Kept by thread, not by visit: a message saved after the person left its
                     // thread still took these notes, so they never go a second time.
-                    codeNotes.sent(id, ids: ids)
+                    codeNotesSent(id, ids: ids)
                 } else if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .deviceTabs(let patch): if let opened = deviceTabs.apply(patch) { showDeviceTab(opened) }

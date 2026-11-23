@@ -66,6 +66,11 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// Opens short-lived connections to every paired machine when no UI exists (a background launch).
     @ObservationIgnored let connectInBackground: @MainActor (NotificationCoordinator) async -> [ClientModel]
     @ObservationIgnored var transient: [ClientModel] = []
+    /// The background opening under way, reserved before it starts: a second caller joins it and
+    /// the app's own attach waits for it to finish, then closes what it opened.
+    @ObservationIgnored var transientOpening: Task<Void, Never>?
+    /// Callers still using the short-lived connections (`holdTransient`); they close after the last.
+    @ObservationIgnored var transientHolds = 0
     /// A tapped thread waiting for the UI connection of a cold launch.
     @ObservationIgnored var pendingLink: (threadId: String, hostId: String?)?
     /// The one Live Activity and the widgets' snapshot, across every attached machine.
@@ -116,7 +121,12 @@ struct SystemAuthorizer: NotificationAuthorizer {
     /// machine's own ledger. Background connections still open are closed first, so two runtimes
     /// never share one machine's storage.
     func attach(_ model: ClientModel, target: ConnectionTarget) async {
-        if transient.contains(where: { $0 !== model }) { await releaseTransient() }
+        // The app's own runtime: a background opening under way finishes first, then its runtimes
+        // close, held or not. The opening's own runtimes attach without waiting on themselves.
+        if !BackgroundOpening.active {
+            if let opening = transientOpening { await opening.value }
+            if transient.contains(where: { $0 !== model }) { await closeTransient() }
+        }
         // The machine as the phone keys it, whichever route this connection takes.
         let machine = target.scope
         let scope = SHA256.hash(data: Data("\(machine.hostId)\u{0}\(machine.deviceId)".utf8)).map { String(format: "%02x", $0) }.joined()
