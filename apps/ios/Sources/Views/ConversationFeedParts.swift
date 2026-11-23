@@ -70,16 +70,17 @@ struct TranscriptSpacer: View {
     }
 }
 
-/// The header over the transcript: on iOS 26 and later the bar draws nothing of its own and the
-/// thread's header bar sets the system's scroll-edge effect (`ThreadHeaderBar`). Before, the bar is
-/// opaque in the page colour.
+/// The flipped scroll view stays inside the header. An edge effect tied to its physical
+/// top would be drawn at the opposite end of the visible feed.
 struct TranscriptTopEdge: ViewModifier {
-    func body(content: Content) -> some View {
+    @ViewBuilder func body(content: Content) -> some View {
+        let backed = content
+            .toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
+            .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         if #available(iOS 26, *) {
-            content
+            backed.scrollEdgeEffectHidden(true, for: .vertical)
         } else {
-            content.toolbarBackground(AceTheme.Colours.background, for: .navigationBar)
-                .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+            backed
         }
     }
 }

@@ -24,7 +24,8 @@ after inserting older rows above it.
 1. **Lay out the live end first.** Flip the scroll view and flip each row back. Convert
    viewport measurements and scroll targets at the feed boundary so the anchor controller
    still speaks in chronological screen coordinates. Use chronological accessibility priority
-   for message rows.
+   for message rows. Clip the flipped scroll view inside the safe-area viewport and hide its
+   vertical scroll-edge effect. The navigation bar paints its own background.
 2. **Allow proven older appends during motion.** Wait for the page fence and the read reply.
    Keep the rows in the viewport, half a screen ahead, and toward the live edge in order,
    with unchanged content. Further ahead, a page can complete and regroup a partial turn.
@@ -32,7 +33,8 @@ after inserting older rows above it.
    and uncertain pages until idle, then use the existing anchor correction.
 3. **Keep the physical scroll offset during an append.** No snapshot, proxy scroll or
    explicit offset change is required for the append. Explicit anchor correction cannot
-   set the offset during tracking, dragging, or deceleration.
+   set the offset during tracking, dragging, or deceleration. Use the scroll view's offset
+   report as the sole source of the viewport origin.
 
 ## Tests
 

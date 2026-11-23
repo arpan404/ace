@@ -76,6 +76,10 @@ extension ConversationFeed {
     }
     /// The feed scrolled: the content's top is at `origin` on screen. No row is touched.
     func contentScrolled(to origin: CGFloat, proxy: ScrollViewProxy) {
+        if intent.active, !reading.landing.holdsPlace, viewport.sessionAnchor == nil {
+            anchor.keeper.trackOrigin(origin)
+            return
+        }
         let before = anchor.keeper.frames.origin
         keep(.origin(origin), proxy: proxy)
         if anchor.keeper.frames.origin != before, viewport.sessionAnchor != nil { applySessionRestore(proxy: proxy) }
@@ -174,7 +178,7 @@ extension ConversationFeed {
     }
     func currentRevision() -> TranscriptLayoutRevision {
         TranscriptLayoutRevision.current(
-            width: Double(feedFrame.width > 0 ? feedFrame.width : intent.metrics.viewport),
+            width: Double(feedSize.width > 0 ? feedSize.width : intent.metrics.viewport),
             height: Double(intent.metrics.viewport),
             typeSize: String(describing: typeSize),
             density: densityId,
