@@ -83,7 +83,10 @@ export function ComposerDock({
       // Its ::before fades the transcript out beneath the composer (styles/glass.css).
       className="pointer-events-none relative z-10 col-start-1 row-start-1 w-full self-end pb-4"
     >
-      <div data-composer-area className={`pointer-events-auto relative ${readingColumn}`}>
+      <div
+        data-composer-area
+        className={`pointer-events-auto relative ${readingColumn} [[data-work-docked]_&]:left-[calc(var(--work-reserve,0px)/2)]`}
+      >
         {children}
       </div>
     </div>

@@ -43,7 +43,7 @@ struct MarketListing: Decodable, Identifiable, Hashable {
     let picture: String?
     /// Why it has no Get ("Needs a newer ace"), when it can't be installed here.
     let block: String?
-    /// What Share link sends (`ace://market?at=skill/triage-mail`).
+    /// What Share link sends (`ace://market?at=skill/triage-mail`); nil for a git catalog's entry.
     let link: String?
     /// Its button and long press, from what the machine has installed (browse rows only).
     let action: MarketListingAction?
@@ -147,6 +147,8 @@ struct MarketSearchPage: Decodable, Equatable {
     let totalText: String
     /// "Listings from 3:04 PM": when the machine last read them.
     let listings: String?
+    /// Where the next page starts; nil when these are the last results.
+    let next: Int?
 }
 
 struct MarketSources: Decodable, Equatable {

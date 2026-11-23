@@ -5,7 +5,8 @@ import SwiftUI
 /// (asked first), or to turn back on what the person turned off; a withdrawn entry comes back
 /// only from the row's menu, through a question naming its publisher's reason. Update opens the
 /// review in update mode; pull to refresh has the machine read its sources again. While the
-/// machine can't be reached it shows what this phone kept and nothing can change.
+/// machine can't be reached it shows what this phone kept and nothing can change. Its foot opens
+/// Your listings, where the person publishes.
 struct MarketInstalledView: View {
     let model: ClientModel
     let machineName: String
@@ -44,6 +45,7 @@ struct MarketInstalledView: View {
             problemSection
             offlineSection
             listSections
+            yoursSection
         }
         .insetGroupedList()
         .animation(.default, value: page)
@@ -83,6 +85,16 @@ struct MarketInstalledView: View {
             case .restore(_, let ask): Text(ask.detail)
             }
         }
+    }
+
+    /// What the person publishes: their listings, drafts and profile, and Publish (#2554).
+    private var yoursSection: some View {
+        Section {
+            Button { route = .yours } label: { InsetRow("Your listings", icon: .trayArrowUp) }
+                .buttonStyle(.row)
+                .accessibilityIdentifier("market.installed.yours")
+        }
+        .insetRowBackground()
     }
 
     @ViewBuilder private var problemSection: some View {
