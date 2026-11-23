@@ -98,8 +98,8 @@ struct PendingLinks: Equatable {
 }
 
 extension OpenedLink {
-    /// The links that need no machine, read without one: `ace://settings[/<page>]`, `ace://new`,
-    /// `ace://inbox` (the Open inbox intent and quick action) and `ace://spade/talk`. Every other link waits for a
+    /// The links that need no machine, read without one: `ace://settings[/<page>]`, `ace://new`
+    /// and `ace://inbox` (the Open inbox intent and quick action). Every other link waits for a
     /// machine's runtime and the shared reader.
     static func withoutMachine(_ url: URL) -> OpenedLink? {
         guard url.scheme?.lowercased() == AceLink.scheme else { return nil }
@@ -112,8 +112,6 @@ extension OpenedLink {
             return OpenedLink(kind: "settings", page: page)
         case "new": return parts.isEmpty ? OpenedLink(kind: "new-thread") : nil
         case "inbox": return parts.isEmpty ? OpenedLink(kind: "inbox") : nil
-        // `ace://spade/talk` (`TalkToSpadeIntent`): the main Spade, recording.
-        case "spade": return parts == ["talk"] ? OpenedLink(kind: "spade-talk") : nil
         default: return nil
         }
     }

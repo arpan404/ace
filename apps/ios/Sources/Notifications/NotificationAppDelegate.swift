@@ -7,6 +7,8 @@ import BackgroundTasks
 /// which iOS requires before launch finishes.
 final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     let coordinator = NotificationAppDelegate.makeCoordinator()
+    /// Talk to Spade's hand-off from its intent to the inbox (`SpadeTalkHandoff`).
+    let spadeTalk = SpadeTalkHandoff()
 
     /// The app's notifications. A `--spike-unpaired` launch keeps its settings in scratch defaults
     /// and touches nothing outside the process: no lock screen or widgets, no app group, no
@@ -19,9 +21,10 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication, didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
-        // Siri's Ask Spade reaches the machines through the coordinator (`SpadeAskRun`).
-        let coordinator = coordinator
+        // Siri's Ask Spade reaches the machines through the coordinator; Talk to Spade hands off.
+        let coordinator = coordinator, spadeTalk = spadeTalk
         AppDependencyManager.shared.add(dependency: coordinator)
+        AppDependencyManager.shared.add(dependency: spadeTalk)
         // Nothing registered for a fresh-install fixture: categories, background refresh and push
         // would write the app's real defaults and register with iOS.
         if SpikeConfiguration.unpaired { return true }

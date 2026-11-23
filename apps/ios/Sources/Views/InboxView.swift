@@ -48,8 +48,9 @@ struct InboxView: View {
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
     @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
-    /// Bumped by `ace://spade/talk`: the Spade tab opens the main Spade, recording.
+    /// Bumped by Talk to Spade (`SpadeTalkHandoff`): the Spade tab opens the main Spade, recording.
     @State private var spadeTalks = 0
+    @Environment(SpadeTalkHandoff.self) private var spadeTalk: SpadeTalkHandoff?
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
@@ -95,6 +96,13 @@ struct InboxView: View {
             // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
+            // Talk to Spade, from the Action button or Control Center: taken once, here only.
+            .task(id: spadeTalk?.asks) {
+                guard spadeTalk?.take() == true else { return }
+                place = nil
+                tab = .spade
+                spadeTalks += 1
+            }
             .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)) {
                 // Taking them changes this task's id, which cancels it: they open in their own task.
                 let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
@@ -540,7 +548,6 @@ struct InboxView: View {
     private func openLink(_ url: URL) async {
         // The phone's own link, which the shared reader doesn't know: it needs no machine.
         if OpenedLink.withoutMachine(url)?.kind == "inbox" { showInbox(); return }
-        if OpenedLink.withoutMachine(url)?.kind == "spade-talk" { place = nil; tab = .spade; spadeTalks += 1; return }
         guard let link = inbox.sessions.isEmpty ? OpenedLink.withoutMachine(url) : await inbox.readLink(url) else {
             if url.scheme?.lowercased() == AceLink.scheme, !inbox.sessions.isEmpty { organize.problem = "That ace link couldn't be read." }
             return
