@@ -115,8 +115,3 @@ export function homeRows(input: HomeRowsInput): HomeRow[] {
     ];
   });
 }
-
-/** How many open requests the list shows: rows that need the person. */
-export function requestCount(rows: readonly HomeRow[]): number {
-  return rows.filter((row) => row.needsYou).length;
-}

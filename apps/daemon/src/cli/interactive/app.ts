@@ -1,20 +1,18 @@
 import { useColor } from "../input-mode.ts";
 import { paint } from "../tui/paint.ts";
 import { openTerminal } from "../tui/terminal.ts";
-import { words, type App, type AppStart } from "./app-context.ts";
-import { enterAttach, leavingWords } from "./app-attach.ts";
+import { leavingWords, words, type App, type AppStart } from "./app-context.ts";
 import { commands as openCommands } from "./app-commands.ts";
 import { connect, isOffline } from "./app-daemon.ts";
 import { onKey } from "./app-effects.ts";
 import { keepLive, render } from "./app-render.ts";
-import { attachStart } from "./attach-model.ts";
 import { homeStart } from "./home-state.ts";
 import { requestsStart } from "./requests.ts";
 
 /**
- * The interactive shell (ADR 0178 §9): one terminal, one connection, and the home, requests
- * and attach views over the client's stores. Models and views are pure; this wires the
- * terminal's keys, resizes and signals to them, connects, and gives the terminal back.
+ * The interactive shell (ADR 0178 §9): one terminal, one connection, and the home and requests
+ * views over the client's stores. Models and views are pure; this wires the terminal's keys,
+ * resizes and signals to them, connects, and gives the terminal back.
  */
 export async function runApp(start: AppStart): Promise<void> {
   const terminal =
@@ -44,8 +42,6 @@ export async function runApp(start: AppStart): Promise<void> {
     screen: "home",
     home: homeStart,
     requests: requestsStart,
-    attach: attachStart,
-    attached: undefined,
     session: undefined,
     live: undefined,
     kept: false,
@@ -56,8 +52,7 @@ export async function runApp(start: AppStart): Promise<void> {
       }, 16);
     },
     flash: (text) => {
-      if (app.screen === "attach") app.attach = { ...app.attach, notice: text };
-      else if (app.screen === "requests") app.requests = { ...app.requests, notice: text };
+      if (app.screen === "requests") app.requests = { ...app.requests, notice: text };
       else app.home = { ...app.home, notice: text };
       app.schedule();
     },
@@ -94,18 +89,6 @@ export async function runApp(start: AppStart): Promise<void> {
   try {
     try {
       if (!(await connect(app))) app.screen = "offline";
-      else if (start.attach) {
-        const fresh = start.attach.fresh;
-        enterAttach(
-          app,
-          start.attach.threadId,
-          fresh && {
-            project: fresh.project ?? process.cwd(),
-            provider: fresh.provider ?? app.live?.defaultProvider() ?? "codex",
-            model: fresh.model,
-          },
-        );
-      }
     } catch (error) {
       if (!isOffline(error)) throw error;
       app.screen = "offline";

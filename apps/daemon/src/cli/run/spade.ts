@@ -215,10 +215,6 @@ export const spadeHandlers: Handlers = {
   "spade.off": (context) => switchSpade(context, false),
   "spade.bot.list": (context) => bots(context, false),
   "spade.bot.show": (context) => bots(context, true),
-  "spade.chat": async (context) => {
-    const { chatCommand } = await import("./spade-chat.ts");
-    await spadeSession(context, (call) => chatCommand(context, call));
-  },
   "feature.list": (context) => features(context),
   "feature.on": (context) => features(context, true),
   "feature.off": (context) => features(context, false),

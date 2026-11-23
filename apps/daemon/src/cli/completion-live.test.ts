@@ -77,7 +77,7 @@ describe("live references", () => {
   });
 
   test("a bot argument offers Spade's bot names", async () => {
-    expect(await completeLive(table, ["spade", "chat", ":"], daemon, 1_000)).toEqual([
+    expect(await completeLive(table, ["spade", "bot", "show", ":"], daemon, 1_000)).toEqual([
       { value: "spade", description: "Spade's main bot" },
       { value: "release-watch" },
     ]);

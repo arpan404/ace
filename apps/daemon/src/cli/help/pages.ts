@@ -17,7 +17,6 @@ export const groupTitles: Record<CommandGroup, string> = {
 const shortcuts: readonly { command: string; summary: string }[] = [
   { command: "ace", summary: "The interactive home, on a terminal" },
   { command: "ace run PROMPT", summary: "Start an agent in this folder" },
-  { command: "ace chat [THREAD]", summary: "Talk with an agent here" },
   { command: "ace status", summary: "What runs and what needs you" },
   { command: "ace open [PATH]", summary: "Open a project in the app" },
   { command: "ace login", summary: "Sign this machine in to ace" },

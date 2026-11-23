@@ -1,5 +1,6 @@
 import type { CliErrorCode } from "@ace/protocol/cli-output";
 import { globalFlags } from "./commands/globals.ts";
+import { retiredCommand } from "./commands/retired.ts";
 import type { AliasSpec, ArgSpec, CommandSpec, FlagSpec } from "./commands/spec.ts";
 import type { CommandTable } from "./commands/table.ts";
 import { nearest } from "./suggest.ts";
@@ -39,7 +40,16 @@ export interface UsageProblem {
   readonly flags: Readonly<Record<string, string | true>>;
 }
 
-export type ParseResult = Parsed | NounOnly | UsageProblem;
+/** A spelling ace removed (ADR 0221 §1): nothing runs, and the answer names the app. */
+export interface Retired {
+  readonly kind: "retired";
+  readonly words: readonly string[];
+  readonly message: string;
+  readonly hint: string;
+  readonly flags: Readonly<Record<string, string | true>>;
+}
+
+export type ParseResult = Parsed | NounOnly | UsageProblem | Retired;
 
 const globalByName = new Map(globalFlags.map((flag) => [flag.name, flag]));
 const globalByShort = new Map(
@@ -65,6 +75,15 @@ export function parseCommandLine(table: CommandTable, input: readonly string[]):
   const start = i;
   while (i < input.length && !isFlag(input[i] ?? "") && input[i] !== "--") i++;
   const named = input.slice(start, i);
+  const retired = retiredCommand(named);
+  if (retired)
+    return {
+      kind: "retired",
+      words: retired.words,
+      message: retired.message,
+      hint: retired.hint,
+      flags,
+    };
 
   let matched = 0;
   for (let k = named.length; k > 0; k--)

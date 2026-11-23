@@ -118,32 +118,6 @@ const threadCommands: readonly CommandSpec[] = [
     output: "thread.start",
   },
   {
-    id: "thread.attach",
-    words: ["thread", "attach"],
-    summary: "Talk with an agent in this terminal",
-    group: "work",
-    mutates: true,
-    args: [{ name: thread, ref: "thread", summary: "A thread to continue; omit to start one" }],
-    flags: [
-      projectRef,
-      providerName,
-      modelName,
-      {
-        name: "thread",
-        value: "THREAD",
-        ref: "thread",
-        summary: "Same as the THREAD argument",
-        hidden: true,
-      },
-      idempotencyKey,
-    ],
-    aliases: [{ words: ["chat"] }],
-    examples: [
-      { command: "ace chat", summary: "A new conversation in this folder" },
-      { command: "ace chat t_9f2c41", summary: "Continue a thread" },
-    ],
-  },
-  {
     id: "thread.send",
     words: ["thread", "send"],
     summary: "Queue a message for when the agent's turn ends",

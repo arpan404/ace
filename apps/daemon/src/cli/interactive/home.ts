@@ -47,7 +47,6 @@ export async function interactiveHome(context: CommandContext): Promise<void> {
     kept,
     env: context.env,
     table: context.table,
-    startDaemon: false,
     terminal,
   });
 }

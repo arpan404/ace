@@ -14,7 +14,6 @@ describe("each command line reaches its command with its arguments and flags", (
     ["thread show t_9f2c41", "thread.show", ["t_9f2c41"], {}],
     ["run fix-it --provider claude", "thread.start", ["fix-it"], { provider: "claude" }],
     ["thread start - --worktree --follow", "thread.start", ["-"], { worktree: true, follow: true }],
-    ["chat", "thread.attach", [], {}],
     ["--json thread list", "thread.list", [], { json: true }],
     ["thread list -q", "thread.list", [], { quiet: true }],
     ["thread wait a b c --any", "thread.wait", ["a", "b", "c"], { any: true }],
@@ -92,7 +91,6 @@ describe("old spellings reach the new command, marked as old", () => {
   test("shortcuts and quiet Store aliases are permanent, not old spellings", () => {
     for (const line of [
       "run x",
-      "chat",
       "open",
       "start",
       "serve",
