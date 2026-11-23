@@ -857,6 +857,9 @@ export class GitCli {
       options.beforeSpawn?.();
       if (options.signal?.aborted)
         throw new GitError("git_cancelled", "Git operation cancelled before dispatch");
+      // The verification attempt whose discovered binary this call starts, if any: a delayed
+      // ENOENT may only clear that exact attempt, never a newer one that resolved the same path.
+      const attempt = this.configuredBinary === undefined ? this.ready : undefined;
       const job = this.runtime.cleanupSupervisor ? undefined : this.jobs?.prepareJob();
       const child =
         options.directoryFd === undefined
@@ -1085,8 +1088,8 @@ export class GitCli {
       child.stderr.on("data", stderrData);
       const spawnError = (error: NodeJS.ErrnoException) => {
         // The developer tools Git was moved or removed: find what `git` runs now, next call.
-        // Only the attempt that produced `binary` is dropped; a newer one keeps its answer.
-        if (error.code === "ENOENT" && this.ready?.binary === binary) {
+        // Only the attempt this call was dispatched with is dropped; a newer one keeps its answer.
+        if (error.code === "ENOENT" && attempt !== undefined && this.ready === attempt) {
           this.ready = undefined;
           this.resolvedBinary = undefined;
         }

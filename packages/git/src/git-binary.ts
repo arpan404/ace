@@ -11,11 +11,16 @@ function executable(path: string): Promise<boolean> {
 }
 
 /** The executable a bare `git` names on `path`, as `execvp` would find it. */
-async function firstOnPath(path: string | undefined): Promise<string | undefined> {
+async function firstOnPath(
+  path: string | undefined,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
   for (const directory of (path ?? "").split(delimiter)) {
     if (!directory || !isAbsolute(directory)) continue;
     const candidate = join(directory, "git");
     if (await executable(candidate)) return candidate;
+    // A PATH entry can stall: once the deadline passed, the scan stops, not just its caller.
+    if (signal?.aborted) return undefined;
   }
   return undefined;
 }
@@ -31,8 +36,11 @@ export async function developerToolsGit(
   signal?: AbortSignal,
 ): Promise<string | undefined> {
   if (signal?.aborted) return undefined;
-  if (platform === "win32") return windowsPathGit(env);
-  if (platform !== "darwin" || (await firstOnPath(env.PATH)) !== "/usr/bin/git") return undefined;
+  if (platform === "win32") return windowsPathGit(env, signal);
+  if (platform !== "darwin" || (await firstOnPath(env.PATH, signal)) !== "/usr/bin/git")
+    return undefined;
+  // Node starts a child before it handles an already-aborted signal: check right before this one.
+  if (signal?.aborted) return undefined;
   const found = await new Promise<string | undefined>((resolve) => {
     execFile(
       "/usr/bin/xcrun",
@@ -51,8 +59,14 @@ export async function developerToolsGit(
  * directory (a checkout, maybe someone else's PR) before PATH; `.cmd` shims can't start without
  * a shell.
  */
-async function windowsPathGit(env: NodeJS.ProcessEnv): Promise<string | undefined> {
+async function windowsPathGit(
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
+): Promise<string | undefined> {
+  if (signal?.aborted) return undefined;
   const { findExecutable } = await import("@ace/provider-kit/discovery");
+  // Loading the lookup module can outlast the deadline: do not start the search after it.
+  if (signal?.aborted) return undefined;
   const searched = Object.fromEntries(
     Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
   );
