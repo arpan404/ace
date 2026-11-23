@@ -114,8 +114,8 @@ test("an approval is explained by its request card without repeated waiting stat
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const approval = await screen.findByRole("region", { name: "Waiting for you" });
   expect(within(approval).getByRole("button", { name: "Allow once" })).toBeTruthy();
-  // Said once in the turn, by its live head.
-  expect(within(feed).getAllByText("Waiting for your approval")).toHaveLength(1);
+  // Waiting on you lives in the request strip (and Summary), never on the turn's live head.
+  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
   expect(within(feed).queryByRole("status", { name: "Working" })).toBeNull();
 });
 
