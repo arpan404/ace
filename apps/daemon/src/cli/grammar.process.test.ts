@@ -94,6 +94,9 @@ test("removed chat spellings are usage errors that name the app", async () => {
     expect(output.code, args.join(" ")).toBe(64);
     expect(output.stderr).toContain("✕ Chat with agents in the ace app. The CLI manages ace.");
   }
+  const json = await run(env, ["chat", "--json"]);
+  expect(json.code).toBe(64);
+  expect(JSON.parse(json.stdout)).toMatchObject({ status: "usage", code: "retired_command" });
 });
 
 test("a command that needs the daemon says ace isn't running, exit 4, never a file error", async () => {

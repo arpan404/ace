@@ -94,8 +94,9 @@ test("the home in a terminal opens, answers an approval and gives the terminal b
       ]),
     );
     // Back home from the requests walk.
+    const escaped = terminal.output().length;
     terminal.pty.write("\x1b");
-    await terminal.waitFor("q quit");
+    await terminal.waitFor("q quit", 10_000, escaped);
     // A signal from outside: the terminal comes back (paste mode off, cursor shown) with one
     // line saying where the person was, and the exit code says it was interrupted.
     process.kill(terminal.pty.pid, "SIGINT");

@@ -42,9 +42,9 @@ export function openPty(home: string, empty: string, args: string[] = []) {
           ? Buffer.from(input).toString("utf8")
           : "";
   });
-  const waitFor = async (text: string, ms = 10_000) => {
+  const waitFor = async (text: string, ms = 10_000, from = 0) => {
     const deadline = Date.now() + ms;
-    while (!output.includes(text)) {
+    while (!output.slice(from).includes(text)) {
       if (Date.now() > deadline)
         throw new Error(
           `Never saw ${JSON.stringify(text)} in ${JSON.stringify(output.slice(-2000))}`,

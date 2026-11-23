@@ -76,7 +76,20 @@ export function parseCommandLine(table: CommandTable, input: readonly string[]):
   while (i < input.length && !isFlag(input[i] ?? "") && input[i] !== "--") i++;
   const named = input.slice(start, i);
   const retired = retiredCommand(named);
-  if (retired)
+  if (retired) {
+    // The answer honours output flags wherever they appear, so trailing --json/--jq/--stream
+    // still print the JSON error.
+    let j = i;
+    while (j < input.length) {
+      const token = input[j] ?? "";
+      if (token === "--") break;
+      if (!isFlag(token)) {
+        j++;
+        continue;
+      }
+      const taken = takeFlag(input, j, globalByName, globalByShort, flags, lists, {});
+      j = typeof taken === "number" ? taken : j + 1;
+    }
     return {
       kind: "retired",
       words: retired.words,
@@ -84,6 +97,7 @@ export function parseCommandLine(table: CommandTable, input: readonly string[]):
       hint: retired.hint,
       flags,
     };
+  }
 
   let matched = 0;
   for (let k = named.length; k > 0; k--)
