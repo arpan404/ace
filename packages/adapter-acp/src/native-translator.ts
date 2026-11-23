@@ -8,7 +8,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Fact } from "@ace/core";
-import type { ThreadId } from "@ace/protocol";
+import type { RawPayload, ThreadId } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import { translatorBackend } from "@ace/provider-kit/native-switches";
 import type { TranslatorIdentity } from "./identity.ts";
@@ -79,8 +79,8 @@ export class NativeAcpTranslator implements Translator {
     init: { threadId: ThreadId; rootKey: string; identity: TranslatorIdentity },
     quirks: AcpQuirks = genericQuirks,
   ) {
-    const { NativeAcpTranslator: Handle } = addon();
-    this.handle = new Handle(
+    const { NativeAcpTranslator: NativeHandle } = addon();
+    this.handle = new NativeHandle(
       String(init.threadId),
       init.rootKey,
       init.identity.generation,
@@ -88,12 +88,8 @@ export class NativeAcpTranslator implements Translator {
       quirksName(quirks),
     );
   }
-  takeDiagnostics() {
-    return JSON.parse(this.handle.takeDiagnostics()) as ReturnType<
-      Translator["takeDiagnostics"]
-    > extends (infer T)[] | undefined
-      ? T[]
-      : never;
+  takeDiagnostics(): RawPayload[] {
+    return JSON.parse(this.handle.takeDiagnostics()) as RawPayload[];
   }
   nextDeadline() {
     const deadline = this.handle.nextDeadline();

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "ace-transport"
+description = "The daemon's transport in Rust: the loopback and remote listeners, the WebSocket handshake and framing (T1a.2 owns the loopback listener, the proxy hop and the connection driver)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# thiserror: one typed error enum for the crate, mapped in the binding.
+thiserror = { version = "2" }
+# bytes: the bytes the driver read before it handed the connection on.
+bytes = { version = "1.12" }
+# getrandom: the 32-byte hop secret from the OS CSPRNG, read once at the
+# boundary (`HopSecret::generate`) and never anywhere else.
+getrandom = { version = "0.4" }
+# http: request and response types on the hop.
+http = { version = "1.5" }
+# http-body-util: Full and the boxed body the proxy streams both ways.
+http-body-util = { version = "0.1.5" }
+# httparse: the driver's peek at a connection's first request head; hyper's own parser.
+httparse = { version = "1" }
+# hyper: the HTTP/1.1 server behind the listener and the client on the hop.
+hyper = { version = "1.12", features = ["client", "http1", "server"] }
+# hyper-util: TokioIo bridges tokio's AsyncRead/AsyncWrite to hyper's, TokioTimer drives header_read_timeout.
+hyper-util = { version = "0.1.21", features = ["tokio"] }
+# tokio: the I/O runtime for the listener, the connections, timers and tasks.
+tokio = { version = "1.54", features = [
+  "io-util",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "sync",
+  "time",
+] }
+# tokio-util: CancellationToken tells connection tasks and upgrade handlers the listener is closing.
+tokio-util = { version = "0.7.20" }
+# zeroize: the hop secret is wiped on drop in a way the optimizer cannot remove.
+zeroize = { version = "1" }

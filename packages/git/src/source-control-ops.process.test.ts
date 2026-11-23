@@ -432,4 +432,24 @@ describe("source control git operations", () => {
       await git.close();
     }
   });
+
+  it("names private entries in the local exclude of a checkout whose path contains a newline", async () => {
+    if (process.platform === "win32") return;
+    const outer = await mkdtemp(join(tmpdir(), "ace-sc-nl-"));
+    tempDirs.push(outer);
+    const repo = join(outer, "work\ntree");
+    await mkdir(repo, { recursive: true });
+    runGit(repo, ["init", "-b", "main"]);
+    runGit(repo, ["config", "user.name", "Test User"]);
+    runGit(repo, ["config", "user.email", "test@example.com"]);
+    const git = new GitService();
+    try {
+      await git.excludeAcePrivate(repo);
+      const commonDir = runGit(repo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
+      const exclude = await readFile(join(commonDir, "info/exclude"), "utf8");
+      expect(exclude).toContain(".ace-upload-*");
+    } finally {
+      await git.close();
+    }
+  });
 });

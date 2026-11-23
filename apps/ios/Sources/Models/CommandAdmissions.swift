@@ -1,21 +1,29 @@
 import Foundation
 
+/// What became of a request: saved on the machine, definitely not (refused, or never reached the
+/// bridge), or unknown (the runtime went before it answered, and it may have been saved).
+enum AdmissionOutcome: Sendable, Equatable { case saved, refused, unknown }
+
 /// Correlates local UI requests. Protocol command IDs and admission remain in the SDK.
 @MainActor final class CommandAdmissions {
     private var sequence = 0
-    private var waiting: [String: CheckedContinuation<Bool, Never>] = [:]
+    private var waiting: [String: CheckedContinuation<AdmissionOutcome, Never>] = [:]
     func nextId() -> String { sequence += 1; return String(sequence) }
-    func wait(id: String, dispatch: () -> Bool) async -> Bool {
+    /// True once saved; a refusal and an unknown outcome are both false.
+    func wait(id: String, dispatch: () -> Bool) async -> Bool { await outcome(id: id, dispatch: dispatch) == .saved }
+    func outcome(id: String, dispatch: () -> Bool) async -> AdmissionOutcome {
         await withCheckedContinuation { continuation in
             waiting[id] = continuation
-            if !dispatch() { resolve(id, persisted: false) }
+            if !dispatch() { resolve(id, .refused) }
         }
     }
-    func resolve(_ id: String, persisted: Bool) { waiting.removeValue(forKey: id)?.resume(returning: persisted) }
+    func resolve(_ id: String, persisted: Bool) { resolve(id, persisted ? .saved : .refused) }
+    private func resolve(_ id: String, _ outcome: AdmissionOutcome) { waiting.removeValue(forKey: id)?.resume(returning: outcome) }
+    /// The runtime went: every waiter's request may or may not have been saved.
     func cancel() {
         let pending = waiting.values
         waiting = [:]
-        for continuation in pending { continuation.resume(returning: false) }
+        for continuation in pending { continuation.resume(returning: .unknown) }
     }
 }
 

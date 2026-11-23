@@ -135,7 +135,7 @@ export { startFakeCore } from "./native.ts";
 /** Choose the reducer backend explicitly (a browser's fake daemon calls this). */
 export { useCoreBackend, type CoreBackend } from "./backend.ts";
 
-export { readyForChildResults } from "./external.ts";
+export { externalAgentStatus, readyForChildResults } from "./external.ts";
 export { acceptsPersonInput, continueMessage } from "./person-input.ts";
 
 export { ExpiryMap } from "./expiry-map.ts";

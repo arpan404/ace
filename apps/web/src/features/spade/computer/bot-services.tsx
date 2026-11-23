@@ -9,7 +9,7 @@ import { cn } from "@/lib/cn.ts";
 import { useSpadeClient } from "../spade-machine.tsx";
 import { ProfileProblem, rowPill } from "../spade-profile-parts.tsx";
 import type { RosterBot } from "../use-spade-roster.ts";
-import { readServiceLines, stopService } from "./services-api.ts";
+import { readServiceLines, startService, stopService } from "./services-api.ts";
 
 /** Lines read when a log opens, and how often an open log of a running service reads more. */
 const firstLines = 200;
@@ -26,7 +26,8 @@ const fault = (error: unknown) => (error instanceof Error ? error.message : "Try
  * Computer › Services: the processes the bot keeps running, a tool and never work, so nothing
  * here makes it read as busy. Each row: its name and command, and how it is (Running, Ended ·
  * exit 255, Lost when Spade restarted). The row opens its output in place under it; hovering it
- * or opening it gives Logs and, while it runs, Stop.
+ * or opening it gives Logs and, while it runs, Stop. One that ended offers Start, which runs its
+ * own command again, unless another of its name runs.
  */
 export function BotServices(props: { bot: RosterBot; services: UseQueryResult<SpadeService[]> }) {
   const { services } = props;
@@ -53,6 +54,10 @@ export function BotServices(props: { bot: RosterBot; services: UseQueryResult<Sp
             key={service.id}
             bot={props.bot}
             service={service}
+            startable={
+              service.state !== "running" &&
+              !services.data.some((each) => each.name === service.name && each.state === "running")
+            }
             open={open === service.id}
             onToggle={() => setOpen(open === service.id ? undefined : service.id)}
           />
@@ -65,6 +70,8 @@ export function BotServices(props: { bot: RosterBot; services: UseQueryResult<Sp
 function ServiceRow(props: {
   bot: RosterBot;
   service: SpadeService;
+  /** Ended, with none of its name running: Start runs it again. */
+  startable: boolean;
   open: boolean;
   onToggle(): void;
 }) {
@@ -72,20 +79,22 @@ function ServiceRow(props: {
   const client = useSpadeClient();
   const cache = useQueryClient();
   const toast = useToast();
-  const [stopping, setStopping] = useState(false);
+  const [busy, setBusy] = useState(false);
   const running = service.state === "running";
   const failed = service.state === "failed" || (service.exitCode ?? 0) !== 0;
   const logId = `service-log-${service.id}`;
-  const stop = async () => {
-    setStopping(true);
+  const act = async () => {
+    setBusy(true);
     try {
-      await stopService(client, bot.id, service.id);
+      await (running ? stopService : startService)(client, bot.id, service.id);
     } catch (error) {
-      toast.error({ title: `Couldn't stop ${service.name}`, description: fault(error) });
+      const verb = running ? "stop" : "start";
+      toast.error({ title: `Couldn't ${verb} ${service.name}`, description: fault(error) });
     }
     await cache.invalidateQueries({ queryKey: servicesKey });
-    setStopping(false);
+    setBusy(false);
   };
+  const action = running || props.startable;
   return (
     <li className="group/service flex flex-col">
       <div className="grid min-h-(--setting-row-height) grid-cols-[1fr_auto] items-center gap-x-3 py-2">
@@ -110,26 +119,26 @@ function ServiceRow(props: {
               : service.state === "lost"
                 ? "text-subtle-foreground"
                 : "text-muted-foreground",
-            running &&
+            action &&
               "pointer-fine:group-hover/service:hidden pointer-fine:group-focus-within/service:hidden",
-            running && props.open && "hidden",
+            action && props.open && "hidden",
           )}
         >
           {spadeServiceWords(service)}
         </span>
-        {running && (
+        {action && (
           <Button
             size="sm"
             variant="ghost"
-            disabled={stopping}
+            disabled={busy}
             className={cn(
               rowPill,
               "-mr-3 hidden pointer-fine:group-hover/service:inline-flex pointer-fine:group-focus-within/service:inline-flex",
               props.open && "inline-flex",
             )}
-            onClick={() => void stop()}
+            onClick={() => void act()}
           >
-            {stopping ? "Stopping…" : "Stop"}
+            {running ? (busy ? "Stopping…" : "Stop") : busy ? "Starting…" : "Start"}
           </Button>
         )}
       </div>

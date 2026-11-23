@@ -31,6 +31,7 @@ struct StepRow: View {
     /// Failed, then run again with success: neither failed nor noted.
     var retried = false
     @State private var localOpen = false
+    @State private var showCommand = false
     var body: some View {
         if step.awaiting != true {
             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
@@ -49,7 +50,15 @@ struct StepRow: View {
     private var key: String { "step:\(id)" }
     private var open: Bool { thread.map { $0.disclosures.isOpen(key) } ?? localOpen }
     @ViewBuilder private var row: some View {
-        if let opens = step.opens, !opens.isEmpty, let openStep {
+        if step.command != nil {
+            Button { showCommand = true } label: { line(open: false) }.buttonStyle(.plain)
+                .accessibilityHint("Opens the full command")
+                .accessibilityAction(named: "Open full command") { showCommand = true }
+                .sheet(isPresented: $showCommand) {
+                    CommandSheet(command: step.command?.full ?? "", output: step.detail?.output ?? "",
+                                 outputTruncated: step.detail?.outputTruncated ?? false, exitCode: step.command?.exitCode)
+                }
+        } else if let opens = step.opens, !opens.isEmpty, let openStep {
             Button { openStep(opens) } label: { line(open: nil) }.buttonStyle(.plain).accessibilityHint("Opens its screen")
         } else if expandable {
             Button {
@@ -68,12 +77,17 @@ struct StepRow: View {
         LogRowBox(open: open) {
             StepGlyph(step: step, failed: failed)
         } title: {
+            if let command = step.command {
+                CommandTitle(label: command.label, background: command.background)
+                    .stepShimmer(StepInFlight(step: step).shimmers(reduceMotion: reduceMotion))
+            } else {
             HStack(spacing: AceDesign.Space.related) {
                 if !step.verb.isEmpty {
                     Text(step.verb).layoutPriority(1).stepShimmer(StepInFlight(step: step).shimmers(reduceMotion: reduceMotion))
                 }
                 // A command nothing else shows in full opens in place; a step with details shows it there.
                 if !step.target.isEmpty { TargetChip(target: step.target, id: expandable || step.opens?.isEmpty == false ? nil : key) }
+            }
             }
         } meta: {
             HStack(spacing: AceDesign.Space.tight) {
@@ -88,10 +102,12 @@ struct StepRow: View {
                     Text(step.note).foregroundStyle(failed ? AceTheme.StatusText.failed : AceTheme.Colours.subtleForeground)
                 }
                 StepElapsed(inFlight: StepInFlight(step: step))
+                if let took = step.command?.duration { Text(took) }
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel([step.verb, step.target, retried ? "" : step.note].filter { !$0.isEmpty }.joined(separator: " "))
+        .accessibilityLabel(step.command?.spoken(running: !step.settled, failed: failed)
+            ?? [step.verb, step.target, retried ? "" : step.note].filter { !$0.isEmpty }.joined(separator: " "))
         .accessibilityValue(step.settled ? "" : "Running")
         .accessibilityIdentifier(id.isEmpty ? "step" : "step.\(id)")
     }

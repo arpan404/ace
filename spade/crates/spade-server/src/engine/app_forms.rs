@@ -84,6 +84,7 @@ impl Engine {
                 .count();
             let card_id = elicit::card_id(call_id, shown_before + 1);
             let event = Event::Known(Known::QuestionAsked {
+                lane: None,
                 reply,
                 call_id: card_id.clone(),
                 question: card.summary,

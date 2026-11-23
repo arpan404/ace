@@ -173,7 +173,12 @@ impl Engine {
     /// route from the helper's model on, when that model is on it, else the helper's model
     /// alone.
     pub(crate) fn step_route(&self, conversation: &str, turn_model: &str) -> Vec<String> {
-        let (route, role) = match self.helper_of(conversation) {
+        let (route, role) = match self.hidden_of(conversation) {
+            // A lane's steps run on its bot's `task` route (ADR 0217 §8a), led like main's.
+            Some(lane) if lane.profile == spade_core::lane::PROFILE => (
+                self.facts(&lane.parent).routing().route(Role::Task),
+                Role::Main,
+            ),
             Some(helper) => (
                 self.facts(&helper.parent).routing().route(Role::Helper),
                 Role::Helper,
@@ -240,7 +245,10 @@ impl Engine {
 
     /// How hard a turn's step thinks: a helper's as its bot's `helper` role, a bot's as `main`.
     pub(crate) fn step_effort(&self, conversation: &str) -> Effort {
-        match self.helper_of(conversation) {
+        match self.hidden_of(conversation) {
+            Some(lane) if lane.profile == spade_core::lane::PROFILE => {
+                self.role_effort(&lane.parent, Role::Task)
+            }
             Some(helper) => self.role_effort(&helper.parent, Role::Helper),
             None => self.role_effort(conversation, Role::Main),
         }

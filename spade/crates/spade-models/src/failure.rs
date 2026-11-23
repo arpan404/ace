@@ -11,6 +11,16 @@ use crate::error::ModelError;
 /// The error for a failed call on `model`. `answered` is whether the endpoint had already begun a
 /// successful answer (its stream started): a failure after that is the model's, never retried.
 pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelError {
+    // A ChatGPT account's usage refusal reads as one plain line and is never sent again.
+    if let Some(line) = refused_body(error).and_then(crate::chatgpt::usage_line) {
+        return ModelError::Unanswered {
+            model: model.to_owned(),
+            message: line,
+            transient: false,
+            retry_after: None,
+            status: error.status().map(|s| s.as_u16()),
+        };
+    }
     let message = error.to_string();
     if answered {
         return ModelError::Provider {
@@ -37,6 +47,64 @@ pub(crate) fn read(model: &str, error: &genai::Error, answered: bool) -> ModelEr
             model: model.to_owned(),
             message,
         },
+    }
+}
+
+/// [`read`], for a call that carried a signed-in account's token when `signed`: then the line says
+/// only what an allowlist names (a usage refusal, the status, or that it could not be reached),
+/// never anything the backend sent, which may echo the token.
+pub(crate) fn read_as(
+    model: &str,
+    error: &genai::Error,
+    answered: bool,
+    signed: bool,
+) -> ModelError {
+    let read = read(model, error, answered);
+    if !signed {
+        return read;
+    }
+    let line = |status: Option<u16>| match status {
+        Some(status) => format!("the ChatGPT backend refused the call ({status})"),
+        None => "the ChatGPT backend could not be reached".to_owned(),
+    };
+    match read {
+        // Already one of the allowlisted usage lines.
+        ModelError::Unanswered { ref message, .. }
+            if refused_body(error)
+                .and_then(crate::chatgpt::usage_line)
+                .is_some_and(|l| &l == message) =>
+        {
+            read
+        }
+        ModelError::Unanswered {
+            model,
+            transient,
+            retry_after,
+            status,
+            ..
+        } => ModelError::Unanswered {
+            model,
+            message: line(status),
+            transient,
+            retry_after,
+            status,
+        },
+        ModelError::Provider { model, .. } => ModelError::Provider {
+            model,
+            message: "the ChatGPT backend's answer failed".to_owned(),
+        },
+        other => other,
+    }
+}
+
+/// The body an endpoint refused a call with, when the error carries it.
+fn refused_body(error: &genai::Error) -> Option<&str> {
+    match error {
+        genai::Error::HttpError { body, .. } => Some(body.as_str()),
+        genai::Error::WebStream { error, .. } => {
+            error.downcast_ref::<genai::Error>().and_then(refused_body)
+        }
+        _ => None,
     }
 }
 
@@ -75,11 +143,13 @@ fn unanswered(error: &genai::Error) -> Option<Unanswered<'_>> {
     }
 }
 
-/// The request never got a response: it could not connect or could not be sent. A body cut
-/// short or unreadable (`is_body`, `is_decode`) came after a response, so the endpoint answered
-/// and may have billed it; that is never sent again.
+/// The request never reached the endpoint: no connection was made. Anything later (a body cut
+/// short or unreadable, a reset mid-request) may have been billed and is never sent again.
 fn not_sent(error: &reqwest::Error) -> bool {
-    (error.is_connect() || error.is_request()) && !error.is_body() && !error.is_decode()
+    // Only a connection never made proves nothing was sent. Any other request error (a reset,
+    // a connection closed before the answer) may come after the endpoint ran and billed it, so
+    // it is never taken as unsent and never sent again.
+    error.is_connect() && !error.is_body() && !error.is_decode()
 }
 
 /// A timeout, a rate limit or the server's own trouble passes; a bad request or a refused key
@@ -102,6 +172,10 @@ pub(crate) fn used_up(message: &str) -> bool {
         "credit balance",
         "out of credits",
         "payment required",
+        "usage limit",
+        "usage_limit_reached",
+        "usage_not_included",
+        "no usage left",
     ]
     .iter()
     .any(|words| message.contains(words))
@@ -189,6 +263,24 @@ mod tests {
         }
         let limited = with_body(r#"{"error":{"type":"rate_limit_error"}}"#);
         assert!(read("m", &limited, false).transient());
+    }
+
+    #[test]
+    fn a_chatgpt_usage_limit_is_one_plain_line_and_never_sent_again() {
+        let error = genai::Error::HttpError {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            canonical_reason: String::new(),
+            body: r#"{"error":{"type":"usage_limit_reached","resets_in_seconds":600}}"#.to_owned(),
+            headers: Box::new(HeaderMap::new()),
+        };
+        let read = read("chatgpt/gpt-5.5", &error, false);
+        assert!(!read.transient());
+        assert_eq!(read.unserved(), Some(crate::Unserved::Quota));
+        assert_eq!(
+            read.to_string(),
+            "chatgpt/gpt-5.5: This ChatGPT account reached its usage limit; it resets in 10 \
+             minutes."
+        );
     }
 
     #[test]

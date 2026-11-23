@@ -53,6 +53,54 @@ import Testing
         #expect(shown.answer != nil)
     }
 
+    @Test func aPastedKeyGoesWhenTheEndpointOrAddressChanges() {
+        var draft = SpadeKeySetupDraft()
+        draft.key = "sk-or-typed-for-openrouter"
+        draft.choose("endpoint:openrouter", from: "endpoint:openrouter")
+        #expect(draft.key == "sk-or-typed-for-openrouter")
+
+        draft.choose("custom", from: "endpoint:openrouter")
+        #expect(draft.key.isEmpty)
+
+        draft.typeAddress("http://localhost:11434/v1/")
+        draft.key = "sk-local"
+        draft.typeAddress("http://elsewhere.example/v1/")
+        #expect(draft.key.isEmpty)
+    }
+
+    @Test func aRefusedSetupThatMadeItsEndpointRetriesOnItWithTheTypedModel() {
+        var draft = SpadeKeySetupDraft()
+        draft.choose("custom", from: "endpoint:openrouter")
+        draft.typeAddress("http://localhost:11434/v1/")
+        draft.model = "llama3"
+        _ = draft.takeKey()
+
+        draft.adopt("endpoint:localhost")
+
+        #expect(draft.picked == "endpoint:localhost")
+        #expect(draft.address.isEmpty)
+        #expect(draft.model == "llama3")
+    }
+
+    @Test func aSecurityChangeLandsAsThePageSpadeNowHolds() throws {
+        func security(apps: Bool) throws -> SpadeSettings.Answer {
+            try answer("""
+            {"ok": true, "line": \(line), "security": {"line": "Commands run sealed off on this Mac.",
+              "permissions": [{"key": "apps", "title": "Apps", "line": "The tools of the apps you connected.",
+                "on": \(apps), "own": false}], "neverApps": ["1Password"],
+              "autonomy": {"value": "auto_review", "choices": [{"value": "auto_review", "label": "Auto-review"}],
+                "fullAccess": null, "confirm": {"title": "Turn on?", "message": "It works.", "button": "Turn on"}}}}
+            """)
+        }
+        var reads = SpadeSettingsReads()
+        reads.land(try security(apps: true), ticket: reads.begin())
+
+        reads.changed(try security(apps: false), ticket: reads.begin())
+
+        #expect(reads.answer?.security?.permissions?.first?.on == false)
+        #expect(reads.notice == nil)
+    }
+
     @Test func aPageSpadeCannotAnswerCarriesOnlyItsState() throws {
         let off = try answer(#"{"ok": true, "line": {"sentence": "Spade is off.", "ready": false, "canTurnOn": true}}"#)
         #expect(off.line?.canTurnOn == true)

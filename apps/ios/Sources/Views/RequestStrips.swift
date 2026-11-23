@@ -143,16 +143,37 @@ struct LeftRunningStrip: View {
     let canAct: Bool
     let stop: (String) async -> Void
     @State private var stopping = false
+    @State private var showingCommands = false
     var body: some View {
-        DockStrip(line: row.strip, actions: [
-            DockAction(id: "stop", label: stopping ? "Stopping…" : "Stop", primary: true, enabled: canAct && !stopping) {
-                stopping = true
-                Task {
-                    for id in row.taskIds { await stop(id) }
-                    stopping = false
+        let action = DockAction(id: "stop", label: stopping ? "Stopping…" : "Stop", enabled: canAct && !stopping) {
+            stopping = true
+            Task {
+                for id in row.taskIds { await stop(id) }
+                stopping = false
+            }
+        }
+        CompactDockStrip(line: row.strip, action: action, openDetails: { showingCommands = true })
+        .sheet(isPresented: $showingCommands) {
+            NavigationStack {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: AceDesign.Space.group) {
+                        ForEach(row.commands.indices, id: \.self) { index in
+                            Text(verbatim: row.commands[index])
+                                .aceMonospace(AceDesign.TextRole.code)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(AceDesign.Space.margin)
                 }
-            },
-        ], identifier: "thread.leftRunning")
+                .navigationTitle(row.commands.count == 1 ? "Running command" : "Running commands")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { SheetClose() }
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
     }
 }
 

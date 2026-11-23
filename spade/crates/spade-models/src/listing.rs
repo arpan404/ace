@@ -43,14 +43,41 @@ impl Default for ListBounds {
 }
 
 /// Fetches the endpoint's model list with `key` (none for a keyless endpoint).
+/// Why a model list could not be read: one line that never holds the key, and the status the
+/// endpoint refused it with, when it answered with one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ListFailure {
+    pub status: Option<u16>,
+    pub message: String,
+}
+
 pub(crate) async fn fetch(
     http: &reqwest::Client,
     endpoint: &Endpoint,
     key: Option<&str>,
+    query: &[(&str, &str)],
     bounds: ListBounds,
+) -> Result<Vec<Listed>, ListFailure> {
+    let mut status = None;
+    fetch_noting(http, endpoint, key, query, bounds, &mut status)
+        .await
+        .map_err(|message| ListFailure { status, message })
+}
+
+/// [`fetch`], noting in `refused` the status the endpoint refused the list with.
+async fn fetch_noting(
+    http: &reqwest::Client,
+    endpoint: &Endpoint,
+    key: Option<&str>,
+    query: &[(&str, &str)],
+    bounds: ListBounds,
+    refused: &mut Option<u16>,
 ) -> Result<Vec<Listed>, String> {
     let url = format!("{}models", endpoint.base_url);
     let mut request = http.get(&url).timeout(bounds.timeout);
+    if !query.is_empty() {
+        request = request.query(query);
+    }
     if endpoint.format == Format::Anthropic {
         request = request
             .query(&[("limit", "1000")])
@@ -73,6 +100,10 @@ pub(crate) async fn fetch(
         .await
         .map_err(|e| scrub(format!("could not reach the endpoint: {}", reason(&e))))?;
     let status = response.status();
+    // Noted before the body is read: a refusal cut short or too large is still that refusal.
+    if !status.is_success() {
+        *refused = Some(status.as_u16());
+    }
     if status.is_redirection() {
         return Err(format!(
             "the endpoint redirected ({}); Spade does not follow redirects with your key, so set the \
@@ -108,7 +139,52 @@ pub(crate) async fn fetch(
             status.as_u16()
         )));
     }
-    parse(&body, bounds.max_models)
+    let listed = parse(&body, bounds.max_models)?;
+    Ok(listed
+        .into_iter()
+        .filter(|model| !carries_secret(model, &secrets))
+        .collect())
+}
+
+/// A listed model that would carry a secret onward if kept: one that names the key or a header
+/// value anywhere in what the endpoint sent, or whose id or name reads like a credential. Its
+/// id could become a bot's model and be stored and shown (ADR 0119), so it is never offered.
+fn carries_secret(model: &Listed, secrets: &[&str]) -> bool {
+    let sent = model.raw.to_string();
+    secrets
+        .iter()
+        .filter(|secret| secret.len() >= 8)
+        .any(|secret| sent.contains(secret) || model.id.contains(secret))
+        || credential_like(&model.id)
+        || model.name.as_deref().is_some_and(credential_like)
+}
+
+/// Text that reads like an API key or token: a known key prefix with a long body after it, or a
+/// long unbroken run of letters and digits mixed, which no model's name is.
+pub(crate) fn credential_like(text: &str) -> bool {
+    const PREFIXES: [&str; 9] = [
+        "sk-",
+        "sk_",
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
+        "AKIA",
+        "AIza",
+    ];
+    let tokens = text.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+    let prefixed = tokens.clone().any(|token| {
+        PREFIXES
+            .iter()
+            .any(|prefix| token.starts_with(prefix) && token.len() >= prefix.len() + 16)
+    });
+    prefixed
+        || text.split(|c: char| !c.is_ascii_alphanumeric()).any(|run| {
+            run.len() >= 40
+                && run.chars().any(|c| c.is_ascii_digit())
+                && run.chars().any(|c| c.is_ascii_alphabetic())
+        })
 }
 
 pub(crate) fn reason(error: &reqwest::Error) -> &'static str {
@@ -165,7 +241,12 @@ pub fn parse(body: &[u8], max_models: usize) -> Result<Vec<Listed>, String> {
 }
 
 fn item(raw: &Value) -> Option<Listed> {
-    let id = raw.get("id")?.as_str()?.trim();
+    // The ChatGPT backend's list (ADR 0214) names a model by `slug`, and hides some.
+    let slug = raw.get("id").is_none() && raw.get("slug").is_some();
+    if slug && raw.get("visibility").and_then(Value::as_str) == Some("hide") {
+        return None;
+    }
+    let id = raw.get(if slug { "slug" } else { "id" })?.as_str()?.trim();
     if id.is_empty() || id.len() > 300 || id.chars().any(char::is_control) {
         return None;
     }
@@ -185,16 +266,20 @@ fn item(raw: &Value) -> Option<Listed> {
     ]
     .into_iter()
     .find_map(number);
-    let capabilities = raw.get("capabilities").and_then(|c| match c {
-        Value::Array(names) => Some(
-            names
-                .iter()
-                .filter_map(Value::as_str)
-                .filter_map(Capability::parse)
-                .collect(),
-        ),
-        _ => None,
-    });
+    let capabilities = if slug {
+        Some(slug_capabilities(raw))
+    } else {
+        raw.get("capabilities").and_then(|c| match c {
+            Value::Array(names) => Some(
+                names
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(Capability::parse)
+                    .collect(),
+            ),
+            _ => None,
+        })
+    };
     Some(Listed {
         id: id.to_owned(),
         name: text("display_name").or_else(|| text("name")),
@@ -202,6 +287,20 @@ fn item(raw: &Value) -> Option<Listed> {
         capabilities,
         raw: raw.clone(),
     })
+}
+
+/// What a model on the ChatGPT backend can do: every one calls tools and reasons; images when
+/// it takes them.
+fn slug_capabilities(raw: &Value) -> Vec<Capability> {
+    let mut out = vec![Capability::Tools, Capability::Reasoning];
+    let images = raw
+        .get("input_modalities")
+        .and_then(Value::as_array)
+        .is_some_and(|all| all.iter().any(|m| m.as_str() == Some("image")));
+    if images {
+        out.push(Capability::Images);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -228,11 +327,61 @@ mod tests {
     }
 
     #[test]
+    fn a_chatgpt_list_names_models_by_slug_and_leaves_out_hidden_ones() {
+        let body = br#"{"models":[
+            {"slug":"gpt-5.5","display_name":"GPT-5.5","context_window":272000,
+             "visibility":"list","input_modalities":["text","image"]},
+            {"slug":"codex-auto-review","display_name":"Review","visibility":"hide"},
+            {"slug":"gpt-5.5-mini","visibility":"list"}
+        ]}"#;
+        let models = parse(body, 100).unwrap_or_default();
+        let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["gpt-5.5", "gpt-5.5-mini"]);
+        assert_eq!(models[0].name.as_deref(), Some("GPT-5.5"));
+        assert_eq!(models[0].context, Some(272_000));
+        assert_eq!(
+            models[0].capabilities,
+            Some(vec![
+                Capability::Tools,
+                Capability::Reasoning,
+                Capability::Images
+            ])
+        );
+        assert_eq!(
+            models[1].capabilities,
+            Some(vec![Capability::Tools, Capability::Reasoning])
+        );
+    }
+
+    #[test]
     fn a_bare_array_works_and_the_count_is_bounded() {
         let body = br#"[{"id":"a"},{"id":"b"},{"id":"c"}]"#;
         assert_eq!(parse(body, 2).map(|m| m.len()), Ok(2));
         assert!(parse(b"<html>", 10).is_err());
         assert!(parse(br#"{"data":"nope"}"#, 10).is_err());
+    }
+
+    #[test]
+    fn ids_that_read_like_credentials_are_told_from_model_names() {
+        for id in [
+            "sk-proj-abcdefghijklmnop1234",
+            "models/ghp_0123456789abcdefABCDEF",
+            "x/AKIAIOSFODNN7EXAMPLE1234",
+            "a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0e1",
+        ] {
+            assert!(credential_like(id), "{id}");
+        }
+        for id in [
+            "kimi-k2",
+            "claude-sonnet-4-5-20250929",
+            "accounts/fireworks/models/llama-v3p1-405b-instruct",
+            "meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo",
+            "ft:gpt-4o-mini-2024-07-18:acme:support:9abcdEFG",
+            "gpt-4o-mini-transcribe",
+            "sk-short",
+        ] {
+            assert!(!credential_like(id), "{id}");
+        }
     }
 
     #[test]

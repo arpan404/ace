@@ -86,6 +86,28 @@ describe("a reply's steps", () => {
     ]);
   });
 
+  test("Python runs and file finds read plainly, each with its script or pattern", () => {
+    const c = conversation();
+    ranCalls(c, [
+      {
+        id: "c1",
+        name: "python",
+        arguments: { code: "import csv\nrows = list(csv.reader(open('a.csv')))" },
+      },
+      { id: "c2", name: "python", arguments: { path: "tools/chart.py", args: ["--out", "c.png"] } },
+      { id: "c3", name: "workspace_find", arguments: { pattern: "*.csv" } },
+      { id: "c4", name: "workspace_search", arguments: { text: "^total", regex: true } },
+    ])();
+    const [steps] = stepsOf(c.bubbles());
+    expect(steps?.summary).toBe("Ran 2 Python scripts, found files, searched its files");
+    expect(steps?.steps.map((step) => step.detail)).toEqual([
+      "rows = list(csv.reader(open('a.csv')))",
+      "tools/chart.py",
+      "*.csv",
+      "^total",
+    ]);
+  });
+
   test("a command the sandbox's network policy blocked keeps the block reason in its detail", () => {
     const c = conversation();
     const end = ranCalls(c, [

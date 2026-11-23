@@ -243,6 +243,16 @@ pub const IN_BACKGROUND: &str = "Working in the background";
 /// A worker of the bot waits on the person (ADR 0161).
 pub const WORKER_WAITING: &str = "A worker is waiting for you";
 pub const CALLEE_WAITING: &str = "A bot it asked is waiting for you";
+/// One of the bot's task lanes waits on the person (ADR 0217).
+pub const TASK_WAITING: &str = "A task is waiting for you";
+
+/// What a bot whose own reply is done reads while its task lanes work (ADR 0217).
+pub fn tasks_working(count: usize) -> String {
+    match count {
+        1 => "Working on 1 task".to_owned(),
+        n => format!("Working on {n} tasks"),
+    }
+}
 
 /// What a bot whose own work is done reads while its workers work (ADR 0161).
 pub fn workers_working(count: usize) -> String {

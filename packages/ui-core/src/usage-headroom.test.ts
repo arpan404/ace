@@ -1,7 +1,13 @@
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView } from "./accounts.ts";
-import { railUsage, usageHeadroom } from "./usage-headroom.ts";
+import {
+  migrateRailPins,
+  pickRail,
+  railSessionKinds,
+  railUsage,
+  usageHeadroom,
+} from "./usage-headroom.ts";
 import { usageLimits } from "./usage-limits.ts";
 
 const now = Date.parse("2026-11-01T12:00:00Z");
@@ -224,4 +230,92 @@ test("pinned accounts are the rail's, in the order pinned; with none here, the m
   const elsewhere = railUsage(list, used, "week", ["claude-elsewhere"]);
   expect(elsewhere.pinned).toBe(false);
   expect(elsewhere.accounts[0]?.account.id).toBe("codex-ci");
+});
+
+const ids = (list: { id: string }[]) => list.map((each) => each.id);
+const six = ["a", "b", "c", "d", "e", "f"].map((id) => ({ id }));
+
+test.each([
+  { name: "no pins: the page's order, four at most", pins: [], used: undefined, want: "abcd" },
+  { name: "no pins: most used first", pins: [], used: { e: 9, c: 5 }, want: "ecab" },
+  { name: "pins draw in the order pinned", pins: ["c", "a"], used: { e: 9 }, want: "ca" },
+  { name: "pins that no longer read are skipped", pins: ["x", "b"], used: undefined, want: "b" },
+  {
+    name: "only unreadable pins fall back to the default",
+    pins: ["x"],
+    used: undefined,
+    want: "abcd",
+  },
+  { name: "a repeated pin counts once", pins: ["b", "b", "a"], used: undefined, want: "ba" },
+  {
+    name: "pins past four are cut",
+    pins: ["f", "e", "d", "c", "b"],
+    used: undefined,
+    want: "fedc",
+  },
+])("pickRail: $name", ({ pins, used, want }) => {
+  const picked = pickRail(six, used ? new Map(Object.entries(used)) : undefined, pins);
+  expect(ids(picked.shown).join("")).toBe(want);
+  expect(picked.pinned).toBe(pins.some((id) => id !== "x"));
+});
+
+const phone = (list: ReturnType<typeof limits>, pins: string[] = []) =>
+  railUsage(list, undefined, "session", migrateRailPins(pins, railSessionKinds(list)));
+const rows = (rail: ReturnType<typeof railUsage>) =>
+  rail.choices.map((choice) => `${choice.id}${choice.shown ? "*" : ""}`);
+
+test("the chooser lists each window an account reports, and only those", () => {
+  const list = limits(claudePersonal, codexPersonal, { ...claudeWork, weekly: undefined });
+  expect(rows(phone(list))).toEqual([
+    "claude-personal#session*",
+    "claude-work#session*",
+    "codex-personal#session*",
+    "claude-personal#weekly",
+    "codex-personal#weekly",
+  ]);
+});
+
+test("a bar is the chosen window's own room, and says which window it is", () => {
+  const list = limits(claudePersonal);
+  const rail = phone(list, ["claude-personal#weekly", "claude-personal#session"]);
+  expect(rail.bars.map((bar) => [bar.window, bar.left])).toEqual([
+    ["Weekly", 59],
+    ["5-hour", 38],
+  ]);
+  expect(rail.label).toBe("Usage: Claude Code Weekly 59% left, Claude Code 5-hour 38% left");
+});
+
+test("the same account may fill several bars, up to four", () => {
+  const list = limits(claudePersonal, codexPersonal);
+  const pins = [
+    "claude-personal#session",
+    "claude-personal#weekly",
+    "codex-personal#session",
+    "codex-personal#weekly",
+  ];
+  expect(rows(phone(list, pins))).toEqual(pins.map((pin) => `${pin}*`));
+  expect(phone(list, [...pins, "claude-personal"]).bars).toHaveLength(4);
+});
+
+test("saved account-only pins keep their account and become its session limit", () => {
+  const list = limits(claudePersonal, codexPersonal);
+  const kinds = railSessionKinds(list);
+  expect([...kinds]).toEqual([
+    ["claude-personal", "session"],
+    ["codex-personal", "session"],
+  ]);
+  expect(migrateRailPins(["codex-personal", "gone", "claude-personal#weekly"], kinds)).toEqual([
+    "codex-personal#session",
+    "gone",
+    "claude-personal#weekly",
+  ]);
+  expect(migrateRailPins(["codex-personal", "codex-personal#session"], kinds)).toEqual([
+    "codex-personal#session",
+  ]);
+  expect(phone(list, ["codex-personal"]).bars.map((bar) => bar.window)).toEqual(["5-hour"]);
+});
+
+test("an account that reads no limit has no row", () => {
+  const list = limits({ ...claudePersonal, session: null, weekly: undefined });
+  expect(rows(phone(list))).toEqual([]);
 });

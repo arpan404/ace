@@ -3,6 +3,7 @@ import { z } from "zod";
 import { textOutput } from "./cli.ts";
 import { hash } from "./decode.ts";
 import { GitDiagnostics } from "./diagnostics.ts";
+import { branchCommit, branchRefLines } from "./native-refs.ts";
 import { defaultBranch } from "./projects.ts";
 import type { Repository } from "./repository.ts";
 import { GitError } from "./types.ts";
@@ -73,21 +74,8 @@ async function listRefs(
   count: number,
   remotes: readonly string[],
 ): Promise<ListedRef[]> {
-  const listing = await repository.cli.call(
-    root,
-    [
-      "for-each-ref",
-      ...(count > 0 ? [`--count=${count}`] : []),
-      "--sort=refname",
-      "--sort=-committerdate",
-      "--format=%(refname)%00%(symref)%00%(upstream:short)%00%(upstream:track,nobracket)",
-      "--end-of-options",
-      ...patterns,
-    ],
-    { captureBytes: 8 * 1_048_576 },
-  );
-  if (listing.truncated) throw new GitError("output_too_large", "Branch listing exceeded 8 MiB");
-  return listing.stdout
+  const listing = await branchRefLines(repository, root, patterns, count);
+  return listing
     .toString("utf8")
     .split("\n")
     .filter(Boolean)
@@ -164,12 +152,8 @@ export async function branchHead(
     options.remote === undefined
       ? `refs/heads/${options.branch}`
       : `refs/remotes/${options.remote}/${options.branch}`;
-  const result = await repository.cli.call(
-    root,
-    ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
-    { allowFailure: true, ...(signal ? { signal } : {}) },
-  );
-  return result.exitCode === 0 ? hash(textOutput(result)) : undefined;
+  const commit = await branchCommit(repository, root, ref, signal);
+  return commit === undefined ? undefined : hash(commit);
 }
 
 export interface FetchBranchOptions {

@@ -105,9 +105,12 @@ pub fn to_windows_command(command: &str, args: &[&str]) -> Result<WindowsCommand
 /// environment.
 #[cfg(windows)]
 pub fn windows_system_executable(name: &str) -> Result<String, crate::errors::SupervisorError> {
-    use windows_sys::Win32::System::LibraryLoader::GetSystemDirectoryW;
+    use windows_sys::Win32::System::SystemInformation::GetSystemDirectoryW;
     let mut buffer = [0u16; 1024];
-    let length = GetSystemDirectoryW(buffer.as_mut_ptr(), 1024);
+    // SAFETY: the kernel writes at most 1024 UTF-16 units into the owned
+    // buffer and returns how many it wrote (or the size it needs).
+    #[allow(unsafe_code)]
+    let length = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), 1024) };
     if length == 0 || length >= 1024 {
         return Err(crate::errors::SupervisorError::Unavailable(
             "Windows system directory unavailable".to_owned(),

@@ -14,6 +14,9 @@ use media_wire::control::{
 use media_wire::frame::MediaFrame;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[path = "sources_scrcpy.rs"]
+mod scrcpy;
+
 /// Why a JPEG source ended when its pictures came on the control lane (an older daemon's).
 pub const PICTURE_INGEST_REQUIRED: &str = "picture-ingest-required";
 
@@ -70,6 +73,18 @@ impl Recording {
     }
 }
 
+/// A scrcpy source ace-media reads itself (D1): where its video handshake dials and the
+/// one deadline every step of it is bounded by.
+#[derive(Debug, Clone)]
+pub struct ScrcpyTarget {
+    pub host: String,
+    pub port: u32,
+    pub deadline_ms: u64,
+    /// The reader generation the daemon dialled last: every word from the reader carries
+    /// it, and an ack for any other is dropped.
+    pub dial: u32,
+}
+
 struct Source {
     id: Id,
     /// The daemon's handle for this source: what egress frames carry.
@@ -90,6 +105,9 @@ struct Source {
     /// its running encoder: every command to that encoder and every word from it carries the
     /// token, so a reopened source never takes an earlier encoder's output.
     pictures: bool,
+    /// A scrcpy source's video handshake (D1): the reader dials it itself, so it stamps
+    /// epochs as it reads, like a Simulator's.
+    scrcpy: Option<ScrcpyTarget>,
     /// The newest epoch a picture of this source was captured in: an older one came late.
     newest_picture: u32,
     encoder: Option<u64>,
@@ -188,6 +206,7 @@ fn report(
             reason: reason.map(Into::into),
             attempts,
             acceleration,
+            dial: None,
         },
     );
 }
@@ -213,6 +232,8 @@ impl Sources {
         handle: u32,
         epoch: u32,
         origin: &Origin,
+        deadline_ms: Option<u64>,
+        dial: u32,
         token: &[u8],
         vault: &mut Vault,
         now: u64,
@@ -241,9 +262,21 @@ impl Sources {
         // An emulator's frame file is encoded by the screen helper's `--encode-frames`, and an
         // Android device's scrcpy stream is forwarded by the daemon, which keeps its sockets: both
         // stream in over ingest like any producer and stamp their own epochs. A Simulator's
-        // serve-sim stream is read here. A JPEG source's pictures carry the epoch they were
-        // captured in; its stamper only holds a private epoch through its read gap (`admits`).
-        let reads_itself = pictures || matches!(origin, Origin::Simulator { .. });
+        // serve-sim stream is read here, and so is a scrcpy source's video socket once the
+        // daemon asks (D1, `source.open.deadlineMs`). A JPEG source's pictures carry the epoch
+        // they were captured in; its stamper only holds a private epoch through its read
+        // gap (`admits`).
+        let scrcpy = match (origin, deadline_ms) {
+            (Origin::Scrcpy { host, port }, Some(deadline_ms)) => Some(ScrcpyTarget {
+                host: host.clone(),
+                port: *port,
+                deadline_ms,
+                dial,
+            }),
+            _ => None,
+        };
+        let reads_itself =
+            pictures || matches!(origin, Origin::Simulator { .. }) || scrcpy.is_some();
         let mut stamper = reads_itself.then(|| ReadStamper::new(epoch));
         if let Some(stamper) = &mut stamper {
             stamper.apply(epoch, false, now);
@@ -263,6 +296,7 @@ impl Sources {
                 encode: 0,
                 recording: None,
                 pictures,
+                scrcpy: scrcpy.clone(),
                 newest_picture: epoch,
                 encoder: None,
                 received: 0,
@@ -274,6 +308,11 @@ impl Sources {
         // A Simulator's serve-sim stream is read here, by a reader under an encoder token.
         if let Origin::Simulator { stream_url, .. } = origin {
             self.read(id, stream_url, out);
+        }
+        // A scrcpy source's video socket is read here (D1), once the daemon passes the
+        // startup deadline; without it the daemon forwards its own socket's units.
+        if let Some(target) = scrcpy {
+            self.read_scrcpy(id, &target, out);
         }
     }
 
@@ -618,6 +657,12 @@ impl Sources {
             {
                 frame.epoch = stamper.stamp(now.mono_ms);
             }
+            // A scrcpy reader's units carry its generation, for the daemon to fence on.
+            if let Some(target) = &source.scrcpy {
+                frame
+                    .extension
+                    .extend_from_slice(&crate::scrcpy::dial_tag(target.dial));
+            }
             self.unit(id, frame, now, egress, out);
         } else if let Some((source, _)) = self
             .draining
@@ -671,7 +716,12 @@ impl Sources {
         source.encoder = None;
         source.egress.end(source.handle, true, egress);
         source.status = Status::Ended;
-        status(out, &source.id, Status::Ended, Some(reason), None);
+        match &source.scrcpy {
+            // A scrcpy reader's end names its generation, so the daemon can tell it from a
+            // newer reader's.
+            Some(target) => scrcpy::reader_ended(out, &source.id, reason, target.dial),
+            None => status(out, &source.id, Status::Ended, Some(reason), None),
+        }
         out.push(Effect::Encode(EncodeEffect::Close {
             source: id.to_owned(),
             token,

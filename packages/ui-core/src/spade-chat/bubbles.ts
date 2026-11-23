@@ -7,6 +7,7 @@ import type {
   SpadeAskKind,
   SpadeOutsideAsk,
   SpadeRequest,
+  SpadeLaneAsking,
 } from "./fold.ts";
 import type { SpadeRememberedNote } from "./notes.ts";
 import type { SpadeDocumentRef, SpadeImageRef, SpadeVoiceRef } from "./media.ts";
@@ -121,6 +122,11 @@ type SpadeBubbleOf =
        * that bot: one quiet line under it says "Replied to Quill".
        */
       repliedTo?: { id: string; name: string };
+      /**
+       * In a task's transcript: the bot's main chat wrote this to the task (ADR 0217), not a
+       * reply of the task's; `untrusted` when untrusted content was in view as it was written.
+       */
+      fromChat?: { untrusted: boolean };
     }
   /**
    * The notes Spade recalled for the message a finished reply answered (ADR 0128), by id: one
@@ -145,7 +151,7 @@ type SpadeBubbleOf =
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote; turn?: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string }
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string; id?: string }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
   /** "Made a new bot: Research · …", with Open and Undo. */
@@ -236,6 +242,8 @@ type SpadeBubbleOf =
       definition?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
+      /** A task lane's call (ADR 0217 §4): the task that asked, which the card leads with. */
+      lane?: SpadeLaneAsking;
       state: "open";
     }
   /**
@@ -370,6 +378,21 @@ export function spadeBubbleStep(
     bubbles.push(entry);
     return;
   }
+  if (entry.kind === "lane-message") {
+    bubbles.push({
+      kind: "bot",
+      key: entry.key,
+      text: entry.text,
+      live: false,
+      end: undefined,
+      failure: undefined,
+      images: [],
+      documents: [],
+      fromChat: { untrusted: entry.untrusted },
+      ...stamp(entry.at),
+    });
+    return;
+  }
   if (entry.kind === "job") {
     arrived(pass);
     hold(pass.held, entry.key, entry.files);
@@ -403,7 +426,13 @@ export function spadeBubbleStep(
   }
   if (entry.kind === "quiet") {
     pass.onlyGroups = false;
-    bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
+    bubbles.push({
+      kind: "quiet",
+      key: entry.key,
+      quiet: entry.quiet,
+      ...(entry.id ? { id: entry.id } : {}),
+      ...stamp(entry.at),
+    });
     return;
   }
   if (entry.kind === "handback") {
@@ -630,6 +659,7 @@ function askBubble(
       ? { definition: waiting.definition ?? request.definition }
       : {}),
     helper: waiting.helper ?? request.helper,
+    ...((waiting.lane ?? request.lane) ? { lane: waiting.lane ?? request.lane } : {}),
     state: "open",
   };
 }

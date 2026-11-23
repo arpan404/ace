@@ -24,7 +24,9 @@ import XCTest
         project.tap()
         XCTAssertTrue(app.buttons["newThread.worktree"].waitForExistence(timeout: 10))
         screenshot("sheet-project")
-        app.buttons["newThread.worktree"].tap()
+        let worktree = app.buttons["newThread.worktree"]
+        app.revealNewThreadChoice(worktree)
+        worktree.tap()
         screenshot("sheet-where-menu")
         app.buttons["New worktree"].firstMatch.tap()
         // The menu folds back into its pill; the pill names its new place once it has settled.
@@ -45,6 +47,7 @@ import XCTest
         let agent = app.buttons["newThread.agent"]
         XCTAssertTrue(agent.waitForExistence(timeout: 15))
         screenshot("sheet-model-pill")
+        app.revealNewThreadChoice(agent)
         agent.tap()
         XCTAssertTrue(app.buttons["modelSheet.done"].waitForExistence(timeout: 10))
         // Levels to pick, one fixed level or a line saying there are none: never no row at all.
@@ -63,6 +66,13 @@ import XCTest
         let message = app.descendants(matching: .any)["newThread.message"].firstMatch
         XCTAssertTrue(message.waitForExistence(timeout: 5))
         XCTAssertEqual((message.value as? String) ?? "", "")
+        XCTAssertFalse(start.isEnabled)
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(start.frame.maxY, keyboard.frame.minY)
+        XCTAssertLessThan(keyboard.frame.minY - start.frame.maxY, 44)
+        XCTAssertGreaterThanOrEqual(start.frame.minY, message.frame.minY)
+        XCTAssertLessThanOrEqual(start.frame.maxY, message.frame.maxY)
         app.buttons["newThread.project"].tap()
         let project = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier != %@", "project.", "project.chat")).firstMatch
         XCTAssertTrue(project.waitForExistence(timeout: 15))

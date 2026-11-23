@@ -52,7 +52,7 @@ struct MarketManageListing: View {
                     }
                     .insetRowBackground()
                 }
-            } else if problem == nil {
+            } else if problem == nil && said == nil {
                 Section { SkeletonRows(count: 4, label: "Reading the listing").listRowInsets(EdgeInsets()) }
             }
         }

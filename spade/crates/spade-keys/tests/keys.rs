@@ -91,8 +91,9 @@ fn an_empty_key_or_one_with_line_breaks_is_refused() -> Result {
 #[test]
 fn a_keychain_failure_never_carries_the_key() -> Result {
     let (keys, store) = mock_store()?;
-    keys.set("openai", "sk-secret-value")?;
+    // Stored by an earlier run: this process hasn't read it, so the read goes to the keychain.
     let entry = store.build(SERVICE, "endpoint:openai", None)?;
+    entry.set_password("sk-secret-value")?;
     let cred: &mock::Cred = entry
         .as_any()
         .downcast_ref()
@@ -115,27 +116,26 @@ fn a_keychain_failure_never_carries_the_key() -> Result {
 }
 
 /// Writes to the real keychain of whoever runs it, so it only runs by hand:
-/// `cargo test -p spade-keys --test keys -- --ignored`.
+/// `cargo test -p spade-keys --test keys -- --ignored`. Uses its own service, never Spade's. On
+/// macOS it also checks the entry is filed with Spade's access list and mark, and that a second
+/// process reads it back without a prompt (run it twice: the second run's first read must not
+/// ask).
 #[test]
 #[ignore = "touches the real OS keychain"]
 fn the_os_keychain_round_trips_a_key() -> Result {
-    let keys = KeyStore::with_store(platform()?, "dev.acehq.spade.test");
+    let keys = KeyStore::os("dev.acehq.spade.test")?;
     keys.set("round-trip", "test-only-key")?;
-    let read = keys.get("round-trip")?;
+    #[cfg(target_os = "macos")]
+    assert_eq!(
+        spade_keychain_macos::comment("dev.acehq.spade.test", "endpoint:round-trip")?.as_deref(),
+        Some(spade_keys::OWNED_MARK)
+    );
+    // A fresh store has nothing in memory, so this reads the keychain.
+    let read = KeyStore::os("dev.acehq.spade.test")?.get("round-trip")?;
     let deleted = keys.delete("round-trip")?;
     assert_eq!(read, Some("test-only-key".to_owned()));
     assert!(deleted);
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn platform() -> Result<Arc<CredentialStore>> {
-    Ok(apple_native_keyring_store::keychain::Store::new()?)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn platform() -> Result<Arc<CredentialStore>> {
-    Err("the manual keychain check is wired for macOS only".into())
 }
 
 #[test]
@@ -177,5 +177,22 @@ fn connector_secrets_are_kept_apart_from_endpoint_keys_and_each_other() -> Resul
         keys.set_connector_secret(" ", "access", "x"),
         Err(KeyError::Invalid(_))
     ));
+    Ok(())
+}
+
+#[test]
+fn a_sign_ins_sealing_key_is_filed_per_account_apart_from_its_api_key() -> Result {
+    let (keys, store) = mock_store()?;
+    keys.set("chatgpt-k1", "an-api-key")?;
+    keys.set_sign_in_key("chatgpt-k1", "11aa")?;
+    keys.set_sign_in_key("chatgpt-k2", "22bb")?;
+    let entry = store.build(SERVICE, "oauth:chatgpt-k1", None)?;
+    assert_eq!(entry.get_password()?, "11aa");
+    assert!(keys.delete_sign_in_key("chatgpt-k1")?);
+    assert_eq!(keys.sign_in_key("chatgpt-k1")?, None);
+    // The other account's key and the account's own API key stay.
+    assert_eq!(keys.sign_in_key("chatgpt-k2")?.as_deref(), Some("22bb"));
+    assert_eq!(keys.get("chatgpt-k1")?, Some("an-api-key".to_owned()));
+    assert!(!keys.delete_sign_in_key("chatgpt-k1")?);
     Ok(())
 }

@@ -44,7 +44,13 @@ export function toolDetail(name: string, value: unknown): ToolDetailDraft {
       : "custom";
   switch (kind) {
     case "shell":
-      return { kind, command: string(input["command"]) };
+      return {
+        kind,
+        command: string(input["command"]),
+        ...(typeof input["description"] === "string" && input["description"].trim()
+          ? { description: input["description"] }
+          : {}),
+      };
     case "file.read":
       return { kind, path: string(input["file_path"]) };
     case "file.edit":

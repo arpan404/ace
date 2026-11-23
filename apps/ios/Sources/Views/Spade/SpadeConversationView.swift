@@ -4,7 +4,8 @@ import SwiftUI
 /// left, the person's on the right in the accent, an approval as a raised card where it was
 /// asked, the working line under the last bubble while the bot works, and the composer at the
 /// foot (`SpadeComposer`): photos, files and a voice message with the words, Send once something
-/// is ready, Stop while a reply is open. The bot's face and name head
+/// is ready, Stop while a reply is open. Under the last bubble, the main Spade's first run
+/// (`SpadeFirstRunFoot`) and the voice setup a refused voice message asks for. The bot's face and name head
 /// it, and open its profile. A group's (ADR 0132) is the same chat with each member's face and
 /// name, its members' faces at the top, and a waiting member's chat one tap away. Everything
 /// is the bridge's.
@@ -13,8 +14,14 @@ struct SpadeConversationView: View {
     let conversation: String
     /// The group whose conversation this is; nil for a bot's.
     var group: String?
+    /// Opened by Talk to Spade (`ace://spade/talk`): the recorder starts at once.
+    var talk = false
     /// Opens another conversation over this one: a waiting member's own chat.
     var open: (SpadeRoute) -> Void = { _ in }
+    /// In a group's, the bots its profile's Add a member offers, across the machines.
+    var groupChoices: [SpadeMemberChoice] = []
+    @State private var groupProfileShown = false
+    @Environment(\.dismiss) private var dismissChat
     @State private var problem: String?
     /// The chat's voice messages, one playing at a time.
     @State private var voices = SpadeVoicePlayback()
@@ -23,6 +30,14 @@ struct SpadeConversationView: View {
     /// Cards for later opened from their line or the top bar's count.
     @State private var unfolded: Set<String> = []
     @State private var profileShown = false
+    /// A voice message couldn't go for want of a transcription model: the choice of one, at the foot.
+    @State private var voiceSetup: SpadeOnboarding.Voice?
+    /// The person put first run's interview off until this chat opens again.
+    @State private var firstRunLater = false
+    /// Closes the chat once its bot is deleted from the profile.
+    @Environment(\.dismiss) private var dismiss
+    /// A decision's words the profile's Change quotes into the composer.
+    @State private var quoted: String?
     /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
     @State private var follow = ChatEndFollow(slack: Double(AceDesign.Space.group))
     /// Where the scroll is and which stack holds the rows, kept where writing them redraws nothing.
@@ -58,7 +73,7 @@ struct SpadeConversationView: View {
     }
 
     /// The face and name at the top. A bot's open its profile, as a contact's do in Messages; a
-    /// group's show its members.
+    /// group's open the group's profile, its members and Library.
     @ViewBuilder private var titleButton: some View {
         let title = HStack(spacing: AceDesign.Space.related) {
             if let bot {
@@ -74,6 +89,13 @@ struct SpadeConversationView: View {
             Button { profileShown = true } label: { title }
                 .accessibilityLabel("\(name), profile")
                 .accessibilityIdentifier("spade.profile")
+        } else if let group, bot != nil {
+            Button { groupProfileShown = true } label: { title }
+                .accessibilityLabel("\(name), club profile")
+                .accessibilityIdentifier("spade.group.profile")
+                .sheet(isPresented: $groupProfileShown) {
+                    SpadeGroupProfileSheet(client: client, group: group, name: name, choices: groupChoices) { dismissChat() }
+                }
         } else {
             title.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
         }
@@ -115,7 +137,8 @@ struct SpadeConversationView: View {
                             }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
                                 Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
                                         set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
-                            }, audio: { ref in await recording(ref) })
+                            }, audio: { ref in await recording(ref) },
+                            undoing: group == nil ? bot.map { SpadeUndoTarget(client: client, agent: $0.id) } : nil)
                             .id(key)
                         }
                     }
@@ -123,6 +146,7 @@ struct SpadeConversationView: View {
                         SpadeWorkingLine(working: working, waiting: head?.waiting) { open(SpadeRoute(conversation: $0, group: nil)) }
                     }
                     if let gone = head?.problem { problemLine(gone) }
+                    if group == nil { foot }
                 }
                 .padding(.horizontal, AceDesign.Space.margin)
                 .padding(.vertical, AceDesign.Space.row)
@@ -164,7 +188,8 @@ struct SpadeConversationView: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $profileShown) {
-            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name) }
+            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name, quote: { quoted = $0 },
+                                         deleted: { dismiss() }) }
         }
         .background(AceDesign.Surface.background)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
@@ -216,9 +241,12 @@ struct SpadeConversationView: View {
     }
 
     private func composer(_ reader: ScrollViewProxy) -> some View {
-        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, problem: $problem) { out in
+        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, records: talk, problem: $problem,
+                      quoted: $quoted) { out in
             if let group { return await client.spadeGroupSend(group, conversation: conversation, text: out.text) }
-            return await client.spadeSend(conversation, text: out.text, files: out.files, voice: out.voice)
+            let outcome = await client.spadeSend(conversation, text: out.text, files: out.files, voice: out.voice)
+            if out.voice != nil, !outcome.ok { await offerVoiceSetup() }
+            return outcome
         } sent: {
             sends += 1
             // What the person sent shows at the end, wherever they were reading.
@@ -226,6 +254,27 @@ struct SpadeConversationView: View {
             restack()
             withAnimation { reader.scrollTo(Self.endID, anchor: .bottom) }
         } stop: { stop() }
+    }
+
+    /// Under the last bubble of a bot's chat: the voice setup a refused voice message asked for, then
+    /// first run (`SpadeFirstRunFoot`), which shows only on the main Spade's.
+    @ViewBuilder private var foot: some View {
+        if let voiceSetup {
+            SpadeVoiceSetup(voice: voiceSetup) { model in
+                await client.spadeSettingsModel("transcription", model: model).problem
+            } close: {
+                self.voiceSetup = nil
+            }
+            .padding(.top, AceDesign.Space.related)
+        }
+        SpadeFirstRunFoot(client: client, conversation: conversation, later: $firstRunLater)
+    }
+
+    /// Offers a transcription model when none is chosen; a voice message refused for another reason
+    /// keeps only its refusal.
+    private func offerVoiceSetup() async {
+        let answer = await client.spadeVoiceSetupRead()
+        if let voice = answer.voice, voice.needed { voiceSetup = voice }
     }
 
     /// A voice message's recording, read from Spade by hash to play.

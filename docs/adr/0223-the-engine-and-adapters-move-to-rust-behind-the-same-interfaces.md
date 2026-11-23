@@ -446,6 +446,14 @@ limit`, `rpc-writer.ts:36`), not `InputRejected`. With a TypeScript session (E5 
      (`engine/index.ts:1428`–`:1466`) and releases the threadsafe function last (§4). Nothing waits
      synchronously on a tokio task.
 
+**7a′. Group signals in the native supervisor.** A process group's number is signalled only
+while ace holds its leader unreaped (the unreaped leader pins the group id). The leader is reaped
+only after two consecutive empty scans while it is still held. Once the owner has given the group
+up and the hold limit passes, the still-held group is killed by number through the daemon's guard,
+and the reap waits for it to empty; a group that never empties is reported and stays held. After release there is nothing left to signal by group, and nothing is. Descendants that
+left the group are stopped one by one by verified identity, as the subreaper's orphans
+(behaviour.md §15).
+
 **7a. The process journal, one encoding for both backends.** Rust writes and reads the journal rows
 TypeScript writes today, byte for byte: `processes(pid INTEGER PRIMARY KEY, entry TEXT)` with the
 JSON entry `process-inventory.ts` writes, and the `escapees`, `kept`, `lineage` tables
@@ -457,6 +465,17 @@ JSON entry `process-inventory.ts` writes, and the `escapees`, `kept`, `lineage` 
 Windows the creation `FILETIME` string and the owner SID (`:285`–`:291`). A row one backend wrote,
 the other reads and acts on (sweeps, escapee stops, kept processes) the same way. E2 is not turned
 on by default until the cross-backend journal recovery gate of §8 passes.
+
+Known limits of E2a's supervisor, merged after fifteen review rounds (2026-11-23), to settle before
+E2 is turned on by default. Neither can signal a process ace doesn't own, and agent state is never
+wrong; at worst a leader is held unreaped or a record stays unresolved:
+
+- **Userspace enumeration can miss a member.** A member that forks and hands off between the process
+  list and its own check on every scan is not seen. The group number is never signalled either way.
+- **Linux `hidepid=1` with non-dumpable members.** Unreadable pids are classified with `getpgid`, but
+  a same-uid, non-dumpable orphan can stay hidden after it becomes a zombie, so release counts it as
+  live and holds the leader. None of the Linux setups ace supports (Ubuntu, Fedora, Debian, Omarchy)
+  mounts `/proc` with `hidepid` by default.
 
 - Order of sessions, smallest risk first: Pi (JSONL over stdio, one process per session), Codex
   (JSON-RPC over stdio, shared host pool; the most used), ACP (official crate), OpenCode (HTTP and
@@ -604,6 +623,37 @@ on by default until the cross-backend journal recovery gate of §8 passes.
   behind the session bridge (§7, `JsSession`), for now. Claude's translator moves in E1; there is
   no E3 item for Claude. A host child per account or speaking the CLI's stream-json protocol from
   Rust is reconsidered after Pi, Codex and ACP sessions are native.
+
+  **The owner, 2026-11-23: the Claude session moves to Rust later, in the providers work, not
+  now.** Facts gathered for that work, so it starts from here:
+  - **Why it pays.** Each line `claude` prints is parsed three times today: by ace
+    (`adapter-claude/src/sdk-process.ts`, to inspect it), again by the SDK after ace writes it back
+    as text into the SDK's stream, and again in Rust after the SDK's object is re-encoded to cross
+    into the native translator (`ACE_TRANSLATORS=claude`). A Rust session parses each line once and
+    hands JavaScript finished events only. The SDK (about 5 MB) and its per-session objects leave
+    the daemon's heap. Facts still cross into JavaScript for the engine and store until E5 and
+    store phase 5 land, so the CPU gain is partial before then; the memory gain is not.
+  - **How.** A Rust session speaking the CLI's stream-json protocol directly (`-p
+--input-format stream-json --output-format stream-json`), spawned through the E2 supervisor,
+    behind the same session interface as the other E3 sessions and its own switch. Built as a
+    standalone crate in `native/daemon` with a clean public API, so it may be published later.
+  - **Terms.** Anthropic's Agent SDK docs support driving the CLI as a subprocess from other
+    languages. The SDK itself is proprietary: write from the published headless docs and ace's
+    recorded fixtures (`fixtures/claude/`); its `.d.ts` files may show which interfaces exist,
+    its implementation is never read. ace drives the person's own unmodified `claude`, signed in
+    through Anthropic's flow, and never touches credentials (ADR 0002). A published crate is never
+    named `claude-code-*` or `anthropic-*`, and says products built on it should use API keys.
+  - **Proof and gate.** The existing `adapter-claude` tests run against the Rust session (tests
+    move, not multiply). `tools/daemon-bench`, whose fake provider is the `claude` CLI, gives the
+    before and after for `cpuMsPerTurn` and heap; the switch defaults on only if they improve.
+  - **Cost.** The SDK follows each CLI release for us today; once ace owns the protocol it must.
+    Unknown control and stream messages are kept as raw data, never fatal.
+  - **Cursor stays as it is.** `@cursor/sdk` is Cursor's whole proprietary agent talking to
+    Cursor's private backend, so it is not ported. It keeps running in its own host child on the
+    bundled runtime; only ace's side of that link moves to Rust (E3). With the daemon all Rust, the
+    host becomes its own small bundle (or a `bun build --compile` program) started only for Cursor
+    sessions.
+
 - **`@ace/core` in the browser (former question 2)**: `ace-core` is built to WebAssembly as well
   (`ace-core-wasm`, a thin `wasm-bindgen` crate beside the napi binding, no logic of its own), and
   `fake-daemon` loads the `@ace/core` facade over it. One reducer, two loaders; no TypeScript

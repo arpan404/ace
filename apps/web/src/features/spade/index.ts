@@ -11,6 +11,7 @@ export { SpadeGroupScreen } from "./spade-group-screen.tsx";
 export { NewBotStart } from "./spade-bot-start.tsx";
 /** Settings › Spade: General, Models, Apps and Security, under `/settings/spade`. */
 export { SpadeSettingsScreen, type SpadeSettingsPage } from "./spade-settings-screen.tsx";
+export { SpadeProviderScreen } from "./spade-provider-page.tsx";
 /** The live pictures of the bots' browsers and screens, as the app supplies them. */
 export { BotStreamsContext, type BotStreams } from "./computer/bot-streams.ts";
 /** This machine's bots, as Spade lists them (a plugin's review picks which get it). */

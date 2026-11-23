@@ -16,6 +16,7 @@ export function computerLockedUseGate(
   return lockedUseGate({
     // Read on every call, so turning it off applies to the next one.
     enabled: async () => (await services.settings?.get("computer.lockedUse"))?.value === true,
+    revocation: () => runtime.revocation,
     intervalActive: () => runtime.intervalActive(),
     runUnprotected: (send) => runtime.runUnprotected(send),
     status: () => runtime.refresh(),
@@ -27,8 +28,8 @@ export function computerLockedUseGate(
       const pid = await computer.helperProcessId(app);
       return pid === undefined ? [] : [pid];
     },
-    runProtected: (scope, agentProcessIDs, work, signal, optIn) =>
-      runtime.runProtected(scope, agentProcessIDs, work, signal, optIn),
+    runProtected: (scope, agentProcessIDs, work, signal, optIn, revocation) =>
+      runtime.runProtected(scope, agentProcessIDs, work, signal, optIn, revocation),
   });
 }
 

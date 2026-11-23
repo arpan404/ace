@@ -220,3 +220,43 @@ test("a thought in flight stands apart from the commands that already ran", asyn
   expect(grown).toMatchObject({ id: first, running: false, sentence: "Ran 3 commands" });
   expect(log()).toHaveLength(1);
 });
+
+test("a command step carries the provider's description, else the command's summary", async () => {
+  const fake = fixture(() => Date.UTC(2026, 10, 16, 9, 30));
+  fake.createThread({ id: "named", workspaceId: "ace", title: "Named", provider: "claude" });
+  fake.apply("named", [
+    facts.rootAgent("claude"),
+    facts.turn("root"),
+    facts.message("root", "ask", "user", "Build it"),
+    facts.tool("root", "described", {
+      kind: "shell",
+      title: "Bash",
+      detail: {
+        kind: "shell",
+        command: "sleep 20; cat /private/tmp/claude-501/-Users-x/tasks/out.txt",
+        description: "Wait for build, then install and launch on phone",
+      },
+    }),
+    facts.toolDone("root", "described"),
+    facts.tool("root", "bare", {
+      kind: "shell",
+      title: "Bash",
+      detail: { kind: "shell", command: "cd ace && bun run check:size" },
+    }),
+    facts.toolDone("root", "bare"),
+  ]);
+  open(connect(fake), "named");
+  const commands = await until(() => {
+    const found = rows("thread.item")
+      .map((item) => (item.step as { command?: { label: string } | null } | undefined)?.command)
+      .filter((command) => !!command);
+    return found.length === 2 ? found : undefined;
+  }, "both command steps");
+  commands.sort((a, b) => a!.label.localeCompare(b!.label));
+  expect(commands[1]).toMatchObject({
+    label: "Wait for build, then install and launch on phone",
+    full: "sleep 20; cat /private/tmp/claude-501/-Users-x/tasks/out.txt",
+    background: false,
+  });
+  expect(commands[0]).toMatchObject({ label: "bun run check:size" });
+});

@@ -5,9 +5,11 @@ import {
   type IngestProducer,
   type IngestSource,
   type Origin,
+  type ScrcpyGreeting,
   type StopStatus,
   type SourceStill,
 } from "@ace/media/ingest-sources";
+import type { MediaFeature } from "@ace/media/wire";
 import { PathMerge } from "@ace/media/path-merge";
 import type { MediaStill } from "@ace/media/stills";
 import { readProducerStamp } from "@ace/media/producer-stamp";
@@ -27,7 +29,11 @@ import type { VideoUnit } from "./scrcpy-video.ts";
  */
 
 /** Where device sources are opened in ace-media: the daemon's shared sources. */
-export type DeviceMedia = { attach(producer: IngestProducer): IngestSource };
+export type DeviceMedia = {
+  attach(producer: IngestProducer): IngestSource;
+  /** Whether the running ace-media agreed to speak `feature` (`ready.features`). */
+  speaks?: (feature: MediaFeature) => boolean;
+};
 
 /**
  * A device's media, with every producer it attaches carrying ace-media's plan for the device's
@@ -58,6 +64,10 @@ export function withMediaWant(
         },
       };
     },
+    // D1 reads it off the capture's media, through every wrapper.
+    ...(media.speaks === undefined
+      ? {}
+      : { speaks: (feature: MediaFeature) => media.speaks?.(feature) === true }),
   };
 }
 
@@ -83,6 +93,10 @@ export function withVideoStatus(
           producer.stopped?.(reason, kind);
         },
       }),
+    // D1 reads it off the capture's media, through every wrapper.
+    ...(media.speaks === undefined
+      ? {}
+      : { speaks: (feature: MediaFeature) => media.speaks?.(feature) === true }),
   };
 }
 
@@ -106,6 +120,22 @@ export type DeviceVideoPathsOptions = {
   switch: (address: IngestAddress | undefined) => Promise<Switched>;
   keyframe: () => void;
   schedule: (callback: () => void, milliseconds: number) => () => void;
+  /**
+   * D1: ace-media reads this source's video itself (a scrcpy device's socket). The daemon
+   * never points an ingest; units arrive on egress once the handshake below finishes.
+   */
+  scrcpy?: {
+    /** Longest ace-media spends bringing the picture, in milliseconds. */
+    deadlineMs?: number;
+    /** ace-media's current reader saw the dummy byte: connect control now. */
+    greeted: (greeting: ScrcpyGreeting) => void;
+    /** The handshake finished: video follows, under this device name. */
+    ready: (deviceName: string) => void;
+    /** ace-media ended the source, mid-handshake or mid-stream. */
+    closed: (reason: string | undefined) => void;
+    /** ace-media's source was pointed again while live (it restarted): re-handshake. */
+    repointed: () => void;
+  };
 };
 
 /** The merge's name for "nothing streams": nothing is ever delivered on it. */
@@ -145,6 +175,7 @@ export class DeviceVideoPaths {
 
   constructor(options: DeviceVideoPathsOptions) {
     this.#options = options;
+    const scrcpy = options.scrcpy;
     this.#merge = new PathMerge<VideoUnit>(offPath, {
       emit: (unit) => {
         if (unit.keyframe) this.#codec = unit.videoCodec;
@@ -163,7 +194,19 @@ export class DeviceVideoPaths {
       deviceId: options.deviceId,
       epoch: () => 0,
       consumers: { deliver: unit },
-      point: (address) => this.#point(address),
+      // D1: ace-media reads the socket itself: the handshake, not an ingest, follows.
+      ...(scrcpy
+        ? {
+            mediaReads: true,
+            ...(scrcpy.deadlineMs === undefined ? {} : { deadlineMs: scrcpy.deadlineMs }),
+            greeted: (greeting) => scrcpy.greeted(greeting),
+            ready: (deviceName) => {
+              scrcpy.ready(deviceName);
+            },
+            refused: (reason) => scrcpy.closed(reason),
+          }
+        : {}),
+      point: (address) => this.#point(address, scrcpy),
       keyframe: () => options.keyframe(),
       pathEnded: (path, interrupted) => {
         this.#ended.set(path, interrupted);
@@ -218,11 +261,18 @@ export class DeviceVideoPaths {
     this.#source.reconnect();
   }
 
+  /**
+   * Closes the source and turns its producer off, after any switch still in flight: closing
+   * the source never points the producer anywhere, so an ingest writer or a pending move to
+   * one would otherwise outlive the path.
+   */
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
     this.#source.close();
     this.#merge.dispose();
+    const off = this.#tail.then(() => this.#options.switch(undefined));
+    this.#tail = off.catch(() => {});
   }
 
   #egress(unit: EgressUnit): void {
@@ -232,14 +282,23 @@ export class DeviceVideoPaths {
     if (video) this.#merge.deliver(unit.source, video);
   }
 
-  #point(address: IngestAddress | undefined): Promise<void> {
+  #point(
+    address: IngestAddress | undefined,
+    scrcpy: DeviceVideoPathsOptions["scrcpy"],
+  ): Promise<void> {
     const run = this.#tail.then(async () => {
       if (this.#closed) return;
       const to = address ? address.path : offPath;
       const switched = await this.#options.switch(address);
+      // Closed meanwhile: its off switch follows this one, and nothing else moves.
+      if (this.#closed) return;
       if ((switched.ingest === "on") !== (to !== offPath))
         // It didn't move (an address it couldn't reach): nothing changes.
         throw new Error("The producer refused ace-media's ingest");
+      // D1: ace-media's source pointed at a new path while live means it restarted: its
+      // reader dials the tunnel again, and the daemon re-handshakes once it greets.
+      if (scrcpy && to !== offPath && to !== this.#mergeOn && this.#mergeOn !== offPath)
+        scrcpy.repointed();
       this.#onPath = to;
       if (to === offPath || to === this.#mergeOn) return;
       const previous = this.#mergeOn;
@@ -259,5 +318,16 @@ export class DeviceVideoPaths {
     });
     this.#tail = run.catch(() => {});
     return run;
+  }
+
+  /** D1: the daemon connected scrcpy's control socket for the reader that greeted; read the
+   * name and codec now. Dropped once that reader has been replaced. */
+  controlConnected(greeting: ScrcpyGreeting): void {
+    this.#source.controlConnected?.(greeting);
+  }
+
+  /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */
+  dial(host: string, port: number): void {
+    this.#source.dial?.(host, port);
   }
 }

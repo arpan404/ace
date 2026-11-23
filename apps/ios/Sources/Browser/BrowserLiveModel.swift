@@ -11,6 +11,7 @@ import UIKit
 @MainActor @Observable final class BrowserLiveModel {
     /// The thread whose browser the live view shows, while it is open.
     private(set) var threadId: String?
+    @ObservationIgnored private(set) var subscription: UUID?
     private(set) var view: BrowserViewInfo?
     private(set) var page: BrowserPageInfo?
     /// The drawn picture's page size (CSS pixels); nil until the first picture is drawn.
@@ -69,6 +70,7 @@ import UIKit
     func open(threadId: String, streams: BrowserStreamHub?, ack: @escaping @Sendable (BrowserAck) -> Void) {
         close(streams: streams)
         self.threadId = threadId
+        subscription = UUID()
         let latest = LatestBrowserPicture()
         let acks = BrowserAcks(visible: visible, send: ack)
         let poster = LatestPoster()
@@ -91,6 +93,7 @@ import UIKit
         renderer?.close()
         acks?.close()
         renderer = nil; latest = nil; acks = nil
+        subscription = nil
         threadId = nil; view = nil; page = nil; pageSize = nil; generation = nil; posterShown = false; waiting = nil
         pictureZoom = 1; pictureOffset = .zero
         find = nil; shot = nil; logs = nil; visits = []; visitCount = 0; problem = nil; upload = nil

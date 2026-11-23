@@ -25,6 +25,7 @@ mod services;
 mod skill_tools;
 mod skills;
 mod task;
+mod tasks;
 mod todo;
 mod wake;
 mod web_fetch;
@@ -64,6 +65,7 @@ pub use skills::{
     body_of,
 };
 pub use task::TaskStatus;
+pub use tasks::with_task_tools;
 pub use todo::Todo;
 pub use wake::with_wake_tools;
 pub use web_fetch::WebFetch;

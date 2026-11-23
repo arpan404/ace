@@ -205,6 +205,64 @@ struct DockStrip: View {
     }
 }
 
+/// A background command and its Stop share a single row with separate tap targets.
+struct CompactDockStrip: View {
+    let line: StripLineRow
+    let action: DockAction
+    let openDetails: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.inGlassBlock) private var inBlock
+
+    var body: some View {
+        HStack(spacing: AceDesign.Space.related) {
+            Button(action: openDetails) {
+                HStack(spacing: AceDesign.Space.related) {
+                    StripLeadMark(lead: line.lead)
+                    Text(line.sentence)
+                        .aceFont(AceDesign.TextRole.segment)
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .layoutPriority(1)
+                    if !line.payload.isEmpty {
+                        Text(verbatim: line.payload)
+                            .aceMonospace(AceDesign.TextRole.code)
+                            .foregroundStyle(AceTheme.Colours.mutedForeground)
+                            .truncationMode(.tail)
+                    }
+                }
+                .lineLimit(1)
+                .padding(.leading, inBlock ? AceDesign.Space.margin : ReadingColumn.stripLead)
+                .frame(maxWidth: .infinity, minHeight: AceDesign.Size.tap, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(line.payload.isEmpty ? line.sentence : "\(line.sentence), \(line.payload)")
+            .accessibilityAction(named: "Show full command") { openDetails() }
+
+            Button(action: action.run) {
+                Text(action.label)
+                    .aceFont(AceDesign.TextRole.segment)
+                    .lineLimit(1)
+                    .padding(.horizontal, AceDesign.Space.row)
+                    .padding(.vertical, AceDesign.Space.tight)
+                    .overlay { Capsule().strokeBorder(AceTheme.Colours.separator, lineWidth: AceTheme.Dimensions.border) }
+                    .frame(minWidth: AceDesign.Size.tap, minHeight: AceDesign.Size.tap)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(AceTheme.Colours.foreground)
+            .fixedSize(horizontal: true, vertical: false)
+            .disabled(!action.enabled)
+            .accessibilityIdentifier("strip.\(action.id)")
+        }
+        .padding(.trailing, AceDesign.Space.margin)
+        .modifier(StripSurfaceGlass(inBlock: inBlock))
+        .padding(.horizontal, inBlock ? AceTheme.Spacing.none : ReadingColumn.bar(sizeClass).composer)
+        .padding(.bottom, inBlock ? AceTheme.Spacing.none : AceDesign.Space.tight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("thread.leftRunning")
+    }
+}
+
 /// A strip's lead: the asking agent's provider mark in its colours, or the row's status icon in
 /// its state's colour (`RowStatusIcon`).
 struct StripLeadMark: View {

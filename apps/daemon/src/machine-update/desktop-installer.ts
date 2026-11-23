@@ -10,6 +10,7 @@ import type { InstallerFacts, InstallerPhase } from "./rules.ts";
 export const appPickupMs = 90_000;
 
 const phases: Record<string, InstallerPhase> = {
+  checking: "checking",
   available: "available",
   downloading: "downloading",
   downloaded: "ready",
@@ -22,9 +23,11 @@ export function appFacts(
   reportedAt: number | null,
 ): InstallerFacts {
   const base = {
+    ...(report ? { version: report.version } : {}),
+    ...(report?.line ? { line: report.line } : {}),
     releaseUrl: report?.releaseUrl ?? null,
     percent: report?.percent ?? null,
-    checkedAt: reportedAt,
+    checkedAt: report?.state === "idle" || report?.state === "disabled" ? null : reportedAt,
     downloadsFirst: true,
   };
   if (!report)
@@ -50,9 +53,15 @@ export function appFacts(
   return {
     ...base,
     available: report.available,
-    blocked: report.inPlace === false && report.available ? "release-page" : null,
+    blocked:
+      report.state === "disabled"
+        ? "unsupported"
+        : report.inPlace === false && report.available
+          ? "release-page"
+          : null,
     phase,
-    error: report.error ?? null,
+    error:
+      report.state === "disabled" ? "This build can't check for updates." : (report.error ?? null),
   };
 }
 
@@ -63,20 +72,40 @@ export function appFacts(
  */
 export function desktopInstaller(
   board: AppUpdateBoard,
-  clock: { delay(callback: () => void, ms: number): () => void },
+  clock: { id(): string; delay(callback: () => void, ms: number): () => void },
 ): Installer {
   let attempt = 0;
   let watching: (() => void) | undefined;
   const facts = () => {
     const current = board.current();
-    return appFacts(current.report, current.reportedAt);
+    const reported = appFacts(current.report, current.reportedAt);
+    return board.instruction()?.action === "check" &&
+      (reported.phase === "none" || reported.phase === "available" || reported.phase === "ready")
+      ? { ...reported, phase: "checking" as const, available: null, error: null }
+      : reported;
   };
   return {
     install: "desktop",
     facts,
     onChange: (listener) => board.onChange(() => listener()),
-    // The app asks its feed every minute or two by itself.
-    check: async () => {},
+    async check() {
+      const { report } = board.current();
+      if (!report?.line || report.state === "disabled") return false;
+      const phase = facts().phase;
+      if (
+        phase !== "checking" &&
+        phase !== "downloading" &&
+        phase !== "installing" &&
+        board.instruction()?.action !== "check"
+      ) {
+        board.instruct({
+          id: clock.id(),
+          action: "check",
+          mode: "idle",
+          version: report.version,
+        });
+      }
+    },
     download(ask: MachineUpdateAsk) {
       board.instruct({
         id: `${ask.id}:download`,

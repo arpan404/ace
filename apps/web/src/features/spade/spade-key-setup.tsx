@@ -1,4 +1,5 @@
 import {
+  spadeEndpointUsable,
   spadeModelState,
   spadePresetChoices,
   spadeServerName,
@@ -42,7 +43,7 @@ function keyVariables(presets: readonly { keyEnv: string | undefined }[]): strin
 }
 
 const usable = (endpoint: SpadeEndpoint | undefined) =>
-  endpoint !== undefined && (!endpoint.needsKey || endpoint.keySet === true);
+  endpoint !== undefined && spadeEndpointUsable(endpoint);
 
 /** The choice that adds a server by its address: one of the person's own, or on this computer. */
 const custom = "custom:";

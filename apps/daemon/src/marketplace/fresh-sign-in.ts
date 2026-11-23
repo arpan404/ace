@@ -1,3 +1,4 @@
+import { marketActionOrg } from "@ace/client/market-intent";
 import { isPersonOnlyAction, isPersonOnlyOperation } from "@ace/marketplace/person-only";
 import type { MarketOperation, MarketResult } from "@ace/protocol/marketplace";
 
@@ -28,7 +29,10 @@ export function needsPerson(operation: MarketOperation): boolean {
  * standing runs anything. One that hasn't runs what isn't person-only, and installing or updating
  * content only (a Suit or a Spade skill that runs nothing, read from the daemon's own review), as
  * the `without-person` path: a Spade skill it installs reaches no bot until the person turns it
- * on. Everything else person-only is refused with `reauth`. Pure.
+ * on. On an organization's host no socket holds the person's standing; a member's standing for
+ * the organization (ADR 0206 §2.2) is what proves its registry's reads and withdrawals there,
+ * and the market still checks the member's role. Everything else person-only is refused with
+ * `reauth`. Pure.
  */
 export function hostMarketStanding(input: {
   readonly operation: MarketOperation;
@@ -36,9 +40,14 @@ export function hostMarketStanding(input: {
   readonly unproven: boolean;
   /** For an install: whether its review installs content only (`content-only.ts`). */
   readonly contentOnly: () => boolean;
+  /** The member standing this socket proved on an organization's host, while it lasts. */
+  readonly member?: () => { readonly org: string } | undefined;
 }): { readonly run: "person" | "without-person" } | { readonly refusal: MarketResult } {
   if (!input.unproven) return { run: "person" };
   if (!needsPerson(input.operation)) return { run: "without-person" };
   if (input.operation.op === "install" && input.contentOnly()) return { run: "without-person" };
+  const org =
+    input.operation.op === "publish" ? marketActionOrg(input.operation.request) : undefined;
+  if (org !== undefined && input.member?.()?.org === org) return { run: "person" };
   return { refusal: { op: "error", code: "reauth", message: reauthSentence } };
 }

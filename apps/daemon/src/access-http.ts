@@ -10,6 +10,7 @@ import {
   type Device,
 } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
+import { peerOf } from "./http-peer.ts";
 import { allows } from "./devices.ts";
 import { issuePairing } from "./pairing-issue.ts";
 
@@ -123,7 +124,7 @@ export function accessHttp({
   pairing,
   allowedOrigins,
   pairingApp,
-  sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
+  sourceAddress = (request) => peerOf(request).address,
   maintenance,
   appUpdate,
   homeData,
@@ -201,9 +202,10 @@ export function accessHttp({
           if (!auth.local(token)) throw new AccessError(403, "Host token required");
           const stop = StopRequest.safeParse((await optionalBody(request)) ?? {});
           if (!stop.success) throw new AccessError(400, "Invalid stop request");
+          const peer = peerOf(request);
           const caller = await shutdown.verifyCaller(stop.data.caller, {
-            remotePort: request.socket.remotePort ?? 0,
-            localPort: request.socket.localPort ?? 0,
+            remotePort: peer.remotePort,
+            localPort: peer.localPort,
           });
           maintenance?.enter("stop");
           result = shutdown.request({ caller });

@@ -10,7 +10,10 @@ import {
   TurnStepsRequest,
   TurnsPageRequest,
   type Thread,
+  type ThreadCatchUpResponse,
+  type ThreadSearchResponse,
   type TurnStepsResponse,
+  type TurnsPageResponse,
 } from "@ace/protocol";
 import { nativeHandle } from "@ace/provider-kit/sqlite";
 import type { SearchIndex } from "@ace/search";
@@ -84,10 +87,16 @@ function readable(source: NativeSource, id: ThreadId): void {
 export function turnsPageNative(
   source: NativeSource,
   input: Omit<
-    { threadId: ThreadId; before?: number; after?: number; limit?: number; requestId?: string },
+    {
+      threadId: ThreadId;
+      before?: number | undefined;
+      after?: number | undefined;
+      limit?: number | undefined;
+      requestId?: string | undefined;
+    },
     "type" | "requestId"
-  > & { requestId?: string },
-) {
+  > & { requestId?: string | undefined },
+): TurnsPageResponse {
   const query = TurnsPageRequest.parse({ type: "turns.page", requestId: "turns", ...input });
   readable(source, query.threadId);
   const json = binding(source).longTurnsPage(
@@ -104,9 +113,15 @@ export function turnsPageNative(
 export function turnStepsNative(
   source: NativeSource,
   input: Omit<
-    { threadId: ThreadId; turnOrdinal: number; after?: number; limit?: number; requestId?: string },
+    {
+      threadId: ThreadId;
+      turnOrdinal: number;
+      after?: number | undefined;
+      limit?: number | undefined;
+      requestId?: string | undefined;
+    },
     "type" | "requestId" | "limit"
-  > & { requestId?: string; limit?: number },
+  > & { requestId?: string | undefined; limit?: number | undefined },
   cachedIcon?: TurnStepsSource["cachedIcon"],
   sites?: Map<string, string | null>,
 ): TurnStepsResponse {
@@ -148,16 +163,16 @@ export function threadSearchNative(
     {
       threadId: ThreadId;
       text: string;
-      scope?: "thread" | "tree";
-      filter?: "messages" | "tool_output" | "commands" | "files" | "errors";
-      limit?: number;
-      cursor?: string;
-      requestId?: string;
+      scope?: "thread" | "tree" | undefined;
+      filter?: "messages" | "tool_output" | "commands" | "files" | "errors" | undefined;
+      limit?: number | undefined;
+      cursor?: string | undefined;
+      requestId?: string | undefined;
     },
     "type" | "requestId"
-  > & { requestId?: string },
+  > & { requestId?: string | undefined },
   authorize: (id: ThreadId) => boolean = () => true,
-) {
+): ThreadSearchResponse {
   const query = ThreadSearchRequest.parse({
     type: "thread.search",
     requestId: "search",
@@ -186,11 +201,16 @@ export function threadSearchNative(
 export function threadCatchUpNative(
   source: NativeSource,
   input: Omit<
-    { threadId: ThreadId; sinceSeq?: number; sinceTime?: number; requestId?: string },
+    {
+      threadId: ThreadId;
+      sinceSeq?: number | undefined;
+      sinceTime?: number | undefined;
+      requestId?: string | undefined;
+    },
     "type" | "requestId"
-  > & { requestId?: string },
+  > & { requestId?: string | undefined },
   authorize: (id: ThreadId) => boolean = () => true,
-) {
+): ThreadCatchUpResponse {
   const query = ThreadCatchUpRequest.parse({
     type: "thread.catchUp",
     requestId: "catch-up",

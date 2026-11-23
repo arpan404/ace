@@ -53,6 +53,8 @@ export interface FakeSpadeAgent {
   unseen?: boolean;
   /** Its spend (ADR 0135); left out, as an older Spade does, until set. */
   spending?: FakeSpadeSpending;
+  /** How it talks (tone, humour, emoji), as the profile sets it; absent until set. */
+  personality?: Json | null;
   review?: boolean | null;
   /** Spade's one level (ADR 0163); left out, as a Spade before access levels does. */
   access?: "auto_review";

@@ -181,6 +181,8 @@ pub enum CancelledBy {
     Stop,
     /// Spade itself: a wake an earlier build set for spend (ADR 0166).
     Spade,
+    /// The work that set it moved to a task lane, where it is open now (ADR 0217 §2a).
+    Moved,
     #[serde(other)]
     Other,
 }
@@ -398,6 +400,7 @@ pub fn is_note(event: &Known) -> bool {
         Known::WakeFired { note: Some(_), .. }
             | Known::JobProgress { .. }
             | Known::WorkerReported(_)
+            | Known::LaneMessage(_)
     )
 }
 
@@ -413,6 +416,7 @@ pub fn note_text(event: &Known) -> Option<String> {
             ..
         } => Some(progress_text(job, name, *minutes, tail)),
         Known::WorkerReported(report) => Some(crate::tree::report_text(report)),
+        Known::LaneMessage(message) => Some(crate::lane::message_text(message)),
         _ => None,
     }
 }
@@ -422,7 +426,8 @@ pub fn untrusted(event: &Known) -> bool {
     match event {
         Known::WakeFired { data, .. } => !data.is_empty(),
         Known::JobProgress { tail, .. } => !tail.is_empty(),
-        Known::WorkerReported(report) => report.words.is_some(),
+        Known::WorkerReported(report) => crate::tree::report_untrusted(report),
+        Known::LaneMessage(message) => message.untrusted,
         _ => false,
     }
 }

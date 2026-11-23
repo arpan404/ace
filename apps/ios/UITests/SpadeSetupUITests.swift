@@ -7,9 +7,10 @@ extension SpadeUITests {
     func testANewBotStartsFromOneMessageAndOpensOnItsConversation() {
         let app = launch(appearance: "dark")
         _ = openSpade(app)
-        let new = app.buttons["spade.newBot"]
+        let new = app.buttons["spade.new"]
         XCTAssertTrue(new.waitForExistence(timeout: 20))
         new.tap()
+        app.buttons["spade.newBot"].tap()
         let field = app.textFields["spade.newbot.field"].exists ? app.textFields["spade.newbot.field"] : app.textViews["spade.newbot.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         // The machine's templates show under the question.
@@ -43,9 +44,14 @@ extension SpadeUITests {
         screenshot("spade-models-light")
 
         key.tap()
-        app.buttons["Add key"].firstMatch.tap()
+        let addKey = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'spade.settings.key.edit.openrouter' OR label == 'Add key'"))
+            .firstMatch
+        XCTAssertTrue(addKey.waitForExistence(timeout: 5), "the OpenRouter menu offers Add key")
+        addKey.tap()
         let secret = app.secureTextFields["spade.key.field"]
         XCTAssertTrue(secret.waitForExistence(timeout: 10))
+        secret.tap()
         secret.typeText("sk-or-ui-test-secret")
         app.buttons["spade.key.save"].tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "In keychain"))
@@ -58,8 +64,9 @@ extension SpadeUITests {
     func testSpadeSettingsAndNewBotInTheOtherLook() {
         let app = launch(appearance: "light")
         _ = openSpade(app)
-        XCTAssertTrue(app.buttons["spade.newBot"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["spade.new"].waitForExistence(timeout: 20))
         screenshot("spade-list-light")
+        app.buttons["spade.new"].tap()
         app.buttons["spade.newBot"].tap()
         XCTAssertTrue(app.buttons["spade.newbot.template.reviewer"].waitForExistence(timeout: 10))
         screenshot("spade-newbot-light")

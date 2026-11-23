@@ -285,10 +285,17 @@ pub fn set_switch(
     bot: &str,
     key: &str,
     on: bool,
+    reviewed: Option<&str>,
     may_loosen: &dyn Fn() -> bool,
 ) -> Result<Link, PackageError> {
     let _busy = engine.package_busy.hold(bot);
     let mut link = link_of(engine, bot)?;
+    // Checked under the bot's package hold: no update lands between this and the commit.
+    if reviewed.is_some_and(|hash| hash != link.package.hash) {
+        return Err(PackageError::Busy(
+            "Its package changed since you read it. Read it again before changing this.".to_owned(),
+        ));
+    }
     if !link.manifest.switch_keys().iter().any(|k| k == key) {
         return Err(PackageError::Invalid(
             "only an effect or a component its package declares can be turned on".to_owned(),

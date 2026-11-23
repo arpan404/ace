@@ -593,6 +593,10 @@ impl Engine {
 
     /// The model a new reply in `conversation` uses: its agent's model now.
     pub(crate) fn reply_model(&self, conversation: &str) -> String {
+        // A lane's replies start on its bot's `task` role (ADR 0217 §8a).
+        if let Some(lane) = self.lane_row(conversation) {
+            return self.lane_model(&lane.parent);
+        }
         match self.store.agent_for_conversation(conversation) {
             // A bot not yet moved off a coding subscription thinks with its replacement
             // (ADR 0219), chosen without reading keys.

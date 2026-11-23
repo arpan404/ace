@@ -41,6 +41,7 @@ import UIKit
             }
             return AnyShape(RoundedRectangle(cornerRadius: Corner.nested(in: Corner.device, inset: Space.margin), style: .continuous))
         }
+        static let attachment = RoundedRectangle(cornerRadius: Corner.attachment, style: .continuous)
         /// The person's message: a capsule for a short line, then concentric with the page.
         static let bubble = TextCapsule(maxRadius: Corner.field)
     }
@@ -59,6 +60,7 @@ import UIKit
         /// A drawn glyph's own corners (the Stop square, a file-status box).
         static let glyphStop: CGFloat = 2
         static let glyph: CGFloat = 6
+        static let attachment: CGFloat = 12
         /// Inner radius = outer radius − the inset between them, never sharper than a capsule's
         /// smallest step.
         nonisolated static func nested(in outer: CGFloat, inset: CGFloat) -> CGFloat { max(outer - inset, 8) }
@@ -90,12 +92,15 @@ import UIKit
         static let rowLine: CGFloat = 44
         /// A thread row: two lines.
         static let rowThread: CGFloat = 64
+        static let attachmentTile: CGFloat = 64
         /// A status icon or provider mark beside text.
         static let icon: CGFloat = 16
         /// An icon in a header button or the tab bar.
         static let barIcon: CGFloat = 20
         /// An empty state's glyph.
         static let emptyIcon: CGFloat = 28
+        /// The portrait in the Account sheet.
+        static let accountPortrait: CGFloat = 56
         /// Spade's face in its tab.
         static let spade: CGFloat = 56
     }

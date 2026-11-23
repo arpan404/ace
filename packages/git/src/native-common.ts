@@ -42,8 +42,35 @@ export interface GitDigestEntry {
   summary: string;
 }
 
+/** A ref read's answer: the bytes Git would print, or its `ace-json` text. */
+export type NativeReply = Uint8Array | string;
+
+/**
+ * The addon callback that settles one ref read, on the JavaScript thread: `error` is the
+ * addon's `git_failed` error and `reply` its answer.
+ */
+export type NativeSettle = (error: unknown, reply?: NativeReply) => void;
+
 interface GitAddon {
-  gitRefsProbe(op: string): string;
+  gitRefsAbortToken(): number;
+  gitRefsAbort(token: number): void;
+  gitRefsWorktrees(token: number, root: string, settle: NativeSettle): void;
+  gitRefsBranchListing(
+    token: number,
+    root: string,
+    patterns: string[],
+    count: number,
+    settle: NativeSettle,
+  ): void;
+  gitRefsBranchNames(
+    token: number,
+    root: string,
+    patterns: string[],
+    count: number,
+    settle: NativeSettle,
+  ): void;
+  gitRefsCommit(token: number, root: string, reference: string, settle: NativeSettle): void;
+  gitRefsBranchHead(token: number, root: string, reference: string, settle: NativeSettle): void;
   gitCoreProbe(op: string): string;
   gitReadsProbe(op: string): string;
   gitWritesProbe(op: string): string;
@@ -149,11 +176,19 @@ function appendLine(path: string | undefined, line: string): void {
 let opSequence = 0;
 let digestOrder = 0;
 
-/** Records one dispatched operation for the cross gate (`ACE_GIT_OP_LOG`). */
-function appendOp(record: Omit<GitOpRecord, "seq" | "pid">): void {
+/**
+ * Reserves this call's place in the operation log at selection time, so concurrent calls
+ * (three listings of one `branchRefs`) record in the order their backends were chosen.
+ */
+export function reserveGitOpSeq(): number {
+  return opSequence++;
+}
+
+/** Appends one dispatched operation for the cross gate (`ACE_GIT_OP_LOG`). */
+function appendOp(record: Omit<GitOpRecord, "pid">): void {
   appendLine(
     process.env.ACE_GIT_OP_LOG,
-    JSON.stringify({ ...record, seq: opSequence++, pid: process.pid } satisfies GitOpRecord),
+    JSON.stringify({ ...record, pid: process.pid } satisfies GitOpRecord),
   );
 }
 
@@ -181,6 +216,16 @@ export function digestLogOn(): boolean {
   return log !== undefined && log !== "";
 }
 
+/** Records one operation a part shell ran, for the cross gate (`ACE_GIT_OP_LOG`). */
+export function recordGitOp(record: Omit<GitOpRecord, "pid">): void {
+  appendOp(record);
+}
+
+/** Counts one fallback reason for `resourceUsage().nativeFallbacks`. */
+export function countGitFallback(reason: string): void {
+  countFallback(reason);
+}
+
 /** Fallback reasons counted for `resourceUsage().nativeFallbacks`. */
 const fallbackReasons = new Map<string, number>();
 
@@ -203,12 +248,14 @@ export function gitVerify(): GitVerify {
   throw new Error(`ACE_GIT_VERIFY takes strict or shadow, not ${mode}`);
 }
 
-/** Calls the part's probe: in G0 it throws the stub deferral; G1+ replaces the probe. */
+/** Calls the probe of a part whose every operation still defers; each item replaces its probe. */
 function attemptNative(part: GitPart, op: string): string {
   const addon = gitAddon();
   switch (part) {
     case "refs":
-      return addon.gitRefsProbe(op);
+      // `refs` replaces single processes inside the service (`native-refs.ts`), never a whole
+      // operation: a whole-operation dispatch for it is a programming error.
+      throw new Error("refs dispatches per process, not per operation");
     case "core":
       return addon.gitCoreProbe(op);
     case "reads":
@@ -235,8 +282,9 @@ export async function runNativeOp<T>(
   typescript: () => Promise<T>,
 ): Promise<T> {
   const selected: NativeBackend = gitCrossSelected() ?? "native";
+  const seq = reserveGitOpSeq();
   if (selected === "typescript") {
-    appendOp({ op, part, selected, completed: "typescript" });
+    appendOp({ seq, op, part, selected, completed: "typescript" });
     return typescript();
   }
   try {
@@ -244,15 +292,15 @@ export async function runNativeOp<T>(
     // G5's comparison of a native-completed checkpoint against the CLI path
     // lands here with the native completion; G0 never completes natively.
     void gitVerify();
-    appendOp({ op, part, selected, completed: "native" });
+    appendOp({ seq, op, part, selected, completed: "native" });
     return value;
   } catch (error) {
     const deferral = stubDeferral(error);
     if (deferral === undefined) {
-      appendOp({ op, part, selected, completed: "native" });
+      appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ op, part, selected, completed: "typescript", fallback: "unimplemented" });
+    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
     countFallback("unimplemented");
     return typescript();
   }
@@ -261,22 +309,23 @@ export async function runNativeOp<T>(
 /** The synchronous `runNativeOp`, for the calls that stay synchronous. */
 export function runNativeOpSync<T>(part: GitPart, op: string, typescript: () => T): T {
   const selected: NativeBackend = gitCrossSelected() ?? "native";
+  const seq = reserveGitOpSeq();
   if (selected === "typescript") {
-    appendOp({ op, part, selected, completed: "typescript" });
+    appendOp({ seq, op, part, selected, completed: "typescript" });
     return typescript();
   }
   try {
     const value = JSON.parse(attemptNative(part, op)) as T;
     void gitVerify();
-    appendOp({ op, part, selected, completed: "native" });
+    appendOp({ seq, op, part, selected, completed: "native" });
     return value;
   } catch (error) {
     const deferral = stubDeferral(error);
     if (deferral === undefined) {
-      appendOp({ op, part, selected, completed: "native" });
+      appendOp({ seq, op, part, selected, completed: "native" });
       throwGitError(error);
     }
-    appendOp({ op, part, selected, completed: "typescript", fallback: "unimplemented" });
+    appendOp({ seq, op, part, selected, completed: "typescript", fallback: "unimplemented" });
     countFallback("unimplemented");
     return typescript();
   }

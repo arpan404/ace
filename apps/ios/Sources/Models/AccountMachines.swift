@@ -11,6 +11,12 @@ protocol AccountDirectory: Sendable {
     func machines() async throws(AccountGrantError) -> [AceMachine]?
     func forget(_ hostId: String) async throws(AccountGrantError)
     func route(hostId: String) -> RelayRoute?
+    /// `org`: the organization `hostId` is a host of, reached as one of its members.
+    func route(hostId: String, org: String?) -> RelayRoute?
+}
+
+extension AccountDirectory {
+    func route(hostId: String, org: String?) -> RelayRoute? { route(hostId: hostId) }
 }
 
 struct AceAccountDirectory: AccountDirectory {
@@ -34,10 +40,16 @@ struct AceAccountDirectory: AccountDirectory {
         guard let token = session.token() else { throw .signedOut }
         try await api.forget(token: token, hostId: hostId)
     }
-    func route(hostId: String) -> RelayRoute? {
+    func route(hostId: String) -> RelayRoute? { route(hostId: hostId, org: nil) }
+    func route(hostId: String, org: String?) -> RelayRoute? {
         guard let relay = api.relayURL else { return nil }
-        return RelayRoute(relayURL: relay, hostId: hostId, grants: AccountGrants(api: api, session: session, deviceId: deviceId),
-                          principal: session.token().map(KeptScope.account), standingKey: DeviceStandingKey.make())
+        let member = org.map { MemberRoute(org: $0) }
+        let grants = member.map { AccountGrants(api: api, session: session, deviceId: deviceId, member: $0, hostId: hostId) }
+            ?? AccountGrants(api: api, session: session, deviceId: deviceId)
+        // An organization's host takes a member's standing, never the person's (ADR 0206 §2.2).
+        return RelayRoute(relayURL: relay, hostId: hostId, grants: grants,
+                          principal: session.token().map(KeptScope.account),
+                          member: member, standingKey: member == nil ? DeviceStandingKey.make() : nil)
     }
 }
 

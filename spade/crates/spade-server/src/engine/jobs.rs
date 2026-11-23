@@ -138,25 +138,22 @@ fn spawn(
             // A failure that may pass parks the job: it stays running in the record and runs
             // again when its retry wake fires (ADR 0160).
             if output.transient && output.is_error && !output.uncertain {
-                let parked = {
-                    let live = engine.live(&id);
-                    let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+                let (home, parked) = home_locked(&engine, &id, &job, |home, jobs| {
                     // Gone means Stop already took this job's end.
                     matches!(jobs.get(&job), Some(Job::Running { .. }))
-                        && engine.park_job(&id, &job, &output.content)
+                        && engine.park_job(home, &job, &output.content)
                         && jobs.remove(&job).is_some()
-                };
+                });
                 if parked {
-                    engine.announce(&id);
+                    engine.announce(&home);
                     return;
                 }
             }
-            {
-                let live = engine.live(&id);
-                let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+            // Once finishing, the job never moves: it lives where it is now.
+            let (id, claimed) = home_locked(&engine, &id, &job, |_, jobs| {
                 // Gone means Stop already took this job's end.
                 if !matches!(jobs.get(&job), Some(Job::Running { .. })) {
-                    return;
+                    return false;
                 }
                 jobs.insert(
                     job.clone(),
@@ -164,6 +161,10 @@ fn spawn(
                         reply: reply.clone(),
                     },
                 );
+                true
+            });
+            if !claimed {
+                return;
             }
             // What the job showed the person goes in the bubble of the reply that started it.
             if !output.shared.is_empty() {
@@ -208,6 +209,26 @@ fn spawn(
         })
     };
     task.abort_handle()
+}
+
+/// Runs `f` on the live jobs of the conversation job `job` (started in `started`) lives in, under
+/// their lock, and says which that is. A job that moved to a task lane between the look and the
+/// lock (ADR 0217 §2a) is looked for again where it went, so it is never taken for stopped.
+fn home_locked<T>(
+    engine: &Engine,
+    started: &str,
+    job: &str,
+    f: impl FnOnce(&str, &mut HashMap<String, Job>) -> T,
+) -> (String, T) {
+    loop {
+        let home = engine.job_home(started, job);
+        let live = engine.live(&home);
+        let mut jobs = live.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        if jobs.contains_key(job) || engine.job_home(started, job) == home {
+            let out = f(&home, &mut jobs);
+            return (home, out);
+        }
+    }
 }
 
 /// Cancels every job of a conversation whose agent is being deleted. Nothing is stored: the

@@ -1,3 +1,4 @@
+import { useTaskTitle } from "./lanes/lanes-context.ts";
 import {
   spadeAppOfTool,
   spadeAppRequestGroup,
@@ -45,7 +46,8 @@ export function SpadeRequestGroup(props: {
   const connection = first ? spadeAppOfTool(first.name)?.connection : undefined;
   const connector = useSpadeConnectors().data?.connectors.find((each) => each.id === connection);
   const app = connector?.name ?? "the app";
-  const who = first?.helper ? `A helper of ${props.botName}` : props.botName;
+  const task = useTaskTitle(first?.lane);
+  const who = task ? task : first?.helper ? `A helper of ${props.botName}` : props.botName;
   const words = spadeAppRequestGroup(
     who,
     app,

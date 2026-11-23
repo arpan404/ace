@@ -40,12 +40,10 @@ ace-git = { path = "../ace-git" }
 # ace-supervisor: spawning, containment and the inventory journal behind
 # @ace/provider-kit's process exports (E2a); the binding only translates.
 ace-supervisor = { path = "../ace-supervisor" }
-# process-wrap: process groups on POSIX over tokio::process (E2a containment).
-process-wrap = { version = "10", features = ["tokio1"] }
+# ace-transport: the loopback and remote listeners (T0 owns the skeleton); the binding only translates.
+ace-transport = { path = "../ace-transport" }
 # tokio: the I/O runtime for the supervisor's pumps, waiters and stop tasks.
 tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
-# rustix: direct process signals for the binding's kill fallback.
-rustix = { version = "1", features = ["process"] }
 # napi: the one addon; every export catches panics and only translates values and errors.
 # napi9 for node_api_throw_syntax_error: a frame that is not JSON throws a SyntaxError.
 napi = { version = "3", default-features = false, features = ["napi9"] }

@@ -30,6 +30,7 @@ impl Engine {
             base_url: preset.base_url.clone(),
             headers: preset.headers.clone(),
             session_header: preset.session_header.clone(),
+            sign_in: None,
             needs_key: preset.needs_key,
             key_env: preset.key_env.clone(),
             preset: Some(preset.id.clone()),
@@ -220,6 +221,7 @@ fn adopted(
             .cloned()
             .collect(),
         session_header: session_header.clone().filter(|h| !is_credential_header(h)),
+        sign_in: None,
         needs_key,
         key_env: key_env.clone(),
         preset: current.map(|c| c.id.clone()),

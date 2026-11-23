@@ -142,6 +142,7 @@ export class PillFollower {
         sentence: preview(strip.sentence, 256),
         payload: preview(strip.payload, 512),
       },
+      commands: running.map((entry) => entry.command),
       taskIds: running.map((entry) => entry.taskId),
     };
   }

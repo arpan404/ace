@@ -1,4 +1,8 @@
-import { spadeIsDevelopment, type SpadePackage } from "@ace/ui-core/spade-chat";
+import {
+  spadeIsDevelopment,
+  spadePackageSentence,
+  type SpadePackage,
+} from "@ace/ui-core/spade-chat";
 import { MarketResult } from "@ace/protocol/marketplace";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -44,24 +48,6 @@ function useMarketUpdate(bot: RosterBot, on: boolean): string | undefined {
 const marketAt = (link: SpadePackage) =>
   `bot/${link.name}${link.source === "market" ? "" : `@${link.source}`}`;
 
-/**
- * "From flight-watcher 1.0.0 in the Store.", and when an update waits for the bot to be
- * still: "Updates when Flight watcher is done with its turn."
- */
-export function packageSentence(link: SpadePackage, bot: string): string {
-  if (spadeIsDevelopment(link)) {
-    const held = link.held ? ` Its latest save applies when ${bot} is done with its turn.` : "";
-    return `Updated from its package folder on this machine with ace bot dev.${held}`;
-  }
-  const from = `${link.name} ${link.version}`;
-  if (link.withdrawn) return `Paused: ${from} was withdrawn. ${link.withdrawn}`;
-  if (link.updating) return `Updating from ${from} to ${link.updating}.`;
-  const held = link.held ? ` Updates when ${bot} is done with its turn.` : "";
-  if (link.source === "spade") return `From ace's ${link.name} template ${link.version}.${held}`;
-  const where = link.source === "market" ? "the Store" : "a catalog you added";
-  return `From ${from} in ${where}.${held}`;
-}
-
 export function ProfilePackageLine(props: { bot: RosterBot }) {
   const { bot } = props;
   const link = bot.package;
@@ -76,7 +62,7 @@ export function ProfilePackageLine(props: { bot: RosterBot }) {
   const at = marketAt(link);
   return (
     <div role="status" className="flex flex-col gap-1 pb-3">
-      <p className="text-ui leading-5 text-foreground">{packageSentence(link, bot.name)}</p>
+      <p className="text-ui leading-5 text-foreground">{spadePackageSentence(link, bot.name)}</p>
       {here && !link.updating && !link.held && (update || link.previous || link.withdrawn) && (
         <div className="-ml-3.5 flex flex-wrap items-center gap-1">
           {update && !link.withdrawn && (
@@ -119,7 +105,7 @@ function TemplateLine(props: { bot: RosterBot; link: SpadePackage }) {
   const still = !link.updating && !link.held && !link.withdrawn;
   return (
     <div role="status" className="flex flex-col gap-1 pb-3">
-      <p className="text-ui leading-5 text-foreground">{packageSentence(link, bot.name)}</p>
+      <p className="text-ui leading-5 text-foreground">{spadePackageSentence(link, bot.name)}</p>
       {offered && still && (
         <div className="-ml-3.5 flex flex-wrap items-center gap-1">
           <Button variant="ghost" className={pillButton} onClick={() => setReviewing(true)}>

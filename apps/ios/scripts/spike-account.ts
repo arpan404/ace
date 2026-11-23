@@ -3,8 +3,11 @@
  * fixture's own port: the session, the account's machines, Forget, Sign out and Delete account, as
  * `packages/client/src/ace-account.ts` names them. It logs each Forget, Sign out and Delete it receives
  * (`GET /account/requests`) so a UI test can check that a cancelled question sent nothing and a
- * confirmed one sent exactly one request; `POST /account/reset` starts a test afresh.
+ * confirmed one sent exactly one request; `POST /account/reset` starts a test afresh. An
+ * organization's admin routes are `spike-account-org.ts`.
  */
+
+import { SpikeOrgAdmin, type OrgLogged } from "./spike-account-org.ts";
 
 /** The session token the app's `--spike-account` launch presents. */
 export const spikeAccountToken = "ios-spike-account-session";
@@ -20,7 +23,8 @@ type Logged =
   | { kind: "signOut" }
   | { kind: "delete" }
   | { kind: "createOrg"; name: string }
-  | { kind: "leave"; org: string };
+  | { kind: "leave"; org: string }
+  | ({ org: string } & OrgLogged);
 interface Org {
   id: string;
   name: string;
@@ -28,6 +32,7 @@ interface Org {
   plan: "team" | "pilot";
   directoryManaged: boolean;
   hosts: string[];
+  admin: SpikeOrgAdmin;
 }
 interface Machine {
   hostId: string;
@@ -112,13 +117,15 @@ export class SpikeAccount {
       return Response.json({ orgs: this.orgs.map(view) });
     if (path === "/v1/orgs" && request.method === "POST") {
       const { name } = (await request.json()) as { name: string };
+      const id = `org_new${this.orgs.length}`;
       const org: Org = {
-        id: `org_new${this.orgs.length}`,
+        id,
         name,
         role: "owner",
         plan: "team",
         directoryManaged: false,
         hosts: [],
+        admin: this.admin(id, "owner"),
       };
       this.log.push({ kind: "createOrg", name });
       this.orgs.push(org);
@@ -137,33 +144,26 @@ export class SpikeAccount {
           lastSeenAt: this.now(),
         })),
       });
-    if (part === "members" && !member && request.method === "GET")
-      return Response.json({
-        members: [
-          {
-            account: account.id,
-            email: account.email,
-            name: account.name,
-            role: org.role,
-            status: "active",
-            directoryManaged: false,
-          },
-          {
-            account: "acct_dana",
-            email: "dana@acme.example",
-            name: "Dana Kim",
-            role: "owner",
-            status: "active",
-            directoryManaged: false,
-          },
-        ],
-      });
     if (part === "members" && member === account.id && request.method === "DELETE") {
       this.log.push({ kind: "leave", org: org.id });
       this.orgs = this.orgs.filter((each) => each.id !== org.id);
       return Response.json({});
     }
-    return Response.json({ error: "not_found" }, { status: 404 });
+    if (part === "hosts" && member && request.method === "DELETE") {
+      this.log.push({ org: org.id, kind: "release", hostId: member });
+      org.hosts = org.hosts.filter((hostId) => hostId !== member);
+      return Response.json({});
+    }
+    const answered = await org.admin.route(request, part ?? "", member);
+    return answered ?? Response.json({ error: "not_found" }, { status: 404 });
+  }
+
+  private admin(org: string, role: string): SpikeOrgAdmin {
+    return new SpikeOrgAdmin(
+      org,
+      { account: account.id, email: account.email, name: account.name, role },
+      (entry) => this.log.push({ org, ...entry }),
+    );
   }
 
   private reset() {
@@ -180,6 +180,7 @@ export class SpikeAccount {
             plan: "team",
             directoryManaged: false,
             hosts,
+            admin: this.admin("org_acme", "admin"),
           },
         ]
       : [];

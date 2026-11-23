@@ -66,6 +66,11 @@ impl Trust {
         }
     }
 
+    /// Whether `path` has a trust record at all (its content still has to match it).
+    pub fn has(&self, path: &str) -> bool {
+        self.read().files.contains_key(path)
+    }
+
     /// Whether the file at `path` holding content with `hash` is trusted.
     pub fn trusted(&self, path: &str, hash: &str) -> bool {
         self.read()
