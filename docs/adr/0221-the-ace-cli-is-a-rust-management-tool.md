@@ -127,7 +127,7 @@ The TypeScript CLI is deleted command group by command group as each Rust group 
 - Most commands start in milliseconds and need no JS runtime; scripts and completions get faster.
 - Two implementations exist during the move; the existing CLI tests, run on both, and `check:cli` keep them equal.
 - People who used `ace chat` or `ace spade chat` use the apps. The removed commands answer with a
-  usage error naming the app (exit 2) for one release, then disappear.
+  usage error naming the app (exit 64, `retired_command`) for one release, then disappear.
 - The CLI's code leaves the daemon bundle group by group, shrinking it.
 
 ## Tests
