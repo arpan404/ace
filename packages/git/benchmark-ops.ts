@@ -80,32 +80,43 @@ type Sample = {
   daemonCpuMsPerCall: number;
 };
 
+/**
+ * `ACE_GIT`'s parts. A native part defers every read that sees an injected `spawn` (G1's
+ * `injected` fallback), so counting Git processes and measuring the native backend are two
+ * runs: with parts on, the bench installs no wrapper and attributes nothing per command.
+ */
+const nativeParts = (process.env.ACE_GIT ?? "").split(",").filter((part) => part !== "");
+
 async function measure(root: string, name: string, count: number): Promise<Sample> {
   const call = calls[name];
   if (!call) throw new Error(`Unknown call ${name}`);
   const spawned: string[] = [];
   const commandWall: Record<string, number> = {};
   let gitWall = 0;
-  const git = new GitService({
-    processRuntime: {
-      spawn(binary, args, options) {
-        const plain = args.filter((arg) => arg !== "--no-pager");
-        let index = 0;
-        while (plain[index] === "-c" || plain[index] === "-C") index += 2;
-        const command =
-          `${plain[index] ?? "?"} ${plain[index + 1]?.startsWith("-") ? "" : (plain[index + 1] ?? "")}`.trim();
-        spawned.push(command);
-        const started = performance.now();
-        const child = spawnGitProcess(binary, args, options);
-        child.once("close", () => {
-          const took = performance.now() - started;
-          gitWall += took;
-          commandWall[command] = (commandWall[command] ?? 0) + took;
-        });
-        return child;
-      },
-    },
-  });
+  const git = new GitService(
+    nativeParts.length > 0
+      ? {}
+      : {
+          processRuntime: {
+            spawn(binary, args, options) {
+              const plain = args.filter((arg) => arg !== "--no-pager");
+              let index = 0;
+              while (plain[index] === "-c" || plain[index] === "-C") index += 2;
+              const command =
+                `${plain[index] ?? "?"} ${plain[index + 1]?.startsWith("-") ? "" : (plain[index + 1] ?? "")}`.trim();
+              spawned.push(command);
+              const started = performance.now();
+              const child = spawnGitProcess(binary, args, options);
+              child.once("close", () => {
+                const took = performance.now() - started;
+                gitWall += took;
+                commandWall[command] = (commandWall[command] ?? 0) + took;
+              });
+              return child;
+            },
+          },
+        },
+  );
   await call(git, root); // warm: discovery, caches, page cache
   spawned.length = 0;
   gitWall = 0;
@@ -232,6 +243,8 @@ if (process.argv.includes("--child")) {
       host: {
         platform: process.platform,
         node: process.version,
+        // Empty counts every Git process; parts on measures the native backend instead.
+        gitParts: process.env.ACE_GIT ?? "",
         load: (await run("uptime")).stdout.trim(),
       },
       repository: { trackedFiles: all.length, commits, edited: 20, staged: 5, untracked: 10 },

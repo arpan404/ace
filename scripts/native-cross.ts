@@ -11,7 +11,11 @@
  * inside one process (both start orders: `ACE_GIT_CROSS_START`), asserted
  * from the per-operation log at `ACE_GIT_OP_LOG`, since `GitService`
  * instances boot no root: `ACE_GIT=<parts> bun scripts/native-cross.ts
- * ACE_GIT <file>`. A fallback the owning work item didn't list fails the run.
+ * ACE_GIT <file>`. A fallback the owning work item didn't list fails the run:
+ * G0's `unimplemented` stub and G1's reasons (`reftable`, `replace`, `grafts`,
+ * `shallow`, `too_many_refs`, `ambiguous_refs`, `worktree_reason`, `unreadable`,
+ * `cancelled`,
+ * `directory_fd`, `injected`). Each item adds the reasons it may produce.
  *
  * The switch's starting-on value comes from this environment (set
  * `ACE_TRANSLATORS=pi`, `ACE_ENGINE=native`, … before calling); the
@@ -108,10 +112,29 @@ function assertAlternation(log: string, label: string): void {
 }
 
 /**
+ * Fallback reasons a git part may record: G0's stub deferral and the reasons
+ * G1 lists in docs/git/porting-guide.md. A new item adds its own here, so a
+ * native selection never passes by silently running the CLI for a reason no
+ * work item owns.
+ */
+const listedFallbacks = new Set([
+  "unimplemented",
+  "reftable",
+  "replace",
+  "grafts",
+  "shallow",
+  "too_many_refs",
+  "ambiguous_refs",
+  "worktree_reason",
+  "unreadable",
+  "cancelled",
+  "directory_fd",
+  "injected",
+]);
+
+/**
  * Every selected git call alternated from the run's starting backend, and
- * some call ran on each backend. Fallbacks must be listed by the work item
- * that owns the file (G0: `unimplemented` only), so a native selection can
- * never pass by silently running the CLI.
+ * some call ran on each backend. A fallback outside the listed reasons fails.
  */
 function assertGitAlternation(log: string, label: string, start: "native" | "typescript"): void {
   const ops = gitOpsOf(log);
@@ -123,7 +146,7 @@ function assertGitAlternation(log: string, label: string, start: "native" | "typ
       throw new Error(
         `${label}: call ${index} (${op.op}) selected ${op.selected}, not alternating from ${start}`,
       );
-    if (op.fallback !== undefined && op.fallback !== "unimplemented")
+    if (op.fallback !== undefined && !listedFallbacks.has(op.fallback))
       throw new Error(`${label}: call ${index} (${op.op}) fell back unlisted: ${op.fallback}`);
   }
   const selected = new Set(ops.map((op) => op.selected));

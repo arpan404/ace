@@ -164,6 +164,8 @@ dependencies = [
  "ace-json",
  "ace-supervisor",
  "gix",
+ "libc",
+ "serde",
  "thiserror",
  "tokio",
 ]

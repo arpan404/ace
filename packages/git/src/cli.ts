@@ -117,7 +117,7 @@ export class GitCli {
   private readonly standardFiles = new Map<string, Promise<string[] | undefined>>();
   private ready: Promise<void> | undefined;
   private readonly runtime: GitProcessRuntime;
-  private readonly calls = new Set<Promise<Output>>();
+  private readonly calls = new Set<Promise<unknown>>();
   private readonly cancellations = new Set<() => void>();
   private readonly drains = new Set<Promise<void>>();
   /** Leases of processes this service killed, retired once their process groups are gone. */
@@ -356,12 +356,36 @@ export class GitCli {
     if (this.calls.size >= 64)
       return Promise.reject(new GitError("git_busy", "Git call limit reached"));
     const result = this.runCall(cwd, args, options);
+    this.track(result);
+    return result;
+  }
+  /**
+   * Admission, cancellation and drain for work the service runs without a Git process (G1's
+   * native ref reads): the same closed check, 64-call limit, `close()` cancellation and
+   * drain as `call`. The work is tracked until it settles, not until its caller stops
+   * waiting on a timeout; `cancel` stops it early, on `close()` too.
+   */
+  nativeCall<T>(run: () => Promise<T>, cancel?: () => void): Promise<T> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.calls.size >= 64)
+      return Promise.reject(new GitError("git_busy", "Git call limit reached"));
+    const result = run();
+    this.track(result);
+    if (cancel !== undefined) {
+      this.cancellations.add(cancel);
+      void result.then(
+        () => this.cancellations.delete(cancel),
+        () => this.cancellations.delete(cancel),
+      );
+    }
+    return result;
+  }
+  private track(result: Promise<unknown>): void {
     this.calls.add(result);
     void result.then(
       () => this.calls.delete(result),
       () => this.calls.delete(result),
     );
-    return result;
   }
   /** A user-admitted fetch retains all tree execution guards, including in protected roots. */
   fetch(
