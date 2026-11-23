@@ -13,11 +13,14 @@
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 
 /// One dispatched event (`SseEvent`).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SseEvent {
     pub data: String,
     pub event: String,
     pub id: String,
+    /// The retry interval in force when this event dispatched, so a listener
+    /// reading it sees the `retry:` line that preceded the event.
+    pub retry_ms: Option<f64>,
 }
 
 /// A parser with today's state: the last dispatched id, the last retry read, and
@@ -39,7 +42,7 @@ pub struct SseParser {
 
 /// What one `feed` produced: the events to dispatch, in order, then the refusal
 /// that stopped it (events before it still dispatch, as they already did).
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct SseFeed {
     pub events: Vec<SseEvent>,
     pub error: Option<String>,
@@ -131,6 +134,7 @@ impl SseParser {
                         self.event.clone()
                     },
                     id: self.last_event_id.clone(),
+                    retry_ms: self.retry_ms,
                 });
             }
             self.data.clear();

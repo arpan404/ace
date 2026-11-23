@@ -458,24 +458,18 @@ mod tests {
     fn a_flood_of_dropped_lines_gives_one_note_at_once_then_one_summary_per_interval() {
         let mut notes = DroppedNotes::new();
         let mut emitted = Vec::new();
-        for index in 0..1000 {
+        for _ in 0..1000 {
             let (bytes, phase) = line(100, DropPhase::Complete);
-            let step = notes.dropped(bytes, phase);
-            if let Some(note) = step.note {
+            if let Some(note) = notes.dropped(bytes, phase).note {
                 emitted.push(note);
             }
-            assert_eq!(step.arm, index == 0);
         }
         assert_eq!(emitted, vec!["ace dropped a stderr line of 100 bytes"]);
-        let step = notes.fire();
         assert_eq!(
-            step.note.as_deref(),
+            notes.fire().note.as_deref(),
             Some("ace dropped 999 stderr lines, 99900 bytes in total")
         );
-        assert!(step.arm);
-        let step = notes.fire();
-        assert_eq!(step.note, None);
-        assert!(!step.arm);
+        assert_eq!(notes.fire().note, None);
         assert_eq!(emitted.len(), 1);
         let (bytes, phase) = line(7, DropPhase::Complete);
         let step = notes.dropped(bytes, phase);

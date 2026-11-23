@@ -2,15 +2,16 @@
 //! The streams binding: values in, values out, never logic. Framing, budgets, the
 //! SSE parser and the JSON-RPC protocol state live in `ace-supervisor`; this module
 //! only translates handles, strings and errors, and throws the JavaScript
-//! `RangeError` a refused limit is today.
+//! `RangeError` a refused limit is today. Lines and records cross one chunk at a
+//! time, joined, so a burst costs one call and one copy, not one per line.
 
-use ace_json::JsString;
 use ace_supervisor::budget::{
     DropPhase, DroppedNotes, DroppingGate, Framed, OutputGate, StreamError, byte_count,
 };
-use ace_supervisor::jsonrpc::{self, Encoded, FrameKind, RpcId};
+use ace_supervisor::jsonrpc::{self, FrameKind};
+use ace_supervisor::lines::FramedLines;
 use ace_supervisor::{flow, jsonl, lines, sse};
-use napi::bindgen_prelude::{Either, Uint8Array};
+use napi::bindgen_prelude::Uint8Array;
 use napi::{Env, Status};
 use napi_derive::napi;
 
@@ -39,17 +40,17 @@ fn ticket(value: f64) -> u64 {
     }
 }
 
-fn id(either: Either<String, f64>) -> RpcId {
-    match either {
-        Either::A(text) => RpcId::Text(JsString::from(text)),
-        Either::B(number) => RpcId::Number(number),
-    }
+/// Lines from one crossing, joined by LF; `count` tells zero lines from one empty.
+#[napi(object)]
+pub struct FramedLinesJs {
+    pub text: String,
+    pub count: f64,
 }
 
-fn id_out(value: RpcId) -> Either<String, f64> {
-    match value {
-        RpcId::Text(text) => Either::A(text.as_str().to_owned()),
-        RpcId::Number(number) => Either::B(number),
+fn framed_lines(lines: FramedLines) -> FramedLinesJs {
+    FramedLinesJs {
+        text: lines.text,
+        count: lines.count as f64,
     }
 }
 
@@ -72,14 +73,14 @@ impl LineFramerNative {
 
     /// Complete lines from one chunk's raw bytes; the error is the output-limit text.
     #[napi(catch_unwind)]
-    pub fn push(&mut self, chunk: Uint8Array) -> napi::Result<Vec<String>> {
-        self.inner.push(&chunk).map_err(reason)
+    pub fn push(&mut self, chunk: Uint8Array) -> napi::Result<FramedLinesJs> {
+        self.inner.push(&chunk).map(framed_lines).map_err(reason)
     }
 
     /// The input ended: the final lines, without a terminator.
     #[napi(catch_unwind)]
-    pub fn finish(&mut self) -> Vec<String> {
-        self.inner.finish()
+    pub fn finish(&mut self) -> FramedLinesJs {
+        framed_lines(self.inner.finish())
     }
 }
 
@@ -137,7 +138,7 @@ pub struct DroppedLineJs {
     pub phase: String,
 }
 
-/// One framed output: bytes to publish, or the line that was dropped.
+/// One framed output: a run of bytes to publish, or the line that was dropped.
 #[napi(object)]
 pub struct FramedJs {
     /// `data` or `drop`.
@@ -146,26 +147,40 @@ pub struct FramedJs {
     pub line: Option<DroppedLineJs>,
 }
 
+fn framed_data(run: &mut Vec<u8>, out: &mut Vec<FramedJs>) {
+    if run.is_empty() {
+        return;
+    }
+    out.push(FramedJs {
+        kind: "data".to_owned(),
+        data: Some(Uint8Array::new(std::mem::take(run))),
+        line: None,
+    });
+}
+
+/// Contiguous data frames become one crossing; a drop always flushes.
 fn framed(frames: Vec<Framed>) -> Vec<FramedJs> {
-    frames
-        .into_iter()
-        .map(|frame| match frame {
-            Framed::Data(bytes) => FramedJs {
-                kind: "data".to_owned(),
-                data: Some(Uint8Array::new(bytes)),
-                line: None,
-            },
-            Framed::Drop(line) => FramedJs {
-                kind: "drop".to_owned(),
-                data: None,
-                line: Some(DroppedLineJs {
-                    bytes: line.bytes as f64,
-                    prefix: line.prefix,
-                    phase: line.phase.as_str().to_owned(),
-                }),
-            },
-        })
-        .collect()
+    let mut out = Vec::with_capacity(frames.len());
+    let mut run = Vec::new();
+    for frame in frames {
+        match frame {
+            Framed::Data(bytes) => run.extend_from_slice(&bytes),
+            Framed::Drop(line) => {
+                framed_data(&mut run, &mut out);
+                out.push(FramedJs {
+                    kind: "drop".to_owned(),
+                    data: None,
+                    line: Some(DroppedLineJs {
+                        bytes: line.bytes as f64,
+                        prefix: line.prefix,
+                        phase: line.phase.as_str().to_owned(),
+                    }),
+                });
+            }
+        }
+    }
+    framed_data(&mut run, &mut out);
+    out
 }
 
 /// The dropping gate behind `droppingOutputGate`.
@@ -261,17 +276,17 @@ impl DroppedNotesNative {
     }
 }
 
+/// One JSONL chunk: records in order, then the refusal that stopped it.
+#[napi(object)]
+pub struct JsonlPushJs {
+    pub lines: FramedLinesJs,
+    pub error: Option<String>,
+}
+
 /// The `readJsonLines` framing.
 #[napi]
 pub struct JsonLinesNative {
     inner: jsonl::JsonLines,
-}
-
-/// One JSONL chunk: records in order, then the refusal that stopped it.
-#[napi(object)]
-pub struct JsonlPushJs {
-    pub lines: Vec<String>,
-    pub error: Option<String>,
 }
 
 #[napi]
@@ -289,7 +304,7 @@ impl JsonLinesNative {
     pub fn push(&mut self, chunk: Uint8Array) -> JsonlPushJs {
         let push = self.inner.push(&chunk);
         JsonlPushJs {
-            lines: push.lines,
+            lines: framed_lines(push.lines),
             error: push.error,
         }
     }
@@ -307,6 +322,7 @@ pub struct SseEventJs {
     pub data: String,
     pub event: String,
     pub id: String,
+    pub retry_ms: Option<f64>,
 }
 
 /// One `feed`: events in order, then the refusal that stopped it.
@@ -351,6 +367,7 @@ impl SseParserNative {
                     data: event.data,
                     event: event.event,
                     id: event.id,
+                    retry_ms: event.retry_ms,
                 })
                 .collect(),
             error: feed.error,
@@ -385,15 +402,17 @@ impl RpcIdsNative {
         })
     }
 
+    /// Reserve the id `JSON.stringify` text names, or a generated one; the answer is
+    /// the reserved id as `JSON.stringify` text, lone surrogates included.
     #[napi(catch_unwind)]
-    pub fn reserve(
-        &mut self,
-        env: Env,
-        explicit: Option<Either<String, f64>>,
-    ) -> napi::Result<Either<String, f64>> {
+    pub fn reserve(&mut self, env: Env, explicit_json: Option<String>) -> napi::Result<String> {
+        let explicit = match explicit_json {
+            Some(text) => Some(jsonrpc::id_from_json(&text).map_err(|error| bind(&env, error))?),
+            None => None,
+        };
         self.inner
-            .reserve(explicit.map(id))
-            .map(id_out)
+            .reserve(explicit)
+            .map(|reserved| jsonrpc::id_to_json(&reserved))
             .map_err(|error| bind(&env, error))
     }
 }
@@ -458,87 +477,18 @@ impl WriterQueueNative {
     }
 }
 
-/// A message ready for the wire.
-#[napi(object)]
-pub struct EncodedJs {
-    pub line: String,
-    pub bytes: f64,
-}
-
-fn encoded(value: Encoded) -> EncodedJs {
-    EncodedJs {
-        line: value.line,
-        bytes: value.bytes as f64,
+/// What one received line is: `unparsable`, `malformed`, `request`, `notification`
+/// or `response`. The shell parses the line itself once for the message and fields.
+#[napi]
+pub fn rpc_inspect(line: String) -> String {
+    match jsonrpc::inspect(&line) {
+        FrameKind::Unparsable => "unparsable",
+        FrameKind::Malformed => "malformed",
+        FrameKind::Request => "request",
+        FrameKind::Notification => "notification",
+        FrameKind::Response => "response",
     }
-}
-
-#[napi]
-pub fn rpc_encode_request(
-    env: Env,
-    id_json: String,
-    method: String,
-    params_json: Option<String>,
-) -> napi::Result<EncodedJs> {
-    jsonrpc::encode_request(&id_json, &JsString::from(method), params_json)
-        .map(encoded)
-        .map_err(|error| bind(&env, error))
-}
-
-#[napi]
-pub fn rpc_encode_notification(
-    env: Env,
-    method: String,
-    params_json: Option<String>,
-) -> napi::Result<EncodedJs> {
-    jsonrpc::encode_notification(&JsString::from(method), params_json)
-        .map(encoded)
-        .map_err(|error| bind(&env, error))
-}
-
-#[napi]
-pub fn rpc_encode_answer(
-    env: Env,
-    id_json: String,
-    result_json: Option<String>,
-    error_code: Option<f64>,
-    error_message: Option<String>,
-) -> napi::Result<EncodedJs> {
-    let error = error_code.zip(error_message);
-    jsonrpc::encode_answer(&id_json, result_json, error)
-        .map(encoded)
-        .map_err(|error| bind(&env, error))
-}
-
-/// What one received line is, with each piece as its own value.
-#[napi(object)]
-pub struct InspectionJs {
-    /// `unparsable`, `malformed`, `request`, `notification` or `response`.
-    pub kind: String,
-    pub id: Option<Either<String, f64>>,
-    pub method: Option<String>,
-    pub params_json: Option<String>,
-    pub result_json: Option<String>,
-    pub error: Option<String>,
-}
-
-#[napi]
-pub fn rpc_inspect(line: String) -> InspectionJs {
-    let inspected = jsonrpc::inspect(&line);
-    InspectionJs {
-        kind: match inspected.kind {
-            FrameKind::Unparsable => "unparsable",
-            FrameKind::Malformed => "malformed",
-            FrameKind::Request => "request",
-            FrameKind::Notification => "notification",
-            FrameKind::Response => "response",
-        }
-        .to_owned(),
-        id: inspected.id.map(id_out),
-        method: inspected.method.map(|method| method.as_str().to_owned()),
-        params_json: inspected.params,
-        result_json: inspected.result,
-        error: inspected.error,
-    }
+    .to_owned()
 }
 
 /// `rpcErrorCode`: the integer `code` of a JSON-RPC error message, if it is one.
