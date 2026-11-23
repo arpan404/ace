@@ -29,6 +29,7 @@ struct OrganizationPolicyPage: View {
     @State private var problem: String?
     @State private var confirming = false
     @State private var notice: String?
+    @State private var changedElsewhere = false
 
     /// A choice's stored word and what the page calls it.
     private struct Word: Identifiable {
@@ -78,12 +79,19 @@ struct OrganizationPolicyPage: View {
             Text("Every one of \(Spaces.possessive(admin.org.name)) hosts takes it the next time it checks.")
         }
         .organizationNotice($notice)
+        .alert("The policy changed elsewhere", isPresented: $changedElsewhere) {
+            Button("Reload") { Task { await load() } }
+                .accessibilityIdentifier("organization.policy.reload")
+            Button("Keep editing", role: .cancel) {}
+        } message: {
+            Text("Another admin saved a newer version, so yours wasn't saved. Reload to see theirs, then make your change again.")
+        }
     }
 
     @ViewBuilder private func sections(_ form: Binding<OrgPolicyForm>) -> some View {
         Section {
             ForEach(Self.effects) { effect in
-                choice(effect.label, Self.rules, form.effects[effect.id].withDefault("unset"))
+                choice(effect.label, Self.rules, rule(form, effect.id))
             }
             choice("Full access", Self.raises, form.fullAccess)
             choice("Commands outside the sandbox", Self.raises, form.commandsOutsideSandbox)
@@ -122,6 +130,10 @@ struct OrganizationPolicyPage: View {
         .insetRowBackground()
     }
 
+    /// One effect's rule in the form; a key the form doesn't hold reads as "Each bot decides".
+    private func rule(_ form: Binding<OrgPolicyForm>, _ key: String) -> Binding<String> {
+        Binding(get: { form.wrappedValue.effects[key] ?? "unset" }, set: { form.wrappedValue.effects[key] = $0 })
+    }
     private func choice(_ title: String, _ options: [Word], _ value: Binding<String>) -> some View {
         Picker(title, selection: value) {
             ForEach(options) { option in Text(option.label).tag(option.id) }
@@ -166,23 +178,18 @@ struct OrganizationPolicyPage: View {
               let encoded = try? JSONEncoder().encode(form),
               let fields = try? JSONSerialization.jsonObject(with: encoded) else { return }
         struct Answer: Decodable { let body: String }
-        let payload: [String: Any] = ["type": "native.organization", "request": ["op": "policySave", "body": stored.body, "form": fields]]
+        let payload: [String: Any] = ["type": "native.organization",
+                                      "request": ["op": "policySave", "body": stored.body, "version": stored.version, "form": fields]]
         guard let answer = try? await client.service(payload, as: Answer.self) else {
             notice = "Couldn't save the policy. Try again."
             return
         }
         switch await admin.savePolicy(body: Data(answer.body.utf8)) {
-        case .success: await load()
-        case .failure(let refused):
-            notice = refused.sentence
-            // Another admin's version is the one to look over now.
-            await load()
+        case .saved: await load()
+        // The edit stays on screen until the person reloads: nothing of it was saved.
+        case .changedElsewhere: changedElsewhere = true
+        case .refused(let sentence): notice = sentence
         }
     }
 }
 
-private extension Binding where Value == String? {
-    func withDefault(_ fallback: String) -> Binding<String> {
-        Binding<String>(get: { wrappedValue ?? fallback }, set: { wrappedValue = $0 })
-    }
-}

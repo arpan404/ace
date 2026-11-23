@@ -56,8 +56,16 @@ export const NativeOrganizationRequest = z.object({
   request: z.discriminatedUnion("op", [
     /** The stored version's body (`GET /v1/orgs/{org}/policy`) as the form. */
     z.object({ op: z.literal("policyForm"), body: Body }),
-    /** The `PUT /v1/orgs/{org}/policy` body saving `form` over the stored `body`. */
-    z.object({ op: z.literal("policySave"), body: Body, form: PolicyForm }),
+    /**
+     * The `PUT /v1/orgs/{org}/policy` body saving `form` over the stored `body`, which is
+     * `version`: the backend refuses it once another version has been saved.
+     */
+    z.object({
+      op: z.literal("policySave"),
+      body: Body,
+      version: z.number().int().nonnegative(),
+      form: PolicyForm,
+    }),
     z.object({
       op: z.literal("audit"),
       /** An actor's name as `people` lists it. */
@@ -114,7 +122,7 @@ export class NativeOrganization {
         return { ok: true, form: formOf(readPolicy(request.body)) };
       case "policySave": {
         const policy = policyOf(readPolicy(request.body), request.form);
-        return { ok: true, body: JSON.stringify({ policy }) };
+        return { ok: true, body: JSON.stringify({ policy, version: request.version }) };
       }
       case "audit": {
         const read = await this.readLog(signal, request.fresh === true);

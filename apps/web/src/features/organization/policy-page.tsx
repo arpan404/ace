@@ -237,9 +237,12 @@ function PolicyEditor(props: { org: AceOrgSpace; version: number; stored: AceOrg
           disabled={save.isPending}
           onClick={() => {
             setError("");
-            save.mutate(policyFromDraft(draft), {
-              onError: (cause) => setError(orgFailure(cause)),
-            });
+            save.mutate(
+              { policy: policyFromDraft(draft), base: props.version },
+              {
+                onError: (cause) => setError(orgFailure(cause)),
+              },
+            );
           }}
         >
           {save.isPending ? "Saving…" : `Save version ${props.version + 1}`}

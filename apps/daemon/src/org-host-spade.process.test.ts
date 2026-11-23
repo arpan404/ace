@@ -203,6 +203,7 @@ it.skipIf(!canRunSpade)(
 
     const set = await team.api.call(team.home.session.token, "PUT", `/v1/orgs/${team.org}/policy`, {
       policy: { full_access: "admins" },
+      version: 0,
     });
     expect(set.status).toBe(200);
     // Pat's next grant names version 1: the host fetches it and Spade applies it.
@@ -254,6 +255,7 @@ it.skipIf(!canRunSpade)(
     // A policy set while nobody proves anything still reaches Spade on its schedule.
     const set = await team.api.call(team.home.session.token, "PUT", `/v1/orgs/${team.org}/policy`, {
       policy: { effects: { pay: "off" } },
+      version: 0,
     });
     expect(set.status).toBe(200);
     await until(

@@ -281,9 +281,12 @@ export function fakeOrgRoutes(options: {
       return json(200, { org: org.space.id, ...org.policy });
     if (what === "policy" && method === "PUT") {
       if (!admin(org)) return fail(403, "forbidden");
+      const sent = await read(init);
+      // As the backend: only a save made over the current version is the next one.
+      if (sent.version !== org.policy.version) return fail(409, "policy_changed");
       org.policy = {
         version: org.policy.version + 1,
-        body: JSON.stringify((await read(init)).policy ?? {}),
+        body: JSON.stringify(sent.policy ?? {}),
         setBy: person.id,
         setAt: now(),
       };

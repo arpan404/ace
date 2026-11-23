@@ -75,6 +75,7 @@ test("a saved form is the next version's body, keeping what the form didn't touc
   const saved = (await ask({
     op: "policySave",
     body: stored,
+    version: 3,
     form: {
       ...form,
       effects: { ...form.effects, pay: "unset", publish: "admins" },
@@ -101,6 +102,7 @@ test("a saved form is the next version's body, keeping what the form didn't touc
       models: { local: false, subscriptions: false },
       audit: { content: "targets" },
     },
+    version: 3,
   });
 });
 

@@ -99,11 +99,11 @@ enum OrgRefusal {
     }
 
     func changeRole(_ member: AceOrgPerson, to role: String) async -> String? {
-        await change { try await self.api.changeRole(token: self.token, org: self.org.id, account: member.account, role: role) }
+        await change { () async throws(AceOrgError) in try await self.api.changeRole(token: self.token, org: self.org.id, account: member.account, role: role) }
             then: { await self.readMembers() }
     }
     func remove(_ member: AceOrgPerson) async -> String? {
-        await change { try await self.api.removeMember(token: self.token, org: self.org.id, account: member.account) }
+        await change { () async throws(AceOrgError) in try await self.api.removeMember(token: self.token, org: self.org.id, account: member.account) }
             then: { await self.readMembers() }
     }
     func invite(email: String, role: String) async -> String? {
@@ -111,15 +111,15 @@ enum OrgRefusal {
         guard address.range(of: "^[^\\s@]+@[^\\s@]+$", options: .regularExpression) != nil else {
             return "That doesn't look like an email address."
         }
-        return await change { try await self.api.invite(token: self.token, org: self.org.id, email: address, role: role) }
+        return await change { () async throws(AceOrgError) in try await self.api.invite(token: self.token, org: self.org.id, email: address, role: role) }
             then: { await self.readMembers() }
     }
     func revoke(_ invitation: AceOrgInvite) async -> String? {
-        await change { try await self.api.revokeInvitation(token: self.token, org: self.org.id, id: invitation.id) }
+        await change { () async throws(AceOrgError) in try await self.api.revokeInvitation(token: self.token, org: self.org.id, id: invitation.id) }
             then: { await self.readMembers() }
     }
     func release(_ host: AceMachine) async -> String? {
-        await change { try await self.api.releaseHost(token: self.token, org: self.org.id, hostId: host.hostId) }
+        await change { () async throws(AceOrgError) in try await self.api.releaseHost(token: self.token, org: self.org.id, hostId: host.hostId) }
             then: { await self.readHosts() }
     }
 
@@ -134,12 +134,19 @@ enum OrgRefusal {
         do { return .success(try await api.policy(token: token, org: org.id)) }
         catch { return .failure(PortalRefused(sentence: OrgRefusal.sentence(error))) }
     }
-    func savePolicy(body: Data) async -> Result<AceOrgPolicyVersion, PortalRefused> {
-        guard !busy else { return .failure(PortalRefused(sentence: "Still saving.")) }
+    /// How saving a policy version went: saved, refused because another version was saved since
+    /// the one the edit started from, or refused for another reason.
+    enum PolicySave { case saved(AceOrgPolicyVersion), changedElsewhere, refused(String) }
+
+    /// Saves `body` (`{"policy": …, "version": base}`): the backend takes it only while `base` is
+    /// still the current version.
+    func savePolicy(body: Data) async -> PolicySave {
+        guard !busy else { return .refused("Still saving.") }
         busy = true
         defer { busy = false }
-        do { return .success(try await api.setPolicy(token: token, org: org.id, body: body)) }
-        catch { return .failure(PortalRefused(sentence: OrgRefusal.sentence(error))) }
+        do { return .saved(try await api.setPolicy(token: token, org: org.id, body: body)) }
+        catch .refused("policy_changed") { return .changedElsewhere }
+        catch { return .refused(OrgRefusal.sentence(error)) }
     }
 
     private func change(_ run: @escaping () async throws(AceOrgError) -> Void, then reread: () async -> Void) async -> String? {
