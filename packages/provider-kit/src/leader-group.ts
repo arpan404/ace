@@ -41,9 +41,10 @@ export type { GroupIo } from "./group-delivery.ts";
  *   carries this spawn's random token (`group-token.ts`), read as identity, environment,
  *   identity.
  *
- * Residual risk. Node and Bun reap a child before any JS hears it exited, so this only narrows
- * the window in which a reused group id can be hit; the full fix is a supervisor that keeps the
- * leader unreaped until its group is empty (the Rust supervisor, E2a). What remains here:
+ * Residual risk. Node and Bun reap a child on their own, before any JS hears it exited, so this
+ * only narrows the window in which a reused group id can be hit. The real fix is the Rust
+ * supervisor (ACE_SUPERVISOR, E2a), which keeps the leader unreaped until its group is empty.
+ * What remains here:
  * - the check-to-kill gap: between the last pin check and kill(-pid), or a member's start check
  *   and kill(2) on macOS, the process must exit, be reaped and its id be reused: the pid range
  *   cycling within microseconds;
@@ -209,8 +210,11 @@ function createGroup(leader: number, evidence: Evidence, io: GroupIo): LeaderGro
     async signal(signal) {
       if (recorded === undefined && !reaped && handleAlive()) {
         // No start could be read at spawn: as before this change, the group goes by number while
-        // the child's own handle says it is unreaped, checked again right before kill(-pid). A
-        // worker can't prove that to the main isolate, so it refuses instead of signalling no one.
+        // the child's own handle says it is unreaped, checked again right before kill(-pid). The
+        // handle is JS state, set when the runtime reports the exit, which can lag the reap
+        // itself: this is the weakest pin, kept only so such a child is still stopped (see the
+        // residual window in `killGroupWhile`; the Rust supervisor closes it). A worker can't
+        // prove it to the main isolate, so it refuses instead of signalling no one.
         if (relaysSignals())
           throw new Error(`Process group ${leader} has no recorded start to relay a signal with`);
         killGroupWhile(leader, signal, () => !reaped && handleAlive());

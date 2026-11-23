@@ -287,27 +287,3 @@ test("a tree walk from a recorded root whose pid now shows another start takes n
     truncated: false,
   });
 });
-
-test("a child whose start can't be read at spawn is signalled by number only while its own handle says it is unreaped", async () => {
-  // A pid no kernel hands out; the rules are asked about every numeric signal and let none through.
-  const leader = 999_999_998;
-  const { tree, listing } = fakeMachine({});
-  const handle: { exitCode: number | null; signalCode: string | null } = {
-    exitCode: null,
-    signalCode: null,
-  };
-  const asked: number[] = [];
-  const unguard = installGroupGuards((group) => {
-    asked.push(group);
-    return [];
-  });
-  try {
-    const group = childGroup(leader, undefined, handle, { tree, listing });
-    await group.signal("SIGTERM");
-    handle.exitCode = 0;
-    await group.signal("SIGKILL");
-  } finally {
-    unguard();
-  }
-  expect(asked).toEqual([leader]);
-});

@@ -99,6 +99,37 @@ function throwIfCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
 }
 
+/** `work`, failing as `git_cancelled` when it failed because `signal` aborted (its AbortError). */
+async function cancelledAs<T>(signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
+    throw error;
+  }
+}
+
+/** Wait for a shared `work` under one caller's signal; the work itself goes on. */
+function untilCancelled<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return work;
+  if (signal.aborted)
+    return Promise.reject(new GitError("git_cancelled", "Git operation cancelled"));
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new GitError("git_cancelled", "Git operation cancelled"));
+    signal.addEventListener("abort", abort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
@@ -470,16 +501,21 @@ export class GitCli {
     return this.configuredBinary ?? this.resolvedBinary ?? "git";
   }
 
+  /**
+   * The version check is shared and cached, so it runs on no caller's signal (the service's
+   * deadline still bounds it); each caller waits for it under its own signal only, so one
+   * caller's abort fails that caller alone and leaves the check running for the rest.
+   */
   private ensureReady(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
-    this.ready ??= this.verify(cwd, directoryFd, signal).catch((error: unknown) => {
+    this.ready ??= this.verify(cwd, directoryFd).catch((error: unknown) => {
       this.ready = undefined;
       this.resolvedBinary = undefined;
       throw error;
     });
-    return this.ready;
+    return untilCancelled(this.ready, signal);
   }
 
-  private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
+  private async verify(cwd: string, directoryFd?: number): Promise<void> {
     // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
     if (this.configuredBinary === undefined)
       this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
@@ -493,7 +529,6 @@ export class GitCli {
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
-      signal,
       env: nonExecutingEnv(),
     });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
@@ -665,20 +700,22 @@ export class GitCli {
       });
     const lookup = this.credentialHelperLookup;
     const system = this.credentialConfigPaths.system ?? (await systemCredentialConfigFile(query));
-    const settings = await userTransportConfig({
-      files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
-      query,
-      protectedRoots: [...this.protectedWorktrees],
-      helpers: !lookup,
-      // A checkout's own SSH command is the person's only where no agent or PR author writes.
-      repositorySsh: !this.protectedPath(cwd),
-      signal: options.signal,
-    });
+    const settings = await cancelledAs(options.signal, () =>
+      userTransportConfig({
+        files: [system, this.credentialConfigPaths.xdg, this.credentialConfigPaths.global],
+        query,
+        protectedRoots: [...this.protectedWorktrees],
+        helpers: !lookup,
+        // A checkout's own SSH command is the person's only where no agent or PR author writes.
+        repositorySsh: !this.protectedPath(cwd),
+        signal: options.signal,
+      }),
+    );
     if (!lookup) return settings;
     const helpers: GitCredentialHelper[] = [];
     for (const scope of ["system", "global"] as const) {
       throwIfCancelled(options.signal);
-      helpers.push(...(await lookup(scope, options.signal)));
+      helpers.push(...(await cancelledAs(options.signal, () => lookup(scope, options.signal))));
     }
     return { helpers, sshCommand: settings.sshCommand };
   }

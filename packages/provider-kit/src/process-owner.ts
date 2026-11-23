@@ -73,6 +73,12 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
 /**
  * `killGroup`, with the evidence that the number is still the group's checked last, after the
  * guard's scan and immediately before kill(-pid). "unpinned": nothing was sent by number.
+ *
+ * Residual window, not closed here: the check and kill(-pid) are two calls, and Node and Bun
+ * reap a child on their own, so the leader can be reaped between them, and its group id reused
+ * if the group also emptied. That takes the pid range cycling in that instant, but nothing in
+ * TypeScript can rule it out. The real fix is the Rust supervisor (ACE_SUPERVISOR), which keeps
+ * the leader unreaped until its group is empty, so the id stays ace's while anything signals it.
  */
 export function killGroupWhile(
   pid: number,
