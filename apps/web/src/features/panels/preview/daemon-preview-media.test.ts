@@ -24,6 +24,9 @@ function fakeMedia(initial: string | undefined) {
   const watchers = new Set<() => void>();
   const streams = new Set<(message: StreamMessage) => void>();
   const acks: MediaStreamClientMessage[] = [];
+  /** Connections the view asked to replace, and the one each refresh opens next. */
+  const refreshes: string[] = [];
+  let fresh = ["mc_bbbbbbbbbb", "mc_cccccccccc"];
   const media: PreviewMedia = {
     binding: () => (connection ? { connection } : undefined),
     get state() {
@@ -45,10 +48,24 @@ function fakeMedia(initial: string | undefined) {
       acks.push(message);
       return true;
     },
+    // A fresh connection, as `MediaConnection.refresh` opens one once its old one closed.
+    refresh: (refused) => {
+      if (refused !== connection) return;
+      refreshes.push(refused);
+      // The old one closes at once; the fresh one is welcomed a moment later.
+      connection = undefined;
+      for (const watcher of watchers) watcher();
+      setTimeout(() => {
+        connection = fresh[0];
+        fresh = fresh.slice(1);
+        for (const watcher of watchers) watcher();
+      }, 0);
+    },
   };
   return {
     media,
     acks,
+    refreshes,
     move(next: string | undefined) {
       connection = next;
       for (const watcher of watchers) watcher();
@@ -318,10 +335,20 @@ test("the browser's view carries the degraded sentence exactly while its video i
 
 test("a refused connection subscribes again on the socket", async () => {
   const { subscribes, refused } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
-  expect(refused).toEqual([expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } })]);
-  // The one the daemon took names no connection.
-  expect(subscribes()).toHaveLength(1);
-  expect(subscribes()[0]).not.toHaveProperty("media");
+  expect(refused[0]).toEqual(expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } }));
+  // The ones the daemon took name no connection: the thread's state still comes.
+  await waitFor(() => expect(subscribes().length).toBeGreaterThan(0));
+  expect(subscribes().every((subscribe) => !("media" in subscribe))).toBe(true);
+});
+
+test("a refused connection is replaced, and the next video subscribe names the fresh one", async () => {
+  const { refused, link } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
+  await waitFor(() => expect(link.refreshes[0]).toBe("mc_aaaaaaaaaa"));
+  await waitFor(() =>
+    expect(refused).toContainEqual(
+      expect.objectContaining({ media: { connection: "mc_bbbbbbbbbb" } }),
+    ),
+  );
 });
 
 test("video that still comes on the socket after the view moved to the media connection is dropped", async () => {

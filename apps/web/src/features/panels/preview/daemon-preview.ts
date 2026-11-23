@@ -61,7 +61,7 @@ const lateReplyMs = 120_000;
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
 export type PreviewMedia = Pick<
   MediaConnection,
-  "binding" | "settled" | "watch" | "onStream" | "ack" | "state"
+  "binding" | "settled" | "watch" | "onStream" | "ack" | "state" | "refresh"
 >;
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
@@ -282,6 +282,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     onStream: (listener) => media.onStream(listener),
     ack: (message) => media.ack(message),
     unavailable: () => unavailableReason(media.state),
+    // A connection the daemon refused is replaced; every view follows the new binding.
+    refresh: (refused) => media.refresh(refused),
   };
   const deliveries = new MediaSubscriptions<BrowserVideoChunk>();
   deliveries.use(route);
