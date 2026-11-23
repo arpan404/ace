@@ -9,6 +9,9 @@ struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
     let chosen: Bool
+    /// Bumped by `ace://spade/talk`: the main Spade opens with its recorder recording.
+    var talks = 0
+    @State private var talkWaiting = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var path: [SpadeRoute] = []
     @State private var watch = SpadeWatch()
@@ -49,7 +52,7 @@ struct SpadeTab: View {
             }
             .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = inbox.client(route.machine) {
-                    SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
+                    SpadeConversationView(client: client, conversation: route.conversation, group: route.group, talk: route.talk) {
                         // A worker's chat opened from this one is on the same machine.
                         path.append(SpadeRoute(conversation: $0.conversation, group: $0.group, machine: route.machine))
                     }
@@ -104,6 +107,17 @@ struct SpadeTab: View {
                              relayout: "spade \(path.count)"))
         // Another space, or a machine that stops showing Spade: its conversations close.
         .onChange(of: machineKeys) { _, keys in path.removeAll { !keys.contains($0.machine) } }
+        // Talk to Spade: the main Spade once the list has it, which after a cold launch is a moment.
+        .onChange(of: talks) { talkWaiting = true; talk() }
+        .onChange(of: mainEntry?.id) { talk() }
+    }
+
+    private var mainEntry: SpadeRoster.Entry? { inbox.spadeRoster.first { $0.bot.main } }
+
+    private func talk() {
+        guard talkWaiting, let main = mainEntry else { return }
+        talkWaiting = false
+        path = [SpadeRoute(conversation: main.bot.conversation, group: nil, machine: main.machine, talk: true)]
     }
 
     private var machineKeys: [String] { machines.map(\.hostId) }
@@ -127,6 +141,8 @@ struct SpadeRoute: Hashable {
     let conversation: String
     let group: String?
     var machine = ""
+    /// Opened by Talk to Spade: the recorder starts at once.
+    var talk = false
 }
 
 /// The bots of every machine that shows Spade, or what each Spade says while it can't list them.

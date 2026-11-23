@@ -40,6 +40,7 @@ import QuartzCore
                 } else { storageUnavailable }
             }
             .environment(\.threadDrafts, drafts)
+            .environment(notificationDelegate.spadeTalk)
             .environment(account)
             .environment(spaces)
             .task { await account.restore() }

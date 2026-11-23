@@ -48,6 +48,9 @@ struct InboxView: View {
     @State private var composeProject: String?
     /// `ace://` links waiting for the app to be ready (`PendingLinks`).
     @State private var links = PendingLinks(launching: SpikeConfiguration.linkOnLaunch)
+    /// Bumped by Talk to Spade (`SpadeTalkHandoff`): the Spade tab opens the main Spade, recording.
+    @State private var spadeTalks = 0
+    @Environment(SpadeTalkHandoff.self) private var spadeTalk: SpadeTalkHandoff?
     /// The open thread's commands, for Search (`ThreadKeysBox`).
     @State private var threadKeysBox = ThreadKeysBox()
     @State private var renamingRow: InboxKey?
@@ -93,6 +96,13 @@ struct InboxView: View {
             // `ace://` links from other apps, Shortcuts and Copy link. One that arrives before the
             // machines are read or while the app is locked waits until it can open.
             .onOpenURL { url in links.add(url) }
+            // Talk to Spade, from the Action button or Control Center: taken once, here only.
+            .task(id: spadeTalk?.asks) {
+                guard spadeTalk?.take() == true else { return }
+                place = nil
+                tab = .spade
+                spadeTalks += 1
+            }
             .task(id: LinkReadiness(links: links, unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)) {
                 // Taking them changes this task's id, which cancels it: they open in their own task.
                 let urls = links.take(unlocked: !(lock?.locked ?? false), machinesReady: machinesReady, noMachines: noMachines)
@@ -285,7 +295,7 @@ struct InboxView: View {
 
     /// Spade: the bots of a machine that shows it, and one conversation.
     private var spade: some View {
-        SpadeTab(inbox: inbox, chosen: tab == .spade)
+        SpadeTab(inbox: inbox, chosen: tab == .spade, talks: spadeTalks)
             .inboxFootBar {
                 if sizeClass == .regular { SidebarPlaces(tab: tabChoice, open: open, needsYou: needsYou) }
             }

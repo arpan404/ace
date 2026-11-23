@@ -15,6 +15,7 @@ import {
 import { spadeConversationRequests } from "./spade-requests-conversation.ts";
 import { spadeGroupRequests } from "./spade-requests-groups.ts";
 import { spadeProfileRequests } from "./spade-requests-profile.ts";
+import { spadeAskRequests } from "./spade-ask.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on, one area per module
@@ -40,6 +41,8 @@ export const spadeRequestAreas = [
     if (answer.ok && request.type !== "spade.onboarding.read") spade.refresh();
     return answer;
   }),
+  // Siri's Ask Spade (ADR 0134, amendment 2026-11-22).
+  spadeAskRequests,
 ] as const;
 
 /** Every area's request schemas, in table order, as one tuple. */

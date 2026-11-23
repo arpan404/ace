@@ -14,6 +14,8 @@ struct SpadeConversationView: View {
     let conversation: String
     /// The group whose conversation this is; nil for a bot's.
     var group: String?
+    /// Opened by Talk to Spade (`ace://spade/talk`): the recorder starts at once.
+    var talk = false
     /// Opens another conversation over this one: a waiting member's own chat.
     var open: (SpadeRoute) -> Void = { _ in }
     @State private var problem: String?
@@ -222,7 +224,7 @@ struct SpadeConversationView: View {
     }
 
     private func composer(_ reader: ScrollViewProxy) -> some View {
-        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, problem: $problem) { out in
+        SpadeComposer(name: name, answering: head?.answering == true, attaches: group == nil, records: talk, problem: $problem) { out in
             if let group { return await client.spadeGroupSend(group, conversation: conversation, text: out.text) }
             let outcome = await client.spadeSend(conversation, text: out.text, files: out.files, voice: out.voice)
             if out.voice != nil, !outcome.ok { await offerVoiceSetup() }
