@@ -85,15 +85,19 @@ export function spawnInteractive(options: {
     if (ended) return;
     ended = true;
     if (timer) clearTimeout(timer);
-    if (child instanceof NativeChildProcess) child.dispose();
     if (pid !== undefined) {
       destroy(pid);
       unregisterGroup(pid);
     }
     job?.dispose();
   };
+  /** Frees the native child once no event can follow: error or close. */
+  const disposeNative = () => {
+    if (child instanceof NativeChildProcess) child.dispose();
+  };
   child.once("error", () => {
     failed = true;
+    disposeNative();
     release();
   });
   child.once("exit", release);
@@ -101,6 +105,7 @@ export function spawnInteractive(options: {
     child.once("close", (code, signal) => {
       closed = true;
       release();
+      disposeNative();
       resolve({
         code,
         // After a failed spawn Bun reports no signal at all, where Node reports null.

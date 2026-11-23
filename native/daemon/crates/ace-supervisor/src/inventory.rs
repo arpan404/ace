@@ -306,10 +306,9 @@ impl<R: InventoryRuntime> Inventory<R> {
         use crate::entries::EntryPlatform;
         use crate::identity::ProcessOwner;
         let now_ms = self.runtime.now_ms();
-        let identity = self
-            .runtime
-            .identity(pid)?
-            .ok_or_else(|| SupervisorError::InvalidInput("Cannot record owned process identity".to_owned()))?;
+        let identity = self.runtime.identity(pid)?.ok_or_else(|| {
+            SupervisorError::InvalidInput("Cannot record owned process identity".to_owned())
+        })?;
         let owner_pid = self.runtime.owner_pid();
         let owner = self.runtime.identity(owner_pid)?.ok_or_else(|| {
             SupervisorError::InvalidInput("Cannot record owned process identity".to_owned())
@@ -320,7 +319,9 @@ impl<R: InventoryRuntime> Inventory<R> {
             ));
         }
         if self.count()? >= INVENTORY_CAPACITY {
-            return Err(SupervisorError::Limit("Process inventory capacity".to_owned()));
+            return Err(SupervisorError::Limit(
+                "Process inventory capacity".to_owned(),
+            ));
         }
         self.write(
             &ProcessEntry {
@@ -346,11 +347,7 @@ impl<R: InventoryRuntime> Inventory<R> {
 
     /// Windows only: one recorder tick. Returns whether the interval stays.
     #[cfg(windows)]
-    pub fn windows_tick(
-        &mut self,
-        now_ms: u64,
-        tree: &dyn crate::wintree::WindowsTreeOps,
-    ) -> bool {
+    pub fn windows_tick(&mut self, now_ms: u64, tree: &dyn crate::wintree::WindowsTreeOps) -> bool {
         if self.windows_due_ms.is_none() {
             return false;
         }
@@ -387,7 +384,10 @@ impl<R: InventoryRuntime> Inventory<R> {
         use crate::wintree::WindowsRecord;
         let mut owned = false;
         for (_, entries) in self.windows_trees()? {
-            let Some(leader) = entries.iter().find(|entry| entry.tree.is_none()).or(entries.first())
+            let Some(leader) = entries
+                .iter()
+                .find(|entry| entry.tree.is_none())
+                .or(entries.first())
             else {
                 continue;
             };

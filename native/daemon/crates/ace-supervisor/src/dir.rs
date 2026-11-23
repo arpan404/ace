@@ -20,6 +20,32 @@ pub trait DirectoryIo {
     fn is_zombie(&self, pid: u32) -> bool;
     /// Ends the process; absence is not a failure.
     fn kill(&self, pid: u32);
+
+    /// One sweep pass over `directories`: every pid whose cwd sits inside,
+    /// at most 64. The default filters candidates through one lookup each,
+    /// the /proc shape; platforms without a cheap per-pid lookup scan once
+    /// instead, like `directory-processes.ts` does with one lsof listing.
+    fn scan(&self, directories: &[String]) -> Result<Vec<u32>, SupervisorError> {
+        let candidates = self.candidates();
+        if candidates.len() > DIRECTORY_SCAN_LIMIT {
+            return Err(SupervisorError::Limit(
+                "Process inspection exceeds limit".to_owned(),
+            ));
+        }
+        let mut found = Vec::new();
+        for pid in candidates {
+            if found.len() >= DIRECTORY_KILL_LIMIT {
+                break;
+            }
+            if self
+                .cwd(pid)
+                .is_some_and(|cwd| within_lease(&cwd, directories))
+            {
+                found.push(pid);
+            }
+        }
+        Ok(found)
+    }
 }
 
 /// Whether `cwd` sits inside one of `roots`: the lease the sweep re-checks.
@@ -39,35 +65,23 @@ pub fn directory_pids<I: DirectoryIo>(
     directories: &[String],
     selected: Option<&[u32]>,
 ) -> Result<Vec<u32>, SupervisorError> {
-    let roots: Vec<String> = directories.to_vec();
     if let Some(selected) = selected {
         return Ok(selected
             .iter()
             .copied()
-            .filter(|pid| io.cwd(*pid).is_some_and(|cwd| within_lease(&cwd, &roots)))
+            .filter(|pid| {
+                io.cwd(*pid)
+                    .is_some_and(|cwd| within_lease(&cwd, directories))
+            })
             .collect());
     }
-    let candidates = io.candidates();
-    if candidates.len() > DIRECTORY_SCAN_LIMIT {
-        return Err(SupervisorError::Limit(
-            "Process inspection exceeds limit".to_owned(),
-        ));
-    }
-    let mut found = Vec::new();
-    for pid in candidates {
-        if found.len() >= DIRECTORY_KILL_LIMIT {
-            break;
-        }
-        if io.cwd(pid).is_some_and(|cwd| within_lease(&cwd, &roots)) {
-            found.push(pid);
-        }
-    }
-    Ok(found)
+    io.scan(directories)
 }
 
 /// Ends everything in `directories`: re-checks the lease before signalling,
 /// then waits for kernel termination. Never ends `self_pid`.
-pub fn terminate_directory_processes<I: DirectoryIo>(    io: &I,
+pub fn terminate_directory_processes<I: DirectoryIo>(
+    io: &I,
     directories: &[String],
     self_pid: u32,
     sleep_ms: &dyn Fn(u64),
@@ -150,7 +164,9 @@ impl DirectoryIo for SystemDirectoryIo {
         let Ok(text) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
             return false;
         };
-        crate::listing::parse_linux_stat(&text).map(|stat| stat.state == 'Z').unwrap_or(false)
+        crate::listing::parse_linux_stat(&text)
+            .map(|stat| stat.state == 'Z')
+            .unwrap_or(false)
     }
 
     fn kill(&self, pid: u32) {
@@ -176,6 +192,12 @@ impl DirectoryIo for SystemDirectoryIo {
             .collect()
     }
 
+    /// One lsof listing filtered by the lease, like `directory-processes.ts`:
+    /// a per-pid lookup per candidate would be one lsof each.
+    fn scan(&self, directories: &[String]) -> Result<Vec<u32>, SupervisorError> {
+        lsof_matching(directories)
+    }
+
     fn cwd(&self, pid: u32) -> Option<String> {
         lsof_cwd_pids(Some(pid)).first().and_then(|found| {
             if found.0 == pid {
@@ -189,7 +211,9 @@ impl DirectoryIo for SystemDirectoryIo {
     fn is_zombie(&self, pid: u32) -> bool {
         #[cfg(target_os = "macos")]
         {
-            crate::listing::darwin_info(pid).map(|info| info.zombie).unwrap_or(false)
+            crate::listing::darwin_info(pid)
+                .map(|info| info.zombie)
+                .unwrap_or(false)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -215,7 +239,7 @@ impl DirectoryIo for SystemDirectoryIo {
     }
 }
 
-/// Pids holding a cwd, from lsof: `(pid, cwd)` pairs, at most 64.
+/// Pids holding a cwd, from lsof: `(pid, cwd)` pairs, in listing order.
 #[cfg(not(target_os = "linux"))]
 fn lsof_cwd_pids(selected: Option<u32>) -> Vec<(u32, String)> {
     let mut command = std::process::Command::new("/usr/sbin/lsof");
@@ -224,10 +248,68 @@ fn lsof_cwd_pids(selected: Option<u32>) -> Vec<(u32, String)> {
         command.args(["-p", &pid.to_string()]);
     }
     let output = command.output().ok();
-    let Some(output) = output.filter(|output| output.status.success() || output.status.code() == Some(1)) else {
+    let Some(output) =
+        output.filter(|output| output.status.success() || output.status.code() == Some(1))
+    else {
         return Vec::new();
     };
+    parse_lsof_cwd(&output.stdout)
+}
+
+/// One lsof listing over the caller's own processes, filtered by the lease:
+/// every pid whose cwd sits in `directories`, at most 64. Mirrors
+/// `directory-processes.ts`, which scans one listing rather than one lookup
+/// per pid; the per-pid shape would be one lsof each.
+#[cfg(not(target_os = "linux"))]
+fn lsof_matching(directories: &[String]) -> Result<Vec<u32>, SupervisorError> {
+    let mut command = std::process::Command::new("/usr/sbin/lsof");
+    command.args(["-n", "-P", "-a"]);
+    #[cfg(unix)]
+    {
+        // The TypeScript sweep scopes the listing to the caller's user.
+        let uid = rustix::process::getuid().as_raw().to_string();
+        command.args(["-u", &uid]);
+    }
+    command.args(["-d", "cwd", "-F0pn"]);
+    let output = command.output().ok();
+    let Some(output) =
+        output.filter(|output| output.status.success() || output.status.code() == Some(1))
+    else {
+        return Ok(Vec::new());
+    };
     let text = String::from_utf8_lossy(&output.stdout);
+    let mut pids = 0usize;
+    let mut found = Vec::new();
+    let mut pid = 0u32;
+    for record in text.split('\0') {
+        let field = record.strip_prefix('\n').unwrap_or(record);
+        if let Some(number) = field.strip_prefix('p') {
+            if let Ok(parsed) = number.parse::<u32>() {
+                pids += 1;
+                if pids > DIRECTORY_SCAN_LIMIT {
+                    return Err(SupervisorError::Limit(
+                        "Process inspection exceeds limit".to_owned(),
+                    ));
+                }
+                pid = parsed;
+            }
+            continue;
+        }
+        if let Some(cwd) = field.strip_prefix('n')
+            && pid > 0
+            && found.len() < DIRECTORY_KILL_LIMIT
+            && within_lease(cwd, directories)
+        {
+            found.push(pid);
+        }
+    }
+    Ok(found)
+}
+
+/// `(pid, cwd)` pairs in an lsof `-F0pn` listing, in listing order.
+#[cfg(not(target_os = "linux"))]
+fn parse_lsof_cwd(stdout: &[u8]) -> Vec<(u32, String)> {
+    let text = String::from_utf8_lossy(stdout);
     let mut found = Vec::new();
     let mut pid = 0u32;
     for record in text.split('\0') {
@@ -240,7 +322,6 @@ fn lsof_cwd_pids(selected: Option<u32>) -> Vec<(u32, String)> {
         }
         if let Some(cwd) = field.strip_prefix('n')
             && pid > 0
-            && found.len() < 64
         {
             found.push((pid, cwd.to_owned()));
         }
@@ -249,7 +330,8 @@ fn lsof_cwd_pids(selected: Option<u32>) -> Vec<(u32, String)> {
 }
 
 #[cfg(test)]
-mod tests {    use super::*;
+mod tests {
+    use super::*;
     use std::collections::HashMap;
 
     struct Fake {
@@ -316,5 +398,21 @@ mod tests {    use super::*;
                 .len(),
             DIRECTORY_KILL_LIMIT
         );
+    }
+
+    /// The lsof listing parser keeps every pair in order: the sweep filters
+    /// by the lease itself, so truncating the listing would hide processes
+    /// past the cap (a lease child past 64 system entries).
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn lsof_listing_keeps_pairs_past_the_kill_cap() {
+        let mut stdout = Vec::new();
+        for pid in 1..=100u32 {
+            stdout.extend_from_slice(format!("p{pid}\0fcwd\0n/other\0").as_bytes());
+        }
+        stdout.extend_from_slice(b"p101\0fcwd\0n/lease/deep\0");
+        let pairs = parse_lsof_cwd(&stdout);
+        assert_eq!(pairs.len(), 101);
+        assert_eq!(pairs[100], (101, "/lease/deep".to_owned()));
     }
 }

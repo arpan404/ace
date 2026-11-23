@@ -60,7 +60,10 @@ pub struct RawExit {
 pub enum ChildEvent {
     Stdout(Vec<u8>),
     Stderr(Vec<u8>),
+    /// The leader's end, like node's `exit`: pipes may still drain.
     Exit(RawExit),
+    /// The pipes are done, like node's `close`: no byte follows.
+    Close(RawExit),
     StdinError(String),
 }
 
@@ -81,6 +84,7 @@ pub fn check_grace_ms(grace_ms: f64) -> Result<u64, SupervisorError> {
 pub const EVENT_STDOUT: &str = "stdout";
 pub const EVENT_STDERR: &str = "stderr";
 pub const EVENT_EXIT: &str = "exit";
+pub const EVENT_CLOSE: &str = "close";
 pub const EVENT_STDIN_ERROR: &str = "stdin-error";
 
 /// Reads every chunk of `reader` as byte events until EOF or error.
@@ -136,7 +140,9 @@ pub fn stderr_stdio() -> std::process::Stdio {
         if handle.is_null() {
             return std::process::Stdio::inherit();
         }
-        std::process::Stdio::from(OwnedHandle::from_raw_handle(handle as *mut core::ffi::c_void))
+        std::process::Stdio::from(OwnedHandle::from_raw_handle(
+            handle as *mut core::ffi::c_void,
+        ))
     }
 }
 

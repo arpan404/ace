@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import { supervisorBackend } from "./native-switches.ts";
 
 /** A byte event from the native child, in arrival order. */
-export type SupervisorEventKind = "stdout" | "stderr" | "exit" | "stdin-error";
+export type SupervisorEventKind = "stdout" | "stderr" | "exit" | "close" | "stdin-error";
 export type SupervisorEventHandler = (
   error: unknown,
   kind: SupervisorEventKind,
@@ -208,6 +208,14 @@ export function launchEnv(env: NodeJS.ProcessEnv): [name: string, value: string]
   return pairs;
 }
 
+/** The leader's end, as JSON: a code, a signal name, or nulls. */
+function parseExit(data: Uint8Array): { code: number | null; signal: string | null } {
+  return JSON.parse(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString()) as {
+    code: number | null;
+    signal: string | null;
+  };
+}
+
 /** A readable that is already ended: stdio the shell never observes. */
 function endedReadable(): Readable {
   const stream = new Readable({ read: () => {} });
@@ -296,6 +304,10 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
     if (failure) {
       queueMicrotask(() => {
         this.emit("error", failure);
+        // A failed spawn destroys its stdio like node's does, so line
+        // interfaces built on them close instead of hanging.
+        this.stdout.destroy();
+        this.stderr.destroy();
         this.emit("close", -2, null);
       });
     }
@@ -314,13 +326,14 @@ export class NativeChildProcess extends EventEmitter implements SpawnedChild, Sp
       return;
     }
     if (kind === "exit") {
-      const exit = JSON.parse(Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString()) as {
-        code: number | null;
-        signal: string | null;
-      };
+      const exit = parseExit(data);
+      this.emit("exit", exit.code, exit.signal);
+      return;
+    }
+    if (kind === "close") {
+      const exit = parseExit(data);
       this.stdout?.push(null);
       this.stderr?.push(null);
-      this.emit("exit", exit.code, exit.signal);
       this.emit("close", exit.code, exit.signal);
     }
   }

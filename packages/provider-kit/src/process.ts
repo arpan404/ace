@@ -265,17 +265,20 @@ function spawnOwned(
       unregisterGroup(pid);
       job?.dispose();
     }
-    disposeNative();
     controller.abort();
   };
   child.once("error", () => {
     failed = true;
+    // A failed spawn never opens pipes, so no close follows its error.
+    disposeNative();
     release();
   });
   child.once("exit", release);
   const exited = new Promise<ProcessExit>((resolve) => {
     child.once("close", (code, signal) => {
       release();
+      // The pipes are done: releasing the native sink cannot lose bytes.
+      disposeNative();
       closed = true;
       if (timer) clearTimeout(timer);
       if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {

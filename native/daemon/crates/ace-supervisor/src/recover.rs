@@ -53,7 +53,10 @@ impl<R: InventoryRuntime> Inventory<R> {
         let now_ms = self.runtime.now_ms();
         let mut recovered = Recovered::default();
         for (_, entries) in self.windows_trees()? {
-            let Some(leader) = entries.iter().find(|entry| entry.tree.is_none()).or(entries.first())
+            let Some(leader) = entries
+                .iter()
+                .find(|entry| entry.tree.is_none())
+                .or(entries.first())
             else {
                 continue;
             };
@@ -143,10 +146,7 @@ impl<R: InventoryRuntime> Inventory<R> {
             }) {
                 continue;
             }
-            let current = self
-                .runtime
-                .identity(entry.pid)
-                .unwrap_or_default();
+            let current = self.runtime.identity(entry.pid).unwrap_or_default();
             match self.group_alive(entry.group) {
                 Err(ProbeRefused::Refused) => {
                     recovered.unresolved += 1;
@@ -275,8 +275,14 @@ pub fn windows_tree_recorded(
     if !std::path::Path::new(path).exists() {
         return Ok(false);
     }
-    let db = Connection::open(path, OpenOptions { read_only: true, ..OpenOptions::default() })
-        .map_err(|error| SupervisorError::journal("inventory open", error))?;
+    let db = Connection::open(
+        path,
+        OpenOptions {
+            read_only: true,
+            ..OpenOptions::default()
+        },
+    )
+    .map_err(|error| SupervisorError::journal("inventory open", error))?;
     let key = format!("{leader_pid}:{leader_start}");
     let statement = db
         .prepare("SELECT entry FROM processes")

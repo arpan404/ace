@@ -63,8 +63,8 @@ impl WindowsTreeOps for SystemWindowsTree {
     fn terminate(&self, member: &WindowsRecord) -> Result<WindowsTerminate, SupervisorError> {
         use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
         use windows_sys::Win32::System::Threading::{
-            GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject,
-            PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, SYNCHRONIZE,
+            GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
+            SYNCHRONIZE, TerminateProcess, WaitForSingleObject,
         };
         let handle = OpenProcess(
             (PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) as u32,
@@ -146,12 +146,13 @@ fn identify_pid(pid: u32) -> WindowsIdentified {
 fn snapshot_processes() -> Result<WindowsSnapshot, SupervisorError> {
     use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
-        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
         TH32CS_SNAPPROCESS,
     };
-    use windows_sys::Win32::System::Time::GetSystemTimePreciseAsFileTime;
     use windows_sys::Win32::System::Threading::FILETIME;
-    let unavailable = |what: &str| SupervisorError::Unavailable(format!("Windows tree {what} unavailable"));
+    use windows_sys::Win32::System::Time::GetSystemTimePreciseAsFileTime;
+    let unavailable =
+        |what: &str| SupervisorError::Unavailable(format!("Windows tree {what} unavailable"));
     // The precise clock: the coarse one lags by a tick, and a child created
     // just before the snapshot would look created after it.
     let mut clock = FILETIME {

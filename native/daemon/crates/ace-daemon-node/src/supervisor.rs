@@ -4,11 +4,13 @@
 //! lives in `ace-supervisor`.
 
 use ace_supervisor::entries::EntryPlatform;
-use ace_supervisor::spawn::{ChildEvent, EventSink, RawExit, SpawnSpec, StdioMode};
 #[cfg(target_os = "linux")]
 use ace_supervisor::listing::LinuxWalk;
 use ace_supervisor::signal::SignalIo as _;
-use ace_supervisor::{identity, inventory, journal, listing, owner, recover, reaper, signal, stop, tree};
+use ace_supervisor::spawn::{ChildEvent, EventSink, RawExit, SpawnSpec, StdioMode};
+use ace_supervisor::{
+    identity, inventory, journal, listing, owner, reaper, recover, signal, stop, tree,
+};
 use napi::bindgen_prelude::{FnArgs, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
@@ -61,20 +63,8 @@ impl EventSink for TsfnSink {
         let (kind, data) = match event {
             ChildEvent::Stdout(bytes) => ("stdout", bytes),
             ChildEvent::Stderr(bytes) => ("stderr", bytes),
-            ChildEvent::Exit(exit) => (
-                "exit",
-                format!(
-                    "{{\"code\":{},\"signal\":{}}}",
-                    exit.code
-                        .map(|code| code.to_string())
-                        .unwrap_or_else(|| "null".to_owned()),
-                    exit.signal
-                        .as_ref()
-                        .map(|signal| format!("\"{signal}\""))
-                        .unwrap_or_else(|| "null".to_owned()),
-                )
-                .into_bytes(),
-            ),
+            ChildEvent::Exit(exit) => ("exit", exit_json(&exit)),
+            ChildEvent::Close(exit) => ("close", exit_json(&exit)),
             ChildEvent::StdinError(message) => ("stdin-error", message.into_bytes()),
         };
         let _ = self.sink.call(
@@ -84,6 +74,22 @@ impl EventSink for TsfnSink {
     }
 }
 
+/// The exit payload the shell parses for `exit` and `close`.
+fn exit_json(exit: &RawExit) -> Vec<u8> {
+    format!(
+        "{{\"code\":{},\"signal\":{}}}",
+        exit.code
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "null".to_owned()),
+        exit.signal
+            .as_ref()
+            .map(|signal| format!("\"{signal}\""))
+            .unwrap_or_else(|| "null".to_owned()),
+    )
+    .into_bytes()
+}
+
+/// A spawn request from the shell, as JSON.
 #[derive(Debug, serde::Deserialize)]
 struct SpecJson {
     command: String,
@@ -107,8 +113,6 @@ struct SpecJson {
     kill_group_on_exit: bool,
     #[serde(default)]
     verbatim: bool,
-    #[serde(default)]
-    retained: bool,
     /// Whether the waiter ends stragglers on a natural exit. The shell
     /// clears it when it drives stops through injected fakes.
     #[serde(default = "default_true")]
@@ -199,7 +203,7 @@ impl NativeChild {
         }
     }
 
-    /// The exit once the process and its pipes are done, if it is over.
+    /// The leader's end, once waited: pipes may still drain before `close`.
     #[napi(catch_unwind)]
     pub fn take_exit(&self) -> napi::Result<Option<String>> {
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -210,18 +214,17 @@ impl NativeChild {
                     .ok()
                     .and_then(|exit| exit.clone())
                     .map(|exit| {
-                    format!(
-                        "{{\"code\":{},\"signal\":{}}}",
-                        exit
-                            .code
-                            .map(|code| code.to_string())
-                            .unwrap_or_else(|| "null".to_owned()),
-                        exit.signal
-                            .as_ref()
-                            .map(|signal| format!("\"{signal}\""))
-                            .unwrap_or_else(|| "null".to_owned()),
-                    )
-                })
+                        format!(
+                            "{{\"code\":{},\"signal\":{}}}",
+                            exit.code
+                                .map(|code| code.to_string())
+                                .unwrap_or_else(|| "null".to_owned()),
+                            exit.signal
+                                .as_ref()
+                                .map(|signal| format!("\"{signal}\""))
+                                .unwrap_or_else(|| "null".to_owned()),
+                        )
+                    })
             })
         }));
         match result {
@@ -318,9 +321,7 @@ fn locked(message: &str) -> napi::Error {
     napi::Error::from_reason(message)
 }
 
-fn lock_child(
-    state: &Mutex<ChildState>,
-) -> napi::Result<std::sync::MutexGuard<'_, ChildState>> {
+fn lock_child(state: &Mutex<ChildState>) -> napi::Result<std::sync::MutexGuard<'_, ChildState>> {
     state
         .lock()
         .map_err(|_| napi::Error::from_reason("supervisor child lock failed"))
@@ -343,8 +344,9 @@ pub fn supervisor_spawn(
 fn spawn_inner(
     spec_json: &str,
     events: ThreadsafeFunction<FnArgs<(String, Uint8Array)>>,
-) -> napi::Result<NativeChild> {    let spec: SpecJson =
-        serde_json::from_str(spec_json).map_err(|error| napi::Error::from_reason(error.to_string()))?;
+) -> napi::Result<NativeChild> {
+    let spec: SpecJson = serde_json::from_str(spec_json)
+        .map_err(|error| napi::Error::from_reason(error.to_string()))?;
     let parsed = SpawnSpec {
         command: spec.command.clone(),
         args: spec.args.clone(),
@@ -410,31 +412,53 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
     // Batch entrypoints ride a pre-quoted cmd.exe line; everything else
     // spawns directly. The shell maps the command; this only honors it.
     #[cfg(windows)]
-    let mut command = if spec.verbatim {
+    let command = {
         use std::os::windows::process::CommandExt as _;
-        let mut verbatim = std::process::Command::new(&spec.command);
-        for arg in &spec.args {
-            verbatim.raw_arg(arg);
+        let mut std_command = std::process::Command::new(&spec.command);
+        // No console flash for the child, like windowsHide.
+        std_command.creation_flags(0x0800_0000);
+        if spec.verbatim {
+            for arg in &spec.args {
+                std_command.raw_arg(arg);
+            }
+        } else {
+            std_command.args(&spec.args);
         }
-        tokio::process::Command::from(verbatim)
-    } else {
-        tokio::process::Command::new(&spec.command)
+        // The shell computes the child's whole environment, so a clear
+        // runs before its pairs land: clearing after would drop them.
+        if spec.clear_env {
+            std_command.env_clear();
+        }
+        std_command.envs(spec.env.iter().map(|(name, value)| (name, value)));
+        std_command.stdin(stdio_flag(stdin_mode));
+        std_command.stdout(stdio_flag(stdout_mode));
+        std_command.stderr(stdio_flag(stderr_mode));
+        if let Some(cwd) = &spec.cwd {
+            std_command.current_dir(cwd);
+        }
+        if spec.clear_env {
+            std_command.env_clear();
+        }
+        tokio::process::Command::from(std_command)
     };
     #[cfg(not(windows))]
     let mut command = tokio::process::Command::new(&spec.command);
-    if !spec.verbatim {
+    #[cfg(not(windows))]
+    {
         command.args(&spec.args);
-    }
-    command
-        .envs(spec.env.iter().map(|(name, value)| (name, value)))
-        .stdin(stdio_flag(stdin_mode))
-        .stdout(stdio_flag(stdout_mode))
-        .stderr(stdio_flag(stderr_mode));
-    if let Some(cwd) = &spec.cwd {
-        command.current_dir(cwd);
-    }
-    if spec.clear_env {
-        command.env_clear();
+        // The shell computes the child's whole environment, so a clear
+        // runs before its pairs land: clearing after would drop them.
+        if spec.clear_env {
+            command.env_clear();
+        }
+        command
+            .envs(spec.env.iter().map(|(name, value)| (name, value)))
+            .stdin(stdio_flag(stdin_mode))
+            .stdout(stdio_flag(stdout_mode))
+            .stderr(stdio_flag(stderr_mode));
+        if let Some(cwd) = &spec.cwd {
+            command.current_dir(cwd);
+        }
     }
     let mut wrap = CommandWrap::from(command);
     #[cfg(unix)]
@@ -475,12 +499,15 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
     // names the exit. The shell drives every stop with its own timers.
     let waiter_sink = sink.clone();
     let waiter_store = Arc::clone(&exit_store);
+    // The spawn-time pid: `id()` may go `None` once the child is waited.
+    let waiter_pid = pid;
     tasks.push(tokio::spawn(waiter_task(
         child,
         pumps,
         waiter_sink,
         waiter_store,
         spec.waiter_destroy,
+        waiter_pid,
     )));
     // Windows containment: the job outlives the spawn call, like the shell's.
     #[cfg(windows)]
@@ -489,7 +516,7 @@ async fn spawn_task(spec: SpecJson, sink: TsfnSink) -> napi::Result<Spawned> {
             job.assign(pid);
             JobHandle {
                 job: Arc::new(Mutex::new(
-                    Box::new(job) as Box<dyn ace_supervisor::contain::WindowsJob>,
+                    Box::new(job) as Box<dyn ace_supervisor::contain::WindowsJob>
                 )),
             }
         })
@@ -543,53 +570,62 @@ async fn waiter_task(
     sink: TsfnSink,
     exit_store: Arc<Mutex<Option<RawExit>>>,
     waiter_destroy: bool,
+    leader_pid: Option<u32>,
 ) {
     let status = child.wait().await;
     // A natural exit kills descendants by default, including agent-started
     // dev servers: their pipes close, and the exit names the leader's end.
     // The shell owns the destroy when it drives stops through fakes.
-    if waiter_destroy && let Some(pid) = child.id() {
+    if waiter_destroy && let Some(pid) = leader_pid {
         #[cfg(unix)]
         let _ = stop::kill_group(pid, signal::SignalName::Kill);
         #[cfg(windows)]
         let _ = stop::kill_windows_tree(pid, true);
     }
     drop(child);
-    // The exit lands only after the pipes drained, like the close event.
+    let (code, signal) = match status {
+        Ok(status) => (status.code(), exit_signal(status)),
+        Err(_) => (None, None),
+    };
+    let exit = RawExit {
+        code,
+        signal: signal.clone(),
+    };
+    if let Ok(mut stored) = exit_store.lock() {
+        *stored = Some(exit.clone());
+    }
+    // Like node's `exit`: the leader's end, while pipes may still drain.
+    // A retained grandchild holding stdout must not hold this back: the
+    // shell's stop ends it once it hears the exit.
+    sink.emit(ChildEvent::Exit(exit.clone()));
+    // Like node's `close`: no byte arrives after this.
     for pump in pumps.drain(..) {
         let _ = pump.await;
     }
-    let (code, signal) = match status {
-        Ok(status) => (
-            status.code(),
-            exit_signal(status),
-        ),
-        Err(_) => (None, None),
-    };
-    if let Ok(mut exit) = exit_store.lock() {
-        *exit = Some(RawExit { code, signal: signal.clone() });
-    }
-    sink.emit(ChildEvent::Exit(RawExit { code, signal }));
+    sink.emit(ChildEvent::Close(exit));
 }
 
 /// The signal that ended the process, if one did. Windows has no signals.
 #[cfg(unix)]
 fn exit_signal(status: std::process::ExitStatus) -> Option<String> {
     use std::os::unix::process::ExitStatusExt as _;
-    status.signal().map(|signal| match signal {
-        1 => "SIGHUP",
-        2 => "SIGINT",
-        3 => "SIGQUIT",
-        4 => "SIGILL",
-        6 => "SIGABRT",
-        8 => "SIGFPE",
-        9 => "SIGKILL",
-        11 => "SIGSEGV",
-        13 => "SIGPIPE",
-        14 => "SIGALRM",
-        15 => "SIGTERM",
-        _ => "SIGUNKNOWN",
-    }.to_owned())
+    status.signal().map(|signal| {
+        match signal {
+            1 => "SIGHUP",
+            2 => "SIGINT",
+            3 => "SIGQUIT",
+            4 => "SIGILL",
+            6 => "SIGABRT",
+            8 => "SIGFPE",
+            9 => "SIGKILL",
+            11 => "SIGSEGV",
+            13 => "SIGPIPE",
+            14 => "SIGALRM",
+            15 => "SIGTERM",
+            _ => "SIGUNKNOWN",
+        }
+        .to_owned()
+    })
 }
 
 /// The signal that ended the process, if one did. Windows has no signals.
@@ -615,7 +651,10 @@ struct SystemRuntime {
 }
 
 impl inventory::InventoryRuntime for SystemRuntime {
-    fn identity(&self, pid: u32) -> Result<Option<identity::ProcessIdentity>, ace_supervisor::errors::SupervisorError> {
+    fn identity(
+        &self,
+        pid: u32,
+    ) -> Result<Option<identity::ProcessIdentity>, ace_supervisor::errors::SupervisorError> {
         identity::process_identity(pid)
     }
 
@@ -680,7 +719,10 @@ impl NativeInventory {
         }
     }
 
-    fn with<T>(&self, run: impl FnOnce(&mut InventoryHandle) -> napi::Result<T>) -> napi::Result<T> {
+    fn with<T>(
+        &self,
+        run: impl FnOnce(&mut InventoryHandle) -> napi::Result<T>,
+    ) -> napi::Result<T> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let mut inner = self
                 .inner
@@ -743,6 +785,7 @@ impl NativeInventory {
             }
             #[cfg(not(windows))]
             {
+                let _ = handle;
                 let _ = now_ms;
                 Ok(false)
             }
@@ -833,7 +876,10 @@ impl NativeJournal {
         }
     }
 
-    fn with<T>(&self, run: impl FnOnce(&journal::EscapeeJournal) -> napi::Result<T>) -> napi::Result<T> {
+    fn with<T>(
+        &self,
+        run: impl FnOnce(&journal::EscapeeJournal) -> napi::Result<T>,
+    ) -> napi::Result<T> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let inner = self
                 .inner
@@ -924,8 +970,8 @@ impl NativeJournal {
 }
 
 fn parse_members(members_json: &str) -> napi::Result<Vec<journal::JournalMember>> {
-    let members: Vec<MemberJson> =
-        serde_json::from_str(members_json).map_err(|error| napi::Error::from_reason(error.to_string()))?;
+    let members: Vec<MemberJson> = serde_json::from_str(members_json)
+        .map_err(|error| napi::Error::from_reason(error.to_string()))?;
     Ok(members
         .into_iter()
         .map(|member| journal::JournalMember {
@@ -939,10 +985,13 @@ fn parse_members(members_json: &str) -> napi::Result<Vec<journal::JournalMember>
 struct MemberJson {
     pid: u32,
     start: String,
+    /// The owner's SID, for Windows tree proof.
+    #[cfg_attr(not(windows), allow(dead_code))]
     #[serde(default)]
     uid: String,
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn records_json(members: &[ace_supervisor::wintree::WindowsRecord]) -> String {
     let mut out = String::from("[");
     for (index, member) in members.iter().enumerate() {
@@ -966,7 +1015,11 @@ fn members_json(members: &[journal::JournalMember]) -> String {
         if index > 0 {
             out.push(',');
         }
-        out.push_str(&format!("{{\"pid\":{},\"start\":{}}}", member.pid, quote(&member.start)));
+        out.push_str(&format!(
+            "{{\"pid\":{},\"start\":{}}}",
+            member.pid,
+            quote(&member.start)
+        ));
     }
     out.push(']');
     out
@@ -1072,22 +1125,27 @@ pub fn supervisor_kill_group(group: f64, signal: String) -> napi::Result<()> {
 #[napi(catch_unwind)]
 pub fn supervisor_signal_member(member_json: String, signal: String) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let member: MemberJson = serde_json::from_str(&member_json)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let member: MemberJson = serde_json::from_str(&member_json).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         let signal = signal::SignalName::parse(&signal).map_err(bind_error)?;
         let io = SystemSignalIo;
-        Ok::<String, napi::Error>(match signal::signal_member(
-            &signal::TreeRef {
-                pid: member.pid,
-                start: member.start,
+        Ok::<String, napi::Error>(
+            match signal::signal_member(
+                &signal::TreeRef {
+                    pid: member.pid,
+                    start: member.start,
+                },
+                signal,
+                &io,
+            ) {
+                signal::SignalOutcome::Sent => "sent".to_owned(),
+                signal::SignalOutcome::Gone => "gone".to_owned(),
+                signal::SignalOutcome::Unsafe => "unsafe".to_owned(),
             },
-            signal,
-            &io,
-        ) {
-            signal::SignalOutcome::Sent => "sent".to_owned(),
-            signal::SignalOutcome::Gone => "gone".to_owned(),
-            signal::SignalOutcome::Unsafe => "unsafe".to_owned(),
-        })
+        )
     }));
     match result {
         Ok(outcome) => outcome,
@@ -1099,7 +1157,9 @@ struct SystemSignalIo;
 
 impl signal::SignalIo for SystemSignalIo {
     fn start(&self, pid: u32) -> Option<String> {
-        identity::process_identity(pid).unwrap_or(None).map(|identity| identity.start)
+        identity::process_identity(pid)
+            .unwrap_or(None)
+            .map(|identity| identity.start)
     }
 
     fn kill(&self, pid: u32, signal: signal::SignalName) -> bool {
@@ -1134,8 +1194,11 @@ impl signal::SignalIo for SystemSignalIo {
 #[napi(catch_unwind)]
 pub fn supervisor_capture_tree(roots_json: String, limit: f64) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let roots: Vec<u32> = serde_json::from_str(&roots_json)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let roots: Vec<u32> = serde_json::from_str(&roots_json).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         let system = SystemTree::new();
         let capture = tree::capture_tree(&roots, &system, limit as usize);
         let mut out = String::from("{\"members\":[");
@@ -1264,8 +1327,11 @@ pub fn supervisor_stop_members(
     done: ThreadsafeFunction<String>,
 ) -> napi::Result<()> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let parsed: Vec<MemberJson> = serde_json::from_str(&members)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let parsed: Vec<MemberJson> = serde_json::from_str(&members).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         let members: Vec<signal::TreeRef> = parsed
             .into_iter()
             .map(|member| signal::TreeRef {
@@ -1278,8 +1344,7 @@ pub fn supervisor_stop_members(
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|elapsed| elapsed.as_millis() as f64)
                 .unwrap_or(0.0);
-            std::time::Instant::now()
-                + std::time::Duration::from_millis((at - now).max(0.0) as u64)
+            std::time::Instant::now() + std::time::Duration::from_millis((at - now).max(0.0) as u64)
         });
         // The thread owns the wait; the loop never blocks the JS thread.
         // Dropping the threadsafe function after the call releases it.
@@ -1380,8 +1445,11 @@ pub fn supervisor_kill_windows_tree(pid: f64, force: bool) -> napi::Result<()> {
 #[napi(catch_unwind)]
 pub fn supervisor_tree_state(recorded_json: String) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let recorded: Vec<MemberJson> = serde_json::from_str(&recorded_json)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let recorded: Vec<MemberJson> = serde_json::from_str(&recorded_json).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         #[cfg(windows)]
         {
             use ace_supervisor::wintree::{WindowsRecord, WindowsTreeOps};
@@ -1426,8 +1494,11 @@ pub fn supervisor_tree_state(recorded_json: String) -> napi::Result<String> {
 #[napi(catch_unwind)]
 pub fn supervisor_tree_terminate(member_json: String) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let member: MemberJson = serde_json::from_str(&member_json)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let member: MemberJson = serde_json::from_str(&member_json).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         #[cfg(windows)]
         {
             use ace_supervisor::wintree::{WindowsRecord, WindowsTerminate, WindowsTreeOps};
@@ -1466,11 +1537,12 @@ pub fn supervisor_terminate_directory_processes(
     done: ThreadsafeFunction<String>,
 ) -> napi::Result<()> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let directories: Vec<String> = serde_json::from_str(&directories_json).map_err(|error| {
-            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
-                error.to_string(),
-            ))
-        })?;
+        let directories: Vec<String> =
+            serde_json::from_str(&directories_json).map_err(|error| {
+                bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                    error.to_string(),
+                ))
+            })?;
         // The thread owns the wait; dropping the function releases it.
         std::thread::spawn(move || {
             let io = ace_supervisor::dir::SystemDirectoryIo::new(self_pid as u32);
@@ -1502,8 +1574,8 @@ pub fn supervisor_read_owned_groups(
     owner_start: String,
 ) -> napi::Result<String> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let owned =
-            recover::read_owned_groups(&path, owner_pid as u32, &owner_start).map_err(bind_error)?;
+        let owned = recover::read_owned_groups(&path, owner_pid as u32, &owner_start)
+            .map_err(bind_error)?;
         let mut out = String::from("[");
         for (index, (pid, start)) in owned.iter().enumerate() {
             if index > 0 {
@@ -1524,8 +1596,11 @@ pub fn supervisor_read_owned_groups(
 #[napi(catch_unwind)]
 pub fn supervisor_windows_tree_recorded(path: String, leader_json: String) -> napi::Result<bool> {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        let leader: MemberJson = serde_json::from_str(&leader_json)
-            .map_err(|error| bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(error.to_string())))?;
+        let leader: MemberJson = serde_json::from_str(&leader_json).map_err(|error| {
+            bind_error(ace_supervisor::errors::SupervisorError::InvalidInput(
+                error.to_string(),
+            ))
+        })?;
         #[cfg(windows)]
         {
             recover::windows_tree_recorded(&path, leader.pid, &leader.start).map_err(bind_error)
@@ -1620,7 +1695,9 @@ impl SystemJobApi {
 impl ace_supervisor::contain::WindowsJobApi for SystemJobApi {
     fn create(&mut self) -> ace_supervisor::contain::JobHandle {
         use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
-        ace_supervisor::contain::JobHandle(CreateJobObjectW(std::ptr::null(), std::ptr::null()) as u64)
+        ace_supervisor::contain::JobHandle(
+            CreateJobObjectW(std::ptr::null(), std::ptr::null()) as u64
+        )
     }
 
     fn set_kill_on_close(&mut self, job: ace_supervisor::contain::JobHandle) -> bool {
@@ -1674,7 +1751,14 @@ impl ace_supervisor::contain::WindowsJobApi for SystemJobApi {
     fn active_count(&mut self, job: ace_supervisor::contain::JobHandle) -> u32 {
         use windows_sys::Win32::System::JobObjects::QueryInformationJobObject;
         let mut info = [0u8; 48];
-        if QueryInformationJobObject(job.0 as isize, 1, info.as_mut_ptr() as *mut _, 48, std::ptr::null_mut()) == 0 {
+        if QueryInformationJobObject(
+            job.0 as isize,
+            1,
+            info.as_mut_ptr() as *mut _,
+            48,
+            std::ptr::null_mut(),
+        ) == 0
+        {
             return 0;
         }
         u32::from_le_bytes([info[40], info[41], info[42], info[43]])
