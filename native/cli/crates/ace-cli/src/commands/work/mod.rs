@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
-//! Headless work reads ported to Rust (ADR 0221 step 4): `project.list`, `request.list`,
-//! `request.show`. Every other work id hands over; see the reasons in `FINAL` docs.
+//! Headless work reads and durable project mutations ported to Rust (ADR 0221 step 4).
 //!
 //! Reads use only `cli.request` / `projects.request` (no client selections, no outbox), `--json`
 //! passes the daemon's value through as `RawValue`, and human text matches the TypeScript
-//! renderers exactly.
+//! renderers exactly. Mutations use the durable outbox (`cli-outbox.sqlite`) plus
+//! `cli.request`/`projects.request`; anything needing thread lists, live trees or `--follow`
+//! stays on the bundle.
 
 mod common;
+mod durable;
 mod lists;
 mod project_list;
+mod project_mutations;
 mod render;
 mod request_list;
+mod request_mutations;
 mod request_show;
 
 use std::io::Write;
@@ -21,9 +25,19 @@ use cli_parse::Parsed;
 use crate::handover;
 
 /// The work ids this binary answers itself. Each exists in the table (`check:cli` proves it).
-pub const IDS: &[&str] = &["project.list", "request.list", "request.show"];
+pub const IDS: &[&str] = &[
+    "project.list",
+    "request.list",
+    "request.show",
+    "project.add",
+    "project.rename",
+    "project.remove",
+    "request.allow",
+    "request.deny",
+    "request.answer",
+];
 
-/// Runs one ported work command. `os_args` is only for the request-show terminal handover.
+/// Runs one ported work command. `os_args` is only for terminal handovers.
 pub fn dispatch<W: Write, E: Write>(
     parsed: &Parsed<'_>,
     os_args: &[std::ffi::OsString],
@@ -45,6 +59,12 @@ pub fn dispatch<W: Write, E: Write>(
             request_list::run(parsed, out, err)
         }
         "request.show" => request_show::run(parsed, os_args, out, err),
+        "project.add" => project_mutations::run_add(parsed, out, err),
+        "project.rename" => project_mutations::run_rename(parsed, out, err),
+        "project.remove" => project_mutations::run_remove(parsed, out, err),
+        "request.allow" => request_mutations::run(parsed, os_args, out, err, "allow"),
+        "request.deny" => request_mutations::run(parsed, os_args, out, err, "deny"),
+        "request.answer" => request_mutations::run(parsed, os_args, out, err, "answer"),
         _ => crate::run::fail(
             out,
             err,
