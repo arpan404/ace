@@ -250,7 +250,7 @@ test.each([
 ])("pickRail: $name", ({ pins, used, want }) => {
   const picked = pickRail(six, used ? new Map(Object.entries(used)) : undefined, pins);
   expect(ids(picked.shown).join("")).toBe(want);
-  expect(picked.pinned).toBe(pins.some((id) => id !== "x") && pins.length > 0);
+  expect(picked.pinned).toBe(pins.some((id) => id !== "x"));
 });
 
 test("the rail lists every readable account, the drawn ones first in their order", () => {

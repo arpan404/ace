@@ -39,3 +39,35 @@ enum UsageBarGeometry {
         }
     }
 }
+
+/// An account the person can put in the Usage glyph, or leave out: the shared rail's choice.
+struct UsageChoice: Decodable, Equatable, Identifiable, Sendable {
+    let id: String
+    let label: String
+    let left: Double
+    let tone: UsageHeadroomBar.Tone
+    let span: String
+    let shown: Bool
+
+    /// "Claude Code · Personal, 59% left for the session", and "low" or "out" when they are.
+    var spoken: String {
+        UsageHeadroomBar(key: id, label: label, left: left, tone: tone, span: span).spoken
+    }
+}
+
+/// The accounts the Usage glyph draws on this phone, by account id, in order, kept for each
+/// machine (an account id is its machine's). The same choice as the web's rail pins, which is
+/// also a setting of the device it's made on. Empty means the default: the accounts used most.
+enum UsagePins {
+    /// The glyph's room.
+    static let limit = 4
+    static func key(_ hostId: String) -> String { "ace.usage.railPins.\(hostId)" }
+
+    static func read(_ hostId: String, in defaults: UserDefaults = .standard) -> [String] {
+        defaults.stringArray(forKey: key(hostId)) ?? []
+    }
+
+    static func write(_ ids: [String], _ hostId: String, in defaults: UserDefaults = .standard) {
+        if ids.isEmpty { defaults.removeObject(forKey: key(hostId)) } else { defaults.set(Array(ids.prefix(limit)), forKey: key(hostId)) }
+    }
+}
