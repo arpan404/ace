@@ -101,7 +101,7 @@ describe("spike account backend", () => {
   });
 
   describe("an organization's admin routes", () => {
-    it("an invitation, a role change and a removal show in the lists and the log", async () => {
+    it("an admin's invitation, role change and removal show in the lists and the log", async () => {
       const account = acme();
       await json(
         await send(account, "POST", "/v1/orgs/org_acme/invitations", {
@@ -110,9 +110,9 @@ describe("spike account backend", () => {
         }),
       );
       await json(
-        await send(account, "PATCH", "/v1/orgs/org_acme/members/acct_spike", { role: "owner" }),
+        await send(account, "PATCH", "/v1/orgs/org_acme/members/acct_kai", { role: "admin" }),
       );
-      await json(await send(account, "DELETE", "/v1/orgs/org_acme/members/acct_dana"));
+      await json(await send(account, "DELETE", "/v1/orgs/org_acme/members/acct_kai"));
 
       const invited = await json(await send(account, "GET", "/v1/orgs/org_acme/invitations"));
       expect(invited.invitations.map((each: { email: string }) => each.email)).toEqual([
@@ -121,35 +121,83 @@ describe("spike account backend", () => {
       const listed = await json(await send(account, "GET", "/v1/orgs/org_acme/members"));
       expect(listed.members.map((each: { account: string }) => each.account)).toEqual([
         "acct_spike",
+        "acct_dana",
         "acct_sam",
       ]);
       expect(await requests(account)).toEqual([
         { org: "org_acme", kind: "invite", email: "lee@acme.example", role: "admin" },
-        { org: "org_acme", kind: "role", account: "acct_spike", role: "owner" },
-        { org: "org_acme", kind: "remove", account: "acct_dana" },
+        { org: "org_acme", kind: "role", account: "acct_kai", role: "admin" },
+        { org: "org_acme", kind: "remove", account: "acct_kai" },
+      ]);
+    });
+
+    it("an admin can't make anyone an owner, nor change or remove an owner", async () => {
+      const account = acme();
+      const promote = await send(account, "PATCH", "/v1/orgs/org_acme/members/acct_spike", {
+        role: "owner",
+      });
+      const demote = await send(account, "PATCH", "/v1/orgs/org_acme/members/acct_dana", {
+        role: "member",
+      });
+      const remove = await send(account, "DELETE", "/v1/orgs/org_acme/members/acct_dana");
+
+      for (const refused of [promote, demote, remove]) {
+        expect(refused?.status).toBe(403);
+        expect(await refused?.json()).toEqual({ error: "forbidden" });
+      }
+      expect(await requests(account)).toEqual([]);
+    });
+
+    it("an owner makes another owner, and then may remove the first", async () => {
+      const account = new SpikeAccount(() => 0);
+      const made = await json(await send(account, "POST", "/v1/orgs", { name: "Night Shift" }));
+      const org = `/v1/orgs/${made.id}/members`;
+      await json(await send(account, "PATCH", `${org}/acct_dana`, { role: "member" }));
+      await json(await send(account, "PATCH", `${org}/acct_dana`, { role: "owner" }));
+      await json(await send(account, "DELETE", `${org}/acct_dana`));
+
+      const listed = await json(await send(account, "GET", org));
+      expect(listed.members.map((each: { account: string }) => each.account)).toEqual([
+        "acct_spike",
+        "acct_kai",
+        "acct_sam",
+      ]);
+      expect(await requests(account)).toEqual([
+        { kind: "createOrg", name: "Night Shift" },
+        { org: made.id, kind: "role", account: "acct_dana", role: "member" },
+        { org: made.id, kind: "role", account: "acct_dana", role: "owner" },
+        { org: made.id, kind: "remove", account: "acct_dana" },
       ]);
     });
 
     it("the last owner and a directory's member are refused with the backend's word", async () => {
-      const account = acme();
-      const lastOwner = await send(account, "DELETE", "/v1/orgs/org_acme/members/acct_dana");
-      const directory = await send(account, "PATCH", "/v1/orgs/org_acme/members/acct_sam", {
-        role: "admin",
-      });
+      const account = new SpikeAccount(() => 0);
+      const made = await json(await send(account, "POST", "/v1/orgs", { name: "Solo" }));
+      const org = `/v1/orgs/${made.id}/members`;
+      // Dana is the fixture's other owner; with her gone the person is the only one.
+      await json(await send(account, "DELETE", `${org}/acct_dana`));
+      const lastOwner = await send(account, "PATCH", `${org}/acct_spike`, { role: "admin" });
+      const directory = await send(account, "PATCH", `${org}/acct_sam`, { role: "admin" });
 
       expect(lastOwner?.status).toBe(409);
       expect(await lastOwner?.json()).toEqual({ error: "last_owner" });
       expect(await directory?.json()).toEqual({ error: "directory_managed" });
-      expect(await requests(account)).toEqual([]);
     });
 
-    it("a saved policy is the next version", async () => {
+    it("a saved policy is the next version, and one made over an older version is refused", async () => {
       const account = acme();
       const policy = { effects: { pay: "off" } };
-      const saved = await json(await send(account, "PUT", "/v1/orgs/org_acme/policy", { policy }));
+      const saved = await json(
+        await send(account, "PUT", "/v1/orgs/org_acme/policy", { policy, version: 0 }),
+      );
+      const stale = await send(account, "PUT", "/v1/orgs/org_acme/policy", {
+        policy: {},
+        version: 0,
+      });
       const read = await json(await send(account, "GET", "/v1/orgs/org_acme/policy"));
 
       expect(saved.version).toBe(1);
+      expect(await stale?.json()).toEqual({ error: "policy_changed" });
       expect(read).toEqual({ org: "org_acme", version: 1, body: JSON.stringify(policy) });
     });
   });

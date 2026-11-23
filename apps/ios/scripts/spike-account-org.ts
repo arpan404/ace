@@ -57,6 +57,14 @@ export class SpikeOrgAdmin {
         directoryManaged: false,
       },
       {
+        account: "acct_kai",
+        email: "kai@acme.example",
+        name: "Kai Moss",
+        role: "member",
+        status: "pending",
+        directoryManaged: false,
+      },
+      {
         account: "acct_sam",
         email: "sam@acme.example",
         name: "Sam Ruiz",
@@ -110,7 +118,9 @@ export class SpikeOrgAdmin {
     if (part === "policy" && method === "GET")
       return Response.json({ org: this.org, ...this.policy });
     if (part === "policy" && method === "PUT") {
-      const { policy } = (await request.json()) as { policy: unknown };
+      const { policy, version } = (await request.json()) as { policy: unknown; version: number };
+      // As the backend: only a save made over the current version is the next one.
+      if (version !== this.policy.version) return refuse("policy_changed");
       this.policy = { version: this.policy.version + 1, body: JSON.stringify(policy) };
       this.log({ kind: "policy", version: this.policy.version });
       return Response.json({ org: this.org, ...this.policy });
@@ -122,6 +132,9 @@ export class SpikeOrgAdmin {
     const member = this.members.find((each) => each.account === account);
     if (!member) return refuse("not_found", 404);
     if (member.directoryManaged) return refuse("directory_managed");
+    // As ADR 0206 §1.2: only an owner gives `owner` or changes an owner's role.
+    if ((role === "owner" || member.role === "owner") && !this.byOwner())
+      return refuse("forbidden", 403);
     if (member.role === "owner" && role !== "owner" && this.owners() === 1)
       return refuse("last_owner");
     member.role = role;
@@ -132,10 +145,16 @@ export class SpikeOrgAdmin {
   private remove(account: string): Response {
     const member = this.members.find((each) => each.account === account);
     if (!member) return refuse("not_found", 404);
+    if (member.role === "owner" && !this.byOwner()) return refuse("forbidden", 403);
     if (member.role === "owner" && this.owners() === 1) return refuse("last_owner");
     this.members = this.members.filter((each) => each.account !== account);
     this.log({ kind: "remove", account });
     return Response.json({});
+  }
+
+  /** The person calling is the fixture's own account, the first member. */
+  private byOwner(): boolean {
+    return this.members[0]?.role === "owner";
   }
 
   private owners(): number {
