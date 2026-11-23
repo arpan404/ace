@@ -363,7 +363,7 @@ enum BridgePatch: Decodable, Sendable {
     /// Whether the list is the daemon's current one and holds every thread (no older page left).
     case inboxFresh(confirmed: Bool, complete: Bool)
     /// Whether a thread outside the loaded list exists on the machine, read by its id.
-    case inboxLocated(String, Bool)
+    case inboxLocated(String, Bool?)
     case inbox(String, ThreadRow?)
     /// What a needs-you row waits on, by thread id (`inbox-needs.ts`); empty once nothing does.
     case needs(String, InboxNeeds)
@@ -489,7 +489,7 @@ enum BridgePatch: Decodable, Sendable {
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
         case "inbox.fresh": self = .inboxFresh(confirmed: try box.decode(Bool.self, forKey: .confirmed), complete: try box.decode(Bool.self, forKey: .complete))
-        case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decode(Bool.self, forKey: .found))
+        case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Bool.self, forKey: .found))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))
         case "inbox.needs": self = .needs(try box.decode(String.self, forKey: .id), try InboxNeeds(from: decoder))
         case "inbox.needs.context": self = .needsWords(try box.decode(String.self, forKey: .id), try box.decode(String.self, forKey: .words))

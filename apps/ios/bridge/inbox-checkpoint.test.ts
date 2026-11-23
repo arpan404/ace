@@ -10,7 +10,7 @@ await vi.hoisted(async () => {
 import { FakeDaemon, facts } from "@ace/fake-daemon";
 import { CommandId, DeviceId, ThreadId, ThreadListEntry } from "@ace/protocol";
 import type { SidebarReader } from "@ace/client";
-import { followInbox, inboxAction, type InboxClock } from "./inbox.ts";
+import { followInbox, inboxAction, locate, locateReadMs, type InboxClock } from "./inbox.ts";
 import { checkpointDelayMs, inboxCheckpoint } from "./inbox-checkpoint.ts";
 import { RecordingSink, sheetFixture, until } from "./sheet-fixture.ts";
 
@@ -60,6 +60,7 @@ type Patch = {
   id?: string;
   ids?: string[];
   confirmed?: boolean;
+  complete?: boolean;
   row?: { confirmed: boolean; status: { label: string } } | null;
   sections?: { key: string; ids: string[] }[];
 };
@@ -240,7 +241,7 @@ describe("inbox checkpoint tabs", () => {
 
 describe("inbox freshness for opening another machine's thread", () => {
   test("an empty live list is confirmed and complete, and losing the daemon unconfirms it", async () => {
-    const { client } = sheetFixture();
+    const { daemon, client } = sheetFixture();
     closers.push(() => client.close());
     const sink = new RecordingSink();
     closers.push(followInbox(client, "mac", sink, new TestClock()));
@@ -254,8 +255,48 @@ describe("inbox freshness for opening another machine's thread", () => {
       confirmed: true,
       complete: true,
     });
+    daemon.disconnectAll();
+    await until(
+      () => (sink.read("inbox-fresh") as Patch | undefined)?.confirmed === false,
+      "connection lost",
+    );
   });
 
+  test("the home list's pages decide completeness, even while the archive filter is on", async () => {
+    const { daemon, client } = sheetFixture();
+    closers.push(() => client.close());
+    for (let i = 0; i < 45; i++) {
+      finished(daemon, `t-${i}`, `Thread ${i}`);
+      daemon.updateThread(`t-${i}`, { status: { state: "done" } });
+    }
+    await client.start();
+    // Settled threads page; the home list holds the newest of them first.
+    for (let i = 0; i < 45; i++)
+      await client.command({ type: "thread.settle", threadId: ThreadId.parse(`t-${i}`) });
+    const sink = new RecordingSink();
+    closers.push(followInbox(client, "mac", sink, new TestClock()));
+    const complete = () => (sink.read("inbox-fresh") as Patch | undefined)?.complete;
+    await until(() => complete() === false, "older pages left");
+    // The archive is short: its own window is whole, but the home list still has pages.
+    await client.threadsWindow({ archived: true });
+    await until(() => client.threads().store.loaded, "archive");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(complete()).toBe(false);
+  });
+
+  test("a read that cannot be answered is tried again, then reported as unknown, not gone", async () => {
+    const { client } = sheetFixture();
+    closers.push(() => client.close());
+    const sink = new RecordingSink();
+    const waits: number[] = [];
+    // The client was never started, so the daemon can't be asked.
+    await locate(client, ThreadId.parse("t"), sink, (delay, run) => {
+      waits.push(delay);
+      run();
+    });
+    expect(waits.filter((delay) => delay !== locateReadMs)).toEqual([1000, 2000, 4000]);
+    expect(sink.read("located:t")).toEqual({ type: "inbox.located", id: "t", found: null });
+  });
   test("a thread outside the loaded list is found by its id, and one that is gone is not", async () => {
     const { daemon, client } = sheetFixture();
     closers.push(() => client.close());

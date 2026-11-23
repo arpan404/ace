@@ -229,6 +229,7 @@ struct InboxView: View {
             case .waiting, nil: break
             }
         }
+        .onChange(of: awaitedLocateFailed) { _, failed in if failed { awaitedOpen = nil } }
         .onChange(of: awaitedNeedsLocate) { _, needs in
             if needs, let key = awaitedOpen?.key { inbox.client(key.machineId)?.locate(key.id) }
         }
@@ -395,6 +396,11 @@ struct InboxView: View {
     /// How the Open that waits stands: it opens once the thread shows (or is found by its id), and
     /// gives up when the machine's live list, whole or read by id, says it is gone.
     private var awaitedOutcome: OpenElsewhere? { awaitedOpen.map { openOutcome($0.key) } }
+    /// Reading the thread by id failed after trying again: the Open stops waiting (the error says so).
+    private var awaitedLocateFailed: Bool {
+        guard let key = awaitedOpen?.key else { return false }
+        return inbox.client(key.machineId)?.locateFailed.contains(key.id) ?? false
+    }
     /// The Open that waits needs its thread read by id: its machine's live list has older pages.
     private var awaitedNeedsLocate: Bool {
         guard let key = awaitedOpen?.key, let client = inbox.client(key.machineId) else { return false }

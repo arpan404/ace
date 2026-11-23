@@ -245,12 +245,14 @@ import QuartzCore
     private(set) var listComplete = false
     /// Threads outside the loaded list the bridge read by id, and whether each exists.
     private(set) var located: [String: Bool] = [:]
+    /// Threads the bridge could not read by id after trying again: neither found nor gone.
+    private(set) var locateFailed: Set<String> = []
     /// The inbox is the machine's live list, not the cached one a restore draws first: a thread
     /// it lacks is missing. A restore also names its ids and loads, but its rows aren't confirmed.
-    var inboxConfirmed: Bool { inboxLoaded && listFresh }
+    var inboxConfirmed: Bool { inboxLoaded && listFresh && connection == "ready" }
     /// Asks the bridge to read a thread by its id, once; the answer lands in `located`.
     func locate(_ id: String) {
-        guard located[id] == nil else { return }
+        guard located[id] == nil, !locateFailed.contains(id) else { return }
         inboxRequest(["kind": "locate", "threadId": id])
     }
     @ObservationIgnored let admissions = CommandAdmissions()
@@ -306,7 +308,7 @@ import QuartzCore
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
-        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false; listFresh = false; listComplete = false; located = [:]
+        connection = "connecting"; error = nil; problem = nil; standing = nil; sawConfirmedRow = false; listFresh = false; listComplete = false; located = [:]; locateFailed = []
         activityGeneration = 0
         frames = BridgeFrames(); batch.reset(); generation = 0
         // The last known inbox, unconfirmed, in the first frame; the runtime replaces it in place.
@@ -585,8 +587,16 @@ import QuartzCore
             case .inboxFresh(let confirmed, let complete):
                 if listFresh != confirmed { listFresh = confirmed }
                 if listComplete != complete { listComplete = complete }
-            case .inboxLocated(let id, let found): located[id] = found
+                // What was read by id belongs to the list it was read against.
+                if !located.isEmpty { located = [:] }
+                if !locateFailed.isEmpty { locateFailed = [] }
+            case .inboxLocated(let id, let found):
+                if let found { located[id] = found } else {
+                    locateFailed.insert(id)
+                    error = "Couldn't reach that thread. Try Open again."
+                }
             case .inbox(let id, let row):
+                located[id] = nil; locateFailed.remove(id)
                 if let generation = row?.generation, generation > activityGeneration {
                     activityGeneration = generation
                     normalizeGenerations()

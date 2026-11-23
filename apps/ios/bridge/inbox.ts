@@ -23,7 +23,7 @@ import {
 } from "@ace/ui-core/mobile";
 import { ThreadId, type CommandPayload } from "@ace/protocol";
 import { z } from "zod";
-import { host } from "./host.ts";
+import { host, scheduler } from "./host.ts";
 import { preview } from "./presentation.ts";
 import { refusalWords } from "@ace/ui-core/transfers";
 import { followAccounts } from "./inbox-accounts.ts";
@@ -331,14 +331,23 @@ export function followInbox(
    * waits on it, and a thread a loaded, whole list lacks is gone. Sent when either changes.
    */
   let sentFresh = "";
+  const freshness = () => {
+    // The home list's own window, whatever filter the archive or a project puts on the other.
+    const window = store.homeWindow ?? store.window;
+    return {
+      confirmed: isConfirmed(store, online()),
+      // Whole only when the home list says so: no window (a project filter drops it, an older
+      // daemon never had one) can't say, and a thread is then read by its id.
+      complete: window?.before === null,
+    };
+  };
   const putFresh = (force: boolean) => {
-    const confirmed = isConfirmed(store, online());
-    // No window means a daemon that sends the whole list; a window with a cursor has pages left.
-    const complete = store.window?.before === null || store.window === undefined;
-    const key = `${confirmed}:${complete}`;
+    const now = freshness();
+    const key = `${now.confirmed}:${now.complete}`;
     if (!force && key === sentFresh) return;
     sentFresh = key;
-    pump.put("inbox-fresh", () => ({ type: "inbox.fresh", confirmed, complete }));
+    // Read as it is sent, so a patch coalesced behind a later change is never older than it.
+    pump.put("inbox-fresh", () => ({ type: "inbox.fresh", ...freshness() }));
   };
   const stops = [
     accounts.stop,
@@ -377,6 +386,7 @@ export function followInbox(
         for (const id of store.ids) row(id);
         sections();
       }
+      if (shown) putFresh(false);
       for (const send of sends.getSnapshot()) pending(send.commandId);
     }),
     // A move to another socket with no state change (another path, ADR 0114) is still news.
@@ -427,32 +437,62 @@ function pendingRow(send: PendingSend, connection: string) {
   };
 }
 
-/** Reads a thread by its id, for one the paginated list doesn't hold; settles with what it found. */
-async function locate(owner: ClientCore, id: ThreadId, pump: PatchSink): Promise<void> {
-  const answer = (found: boolean) =>
-    pump.put(`located:${id}`, () => ({ type: "inbox.located", id, found }));
+/** How long a read by id waits before trying again, and so how many tries are made. */
+export const locateBackoffMs = [1000, 2000, 4000];
+/** How long one read waits for the daemon. */
+export const locateReadMs = 8000;
+type Later = (delayMs: number, run: () => void) => unknown;
+
+/** One read of a thread by its id: true or false when the daemon says, undefined when it can't. */
+async function readOnce(
+  owner: ClientCore,
+  id: ThreadId,
+  later: Later,
+): Promise<boolean | undefined> {
   let lease: ReturnType<ClientCore["thread"]>;
   try {
     lease = owner.thread(id, { optional: true });
   } catch {
-    return answer(false);
+    return undefined;
   }
   const { store } = lease;
-  const settled = () => !store.syncing && !store.unconfirmed;
   let stop: (() => void) | undefined;
   const found = await new Promise<boolean | undefined>((resolve) => {
     const read = () => {
       // Only the daemon's own refusal says the thread is gone; no room, a dropped connection or a
-      // timeout say nothing about it, and the phone keeps waiting.
+      // timeout say nothing about it.
       if (store.error) return resolve(store.error.code === "daemon" ? false : undefined);
-      if (settled() && store.thread) return resolve(true);
+      if (!store.syncing && !store.unconfirmed && store.thread) return resolve(true);
     };
     stop = store.observe(read);
     read();
+    // A read the daemon never answers is given up, not waited on.
+    later(locateReadMs, () => resolve(undefined));
   });
   stop?.();
   lease.release();
-  if (found !== undefined) answer(found);
+  return found;
+}
+
+/**
+ * Reads a thread by its id, for one the paginated list doesn't hold, and says what was found. A
+ * read that couldn't be answered is tried again a few times; after that the phone is told it
+ * couldn't tell (`found: null`) so it stops waiting without calling the thread gone.
+ */
+export async function locate(
+  owner: ClientCore,
+  id: ThreadId,
+  pump: PatchSink,
+  later: Later = (delay, run) => scheduler.set(delay, run),
+): Promise<void> {
+  const answer = (found: boolean | null) =>
+    pump.put(`located:${id}`, () => ({ type: "inbox.located", id, found }));
+  for (const delay of [0, ...locateBackoffMs]) {
+    if (delay > 0) await new Promise<void>((resolve) => later(delay, resolve));
+    const found = await readOnce(owner, id, later);
+    if (found !== undefined) return answer(found);
+  }
+  answer(null);
 }
 
 const InboxAction = z.discriminatedUnion("kind", [
