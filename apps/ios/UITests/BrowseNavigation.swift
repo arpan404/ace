@@ -82,6 +82,7 @@ extension XCUIApplication {
                       "thread.work": "Work", "thread.attachments": "Attachments", "thread.summary": "Summary",
                       "thread.computer": "Computer use", "thread.openIn": "Open in",
                       "thread.turns": "Turns", "thread.logs": "Logs",
+                      "thread.stopAll": "Stop all agents",
                       "thread.menu.rename": "Rename…", "thread.forkLast": "Fork from the last turn",
                       "thread.merge": "Bring back to parent…", "thread.continueOn": "Continue on"]
         let label = labels[identifier] ?? identifier
@@ -156,9 +157,19 @@ extension XCUIApplication {
         return inboxReady.exists ? inboxReady.frame : frame
     }
     /// Waits for the Threads list. Back from a thread the list keeps its place, so scrolled down
-    /// its first row, the Inbox control, is out of view and unloaded: the list is flung back to
-    /// its top, inside its own frame, as a person would.
+    /// its first row, the Inbox control, is out of view and unloaded. Projects tapped again while
+    /// it shows flies the list to its top (`HomeRetap`), the way a person gets back; where that
+    /// can't reach, the list is flung back inside its own frame, as a person also would.
     @MainActor func waitForInbox(timeout: TimeInterval) -> Bool {
+        if inboxReady.exists { return true }
+        // A thread page hides the tab bar; the list itself is only under it. Its return is the
+        // page's transition, so the tab bar is waited for before it can be tapped.
+        let projects = homeTab("threads")
+        let reachable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: projects)
+        if XCTWaiter().wait(for: [reachable], timeout: 3) == .completed {
+            projects.tap()
+            if inboxReady.waitForExistence(timeout: 5) { return true }
+        }
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if inboxReady.exists { return true }
@@ -170,7 +181,7 @@ extension XCUIApplication {
                 continue
             }
             let x = list.midX / frame.width
-            let from = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.25) / frame.height))
+            let from = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.2) / frame.height))
             let to = coordinate(withNormalizedOffset: CGVector(dx: x, dy: (list.minY + list.height * 0.9) / frame.height))
             from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .fast, thenHoldForDuration: 0)
             _ = inboxReady.waitForExistence(timeout: 1)
@@ -179,12 +190,42 @@ extension XCUIApplication {
     }
     /// Taps one of Inbox, Snoozed and Settled. They are the Threads list's first row, so a list
     /// scrolled down has them out of view: it is dragged back to its top first, as a person would.
+    /// The list switches as the tap lands, so a tap made while a row's removal is still animating
+    /// can be dropped: the tab reads chosen only once it took, and a missed tap is made again.
     @MainActor func tapThreadsTab(_ tab: XCUIElement) {
-        for _ in 0..<12 where !(tab.exists && tab.isHittable) {
-            let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
-            upper.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        for _ in 0..<3 {
+            // The tabs are the list's first row: scrolled down, they sit above the window or
+            // unload, and a tap where they were lands on the title bar instead. Projects tapped
+            // again while it shows flies the list to its top (`HomeRetap`); where that can't
+            // reach, the list is dragged back until the tab is wholly on screen.
+            if !(tab.exists && tab.isHittable && frame.contains(tab.frame)) {
+                let projects = homeTab("threads")
+                if projects.exists, projects.isHittable {
+                    projects.tap()
+                    _ = tab.waitForExistence(timeout: 2)
+                }
+            }
+            for _ in 0..<12 where !(tab.exists && tab.isHittable && frame.contains(tab.frame)) {
+                let upper = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                upper.press(forDuration: 0.05, thenDragTo: coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+            }
+            guard tab.exists else { return }
+            if tab.isSelected { return }
+            tab.tap()
+            let chosen = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isSelected == true"), object: tab)
+            if XCTWaiter().wait(for: [chosen], timeout: 5) == .completed { return }
         }
-        tab.tap()
+    }
+    /// Swipes `row` and waits for the action button it reveals. A live list can drop the gesture
+    /// when the row moves as the finger lands, so the row is brought back and swiped again.
+    @MainActor func swipeFor(_ action: String, on row: XCUIElement, left: Bool = true) -> XCUIElement {
+        let button = buttons[action]
+        for _ in 0..<3 where !button.exists {
+            bringToMiddle(row)
+            if left { row.swipeLeft() } else { row.swipeRight() }
+            _ = button.waitForExistence(timeout: 3)
+        }
+        return button
     }
     /// Drags the list without letting it coast until `element` sits clear of the floating header
     /// and the tab bar. A swipe coasts on, and a tap made before it stops lands on whichever row

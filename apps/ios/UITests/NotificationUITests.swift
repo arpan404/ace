@@ -20,6 +20,8 @@ import XCTest
             let enabled = app.switches["notifications.enabled"]
             XCTAssertTrue(enabled.waitForExistence(timeout: 10))
             XCTAssertEqual(enabled.value as? String, "1", "expected a permission prompt or already enabled alerts")
+            // Notifications is pushed inside the Settings sheet: back to Settings, then close it.
+            app.tapBack()
             app.closeSheet()
             app.tabBars.buttons.matching(NSPredicate(format: "identifier == 'tab.threads' OR label == 'Projects'"))
                 .firstMatch.tap()
@@ -41,8 +43,13 @@ import XCTest
         try await post("control", ["online": false])
         try await notify(["threadId": "ios-tree", "id": "ui:missed:\(run)"])
         try await post("control", ["online": true])
+        // An app left open can sit on its retry after the socket closed, so it may never be the
+        // one that reconnects. Closing and opening it is the next connection, which is where a
+        // missed alert arrives from catch-up.
+        app.terminate()
+        app.launchWithArguments()
         let missed = banner(springboard, "Review PID-reuse safety")
-        XCTAssertTrue(missed.waitForExistence(timeout: 30))
+        XCTAssertTrue(missed.waitForExistence(timeout: 45))
         attach("catch-up", XCUIScreen.main)
     }
     private func post(_ path: String, _ body: [String: Bool]) async throws {
