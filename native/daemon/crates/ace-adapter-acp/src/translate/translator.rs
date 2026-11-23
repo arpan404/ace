@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! The ACP translator (`translator.ts`): frames in, facts out.
 
+use crate::translate::answers::answer_request;
 use crate::translate::children::expire_children;
 use crate::translate::content::decode_content;
 use crate::translate::data::{RpcId, list, object, raw, rpc_id, string};
-use crate::translate::lifecycle::{end_prompt, settle_implicit_turn};
+use crate::translate::implicit::settle_implicit_turn;
+use crate::translate::lifecycle::end_prompt;
 use crate::translate::quirks::QuirksKind;
-use crate::translate::requests::{answer_request, open_request};
+use crate::translate::requests::open_request;
 use crate::translate::settlement::{cancellation_deadline, prompt_end};
 use crate::translate::shell_output::ShellOutput;
 use crate::translate::state::{TranslationState, TranslatorIdentity};
@@ -64,63 +66,13 @@ impl AcpTranslator {
         self.state.ensure_root(&mut facts);
         let data_map = object(&data).clone();
         if dir == "note" {
-            if data_map.get("event").and_then(Value::as_str) == Some("stop") {
-                self.state.stopped = true;
-            }
-            if data_map.get("event").and_then(Value::as_str) == Some("process-start") {
-                self.input_native_id = None;
-                self.state.reset_process();
-                self.state.stopped = false;
-                self.state.process_dead = false;
-                let mut fact = Map::with_capacity(1);
-                fact.insert(
-                    "type".to_owned(),
-                    Value::String("process.started".to_owned()),
-                );
-                facts.push(Value::Object(fact));
-            }
-            if data_map.get("event").and_then(Value::as_str) == Some("process-exit") {
-                let deliberate = self.state.stopped
-                    || object(data_map.get("detail").unwrap_or(&Value::Null))
-                        .get("deliberate")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                let mut fact = Map::with_capacity(2);
-                fact.insert(
-                    "type".to_owned(),
-                    Value::String("process.exited".to_owned()),
-                );
-                fact.insert("deliberate".to_owned(), Value::Bool(deliberate));
-                facts.push(Value::Object(fact));
-                self.state.reset_process();
-                self.state.process_dead = true;
-            }
-            if data_map.get("event").and_then(Value::as_str) == Some("queue-changed")
-                && let Some(count) = data_map.get("count")
-                && (count.as_i64().is_some() || count.as_u64().is_some())
-            {
-                let mut fact = Map::with_capacity(2);
-                fact.insert("type".to_owned(), Value::String("queue.changed".to_owned()));
-                fact.insert("count".to_owned(), count.clone());
-                facts.push(Value::Object(fact));
-            }
-            if data_map.get("event").and_then(Value::as_str) == Some("mcp-server-skipped") {
-                let transport =
-                    string(data_map.get("transport").unwrap_or(&Value::Null)).to_uppercase();
-                let name = string(data_map.get("name").unwrap_or(&Value::Null)).to_owned();
-                let text = format!(
-                    "MCP server \"{name}\" was left out: this agent can't use {transport} MCP servers."
-                );
-                self.state
-                    .notice(&mut facts, &data, "recorder", Some(&text), None);
-                return facts;
-            }
-            if data_map.get("event").and_then(Value::as_str) == Some("input-sending") {
-                self.input_native_id =
-                    Some(string(data_map.get("nativeId").unwrap_or(&Value::Null)).to_owned());
-                return facts;
-            }
-            self.state.notice(&mut facts, &data, "recorder", None, None);
+            crate::translate::frame_note::handle_note(
+                &mut self.state,
+                &mut self.input_native_id,
+                &data,
+                &data_map,
+                &mut facts,
+            );
             return facts;
         }
         if channel != "stdio" || dir == "stderr" {

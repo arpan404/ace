@@ -3,12 +3,15 @@
 //! One Rust module per TypeScript module where that reads well.
 //! Behaviour lives here; the binding only translates values.
 
+pub mod answers;
 pub mod association;
 pub mod children;
 pub mod completed_tools;
 pub mod content;
 pub mod data;
+pub mod frame_note;
 pub mod frame_redaction;
+pub mod implicit;
 pub mod interactions;
 pub mod keys;
 pub mod lifecycle;
