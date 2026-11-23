@@ -53,17 +53,3 @@ export function scriptRuntimePath(
   const plain = join(dirname(execPath), scriptRuntimeName(platform));
   return exists(plain) ? plain : execPath;
 }
-
-/**
- * The program that starts the daemon from a bundle whose runtime is `runtime`: its copy under
- * the daemon's name when the bundle carries one (the desktop app's), else the runtime itself,
- * as a bundle from before the rename has only that.
- */
-export function bundledDaemonRuntime(
-  runtime: string,
-  platform: NodeJS.Platform,
-  exists: (path: string) => boolean,
-): string {
-  const named = daemonRuntimePath(runtime, platform);
-  return exists(named) ? named : runtime;
-}
