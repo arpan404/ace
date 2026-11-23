@@ -171,7 +171,9 @@ struct ConversationFeed: View {
                 Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
                     .keyboardDriftMark(.line)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
-                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
+                TranscriptTail(thread: thread, following: pinned, barHeight: barHeight) {
+                    if !keyboardMoving && !intent.active { toEnd(proxy) }
+                }
                 // A closing keyboard's room, below the end until the rows have moved down to it.
                 Color.clear.frame(height: CGFloat(keyboardRoom.leaving)).accessibilityHidden(true)
             }
@@ -413,8 +415,8 @@ struct ConversationFeed: View {
             .onChange(of: keyboard.landings) { _, _ in keyboardLanded(proxy: proxy) }
             .onChange(of: barHeight) { old, new in
                 TranscriptJumpHooks.note("bar \(Int(old))>\(Int(new))")
-                // The composer opening as it takes the keyboard moves on the keyboard's spring.
-                let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : .default
+                // Growing room moves the tail immediately so a new pill can't cover the last row.
+                let motion: Animation? = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : (new < old ? .default : nil)
                 roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
             }
     }
