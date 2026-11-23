@@ -9,10 +9,11 @@ import { atomicPointer, prepareDaemonHome } from "@ace/service";
 import { scriptRuntimeName, shippedExecutableName } from "@ace/service/process-names";
 
 const startTimeoutMs = 60_000;
+const accountsFile = "smoke-accounts.sqlite";
 const LockOwner = z.object({ pid: z.number().int().positive() });
 const RuntimeRecord = z.object({
   message: z.literal("The daemon's runtime"),
-  data: z.object({ daemon: z.string(), scripts: z.string(), cwd: z.string() }),
+  data: z.object({ daemon: z.string(), scripts: z.string() }),
 });
 
 /**
@@ -21,8 +22,8 @@ const RuntimeRecord = z.object({
  * silence the daemon's log and whose `bunfig.toml` would run a preload that leaves a mark. Run
  * twice: as the release starts it (on the runtime's `ace Service` link, the same file as
  * `bin/node`) and with that name blocked by a folder, so it falls back to `bin/node`. Either way
- * the daemon must run in the release's own folder, read neither file, and report that its
- * child scripts run on `bin/node`.
+ * the daemon must read neither file, resolve a relative setting in the service's folder as
+ * before, and report that its child scripts run on `bin/node`.
  */
 export async function smokeNamedDaemon(artifact: string, version: string, target: string) {
   await smokeSupervisedDaemon(artifact, version, target, "named");
@@ -73,6 +74,8 @@ async function smokeSupervisedDaemon(
         ACE_LISTEN: "local",
         ACE_MODEL_INSTANCES: "[]",
         ACE_DEV: "0",
+        // Relative, so it resolves against the daemon's working directory.
+        ACE_ACCOUNTS_DB: accountsFile,
       },
       stdio: "ignore",
       windowsHide: true,
@@ -92,10 +95,10 @@ async function smokeSupervisedDaemon(
       basename(record.scripts) !== basename(runtime)
     )
       throw new Error(`The daemon gives its scripts ${record.scripts}, not ${runtime}`);
-    // Its working directory is the release's folder, never the one the service started in.
-    const cwd = workingDirectoryOf(pid) ?? record.cwd;
-    if (process.platform === "win32" ? !record.cwd.endsWith(`-${target}`) : !sameFile(cwd, release))
-      throw new Error(`The supervised daemon runs in ${cwd}, not ${release}`);
+    // Bun started in the release's folder, yet the daemon went back to the service's: a relative
+    // setting names a file in the project, as it did before Bun moved.
+    if (!(await appears(join(project, accountsFile))) || existsSync(join(release, accountsFile)))
+      throw new Error(`The relative ACE_ACCOUNTS_DB did not resolve in ${project}`);
     // The supervisor itself runs in the project, so a mark there could only be its own.
     const preload = existsSync(mark) ? readFileSync(mark, "utf8") : "";
     if (preload.includes(join(release, "ace.mjs") + " start"))
@@ -108,19 +111,6 @@ async function smokeSupervisedDaemon(
     if (daemon !== undefined) await gone(daemon);
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   }
-}
-
-/** The process's working directory, where the OS tells it (not Windows). */
-function workingDirectoryOf(pid: number): string | undefined {
-  if (process.platform === "linux") return readlinkSync(`/proc/${pid}/cwd`);
-  if (process.platform !== "darwin") return undefined;
-  const listing = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
-    encoding: "utf8",
-  });
-  return listing
-    .split("\n")
-    .find((line) => line.startsWith("n"))
-    ?.slice(1);
 }
 
 /** The pid in the home's `daemon-lock` once a process other than the supervisor holds it. */
@@ -160,9 +150,7 @@ function sameFile(a: string, b: string): boolean {
 }
 
 /** The daemon's record of its runtime and its scripts', from `logs/ace.jsonl`. */
-async function runtimeRecord(
-  home: string,
-): Promise<{ daemon: string; scripts: string; cwd: string }> {
+async function runtimeRecord(home: string): Promise<{ daemon: string; scripts: string }> {
   const deadline = Date.now() + startTimeoutMs;
   while (Date.now() < deadline) {
     const lines = await readFile(join(home, "logs", "ace.jsonl"), "utf8").catch(() => "");
@@ -212,4 +200,14 @@ async function gone(pid: number): Promise<void> {
   }
   process.kill(pid, "SIGKILL");
   throw new Error(`The supervised daemon ${pid} outlived its supervisor`);
+}
+
+/** Whether `path` shows up before the start timeout. */
+async function appears(path: string): Promise<boolean> {
+  const deadline = Date.now() + startTimeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(path)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return false;
 }

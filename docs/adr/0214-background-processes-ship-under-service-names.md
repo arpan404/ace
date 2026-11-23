@@ -32,7 +32,7 @@ ARM64 VM with the x64 desktop build), each probe run under `node` and `ace Servi
 | `.env`, `.env.local`, `.env.<NODE_ENV>` in the working directory | ignored          | loaded                    | `--no-env-file` (both OSes)  |
 | first bare word (`install`, `run`, `test`)                       | a script path    | Bun's own command         | an absolute script first     |
 | `--version`, no arguments                                        | "Missing script" | Bun's version, Bun's help | never passed                 |
-| `bunfig.toml` in the working directory (`preload`)               | loaded           | loaded                    | same either way (see below)  |
+| `bunfig.toml` in the working directory (`preload`)               | loaded           | loaded                    | Bun starts in its own folder |
 | auto-install of a missing package without `node_modules`         | on               | on                        | same either way              |
 | `NODE_OPTIONS=--require`                                         | ignored          | ignored                   | same either way              |
 | `--` before the script's words                                   | passed through   | passed through            | same either way              |
@@ -41,6 +41,11 @@ ARM64 VM with the x64 desktop build), each probe run under `node` and `ace Servi
 Only the working directory's files are read, not its parents'. Real Node rejects
 `--no-env-file` ("invalid negation"), so only the named runtime, which is always ace's own Bun,
 gets the flag.
+
+The `bunfig.toml` row was a hole before this decision: a `preload` in the folder `ace open` was
+run from, or in the home a Linux user service runs in, ran its code in the daemon, under the
+name `node` as much as any other, and `-c <file>` does not stop it. No flag turns it off, so
+the runtime must not start in that folder.
 
 ## Decision
 
@@ -72,6 +77,16 @@ gets the flag.
      answers with the running executable, so it binds to the one runtime in the process whatever
      its name. Measured on the VM: under `ace Service.exe` the add-on loads and its `statFd`
      reads a descriptor the runtime opened.
+   - Bun starts in the entry script's own folder (`DaemonLaunch.cwd`), so it reads no `.env` or
+     `bunfig.toml` from the caller's. `ace open` and the release supervisor pass their own
+     working directory in `ACE_LAUNCH_CWD`, and the daemon entry's first import
+     (`@ace/service/launch-directory-entry`, first in `tools/release/src/entry.ts` and
+     `apps/daemon/src/cli.ts`) moves back into it before any other module runs, then removes the
+     variable so no child inherits it. Every relative setting, model-instance folder, bare
+     command, `:memory:` database, Windows drive-relative path and child's working directory
+     keeps the exact meaning it had, with no per-setting code. If the folder is gone or refused,
+     the daemon stays in its own and says so on stderr, without the path. The desktop app runs
+     its daemon in the bundle's daemon folder, as it always did, and never passes the variable.
    - Foreground `ace start` and `ace serve`, run by hand through the `ace` launcher, stay on
      `node`: the launcher `exec`s the runtime for every command, and a person who runs the
      daemon in a terminal sees it there. The desktop app, the login service's supervisor and
@@ -93,9 +108,7 @@ gets the flag.
   (measured). Its Processes tab names a process by the file's version-resource description,
   which `Get-Process` reports as "Bun" for the runtime copy; giving the copy and the Rust natives
   a description of their own is a follow-up.
-- `bunfig.toml` is read from the working directory under either name, so every launch runs the
-  daemon in its entry script's folder (as the desktop app already did), never the folder
-  `ace open` was run in or a user service's home. Package auto-install applies under either
-  name, as before this decision, and is not changed here.
+- Package auto-install applies under either name, as before this decision, and is not changed
+  here.
 - Linux truncates `comm` to 15 characters: `top` shows `ace-history-ser`; `ps -f` shows the full
   name.

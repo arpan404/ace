@@ -31,6 +31,8 @@ describe("the program that runs the daemon", () => {
           NODE_OPTIONS: "--inspect",
           // Exported for a benchmark in the shell that opened the app.
           ACE_BENCH_WORKER_PRELOAD: "/repo/apps/daemon/bench/telemetry.mjs",
+          // Only ace's own launchers hand the daemon a folder to return to; the app's stays put.
+          ACE_LAUNCH_CWD: "/Users/me/project",
         },
       },
       program.env,
@@ -38,6 +40,7 @@ describe("the program that runs the daemon", () => {
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
     expect(env.NODE_OPTIONS).toBeUndefined();
     expect(env.ACE_BENCH_WORKER_PRELOAD).toBeUndefined();
+    expect(env.ACE_LAUNCH_CWD).toBeUndefined();
     expect(env.PATH).toBe("/app/Contents/Resources/bin:/usr/bin");
   });
 

@@ -9,8 +9,9 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { desktopAppMarker } from "./desktop-update.ts";
+import { launchDirectoryVariable } from "./launch-directory.ts";
 import { daemonRuntimePath } from "./process-names.ts";
 
 /** One way to start the daemon: a program, its arguments and the folder it runs in. */
@@ -18,9 +19,10 @@ export interface DaemonLaunch {
   command: string;
   args: string[];
   /**
-   * The entry script's own folder, never the caller's: Bun reads `bunfig.toml` (whose `preload`
-   * runs code) from the working directory under any name, and `ace open` or a user service would
-   * otherwise hand the daemon a project folder or the home.
+   * The folder Bun starts in: the entry script's own, never the caller's. Bun reads `.env` and
+   * `bunfig.toml` (whose `preload` runs code, even under the name `node`) from its working
+   * directory at start, and `ace open` or a user service would hand it a project folder or the
+   * home. The daemon returns to the caller's folder itself (`launchEnvironment`).
    */
   cwd: string;
 }
@@ -96,42 +98,12 @@ export function spawnDaemonRuntime<
 }
 
 /**
- * The daemon's settings that name a file or folder. The daemon reads each with `resolve`, which
- * is relative to its working directory, and that is now the entry script's folder, not the one
- * ace was started from.
+ * `env` for a daemon its launcher starts in the entry script's folder: it carries the
+ * launcher's own working directory `from`, which the daemon returns to before its code runs
+ * (`launch-directory.ts`).
  */
-const pathSettings = [
-  "ACE_HOME",
-  "ACE_WORKSPACE_ROOT",
-  "ACE_SCREEN_HELPER",
-  "ACE_SCREEN_HELPER_MANIFEST",
-  "ACE_CHROMIUM_PATH",
-  "ACE_CURSOR_SDK_HOME",
-  "ACE_ACCOUNTS_DB",
-  "ACE_APNS_KEY_FILE",
-  "ACE_VAPID_KEY_FILE",
-  "ACE_SPADE_BIN",
-  "ACE_LOCKED_USE_PLUGIN",
-  "ACE_LOCKED_USE_BROKER",
-  "ACE_LOCKED_USE_GUARDIAN",
-  "ACE_MEDIA_PATH",
-  "ACE_FILES_PATH",
-  "ACE_HISTORY_PATH",
-] as const;
-
-/**
- * `env` for a daemon that runs in its own folder: each path-valued setting that is relative is
- * made absolute against `from`, the folder the launcher was started in, so it names what it
- * named before (`ACE_WORKSPACE_ROOT=./workspace` from a project folder). Every other value, and
- * every absolute or empty path, stays as it is.
- */
-export function daemonSettingsFrom(env: NodeJS.ProcessEnv, from: string): NodeJS.ProcessEnv {
-  const settled: NodeJS.ProcessEnv = { ...env };
-  for (const key of pathSettings) {
-    const value = env[key];
-    if (value?.trim() && !isAbsolute(value)) settled[key] = resolve(from, value);
-  }
-  return settled;
+export function launchEnvironment(env: NodeJS.ProcessEnv, from: string): NodeJS.ProcessEnv {
+  return { ...env, [launchDirectoryVariable]: from };
 }
 
 /** `resources/runtime/bin/node` (`resources\runtime\node.exe`) beside the app's daemon marker. */

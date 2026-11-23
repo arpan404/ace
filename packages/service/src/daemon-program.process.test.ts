@@ -4,7 +4,7 @@ import { copyFileSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { daemonLaunches, daemonSettingsFrom, spawnDaemonRuntime } from "./daemon-program.ts";
+import { daemonLaunches, spawnDaemonRuntime } from "./daemon-program.ts";
 import { shippedExecutableName } from "./process-names.ts";
 
 // Real edge: Bun reads `.env` files from the working directory, and treats a first bare word as
@@ -157,38 +157,4 @@ test("when the plain runtime cannot be spawned either, its own error is what fai
       },
     ),
   ).toThrow("cannot spawn /rt/node");
-});
-
-test("relative daemon settings keep meaning the folder ace was started from", async () => {
-  const root = mkdtempSync(join(tmpdir(), "ace-daemon-settings-"));
-  roots.push(root);
-  const project = join(root, "project");
-  const release = join(root, "release");
-  mkdirSync(project);
-  mkdirSync(release);
-  const script = join(release, "probe.mjs");
-  writeFileSync(
-    script,
-    "const { resolve } = require('node:path'); process.stdout.write(JSON.stringify({ workspace: resolve(process.env.ACE_WORKSPACE_ROOT), home: resolve(process.env.ACE_HOME), url: process.env.ACE_RELAY_URL }))",
-  );
-  const env = daemonSettingsFrom(
-    { ACE_WORKSPACE_ROOT: "./workspace", ACE_HOME: "home", ACE_RELAY_URL: "wss://relay.example" },
-    project,
-  );
-  const [launch] = daemonLaunches(process.execPath, process.execPath, script, []);
-  if (!launch) throw new Error("no launch");
-  // The daemon runs in its own folder, yet the settings name the project's.
-  expect(launch.cwd).toBe(release);
-  const child = spawn(launch.command, launch.args, {
-    cwd: launch.cwd,
-    env: { ...env, PATH: process.env.PATH ?? "" },
-  });
-  let text = "";
-  child.stdout.setEncoding("utf8").on("data", (chunk: string) => (text += chunk));
-  await once(child, "close");
-  expect(JSON.parse(text)).toEqual({
-    workspace: join(project, "workspace"),
-    home: join(project, "home"),
-    url: "wss://relay.example",
-  });
 });

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync } from "node:fs";
 import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 import { openLaunchLog } from "@ace/service/launch-log";
+import { launchDirectoryVariable } from "@ace/service/launch-directory";
 import {
   daemonLaunches,
   spawnDaemonRuntime,
@@ -149,6 +150,9 @@ export function daemonEnvironment(
   if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
   delete env.NODE_OPTIONS;
+  // The app runs its daemon in the bundle's daemon folder, as ever; only `ace open` and the
+  // release supervisor hand it a folder to return to.
+  delete env[launchDirectoryVariable];
   withoutBenchWorkerPreload(env);
   if (resources.screenHelper && existsSync(resources.screenHelper)) {
     env.ACE_SCREEN_HELPER = resources.screenHelper;

@@ -13,7 +13,7 @@ import { CliFailure } from "./output.ts";
 import { launchLogName, openLaunchLog } from "@ace/service/launch-log";
 import {
   daemonLaunches,
-  daemonSettingsFrom,
+  launchEnvironment,
   spawnDaemonRuntime,
   startableDaemonRuntime,
 } from "@ace/service/daemon-program";
@@ -46,8 +46,8 @@ export function systemOpenRuntime(): OpenRuntime {
       );
       try {
         // The daemon outlives this launcher and owns its own lock and process inventory.
-        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it, in
-        // its own folder: no `.env` or `bunfig.toml` from where this command was run applies.
+        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it. Bun
+        // starts in the daemon's own folder: no `.env` or `bunfig.toml` from here applies.
         const launches = daemonLaunches(
           process.execPath,
           startableDaemonRuntime(process.execPath, process.platform),
@@ -57,8 +57,8 @@ export function systemOpenRuntime(): OpenRuntime {
         const child = spawnDaemonRuntime(launches, (launch) =>
           spawn(launch.command, launch.args, {
             cwd: launch.cwd,
-            // Relative settings keep naming what they did from where this command ran.
-            env: daemonSettingsFrom({ ...process.env, ACE_HOME: home }, process.cwd()),
+            // The daemon returns to this command's folder before its code runs.
+            env: launchEnvironment({ ...process.env, ACE_HOME: home }, process.cwd()),
             detached: true,
             stdio: ["ignore", log, log],
           }),
