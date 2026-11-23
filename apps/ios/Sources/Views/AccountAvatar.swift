@@ -49,40 +49,15 @@ struct AccountAvatar: View {
     }
 }
 
-/// The avatar at the leading edge of the Threads and Chats header and its menu, as the web's
-/// account menu: the person first (name, and their ace account's email), opening Profile; then
-/// Archived threads and Settings. Signing in and out is on Profile, as on the web.
+/// Opens Account from the avatar in the home toolbar.
 struct AccountMenuButton: View {
-    let open: (SettingsRoute) -> Void
-    let settings: () -> Void
+    let open: () -> Void
     @Environment(AceAccountModel.self) private var model: AceAccountModel?
-    @Environment(SpacesModel.self) private var spaces: SpacesModel?
 
     var body: some View {
-        let identity = model?.account
-        let name = identity?.name ?? ""
-        let shown = name.trimmingCharacters(in: .whitespaces).isEmpty ? "You" : name
-        Menu {
-            Section {
-                Button { open(.account) } label: {
-                    Text(shown)
-                    Text(identity?.email ?? (model?.configured == true ? "Not signed in" : "Your profile"))
-                }
-                .accessibilityIdentifier("account.menu.profile")
-            }
-            // The space switcher, as the web's account menu holds it (ADR 0206 §1.4).
-            if let spaces, let listed = spaces.spaces, !listed.isEmpty {
-                Picker("Space", selection: Binding(get: { spaces.shown?.id ?? spaces.chosen }, set: { spaces.choose($0) })) {
-                    Text("Personal").tag(Spaces.personal)
-                    ForEach(listed) { org in Text(org.name).tag(org.id) }
-                }
-                .accessibilityIdentifier("account.menu.spaces")
-            }
-            Button("Archived threads", ace: .archive) { open(.archive) }
-                .accessibilityIdentifier("account.menu.archived")
-            Button("Settings", ace: .gearSix, action: settings)
-                .accessibilityIdentifier("account.menu.settings")
-        } label: {
+        let name = model?.account?.name ?? ""
+        let shown = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "You" : name
+        Button(action: open) {
             AccountAvatar(name: name, picture: model?.picture)
         }
         .barGlyph()
@@ -99,14 +74,13 @@ struct AccountMenuButton: View {
 /// the round button Back draws beside it. The photo is the button, so iOS 26 draws no glass
 /// around it: the picture fills the circle with no inset.
 struct AccountToolbarItem: ToolbarContent {
-    let open: (SettingsRoute) -> Void
-    let settings: () -> Void
+    let open: () -> Void
     var body: some ToolbarContent {
         if #available(iOS 26, *) {
-            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open) }
                 .sharedBackgroundVisibility(.hidden)
         } else {
-            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open, settings: settings) }
+            ToolbarItem(placement: .topBarLeading) { AccountMenuButton(open: open) }
         }
     }
 }
