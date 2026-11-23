@@ -1,17 +1,36 @@
 import { BrowserBrowsingWatch, type ThreadId } from "@ace/protocol";
 import { BrowsingThreads } from "../browsing.ts";
+import type { BrowserService } from "@ace/browser";
 import type { ServiceContext } from "./types.ts";
+import { followService } from "./service-watch.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 
-/** Follows every thread browser's state to know which threads an agent is browsing in. */
-export function startBrowsing({ services, resources }: ServiceContext): void {
+/**
+ * Follows every thread browser's state to know which threads an agent is browsing in. ace's
+ * browser (and with it the person's Chrome sessions) may start after this, on a startup retry,
+ * or start again: each one published is followed in place of the last.
+ */
+export function startBrowsing(context: ServiceContext): void {
+  const { services, resources } = context;
   const browsing = new BrowsingThreads();
-  if (services.browser)
-    resources.own(services.browser.observeStates((state) => browsing.update("ace", state)));
-  if (services.userBrowserSessions)
+  const follow = (key: "browser" | "userBrowserSessions", source: string) => {
+    let stop: (() => void) | undefined;
+    let followed: BrowserService | undefined;
     resources.own(
-      services.userBrowserSessions.observeStates((state) => browsing.update("user", state)),
+      followService(context, key, (browser) => {
+        if (browser === followed) return;
+        stop?.();
+        stop = undefined;
+        // What the last browser reported no longer holds: it is gone.
+        if (followed) browsing.forget(source);
+        followed = browser;
+        stop = browser?.observeStates((state) => browsing.update(source, state));
+      }),
     );
+    resources.own(() => stop?.());
+  };
+  follow("browser", "ace");
+  follow("userBrowserSessions", "user");
   services.browsing = browsing;
 }
 
