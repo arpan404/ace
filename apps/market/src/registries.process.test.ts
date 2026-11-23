@@ -574,6 +574,19 @@ describe("the registry as its admins see it", () => {
     const empty = await asOwner(acme, withdrawPath("acme-triage"), "{}", "user_admin", "admin");
     expect(empty.answer.status).toBe(400);
   });
+
+  it("says nothing is there to an admin who has left, or while standing can't be checked", async () => {
+    const leaver = as("user_gone_admin", "admin");
+    expect((await read(listing, leaver)).status).toBe(200);
+    market.standing.end("user_gone_admin");
+    expect((await read(listing, leaver)).status).toBe(404);
+    market.standing.down(true);
+    try {
+      expect((await read(listing, admin())).status).toBe(404);
+    } finally {
+      market.standing.down(false);
+    }
+  });
 });
 
 describe("an organization's grant that no longer speaks for its member", () => {

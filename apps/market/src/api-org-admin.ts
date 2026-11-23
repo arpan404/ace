@@ -30,8 +30,10 @@ async function registryAdmin(
   sensitive: boolean,
 ): Promise<{ authed: Authed; registry: Registry } | Response> {
   const authed = await authenticate(request, context, { org: "claims", sensitive });
-  // No sign-in at all: a read says nothing exists here; a write says what it needs.
-  if (authed instanceof Response) return !sensitive && authed.status === 401 ? notFound() : authed;
+  // A read refused at sign-in says nothing exists here: no sign-in, a member who has left, or a
+  // standing the account backend can't confirm now (ADR 0206 §6: 404 reads, 503 writes). A write
+  // says what it needs.
+  if (authed instanceof Response) return sensitive ? authed : notFound();
   if (authed.org !== org) return notFound();
   const registry = await registryOf(context.dbs, org);
   if (!registry) return notFound();
