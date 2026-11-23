@@ -242,7 +242,7 @@ impl Leader {
     pub fn dispose(&self) {
         if cfg!(windows) {
             self.disown();
-            let _ = self.step(false);
+            let _ = self.step();
         }
     }
 

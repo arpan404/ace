@@ -102,29 +102,20 @@ pub fn supervisor_signal_group(group: u32, start: String, signal: String) -> nap
     })
 }
 
-/// Whether nothing of the group runs. A leader this supervisor holds
-/// answers from its state alone: gone only once confirmed empty while held.
-/// Any other group by the kernel's probe, which sends nothing.
+/// Whether nothing of the group led by (`group`, `start`) runs. A leader
+/// this supervisor holds answers from its state alone: gone only once
+/// confirmed empty while held. Any other group is never probed by number:
+/// it is gone once its leader is no longer alive with that start.
 #[napi(catch_unwind)]
-pub fn supervisor_group_gone(group: u32, start: Option<String>) -> napi::Result<bool> {
+pub fn supervisor_group_gone(group: u32, start: String) -> napi::Result<bool> {
     guarded("supervisor group gone", || {
-        if let Some(leader) = start
-            .as_deref()
-            .and_then(|start| ace_supervisor::leader::group_leader(group, start))
-        {
+        if let Some(leader) = ace_supervisor::leader::group_leader(group, &start) {
             return Ok(leader.group_gone());
         }
-        match ace_supervisor::reaper::process_group_alive(group) {
-            Ok(alive) => Ok(!alive),
-            Err(ace_supervisor::errors::SupervisorError::Unavailable(message)) => {
-                if cfg!(target_os = "macos") {
-                    Ok(true)
-                } else {
-                    Err(napi::Error::from_reason(message))
-                }
-            }
-            Err(error) => Err(bind_error(error)),
-        }
+        Ok(identity::process_identity(group)
+            .ok()
+            .flatten()
+            .is_none_or(|leader| leader.start != start))
     })
 }
 

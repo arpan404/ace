@@ -11,9 +11,15 @@ import {
   NativeChildProcess,
   nativeGroup,
   nativeKillWindowsTree,
+  onHoldLimit,
   supervisorAddon,
 } from "./native-process.ts";
 import { processIdentity } from "./process-identity.ts";
+
+// The native hold limit's kill goes through the same guard as every other group signal.
+onHoldLimit((child) => {
+  if (child.pid !== undefined) killGroup(child.pid, "SIGKILL", child);
+});
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -102,15 +108,18 @@ function nativeHandle(pid: number, start: string | undefined): GroupHandle | und
   return nativeGroup(pid, start);
 }
 
-/** A live leader with this start, and its tree by proven parent links, one by one. */
+/**
+ * A live leader with this start, and its tree by proven parent links, one by one. The capture is
+ * bound to the root's identity: read only between two checks that the root still has `start`, and
+ * discarded if it changed (a reused pid would make the capture someone else's tree).
+ */
 function signalVerifiedTree(pid: number, start: string, signal: NodeJS.Signals): void {
   let members: TreeMember[] = [];
   try {
     if (processIdentity(pid)?.start !== start) return;
-    members = [
-      { pid, start },
-      ...captureTree([pid]).members.map((m) => ({ pid: m.pid, start: m.start })),
-    ];
+    const captured = captureTree([pid]).members.map((m) => ({ pid: m.pid, start: m.start }));
+    if (processIdentity(pid)?.start !== start) return;
+    members = [{ pid, start }, ...captured];
   } catch (error) {
     process.emitWarning(`Process tree ${pid} could not be read: ${String(error)}`);
     return;
@@ -220,7 +229,9 @@ function groupGone(pid: number, group: GroupHandle | undefined, start?: string):
   const handle = group ?? nativeHandle(pid, start);
   if (handle) return handle.groupGone();
   // The native supervisor answers by the kernel's probe for a group it knows no identity of.
-  if (supervisorBackend() === "native") return supervisorAddon().supervisorGroupGone(pid);
+  // The native supervisor never probes a group by number: with no identity there is nothing
+  // it can wait for.
+  if (supervisorBackend() === "native") return true;
   try {
     process.kill(-pid, 0);
     return false;

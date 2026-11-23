@@ -292,3 +292,29 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
         Some(())
     }
 }
+
+/// Whether `pid` is a zombie (`Some(true)`), alive (`Some(false)`), or gone
+/// (`None`), read from the kernel's process state without waiting on it.
+#[cfg(unix)]
+pub fn process_zombie(pid: u32) -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        crate::listing::parse_linux_stat(&text)
+            .ok()
+            .map(|stat| stat.state == 'Z')
+    }
+    #[cfg(target_os = "macos")]
+    {
+        match crate::listing::darwin_info(pid) {
+            Some(info) => Some(info.zombie),
+            None if matches!(reaper::process_alive(pid), Ok(false)) => None,
+            None => Some(false),
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = pid;
+        None
+    }
+}

@@ -24,6 +24,8 @@ export type SupervisorEventKind =
   | "exit"
   | "close"
   | "stdin-written"
+  | "hold-limit"
+  | "held"
   | "stdin-error";
 /** For output, returns whether the stream wants more: false pauses the native pump. */
 export type SupervisorEventHandler = (
@@ -88,7 +90,7 @@ interface SupervisorAddon {
   supervisorHoldGroup(group: number, start: string): boolean;
   supervisorUnholdGroup(group: number, start: string): void;
   supervisorSignalGroup(group: number, start: string, signal: string): string;
-  supervisorGroupGone(group: number, start?: string): boolean;
+  supervisorGroupGone(group: number, start: string): boolean;
   supervisorKillWindowsTree(pid: number, force: boolean): void;
   supervisorSignalMember(memberJson: string, signal: string): string;
   supervisorCaptureTree(rootsJson: string, limit: number): string;
@@ -367,6 +369,15 @@ export class NativeChildProcess
       (kind === "stdout-end" ? this.stdout : this.stderr).push(null);
       return undefined;
     }
+    if (kind === "hold-limit") {
+      // Given up and still occupied at the hold limit: killed through the daemon's guard.
+      holdLimitHandler?.(this);
+      return undefined;
+    }
+    if (kind === "held") {
+      process.emitWarning(bytes.toString());
+      return undefined;
+    }
     if (kind === "stdin-written") {
       const written = this.written;
       this.written = undefined;
@@ -508,6 +519,16 @@ export function nativeGroup(pid: number, start: string) {
     // Held only if the registry knows it; otherwise a group by identity alone.
     spawned: false,
   };
+}
+
+let holdLimitHandler: ((child: NativeChildProcess) => void) | undefined;
+/**
+ * What a given-up group still occupied at the native hold limit gets: the owner's guarded kill
+ * (`process-owner.ts` installs it), so kept processes and a stop's caller are spared, and a
+ * group with spared members stays held.
+ */
+export function onHoldLimit(handler: (child: NativeChildProcess) => void): void {
+  holdLimitHandler = handler;
 }
 
 /** Spawns a supervised child; byte events arrive in arrival order. */

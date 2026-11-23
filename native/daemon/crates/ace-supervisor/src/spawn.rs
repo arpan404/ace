@@ -201,4 +201,9 @@ pub trait EventSink: Send + Sync + 'static {
     fn stdin_written(&self);
     /// A stdin write failed; no later write reaches the child.
     fn stdin_error(&self, message: String);
+    /// The shell gave the group up and it outlived the hold limit: the
+    /// shell kills it through its guard (the group is still held).
+    fn hold_limit(&self);
+    /// A diagnostic: the group is still held long after it was given up.
+    fn held(&self, message: String);
 }

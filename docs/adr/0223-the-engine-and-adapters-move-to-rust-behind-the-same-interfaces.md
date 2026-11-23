@@ -449,8 +449,8 @@ limit`, `rpc-writer.ts:36`), not `InputRejected`. With a TypeScript session (E5 
 **7a′. Group signals in the native supervisor.** A process group's number is signalled only
 while ace holds its leader unreaped (the unreaped leader pins the group id). The leader is reaped
 only after two consecutive empty scans while it is still held. Once the owner has given the group
-up and the hold limit passes, the still-held group is killed by number and the reap waits for it
-to empty. After release there is nothing left to signal by group, and nothing is. Descendants that
+up and the hold limit passes, the still-held group is killed by number through the daemon's guard,
+and the reap waits for it to empty; a group that never empties is reported and stays held. After release there is nothing left to signal by group, and nothing is. Descendants that
 left the group are stopped one by one by verified identity, as the subreaper's orphans
 (behaviour.md §15).
 

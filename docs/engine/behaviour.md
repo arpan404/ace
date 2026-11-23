@@ -501,7 +501,11 @@ Every provider, probe and shell ace starts goes through `@ace/provider-kit/proce
   The native supervisor (`ACE_SUPERVISOR=native`) enforces this: it reads the leader's exit
   without reaping (`waitid(WNOWAIT)`) and reaps only once two consecutive scans, still held,
   find the group empty. Once the owner has given the group up, at the hold limit it kills the
-  still-held group by number and waits for it to empty. After the reap nothing is signalled by
+  still-held group through the daemon's group guard (kept processes and a stop's caller are
+  spared, and spared members keep the group held), and again each period after. A group still
+  held a period after that kill (a member that never exits, such as one in uninterruptible sleep,
+  or a `/proc` that cannot be read) is reported once as a warning and stays held, scanned at a
+  low rate, until it empties or the daemon exits. After the reap nothing is signalled by
   group (no member lists, probes or later captures). Group signals need the leader's identity
   (pid and start), never a pid alone. Descendants that left the group (setsid, setpgid) reparent
   to ace, the subreaper, and are stopped one by one by verified identity (pid and start, pidfd
@@ -512,7 +516,7 @@ Every provider, probe and shell ace starts goes through `@ace/provider-kit/proce
   Identity is the strict `ProcessIdentity` (`pid`, `start`, `uid`, `group`,
   `process-identity.ts:197`–`:203`), so a reused pid is never signalled. `start` is encoded per
   platform, and the journal's readers compare it as a string: Linux `<boot_id>:<starttime
-  ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twice to prove the
+ticks>` from `/proc/sys/kernel/random/boot_id` and `/proc/<pid>/stat`, read twice to prove the
   process didn't change (`:244`–`:263`); macOS `<tv_sec>:<tv_usec>` of the kernel start time from
   `proc_pidinfo` (`:265`–`:281`); Windows the creation `FILETIME` and the owner's SID
   (`:285`–`:291`). Rows: `processes(pid, entry)` (`process-inventory.ts:85`) and `escapees`,

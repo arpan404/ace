@@ -48,49 +48,38 @@ impl Leader {
                     };
                 }
                 // Anything else: the pid is still this process's unreaped
-                // child, so wait for it by polling the reap itself, keeping
-                // the handle (and so the pin) until the reap succeeds.
-                Err(_) => return self.poll_reap(),
+                // child; watch its state without reaping it, so it stays
+                // held and is released like any other leader.
+                Err(_) => return self.poll_exit(),
             }
         }
     }
 
-    /// Reaps the leader by polling `try_wait`, holding its handle until the
-    /// reap succeeds; a reap that keeps failing leaves the handle held and
-    /// the group released, so its number is never signalled.
+    /// Waits for the leader to become a zombie by reading its state, never
+    /// reaping it: it stays held and its group is released by the same
+    /// confirmed-empty rule. The exit code is not read on this path (only
+    /// the reap would give it), so the exit is reported unknown. A pid that
+    /// vanished was reaped by something else: unpinned, like ECHILD.
     #[cfg(unix)]
-    fn poll_reap(&self) -> RawExit {
-        use std::os::unix::process::ExitStatusExt as _;
+    fn poll_exit(&self) -> RawExit {
+        let unknown = RawExit {
+            code: None,
+            signal: None,
+        };
         loop {
-            let polled = match self.state.lock() {
-                Ok(mut state) => match state.child.as_mut().map(std::process::Child::try_wait) {
-                    Some(Ok(Some(status))) => {
-                        state.child = None;
-                        state.exited = true;
-                        state.released = true;
-                        Some(Ok(status))
-                    }
-                    Some(Ok(None)) => None,
-                    Some(Err(error)) => Some(Err(error)),
-                    None => Some(Err(std::io::Error::other("leader already released"))),
-                },
-                Err(_) => Some(Err(std::io::Error::other("leader lock failed"))),
-            };
-            match polled {
-                Some(Ok(status)) => {
-                    return RawExit {
-                        code: status.code(),
-                        signal: status.signal().map(signal_name),
-                    };
+            match crate::system::process_zombie(self.pid) {
+                Some(true) => {
+                    self.mark_exited();
+                    return unknown;
                 }
-                Some(Err(_)) => {
+                Some(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
+                None => {
                     self.unpin();
-                    return RawExit {
-                        code: None,
-                        signal: None,
-                    };
+                    if let Ok(mut state) = self.state.lock() {
+                        state.child = None;
+                    }
+                    return unknown;
                 }
-                None => std::thread::sleep(std::time::Duration::from_millis(50)),
             }
         }
     }
@@ -125,7 +114,7 @@ impl Leader {
                 .and_then(|status| status.code())
         });
         self.mark_exited();
-        self.step(false);
+        self.step();
         RawExit { code, signal: None }
     }
 

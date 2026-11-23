@@ -41,35 +41,55 @@ enum StdinAbort {
     Pipe(Arc<crate::winstdin::StdinPipe>),
 }
 
-/// A spawned child nothing owns yet: if setup fails before the leader and
-/// its waiter exist, the drop ends the whole tree and reaps the leader.
-struct Unowned(Option<std::process::Child>);
+/// A spawned child nothing owns yet: if setup fails before the shell owns
+/// it, the drop hands it to the same release path as any leader: the group
+/// is killed while held, and the leader is reaped only once its group is
+/// confirmed empty. It never reached the shell, so no guard applies to it.
+struct Unowned {
+    child: Option<std::process::Child>,
+    runtime: tokio::runtime::Handle,
+}
 
 impl Unowned {
     fn child(&mut self) -> Result<&mut std::process::Child, SupervisorError> {
-        self.0.as_mut().ok_or(SupervisorError::Closed)
+        self.child.as_mut().ok_or(SupervisorError::Closed)
     }
 
     fn own(mut self) -> Result<std::process::Child, SupervisorError> {
-        self.0.take().ok_or(SupervisorError::Closed)
+        self.child.take().ok_or(SupervisorError::Closed)
     }
 }
 
 impl Drop for Unowned {
     fn drop(&mut self) {
-        let Some(mut child) = self.0.take() else {
+        let Some(child) = self.child.take() else {
             return;
         };
-        // The leader is unreaped, so its group id is still this tree's.
+        let leader = Leader::new(child);
+        leader.disown();
         #[cfg(unix)]
-        if let Some(group) = i32::try_from(child.id())
-            .ok()
-            .and_then(rustix::process::Pid::from_raw)
         {
-            let _ = rustix::process::kill_process_group(group, rustix::process::Signal::KILL);
+            let _ = leader.signal_group(SignalName::Kill);
+            let held = Arc::clone(&leader);
+            let escalation = release::Escalation {
+                limit: Box::new(move || {
+                    let _ = held.signal_group(SignalName::Kill);
+                }),
+                stuck: Box::new(|| {}),
+            };
+            self.runtime.spawn(async move {
+                let watched = Arc::clone(&leader);
+                let _ = tokio::task::spawn_blocking(move || watched.wait_exit()).await;
+                release_when_group_empty(leader, escalation).await;
+            });
         }
-        let _ = child.kill();
-        let _ = child.wait();
+        #[cfg(not(unix))]
+        {
+            let _ = leader.kill(SignalName::Kill);
+            self.runtime.spawn(async move {
+                let _ = tokio::task::spawn_blocking(move || leader.wait_exit()).await;
+            });
+        }
     }
 }
 
@@ -118,7 +138,10 @@ pub fn spawn_child<E: EventSink + Clone>(
         .map_err(|error| SupervisorError::Operation(format!("spawn {}: {error}", spec.command)));
     // The command holds the child's ends; this process must not keep them.
     drop(command);
-    let mut unowned = Unowned(Some(spawned?));
+    let mut unowned = Unowned {
+        child: Some(spawned?),
+        runtime: runtime.clone(),
+    };
     #[cfg(windows)]
     let job = contain_windows(spec, unowned.child()?)?;
     #[cfg(unix)]
@@ -190,7 +213,7 @@ type Writers = Option<(Arc<ChildJob>, Arc<crate::pump::OutputBudget>)>;
 #[cfg(not(windows))]
 type Writers = ();
 
-async fn wait_and_close<E: EventSink>(
+async fn wait_and_close<E: EventSink + Clone>(
     leader: Arc<Leader>,
     sink: E,
     pumps: Vec<tokio::task::JoinHandle<()>>,
@@ -214,7 +237,19 @@ async fn wait_and_close<E: EventSink>(
     #[cfg(not(windows))]
     let () = writers;
     #[cfg(unix)]
-    tokio::spawn(release_when_group_empty(leader));
+    {
+        let (limit_sink, stuck_sink, pid) = (sink.clone(), sink.clone(), leader.pid());
+        let escalation = release::Escalation {
+            limit: Box::new(move || limit_sink.hold_limit()),
+            stuck: Box::new(move || {
+                stuck_sink.held(format!(
+                    "Process group {pid} is still held after it was given up and killed: a member \
+                     does not exit or cannot be read; it stays held until it empties"
+                ));
+            }),
+        };
+        tokio::spawn(release_when_group_empty(leader, escalation));
+    }
     #[cfg(not(unix))]
     drop(leader);
     // Like node's `close`: no byte arrives after this.

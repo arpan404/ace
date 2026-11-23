@@ -1,16 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Releasing a leader, the only way its hold ends: exited, unheld, and its
 //! group confirmed empty by two consecutive empty scans while still held.
-//! At the hold limit (the shell gave the group up long enough ago) a group
-//! still occupied is killed by number, still held, and release waits for it
-//! to empty. Then the reap, retried until it succeeds.
+//! Then the reap, retried until it succeeds. Nothing here signals: the hold
+//! limit's kill is the release loop's escalation, through the shell's guard.
 
 use super::{Leader, ReleaseStep};
 
 impl Leader {
-    /// One release step; `limit_reached` when the shell gave the group up
-    /// at least the hold limit ago.
-    pub(crate) fn step(&self, limit_reached: bool) -> ReleaseStep {
+    /// One release step.
+    pub(crate) fn step(&self) -> ReleaseStep {
         let (released, disowned) = match self.state.lock() {
             Ok(state) if state.released => (true, state.disowned),
             Ok(state) if !state.exited || state.holds > 0 => return ReleaseStep::Held,
@@ -20,18 +18,12 @@ impl Leader {
         if !released {
             if cfg!(unix) {
                 if !self.scanned_empty_twice() {
-                    #[cfg(unix)]
-                    if limit_reached {
-                        // Still held: the number is still this group's.
-                        let _ = self.signal_group(crate::signal::SignalName::Kill);
-                    }
                     return ReleaseStep::Held;
                 }
             } else if !disowned {
                 // Windows: no group; the handle closes once the shell is done.
                 return ReleaseStep::Held;
             }
-            let _ = limit_reached;
             match self.state.lock() {
                 Ok(mut state) if state.exited && state.holds == 0 => {
                     state.released = true;

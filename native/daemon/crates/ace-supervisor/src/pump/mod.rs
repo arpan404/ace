@@ -25,15 +25,34 @@ const HANGUP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// What the process's outputs share: its output budget
 /// (`maxOutputBytes`), the read-ahead pool both pumps draw on while their
-/// shell streams are full, and whether every writer is known gone.
+/// shell streams are full, and whether every writer is known gone. A read is
+/// reserved against both before it is made and settled after, under one
+/// lock, so the two pumps together never overshoot either.
 #[derive(Default)]
 pub struct OutputBudget {
     limit: Option<u64>,
-    read: std::sync::atomic::AtomicU64,
-    /// Bytes read while their stream was full, both pumps together.
-    ahead: std::sync::atomic::AtomicUsize,
+    shared: Mutex<Shared>,
     /// Every process that could write is gone (Windows: the job emptied).
     writers_gone: std::sync::atomic::AtomicBool,
+}
+
+#[derive(Default)]
+struct Shared {
+    /// Bytes read or reserved, both pumps together.
+    read: u64,
+    /// Bytes read or reserved while their stream was full.
+    ahead: usize,
+}
+
+/// How a read is admitted.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Admit {
+    /// The shell's stream wants more: a whole chunk, counted.
+    Flowing,
+    /// The stream is full: within the read-ahead pool and the budget.
+    Ahead,
+    /// The stream is full and every writer is gone: within the budget.
+    Draining,
 }
 
 impl OutputBudget {
@@ -54,27 +73,49 @@ impl OutputBudget {
         self.writers_gone.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    fn ahead_room(&self) -> usize {
-        PAUSED_READ_BYTES
-            .saturating_sub(self.ahead.load(std::sync::atomic::Ordering::Relaxed))
-            .min(self.remaining())
+    /// Reserves up to `want` bytes for one read; zero when nothing may be.
+    fn reserve(&self, want: usize, admit: Admit) -> usize {
+        let Ok(mut shared) = self.shared.lock() else {
+            return 0;
+        };
+        let budget = match self.limit {
+            None => usize::MAX,
+            Some(limit) => usize::try_from(limit.saturating_sub(shared.read)).unwrap_or(usize::MAX),
+        };
+        let grant = match admit {
+            Admit::Flowing => want,
+            Admit::Draining => want.min(budget),
+            Admit::Ahead => want
+                .min(budget)
+                .min(PAUSED_READ_BYTES.saturating_sub(shared.ahead)),
+        };
+        shared.read = shared
+            .read
+            .saturating_add(u64::try_from(grant).unwrap_or(u64::MAX));
+        if admit != Admit::Flowing {
+            shared.ahead += grant;
+        }
+        grant
     }
 
-    fn remaining(&self) -> usize {
-        match self.limit {
-            None => usize::MAX,
-            Some(limit) => {
-                let read = self.read.load(std::sync::atomic::Ordering::Relaxed);
-                usize::try_from(limit.saturating_sub(read)).unwrap_or(usize::MAX)
+    /// Settles a reservation: what the read did not use goes back.
+    fn settle(&self, granted: usize, used: usize, admit: Admit) {
+        let unused = granted.saturating_sub(used);
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.read = shared
+                .read
+                .saturating_sub(u64::try_from(unused).unwrap_or(u64::MAX));
+            if admit != Admit::Flowing {
+                shared.ahead = shared.ahead.saturating_sub(unused);
             }
         }
     }
 
-    fn count(&self, bytes: usize) {
-        self.read.fetch_add(
-            u64::try_from(bytes).unwrap_or(u64::MAX),
-            std::sync::atomic::Ordering::Relaxed,
-        );
+    /// Returns read-ahead the shell took up (or dropped with its stream).
+    fn give_back_ahead(&self, bytes: usize) {
+        if let Ok(mut shared) = self.shared.lock() {
+            shared.ahead = shared.ahead.saturating_sub(bytes);
+        }
     }
 }
 
@@ -129,9 +170,7 @@ impl Flow {
     fn give_back(&self) {
         if let Ok(mut state) = self.state.lock() {
             let returned = std::mem::take(&mut state.paused_bytes);
-            self.budget
-                .ahead
-                .fetch_sub(returned, std::sync::atomic::Ordering::Relaxed);
+            self.budget.give_back_ahead(returned);
         }
     }
 
@@ -148,49 +187,46 @@ impl Flow {
         self.changed.notify_one();
     }
 
-    /// Takes a slot for one chunk: how many bytes it may read, or `None`
-    /// while chunks are queued to the limit or the paused allowance (within
-    /// the output budget) is spent.
-    fn admit(&self) -> Option<usize> {
+    /// Takes a slot and reserves one read: its size and how it was
+    /// admitted, or `None` while chunks are queued to the limit or nothing
+    /// may be read ahead.
+    fn admit(&self) -> Option<(usize, Admit)> {
         let mut state = self.state.lock().ok()?;
         if state.in_flight >= MAX_IN_FLIGHT {
             return None;
         }
-        let room = if !state.paused {
-            CHUNK_BYTES
+        let admit = if !state.paused {
+            Admit::Flowing
         } else if state.draining {
-            // The writer is gone: the rest is bounded, but still budgeted.
-            CHUNK_BYTES.min(self.budget.remaining())
+            Admit::Draining
         } else {
-            self.budget.ahead_room()
+            Admit::Ahead
         };
-        if room == 0 {
+        let grant = self.budget.reserve(CHUNK_BYTES, admit);
+        if grant == 0 {
             return None;
         }
         state.in_flight += 1;
-        Some(room.min(CHUNK_BYTES))
+        Some((grant, admit))
     }
 
-    /// Counts a read against the budget, and against the allowance while
-    /// the shell's stream is full.
-    fn read(&self, bytes: usize) {
-        self.budget.count(bytes);
-        if let Ok(mut state) = self.state.lock()
-            && state.paused
+    /// Settles a read: unused reservation goes back; bytes read ahead count
+    /// against this stream until the shell takes them up.
+    fn read(&self, granted: usize, used: usize, admit: Admit) {
+        self.budget.settle(granted, used, admit);
+        if admit != Admit::Flowing
+            && let Ok(mut state) = self.state.lock()
         {
-            state.paused_bytes += bytes;
-            self.budget
-                .ahead
-                .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+            state.paused_bytes += used;
         }
     }
 
-    /// Whether the pump waits on the paused allowance alone (no chunk of its
-    /// own queued): then only a hangup can let it read on.
+    /// Whether the pump waits on the read-ahead alone (no chunk of its own
+    /// queued): then only a hangup can let it read on, or end the stream.
     fn at_paused_cap(&self) -> bool {
         self.state
             .lock()
-            .is_ok_and(|state| state.paused && !state.draining && state.in_flight < MAX_IN_FLIGHT)
+            .is_ok_and(|state| state.paused && state.in_flight < MAX_IN_FLIGHT)
     }
 
     fn drain(&self) {
@@ -218,16 +254,22 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
 ) {
     let mut buffer = vec![0u8; CHUNK_BYTES];
     loop {
-        let room = loop {
-            if let Some(room) = flow.admit() {
-                break room;
+        let (room, admit) = loop {
+            if let Some(admitted) = flow.admit() {
+                break admitted;
             }
             let at_cap = flow.at_paused_cap();
             tokio::select! {
                 () = flow.changed.notified() => {}
                 () = flow.closed.cancelled() => return,
-                // At the allowance: look for a hangup without consuming.
+                // At the cap: probe the pipe without consuming. Hung up with
+                // nothing left is EOF; hung up with bytes left drains them
+                // within the budget.
                 () = tokio::time::sleep(HANGUP_POLL), if at_cap => {
+                    if reader.at_eof() {
+                        sink.end(stream);
+                        return;
+                    }
                     if reader.hung_up() || flow.budget.writers_gone() {
                         flow.drain();
                     }
@@ -236,16 +278,20 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
         };
         let read = tokio::select! {
             read = reader.read(&mut buffer[..room]) => read,
-            () = flow.closed.cancelled() => return,
+            () = flow.closed.cancelled() => {
+                flow.read(room, 0, admit);
+                return;
+            }
         };
         match read {
             Ok(0) | Err(_) => {
+                flow.read(room, 0, admit);
                 flow.release();
                 sink.end(stream);
                 return;
             }
             Ok(n) => {
-                flow.read(n);
+                flow.read(room, n, admit);
                 sink.output(
                     stream,
                     buffer[..n].to_vec(),
@@ -256,68 +302,8 @@ pub async fn pump_output<E: EventSink, R: tokio::io::AsyncRead + Unpin + HangUp>
     }
 }
 
-/// A pipe end that can tell, without reading, that its writer is gone.
-pub trait HangUp {
-    fn hung_up(&self) -> bool;
-}
-
-/// POSIX: `poll` reports POLLHUP once every writer has closed; nothing is
-/// read, so buffered bytes stay for the shell.
-#[cfg(unix)]
-fn fd_hung_up(fd: std::os::fd::BorrowedFd<'_>) -> bool {
-    use rustix::event::{PollFd, PollFlags, Timespec, poll};
-    let mut fds = [PollFd::new(&fd, PollFlags::IN)];
-    let now = Timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    matches!(poll(&mut fds, Some(&now)), Ok(n) if n > 0)
-        && fds[0].revents().contains(PollFlags::HUP)
-}
-
-#[cfg(unix)]
-impl HangUp for tokio::process::ChildStdout {
-    fn hung_up(&self) -> bool {
-        use std::os::fd::AsFd as _;
-        fd_hung_up(self.as_fd())
-    }
-}
-
-#[cfg(unix)]
-impl HangUp for tokio::process::ChildStderr {
-    fn hung_up(&self) -> bool {
-        use std::os::fd::AsFd as _;
-        fd_hung_up(self.as_fd())
-    }
-}
-
-/// Windows: `PeekNamedPipe` reads nothing; a broken pipe with no bytes
-/// left is the hangup. Bytes still buffered after the writer left read as
-/// not hung up, so that stream waits for its reader.
-#[cfg(windows)]
-impl HangUp for tokio::net::windows::named_pipe::NamedPipeServer {
-    #[allow(unsafe_code)]
-    fn hung_up(&self) -> bool {
-        use std::os::windows::io::AsRawHandle as _;
-        use windows_sys::Win32::Foundation::{ERROR_BROKEN_PIPE, GetLastError};
-        use windows_sys::Win32::System::Pipes::PeekNamedPipe;
-        let mut available = 0u32;
-        // SAFETY: the handle is this live server end; no buffer is passed
-        // and `available` is an owned local, so nothing is read or moved.
-        let peeked = unsafe {
-            PeekNamedPipe(
-                self.as_raw_handle(),
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                &mut available,
-                std::ptr::null_mut(),
-            )
-        };
-        // SAFETY: reads this thread's error slot right after the call.
-        peeked == 0 && unsafe { GetLastError() } == ERROR_BROKEN_PIPE
-    }
-}
+mod hangup;
+pub use hangup::HangUp;
 
 /// What the shell queues for stdin, in its order.
 pub enum StdinMessage {

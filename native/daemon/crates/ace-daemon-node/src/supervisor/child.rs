@@ -84,6 +84,14 @@ impl EventSink for TsfnSink {
     fn stdin_error(&self, message: String) {
         self.send("stdin-error", message.into_bytes());
     }
+
+    fn hold_limit(&self) {
+        self.send("hold-limit", Vec::new());
+    }
+
+    fn held(&self, message: String) {
+        self.send("held", message.into_bytes());
+    }
 }
 
 /// A spawn request from the shell. `env` is the child's whole environment.
