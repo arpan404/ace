@@ -134,9 +134,11 @@ export function followInbox(
   lastSort?: HomeSort,
   /** Failed sends the person took back or discarded: they leave Unsent and the transcript. */
   dismissed: DismissedSends = keepNone,
+  /** Told of each thread deleted from this phone. */
+  deleted?: (threadId: string) => void,
 ): InboxFollow {
   const store = owner.threads().store;
-  const organizer = inboxOrganizer(owner, machineId, clock);
+  const organizer = inboxOrganizer(owner, machineId, clock, deleted);
   const sends = owner.pendingSends();
   const connection = owner.connectionState();
   // The daemon socket, which changes with every reconnect even when a drop and its recovery

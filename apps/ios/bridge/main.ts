@@ -66,6 +66,7 @@ import { NativeDevices, NativeDeviceControl } from "./native-devices.ts";
 import { phoneMedia, type PhoneMedia } from "./phone-media.ts";
 import { NativeScreen, NativeScreenControl } from "./native-screen.ts";
 import { nativeReadSnapshots } from "./read-snapshots.ts";
+import { forgetTree } from "./thread-summary-tree.ts";
 import { CacheAction, handleCacheAction } from "./chat-cache.ts";
 import { NativeTransfers, TransferAction } from "./transfers.ts";
 import { NativeAutomations } from "./automations.ts";
@@ -212,6 +213,7 @@ const sheets = new Sheets(pump, preview, {
   now: () => host.now(),
   id: () => host.uuid(),
   scheduler,
+  tree: () => snapshots,
 });
 /** Subagent retries asked from this phone, kept across visits to their threads. */
 const retries = new SubagentRetries();
@@ -409,6 +411,10 @@ async function start(json: string): Promise<void> {
     (checkpoint) => void call("inbox.checkpoint", null, checkpoint).catch(() => {}),
     config.inboxSort,
     dismissed,
+    // What the Summary kept of a deleted thread's delegates goes with it.
+    (threadId) => {
+      if (snapshots) void forgetTree(snapshots, threadId);
+    },
   );
   needs?.stop();
   needs = followNeeds(client, pump);

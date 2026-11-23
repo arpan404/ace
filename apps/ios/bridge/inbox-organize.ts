@@ -15,6 +15,8 @@ import type { InboxClock } from "./inbox-rows.ts";
 export interface InboxOrganizer {
   /** This machine, as the phone names it: moves name threads of every machine. */
   readonly machineId: string;
+  /** Told when a thread this phone deleted is gone; also by deletes that skip `run`. */
+  readonly deleted?: ((threadId: string) => void) | undefined;
   /** The daemon's entry with this phone's unconfirmed actions applied. */
   entry(id: string): ThreadListEntry | undefined;
   /** Every listed thread's entry, as `entry` shows it. */
@@ -42,11 +44,14 @@ export function inboxOrganizer(
   owner: ClientCore,
   machineId: string,
   clock: InboxClock,
+  /** Told of each thread the daemon deleted on this phone's word, so what it kept of it goes. */
+  deleted?: (threadId: string) => void,
 ): InboxOrganizer {
   const store = owner.threads().store;
   const pending = new PendingActions();
   return {
     machineId,
+    deleted,
     entry(id) {
       const entry = store.thread(id);
       return entry && pending.apply(entry);
@@ -70,6 +75,7 @@ export function inboxOrganizer(
               },
               receipt: (result) => {
                 heard?.(result);
+                if (result.ok && payload.type === "thread.delete") deleted?.(threadId);
                 if (result.ok) accepted();
                 else refused(new Refused(requestId));
               },
