@@ -7,8 +7,9 @@ struct SpadePart<Value: Decodable & Sendable>: Decodable, Sendable {
     let part: Value?
     let title: String?
     let message: String?
+    let confirmPerson: Bool?
     init(ok: Bool, part: Value? = nil, title: String? = nil, message: String? = nil) {
-        self.ok = ok; self.part = part; self.title = title; self.message = message
+        self.ok = ok; self.part = part; self.title = title; self.message = message; self.confirmPerson = nil
     }
     var problem: String? { SpadeOutcome(ok: ok, title: title, message: message).problem }
 }

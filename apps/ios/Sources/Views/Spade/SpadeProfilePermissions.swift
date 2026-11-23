@@ -18,6 +18,11 @@ struct SpadeProfilePermissions: View {
     /// Why Spade refused a switch's change, by its key.
     @State private var refused: [String: String] = [:]
 
+    private struct Pending {
+        let on: Bool?
+    }
+    @State private var pending: [String: Pending] = [:]
+
     var body: some View {
         Group {
             if let permissions {
@@ -62,6 +67,12 @@ struct SpadeProfilePermissions: View {
             if let why = refused[row.key] {
                 Text(why).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
             }
+            if let retry = pending[row.key] {
+                Button("Confirm it's you") { change(row.key, on: retry.on, confirmed: true) }
+                    .aceFont(AceDesign.TextRole.action)
+                    .buttonStyle(.borderless)
+                    .disabled(saving != nil)
+            }
             if row.key == "computer_use" && row.on {
                 Text("It never uses the apps listed under Computer use in Settings › Spade.")
                     .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.subtle)
@@ -69,14 +80,16 @@ struct SpadeProfilePermissions: View {
         }
     }
 
-    private func change(_ key: String, on: Bool?) {
+    private func change(_ key: String, on: Bool?, confirmed: Bool = false) {
         guard saving == nil else { return }
         saving = key
         refused[key] = nil
+        pending[key] = nil
         Task {
-            let answer = await client.spadePermission(agent, key: key, on: on)
+            let answer = await client.spadePermission(agent, key: key, on: on, confirmed: confirmed)
             saving = nil
             if answer.ok, let fresh = answer.part { permissions = fresh }
+            else if answer.confirmPerson == true { pending[key] = Pending(on: on) }
             else { refused[key] = answer.problem ?? "Spade didn't take the change." }
         }
     }

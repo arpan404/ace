@@ -31,8 +31,8 @@ extension ClientModel {
                         failing: "Couldn't read its permissions")
     }
     /// One switch on or off; nil goes back to the default in Settings › Spade › Security.
-    func spadePermission(_ agent: String, key: String, on: Bool?) async -> SpadePart<SpadePermissions> {
-        let payload: [String: Any] = ["type": "spade.permission", "agentId": agent, "key": key,
+    func spadePermission(_ agent: String, key: String, on: Bool?, confirmed: Bool) async -> SpadePart<SpadePermissions> {
+        let payload: [String: Any] = ["type": "spade.permission", "agentId": agent, "key": key, "confirmed": confirmed,
                                       "on": on.map { $0 as Any } ?? NSNull()]
         return await spadePart(payload, as: SpadePermissions.self, failing: "Couldn't change the permission")
     }

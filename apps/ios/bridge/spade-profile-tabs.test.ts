@@ -57,7 +57,7 @@ test("a bot's Permissions say which switches follow the default, and a change re
 });
 
 test("turning a permission on without the person's standing is refused in words, and nothing changes", async () => {
-  const { ask, patches } = await setUp((fake) => {
+  const { ask, api, patches } = await setUp((fake) => {
     fake.addAgent({ id: "writer", name: "Writer" });
     fake.security.permissions.standing = false;
   });
@@ -70,11 +70,27 @@ test("turning a permission on without the person's standing is refused in words,
 
   const answer = await ask({ type: "spade.permission", agentId: "writer", key: off.key, on: true });
 
-  expect(answer).toMatchObject({ ok: false, title: "Couldn't change the permission" });
+  expect(answer).toMatchObject({
+    ok: false,
+    title: "Couldn't change the permission",
+    confirmPerson: true,
+  });
   const now = partOf<SpadeProfilePermissions>(
     await ask({ type: "spade.permissions", agentId: "writer" }),
   );
   expect(now?.rows.find((row) => row.key === off.key)).toMatchObject({ on: false, own: false });
+
+  const retry = {
+    type: "spade.permission",
+    agentId: "writer",
+    key: off.key,
+    on: true,
+    confirmed: true,
+  };
+  expect(await ask(retry)).toMatchObject({ ok: false, confirmPerson: false });
+  api.security.permissions.standing = true;
+  const saved = partOf<SpadeProfilePermissions>(await ask(retry));
+  expect(saved?.rows.find((row) => row.key === off.key)).toMatchObject({ on: true, own: true });
 });
 
 test("Work shows a bot's goal with its evidence, its workers and what it decided for the person", async () => {

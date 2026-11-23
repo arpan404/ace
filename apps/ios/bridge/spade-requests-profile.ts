@@ -55,6 +55,7 @@ export const spadeProfileRequests = spadeRequestArea(
       agentId,
       key: permissionKey,
       on: z.boolean().nullable(),
+      confirmed: z.boolean().optional(),
     }),
     /** The Work tab: the goal and plan, the workers and the decisions. */
     z.object({ type: z.literal("spade.work"), agentId }),
@@ -111,7 +112,12 @@ export const spadeProfileRequests = spadeRequestArea(
           });
           return { ok: true, part: spadePermissionsOf(body) };
         } catch (error) {
-          return spadeRefused("Couldn't change the permission", error);
+          const refusal = spadeRefused("Couldn't change the permission", error);
+          return {
+            ...refusal,
+            confirmPerson:
+              !request.confirmed && refusal.message === "Confirm your identity to continue.",
+          };
         }
       case "spade.work":
         return readWork(context, request.agentId, path);
