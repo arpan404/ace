@@ -19,7 +19,7 @@
  * sessions created after a boot take its backend.
  */
 import { appendFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export type NativeBackend = "native" | "typescript";
 export type CoreBackend = "native" | "wasm" | "typescript";
@@ -215,15 +215,30 @@ function noteBoot(root: string, kinds: readonly CrossSwitch[]): void {
 }
 
 /**
+ * The root a database path belongs to: the directory holding the database.
+ * Crash copies (`crash.sqlite` beside `events.sqlite`) and the journal beside
+ * the event database boot the same root, which is what the cross-mode gate
+ * asserts alternation on. `:memory:` databases have no durable root.
+ */
+function bootRoot(path: string): string | undefined {
+  if (path === ":memory:") return undefined;
+  return dirname(resolve(path));
+}
+
+/**
  * The store's connection factory calls this once per event-database open.
  * Translators, sessions and engines created after the boot take its backend.
  */
-export function noteDatabaseBoot(root: string): void {
+export function noteDatabaseBoot(path: string): void {
+  const root = bootRoot(path);
+  if (root === undefined) return;
   noteBoot(root, ["ACE_STORE", "ACE_TRANSLATORS", "ACE_SESSIONS", "ACE_ENGINE"]);
 }
 
 /** `ProcessInventory`'s constructor calls this once per journal open. */
-export function noteJournalBoot(root: string): void {
+export function noteJournalBoot(path: string): void {
+  const root = bootRoot(path);
+  if (root === undefined) return;
   noteBoot(root, ["ACE_SUPERVISOR"]);
 }
 
