@@ -192,7 +192,7 @@ Spade is one of ace's places. It adds no navigation of its own.
   <Bot> suggests it" (the publisher from the market's signed manifest); then its one line, the
   bot's reason, "It would ask to:" and its asks in a few words each, and one quiet line that
   nothing is installed until the person reviews it. One primary, Review install, opens the
-  Marketplace's install review over the page; Later and Not now as ghost words. Installed, it
+  Store's install review over the page; Later and Not now as ghost words. Installed, it
   settles to one quiet line with the face ("Installed Flight watcher"); left for later, one line
   with Review.
 - **Panel confirm** (an action a package's panel declares `confirm`, ADR 0200 §5.2 amendment 1):

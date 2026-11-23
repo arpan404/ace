@@ -91,6 +91,8 @@ export function fakeStale(
 }
 
 export class FakeSpadeComputer {
+  /** Workspace paths read with no revision, as Spade reads a file past the size it takes one of. */
+  readonly unrevised = new Set<string>();
   private readonly drivers = new Map<string, "bot" | "person">();
   private readonly surfaces = new Map<string, FakeSurface[]>();
   private readonly terminals = new Map<string, Terminal>();
@@ -295,6 +297,12 @@ export class FakeSpadeComputer {
       if (bad(path)) return problem(400, "That path isn't in the workspace.");
       const stale = action === "upload" ? fakeStale(files, path, body.base) : undefined;
       if (stale) return stale;
+      // A new file the person picked never replaces one made meanwhile.
+      const taken =
+        files[path] !== undefined ||
+        folders.has(path) ||
+        Object.keys(files).some((name) => name.startsWith(`${path}/`));
+      if (action === "upload" && body.if_absent === true && taken) return problem(409, "changed");
       if (action === "upload") files[path] = text();
       else folders.add(path);
       this.filesChanged(agent, [path]);

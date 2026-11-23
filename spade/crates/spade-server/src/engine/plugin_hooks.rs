@@ -3,8 +3,6 @@
 //! `PreToolUse` before the gate, `Stop` as a reply is about to finish, `PreCompact` before
 //! compacting. Each answer is stored as an event before the turn moves on, so a rebuilt prompt
 //! is the same and a restart never runs a hook again for what it already answered.
-//!
-//! Bots on a subscription (ADR 0133) get only rules: their CLI runs its own hooks.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -204,12 +202,7 @@ fn ran_event(hook: &str, target: &str, outcomes: Vec<HookOutcome>) -> Event {
 /// Stores the bot's plugin rules and `SessionStart` text when they are due: before the first model
 /// call, after a compaction, or after the person changed the bot's plugins. Returns whether it
 /// stored anything.
-pub(super) async fn start_if_needed(
-    engine: &Arc<Engine>,
-    id: &str,
-    events: &[Event],
-    cli: bool,
-) -> bool {
+pub(super) async fn start_if_needed(engine: &Arc<Engine>, id: &str, events: &[Event]) -> bool {
     let Some(due) = hooks::plugins_due(events) else {
         return false;
     };
@@ -233,15 +226,11 @@ pub(super) async fn start_if_needed(
             }),
         );
     }
-    let rules = plugins.rules(&agent, cli);
-    let outcomes = if cli {
-        Vec::new()
-    } else {
-        let input = json!({ "session_id": id, "source": due.source() });
-        plugins
-            .run_hooks(&agent, hooks::SESSION_START, None, input)
-            .await
-    };
+    let rules = plugins.rules(&agent);
+    let input = json!({ "session_id": id, "source": due.source() });
+    let outcomes = plugins
+        .run_hooks(&agent, hooks::SESSION_START, None, input)
+        .await;
     let added = hooks::session_text(&outcomes);
     let stored = store(
         engine,

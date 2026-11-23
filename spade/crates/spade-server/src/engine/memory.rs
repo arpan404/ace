@@ -389,30 +389,52 @@ impl Engine {
         arguments: &Value,
         turn: &crate::tools::TurnFacts,
     ) -> ToolOutput {
-        let suggest = turn.memory_suggests;
-        let origin = self.origin_of(caller, turn);
-        let agent = match self.store.agent_for_conversation(caller) {
-            Ok(Some(agent)) => agent,
-            Ok(None) => return ToolOutput::error("This conversation has no bot."),
-            Err(error) => return ToolOutput::error(format!("Memory is unavailable: {error}")),
-        };
-        let text = |key: &str| arguments.get(key).and_then(Value::as_str).unwrap_or("");
         let result = match call {
-            MemoryCall::Save if suggest => self.tool_suggest(&agent.id, text("text"), &origin),
-            MemoryCall::Update if suggest => self
-                .visible_note(&agent.id, text("id"))
-                .and_then(|_| self.tool_suggest(&agent.id, text("text"), &origin)),
-            MemoryCall::Save => self.tool_save(&agent.id, text("text"), arguments, &origin),
-            MemoryCall::Update => self.tool_update(&agent.id, text("id"), text("text")),
-            MemoryCall::Forget => self.tool_forget(&agent.id, text("id")),
-            MemoryCall::Search => self.tool_search(&agent.id, text("query")),
+            // History is the caller's own conversation, bot or helper: read before any bot
+            // lookup, so a helper following an aged result's stub gets it back (ADR 0216).
             MemoryCall::HistorySearch => self.history_search(caller, arguments),
             MemoryCall::HistoryRead => self.history_read(caller, arguments),
+            notes => {
+                let agent = match self.store.agent_for_conversation(caller) {
+                    Ok(Some(agent)) => agent,
+                    Ok(None) => return ToolOutput::error("This conversation has no bot."),
+                    Err(error) => {
+                        return ToolOutput::error(format!("Memory is unavailable: {error}"));
+                    }
+                };
+                self.note_call(&agent.id, caller, notes, arguments, turn)
+            }
         };
         result.unwrap_or_else(|error| match error {
             NoteError::Store(error) => ToolOutput::error(format!("Memory is unavailable: {error}")),
             other => ToolOutput::error(format!("{}.", capitalised(&other.to_string()))),
         })
+    }
+
+    /// A notes tool for the bot `agent`, whose conversation is `caller`.
+    fn note_call(
+        &self,
+        agent: &str,
+        caller: &str,
+        call: MemoryCall,
+        arguments: &Value,
+        turn: &crate::tools::TurnFacts,
+    ) -> Result<ToolOutput, NoteError> {
+        let suggest = turn.memory_suggests;
+        let origin = self.origin_of(caller, turn);
+        let text = |key: &str| arguments.get(key).and_then(Value::as_str).unwrap_or("");
+        match call {
+            MemoryCall::Save if suggest => self.tool_suggest(agent, text("text"), &origin),
+            MemoryCall::Update if suggest => self
+                .visible_note(agent, text("id"))
+                .and_then(|_| self.tool_suggest(agent, text("text"), &origin)),
+            MemoryCall::Save => self.tool_save(agent, text("text"), arguments, &origin),
+            MemoryCall::Update => self.tool_update(agent, text("id"), text("text")),
+            MemoryCall::Forget => self.tool_forget(agent, text("id")),
+            MemoryCall::Search => self.tool_search(agent, text("query")),
+            MemoryCall::HistorySearch => self.history_search(caller, arguments),
+            MemoryCall::HistoryRead => self.history_read(caller, arguments),
+        }
     }
 
     fn tool_save(

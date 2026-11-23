@@ -93,6 +93,7 @@ impl Engine {
         };
         let summary = suggest::summary(&card, &why);
         let event = Event::Known(Known::QuestionAsked {
+            lane: None,
             reply: reply.to_owned(),
             call_id: call.id.clone(),
             question: summary,

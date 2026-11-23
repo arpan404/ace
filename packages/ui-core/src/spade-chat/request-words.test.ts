@@ -82,3 +82,29 @@ test("a signed-out bot's list line says the next step; anything else, its first 
     "Claude Code is out of quota",
   );
 });
+
+test("a press on a page reads as what the button does, and a payment as who it pays", () => {
+  expect(
+    spadeRequestCard(
+      "browser_act",
+      { action: "click", target: "Pay €412 to TAP Air Portugal" },
+      "Book flights to Lisbon",
+    ).sentence,
+  ).toBe("Book flights to Lisbon wants to pay €412 to TAP Air Portugal.");
+  expect(
+    spadeRequestCard("ace__browser_act", { action: "click", target: "Continue" }, "Errands")
+      .sentence,
+  ).toBe("Errands wants to press “Continue” on a web page.");
+  expect(
+    spadeRequestCard(
+      "stripe_create_payment",
+      { amount: 412, currency: "EUR", payee: "TAP Air Portugal" },
+      "Errands",
+    ).sentence,
+  ).toBe("Errands wants to pay €412.00 to TAP Air Portugal.");
+  // A step that only types, or names nothing, keeps the tool's words.
+  expect(
+    spadeRequestCard("browser_act", { action: "type", target: "Pay", text: "x" }, "Errands")
+      .sentence,
+  ).toBe("Errands wants to use a web page.");
+});

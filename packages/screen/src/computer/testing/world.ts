@@ -19,6 +19,8 @@ export interface WorldOptions {
   env?: Record<string, string>;
   client?: Partial<ComputerClientOptions>;
   toolkit?: ComputerToolkitOptions;
+  /** Helpers refuse SIGKILL, as a process the system won't let go would; `close` still ends them. */
+  unkillable?: boolean;
 }
 
 /** A scheduler whose time moves only when the test says so. */
@@ -56,6 +58,10 @@ export async function computerWorld(options: WorldOptions = {}) {
   const dir = await mkdtemp(join(tmpdir(), "ace-computer-"));
   const logPath = join(dir, "ops.log");
   const children: ChildProcessWithoutNullStreams[] = [];
+  /** Per helper started: whether every earlier helper had exited by then. */
+  const startedAlone: boolean[] = [];
+  /** Ends every helper, whatever it refuses. */
+  const ends: (() => void)[] = [];
   let next = 0;
   const client = new ComputerClient({
     helper: async () => "fake-helper",
@@ -65,7 +71,15 @@ export async function computerWorld(options: WorldOptions = {}) {
         env: { ...process.env, ...env, FAKE_LOG: logPath, ...options.env },
         stdio: ["pipe", "pipe", "pipe"],
       });
+      startedAlone.push(
+        children.every((earlier) => earlier.exitCode !== null || earlier.signalCode !== null),
+      );
       children.push(child);
+      const kill = child.kill.bind(child);
+      ends.push(() => kill("SIGKILL"));
+      if (options.unkillable)
+        child.kill = (signal?: NodeJS.Signals | number) =>
+          signal === "SIGKILL" ? false : kill(signal);
       return child;
     },
     ...options.client,
@@ -105,9 +119,14 @@ export async function computerWorld(options: WorldOptions = {}) {
   };
   const close = async () => {
     client.close();
+    if (options.unkillable) for (const end of ends) end();
     credentials.close();
     await Promise.all(children.map(exited));
     await rm(dir, { recursive: true, force: true });
   };
-  return { client, call, ops, logged, children, exited, close, dir };
+  /** Ends every helper now, whatever it refuses, as its exit finally coming would. */
+  const endHelpers = () => {
+    for (const end of ends) end();
+  };
+  return { client, call, ops, logged, children, startedAlone, exited, endHelpers, close, dir };
 }

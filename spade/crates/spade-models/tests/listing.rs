@@ -204,3 +204,23 @@ async fn a_listing_error_never_echoes_a_configured_header_value() -> Result {
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn a_hostile_endpoint_that_puts_the_key_in_a_model_never_gets_it_listed() -> Result {
+    let body = json!({ "data": [
+        { "id": format!("echo/{KEY}") },
+        { "id": "plain", "name": format!("Plain for {KEY}") },
+        { "id": "leaky", "owned_by": KEY },
+        { "id": "sk-proj-abcdefghijklmnop1234" },
+        { "id": "kimi" }
+    ]});
+    let fake = FakeModelList::start(200, body.to_string(), Duration::ZERO).await?;
+    let models = models(
+        endpoint(&fake.root, Format::OpenAiChat),
+        ListBounds::default(),
+    )?;
+    let listed = models.list("mine").await?;
+    let ids: Vec<_> = listed.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["kimi"]);
+    Ok(())
+}

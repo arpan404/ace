@@ -204,7 +204,7 @@ test("old spellings still work and print nothing extra on stdout", async () => {
 
   const features = await invoke(home, ["features", "on", "marketplace"], "", env);
   expect(features.code, features.stderr).toBe(0);
-  expect(features.stdout).toBe("The Marketplace is turned on.\n");
+  expect(features.stdout).toBe("The Store is turned on.\n");
 
   const path = join(user, "support.tar.gz");
   const bundle = await invoke(home, ["support-bundle", path], "", env);

@@ -105,8 +105,6 @@ pub enum ModelPlace<'a> {
     Endpoint(&'a str),
     /// A model running on the host itself.
     Local,
-    /// A member's coding subscription, through its CLI.
-    Subscription,
 }
 
 /// The policy, as one version of it reads.
@@ -340,14 +338,9 @@ impl Policy {
             .then(|| format!("Your organization blocked {name}."))
     }
 
-    /// Why a shared bot's model call may not go to `place`, if it may not. Coding
-    /// subscriptions never serve shared bots in M4, whatever the policy says.
+    /// Why a shared bot's model call may not go to `place`, if it may not.
     pub fn model_refusal(&self, place: ModelPlace<'_>) -> Option<&'static str> {
         match place {
-            ModelPlace::Subscription => Some(
-                "A shared bot never uses a member's coding subscription: give it an endpoint \
-                 or a local model.",
-            ),
             ModelPlace::Local => (self.local == Some(false))
                 .then_some("Your organization doesn't allow local models for shared bots."),
             ModelPlace::Endpoint(host) => {

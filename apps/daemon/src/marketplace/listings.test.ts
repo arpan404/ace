@@ -38,7 +38,7 @@ function slowGit() {
   };
   return {
     git,
-    finish: () => finish?.({ commit: "c1", catalog: empty }),
+    finish: (parsed: ParsedCatalog = empty) => finish?.({ commit: "c1", catalog: parsed }),
     fail: (error: Error) => fail?.(error),
   };
 }
@@ -88,7 +88,19 @@ test("a catalog removed while its read runs isn't brought back", async () => {
   const { store, deps, slow } = await setUp();
   const reading = refreshSource(deps, catalog);
   await store.removeSource(catalog.id);
-  slow.finish();
+  slow.finish({
+    ...empty,
+    entries: [
+      {
+        type: "spade-plugin",
+        name: "mail-tools",
+        source: ".",
+        title: "Mail tools",
+        description: "",
+        keywords: [],
+      },
+    ],
+  });
   await reading;
 
   expect(store.source(catalog.id)).toBeUndefined();

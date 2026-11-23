@@ -262,7 +262,7 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                 };
                 let declared = effect::ace(tool, risk, None, arguments);
                 // A driving step's place, as the server reads it (ADR 0171, amendment 3). The
-                // replay has no live ace to ask, and the bot holds no drive grants.
+                // replay has no live ace to ask.
                 let driven =
                     (declared == Effect::Drive).then(|| effect::drive::read(tool, arguments, None));
                 let drive =
@@ -274,10 +274,10 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                                 .as_ref()
                                 .map(effect::drive::Place::shown)
                                 .map_err(|why| *why),
-                            sensitive: step.sensitive,
-                            granted: false,
-                            // The ace these calls came from holds a step to its place.
+                            never: None,
+                            // The ace these calls came from can hold a known place.
                             bound: step.place.is_ok(),
+                            placeless: effect::drive::placeless(tool, arguments),
                         });
                 let route = effect::route(effect::Call {
                     tool,
@@ -303,6 +303,12 @@ pub fn replay(calls: &[Call], model: &Model, decide: Decide<'_>, with_workspace:
                     ceiling: None,
                     command: None,
                     destructive: false,
+                    org: None,
+                    permits: Default::default(),
+                    connected: false,
+                    guessed: false,
+                    overwrites: false,
+                    app_plain: false,
                 });
                 // ace's tools declare what they do: the classifier isn't shown them.
                 count_route(&mut o, &route);
@@ -369,6 +375,12 @@ fn shell_call(
         ceiling: None,
         command: None,
         destructive: false,
+        org: None,
+        permits: Default::default(),
+        connected: false,
+        guessed: false,
+        overwrites: false,
+        app_plain: false,
     });
     let Route::Review(concern) = route else {
         count_route(o, &route);

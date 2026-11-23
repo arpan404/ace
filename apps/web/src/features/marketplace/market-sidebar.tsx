@@ -18,7 +18,7 @@ import { useMarketNav } from "./market-nav.ts";
 import { useMarketMe } from "./market-publishing.ts";
 
 /*
- * The Marketplace's panel, as Settings' is: its search over everything, then its places (Home,
+ * The Store's panel, as Settings' is: its search over everything, then its places (Home,
  * Bots, Apps, Tools, Looks), then Installed with the count of updates waiting, and you. The page
  * beside it is the place or entry the address names.
  */
@@ -75,7 +75,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
   );
   return (
     <ViewSidebar
-      title="Marketplace"
+      title="Store"
       toolbar={
         <PanelSearch
           label="Search bots, apps and more"
@@ -85,7 +85,7 @@ export function MarketSidebar(props: { query: string; onQuery(query: string): vo
         />
       }
     >
-      <nav aria-label="Marketplace">
+      <nav aria-label="Store">
         <ul className="mt-1 flex flex-col gap-px">
           {shown.map((place) => row(place.id, place.name, place.icon))}
         </ul>

@@ -100,7 +100,6 @@ export async function startMcpServer<A extends Authenticator = CredentialRegistr
   const availability: Parameters<ToolRegistry["setAvailability"]>[0] = (caller) => {
     const state = options.status?.(caller);
     return (name, capability) => {
-      if (state?.onlyTools && !state.onlyTools.includes(bareToolName(name))) return false;
       if (state?.unavailableTools?.includes(bareToolName(name))) return false;
       if (capability && state?.disabled?.[capability] !== undefined) return false;
       if (bareToolName(name) === "ask" && state?.askAvailable === false) return false;

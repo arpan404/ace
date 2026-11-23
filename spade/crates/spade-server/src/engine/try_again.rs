@@ -82,7 +82,9 @@ impl Engine {
             let retried = Event::Known(Known::ReplyRetried {
                 reply: reply.to_owned(),
             });
-            let started = Event::reply_started(self.ids.next("r"), model);
+            // Answered again for the same input, so for the same lane, if a report opened it.
+            let opener = spade_core::lane::opened_by(&events, reply);
+            let started = Event::reply_opened(self.ids.next("r"), model, opener);
             self.append_events(id, &[retried, started])?;
         }
         self.spawn_turn(id);

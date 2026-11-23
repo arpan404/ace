@@ -423,6 +423,7 @@ fn compacted(keep_from: usize, untrusted: bool) -> Event {
         images_left_out: None,
         untrusted,
         carried: None,
+        asks: None,
     })
 }
 
@@ -488,6 +489,7 @@ fn the_topic_index_is_fixed_until_the_next_compaction() {
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     assert!(index_due(&events));
     events.push(indexed("<knowledge>two</knowledge>"));

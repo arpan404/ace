@@ -22,7 +22,7 @@ without spare hardware, may come later.
 | Spade acts on the person's machines and daemon through ace                                                                                                                     | decided  |
 | Storage is one SQLite file per machine (`spade-store`)                                                                                                                         | decided  |
 | Models are reached through endpoints the person adds, in any of three formats: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages; no dependency on any one gateway | decided  |
-| Subscription models (Codex, Claude Code, OpenCode) are reached only through the person's own logged-in CLI via the ace daemon, never by reading their login tokens             | decided  |
+| Bots never think with coding CLI subscriptions; ace's CLIs are for projects, threads and chat (ADR 0219)                                                                       | decided  |
 | The harness steers by default: a message sent mid-turn joins the running turn                                                                                                  | decided  |
 | The whole harness is in scope: background tools, duplicate-proof writes, native tool loading, skills, context, images                                                          | decided  |
 | Prompts are append-only so the cache hit rate inside agent turns stays near 99% (see Caching)                                                                                  | decided  |
@@ -85,10 +85,9 @@ long-context prices are not modelled yet, so very long prompts are under-counted
 and GLM-5.3, its Anthropic-format endpoint for Claude Haiku 5.5. Check that Go's terms allow its key
 outside OpenCode before relying on it in production. The Go key is never shipped.
 
-**CLI brains.** Subscription models run as an ace provider session through the daemon, one
-hidden session per bot, with the bot's tools reached through ace's MCP endpoint (`spade_tools`,
-`spade_call`) and the approval gate inside those tools. A bot's model can be an endpoint's or
-`cli:<provider>/<model>` ([cli-brains.md](cli-brains.md), ADR 0133).
+**No CLI brains.** Bots think only with model endpoints (ADR 0219, superseding ADR 0133). A bot an
+older build left on a `cli:` subscription moves at setup to the person's default model, with one
+`model_replaced` line in its chat (agents.md).
 
 **SDK.** `genai` behind `spade-models`, compared with `aisdk` and `rig-core` on 2026-11-08 for
 native Anthropic support (caching, thinking blocks across tool turns) and typed output. Spade owns

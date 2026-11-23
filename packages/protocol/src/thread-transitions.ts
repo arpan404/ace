@@ -188,6 +188,8 @@ export const DelegatedFrom = z.object({
   /** The machine's name when it was delegated, for showing the parent as remote. */
   hostName: z.string().min(1).max(256).optional(),
   threadId: ThreadId,
+  /** The top thread of the delegating tree on its home machine, when sent. */
+  rootThreadId: ThreadId.optional(),
   /** The parent thread's title when it delegated, for naming it here. */
   threadTitle: z.string().min(1).max(256).optional(),
   /**
@@ -197,6 +199,13 @@ export const DelegatedFrom = z.object({
   provider: z.string().min(1).max(64).optional(),
 });
 export type DelegatedFrom = z.infer<typeof DelegatedFrom>;
+/**
+ * The top thread of the agent tree this thread belongs to (across delegations, handoffs,
+ * `thread_start`, and paired-machine delegation). Absent on a thread that is its own root.
+ */
+export const TreeRootId = ThreadId.meta({
+  description: "The top thread of this thread's agent tree.",
+});
 /**
  * Where a queued child waits: its parent's run-slot limit, how many slots are in use, and its own
  * 1-based place in the parent's queue. Every field is optional so a thread stored before the
@@ -228,6 +237,7 @@ export const ThreadTransitionView = z.object({
   delegatedFrom: DelegatedFrom.optional(),
   startedBy: StartedBy.optional(),
   startedByClient: StartedByClient.optional(),
+  treeRootId: TreeRootId.optional(),
   queuedLaunch: QueuedLaunch.optional(),
   execution: ExecutionSelection.optional(),
   switch: ThreadSwitch.optional(),

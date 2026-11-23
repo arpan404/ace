@@ -8,6 +8,8 @@
  *   FAKE_LOG_ARGS=1         log the arguments it was started with, before any op
  *   FAKE_LOCKED=<file>      while the file reads "locked", state and act refuse as screen_locked
  *   FAKE_NO_DISPLAYS=1      answer like a helper from before display pictures
+ *   FAKE_IGNORE_STOP=1      stay alive through SIGTERM and stdin EOF, like a helper whose main
+ *                           queue is blocked; only SIGKILL ends it
  * Apps with scripted trouble: Stuck (never answers state or act, ignores cancel), Frozen (its
  * outline comes back partial, not responding), Huge (its outline is enormous).
  */
@@ -244,6 +246,10 @@ async function answer(request: Request): Promise<unknown> {
 
 if (env["FAKE_LOG_ARGS"]) log(`args ${process.argv.slice(2).join(" ")}`);
 if (env["FAKE_LOG_SESSION"]) log(`session WAYLAND_DISPLAY=${env["WAYLAND_DISPLAY"] ?? ""}`);
+if (env["FAKE_IGNORE_STOP"]) {
+  process.on("SIGTERM", () => log("sigterm"));
+  setInterval(() => {}, 60_000);
+}
 let queue = Promise.resolve();
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line) as Request;

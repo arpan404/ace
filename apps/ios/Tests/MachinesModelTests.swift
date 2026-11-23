@@ -395,14 +395,14 @@ import Testing
         await fixture.model.load()
         let built = ClientModel.database(hostId: build, deviceId: "ios-account-device", in: fixture.storage)
         let paired = ClientModel.database(hostId: studio, deviceId: "phone-1", in: fixture.storage)
+        // The fake runtime skips opening SQLite, which normally creates this directory.
+        try FileManager.default.createDirectory(at: fixture.storage, withIntermediateDirectories: true)
         try InboxCheckpoint.writeSpade("[]", database: built, scope: "someone")
         try InboxCheckpoint.writeSpade("[]", database: paired, scope: "phone")
 
+        for session in fixture.sessions.started where session.target.hostId == build { session.finishShutdownWhenStopped() }
         account.signOut()
-        let refreshing = Task { await fixture.model.refreshAccount() }
-        for _ in 0..<50 { await Task.yield() }
-        for session in fixture.sessions.started where session.target.hostId == build { session.finishShutdown() }
-        await refreshing.value
+        await fixture.model.refreshAccount()
 
         #expect(!FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: built, scope: "someone").path))
         #expect(FileManager.default.fileExists(atPath: InboxCheckpoint.spadeURL(database: paired, scope: "phone").path))

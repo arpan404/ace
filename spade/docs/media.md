@@ -174,7 +174,7 @@ when it sends none; at most 16 MB). `voice` defaults to `alloy` and must be a sh
 `text` is 1 to 4,096 characters. `409` when no speech model is set, `400` for empty or long
 words or an odd voice, `502` with one line when the endpoint refuses before any audio. Each call
 is recorded at the model's `per_call` price. The setting is `PUT /v1/settings
-{ "speech_model": "openai/tts-1" }` (`null` clears it; a subscription model is refused) and is
+{ "speech_model": "openai/tts-1" }` (`null` clears it) and is
 listed as `speech_model` in `GET /v1/models`. Models gain the `speech` capability.
 
 The app splits a reply into sentences as it streams and asks for the first one alone, then

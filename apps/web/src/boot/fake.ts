@@ -4,6 +4,7 @@ import { seedFakeSkills } from "./fake-skills.ts";
 import { fakeMarket } from "./fake-market.ts";
 import { seedFakeSpadeEmpty } from "./fake-spade-empty.ts";
 import { seedFakeSpade } from "./fake-spade.ts";
+import { seedFakeLanes } from "./fake-spade-lanes.ts";
 import { seedFakeMentions } from "./fake-mentions.ts";
 import {
   FakeDaemon,
@@ -320,6 +321,8 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
+  // `?fakeWorld=spade-lanes`: the Spade world, and a bot running its tasks in lanes (ADR 0217).
+  if (world === "spade-lanes") seedFakeLanes(seedFakeSpade(daemon, server));
   // `?fakeWorld=spade-empty`: Spade with no bots yet, for the first visit.
   if (world === "spade-empty") seedFakeSpadeEmpty(daemon);
   // `?fakeWorld=org`: the Spade world, with the build server's Spade one of Acme Robotics'.

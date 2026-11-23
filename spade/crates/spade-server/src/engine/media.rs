@@ -76,6 +76,10 @@ impl Engine {
         });
         let message = memory::with_recall(self, id, message);
         let message = with_devices(message, &outgoing_devices);
+        // A reply to a lane's message goes to that lane, with no model call (ADR 0217 §2).
+        if let Some(routed) = self.route_reply(id, &message, outgoing.reply_to.as_deref()) {
+            return Ok(routed?);
+        }
         self.deliver(id, &message)?;
         Ok(())
     }

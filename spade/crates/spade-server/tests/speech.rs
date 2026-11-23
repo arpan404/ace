@@ -111,7 +111,7 @@ async fn speech_refuses_empty_words_and_odd_voices_without_calling_the_endpoint(
         assert_eq!(speak(&spade, body.clone()).await?.status(), 400, "{body}");
     }
     assert!(media.seen().is_empty());
-    // A subscription model has no speech route.
+    // A coding subscription is no model to read aloud with.
     let (status, _) = spade
         .put("/v1/settings", json!({ "speech_model": "cli:codex/gpt-5" }))
         .await?;

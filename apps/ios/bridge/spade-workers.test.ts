@@ -150,6 +150,85 @@ test("a worker whose delegated child waits on the person names the child, where 
   expect(row.workers[1]?.asking).toEqual([]);
 });
 
+/** `child`, delegated by `parent`'s agent `agent`, as the daemon tells the parent its state. */
+function delegated(daemon: FakeDaemon, parent: string, child: string, agent: string) {
+  daemon.createThread({
+    id: ThreadId.parse(child),
+    workspaceId: "ace",
+    title: agent,
+    provider: "claude",
+    access: "ask",
+    parentThreadId: ThreadId.parse(parent),
+  });
+  daemon.apply(ThreadId.parse(parent), [
+    {
+      type: "agent.seen",
+      agent,
+      parent: "root",
+      origin: "ace",
+      fidelity: "full",
+      native: { provider: "claude", nativeId: agent },
+      cwd: "/Users/dev/acme",
+      name: agent,
+    },
+    {
+      type: "agent.external",
+      agent,
+      threadId: ThreadId.parse(child),
+      status: { state: "needs_you", interactions: 1 },
+    },
+  ]);
+}
+
+const archive = (daemon: FakeDaemon, threadId: string) =>
+  daemon.command({
+    id: CommandId.parse(`archive-${threadId}`),
+    deviceId: DeviceId.parse("seed"),
+    payload: { type: "thread.archive", threadId: ThreadId.parse(threadId) },
+  });
+
+test("a worker whose archived child waits on the person still names the child, read from its own thread", async () => {
+  const child = "worker-planner-archived";
+  const { workers } = await research((daemon) => {
+    delegated(daemon, planner, child, "checker");
+    daemon.apply(ThreadId.parse(child), [
+      facts.rootAgent("claude"),
+      facts.turn("root"),
+      planReview("plan-4"),
+    ]);
+    archive(daemon, child);
+  });
+
+  const row = await until(() =>
+    workers()?.workers[0]?.asking.includes(child) ? workers() : undefined,
+  );
+
+  expect(row.workers[0]?.asking).toEqual([planner, child]);
+  expect(row.workers[0]?.tone).toBe("needs-you");
+});
+
+test("a worker whose request waits two threads down, past one the list lacks, names every thread on the way", async () => {
+  const middle = "worker-planner-middle";
+  const deepest = "worker-planner-deepest";
+  const { workers } = await research((daemon) => {
+    delegated(daemon, planner, middle, "checker");
+    daemon.apply(ThreadId.parse(middle), [facts.rootAgent("claude"), facts.turn("root")]);
+    delegated(daemon, middle, deepest, "reader");
+    daemon.apply(ThreadId.parse(deepest), [
+      facts.rootAgent("claude"),
+      facts.turn("root"),
+      planReview("plan-5"),
+    ]);
+    archive(daemon, middle);
+  });
+
+  const row = await until(() =>
+    workers()?.workers[0]?.asking.includes(deepest) ? workers() : undefined,
+  );
+
+  expect(row.workers[0]?.asking).toEqual([planner, middle, deepest]);
+});
+
 test("a finished worker outside the thread list reads as done, from its own thread", async () => {
   const { workers } = await research((daemon) => {
     daemon.apply(builder, [facts.endTurn("root")]);
@@ -198,7 +277,7 @@ test("a bot waiting on one of its workers says so in the list, where its chat sh
 
   const row = await until(() => patches.state?.list.rows?.find((each) => each.name === "Research"));
 
-  expect([row.state, row.line]).toEqual(["needs-you", "An agent it started needs you"]);
+  expect([row.state, row.line]).toEqual(["needs-you", "A worker is waiting for you"]);
 });
 
 /** Research with one bot worker, Scout, made through `delegate`, as the roster lists it. */

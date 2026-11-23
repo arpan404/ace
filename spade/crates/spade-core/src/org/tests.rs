@@ -379,8 +379,6 @@ fn shared_bots_route_only_to_the_organizations_endpoints_and_never_to_a_subscrip
             .is_none()
     );
     assert!(open.model_refusal(ModelPlace::Local).is_none());
-    // Whatever the policy says.
-    assert!(open.model_refusal(ModelPlace::Subscription).is_some());
 }
 
 #[test]
@@ -577,4 +575,55 @@ fn a_checkpoint_is_due_every_hundred_entries_or_five_minutes() {
     assert!(audit::checkpoint_due(100, Some(0), 1));
     assert!(!audit::checkpoint_due(1, Some(0), audit::CHECKPOINT_MS - 1));
     assert!(audit::checkpoint_due(1, Some(0), audit::CHECKPOINT_MS));
+}
+
+/// The export clients read (`packages/ui-core/src/org/audit-lines.ts`) is exactly what this
+/// serializer writes: the shared sample is these lines, byte for byte.
+#[test]
+fn an_export_is_written_as_the_shared_sample_clients_read() -> serde_json::Result<()> {
+    let lines = [
+        Line::Header {
+            org: "org_acme".into(),
+            host: "host_1".into(),
+            key: "key-1".into(),
+        },
+        Line::Entry(Chained {
+            seq: 1,
+            prev: GENESIS.into(),
+            hash: "h1".into(),
+            entry: Entry::new(
+                "bot.effect",
+                1000,
+                Ref::new("bot", "bot_1").named("Triage"),
+                vec![Ref::new("repo", "acme/web")],
+            )
+            .with("allowed_by", "approver")
+            .with("allowed_by_account", "acct_dana")
+            .with("effect", "publish"),
+        }),
+        Line::Checkpoint(Checkpoint {
+            count: 1,
+            head: "h1".into(),
+            at: 1001,
+            signature: "sig".into(),
+        }),
+        Line::Entry(Chained {
+            seq: 2,
+            prev: "h1".into(),
+            hash: "h2".into(),
+            entry: Entry::new(
+                "custom.thing",
+                2000,
+                Ref::new("account", "acct_dana"),
+                vec![],
+            ),
+        }),
+    ];
+    let written = lines
+        .iter()
+        .map(serde_json::to_string)
+        .collect::<serde_json::Result<Vec<String>>>()?;
+    let sample = include_str!("../../../../spec/org-audit-export.jsonl");
+    assert_eq!(written, sample.lines().collect::<Vec<_>>());
+    Ok(())
 }

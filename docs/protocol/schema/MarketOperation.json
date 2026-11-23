@@ -175,6 +175,36 @@
           "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
         },
         "op": {
+          "const": "look",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/MarketSourceId.json"
+        },
+        "type": {
+          "maxLength": 40,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "source",
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "op": {
           "const": "prepare",
           "type": "string"
         },

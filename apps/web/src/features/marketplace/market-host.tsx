@@ -7,7 +7,7 @@ import { useBetaEnabled } from "@/lib/beta-enabled.ts";
 import { useOpenMarket } from "@/lib/open-market.ts";
 
 /*
- * The Marketplace is a page (`/store`). A `?store=` (or legacy `?market=`) on any other page, as links
+ * The Store is a page (`/store`). A `?store=` (or legacy `?market=`) on any other page, as links
  * and the "open in ace" deep link carry, opens that page at the same place, in place of the one
  * it was on.
  */
@@ -19,7 +19,7 @@ function useMarketParam(): string | undefined {
   });
 }
 
-/** Sends `?store=…` (or legacy `?market=…`) on any page to the Marketplace's page at that place. */
+/** Sends `?store=…` (or legacy `?market=…`) on any page to the Store's page at that place. */
 export function MarketHost() {
   // Off in Settings › Beta, no address opens it, deep links included.
   const on = useBetaEnabled("marketplace") === true;
@@ -29,7 +29,7 @@ export function MarketHost() {
   return <Navigate to="/store" search={at && at !== "discover" ? { at } : {}} replace />;
 }
 
-/** The Marketplace in the rail: its glyph, filled while its page is open; it opens the page. */
+/** The Store in the rail: its glyph, filled while its page is open; it opens the page. */
 export function MarketRailButton() {
   const open = useOpenMarket();
   const current = useRouterState({
@@ -37,10 +37,10 @@ export function MarketRailButton() {
       state.location.pathname === "/store" || state.location.pathname === "/market",
   });
   return (
-    <Tip label="Marketplace">
+    <Tip label="Store">
       <button
         type="button"
-        aria-label="Marketplace"
+        aria-label="Store"
         aria-current={current ? "page" : undefined}
         data-state={current ? "active" : undefined}
         data-part="rail-item"

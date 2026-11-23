@@ -5,6 +5,7 @@ mod ace;
 mod ace_link;
 mod ace_wait;
 mod apps;
+mod asks;
 mod bots;
 mod cards;
 mod cloud_account;
@@ -24,6 +25,7 @@ mod services;
 mod skill_tools;
 mod skills;
 mod task;
+mod tasks;
 mod todo;
 mod wake;
 mod web_fetch;
@@ -41,6 +43,7 @@ use spade_core::tools::{Registry, ToolDef};
 
 pub(crate) use ace::reattaches;
 pub use ace_link::{AceLink, AceTarget, GrantError, Retry, grant_slot};
+pub use asks::Asks;
 pub use bots::{BotMessage, BotsList, EngineHandle};
 pub use cards::CardShow;
 pub use cloud_account::CloudAccount;
@@ -62,6 +65,7 @@ pub use skills::{
     body_of,
 };
 pub use task::TaskStatus;
+pub use tasks::with_task_tools;
 pub use todo::Todo;
 pub use wake::with_wake_tools;
 pub use web_fetch::WebFetch;

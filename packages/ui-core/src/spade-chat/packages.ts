@@ -13,7 +13,8 @@ import { z } from "zod";
 export type SpadeEffectGrant =
   | { kind: "drive_site"; host: string }
   | { kind: "drive_app"; app: string }
-  | { kind: "tool"; tool: string };
+  /** One tool, with each named argument matching its pattern. */
+  | { kind: "tool"; tool: string; arguments?: Readonly<Record<string, string>> | undefined };
 
 /** A declared effect, as much of it as its words need. */
 export interface SpadeDeclaredEffect {
@@ -66,6 +67,40 @@ export function effectWords(row: SpadeDeclaredEffect): string {
 }
 
 /**
+ * What a declared effect is held to beyond its words, one line each: a tool grant's argument
+ * patterns ("path matching docs/*"). Empty when it is held to nothing more. Every place that
+ * asks the person to turn one on says these too, so they never grant more than they read.
+ */
+export function effectLimits(row: SpadeDeclaredEffect): string[] {
+  if (row.grant?.kind !== "tool") return [];
+  return Object.entries(row.grant.arguments ?? {})
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(([name, pattern]) => `${name} matching ${pattern}`);
+}
+
+/**
+ * A declared effect's words from its key alone (Spade's `effect:hosts:a,b`,
+ * `effect:drive_site:host`, `effect:drive_app:app`, `effect:tool:name`, or the effect's name),
+ * for one a plan names that the version in hand no longer declares.
+ */
+export function effectKeyWords(key: string): string {
+  const [effect = key, kind, ...rest] = key.split(":");
+  const value = rest.join(":");
+  switch (kind) {
+    case "hosts":
+      return effectWords({ effect, hosts: value.split(",") });
+    case "drive_site":
+      return effectWords({ effect, grant: { kind: "drive_site", host: value } });
+    case "drive_app":
+      return effectWords({ effect, grant: { kind: "drive_app", app: value } });
+    case "tool":
+      return effectWords({ effect, grant: { kind: "tool", tool: value } });
+    default:
+      return effectWords({ effect });
+  }
+}
+
+/**
  * Whether an install review starts this switch on. A package by ace starts with what it
  * declares. One from anyone else starts with only reaching the hosts it names: acting in pages
  * or apps as the person, using a tool without asking, publishing, reaching anywhere, and the
@@ -94,7 +129,11 @@ export interface SpadePackage {
    * Spade ships, offered for the person to review. Never applied on its own.
    */
   templateUpdate: string | undefined;
+  /** The package's hash: what a switch is turned on, so a newer version's isn't. */
+  hash: string | undefined;
   effects: readonly SpadePackageEffect[];
+  /** Effects Spade sent that this client couldn't read: what it lists is not all it declares. */
+  effectsDropped: number;
   /** Typed calls the person's other bots may make to it (ADR 0200 §7). */
   contracts: readonly SpadeContract[];
 }
@@ -108,36 +147,40 @@ export interface SpadeContract {
 }
 
 const text = z.string().max(2000);
+/** As long as a plan may name one (`PackagePlan`), so no key it can name is unreadable here. */
+const effectKey = z.string().max(2100);
+const effectShape = z.object({
+  key: effectKey,
+  effect: text,
+  hosts: z.array(text).catch([]).default([]),
+  grant: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("drive_site"), host: text }),
+      z.object({ kind: z.literal("drive_app"), app: text }),
+      z.object({
+        kind: z.literal("tool"),
+        tool: text,
+        arguments: z.record(z.string().max(200), text).optional(),
+      }),
+    ])
+    .nullish()
+    .catch(undefined)
+    .transform((grant) => grant ?? undefined),
+  why: text.catch(""),
+  on: z.boolean().catch(false),
+});
 const shape = z.object({
   source: text,
   name: text,
   version: text,
+  hash: text.optional().catch(undefined),
   previous: z.object({ version: text }).nullish().catch(undefined),
   withdrawn: z.object({ reason: text }).nullish().catch(undefined),
   updating: text.nullish().catch(undefined),
   held: z.object({ version: text }).nullish().catch(undefined),
   template_update: z.object({ version: text }).nullish().catch(undefined),
-  effects: z
-    .array(
-      z.object({
-        key: text,
-        effect: text,
-        hosts: z.array(text).catch([]).default([]),
-        grant: z
-          .discriminatedUnion("kind", [
-            z.object({ kind: z.literal("drive_site"), host: text }),
-            z.object({ kind: z.literal("drive_app"), app: text }),
-            z.object({ kind: z.literal("tool"), tool: text }),
-          ])
-          .nullish()
-          .catch(undefined)
-          .transform((grant) => grant ?? undefined),
-        why: text.catch(""),
-        on: z.boolean().catch(false),
-      }),
-    )
-    .catch([])
-    .default([]),
+  // Each effect read on its own: one this client can't read leaves the rest (`effectsDropped`).
+  effects: z.array(z.unknown()).catch([]).default([]),
   contracts: z
     .array(
       z.object({
@@ -153,7 +196,7 @@ const shape = z.object({
 /**
  * Whether a bot is a development bot (ADR 0200 §9): linked to a package with no market
  * signature, a folder on its machine that `ace bot dev` keeps it updated from. It shows
- * "Development" and is never updated or rolled back through the Marketplace.
+ * "Development" and is never updated or rolled back through the Store.
  */
 export const spadeIsDevelopment = (link: SpadePackage | undefined): boolean =>
   link?.source === "local";
@@ -163,6 +206,10 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
   const read = shape.safeParse(raw);
   if (!read.success) return undefined;
   const link = read.data;
+  const effects = link.effects.flatMap((each) => {
+    const effect = effectShape.safeParse(each);
+    return effect.success ? [effect.data] : [];
+  });
   return {
     source: link.source,
     name: link.name,
@@ -172,9 +219,29 @@ export function parseSpadePackage(raw: unknown): SpadePackage | undefined {
     updating: link.updating ?? undefined,
     held: link.held?.version,
     templateUpdate: link.template_update?.version,
-    effects: link.effects,
+    hash: link.hash,
+    effects,
+    effectsDropped: link.effects.length - effects.length,
     contracts: link.contracts,
   };
+}
+
+/**
+ * "From flight-watcher 1.0.0 in the Store.", and when an update waits for the bot to be
+ * still: "Updates when Flight watcher is done with its turn."
+ */
+export function spadePackageSentence(link: SpadePackage, bot: string): string {
+  if (spadeIsDevelopment(link)) {
+    const held = link.held ? ` Its latest save applies when ${bot} is done with its turn.` : "";
+    return `Updated from its package folder on this machine with ace bot dev.${held}`;
+  }
+  const from = `${link.name} ${link.version}`;
+  if (link.withdrawn) return `Paused: ${from} was withdrawn. ${link.withdrawn}`;
+  if (link.updating) return `Updating from ${from} to ${link.updating}.`;
+  const held = link.held ? ` Updates when ${bot} is done with its turn.` : "";
+  if (link.source === "spade") return `From ace's ${link.name} template ${link.version}.${held}`;
+  const where = link.source === "market" ? "the Store" : "a catalog you added";
+  return `From ${from} in ${where}.${held}`;
 }
 
 const incomingShape = z.object({ incoming: z.boolean() });

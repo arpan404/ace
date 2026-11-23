@@ -640,8 +640,8 @@ async fn a_401_model_list_too_large_to_read_is_still_a_401_and_refreshes() -> Re
     Ok(())
 }
 
-/// A model list that names each model after the token it was asked with, and counts the asks;
-/// with `refuse`, it refuses every ask with a `401`.
+/// A model list with one plain model and two that carry the token they were asked with, in a
+/// name and in an id, counting the asks; with `refuse`, it refuses every ask with a `401`.
 async fn naming_list(refuse: bool) -> Result<(String, Arc<std::sync::atomic::AtomicUsize>)> {
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
@@ -662,7 +662,8 @@ async fn naming_list(refuse: bool) -> Result<(String, Arc<std::sync::atomic::Ato
                     .unwrap_or_default()
                     .to_owned();
                 axum::Json(serde_json::json!({ "models": [
-                    { "slug": "gpt-5.5", "display_name": format!("GPT for {sent}") },
+                    { "slug": "gpt-5.5", "display_name": "GPT-5.5" },
+                    { "slug": "gpt-5.4", "display_name": format!("GPT for {sent}") },
                     { "slug": format!("leak-{sent}") }
                 ] }))
                 .into_response()

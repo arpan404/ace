@@ -89,6 +89,9 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
       />
       {spadeRoles.map((role) => {
         const strongest = role === "verify";
+        // Tasks run on each bot's own model and effort until set (ADR 0217 §8a), never the
+        // fast one: a task is the chat's own work, moved beside it.
+        const chat = role === "task";
         return (
           <RouteSettingRow
             key={role}
@@ -96,19 +99,31 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
             description={
               set[role] || strongest
                 ? undefined
-                : fast
-                  ? "Default: the fast model"
-                  : "Default: each bot's own model"
+                : chat
+                  ? "Default: each bot's own model, as its chat"
+                  : fast
+                    ? "Default: the fast model"
+                    : "Default: each bot's own model"
             }
             route={routes[role] ?? []}
-            none={strongest ? "Strongest model" : fast ? "Fast model" : "Each bot's own"}
-            follows={strongest ? undefined : fast}
+            none={
+              strongest
+                ? "Strongest model"
+                : chat
+                  ? "Same as the chat"
+                  : fast
+                    ? "Fast model"
+                    : "Each bot's own"
+            }
+            follows={strongest || chat ? undefined : fast}
             forBots={spadeRoleNeedsTools(role)}
             beside={
               <EffortSelect
                 title={spadeRoleNames[role]}
                 value={efforts[role]}
-                none={effortDefault(effortDefaults[role])}
+                none={effortDefault(
+                  effortDefaults[role] ?? (chat ? effortDefaults.main : undefined),
+                )}
                 save={(effort) => change({ efforts: { [role]: effort } })}
               />
             }

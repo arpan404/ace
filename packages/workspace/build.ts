@@ -28,10 +28,15 @@ if (process.platform === "win32") {
       "/I",
       headers,
       fileURLToPath(new URL("./native/windows/descriptor.c", import.meta.url)),
+      // Binds node.lib's `node.exe` imports to the running runtime, whatever its file name: the
+      // daemon runs it as `ace Service.exe` (ADR 0214).
+      fileURLToPath(new URL("./native/windows/delay-load-hook.c", import.meta.url)),
       "/link",
       `/OUT:${fileURLToPath(new URL("./dist/descriptor.node", import.meta.url))}`,
       nodeLib,
       "kernel32.lib",
+      "delayimp.lib",
+      "/DELAYLOAD:node.exe",
     ],
     { stdio: "inherit" },
   );

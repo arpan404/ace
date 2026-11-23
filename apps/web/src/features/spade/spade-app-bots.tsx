@@ -11,7 +11,7 @@ import { useSpadeClient, useSpadeMachine } from "./spade-machine.tsx";
 import { agentsKey } from "./use-spade-roster.ts";
 
 /*
- * Which bots may use a connected app, from wherever the app is shown (its Marketplace page,
+ * Which bots may use a connected app, from wherever the app is shown (its Store page,
  * Settings › Apps): the bots that use it as their faces, and "Use in another bot", a menu of
  * every bot with a check on those allowed; picking one gives it the app or takes it away at once.
  * Spade itself, which uses every app until narrowed, shows checked and can't be unticked here.

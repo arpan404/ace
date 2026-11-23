@@ -72,11 +72,84 @@ import Testing
         #expect(MarkdownBlocks.split(quote) == [.prose(quote)])
     }
 
-    @Test func textDefiningReferencesIsNeverCut() {
-        let text = "See [the plan][plan].\n\n| a | b |\n|---|---|\n\n[plan]: https://example.com\n"
+    @Test func everyPieceCarriesTheLinkDefinitionsSoItsReferencesResolve() {
+        let text = "See [the plan][plan].\n\n| a | b |\n|---|---|\n| [it][plan] | 2 |\n\n[plan]: https://example.com\n  \"The plan\"\n"
+        let defined = "\n\n[plan]: https://example.com\n  \"The plan\""
+        #expect(MarkdownBlocks.split(text) == [
+            .prose("See [the plan][plan]." + defined),
+            .table("| a | b |\n|---|---|\n| [it][plan] | 2 |" + defined),
+        ])
+    }
+
+    @Test func aDefinitionArrivingLateInAStreamLeavesTheTableCut() {
+        let splitter = MarkdownBlocks.Splitter()
+        let table = "| a | b |\n|---|---|\n| [x][1] | 2 |"
+        #expect(splitter.split("Intro\n\n" + table + "\n\n") == [.prose("Intro"), .table(table)])
+        #expect(splitter.split("Intro\n\n" + table + "\n\n[1]: https://example.com") == [
+            .prose("Intro\n\n[1]: https://example.com"), .table(table + "\n\n[1]: https://example.com"),
+        ])
+    }
+
+    @Test func aLineShapedLikeADefinitionInsideAParagraphStaysItsText() {
+        let text = "Intro line\n[a]: not a definition\n\n| a | b |\n|---|---|"
+        #expect(MarkdownBlocks.split(text) == [.prose("Intro line\n[a]: not a definition"), .table("| a | b |\n|---|---|")])
+    }
+
+    @Test func textDefiningAFootnoteIsNeverCut() {
         let footnote = "| a | b |\n|---|---|\n| 1 | 2[^n] |\n\n[^n]: a note"
-        #expect(MarkdownBlocks.split(text) == [.prose(text)])
         #expect(MarkdownBlocks.split(footnote) == [.prose(footnote)])
+    }
+
+    @Test func textThatChangesTheLineAfterAClosedTableIsReadAgainFromThatTable() {
+        let splitter = MarkdownBlocks.Splitter()
+        _ = splitter.split("| a |\n|---|\n| 1 |\nfoo\nx")
+        // Same start, but the line that ended the table is now one of its rows.
+        let replaced = "| a |\n|---|\n| 1 |\n| 2 |\nx"
+        #expect(splitter.split(replaced) == MarkdownBlocks.split(replaced))
+        #expect(splitter.split(replaced) == [.table("| a |\n|---|\n| 1 |\n| 2 |"), .prose("x")])
+    }
+
+    @Test func textThatChangesATablesDelimiterRowIsReadAgainFromBeforeIt() {
+        let splitter = MarkdownBlocks.Splitter()
+        _ = splitter.split("| z |\n|---|\n\nIntro\n| a | b |\n|---|---|\n| 1")
+        // The rule under the header is no longer one: the intro and both lines are one paragraph.
+        let replaced = "| z |\n|---|\n\nIntro\n| a | b |\n|-x-|---|\n| 1"
+        #expect(splitter.split(replaced) == MarkdownBlocks.split(replaced))
+    }
+
+    @Test func aStreamSplitAsItGrowsCutsAsTheWholeTextDoesAtEveryStep() {
+        let answer = """
+        Where things stand, see [the plan][plan]:
+
+        | Area | State |
+        | --- | :-: |
+        | Recording | done |
+        | Replay | `not | started` |
+        After the table.
+
+        ```
+        | not | a |
+        |---|---|
+        ```
+
+        name | state
+        ---|---:
+        recorder | done
+
+        [plan]: https://example.com
+        - a list | item
+        | x | y |
+        |---|---|
+        """
+        let splitter = MarkdownBlocks.Splitter()
+        var grown = ""
+        for character in answer {
+            grown.append(character)
+            #expect(splitter.split(grown) == MarkdownBlocks.split(grown), "at \(grown.count)")
+        }
+        // Text that doesn't carry on from the last (an edit) is read whole again.
+        let edited = answer.replacingOccurrences(of: "Recording", with: "Capture")
+        #expect(splitter.split(edited) == MarkdownBlocks.split(edited))
     }
 
     @Test func aTableEndsAtTheFirstLineWithoutAPipe() {

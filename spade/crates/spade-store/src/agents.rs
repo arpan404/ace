@@ -259,7 +259,22 @@ impl Store {
         change: Option<Box<TaskChange>>,
         now_ms: i64,
     ) -> Result<StoredEvent> {
-        self.configure(id, Some((task, model)), None, change, now_ms)
+        self.configure(id, Some((task, model)), None, change, &[], now_ms)?
+            .pop()
+            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
+    }
+
+    /// [`Store::configure_agent`] with `then` appended after the `agent_configured` event, all in
+    /// one write: a crash keeps the change with them or neither. Answers every stored event.
+    pub fn configure_agent_then(
+        &self,
+        id: &str,
+        task: &str,
+        model: &str,
+        then: &[Event],
+        now_ms: i64,
+    ) -> Result<Vec<StoredEvent>> {
+        self.configure(id, Some((task, model)), None, None, then, now_ms)
     }
 
     /// Sets how the agent talks (`None`: left to the bot): the row and an `agent_configured`
@@ -270,7 +285,9 @@ impl Store {
         personality: Option<spade_core::personality::Personality>,
         now_ms: i64,
     ) -> Result<StoredEvent> {
-        self.configure(id, None, Some(personality), None, now_ms)
+        self.configure(id, None, Some(personality), None, &[], now_ms)?
+            .pop()
+            .ok_or_else(|| StoreError::NoConversation(id.to_owned()))
     }
 
     fn configure(
@@ -279,8 +296,9 @@ impl Store {
         work: Option<(&str, &str)>,
         voice: Option<Option<spade_core::personality::Personality>>,
         change: Option<Box<TaskChange>>,
+        then: &[Event],
         now_ms: i64,
-    ) -> Result<StoredEvent> {
+    ) -> Result<Vec<StoredEvent>> {
         let mut connection = self.lock()?;
         let tx = connection.transaction()?;
         let row: Option<(String, String, String, Option<String>)> = tx
@@ -307,9 +325,11 @@ impl Store {
             personality,
             change,
         });
-        let mut stored = append_in(&tx, &conversation, &[event], now_ms)?;
+        let mut events = vec![event];
+        events.extend_from_slice(then);
+        let stored = append_in(&tx, &conversation, &events, now_ms)?;
         tx.commit()?;
-        stored.pop().ok_or(StoreError::NoConversation(conversation))
+        Ok(stored)
     }
 
     /// The conversation's `agent_configured` events, oldest first, with their numbers and times:

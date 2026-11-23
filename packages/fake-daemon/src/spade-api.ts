@@ -3,6 +3,8 @@ import { fakeSpadeQuoted } from "./spade-quoted.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
 import { FakeSpadeAccounts } from "./spade-accounts.ts";
+import { FakeSpadePlugins } from "./spade-plugins.ts";
+import { fakeMoveRoute } from "./spade-moves.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
 import { FakeSpadeKnowledge } from "./spade-knowledge.ts";
 import { FakeSpadeNotes } from "./spade-notes.ts";
@@ -11,6 +13,7 @@ import { FakeSpadeServices } from "./spade-services.ts";
 import { FakeSpadeOversight } from "./spade-oversight.ts";
 import { FakeSpadeSecurity } from "./spade-security.ts";
 import { contractsRoute, packageRoute } from "./spade-packages.ts";
+import { FakeSpadeLanes } from "./spade-lanes.ts";
 import { FakeSpadePanels } from "./spade-panels.ts";
 import { FakeSpadeRoutines } from "./spade-routines.ts";
 import { base64Bytes, sha256Hex } from "./sha256.ts";
@@ -126,8 +129,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (this.hostRecord && this.here) return this.hostRecord.host === this.here;
     return this.mainEnabled;
   }
-  /** The person's subscriptions as ace lists them (ADR 0133), in Spade's JSON. */
-  subscriptions: Json[] = [];
   /** What each endpoint lists live, by endpoint id; a number answers with that status. */
   liveModels = new Map<string, Json[] | number>();
   /** Each agent's workspace files (ADR 0130), by path relative to it; folders are implied. */
@@ -170,6 +171,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly requests: FakeSpadeRequest[] = [];
   /** The person's connected apps and each bot's allow list (ADR 0131). */
   readonly connectors = new FakeSpadeConnectors();
+  readonly plugins = new FakeSpadePlugins();
   /** Caps, the review and the activity log (ADR 0135). */
   readonly oversight = new FakeSpadeOversight();
   /** The sandbox, and each bot's network, grants, egress log and checkpoints (ADR 0167). */
@@ -192,6 +194,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly running: FakeSpadeRunning;
   /** Packaged bots' panels (ADR 0200 §5.2). */
   readonly panels: FakeSpadePanels;
+  /** Each bot's task lanes (ADR 0217); `stageFakeLanes` stores a realistic set. */
+  readonly lanes: FakeSpadeLanes;
   private readonly events = new Map<string, Stored[]>();
   private sequence = 0;
   private readonly spade: FakeSpade;
@@ -273,6 +277,11 @@ export class FakeSpadeApi implements FakeSpadeServer {
     this.panels = new FakeSpadePanels({
       events: (conversation) => (this.events.get(conversation) ?? []).map((stored) => stored.event),
       store: (conversation, event) => this.store(conversation, event),
+    });
+    this.lanes = new FakeSpadeLanes({
+      store: (conversation, event, at) => this.store(conversation, event, at),
+      events: (conversation) => this.eventsOf(conversation),
+      now,
     });
     spade.serve(this);
   }
@@ -594,6 +603,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
     }
     if (root === "agents" && id && sub === "skill-proposals")
       return this.proposalRoute(request.method, id, subId, body);
+    if (root === "agents" && id && sub === "plugins")
+      return this.plugins.route(request.method, id, body);
     if (root === "agents" && id && sub === "connectors") {
       const agent = this.agents.find((candidate) => candidate.id === id);
       if (!agent) return problem(404, "No such agent.");
@@ -739,42 +750,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.acceptances.set(id, body);
       return reply({ accepted: true });
     }
-    if (root === "agents" && id && (sub === "move" || sub === "arrival")) {
-      const agent = this.agents.find((candidate) => candidate.id === id);
-      if (!agent) return problem(404, "No such agent.");
-      if (sub === "arrival") {
-        agent.arrived = null;
-        return { status: 204 };
-      }
-      if (request.method === "DELETE") {
-        agent.move = null;
-        return reply({ move: null });
-      }
-      if (request.method === "GET") return reply({ move: agent.move ?? null });
-      if (subId === "check") return reply({ checking: true });
-      if (agent.state !== "idle")
-        return problem(
-          409,
-          `${agent.name} is working; it can move once that ends, or once you stop it.`,
-        );
-      if (typeof body.move !== "string") return problem(400, "Name the move.");
-      const to = String(body.to);
-      agent.move = {
-        id: body.move,
-        to: { host: to, name: this.machineNames.get(to) ?? to },
-        state: "sending",
-        from: this.here ?? "this-mac",
-        via: `dev-${this.here ?? "this-mac"}`,
-        digest: "a".repeat(64),
-        replaces: agent.kind === "main" ? "main" : "bot",
-        sent: 3,
-        total: 12,
-        waiting: false,
-        problem: null,
-        can_cancel: true,
-      };
-      return reply({ move: agent.move }, 202);
-    }
+    if (root === "agents" && id && (sub === "move" || sub === "arrival"))
+      return fakeMoveRoute(this, request.method, id, sub, subId, body);
     if (root === "agents") return this.agentRoute(request.method, id, body, query);
     if (root === "routines" && id) return this.routines.route(request.method, id, sub, body);
     if (root === "connectors")
@@ -798,16 +775,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
         speech_model: this.speechModel,
         keychain: this.keychain,
       });
-    if (root === "subscriptions" && request.method === "GET")
-      return reply({ providers: this.subscriptions, error: null });
-    // The person ticked Use it for a provider's subscription (ADR 0205 §1).
-    if (root === "subscriptions" && id && sub === "terms" && request.method === "PUT") {
-      const found = this.subscriptions.find((each) => each.provider === id);
-      const terms = found?.terms as Json | undefined;
-      if (!found || terms?.status === "refused") return problem(400, "That isn't offered.");
-      found.terms = { ...terms, acknowledged: true };
-      return reply({ terms: found.terms });
-    }
     if (root === "accounts" && id === "chatgpt")
       return this.accounts.route(request.method, sub, body, this.endpoints);
     if (root === "endpoints" && id === "local" && request.method === "GET")
@@ -979,11 +946,6 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(400, "Spade's name and face can't change.");
       for (const key of ["name", "model"] as const)
         if (typeof body[key] === "string") agent[key] = body[key];
-      // As Spade: another model ends a hold its subscription's terms put on it (ADR 0205).
-      if (typeof body.model === "string" && agent.terms_hold) {
-        agent.terms_hold = null;
-        agent.problem = null;
-      }
       // As Spade: whether it may make bots (ADR 0161, amendment 1).
       if (
         body.may_create_bots === "yes" ||
@@ -999,6 +961,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
           return problem(400, "style.accent is one colour, like #2f7bea");
         agent.style = { accent: accent === null ? null : accent.toLowerCase(), chosen: true };
       }
+      // As Spade: how it talks, kept as sent and taken from its next turn.
+      if (body.personality && typeof body.personality === "object")
+        agent.personality = body.personality as Json;
       // As Spade: a task change is kept with who made it and why.
       if (typeof body.task === "string")
         this.tasks.change(
@@ -1058,7 +1023,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         size: text.length,
         text,
         unreadable: null,
-        revision: fakeFileRevision(text),
+        revision: this.computer.unrevised.has(path) ? null : fakeFileRevision(text),
       });
     }
     const prefix = path ? `${path}/` : "";
@@ -1260,6 +1225,9 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (!list) return problem(404, "No such conversation.");
     const agent = this.agents.find((candidate) => candidate.conversation === id);
     if (sub === "seen" && request.method === "PUT") return this.markSeen(id, list, request.body);
+    if (sub === "tasks" && request.method === "GET")
+      return this.lanes.tasks(id, Number(new URLSearchParams(query).get("ended") ?? 20));
+    if (sub === "task" && !subId && request.method === "GET") return this.lanes.task(id);
     if (sub === "panels")
       return this.panels.conversationRoute(
         request.method,
@@ -1349,6 +1317,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
             answers: body.answers,
             late: deferred || undefined,
           });
+        // A task's card answered in main reaches the task (ADR 0217 §4).
+        if (Array.isArray(body.answers)) this.lanes.questionAnswered(subId, body.answers);
         if (agent) {
           const later =
             (agent.questions_for_later ?? 0) +
@@ -1409,6 +1379,7 @@ export class FakeSpadeApi implements FakeSpadeServer {
         allowed: body.allowed === true,
         always: body.always === true,
       });
+      this.lanes.answered(subId, body.allowed === true);
       if (agent?.task_state?.status === "blocked_on_person")
         agent.task_state = { status: "working" };
       if (agent) this.status(agent, "working", null);
@@ -1425,14 +1396,22 @@ export class FakeSpadeApi implements FakeSpadeServer {
         return problem(409, "only the last reply can be tried again, and only when it failed");
       this.store(id, { type: "reply_retried", reply: body.reply });
       this.store(id, { type: "reply_started", reply: `${String(body.reply)}~again` });
+      this.lanes.retried(id);
       if (agent) this.status(agent, "working", "Thinking");
       return reply({}, 202);
     }
     if (sub === "stop" && request.method === "POST") {
+      // A lane stops alone, and main hears it stopped (ADR 0217 §5).
+      if (this.lanes.lane(id)) {
+        this.lanes.settle(id, "stopped", "");
+        return reply({});
+      }
       const open = list.findLast((stored) => stored.event.type === "reply_started");
       if (open) this.store(id, { type: "reply_stopped", reply: open.event.reply, text: "" });
+      // Stop on the bot stops every task of it too, even with the chat idle (ADR 0217 §5).
+      const tasks = this.lanes.stopAll(id);
       if (agent) this.status(agent, "idle", null);
-      return reply({});
+      return reply({}, open || tasks > 0 ? 202 : 200);
     }
     return problem(404, "Not found.");
   }

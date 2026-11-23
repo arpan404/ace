@@ -52,6 +52,16 @@ function detailOf(name: string, args: unknown): string | undefined {
   if (!fields) return undefined;
   const base = name.split("__").at(-1) ?? name;
   if (base === "shell") return text(fields.command);
+  // A Python run (ADR 0220): its script, else the code's first line that isn't an import.
+  if (base === "python") {
+    const code = text(fields.code)
+      ?.split("\n")
+      .map((line) => line.trim())
+      .find((line) => line && !line.startsWith("import "));
+    return text(fields.path) ?? code;
+  }
+  if (base === "workspace_find") return text(fields.pattern);
+  if (base === "workspace_search") return text(fields.text);
   const said =
     text(fields.path) ??
     text(fields.url) ??

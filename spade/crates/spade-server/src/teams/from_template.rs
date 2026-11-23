@@ -119,7 +119,7 @@ pub fn from_template(
 }
 
 /// The model a template's bot runs on unless the person picks one: their fast model for a fast
-/// template, else their default. Never a subscription (ADR 0205 §1).
+/// template, else their default.
 pub fn template_model(engine: &Arc<Engine>, id: &str) -> Option<String> {
     let template = package_of(id)?;
     if template.manifest.model == "fast"

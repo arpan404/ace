@@ -30,10 +30,12 @@ export const Route = createFileRoute("/spade/$agentId")({
       .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
       .optional()
       .catch(undefined),
+    /** One of its tasks open (ADR 0217 §7), by its lane's id. */
+    task: z.string().min(1).max(200).optional().catch(undefined),
   }),
   component: function SpadeAgentRoute() {
     const { agentId } = Route.useParams();
-    const { on, profile, computer, files, file, request, panel } = Route.useSearch();
+    const { on, profile, computer, files, file, request, panel, task } = Route.useSearch();
     return (
       <SpadeAgentScreen
         agentId={agentId}
@@ -44,6 +46,7 @@ export const Route = createFileRoute("/spade/$agentId")({
         file={file}
         request={request}
         panel={panel}
+        task={task}
       />
     );
   },

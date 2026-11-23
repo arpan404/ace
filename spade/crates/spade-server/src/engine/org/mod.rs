@@ -302,9 +302,6 @@ impl Engine {
         model: &str,
     ) -> Option<&'static str> {
         let (_, policy) = self.org_gate(conversation)?;
-        if model.starts_with(spade_core::brain::PREFIX) {
-            return policy.model_refusal(ModelPlace::Subscription);
-        }
         let endpoint = model
             .split_once('/')
             .map_or(model, |(endpoint, _)| endpoint);

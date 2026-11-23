@@ -61,9 +61,6 @@ Anything ace could not import (`unsupported`) and any execution of a kind this S
 know is listed too. The settings page shows all of these as "Not used by Spade", each with its
 reason.
 
-A bot on a subscription (ADR 0133) gets only rules, skills and commands: its CLI runs the
-plugin's servers and hooks itself, and ace already gives the CLI the person's plugins.
-
 ## Skills and commands
 
 `plugins.spade` sends each skill's SKILL.md with the list of its other files (path in the skill's

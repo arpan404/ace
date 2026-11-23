@@ -19,7 +19,7 @@ impl Plugins {
     pub async fn has_hooks(&self, agent: &str, event: &str) -> bool {
         self.refresh_briefly().await;
         self.for_agent(agent).iter().any(|plugin| {
-            view::usable(plugin, false)
+            view::usable(plugin)
                 .hooks
                 .iter()
                 .any(|hook| hook.event == event)
@@ -39,7 +39,7 @@ impl Plugins {
         self.refresh_briefly().await;
         let mut todo = Vec::new();
         for plugin in self.for_agent(agent) {
-            for hook in view::usable(&plugin, false).hooks {
+            for hook in view::usable(&plugin).hooks {
                 if hook.event == event
                     && tool.is_none_or(|tool| hooks::matches(hook.matcher.as_deref(), tool))
                 {

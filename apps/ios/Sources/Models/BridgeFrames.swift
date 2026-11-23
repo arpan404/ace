@@ -63,16 +63,16 @@ final class FrameDecoder: @unchecked Sendable {
     /// Bytes of the fragments taken since the last frame that ended no transfer.
     private var carried = 0
     /// Decodes `data`, then hands `done` the frame's complete patches, or nil when it could not be
-    /// read (the assembly resets), with the bytes they weigh. A frame that ends a transfer weighs
-    /// every fragment of it, so a patch sent in pieces counts whole toward the early-ack cap
-    /// (`FrameIntake.answeredLimit`).
-    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?, Int) -> Void) {
+    /// read (the assembly resets), with the physical frame size and its delivery weight. A frame
+    /// that ends a transfer weighs every fragment toward the early-ack cap.
+    /// See `FrameIntake.answeredLimit`.
+    func decode(_ data: Data, then done: @escaping @Sendable ([BridgePatch]?, _ frameBytes: Int, _ deliveryBytes: Int) -> Void) {
         queue.async { [self] in
             let patches = HostTrace.measure("host.decodeFrame", bytes: data.count) { try? frames.decode(data) }
             carried += data.count
             let bytes = frames.assembling ? data.count : carried
             if !frames.assembling { carried = 0 }
-            done(patches, bytes)
+            done(patches, data.count, bytes)
         }
     }
 }

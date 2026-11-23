@@ -12,7 +12,7 @@ import {
   RustToolchainError,
   stageLinuxScreenHelper,
 } from "@ace/release";
-import { stageBunRuntime } from "@ace/release/daemon-runtime";
+import { stageBunRuntime, stageDaemonRuntimeName } from "@ace/release/daemon-runtime";
 import { stageAceMedia } from "@ace/release/ace-media";
 import { stageAceFiles } from "@ace/release/ace-files";
 import { stageAceHistory } from "@ace/release/ace-history";
@@ -206,6 +206,7 @@ if (
     executable: join(runtime, "bin", "node"),
     licensePath: join(runtime, "LICENSE"),
   });
+  await stageDaemonRuntimeName(join(runtime, "bin", "node"), process.platform);
 } else if (releaseTarget === "win32-x64" || releaseTarget === "win32-arm64") {
   log("bun runtime");
   await stageBunRuntime({
@@ -214,6 +215,7 @@ if (
     executable: join(dist, "runtime", "node.exe"),
     licensePath: join(dist, "runtime", "LICENSE"),
   });
+  await stageDaemonRuntimeName(join(dist, "runtime", "node.exe"), process.platform);
 }
 
 log(`native code for ${process.platform}-${arch}`);

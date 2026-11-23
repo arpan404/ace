@@ -46,13 +46,8 @@ impl Engine {
     }
 
     /// Sets (or with `None` clears) the model that reads replies aloud; it must be on one of
-    /// the person's endpoints. A subscription model has no speech route.
+    /// the person's endpoints.
     pub fn set_speech_model(&self, model: Option<&str>) -> Result<(), super::AgentError> {
-        if model.is_some_and(|m| spade_core::brain::CliModel::is(m.trim())) {
-            return Err(super::AgentError::Invalid(
-                "a subscription model can't read aloud; pick a model on an endpoint".to_owned(),
-            ));
-        }
         let model = model.map(|m| self.check_model(m)).transpose()?;
         Ok(self.store.set_setting(SPEECH_MODEL, model.as_deref())?)
     }

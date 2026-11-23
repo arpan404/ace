@@ -21,7 +21,7 @@ use crate::api::AppState;
 use crate::clock::{CountingIds, SystemClock};
 use crate::engine::{Engine, GlobalChange, Limits, Setup};
 use crate::tools::{
-    CardShow, DecisionLog, EngineHandle, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, Toolbox,
+    Asks, CardShow, DecisionLog, EngineHandle, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, Toolbox,
 };
 
 /// Whether a run gives the bot a fake for `name`: every tool that reaches outside, and any name
@@ -42,6 +42,7 @@ pub(crate) fn own_tools(workspace: &Path, bots: &EngineHandle) -> Vec<Arc<dyn To
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
+        Arc::new(Asks),
         Arc::new(CardShow::new(bots.clone(), Some(workspaces.clone()))),
     ];
     tools.extend(
@@ -365,9 +366,19 @@ pub(crate) async fn start(
         .and_then(|r| r["id"].as_str())
         .ok_or_else(|| format!("its trigger {wanted:?} made no routine"))?
         .to_owned();
+    // The install leaves routines paused. Enable only the one this scenario will fire.
+    let path = format!("/v1/routines/{routine}");
     let (status, answer) = spade
-        .post(&format!("/v1/routines/{routine}/run"), json!({}))
+        .call(
+            reqwest::Method::PATCH,
+            &path,
+            Some(json!({ "paused": false })),
+        )
         .await?;
+    if status != 200 {
+        return Err(format!("its trigger couldn't be resumed: {}", error_of(&answer)).into());
+    }
+    let (status, answer) = spade.post(&format!("{path}/run"), json!({})).await?;
     if status != 202 {
         return Err(format!("its trigger didn't fire: {}", error_of(&answer)).into());
     }

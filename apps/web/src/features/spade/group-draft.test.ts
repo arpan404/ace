@@ -43,10 +43,11 @@ test("a draft led from another machine names this machine's members against the 
   });
 });
 
-test("a draft needs a name and two to eight members", () => {
+test("a draft needs a name and two to thirty-two members", () => {
   expect(draftProblem(" ", [spadeHere, research])).toBe("Name the club.");
   expect(draftProblem("Trips", [spadeHere])).toBe("Pick at least one more bot.");
-  const nine = Array.from({ length: 9 }, (_, index) => choice("mac", `bot${index}`));
-  expect(draftProblem("Trips", nine)).toBe("A club holds up to 8 bots.");
+  const members = Array.from({ length: 33 }, (_, index) => choice("mac", `bot${index}`));
+  expect(draftProblem("Trips", members.slice(0, 32))).toBeUndefined();
+  expect(draftProblem("Trips", members)).toBe("A club holds up to 32 bots.");
   expect(draftProblem("Trips", [spadeHere, research])).toBeUndefined();
 });

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use spade_core::Event;
-use spade_core::compaction::{self, Plan};
+use spade_core::compaction::{self, Budget, Plan};
 use spade_core::context;
 use spade_core::event::Known;
 use spade_models::Message;
@@ -16,23 +16,23 @@ use super::Engine;
 const LEFT_OUT: &str = "Earlier messages were left out to fit the model's context; ask the person \
                         if something from before is needed.";
 
-/// The prompt size the endpoint last reported, from the newest finished step.
-fn last_prompt_tokens(events: &[Event]) -> u32 {
-    events
-        .iter()
-        .rev()
-        .find_map(|event| match event {
-            Event::Known(Known::StepFinished { usage, .. }) => usage.input,
-            _ => None,
+/// The budget: the smallest context window of the models that may serve the step (the turn's
+/// model and its fallbacks; the fallback size for a model that doesn't say), capped only by
+/// `SPADE_CONTEXT_TOKENS`, and the lower cap the person may set (`context_tokens`, ADR 0216).
+fn budget(engine: &Engine, id: &str, model: &str) -> Budget {
+    let route = engine.step_route(id, model);
+    let window = std::iter::once(model)
+        .chain(route.iter().map(String::as_str))
+        .map(|m| {
+            let window = engine.models.resolve(m).and_then(|(_, m)| m.context);
+            budget_for(window, &engine.limits)
         })
-        .unwrap_or(0)
-}
-
-/// The budget: the model's own context window (or the fallback for a model that doesn't say),
-/// capped only by a budget the person set.
-fn budget(engine: &Engine, model: &str) -> u32 {
-    let window = engine.models.resolve(model).and_then(|(_, m)| m.context);
-    budget_for(window, &engine.limits)
+        .min()
+        .unwrap_or(engine.limits.context_fallback);
+    Budget {
+        window,
+        working: engine.context_tokens(id).unwrap_or(u32::MAX),
+    }
 }
 
 fn budget_for(window: Option<u64>, limits: &super::Limits) -> u32 {
@@ -43,19 +43,21 @@ fn budget_for(window: Option<u64>, limits: &super::Limits) -> u32 {
         .min(limits.context_budget)
 }
 
-/// Compacts if the prompt has reached the high mark. Returns whether it did.
+/// Compacts if the next request's prompt, as estimated, has reached the budget. Returns whether
+/// a compaction was stored: one that could not be stored leaves the step to go on, never to
+/// pay for the same summary again in a loop.
 pub(super) async fn if_needed(
     engine: &Arc<Engine>,
     id: &str,
     model: &str,
     events: &[Event],
 ) -> bool {
-    let Some(plan) = compaction::plan(events, last_prompt_tokens(events), budget(engine, model))
-    else {
+    let budget = budget(engine, id, model);
+    let estimate = compaction::prompt_estimate(events);
+    let Some(plan) = compaction::plan_within(events, estimate, budget) else {
         return false;
     };
-    run(engine, id, model, events, plan, None).await;
-    true
+    run(engine, id, model, events, plan, None).await
 }
 
 /// Compacts now, keeping only the latest turn, with an optional focus for the summary.
@@ -73,8 +75,11 @@ pub(super) async fn now(
     let Some(keep_from) = compaction::safe_starts(&events, already).last().copied() else {
         return Ok(false);
     };
-    run(engine, id, model, &events, Plan { keep_from }, focus).await;
-    Ok(true)
+    if run(engine, id, model, &events, Plan { keep_from }, focus).await {
+        Ok(true)
+    } else {
+        Err("the compaction could not be stored".to_owned())
+    }
 }
 
 async fn run(
@@ -84,7 +89,7 @@ async fn run(
     events: &[Event],
     plan: Plan,
     focus: Option<&str>,
-) {
+) -> bool {
     super::plugin_hooks::before_compact(engine, id, events, plan.keep_from).await;
     // The summary request goes after the whole current prompt, with the same tools, so its input
     // is cache reads. Typed output is not used: it would change the request and miss the cache.
@@ -92,12 +97,18 @@ async fn run(
     let system = engine.system_for(id);
     let mut prompt =
         context::prompt_with(&system, engine.offered_for(id), events, &images).session(id);
+    let mut ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
+    // Nobody but the bot writes in a helper's conversation: its brief is the bot's words, never
+    // kept as the person's (ADR 0216).
+    if engine.helper_of(id).is_some() {
+        ledger.said.clear();
+        ledger.said_earlier = 0;
+    }
+    // Asked knowing what is kept of the person's words, so what is cut is summarised.
     prompt.messages.push(Message::Person {
-        text: compaction::request(focus),
+        text: compaction::request_keeping(focus, &ledger),
         images: Vec::new(),
     });
-    let ledger = compaction::ledger(events, plan.keep_from, &engine.registry_for(id));
-    let carried = compaction::lines(&ledger);
     // Paid for like every model call (ADR 0135).
     let hint = super::ledger::turn_hint(events);
     // The `compact` role's model when it fits and costs less (ADR 0162).
@@ -133,25 +144,51 @@ async fn run(
     if let Some(summary) = &written {
         super::memory::keep_extracted(engine, id, &summary.notes, untrusted);
     }
-    let summary = match written {
-        Some(summary) => compaction::render(&summary, &carried),
-        None => {
-            let mut text = LEFT_OUT.to_owned();
-            text.push('\n');
-            text.push_str(&compaction::carried_section(&carried));
-            text
-        }
-    };
+    // The summary, the person's own words kept whole and the writes carried out (ADR 0216).
+    let summary = compaction::written(written.as_ref(), LEFT_OUT, &ledger);
     let event = Event::Known(Known::ContextCompacted {
         summary,
         keep_from: plan.keep_from,
-        tokens_before: last_prompt_tokens(events),
+        tokens_before: compaction::prompt_estimate(events),
         images_left_out: Some(context::images_to_leave_out(events, plan.keep_from)),
         untrusted,
         carried: Some(ledger),
+        // The person's asks as they stand, so a fold after this starts here (ADR 0215).
+        asks: Some(Box::new(engine.asks_of(id, events))),
     });
-    if let Err(error) = engine.record(id, &event) {
-        tracing::error!(%error, "could not store a compaction");
+    match engine.record(id, &event) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(%error, "could not store a compaction");
+            false
+        }
+    }
+}
+
+/// Stores the next batch of aged tool results when one is due (ADR 0216). Returns whether it
+/// did; a store that fails ages nothing, so the step goes on as it was.
+pub(super) fn age_if_due(engine: &Engine, id: &str, events: &[Event]) -> bool {
+    // Off unless the person turned it on: models see full output by default.
+    if !engine.ages_results(id) {
+        return false;
+    }
+    // A stub points at `history_read`; a conversation not offered it keeps its results whole.
+    let readable = engine
+        .offered_for(id)
+        .iter()
+        .any(|tool| tool.name == spade_core::aging::READ_BACK);
+    if !readable {
+        return false;
+    }
+    let Some(before) = spade_core::aging::due(events) else {
+        return false;
+    };
+    match engine.record(id, &Event::Known(Known::ResultsAged { before })) {
+        Ok(_) => true,
+        Err(error) => {
+            tracing::error!(%error, "could not store aged results");
+            false
+        }
     }
 }
 

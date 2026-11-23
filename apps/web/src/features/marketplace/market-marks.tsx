@@ -16,7 +16,7 @@ import { AceLogo } from "@/components/ace-logo.tsx";
 import { part } from "@/lib/suit-part.ts";
 
 /*
- * The small marks every Marketplace page shares: a type's glyph, a publisher's avatar and verified
+ * The small marks every Store page shares: a type's glyph, a publisher's avatar and verified
  * seal, the byline, a version's state and a trending move. Drawn with ace's own icons.
  */
 

@@ -3,7 +3,7 @@ import { terminalKeyBytes } from "@ace/client/terminal-keys";
 import { z } from "zod";
 
 /** One thing the person typed: text as is, or a key with the modifiers held for it. */
-const Input = z.union([
+export const TerminalInput = z.union([
   z.object({ text: z.string().max(8192) }),
   z.object({
     key: z.string().min(1).max(32),
@@ -25,14 +25,17 @@ export const NativeTerminalInputRequest = z.object({
   terminalId: z.string().min(1).max(128),
   /** DECCKM as the phone's screen last saw it. */
   applicationCursor: z.boolean(),
-  input: z.array(Input).min(1).max(512),
+  input: z.array(TerminalInput).min(1).max(512),
 });
 
-/** The bytes `request` sends, in order; keys that send nothing are skipped. */
-function terminalInputBytes(request: z.infer<typeof NativeTerminalInputRequest>): string {
-  const modes = { applicationCursor: request.applicationCursor };
+/** The bytes `inputs` send, in order; keys that send nothing are skipped. */
+export function terminalInputBytes(
+  inputs: readonly z.infer<typeof TerminalInput>[],
+  applicationCursor: boolean,
+): string {
+  const modes = { applicationCursor };
   let data = "";
-  for (const input of request.input)
+  for (const input of inputs)
     data += "text" in input ? input.text : (terminalKeyBytes(input, modes) ?? "");
   return data;
 }
@@ -42,7 +45,7 @@ export async function writeNativeTerminalInput(
   request: z.infer<typeof NativeTerminalInputRequest>,
   signal: AbortSignal,
 ) {
-  const data = terminalInputBytes(request);
+  const data = terminalInputBytes(request.input, request.applicationCursor);
   if (!data) return { ok: true };
   if (data.length > 8192) return { ok: false, error: "That's too much input at once." };
   return owner.request(

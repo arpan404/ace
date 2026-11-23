@@ -268,6 +268,10 @@ export class FakeMarketPublishing {
           challenges: this.#verification.challenges.map((item) => ({ ...item, state: "passed" })),
         };
         return ok({ kind: "verification", verification: this.#verification });
+      // An organization's registry is `FakeRegistries`'s, which the wire asks first.
+      case "registry":
+      case "registryWithdraw":
+        return failure("not_found", "The market has nothing there.");
       default:
         return this.#onEntry(action);
     }

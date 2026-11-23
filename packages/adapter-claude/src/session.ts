@@ -1,5 +1,4 @@
 import { ClaudePermissionMode } from "@ace/provider-kit/permission-modes";
-import { refusedPlanMessage, spadeBotPermission } from "./spade-bot.ts";
 import { claudeInjection, claudeToolListing, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions, claudeSelectionFlags } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -269,19 +268,8 @@ export async function openSession(
               .catch(() => {});
           },
         }),
-      canUseTool: (toolName, toolInput, toolOptions) => {
-        const answered = ctx.spadeBot
-          ? spadeBotPermission(ctx.spadeBot.allowAceTools, toolName, toolInput)
-          : undefined;
-        // A bot's plan, refused as a plan, still reaches the person as its reply.
-        const plan = ctx.spadeBot
-          ? refusedPlanMessage(toolName, toolInput, toolOptions.requestId)
-          : undefined;
-        if (plan) frame("recv", "sdk", plan);
-        return answered
-          ? Promise.resolve(answered)
-          : pending.permission(toolName, toolInput, toolOptions);
-      },
+      canUseTool: (toolName, toolInput, toolOptions) =>
+        pending.permission(toolName, toolInput, toolOptions),
       onElicitation: (request, meta) => pending.elicitation(request, meta),
       // No product renderer currently answers a native user-dialog kind.
       onUserDialog: async (request) => {

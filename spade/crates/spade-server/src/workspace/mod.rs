@@ -8,19 +8,25 @@
 //! place, and a file with more than one hard link is never written.
 
 mod ambient;
+mod edits;
 mod files;
 mod identity;
 mod installed;
+mod matching;
 mod person;
 pub mod place;
+pub mod python;
+mod reading;
 #[cfg(unix)]
 mod reap;
 #[cfg(unix)]
 pub use reap::adopt_orphans;
 pub mod outside;
 pub mod shell;
+mod shell_tool;
 mod tools;
 pub mod trust;
+mod walk;
 
 pub use identity::Identity;
 pub use installed::SKILLS_FOLDER;
@@ -34,9 +40,10 @@ use cap_std::fs::Dir;
 
 pub use files::{Entry, EntryKind, FileView, Listing};
 pub use person::{Seen, Snapshot, changes};
+pub use shell_tool::{ShellTool, asks_outside};
 pub use tools::{
-    Commands, ShellTool, WorkspaceEdit, WorkspaceList, WorkspaceRead, WorkspaceSearch,
-    WorkspaceWrite, asks_outside, tools as workspace_tools,
+    Commands, WorkspaceEdit, WorkspaceFind, WorkspaceList, WorkspaceRead, WorkspaceSearch,
+    WorkspaceWrite, tools as workspace_tools, tools_with as workspace_tools_with,
 };
 pub use trust::Trust;
 
@@ -166,10 +173,26 @@ impl Workspaces {
         })
     }
 
-    /// Deletes the bot's workspace, everything in it and its trust record.
+    /// Where every bot's workspace is.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// The bot's Python runtime folder (ADR 0220), outside its workspace: Spade writes it, the
+    /// bot's runs only read it.
+    pub fn python_runtime(&self, bot: &str) -> Result<PathBuf, PathError> {
+        self.of(bot)?;
+        Ok(python::runtime_of(&self.root, bot))
+    }
+
+    /// Deletes the bot's workspace, everything in it, its trust record and its Python runtime.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
         workspace.trust.forget();
+        match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
         let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
             Ok(root) => root,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),

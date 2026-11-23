@@ -59,6 +59,37 @@ enum SpadeRoster {
         return (shown.map { [$0] } ?? []) + ordered
     }
 
+    struct ListRow: Identifiable {
+        let entry: Entry
+        let indented: Bool
+        var joinsNext = false
+        var id: String { entry.id }
+    }
+
+    /// Keep each visible family together after merging machines and moving pins out of the list.
+    static func listRows(_ entries: [Entry]) -> [ListRow] {
+        let visible = Set(entries.map(\.id))
+        var children: [String: [ListRow]] = [:]
+        var roots: [ListRow] = []
+        for entry in entries {
+            if entry.bot.depth == 1, let root = entry.bot.familyRoot {
+                let key = "\(entry.machine)/\(root)"
+                if visible.contains(key) {
+                    children[key, default: []].append(ListRow(entry: entry, indented: true))
+                    continue
+                }
+            }
+            roots.append(ListRow(entry: entry, indented: false))
+        }
+        return roots.flatMap { root in
+            var family = [root] + (children[root.id] ?? [])
+            for index in family.indices.dropLast() {
+                family[index].joinsNext = true
+            }
+            return family
+        }
+    }
+
     /// The newest of the machines' host records: the higher version, then the later time, then
     /// the higher host id, as `newerSpadeHost` decides.
     static func newest(_ records: [SpadeModel.HostRecord]) -> SpadeModel.HostRecord? {

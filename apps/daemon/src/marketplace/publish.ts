@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { personMarketCall } from "@ace/client/market-intent";
+import { marketActionOrg, personMarketCall } from "@ace/client/market-intent";
 import {
   MarketApiError,
   MarketDone,
@@ -11,6 +11,7 @@ import {
   MarketSignals,
   MarketVerificationStatus,
   PublishAccepted,
+  RegistryAdmin,
   type MarketPublishAction,
   type MarketPublishAnswer,
   type MarketResult,
@@ -120,6 +121,10 @@ function readAnswer(call: Call, body: unknown): MarketPublishAnswer | undefined 
     case "verification": {
       const verification = read(MarketVerificationStatus);
       return verification && { kind, verification };
+    }
+    case "registry": {
+      const registry = read(RegistryAdmin);
+      return registry && { kind, registry };
     }
   }
 }
@@ -316,6 +321,10 @@ async function callsOf(
       return personCalls(action, { answer: "done", pending: "withdrawal" });
     case "deleteEntry":
       return personCalls(action, { answer: "done" });
+    case "registry":
+      return personCalls(action, { answer: "registry" });
+    case "registryWithdraw":
+      return personCalls(action, { answer: "done", pending: "withdrawal" });
     case "visibility":
       return [
         {
@@ -386,6 +395,13 @@ export async function publishAction(
     if (error instanceof Refused) return failure(error.code, error.message);
     throw error;
   }
+  // An organization's registry answers only the person, acting in it (ADR 0206 amendment 5):
+  // the machine's own grant is never sent, so the client is asked for the person's first.
+  const only = calls[0];
+  if (marketActionOrg(action) !== undefined && ports.personGrant === undefined && only)
+    return failure("person_grant", "Do this from an ace app you're signed in on.", {
+      action: `${only.method} ${only.path}`,
+    });
   let grant: string | undefined;
   try {
     grant =

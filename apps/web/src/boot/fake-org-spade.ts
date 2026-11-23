@@ -14,7 +14,7 @@ const entry = (seq: number, action: string, at: number, extra: Record<string, un
   prev: seq === 1 ? "0".repeat(64) : `${seq - 1}`.padStart(64, "0"),
   hash: `${seq}`.padStart(64, "0"),
   action,
-  occurred_at: at,
+  occurredAt: at,
   ...extra,
 });
 

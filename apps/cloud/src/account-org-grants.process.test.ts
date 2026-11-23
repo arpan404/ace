@@ -215,17 +215,25 @@ it("a host's credential speaks only for the enrollment it is bound to, and relea
 it("policy versions are signed with the grant key, only grow, and ride in member grants", async () => {
   const { ownerToken, org, box, miaToken } = await team("Policy");
   const policy = { effects: { pay: "off", publish: "approvers" }, full_access: "never" };
-  expect((await api.call(miaToken, "PUT", `/v1/orgs/${org}/policy`, { policy })).status).toBe(403);
+  expect(
+    (await api.call(miaToken, "PUT", `/v1/orgs/${org}/policy`, { policy, version: 0 })).status,
+  ).toBe(403);
   expect(
     (
       await api.call(ownerToken, "PUT", `/v1/orgs/${org}/policy`, {
         policy: { effects: { pay: "maybe" } },
+        version: 0,
       })
     ).status,
   ).toBe(400);
   for (const version of [1, 2])
     expect(
-      (await api.call(ownerToken, "PUT", `/v1/orgs/${org}/policy`, { policy })).body,
+      (
+        await api.call(ownerToken, "PUT", `/v1/orgs/${org}/policy`, {
+          policy,
+          version: version - 1,
+        })
+      ).body,
     ).toMatchObject({ version });
 
   const current = await api.call(miaToken, "GET", `/v1/orgs/${org}/policy`);
@@ -240,6 +248,23 @@ it("policy versions are signed with the grant key, only grow, and ride in member
   ).toThrow("match");
   const grant = await api.memberGrant(miaToken, org, box.hostId);
   expect(verifyMemberGrant(String(grant.body.token), keys, Date.now()).policy).toBe(2);
+});
+
+it("a save made over an older version is refused, and the newer restriction stands", async () => {
+  const { ownerToken, org } = await team("Stale policy");
+  const put = (policy: unknown, version: number) =>
+    api.call(ownerToken, "PUT", `/v1/orgs/${org}/policy`, { policy, version });
+  expect((await put({ effects: { pay: "off" } }, 0)).body).toMatchObject({ version: 1 });
+  // A second admin's page still shows version 0, without the restriction on paying.
+  const stale = await put({ effects: { publish: "admins" } }, 0);
+  expect(stale.status).toBe(409);
+  expect(stale.body).toEqual({ error: "policy_changed" });
+  // A base that was never stored is no newer version either.
+  expect((await put({}, 5)).status).toBe(409);
+
+  const current = await api.call(ownerToken, "GET", `/v1/orgs/${org}/policy`);
+  expect(current.body).toMatchObject({ version: 1 });
+  expect(JSON.parse(String(current.body.body))).toEqual({ effects: { pay: "off" } });
 });
 
 it("an org host's audit entry sent twice is one WorkOS event; another machine can't send one", async () => {

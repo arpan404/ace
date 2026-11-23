@@ -24,8 +24,8 @@ clients do, rather than only through the Codex CLI.
 ## Decision
 
 1. **An account is an endpoint.** Spade's endpoints (ADR 0126) already have their own id, key and
-   models, and nothing stopped two from the same preset. Each one is now shown as an *account* of
-   a *provider*: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
+   models, and nothing stopped two from the same preset. Each one is now shown as an _account_ of
+   a _provider_: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
    own address for one added from scratch. A provider holds any number of accounts. An account
    signs in one of three ways: an API key (ADR 0119), none (a local server), or a ChatGPT
    sign-in (below).
