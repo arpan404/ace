@@ -184,6 +184,19 @@ export function fakeOrgRoutes(options: {
     }
     if (path === "/v1/orgs" && method === "GET")
       return json(200, { orgs: orgs.map((org) => org.space) });
+    // A market grant acting in an organization (ADR 0206 §5.1), for one market request when it
+    // names one: only for its members, as the backend asks WorkOS first.
+    if (path === "/v1/grants" && method === "POST") {
+      const body = await read(init);
+      if (body.purpose !== "market-publish") return undefined;
+      const org = typeof body.org === "string" ? find(body.org) : undefined;
+      if (body.org !== undefined && !org) return fail(403, "not_member");
+      const action = typeof body.action === "string" ? body.action : "";
+      return json(200, {
+        token: `fake-market-grant.${org?.space.id ?? "person"}.${encodeURIComponent(action)}`,
+        expiresAt: now() + 300_000,
+      });
+    }
     if (path === "/v1/orgs" && method === "POST") {
       const name = String((await read(init)).name ?? "").trim();
       if (!name) return fail(400, "invalid_request");

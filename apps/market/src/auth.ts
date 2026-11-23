@@ -150,7 +150,7 @@ export interface AuthOptions {
 }
 
 /** Whether an organization's grant may publish to its registry: by role, or named by an owner. */
-async function mayPublishFor(dbs: Databases, claims: MarketGrantClaims, org: string) {
+export async function mayPublishFor(dbs: Databases, claims: MarketGrantClaims, org: string) {
   if (orgAllows(claims.orgRole ?? "", "registry:publish")) return true;
   return dbs.orgs ? namedPublisher(dbs.orgs, org, claims.account) : false;
 }

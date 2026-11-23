@@ -324,20 +324,27 @@ export async function decideHold(
   key: Key,
   decision: "approve" | "hold",
   now: number,
+  scan?: Pick<MarketScanReport, "verdict" | "scanner">,
 ): Promise<Decided> {
+  const version = [key.type, key.name, key.version];
   const statement =
     decision === "approve"
-      ? db.prepare(
-          `UPDATE versions SET state = 'pending', approved = 1, block_reason = NULL
+      ? db
+          .prepare(
+            `UPDATE versions SET state = 'pending', approved = 1, block_reason = NULL
             WHERE type = ?1 AND name = ?2 AND version = ?3 AND listed = 0
               AND state IN ('held', 'pending', 'blocked')`,
-        )
-      : db.prepare(
-          `UPDATE versions SET state = 'held'
+          )
+          .bind(...version)
+      : db
+          .prepare(
+            `UPDATE versions SET state = 'held',
+              verdict = COALESCE(?4, verdict), scanned = COALESCE(?5, scanned)
             WHERE type = ?1 AND name = ?2 AND version = ?3 AND listed = 0
               AND state IN ('pending', 'held')`,
-        );
-  return changeVersion(db, key, statement.bind(key.type, key.name, key.version), now);
+          )
+          .bind(...version, scan?.verdict ?? null, scan?.scanner ?? null);
+  return changeVersion(db, key, statement, now);
 }
 
 /** Refuses a version that isn't listed: the signer's scan or a maintainer's word. */
