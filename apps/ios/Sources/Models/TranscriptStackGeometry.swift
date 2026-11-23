@@ -74,10 +74,13 @@ struct TranscriptStackGeometry: Equatable, Sendable {
         return low < ids.count ? low : nil
     }
 
-    /// An entry that changed height by `change` moves everything after it. When it starts above
-    /// the viewport's physical top, the offset moves with it so what is on screen stays still.
-    static func offsetAdjustment(entryTop: CGFloat, change: CGFloat, viewportTop: CGFloat) -> CGFloat {
-        entryTop < viewportTop ? change : 0
+    /// An entry that changed height by `change` moves everything after it. When it starts before
+    /// `heldLine`, the offset moves with it so what lies past the line stays still on screen. A
+    /// feed following its end holds the viewport's physical top (the live end's side), so what
+    /// is on screen moves up as the newest row grows; a reader away from the end holds the
+    /// viewport's far edge, the screen's top, so a row on screen grows down past them instead.
+    static func offsetAdjustment(entryTop: CGFloat, change: CGFloat, heldLine: CGFloat) -> CGFloat {
+        entryTop < heldLine ? change : 0
     }
 
     private mutating func restack(from start: Int) {

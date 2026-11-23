@@ -90,6 +90,7 @@ struct TranscriptCollection: UIViewRepresentable {
         coordinator.environment = context.environment
         coordinator.setKeyboardUp(keyboardUp)
         coordinator.followsEnd = followsEnd
+        coordinator.holdsScreenTop(!followsEnd)
         view.accessibilityValue = accessibilityValue
         coordinator.update(entries, estimate: estimate, style: style)
     }
@@ -154,6 +155,8 @@ struct TranscriptCollection: UIViewRepresentable {
             view?.delegate = nil
             layout?.changed = nil
         }
+
+        func holdsScreenTop(_ holds: Bool) { layout?.holdsScreenTop = holds }
 
         func setKeyboardUp(_ up: Bool) {
             guard up != keyboardUp else { return }

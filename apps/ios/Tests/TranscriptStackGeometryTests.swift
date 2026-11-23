@@ -68,9 +68,16 @@ import Testing
     }
 
     @Test func aRowGrowingAboveTheViewportMovesTheOffsetAndOneOnScreenDoesNot() {
-        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 100, change: 40, viewportTop: 600) == 40)
-        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 600, change: 40, viewportTop: 600) == 0)
-        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 900, change: -40, viewportTop: 600) == 0)
+        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 100, change: 40, heldLine: 600) == 40)
+        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 600, change: 40, heldLine: 600) == 0)
+        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 900, change: -40, heldLine: 600) == 0)
+    }
+
+    @Test func aReaderAwayFromTheEndKeepsTheScreensTopStillAsARowOnScreenGrows() {
+        // Viewport from 600 to 1400: held at its far edge, a row starting on screen moves the offset.
+        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 900, change: 40, heldLine: 1400) == 40)
+        // A row past the screen's top grows where the reader isn't looking.
+        #expect(TranscriptStackGeometry.offsetAdjustment(entryTop: 1500, change: 40, heldLine: 1400) == 0)
     }
 
     @Test func theRowsOnScreenAreThoseMeetingTheViewport() {

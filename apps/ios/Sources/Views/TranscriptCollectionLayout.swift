@@ -19,6 +19,9 @@ import UIKit
     /// Corrections keep what is on screen still. Off only for the fling probe's
     /// `-ace-fling-no-anchors`, which shows what the scroll does without them.
     var keepsPlace = true
+    /// The reader is away from the live end: a row on screen that grows keeps the screen's top
+    /// still and grows down past them (`TranscriptStackGeometry.offsetAdjustment`).
+    var holdsScreenTop = false
     /// The entries' frames or the content's height changed.
     var changed: (() -> Void)?
     private var pending: (ids: [String], estimate: (String) -> CGFloat?, anchor: String?)?
@@ -80,8 +83,10 @@ import UIKit
         let id = geometry.ids[index]
         guard let change = geometry.measure(id, height: preferred.size.height) else { return context }
         if keepsPlace {
+            let viewport = collectionView.contentOffset.y
+            let held = holdsScreenTop ? viewport + collectionView.bounds.height : viewport
             let move = TranscriptStackGeometry.offsetAdjustment(entryTop: geometry.top(at: index), change: change,
-                                                                viewportTop: collectionView.contentOffset.y)
+                                                                heldLine: held)
             if move != 0 {
                 context.contentOffsetAdjustment = CGPoint(x: 0, y: move)
                 PerfCounters.bump("offset.measure")
