@@ -57,8 +57,10 @@ test("a paused routine reads Paused and won't run until it's resumed", async () 
   expect(paused).toMatchObject({ paused: true });
   expect(paused?.line).toMatch(/Paused/);
 
+  // Run now from a row read before it was paused: Spade refuses, and the phone says why.
   const refused = await ask({ type: "spade.routine.run", id: routine.id });
   expect(refused).toMatchObject({ ok: false, title: "Couldn't run it" });
+  expect((refused as { message: string }).message).toMatch(/paused/);
   expect(fake.routines.routines[0]?.last_run).toBeNull();
 
   await ask({ type: "spade.routine.pause", id: routine.id, paused: false });
@@ -144,7 +146,7 @@ test("a schedule Spade can't read comes back in its words, and nothing is added"
 });
 
 test("the heartbeat turns on with its checklist, how often and quiet hours, and off again", async () => {
-  const { ask, list } = await withWriter();
+  const { ask, list, api: fake } = await withWriter();
 
   const none = await ask({
     type: "spade.heartbeat.save",
@@ -167,6 +169,8 @@ test("the heartbeat turns on with its checklist, how often and quiet hours, and 
   expect(on).toMatchObject({ enabled: true, everyMinutes: 60, checklist: "Is the build green?" });
   expect(on?.line).toMatch(/^Every hour · quiet 22:00 to 07:00 · next /);
 
-  await ask({ type: "spade.heartbeat.save", agentId: "writer", enabled: false, timeZone: zone });
+  // The switch alone, from a phone in another zone: quiet hours stay in the zone they were set in.
+  await ask({ type: "spade.heartbeat.save", agentId: "writer", enabled: false });
   expect((await list()).heartbeat).toMatchObject({ enabled: false, line: "Off" });
+  expect(fake.routines.heartbeats.get("writer")).toMatchObject({ time_zone: zone });
 });

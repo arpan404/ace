@@ -83,10 +83,10 @@ extension ClientModel {
     /// The heartbeat's switch (only `enabled`), or its editor's Save, which turns it on.
     func spadeSaveHeartbeat(_ agent: String, enabled: Bool, everyMinutes: Int? = nil, checklist: String? = nil,
                             quiet: SpadeHeartbeatRow.Quiet?? = nil) async -> SpadeOutcome {
-        var payload: [String: Any] = [
-            "type": "spade.heartbeat.save", "agentId": agent, "enabled": enabled,
-            "timeZone": TimeZone.current.identifier,
-        ]
+        var payload: [String: Any] = ["type": "spade.heartbeat.save", "agentId": agent, "enabled": enabled]
+        // Quiet hours and the interval are meant in the phone's zone now; the switch alone keeps
+        // the zone they were set in.
+        if everyMinutes != nil || quiet != nil { payload["timeZone"] = TimeZone.current.identifier }
         if let everyMinutes { payload["everyMinutes"] = everyMinutes }
         if let checklist { payload["checklist"] = checklist }
         if let quiet {

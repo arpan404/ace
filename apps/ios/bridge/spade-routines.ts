@@ -125,7 +125,8 @@ export const spadeRoutineRequests = spadeRequestArea(
       everyMinutes: z.number().int().min(5).max(1440).optional(),
       checklist: z.string().trim().max(4000).optional(),
       quiet: z.object({ start: clock, end: clock }).nullable().optional(),
-      timeZone,
+      /** Sent only with quiet hours or an interval: a switch alone keeps the zone they were set in. */
+      timeZone: timeZone.optional(),
     }),
   ],
   async ({ ask, deps }, request): Promise<Answer> => {
@@ -200,7 +201,7 @@ export const spadeRoutineRequests = spadeRequestArea(
             ...(everyMinutes === undefined ? {} : { every_minutes: everyMinutes }),
             ...(checklist === undefined ? {} : { checklist }),
             ...(quiet === undefined ? {} : { quiet }),
-            time_zone: zone,
+            ...(zone === undefined ? {} : { time_zone: zone }),
           });
           return { ok: true };
         } catch (error) {
