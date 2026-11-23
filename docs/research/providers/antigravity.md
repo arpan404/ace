@@ -184,6 +184,7 @@ Capabilities advertised: `loadSession`, `sessionCapabilities.{list,resume}`, `pr
 
 - **Cancel [confirmed]:** `session/cancel` calls `agent.conversation.cancel()`. The pending prompt then returns `stopReason:"cancelled"` after a text chunk. ace should also answer any outstanding permission request with `cancelled`.
 - **Steer:** there is no mid-turn input; `prompt` is serial per session. To steer, cancel, wait for the prompt to resolve, then re-prompt. [confirmed; the CLI's "send immediately" queue mode is CLI-only (CHANGELOG 1.2.14)]
+  - Still true in 1.5.2 [confirmed live 2026-11-22]: a second `session/prompt` sent while one runs fails inside the server ("Agent connection was lost and could not be re-established: Concurrent receive_steps() calls are not supported on this conversation") and answers `end_turn` first. The running prompt ignores it, finishes its own task, may answer the steer's text at its end, and answers last. Another ACP client gates "prompt steering" on 1.5.0; on 1.5.2 it doesn't work.
 - **Resume and load [confirmed]:**
   - `session/load` replays history as `user_message_chunk`, `agent_*_chunk` and `tool_call` updates.
   - `session/resume` restores without replaying.

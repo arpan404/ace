@@ -78,9 +78,10 @@ test("a running command stands apart from the one that ran, then folds into it; 
       },
     ]),
   );
-  // The step waiting on approval steps aside for its request; the turn says what it waits on
-  // once, and the command that ran keeps its row.
-  expect(await within(feed).findAllByText("Waiting for your approval")).toHaveLength(1);
+  // The step waiting on approval steps aside for its request in the composer strip, and the
+  // command that ran keeps its row; the turn's head never repeats "Waiting for your approval".
+  expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+  expect(within(feed).queryByText("Waiting for your approval")).toBeNull();
   expect(within(feed).queryByRole("button", { name: /^Running/ })).toBeNull();
   expect(within(feed).getByRole("button", { name: /^Ran.*bun run quick/ })).toBeTruthy();
   act(() =>

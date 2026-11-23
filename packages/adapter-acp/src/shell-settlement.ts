@@ -2,7 +2,7 @@ import { object, string, type Data } from "./data.ts";
 import type { ToolStatus } from "@ace/protocol";
 import type { AcpQuirks } from "./quirks/types.ts";
 import { mergeToolData, toolDetail, toolStatus } from "./tools.ts";
-import { shellSurvivesPrompt } from "./settlement.ts";
+import { shellCarriedAcrossTurns, shellSurvivesPrompt } from "./settlement.ts";
 interface NativeTool {
   owner: string;
   data: Data;
@@ -24,6 +24,8 @@ export class ShellSettlement {
   readonly quirks: AcpQuirks;
   readonly tools = new Map<string, NativeTool>();
   readonly unsettled = new Set<string>();
+  /** Shells the agent keeps open across turns and settles in a later prompt: never a refusal. */
+  readonly carried = new Set<string>();
   /** Root tools that started or still ran after the prompt answered: work with no prompt open. */
   readonly afterPrompt = new Set<string>();
   /** The root session's id, once known. */
@@ -46,7 +48,7 @@ export class ShellSettlement {
     if (terminal.has(tool.status)) this.forget(key);
     else {
       this.tools.set(key, tool);
-      if (holdsNextPrompt(this.promptOpen, owner === this.root, this.unsettled.has(key)))
+      if (holdsNextPrompt(this.promptOpen, owner === this.root, this.survived(key)))
         this.afterPrompt.add(key);
     }
   }
@@ -68,8 +70,12 @@ export class ShellSettlement {
   promptEnded(owner: string, reason: string): void {
     this.promptOpen = false;
     for (const [key, tool] of this.tools) {
+      // A carried shell belongs to no one prompt: only its own report ends it.
+      if (this.carried.has(key)) continue;
       if (tool.owner !== owner && reason !== "cancelled") continue;
-      if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason, tool.status))
+      if (tool.shell && shellCarriedAcrossTurns(this.quirks.provider, reason, tool.status))
+        this.carried.add(key);
+      else if (tool.shell && shellSurvivesPrompt(this.quirks.provider, reason, tool.status))
         this.unsettled.add(key);
       else if (!this.unsettled.has(key)) this.tools.delete(key);
     }
@@ -77,7 +83,11 @@ export class ShellSettlement {
   forget(key: string): void {
     this.tools.delete(key);
     this.unsettled.delete(key);
+    this.carried.delete(key);
     this.afterPrompt.delete(key);
+  }
+  survived(key: string): boolean {
+    return this.unsettled.has(key) || this.carried.has(key);
   }
   /** A shell outlived its prompt with no proof it ended: new input is refused (ADR 0109). */
   get blocked(): boolean {

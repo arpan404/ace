@@ -9,6 +9,8 @@ struct SpadeProfileSheet: View {
     let name: String
     @Environment(\.dismiss) private var dismiss
     @State private var part: Part = .details
+    /// Publish this bot to the Store (#2548).
+    @State private var publishing = false
     @State private var reads = SpadeProfileReads()
     private var profile: SpadeProfile? { reads.profile }
     private var problem: String? { reads.problem }
@@ -51,7 +53,20 @@ struct SpadeProfileSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.accessibilityIdentifier("spade.profile.done")
                 }
+                if profile != nil {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Menu {
+                            Button("Publish to the Store", ace: .trayArrowUp) { publishing = true }
+                                .disabled(client.connection != "ready" || !client.canOperate)
+                                .accessibilityIdentifier("spade.profile.publish")
+                        } label: { Image(bar: .dotsThree) }
+                            .barGlyph()
+                            .accessibilityLabel("More")
+                            .accessibilityIdentifier("spade.profile.more")
+                    }
+                }
             }
+            .sheet(isPresented: $publishing) { MarketPublishView(model: client, bot: agent) }
         }
         .task { await load() }
         .presentationDragIndicator(.visible)
