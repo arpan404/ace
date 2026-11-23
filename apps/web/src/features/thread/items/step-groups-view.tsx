@@ -8,11 +8,12 @@ import {
   type StepGroup,
 } from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useThread } from "@ace/client-react";
+import { useThread, useThreadMeta } from "@ace/client-react";
 import type { AceToolContext } from "@ace/ui-core/ace-tools";
 import {
   readWorkLog,
   sameWorkLogReading,
+  thinksBetweenSteps,
   type WorkLogReading,
 } from "@ace/ui-core/work-log-reading";
 import {
@@ -100,11 +101,12 @@ export function GroupedSteps(props: {
   const log = useStepItemsSelect(props.threadId, shown, read, sameWorkLogReading) ?? nothing;
   const groups = useGroups(log.facts);
   const opened = useOpenSteps();
-  // A thought in flight with no words yet is the live log's state, not a step: it stands as its
-  // own "Thinking" row after the groups, so the rows never regroup for it.
-  // Only a current copy has a step in flight or a thought under way to show.
+  // A thought in flight with no words yet, or a working turn with nothing in flight, is the live
+  // log's state, not a step: it stands as its own "Thinking" row after the groups, so the rows
+  // never regroup for it. Only a current copy has a step in flight or a thought under way to show.
   const current = useThreadLiveState(props.threadId).fresh;
-  const thinking = props.live && current ? log.thinking : undefined;
+  const between = useBetweenSteps(props.threadId, props.live ? props.itemIds : undefined, log);
+  const thinking = props.live && current && (log.thinking !== undefined || between);
   const rows = groups.map((group) => (
     <GroupView
       key={group.key}
@@ -134,6 +136,24 @@ export function GroupedSteps(props: {
       </OpenStepsContext>
     </StepsLive>
   );
+}
+
+/** The live log's turn works out its next step with nothing in flight (`thinksBetweenSteps`). */
+function useBetweenSteps(
+  threadId: string,
+  itemIds: readonly string[] | undefined,
+  log: WorkLogReading,
+): boolean {
+  const rootId = useThreadMeta(threadId)?.rootAgentId ?? "";
+  const keys = useMemo<readonly ThreadKey[]>(
+    () => ["order", "thread", `agent:${rootId}`],
+    [rootId],
+  );
+  const read = useCallback(
+    (reader: ThreadReader) => !!itemIds && thinksBetweenSteps(reader, itemIds, log),
+    [itemIds, log],
+  );
+  return useThread(threadId, keys, read, Object.is) ?? false;
 }
 
 const groupIcons: Record<GroupIcon, GlyphIcon> = {
