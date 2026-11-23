@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use crate::item_meta::{AgentMachine, ThreadLineage};
 use crate::item_model::NativeRef;
 use crate::items::Item;
-use crate::json_io::de_i64;
+use crate::json_io::{Maybe, de_i64};
 use indexmap::IndexMap;
 use crate::runs::Run;
 use crate::status::{AgentError, AgentStatus, ThreadStatus};
@@ -43,8 +43,14 @@ pub struct Agent {
     pub native: NativeRef,
     pub fidelity: String,
     /// Tool call in the parent's transcript that spawned this agent.
-    #[serde(rename = "spawnedBy", skip_serializing_if = "Option::is_none")]
-    pub spawned_by: Option<Option<String>>,
+    #[serde(
+        rename = "spawnedBy",
+        default,
+        deserialize_with = "Maybe::<String>::deserialize",
+        serialize_with = "Maybe::<String>::serialize",
+        skip_serializing_if = "Maybe::<String>::is_missing"
+    )]
+    pub spawned_by: Maybe<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

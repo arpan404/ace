@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
 use crate::error::CoreError;
-use crate::json_io::{Json, Map, de_i64};
+use crate::json_io::{Json, Map, Maybe, de_i64};
 
 /// A provider's original payload, stored verbatim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,8 +104,14 @@ pub struct FileChange {
     pub move_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub diff: Option<String>,
-    #[serde(rename = "oldText", skip_serializing_if = "Option::is_none")]
-    pub old_text: Option<Option<String>>,
+    #[serde(
+        rename = "oldText",
+        default,
+        deserialize_with = "Maybe::<String>::deserialize",
+        serialize_with = "Maybe::<String>::serialize",
+        skip_serializing_if = "Maybe::<String>::is_missing"
+    )]
+    pub old_text: Maybe<String>,
     #[serde(rename = "newText", skip_serializing_if = "Option::is_none")]
     pub new_text: Option<String>,
 }

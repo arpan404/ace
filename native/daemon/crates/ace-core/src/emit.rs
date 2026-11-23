@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::entity_model::{BackgroundTask, Interaction, InteractionResolution};
-use crate::item_meta::Vetted;
+use crate::item_meta::Attachment;
 use crate::items::Item;
 use crate::runs::Run;
 use crate::state::Agent;

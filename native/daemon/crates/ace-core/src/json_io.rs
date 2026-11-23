@@ -14,6 +14,7 @@
 //! - opaque payloads are borrowed as `&RawValue` or owned as
 //!   `Box<RawValue>`, never re-encoded.
 
+use serde::Deserialize as _;
 use serde_json::value::RawValue;
 
 /// JSON values as the fold sees them. Transient only: state structs own
@@ -57,6 +58,86 @@ pub mod de {
 
 /// Re-exported for field attributes across the crate.
 pub use de::{i64 as de_i64, opt_i64 as de_opt_i64};
+
+/// A field that distinguishes missing from explicit `null`, like
+/// `PermissionMode.nullable().optional()`: missing reads `Missing` (the key
+/// stays omitted), explicit `null` reads `Null` (the key serializes null).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Maybe<T> {
+    /// The key was absent.
+    Missing,
+    /// The key was explicitly `null`.
+    Null,
+    /// The key carried a value.
+    Value(T),
+}
+
+impl<T> Maybe<T> {
+    /// Whether the key was absent and stays omitted.
+    pub fn is_missing(&self) -> bool {
+        matches!(self, Self::Missing)
+    }
+
+    /// The value, when the key carried one.
+    pub fn value(self) -> Option<T> {
+        match self {
+            Self::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+}
+
+impl<T> Default for Maybe<T> {
+    fn default() -> Self {
+        Self::Missing
+    }
+}
+
+impl<T> Maybe<T> {
+    /// Read a missing, null, or valued field.
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+        T: serde::de::DeserializeOwned,
+    {
+        let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+        match value {
+            None => Ok(Self::Missing),
+            Some(serde_json::Value::Null) => Ok(Self::Null),
+            Some(value) => serde_json::from_value(value)
+                .map(Self::Value)
+                .map_err(serde::de::Error::custom),
+        }
+    }
+
+    /// Read a missing, null, or valued integer the way `z.number().int()` does.
+    pub fn deserialize_int<'de, D>(deserializer: D) -> Result<Maybe<i64>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+        match value {
+            None => Ok(Maybe::Missing),
+            Some(serde_json::Value::Null) => Ok(Maybe::Null),
+            Some(value) => crate::json_io::as_integer(&value)
+                .map(Maybe::Value)
+                .ok_or_else(|| serde::de::Error::custom("expected an integer")),
+        }
+    }
+
+    /// Write a missing field as omitted, `null` as null.
+    pub fn serialize<S>(value: &Self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+        T: serde::Serialize,
+    {
+        match value {
+            Self::Missing => serializer.serialize_none(),
+            Self::Null => serializer.serialize_none(),
+            Self::Value(inner) => serializer.serialize_some(inner),
+        }
+    }
+}
 
 /// A JSON number the TypeScript reads as an integer (`z.number().int()`:
 // any finite value with no fractional part counts).

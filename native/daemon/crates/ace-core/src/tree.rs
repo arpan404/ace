@@ -93,7 +93,7 @@ fn insert_placeholder(
             aliases: None,
         },
         fidelity: "placeholder".to_owned(),
-        spawned_by: None,
+        spawned_by: crate::json_io::Maybe::Missing,
         name: None,
         role: None,
         model: None,
@@ -169,7 +169,7 @@ fn same_json(left: &Json, right: &Json) -> bool {
     crate::json_io::json_equal(left, right)
 }
 
-use crate::json_io::Json;
+use crate::json_io::{Json, Maybe};
 
 /// Emit the changed fields of one agent, like `changeAgent`.
 pub fn change_agent(
@@ -276,8 +276,16 @@ pub fn change_agent(
         }
     }
     if let Some(value) = change.spawned_by {
-        if agent.spawned_by != Some(value.clone()) {
-            agent.spawned_by = Some(value.clone());
+        let current = match &agent.spawned_by {
+            Maybe::Missing => None,
+            Maybe::Null => Some(None),
+            Maybe::Value(name) => Some(Some(name.clone())),
+        };
+        if current != Some(value.clone()) {
+            agent.spawned_by = match value.clone() {
+                None => Maybe::Null,
+                Some(name) => Maybe::Value(name),
+            };
             out.spawned_by = Some(value);
             any = true;
         }
@@ -331,7 +339,7 @@ pub fn set_parent(
     let clears_spawn = {
         let record = get(&state.agents, key)?;
         record.parent_key.as_deref() != parent_key
-            && (record.spawned_by_key.is_some() || record.agent.spawned_by.is_some())
+            && (record.spawned_by_key.is_some() || !record.agent.spawned_by.is_missing())
     };
     // Cycle check before touching state.
     if let Some(parent) = parent_key {

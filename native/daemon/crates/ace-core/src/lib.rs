@@ -33,6 +33,7 @@ pub mod runs;
 pub mod state;
 pub mod status;
 pub mod status_inputs;
+pub mod status_resolve;
 pub mod thread_status;
 pub mod tree;
 pub mod validate;

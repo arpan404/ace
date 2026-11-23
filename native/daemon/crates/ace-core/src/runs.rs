@@ -5,15 +5,21 @@
 use serde::{Deserialize, Serialize};
 
 use crate::emit::{Event, emit, get, put};
-use crate::json_io::de_i64;
+use crate::json_io::{Maybe, de_i64};
 use crate::state::{ApplyContext, ThreadState};
 
 /// One turn of one agent, from its first output to the provider's turn end.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Run {
     /// Native selection acknowledged for this turn.
-    #[serde(rename = "permissionMode", skip_serializing_if = "Option::is_none")]
-    pub permission_mode: Option<Option<String>>,
+    #[serde(
+        rename = "permissionMode",
+        default,
+        deserialize_with = "Maybe::<String>::deserialize",
+        serialize_with = "Maybe::<String>::serialize",
+        skip_serializing_if = "Maybe::<String>::is_missing"
+    )]
+    pub permission_mode: Maybe<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     pub id: String,
@@ -65,7 +71,7 @@ pub fn start_turn(
     agent_key: &str,
     native_turn_id: Option<&str>,
     trigger: String,
-    permission_mode: Option<Option<String>>,
+    permission_mode: crate::json_io::Maybe<String>,
     ctx: &mut ApplyContext<'_>,
     events: &mut Vec<Event>,
 ) -> Option<()> {
@@ -115,9 +121,10 @@ pub fn start_turn(
     };
     let seq = next_run_seq(state);
     let run = Run {
-        provider: permission_mode
-            .as_ref()
-            .map(|_| state.config.provider.clone()),
+        provider: match &permission_mode {
+            crate::json_io::Maybe::Missing => None,
+            _ => Some(state.config.provider.clone()),
+        },
         permission_mode,
         id: run_id.clone(),
         thread_id: state.thread_id.clone(),
@@ -259,7 +266,7 @@ fn end_turn_inner(
         let seq = next_run_seq(state);
         let run = Run {
             provider: None,
-            permission_mode: None,
+            permission_mode: crate::json_io::Maybe::Missing,
             id: new_id.clone(),
             thread_id: state.thread_id.clone(),
             agent_id: agent_id.clone(),

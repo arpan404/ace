@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::emit::{Event, get};
+use crate::entity_model::BackgroundTask;
 use crate::items::Item;
 use crate::json_io::Json;
 use crate::state::{AgentRecord, ThreadState};
@@ -29,6 +30,9 @@ pub struct StatusResolver<'a> {
     relevant_cache: HashMap<String, bool>,
     relevant_visiting: HashSet<String>,
     waiting: HashSet<String>,
+    /// Read persisted statuses instead of deriving them: the completion and
+    /// deadline readers run over the stored tree.
+    persisted: bool,
 }
 
 impl<'a> StatusResolver<'a> {
@@ -63,7 +67,15 @@ impl<'a> StatusResolver<'a> {
             relevant_cache: HashMap::new(),
             relevant_visiting: HashSet::new(),
             waiting,
+            persisted: false,
         }
+    }
+
+    /// A pass over the persisted tree, for completion and deadline readers.
+    pub fn persisted(state: &'a ThreadState, now: i64) -> Self {
+        let mut resolver = Self::new(state, now);
+        resolver.persisted = true;
+        resolver
     }
 
     /// Resolve one agent's status, descendants first.
@@ -83,6 +95,9 @@ impl<'a> StatusResolver<'a> {
             Some(record) => record.clone(),
             None => return AgentStatus::Starting,
         };
+        if self.persisted {
+            return record.agent.status.clone();
+        }
         // A malformed restored tree must not recurse forever or look settled.
         if !self.visiting.insert(key.to_owned()) {
             return AgentStatus::Starting;
@@ -254,6 +269,11 @@ impl<'a> StatusResolver<'a> {
         }
     }
 
+    /// Live children of one agent, for deadline eligibility.
+    pub fn live_children_count(&mut self, agent_id: &str) -> usize {
+        self.live_children(agent_id, 0).len()
+    }
+
     fn live_children(&mut self, agent_id: &str, depth: usize) -> Vec<String> {
         let children: Vec<String> = self
             .inputs
@@ -303,7 +323,7 @@ impl<'a> StatusResolver<'a> {
             .cloned()
             .unwrap_or_default();
         let mut foreground: Vec<String> = Vec::new();
-        for item in tools {
+        for item in tools.iter() {
             if let Item::ToolCall { call, .. } = item {
                 if !matches!(&call.detail, crate::item_model::ToolDetail::AgentSpawn { .. }) {
                     continue;
@@ -333,7 +353,7 @@ impl<'a> StatusResolver<'a> {
         }
         let mut newest: Option<&Item> = None;
         let mut newest_key: (i64, i64) = (i64::MIN, i64::MIN);
-        for item in tools {
+        for item in tools.iter() {
             let Item::ToolCall { call, .. } = item else {
                 continue;
             };
@@ -348,7 +368,7 @@ impl<'a> StatusResolver<'a> {
             }
             let item_key = (call.started_at, created_of(item));
             if newest.is_none() || item_key >= newest_key {
-                newest = Some(item);
+                newest = Some(*item);
                 newest_key = item_key;
             }
         }
@@ -386,18 +406,22 @@ impl<'a> StatusResolver<'a> {
     }
 
     fn background_refs(&mut self, agent: &crate::state::Agent, depth: usize) -> Vec<String> {
-        let empty_tasks: Vec<&BackgroundTask> = Vec::new();
-        let tasks = self
+        let tasks: Vec<(String, Option<String>)> = self
             .inputs
             .tasks_by_agent
             .get(&agent.id)
-            .map(|items| items.as_slice())
-            .unwrap_or(&empty_tasks);
-        let mut refs: Vec<String> = tasks.iter().map(|task| task.id.clone()).collect();
+            .map(|items| {
+                items
+                    .iter()
+                    .map(|task| (task.id.clone(), task.child_agent_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut refs: Vec<String> = tasks.iter().map(|(id, _)| id.clone()).collect();
         let live_children = self.live_children(&agent.id, depth);
         for child in &live_children {
-            let covered = tasks.iter().any(|task| {
-                task.child_agent_id.as_ref().is_some_and(|child_id| {
+            let covered = tasks.iter().any(|(_, child_id)| {
+                child_id.as_ref().is_some_and(|child_id| {
                     get(&self.state.agents, child)
                         .map(|record| &record.agent.id == child_id)
                         .unwrap_or(false)

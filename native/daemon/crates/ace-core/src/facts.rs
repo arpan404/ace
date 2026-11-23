@@ -5,6 +5,8 @@
 //! notices, and the fold goes on.
 
 use serde::{Deserialize, Serialize};
+
+use crate::json_io::Maybe;
 use serde_json::value::RawValue;
 
 use crate::entity_model::{InteractionRequest, InteractionResolution};
@@ -94,8 +96,14 @@ pub enum Fact {
         #[serde(rename = "nativeTurnId", skip_serializing_if = "Option::is_none")]
         native_turn_id: Option<String>,
         trigger: String,
-        #[serde(rename = "permissionMode", skip_serializing_if = "Option::is_none")]
-        permission_mode: Option<Option<String>>,
+        #[serde(
+            rename = "permissionMode",
+            default,
+            deserialize_with = "Maybe::<String>::deserialize",
+            serialize_with = "Maybe::<String>::serialize",
+            skip_serializing_if = "Maybe::<String>::is_missing"
+        )]
+        permission_mode: Maybe<String>,
     },
     /// An agent's turn ended.
     #[serde(rename = "turn.ended")]

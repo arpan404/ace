@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::item_model::Attachment;
+pub use crate::item_model::Attachment;
 pub use crate::item_model::Vetted;
 use crate::status::ThreadStatus;
 
