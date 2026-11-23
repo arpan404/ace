@@ -1,6 +1,9 @@
 # 0223: The engine and provider adapters move to Rust behind the same interfaces
 
 Date: 2026-11-23. Status: proposed (draft for the owner). Decided by: pending the owner.
+Revised 2026-11-23 after review: writer ownership (§5, with ADR 0222 §3), the executor, pump and
+wake protocol (§4), redaction (§3), the bridge's ordering and fence rules and the process journal
+(§7), cross-mode gates (§8).
 
 ## Context
 
@@ -26,8 +29,8 @@ Counted on `ace/rust-store` b359519ad3:
 | `@ace/engine-api` (the adapter interface)                     | 333                                            | 1                            | 0                           |
 | adapters: Codex, Cursor, OpenCode, Claude, ACP, Pi            | 10,356 / 7,251 / 7,039 / 6,054 / 6,011 / 3,438 | 156 / 62 / 61 / 54 / 44 / 29 | 61 / 48 / 41 / 50 / 35 / 20 |
 
-Of the 555 test files, 426 test behaviour through a public interface (class a), 70 test TypeScript
-internals (b), one is structural (c), and 58 cover code that stays TypeScript (behaviour.md §19).
+Of the 555 test files, 427 test behaviour through a public interface (class a), 65 test TypeScript
+internals (b), none is redundant (c), and 63 cover code that stays TypeScript (behaviour.md §19).
 
 ### Facts the design must respect
 
@@ -68,16 +71,16 @@ A part moves behind the TypeScript interface its class (a) tests drive, chosen b
 once at the I/O boundary. Unset is today's TypeScript; set without the addon, the daemon refuses
 to start and says so (as `ACE_STORE=native` does, ADR 0222 §8).
 
-| Step        | Boundary kept in TypeScript                                                                                                                            | Switch                        | What crosses N-API                                         |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------- | ---------------------------------------------------------- |
-| Translators | `ProviderAdapter.createTranslator` → `Translator` (`translate`, `tick`, `nextDeadline`, `takeDiagnostics`)                                             | `ACE_TRANSLATORS=<providers>` | frame JSON in, facts JSON out, per batch                   |
-| Supervisor  | `@ace/provider-kit/process`, `/jsonrpc`, `/streams`, `/jsonl`, `/tree-stop` exports                                                                    | `ACE_SUPERVISOR=native`       | spawn options in; line batches and exits out               |
-| Sessions    | `ProviderAdapter.openSession` → `ProviderSession`                                                                                                      | `ACE_SESSIONS=<providers>`    | context in; frames out to `onFrame`; method calls in       |
-| Core        | `@ace/core`'s exports (`apply`, `FactBatch`, `createThreadState`, `deriveAgentStatus`, `deriveThreadStatus`, `nextDeadline`, `DeadlineIndex`, helpers) | `ACE_CORE=native`             | facts in, events out; state stays native behind a handle   |
-| Engine      | `Engine` (`engine/index.ts:80`) with `EngineOptions` and `CommandHandler`                                                                              | `ACE_ENGINE=native`           | commands in, results out; sync reads; JS ports called back |
+| Step        | Boundary kept in TypeScript                                                                                                                                                   | Switch                        | What crosses N-API                                         |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------- |
+| Translators | each adapter's exported translator class or factory, which `ProviderAdapter.createTranslator` returns → `Translator` (`translate`, `tick`, `nextDeadline`, `takeDiagnostics`) | `ACE_TRANSLATORS=<providers>` | frame JSON in, facts JSON out, per batch                   |
+| Supervisor  | `@ace/provider-kit/process`, `/jsonrpc`, `/streams`, `/jsonl`, `/tree-stop` exports                                                                                           | `ACE_SUPERVISOR=native`       | spawn options in; line batches and exits out               |
+| Sessions    | `ProviderAdapter.openSession` → `ProviderSession`                                                                                                                             | `ACE_SESSIONS=<providers>`    | context in; frames out to `onFrame`; method calls in       |
+| Core        | `@ace/core`'s exports (`apply`, `FactBatch`, `createThreadState`, `deriveAgentStatus`, `deriveThreadStatus`, `nextDeadline`, `DeadlineIndex`, helpers)                        | `ACE_CORE=native`             | facts in, events out; state stays native behind a handle   |
+| Engine      | `Engine` (`engine/index.ts:80`) with `EngineOptions` and `CommandHandler`                                                                                                     | `ACE_ENGINE=native`           | commands in, results out; sync reads; JS ports called back |
 
 Why these and not one engine-wide boundary from the start: each of them already has its own
-class (a) tests (translators and fixtures 90 files, supervisor 28, sessions 113, core 39 plus the
+class (a) tests (translators and fixtures 90 files, supervisor 29, sessions 113, core 39 plus the
 5 test-kit files, engine 148), so each step is proven on its own and four of the five ship before the engine moves.
 
 ### 2. Crates
@@ -90,10 +93,11 @@ builds them in parallel.
 | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ace-protocol`                                                        | Rust types for the `@ace/protocol` values the engine reads and writes (`EventPayload`, `Item`, `AgentStatus`, `ThreadStatus`, `Command`, `ContentPart`, …), generated, never hand-edited | `serde`, `serde_json`                                                                                                                                                     |
 | `ace-core`                                                            | The fact reducer: `Fact`, `ThreadState`, `apply`, `FactBatch`, status rules, deadlines. Pure: no I/O, no clock, no napi.                                                                 | `ace-protocol`                                                                                                                                                            |
+| `ace-core-wasm`                                                       | `ace-core` built to WebAssembly for `fake-daemon` in the browser: a thin `wasm-bindgen` binding, no logic                                                                                | `ace-core`, `wasm-bindgen`                                                                                                                                                |
 | `ace-adapter-api`                                                     | The adapter interface: `Adapter`, `Translator`, `Session`, `SessionContext`, `Frame`, `InputRejected`, `SteerFence`                                                                      | `ace-protocol`, `ace-core`                                                                                                                                                |
 | `ace-supervisor`                                                      | Process spawning, containment, inventory, stop plans, bounded line framing, output flow, JSON-RPC peer, SSE                                                                              | `tokio`, `tokio-util`, `process-wrap`, `rustix`, `windows-sys`, `sysinfo`, `procfs` (Linux), `libproc` (macOS), `eventsource-stream`, `ace-store` (the inventory journal) |
 | `ace-adapter-codex`, `-claude`, `-cursor`, `-opencode`, `-acp`, `-pi` | Each provider's translator (`translate/`) and session (`session/`)                                                                                                                       | `ace-adapter-api`, `ace-supervisor`; ACP also `agent-client-protocol`; OpenCode also `reqwest`; Pi also `rmcp`                                                            |
-| `ace-engine`                                                          | Actors, intents and queue, delivery, steering, sessions, access, recovery, restart, transitions, liveness                                                                                | `ace-store`, `ace-core`, `ace-adapter-api`, `futures`, `lru`, `thiserror`                                                                                                 |
+| `ace-engine`                                                          | Actors, intents and queue, delivery, steering, sessions, access, recovery, restart, transitions, liveness                                                                                | `ace-store`, `ace-core`, `ace-adapter-api`, `async-task`, `concurrent-queue`, `futures` (oneshot, `LocalBoxFuture`), `lru`, `thiserror`                                   |
 | `ace-daemon-node`                                                     | The one addon; gains one module per step, translating values and errors and nothing else                                                                                                 | everything above, `napi` 3                                                                                                                                                |
 
 Crates and why:
@@ -122,12 +126,13 @@ Crates and why:
   bidirectional JSON-RPC connection.
 - **`rmcp`** 3.9 (Spade's version) for the MCP client the Pi adapter runs for its extension
   (today `@modelcontextprotocol/client`).
-- **`futures`** for the engine's executor (section 4) and `LocalBoxFuture`; **`lru`** for the
+- **`async-task`** and **`concurrent-queue`** for the engine's local executor (section 4);
+  **`futures`** for `LocalBoxFuture` and oneshot channels; **`lru`** for the
   engine's bounded record cache (today `RecordBudget`, `engine/record-cache.ts`); **`thiserror`**
   for error enums.
 - **`typify`** (Apache-2.0) at generation time only, to produce Rust types from JSON Schema:
   `ace-protocol` from the JSON Schema of `packages/protocol`'s Zod schemas (Zod 4's
-  `z.toJSONSchema`), and the Codex app-server types from Codex's own schema export (question 3).
+  `z.toJSONSchema`), and the Codex app-server types from Codex's own schema export (question 1).
   Generated code is committed; `bun run check:daemon-native` regenerates it and fails on a diff,
   so `packages/protocol` stays the one source of truth (AGENTS.md: protocol is schema-only).
 - One protocol layer is ours, small and kept: the JSON-RPC peer for Codex and the Cursor host
@@ -137,11 +142,28 @@ Crates and why:
   `duct`/`subprocess` (blocking, no groups or job objects); `serde_json` `arbitrary_precision`
   (provider integers fit `f64` as they do in JS today, and JS numbers are the contract).
 
-### 3. Frames decode leniently, raw kept
+### 3. Frames decode leniently; what is kept is the redacted encoding
 
-- A frame's data is held as `Box<serde_json::value::RawValue>`, exactly as received. Diagnostics
-  and raw payloads are cut from it without re-encoding.
-- A typed view is decoded from the raw data by matching the method or type string first; a known
+- **Redaction comes first, in both directions.** Every adapter redacts a frame's encoding before
+  it becomes a `ProviderPayload`, sent and received alike: Codex replaces the ace MCP bearer in the
+  encoded line (`adapter-codex/src/session.ts:129`, `redactMcpCredential`,
+  `mcp-server/src/injection.ts:212`); Claude likewise (`adapter-claude/src/session.ts:87`); ACP
+  redacts the session's MCP secrets and leases and elides attachment bytes past the bound
+  (`adapter-acp/src/session.ts:361`–`:372`, `frame-redaction.ts:106`); OpenCode runs the server's
+  own redaction (`adapter-opencode/src/session.ts:325`, `server.ts:112`); Pi redacts each RPC line
+  both ways and stderr (`adapter-pi/src/rpc.ts:50`, `:75`, `session.ts:263`). So the bytes the
+  engine stores, translates and shows are post-redaction, and the cleartext exists only inside the
+  session's own protocol handling.
+- A native session keeps that rule: its task redacts the encoded message with the adapter's
+  secrets (the bearer, `mcp.secrets`, the provider's own credentials and control secrets) before
+  the frame leaves the task, and builds the frame's `Box<RawValue>` and admission size from the
+  redacted encoding. Neither bridge direction ever carries cleartext: a native session hands the
+  TypeScript engine redacted frames (E3), and a TypeScript session hands the Rust engine the
+  redacted frames it already builds (E5). Each adapter's redaction is ported with its session
+  (porting guide E3) and its cases move with it (`frame-redaction`, `redaction`).
+- "Raw kept" means: the redacted encoding is held as received from the redaction step, and
+  diagnostics and raw payloads are cut from it without re-encoding.
+- A typed view is decoded from that data by matching the method or type string first; a known
   message deserializes into a generated or hand-written struct; an unknown one is an `Unknown {
   name, raw }` variant. Structs that read only some fields keep the rest in
   `#[serde(flatten)] rest: serde_json::Map`. No `deny_unknown_fields` anywhere.
@@ -157,56 +179,96 @@ Crates and why:
 
 ### 4. Concurrency: a single-threaded engine on the JS thread, I/O on tokio
 
-- **The engine is async Rust on a local executor**, `futures::executor::LocalPool`, driven on the
-  JS thread. Every input (a command, a frame batch, a timer, an I/O completion, a JS promise
-  settling) is queued and followed by `pump()`, which runs the pool until it stalls and returns.
-  Engine state is `Rc<RefCell<…>>`, never shared across threads, never locked.
-- Why on the JS thread: the engine's transactions are the store's (fact 2), and the store's main
-  connection serves 614 synchronous TypeScript callers on that thread (ADR 0222 §3). An engine on
-  another thread would make every one of them, or the engine, cross threads synchronously, which
-  ADR 0222 rejected for the store for the same reason.
-- Why async on a local executor and not explicit state machines (sans-IO): the TypeScript engine's
-  correctness lives in where it awaits and what it re-checks after (fact 3). Rust `async fn`s keep
-  every yield point where it is, so the generation and lifetime checks port as they are and the
-  race tests stay meaningful. The pure decisions (status rules, stop scope, steer choice, queue
-  holds, restart eligibility) are plain functions in `ace-core` and `ace-engine::rules`, tested
-  directly.
-- Why not tokio for the engine: tokio's `LocalSet` needs a thread blocked in `block_on`, and the
-  JS thread can't block. `LocalPool::run_until_stalled` is the primitive that returns to the event
-  loop.
-- **I/O runs on the addon's tokio runtime.** A native session's tasks spawn and read the process,
-  frame lines, decode frames and send them on a bounded `tokio::sync::mpsc` channel to the engine.
-  A non-blocking napi `ThreadsafeFunction`, coalesced by an atomic flag, schedules one `pump()` on
-  the JS thread. Backpressure is the channel's bound plus today's `outputFlow` thresholds (pause at
-  256 frames or a quarter of the byte limit, resume at 64 and a sixteenth, behaviour.md §4): a full
-  channel stops the task reading the pipe, which stops the provider.
+- **The engine is async Rust on a local executor built from `async-task`** (`spawn_local`) and a
+  `concurrent-queue` ready queue, both from smol-rs (Apache-2.0/MIT; the parts `async-executor`
+  is made of). Engine state is `Rc<RefCell<…>>`, never shared across threads, never locked. A task
+  may be woken from any thread: its schedule function pushes the runnable onto the ready queue and
+  notifies (below); runnables only ever run on the owning thread, which `async-task` checks.
+  `futures::executor::LocalPool` was rejected: its wakers unpark a thread blocked in the pool and
+  give no hook to schedule a pump on an event loop that never blocks, and entering it from inside
+  another poll panics (`futures::executor::enter`).
+- **Why on the JS thread**: the engine's transactions are the store's (fact 2), and the store's main
+  connection serves 614 synchronous TypeScript callers on that thread (ADR 0222 §3, as amended:
+  one connection, one owner, one transaction stack).
+- **Why async and not explicit state machines (sans-IO)**: the TypeScript engine's correctness lives
+  in where it awaits and what it re-checks after (fact 3). Rust `async fn`s keep every yield point
+  where it is, so the generation and lifetime checks port as they are and the race tests stay
+  meaningful. The pure decisions (status rules, stop scope, steer choice, queue holds, restart
+  eligibility) are plain functions in `ace-core` and `ace-engine::rules`, tested directly.
+- **Two kinds of entry, never mixed.**
+  1. _Synchronous entries_ (`handler.handle`, the synchronous reads and mutations of
+     behaviour.md §1) are plain functions on the engine state. They never run a runnable. They run
+     inside the caller's open transaction, or open their own, and are scoped to it: work they start
+     (a wake, a spawned task) is recorded on the store's after-commit queue of the outermost
+     transaction and released only when it commits; a rollback discards it. This is today's
+     `queueMicrotask` after the receipt (`engine/handler.ts:545`), made exact.
+  2. _The pump_, the only place runnables run. It starts only from a Bun macrotask (the
+     threadsafe function's callback, or a `setImmediate` the pump schedules itself), never from
+     inside another binding call; never while the main connection has a transaction open (it
+     checks the stack and re-arms); and never re-entrantly (a `Cell<bool>` guard; a nested request
+     re-arms instead). It is budgeted: at most 64 runnables or 4 ms per turn, then it re-arms, so
+     socket reads and timers interleave.
+- **JS ports during a step.** A task calls a JS port (a `clock.setTimer`, an `on*` callback, a
+  `transitions` or `prepareInput` port) holding no `RefCell` borrow: state is reached only through
+  short `with_state(|s| …)` closures whose type admits neither an await nor a port call. A port that
+  calls back into the engine synchronously gets a synchronous entry (its borrow is free); an async
+  method called back spawns a task and returns a promise, never running it inline.
+- **Commit acknowledgements come only from the outermost commit.** A frame batch's acknowledgement
+  resolves on the after-commit of the outermost transaction that contains it (or of the live
+  buffer's batch for streamed deltas, ADR 0076), never on a savepoint's release. Because the pump
+  never runs inside an open transaction, a batch's transaction is always outermost, and the
+  binding asserts it.
+- **Wake and re-arm protocol.** One `AtomicBool notified` per engine. A producer on any thread
+  pushes its item (a runnable, a session event, an I/O completion) and then, if
+  `notified.swap(true, AcqRel)` returned false, calls the threadsafe function (non-blocking; at
+  most one call is ever pending, so its queue can't fill). The pump first does
+  `notified.store(false, Release)`, then drains, then runs up to its budget; if anything is left, it
+  sets the flag again and schedules itself with `setImmediate`. Because the flag clears before the
+  drain, an item pushed during or after the drain either is seen by it or finds the flag false and
+  schedules a new pump; no item is stranded.
+- **I/O runs on the addon's tokio runtime** (two workers). A native session's tasks spawn and read
+  the process, frame lines, redact and decode, and push session events onto the session's ordered
+  event queue (§7). Backpressure is today's `outputFlow` thresholds (pause at 256 frames or a
+  quarter of the byte limit, resume at 64 and a sixteenth, behaviour.md §4): a session waiting for
+  budget stops reading its pipe, which stops the provider.
 - **Time** comes from the `EngineOptions.clock` port: while the engine is on the JS thread the
   binding calls the JS clock (`now`, `setTimer`) whether it is `systemClock` or a test's
-  `ManualClock`, so timer firing order is exactly today's. Ids likewise come from the `ids` port
-  when one is given, else from the Rust port of `timeOrderedIds`
-  (`apps/daemon/src/time-ordered-id.ts:11`), same format.
+  `ManualClock`, and a timer firing is a producer like any other, so firing order is today's. Ids
+  likewise come from the `ids` port when one is given, else from the Rust port of
+  `timeOrderedIds` (`apps/daemon/src/time-ordered-id.ts:11`), same format.
 - **End state**: once agent-control and machines have moved and no TypeScript code calls
-  `Store.atomic` synchronously, the engine and the store run together on one core thread, and the
-  JS thread only sends commands and receives events. Because the engine is written for a
-  single-threaded executor with injected time, that move changes its driver, not its code.
+  `Store.atomic` synchronously, the engine and the store (its connection and stack) run together on
+  one core thread, and the JS thread only sends commands and receives events. Because the engine
+  is written for a single-threaded executor with injected time, that move changes its driver, not
+  its code.
 
-### 5. The Rust engine and the store share one transaction
+### 5. The Rust engine and the store: one connection, one owner, one transaction stack
 
-- The engine step starts when store phase 5 has landed: the event writer, the live buffer,
-  sequence reservation and the transaction stack (depth, savepoints, after-commit publication) in
-  `ace-store`, with TypeScript's `Store.atomic` a facade over the same stack (ADR 0222 §7).
-  Before that the steps here never write the store from Rust: translators, the supervisor and
-  sessions hold no store state, and the core is pure.
-- The Rust engine calls `ace_store` directly: `store.atomic(|tx| …)` around a command's receipt or
-  a frame batch, `tx.append_events`, `tx.buffer_live_write`, its own tables (`intents`,
-  `engine_queue`, `thread_state`, `engine_state_records`, the input journal and interaction
-  ledger, `engine_provider_sessions`, … behaviour.md §17) through prepared statements on the same
-  connection. A TypeScript `atomic` caller and a Rust one nest in one transaction, in either
-  direction, because there is one stack.
+- E5 starts when store phase 5 has landed, as ADR 0222 now specifies it (amended 2026-11-23 for
+  this ADR): the transaction stack (depth, savepoints, after-commit publication), the event
+  writer, the live buffer and sequence reservation in `ace-store`, **on the main connection, on the
+  thread that owns it**, with TypeScript's `Store.atomic` a facade over the same stack. There is no
+  writer thread and no second writing connection. A writer thread waiting for the connection while
+  a synchronous receipt holds the write transaction on the JS thread would wait on a thread that
+  cannot yield; a second connection would commit a receipt's events apart from the receipt. Both
+  are ruled out.
+- The Rust engine calls `ace_store` directly on that stack: `store.atomic(|tx| …)` around a
+  command's receipt or a frame batch, `tx.append_events`, `tx.buffer_live_write`, its own tables
+  (`intents`, `engine_queue`, `thread_state`, `engine_state_records`, the input journal and
+  interaction ledger, `engine_provider_sessions`, … behaviour.md §17) through prepared statements
+  on the same connection. A TypeScript `atomic` caller and a Rust one nest in one transaction, in
+  either direction. The live buffer's flush is a task on the owning thread, run by the pump, so it
+  is never inside another transaction.
+- Before E5 nothing here writes the **event database** from Rust: translators and the core hold no
+  stored state, and sessions hand frames to the TypeScript engine. One step writes another file:
+  E2's supervisor keeps the **process journal** (`processes`, `escapees`, `kept`, `lineage`;
+  `process-inventory.ts:85`, `escapee-journal.ts:28`–`:30`), a separate small SQLite file, opened
+  through `ace-store`'s connection type so one SQLite library touches it (ADR 0222 constraint 2),
+  with the identity encoding of §7a.
 - The engine's stored formats do not change in this ADR: the same tables, columns, JSON shapes and
   `engineSchemaVersion` 9 (`engine/schema-version.ts:6`). A home written with `ACE_ENGINE=native`
-  opens with it unset, and the reverse; the switch is reversible with no data change. Which copies
-  of an item body the engine may stop writing is ADR 0222's question 1 and is not decided here.
+  opens with it unset, and the reverse, which the cross-mode gate proves (§8). Which copies of an
+  item body the engine may stop writing is ADR 0222's question 1 and is not decided here.
 
 ### 6. The socket server, MCP and agent-control keep talking to `Engine`
 
@@ -234,31 +296,95 @@ Crates and why:
   stays TypeScript (fact 4).
 - **Native session, TypeScript engine** (`ACE_SESSIONS` before `ACE_ENGINE`): the TypeScript
   adapter's `openSession` calls the addon, which returns an object implementing `ProviderSession`.
-  Its frames reach the context's `onFrame` through a `ThreadsafeFunction`, and the session awaits
-  the returned acknowledgement before reading more, which keeps backpressure. Context callbacks
-  (`onSessionIdentity`, `onInputMessage`, `onCapabilities`, …) and the `AbortSignal` cross the same
-  way.
-- **TypeScript session, Rust engine** (`ACE_ENGINE` with a provider not in `ACE_SESSIONS`, and all
-  scripted test adapters): `ace-engine`'s `Session` trait has a `JsSession` implementation in the
-  binding that calls the JS `ProviderSession` and awaits its promises; the JS session's `onFrame`
-  calls the native engine with the frame and gets the commit acknowledgement as a promise.
-- **Native both**: frames go from the session's tokio task to the engine's channel and never become
-  JS objects.
+- **TypeScript session, Rust engine** (`ACE_ENGINE` with a provider not in `ACE_SESSIONS`, Claude
+  until its question is reopened, and every scripted test adapter): `ace-engine`'s `Session` trait
+  has a `JsSession` implementation in the binding that calls the JS `ProviderSession` and awaits its
+  promises; the JS session's `onFrame` calls the native engine and gets the commit acknowledgement
+  as a promise.
+- **Native both**: session events go from the session's tokio task to the engine's queue and never
+  become JS objects.
+
+The bridge keeps five rules in every one of these combinations.
+
+1. **The steer fence is checked where the write is admitted, in one synchronous step.** Today each
+   adapter checks `assertSteerTarget` (and, where the provider names its turns, compares
+   `fence.turn` with the running turn, `adapter-codex/src/session-commands.ts:92`–`:95`) and then,
+   in the same JavaScript turn, puts the bytes in the session's ordered write queue: Pi's
+   `rpc.request` enqueues into `RpcWriter`'s FIFO synchronously (`adapter-pi/src/session.ts:404`–
+   `:410`, `rpc.ts:80`–`:88`, `provider-kit/src/rpc-writer.ts:33`–`:60`), and a Stop's interrupt,
+   decided later, is queued behind it. That ordering is the contract: once admitted, a write reaches
+   the provider before anything decided after it; before admission, nothing has been sent. The
+   bridge never puts an await or a thread hop between the final check and the admission:
+   - native session (E3): the facade's `send` runs `assertSteerTarget(delivery, fence)` and then,
+     in the same synchronous JS call, the binding's `admit`, which takes the session's state lock,
+     compares `fence.turn` with the turn the session last saw, encodes and redacts, and pushes the
+     bytes onto the session's outbound queue, then returns. The tokio writer task drains that queue
+     in order; it decides nothing. A full outbound queue refuses at admission with today's error
+     (`JSON-RPC write queue exceeded limit`, `rpc-writer.ts:36`), not `InputRejected`.
+   - TypeScript session (E5): the Rust engine passes a JS fence whose `current()` is a synchronous
+     entry into the engine (§4); the adapter checks and enqueues as it does today.
+   - native both: the fence is a Rust closure over the engine state, evaluated inside `admit`.
+   - Provider-side refusals keep their mapping: a provider that says the turn is gone is
+     `SteerTargetLost` (`session-commands.ts:133`).
+2. **Error identity crosses both ways.** Native to JS, the facade throws the engine-api classes
+   (`new SteerTargetLost(message)`, `new InputRejected(message)`), so `instanceof` holds in
+   `intent-delivery.ts` and the steer lane. JS to Rust, `JsSession` maps `instanceof SteerTargetLost`
+   first, then `instanceof InputRejected`, to `SessionError::SteerTargetLost` and
+   `SessionError::InputRejected`; anything else is a transport failure. `SteerTargetLost` is never
+   retried into another turn on either side.
+3. **One ordered event queue per session.** Frames, the exit, and the context callbacks
+   (`onSessionIdentity`, `onSessionConfirmed`, `onInputMessage`, `onCapabilities`,
+   `onPermissionMode`, `onAccountWait`, …) travel on one queue, in the order the session produced
+   them, and are delivered in that order: every frame produced before the exit is handed to
+   `onFrame` before `onExit` runs. Today `onExit` is enqueued on the actor behind the frames already
+   accepted (`engine/sessions.ts:702`–`:711`; `enqueue` seals pending frames first,
+   `actor.ts:191`–`:194`); an exit that overtook them would retire the generation and drop the final
+   frames (`actor.ts:304`). The same holds for identity before echo (behaviour.md §8).
+4. **Backpressure never blocks control.** Only frames count against the byte and frame budget, and
+   a frame waits for budget and for its acknowledgement; the exit and callbacks are never held by
+   the budget, yet always stay behind the frames before them. The reader waits for budget or an
+   acknowledgement in a `select!` with the session's cancellation token, so a cancelled session
+   never waits for an acknowledgement that won't come; a rejected acknowledgement (a failed commit)
+   stops intake, as today (`sessions.ts:684`–`:699`). The stop plan (interrupt, SIGTERM, SIGKILL,
+   behaviour.md §12) runs on its own task, never behind the reader, so cancel and exit make
+   progress under any byte pressure.
+5. **Shutdown never joins on the JS thread.** Order: cancel the session's token; the stop plan
+   ends the process; the reader reads the pipe to EOF and closes the queue with the exit; the pump
+   keeps running, because the threadsafe function stays referenced until every session queue is
+   closed and drained; the session's `close()` promise resolves after the drain, and the task join
+   completes on tokio and is reported through the queue. Pending JS acknowledgements resolve or
+   reject as `Engine.close` flushes and stops the actors (`engine/index.ts:1428`–`:1466`), and the
+   reader awaiting them is released by the token in any case. Nothing waits synchronously on a
+   tokio task.
+
+**7a. The process journal, one encoding for both backends.** Rust writes and reads the journal rows
+TypeScript writes today, byte for byte: `processes(pid INTEGER PRIMARY KEY, entry TEXT)` with the
+JSON entry `process-inventory.ts` writes, and the `escapees`, `kept`, `lineage` tables
+(`escapee-journal.ts:28`–`:30`). Identity is the strict `ProcessIdentity` (`pid`, `start`, `uid`,
+`group`, `process-identity.ts:197`–`:203`) with `start` encoded exactly as today: Linux
+`<boot_id>:<starttime ticks>` from `/proc/sys/kernel/random/boot_id` and field 22 of
+`/proc/<pid>/stat`, read twice to confirm the process didn't change (`:244`–`:263`); macOS
+`<pbi_start_tvsec>:<pbi_start_tvusec>` from `proc_pidinfo(PROC_PIDTBSDINFO)` (`:265`–`:281`);
+Windows the creation `FILETIME` string and the owner SID (`:285`–`:291`). A row one backend wrote,
+the other reads and acts on (sweeps, escapee stops, kept processes) the same way. E2 is not turned
+on by default until the cross-backend journal recovery gate of §8 passes.
+
 - Order of sessions, smallest risk first: Pi (JSONL over stdio, one process per session), Codex
   (JSON-RPC over stdio, shared host pool; the most used), ACP (official crate), OpenCode (HTTP and
   SSE, server pool, JS plugins stay), Cursor (Rust speaks the host wire; the host child running
-  `@cursor/sdk` stays TypeScript). Claude: question 1.
+  `@cursor/sdk` stays TypeScript). Claude's session stays TypeScript behind the bridge (decided
+  below); its translator moves in E1.
 
 ### 8. Phases, each shippable alone
 
-| Phase | What moves to Rust                                                                     | Switch                                                                                                                | Needs                                                    | Proven by                                                                                                                                                                                                   |
-| ----- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E0    | Crate skeletons, `ace-protocol` generation and its check, switch parsing; no behaviour | none                                                                                                                  | ADR 0222 phase 1a                                        | `check:daemon-native`                                                                                                                                                                                       |
-| E1    | Translators, one provider at a time                                                    | `ACE_TRANSLATORS`                                                                                                     | E0                                                       | That provider's translator and fixture (a) files (behaviour.md §19), and the engine files that use real translators: `adapter-echo`, `attachment-echo`, `recorded-ask`, `protocol-noise`, `history-replies` |
-| E2    | The supervisor behind `@ace/provider-kit`'s process exports                            | `ACE_SUPERVISOR=native`                                                                                               | E0, `ACE_STORE=native` (the inventory journal is SQLite) | The 28 process-layer (a) files, then every adapter's session (a) files with the switch on                                                                                                                   |
-| E3    | Sessions, one provider at a time                                                       | `ACE_SESSIONS`                                                                                                        | E2                                                       | That provider's session (a) files; the engine's process tests that use the provider's fake CLI                                                                                                              |
-| E4    | The core                                                                               | `ACE_CORE=native` (tests and tools; the daemon's TypeScript engine never uses it, as it reads `ThreadState` directly) | E0                                                       | The 39 core (a) files and the 5 test-kit files through the `@ace/core` facade                                                                                                                               |
-| E5    | The engine, on the native core                                                         | `ACE_ENGINE=native`                                                                                                   | E4, ADR 0222 phase 5                                     | All 148 engine (a) files, the 56 other files that build an `Engine`, once with every provider's translator and session switched off and once with them on                                                   |
+| Phase | What moves to Rust                                                                     | Switch                                                                                                                                                  | Needs                                                    | Proven by                                                                                                                                                                                                                                 |
+| ----- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E0    | Crate skeletons, `ace-protocol` generation and its check, switch parsing; no behaviour | none                                                                                                                                                    | ADR 0222 phase 1a                                        | `check:daemon-native`                                                                                                                                                                                                                     |
+| E1    | Translators, one provider at a time                                                    | `ACE_TRANSLATORS`                                                                                                                                       | E0                                                       | That provider's translator and fixture (a) files (behaviour.md §19), and the engine files that use real translators: `adapter-echo`, `attachment-echo`, `recorded-ask`, `protocol-noise`, `history-replies`; the E1 cross-mode gate below |
+| E2    | The supervisor behind `@ace/provider-kit`'s process exports                            | `ACE_SUPERVISOR=native`                                                                                                                                 | E0, `ACE_STORE=native` (the inventory journal is SQLite) | The 29 process-layer (a) files (`process-on-node.process` on Node), then every adapter's session (a) files with the switch on; the E2 cross-mode gate below (journal recovery across backends)                                            |
+| E3    | Sessions, one provider at a time                                                       | `ACE_SESSIONS`                                                                                                                                          | E2                                                       | That provider's session (a) files; the engine's process tests that use the provider's fake CLI; the E3 cross-mode gate below                                                                                                              |
+| E4    | The core, as the napi addon and as WebAssembly (`ace-core-wasm`)                       | `ACE_CORE=native` or `ACE_CORE=wasm` (tests, tools and `fake-daemon`; the daemon's TypeScript engine never uses it, as it reads `ThreadState` directly) | E0                                                       | The 39 core (a) files and the 5 test-kit files through the `@ace/core` facade with each loader; the 52 `fake-daemon` test files with `ACE_CORE=wasm`                                                                                      |
+| E5    | The engine, on the native core                                                         | `ACE_ENGINE=native`                                                                                                                                     | E4, ADR 0222 phase 5 (as amended)                        | All 148 engine (a) files and the 56 other files that build an `Engine`, once with every provider's translator and session switched off and once with them on; the E5 cross-mode gate below                                                |
 
 - E1, E2, E3 and E4 can be built in parallel (E3 lands after E2). A native session works with
   either translator, since translation runs wherever the engine runs. E5's modules are built in
@@ -270,12 +396,61 @@ Crates and why:
   the object's `ThreadState` fields from the native state after each call, so tests that read
   `state.agents[...]` and `assertClientMatchesState` see the same shape. That refresh copies the
   whole state and exists for tests, the replay tools and `fake-daemon`; the Rust engine uses
-  `ace-core` directly and has no such copy.
+  `ace-core` directly and has no such copy. The facade has two loaders over the same crate: the
+  napi addon in Bun and Node, and `ace-core-wasm` in the browser (`fake-daemon`).
+- **Cross-mode gate.** Running each test file with the switch on and then off never tests
+  rollback: a home written by one backend must be resumed by the other. E0 adds
+  `ACE_NATIVE_CROSS=<switch>` to `native-switches.ts`. For the per-instance switches
+  (`ACE_TRANSLATORS`, `ACE_SESSIONS`, `ACE_ENGINE`), each new translator, session or `Engine` in a
+  process takes the opposite backend from the one before it, starting from the switch's value. For
+  every switch, a child process inherits the opposite value; the process-wide switches
+  (`ACE_STORE`, `ACE_SUPERVISOR`) flip only this way, never inside one process (ADR 0222,
+  constraint 2). No test changes: the restart tests already build a second engine on the same home
+  (`restart`, `engine/recovery-test-support.ts:48`) or crash a child and recover in the parent
+  (`provider-kit/src/process-inventory.restart.process.test.ts:39`–`:49`,
+  `apps/daemon/src/daemon-crash-recovery.process.test.ts`). Each gate runs its list twice, once
+  starting on and once starting off; files that restart twice also cover on, off, on.
+  - E1, per provider: `adapter-acp/src/integration-restart.test.ts` and the engine files that
+    reopen a thread with that provider's real translator: `acp-resume-failure.process`,
+    `acp-selection.process`, `codex-admission-restart.process`, `review-recovery.process`,
+    `cursor-admission.process`, `cursor-recovery.process`. Native keys persisted in engine records
+    (items, runs, interactions) must mean the same to both translators.
+  - E2: `process-inventory.restart.process`, `daemon-crash-recovery.process`,
+    `cursor-second-crash.process`: a journal written by one supervisor is recovered by the other
+    (§7a).
+  - E3, per provider, its session files that recover or resume a saved session: Codex
+    `item-invalidated-recovery.process`, `overlapping-recovery.process`, `review-recovery.process`;
+    Cursor `checkpoint-recovery.process`, `recovered-seam.process`; OpenCode
+    `ancestry-recovery.process`, `server-pool-recovery.process`; and the engine files of E1's list
+    for that provider. A file a builder finds that resumes a session and isn't listed joins its
+    provider's list.
+  - E4: none. The daemon never stores core state through the facade (the TypeScript engine
+    persists its own `ThreadState`); E5's gate covers state the native core writes.
+  - E5: the engine files that restart on one home: `acp-resume-failure`, `acp-selection`,
+    `admission-recovery`, `context-meter`, `limit-recovery`, `queue-context`, `queue-recovery`,
+    `restart-resume`, `resume-failure`, `startup-quarantine`, `stop-settles` (all through
+    `restart`), and `audit-reliability`, `context-handoff`, `cursor-fresh-session`,
+    `cursor-recovery`, `cursor-transitions`, `defaults`, `delegation-transports`, `engine`,
+    `real-thread-state`, `reliability`, `review-regressions`, `steer-fallback`,
+    `storage-behaviour`, `thread-liveness`, `thread-switch` (each builds a second `Engine`), plus
+    `daemon-crash-recovery.process` and `machines/remote-child-lost-contact.process` (a restart
+    while contact is lost, `:98`).
 - **Default on** when its files pass on macOS, Linux and Windows (the Windows VM for E2 and E3),
-  the relevant bench is no slower (`apps/daemon/bench/adapter-replay-facts.ts` for E1,
-  `bench/scripted.ts` and `bench/stream-history.ts` for E5, `bench/sqlite-store.ts --split` for
-  E5's commits), and it has run one release opt-in. A phase that misbehaves in the field is turned
-  off by its switch; none of them changes stored data.
+  its cross-mode gate passes both ways, the relevant bench is no slower
+  (`apps/daemon/bench/adapter-replay-facts.ts` for E1, `bench/scripted.ts` and
+  `bench/stream-history.ts` for E5, `bench/sqlite-store.ts --split` for E5's commits), and it has
+  run one release opt-in. A phase that misbehaves in the field is turned off by its switch; none of
+  them changes stored data, and the cross-mode gate is what shows that turning it off resumes
+  every thread.
+- **Where the translator switch sits.** Tests and sessions build translators through each
+  adapter's exported constructor, not only through `createTranslator`:
+  `new CursorTranslator(...)` (`adapter-cursor/src/diagnostics.test.ts:8`,
+  `errors.process.test.ts`, `host-output.process.test.ts`, `recovered-seam.process.test.ts`,
+  `adapter.ts:84`), `new OpenCodeTranslator(...)` (`replay.ts:20`, and inside the session,
+  `adapter-opencode/src/session.ts:90`), `createCodexTranslator`, `createAcpTranslator`,
+  `createPiTranslator`, Claude's `createTranslator`. The switch is therefore at each exported
+  name: the exported class or factory is the native one when the switch names its provider. Those
+  files then run the native translator unchanged.
 - **Deleting TypeScript.** A provider's TypeScript translator and session are deleted one release
   after its switches go default-on, the engine's likewise after E5; then (b) tests go with their
   modules (their cases already moved, section 9), the switch is removed, and the facade becomes
@@ -309,34 +484,37 @@ Crates and why:
   boundary: a translator panic becomes a diagnostic, a session task panic ends that session as a
   provider exit, an engine step panic poisons that thread's actor as a failed commit does today
   (`actor.ts:271`). None takes the daemon down.
-- `ace-core` is also wanted in the browser by `fake-daemon` (question 2); until that is decided the
-  TypeScript reducer cannot be deleted.
+- `ace-core` also runs in the browser: `fake-daemon` loads it as WebAssembly (decided below), so
+  the TypeScript reducer is deleted once both the addon and the wasm build serve the facade.
 - One more process-model fact to keep in mind: with the supervisor in Rust, processes the
   TypeScript shell still spawns (terminal, shells, probes) go through the same Rust supervisor and
   the same inventory, so there is one containment implementation, not two.
 
+## Decided by the orchestrator, pending the owner (2026-11-23)
+
+- **Claude's session (former question 1)**: the Agent SDK stays in TypeScript, in the daemon,
+  behind the session bridge (§7, `JsSession`), for now. Claude's translator moves in E1; there is
+  no E3 item for Claude. A host child per account or speaking the CLI's stream-json protocol from
+  Rust is reconsidered after Pi, Codex and ACP sessions are native.
+- **`@ace/core` in the browser (former question 2)**: `ace-core` is built to WebAssembly as well
+  (`ace-core-wasm`, a thin `wasm-bindgen` crate beside the napi binding, no logic of its own), and
+  `fake-daemon` loads the `@ace/core` facade over it. One reducer, two loaders; no TypeScript
+  reducer is kept for the browser.
+- **Writer ownership (review, 2026-11-23)**: one connection, one owner, one transaction stack;
+  no writer thread while TypeScript calls `Store.atomic` synchronously. Recorded in §5 here and in
+  ADR 0222 §3 and phase 5.
+
 ## Questions for the owner
 
-1. **Claude's session.** The Agent SDK runs in the daemon today. Options: (a) leave Claude's
-   session in TypeScript behind the session bridge; only its translator moves (recommended now:
-   no new process, no protocol work); (b) run the SDK in a host child per account, as Cursor's
-   SDK runs (one more Bun process per account; its memory is not measured yet); (c) speak the `claude` CLI's
-   stream-json control protocol from Rust without the SDK, from the recorded frames and the fake
-   CLI that already encode it (no SDK, but ace then owns a protocol the SDK owns today). Decide
-   after Pi, Codex and ACP sessions are native?
-2. **`@ace/core` in the browser.** `fake-daemon` folds facts with the reducer in the browser. Build
-   `ace-core` to WebAssembly for it (one implementation; another wasm artifact like markit's), or
-   keep the TypeScript reducer for `fake-daemon` only (a second implementation of the status rules,
-   which AGENTS.md calls a bug)? Recommended: WebAssembly.
-3. **Codex's protocol types.** Generate the Rust types with `typify` from Codex's JSON Schema export
+1. **Codex's protocol types.** Generate the Rust types with `typify` from Codex's JSON Schema export
    (the TypeScript types come from `codex app-server generate-ts`; whether 0.159.1 also has
    `generate-json-schema` must be checked without starting a session), or depend on the
    `codex-app-server-protocol` crate from OpenAI's repository (Apache-2.0, but a git dependency
    `deny.toml` doesn't allow today)? Recommended: generate.
-4. **When the TypeScript goes.** One release after default-on (recommended), or kept longer as a
+2. **When the TypeScript goes.** One release after default-on (recommended), or kept longer as a
    fallback?
-5. **Windows gate.** E2 and E3 default-on waits for the Windows VM run of the process-layer and
+3. **Windows gate.** E2 and E3 default-on waits for the Windows VM run of the process-layer and
    session tests. Accept that gate?
-6. **The engine on the JS thread** until agent-control and machines move (section 4). Accept, or
+4. **The engine on the JS thread** until agent-control and machines move (section 4). Accept, or
    move it to its own thread earlier at the cost of every synchronous `atomic` caller crossing
    threads?

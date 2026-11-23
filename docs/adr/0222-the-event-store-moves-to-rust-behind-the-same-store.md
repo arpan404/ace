@@ -147,7 +147,7 @@ set by how many copies and indexes each event touches. Open took 2.25 s.
   - `napi` / `napi-derive` 3 for the binding (no `unsafe` in our code; napi-rs owns it).
   - `serde_json` with `raw_value` for building wire JSON without an intermediate tree (1b).
   - `zstd` 0.13 (libzstd 1.5.7, dictionary support) for the storage format in phase 4.
-  - `crossbeam-channel` for the writer and checkpoint threads' queues (later phases).
+  - `crossbeam-channel` for the checkpoint thread's queue (later phases).
 - Alternatives rejected: `sqlx` (async-first, no shared synchronous transaction); `libsql` (a
   fork, a second dialect to reason about); `duckdb`/`redb`/`sled` (a format migration of 46 GB,
   which ADR 0170 rules out at open and nothing measured asks for).
@@ -166,9 +166,20 @@ set by how many copies and indexes each event touches. Open took 2.25 s.
   connection. A pooled read keeps the main connection's read rules (behaviour.md §6 and §8):
   live writes are flushed before it is dispatched, and the whole response, its rows and the
   sequence watermark (head) it reports, comes from one read snapshot opened after that flush.
-- **One writer.** SQLite allows one writer per file. The writer phase (5) moves commits to a
-  writer thread only when the writer's logic itself is in Rust; until then the main connection
-  writes.
+- **One connection, one owner, one transaction stack** (amended by ADR 0223, 2026-11-23). Every
+  write to the event database goes through the main connection, on the thread that owns it, under
+  one transaction stack (depth, savepoints, after-commit publication) that lives in `ace-store`
+  once phase 5 lands and that TypeScript's `Store.atomic` and Rust callers both use. While any
+  TypeScript code calls `Store.atomic` synchronously, that thread is the JS thread, and the writer
+  logic of phase 5 runs there too: there is no writer thread. Two alternatives fail: a writer
+  thread waiting for the main connection while a synchronous receipt holds the write transaction
+  on the JS thread would wait on a thread that cannot yield to it, and a writer on a second
+  connection would commit a receipt's events apart from the receipt (or hit `SQLITE_BUSY` against
+  it). The live buffer's flush (75 ms or 64 KiB) is a task on the owning thread, run between
+  JavaScript turns, never inside an open transaction. Only the checkpoint thread (which never
+  writes table pages) and the read-only reader pool use other connections. The owner moves to
+  one core thread, connection, stack and all, when the last synchronous TypeScript `atomic` caller
+  is gone (ADR 0223 §4).
 
 ### 4. Group commit: not added
 
@@ -220,14 +231,14 @@ one core, off the main thread on the reader pool.
 
 ### 7. Phases, each shippable alone and switched off by `ACE_STORE`
 
-| Phase | What moves to Rust                                                                                                                                                                                                                     | Switch                             | Proven by                                                                                                                            |
-| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| 1a    | The connection: the addon owns the event database's connections (main, checkpoint, search query workers, history publication worker); all logic stays TS                                                                               | `ACE_STORE=native`                 | Every (a) test in behaviour.md §15 run with the switch on, plus the 257 test files that build a `Store`                              |
-| 1b    | Thread reads that measured SQLite-bound: `readItemPage`/`readBoundedItemPage`, then `snapshotThread`'s transcript and `itemsWindow`, as single native calls returning JSON                                                             | `ACE_STORE_READS=items` (needs 1a) | `item-store-trusted-reads`, `subscription-*`, `stored-history-trust`, `text-storage`, `payloads`, `agent-control/thread-read-paging` |
-| 2     | Long-thread reads: `turnsPage`, `turnSteps`, `threadCatchUp`, `threadSearch`                                                                                                                                                           | `ACE_STORE_READS=long`             | `long-thread-*`, `search-replay-*`                                                                                                   |
-| 3     | The sidebar and thread list: one native call per page from the sidebar index, without decoding whole thread rows in JS                                                                                                                 | `ACE_STORE_READS=sidebar`          | `sidebar-*`, `thread-cache.process`, `thread-columns.process`, `revision-triggers.process`                                           |
-| 4     | Storage format (section 6, steps 1 and 2), writes still from TS through the native connection                                                                                                                                          | `ACE_STORE_FORMAT=2`               | All (a) tests, with format 2 on and off; a home written with it on must open with it off                                             |
-| 5     | The writer: `EventWriter`, the live buffer and sequence reservation in Rust, on a writer thread, with the event folding (`@ace/projection` `updateThread`) ported and pinned by vectors generated from the TypeScript, as ADR 0207 did | separate switch, decided then      | All (a) tests; `canonical-event` samples become vectors                                                                              |
+| Phase | What moves to Rust                                                                                                                                                                                                                                                                           | Switch                             | Proven by                                                                                                                            |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 1a    | The connection: the addon owns the event database's connections (main, checkpoint, search query workers, history publication worker); all logic stays TS                                                                                                                                     | `ACE_STORE=native`                 | Every (a) test in behaviour.md §15 run with the switch on, plus the 257 test files that build a `Store`                              |
+| 1b    | Thread reads that measured SQLite-bound: `readItemPage`/`readBoundedItemPage`, then `snapshotThread`'s transcript and `itemsWindow`, as single native calls returning JSON                                                                                                                   | `ACE_STORE_READS=items` (needs 1a) | `item-store-trusted-reads`, `subscription-*`, `stored-history-trust`, `text-storage`, `payloads`, `agent-control/thread-read-paging` |
+| 2     | Long-thread reads: `turnsPage`, `turnSteps`, `threadCatchUp`, `threadSearch`                                                                                                                                                                                                                 | `ACE_STORE_READS=long`             | `long-thread-*`, `search-replay-*`                                                                                                   |
+| 3     | The sidebar and thread list: one native call per page from the sidebar index, without decoding whole thread rows in JS                                                                                                                                                                       | `ACE_STORE_READS=sidebar`          | `sidebar-*`, `thread-cache.process`, `thread-columns.process`, `revision-triggers.process`                                           |
+| 4     | Storage format (section 6, steps 1 and 2), writes still from TS through the native connection                                                                                                                                                                                                | `ACE_STORE_FORMAT=2`               | All (a) tests, with format 2 on and off; a home written with it on must open with it off                                             |
+| 5     | The writer: the transaction stack, `EventWriter`, the live buffer and sequence reservation in Rust, on the main connection and its owning thread (§3), with the event folding (`@ace/projection` `updateThread`) ported and pinned by vectors generated from the TypeScript, as ADR 0207 did | separate switch, decided then      | All (a) tests; `canonical-event` samples become vectors                                                                              |
 
 Phase 4 is deferred until the owner answers the storage questions below, and its rollback
 contract must be written before it is built: with the format switch off, every reader of a
@@ -236,8 +247,11 @@ with it on; and a revision stored as a reference to an event row must survive th
 that rewrite or remove that row (`PayloadStore` capping and rewriting payloads,
 `payload-store.ts:139`; thread deletion, `store.ts:1485`; purge and retention).
 
-Each phase is off by default until its tests pass on macOS, Linux and Windows and a
-before-and-after run of `sqlite-store.ts --split` on a clone shows it is no slower. A phase that
+Each phase is off by default until its tests pass on macOS, Linux and Windows, the cross-mode
+run passes (ADR 0223 §8: the restart tests run with a home written in one mode and reopened in
+the other, both ways; for `ACE_STORE` itself the flip is only ever between processes, never
+within one, by constraint 2), and a before-and-after run of `sqlite-store.ts --split` on a clone
+shows it is no slower. A phase that
 fails in the field is turned off by its switch with no data change (phases 1 to 3 change no
 stored bytes; phase 4's rows stay readable by a build with it off because the read side ships in
 the same release before the write side is turned on).
