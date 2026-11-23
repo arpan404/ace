@@ -72,10 +72,16 @@ export class FakeSpadeServices {
       return { status: 204, body: "" };
     }
     if (sub === "start" && method === "POST") {
-      if (!service) return problem(404, "no such service");
-      if (all.some((each) => each.name === service.name && each.state === "running"))
+      const target = all.find((each) => each.id === name);
+      if (!target) return problem(404, "no such service");
+      if (all.some((each) => each.name === target.name && each.state === "running"))
         return problem(409, "that service is running");
-      Object.assign(service, { state: "running", exit_code: null, restarts: service.restarts + 1 });
+      Object.assign(target, {
+        state: "running",
+        exit_code: null,
+        restarts: target.restarts + 1,
+        output: [],
+      });
       return { status: 202, body: "" };
     }
     return problem(404, "Not found.");

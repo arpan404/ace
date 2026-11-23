@@ -63,7 +63,7 @@ looking at it.
 cause}` record it. After a restart a service marked `keep` is started again; any other is
    recorded `lost`. Services are listed at `GET /v1/agents/{id}/services` and stopped when the
    bot is stopped or deleted. The person starts an ended one again with
-   `POST /v1/agents/{id}/services/{name}/start`: its recorded command, folder and verdict, never
+   `POST /v1/agents/{id}/services/{serviceId}/start`: its recorded command, folder and verdict, never
    a new command, and not while the bot is paused (Resume does that). A running service does not make the bot read as working: it is the
    bot's tool, not work in progress.
 6. **Parked retries.** The error kind decides, and one backoff serves every retry: 1, 2, 4 …

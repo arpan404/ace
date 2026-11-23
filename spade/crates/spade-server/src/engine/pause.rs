@@ -228,14 +228,17 @@ impl Engine {
         if let Some(code) = self.code() {
             code.retire(agent);
         }
-        if let Some(paused) = self.pauses().as_mut() {
-            paused.insert(
-                agent.to_owned(),
-                Paused {
-                    conversation: conversation.to_owned(),
-                    at_ms,
-                },
-            );
+        {
+            let _order = lock(&self.record_lock);
+            if let Some(paused) = self.pauses().as_mut() {
+                paused.insert(
+                    agent.to_owned(),
+                    Paused {
+                        conversation: conversation.to_owned(),
+                        at_ms,
+                    },
+                );
+            }
         }
         self.end_work(conversation, Self::hold_wakes)?;
         self.announce(conversation);

@@ -94,7 +94,10 @@ impl Engine {
             });
             self.append(id, &started).map_err(|e| e.to_string())?;
         }
-        self.launch(id, &bot, &id_of, name, command, cwd, decided, warrant)?;
+        if let Err(why) = self.launch(id, &bot, &id_of, name, command, cwd, decided, warrant) {
+            self.service_ended(id, &id_of, Ended::Failed, None, &why);
+            return Err(why);
+        }
         // Stop came between the write and the launch, and may have ended the service before its
         // process ran: the process stops too.
         let stopped = call.is_some_and(|call| {
@@ -127,7 +130,7 @@ impl Engine {
         let Some(services) = self.services() else {
             return Err("Services are not available here.".to_owned());
         };
-        let launched = services.start(Launch {
+        services.start(Launch {
             conversation: id.to_owned(),
             bot: bot.to_owned(),
             service: service.to_owned(),
@@ -136,11 +139,7 @@ impl Engine {
             cwd: cwd.to_owned(),
             decided,
             warrant,
-        });
-        if let Err(why) = &launched {
-            self.service_ended(id, service, Ended::Failed, None, why);
-        }
-        launched
+        })
     }
 
     /// A service ended by itself (Services calls this).
@@ -173,18 +172,14 @@ impl Engine {
         code: Option<i32>,
         how: &str,
     ) {
-        let ended = Event::Known(Known::ServiceEnded {
-            service: service.to_owned(),
-            cause,
-            code,
-        });
         let name = self
             .load(id)
             .ok()
             .and_then(|events| service::named(events.iter(), service))
             .map(|s| s.name);
-        if let Err(error) = self.record(id, &ended) {
-            tracing::error!(%error, "could not store that a service ended");
+        {
+            let _order = super::wakes::lock(&self.record_lock);
+            self.record_service_end(id, service, cause, code);
         }
         if let Some(name) = name {
             self.wake_on_service_end(id, service, &name, how);
@@ -192,35 +187,59 @@ impl Engine {
         self.announce(id);
     }
 
+    // The caller holds record_lock. Wakes are fired after releasing it.
+    fn record_service_end(&self, id: &str, service: &str, cause: Ended, code: Option<i32>) {
+        let ended = Event::Known(Known::ServiceEnded {
+            service: service.to_owned(),
+            cause,
+            code,
+        });
+        if let Err(error) = self.append(id, &ended) {
+            tracing::error!(%error, "could not store that a service ended");
+        }
+    }
+
     /// Stops service `name` (or id) of conversation `id`; whether it was running.
     pub(crate) fn service_stop(self: &Arc<Self>, id: &str, name: &str) -> Result<bool, StoreError> {
-        let events = self.load(id)?;
-        let Some(found) = service::running(events.iter())
-            .into_iter()
-            .find(|s| s.name == name || s.service == name)
-        else {
-            return Ok(false);
-        };
-        if let Some(services) = self.services() {
-            services.stop(&found.service);
-        }
-        self.service_ended(id, &found.service, Ended::Stopped, None, "was stopped");
-        Ok(true)
+        self.stop_matching_services(id, |running| {
+            running
+                .into_iter()
+                .find(|s| s.name == name || s.service == name)
+                .into_iter()
+                .collect()
+        })
     }
 
     /// Stop or delete: every running service of the conversation stops. Whether any ran.
     pub(super) fn stop_services(self: &Arc<Self>, id: &str) -> bool {
-        let running = self
-            .load(id)
-            .map(|events| service::running(events.iter()))
-            .unwrap_or_default();
-        for found in &running {
-            if let Some(services) = self.services() {
-                services.stop(&found.service);
+        self.stop_matching_services(id, |running| running)
+            .unwrap_or_default()
+    }
+
+    fn stop_matching_services(
+        self: &Arc<Self>,
+        id: &str,
+        select: impl FnOnce(Vec<Service>) -> Vec<Service>,
+    ) -> Result<bool, StoreError> {
+        let stopped = {
+            let _order = super::wakes::lock(&self.record_lock);
+            let running = service::running(self.load(id)?.iter());
+            let stopped = select(running);
+            for found in &stopped {
+                if let Some(services) = self.services() {
+                    services.stop(&found.service);
+                }
+                self.record_service_end(id, &found.service, Ended::Stopped, None);
             }
-            self.service_ended(id, &found.service, Ended::Stopped, None, "was stopped");
+            stopped
+        };
+        for found in &stopped {
+            self.wake_on_service_end(id, &found.service, &found.name, "was stopped");
         }
-        !running.is_empty()
+        if !stopped.is_empty() {
+            self.announce(id);
+        }
+        Ok(!stopped.is_empty())
     }
 
     /// The services of agent `agent` (by id), newest last; `None` for no such agent.
@@ -312,17 +331,19 @@ impl Engine {
             tracing::error!(%error, "could not store that a service starts again");
             return false;
         }
-        self.launch_again(id, bot, found);
+        if let Err(why) = self.launch_again(id, bot, found) {
+            self.service_ended(id, &found.service, Ended::Failed, None, &why);
+        }
         true
     }
 
-    /// The person starts agent `agent`'s ended service `name` (or id) again, with the command,
+    /// The person starts agent `agent`'s ended service by id again, with the command,
     /// folder and verdict it started with: the person never gives a bot a new command this way.
     /// `None` for no such agent.
     pub fn start_agent_service(
         self: &Arc<Self>,
         agent: &str,
-        name: &str,
+        service_id: &str,
     ) -> Result<Option<StartAgain>, StoreError> {
         let Some(agent) = self.store.agent(agent)? else {
             return Ok(None);
@@ -331,35 +352,35 @@ impl Engine {
         if self.services().is_none() {
             return Ok(Some(StartAgain::Unavailable));
         }
-        if self.paused(&id) {
-            return Ok(Some(StartAgain::Paused));
-        }
-        let found = {
-            // Read and stored under the record lock, so two starts at once start it once.
+        let (found, launched) = {
             let _order = super::wakes::lock(&self.record_lock);
+            if self.paused(&id) {
+                return Ok(Some(StartAgain::Paused));
+            }
             let events = self.load(&id)?;
             let all = service::services(events.iter());
-            let Some(found) = all
-                .iter()
-                .rev()
-                .find(|s| s.name == name || s.service == name)
-                .cloned()
-            else {
+            let Some(found) = all.iter().find(|s| s.service == service_id).cloned() else {
                 return Ok(Some(StartAgain::NoSuchService));
             };
             if all.iter().any(|s| s.running() && s.name == found.name) {
                 return Ok(Some(StartAgain::Running));
             }
             self.append(&id, &started_again(&found))?;
-            found
+            let launched = self.launch_again(&id, &agent.id, &found);
+            if launched.is_err() {
+                self.record_service_end(&id, &found.service, Ended::Failed, None);
+            }
+            (found, launched)
         };
-        self.launch_again(&id, &agent.id, &found);
+        if let Err(why) = launched {
+            self.wake_on_service_end(&id, &found.service, &found.name, &why);
+        }
         self.announce(&id);
         Ok(Some(StartAgain::Started))
     }
 
-    fn launch_again(self: &Arc<Self>, id: &str, bot: &str, found: &Service) {
-        let _ = self.launch(
+    fn launch_again(self: &Arc<Self>, id: &str, bot: &str, found: &Service) -> Result<(), String> {
+        self.launch(
             id,
             bot,
             &found.service,
@@ -381,7 +402,7 @@ impl Engine {
                 bound: Bound::from_stored(found.bound.clone()),
                 incomplete: false,
             }),
-        );
+        )
     }
 }
 
