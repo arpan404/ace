@@ -90,14 +90,16 @@ it("keeps Antigravity shells live after turn end and closes them from a later up
     status: "in_progress",
   });
   end(h);
-  expect(h.state.status.state).toBe("waiting");
+  // Left running: the turn finished, and Antigravity takes new prompts beside it (ADR 0109).
+  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.tasks).map((task) => task.status)).toEqual(["running"]);
   const events = h.update({
     sessionUpdate: "tool_call_update",
     toolCallId: "shell",
     status: "completed",
     rawOutput: { exitCode: 0, combinedOutput: "done" },
   });
-  expect(h.state.status.state).toBe("done");
+  expect(Object.values(h.state.tasks).map((task) => task.status)).toEqual(["completed"]);
   const tool = required(h.tools()[0]);
   expect(tool.call.detail).toMatchObject({
     command: "sleep 10",

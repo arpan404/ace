@@ -112,13 +112,19 @@ it("accepts new input after terminal execution evidence settles a cancelled shel
     await h.session.close("shutdown");
   }
 });
-it("rejects reprompting while an Antigravity shell survives a normal prompt end", async () => {
+it("takes a new prompt beside an Antigravity shell left running after a finished turn, and that prompt's report ends it", async () => {
   const h = await setup(antigravityQuirks);
   try {
     await h.session.send(input("antigravity-shell"), "queue");
-    expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
-    await expect(h.session.send(input("next"), "queue")).rejects.toThrow("shell");
-    expect(promptCount(h.frames)).toBe(1);
+    expect(h.state.status.state).toBe("done");
+    await h.session.send(input("report-shell"), "queue");
+    expect(promptCount(h.frames)).toBe(2);
+    expect(Object.values(h.state.tasks).map((task) => [task.kind, task.status])).toEqual([
+      ["shell", "completed"],
+    ]);
+    // Nothing left unconfirmed: the next message goes in too.
+    await h.session.send(input("next"), "queue");
+    expect(promptCount(h.frames)).toBe(3);
   } finally {
     await h.session.close("shutdown");
   }

@@ -27,6 +27,7 @@ import { installedRow } from "./market-rows.ts";
 import { doneAnswer, entryAnswer, reviewAnswer, reviewPageAnswer } from "./market-review.ts";
 import { HeldReviews, type HeldRefusal } from "./market-review-held.ts";
 import { personRefusal, type SocketStanding } from "./market-person.ts";
+import { searchPages } from "./market-search.ts";
 import type { BrowseWords } from "./market-actions.ts";
 
 /*
@@ -83,6 +84,8 @@ export const NativeMarketRequest = z.object({
   fresh: z.literal(true).optional(),
   /** Confirm it's you: the person's one retry of a change refused for standing. */
   confirmed: z.literal(true).optional(),
+  /** A search that lists only what ace reviewed, as a category does (`market-search.ts`). */
+  reviewedOnly: z.literal(true).optional(),
 });
 export type NativeMarketRequest = z.infer<typeof NativeMarketRequest>;
 
@@ -353,7 +356,8 @@ export class NativeMarket {
       if ("refuse" in held) return heldRefusal(held.refuse);
       operation = held.send;
     }
-    const key = kept.has(op) ? JSON.stringify(operation) : undefined;
+    const reviewedOnly = request.reviewedOnly === true;
+    const key = kept.has(op) ? JSON.stringify({ operation, reviewedOnly }) : undefined;
     const step = stepOf(op);
     const changes = step !== "read" && step !== "review";
     if (operation.op === "addSource" && !isCatalogAddress(operation.address))
@@ -362,11 +366,21 @@ export class NativeMarket {
     if (this.#owner.state !== "ready") return changes ? offlineWrite : this.#offline(key);
     const installed = withRows.has(op) ? this.#readInstalled(signal) : undefined;
     let result: MarketResult;
+    let next: number | null = null;
     try {
-      ({ result } = await this.#owner.request(
-        { type: "marketplace.request", operation },
-        { ...wait, signal },
-      ));
+      if (operation.op === "search")
+        ({ result, next } = await searchPages(operation, reviewedOnly, async (page) => {
+          const sent = await this.#owner.request(
+            { type: "marketplace.request", operation: page },
+            { ...wait, signal },
+          );
+          return sent.result;
+        }));
+      else
+        ({ result } = await this.#owner.request(
+          { type: "marketplace.request", operation },
+          { ...wait, signal },
+        ));
     } catch (error) {
       if (!(error instanceof ClientError) || error.code === "aborted") throw error;
       if (!unreachable.has(error.code)) return refusalAnswer("failed", step);
@@ -407,7 +421,7 @@ export class NativeMarket {
       botName: this.#botName,
     });
     if (!answer) return refusalAnswer("failed", stepOf(op));
-    const value = { ok: true, offline: false, ...answer };
+    const value = { ok: true, offline: false, ...answer, ...(op === "search" ? { next } : {}) };
     if (key) this.#last.set(key, value);
     return value;
   }

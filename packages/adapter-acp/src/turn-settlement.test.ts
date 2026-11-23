@@ -2,7 +2,7 @@ import { it, expect } from "vitest";
 import { apply, createThreadState } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
-import { harness, required, end } from "./test-helper.ts";
+import { chunk, harness, required, end } from "./test-helper.ts";
 import { antigravityQuirks, createAcpTranslator } from "./index.ts";
 
 function shell(h: ReturnType<typeof harness>, status: "pending" | "in_progress") {
@@ -55,27 +55,42 @@ it("a shell still awaiting approval when an Antigravity prompt ends never become
   expect(required(h.tools()[0]).call.status).toBe("cancelled");
 });
 
-it("an allowed Antigravity shell still running at prompt end stays a background task", () => {
+function prompt(h: ReturnType<typeof harness>, id: number, text: string) {
+  h.frame("send", {
+    id,
+    method: "session/prompt",
+    params: { sessionId: "root-session", prompt: [{ type: "text", text }] },
+  });
+}
+const tasks = (h: ReturnType<typeof harness>) =>
+  Object.values(h.state.tasks).map((task) => [task.kind, task.status, task.blocksPrompts]);
+it("an allowed Antigravity shell still running after a finished turn is left running, and a later prompt's report ends it", () => {
   const h = harness(antigravityQuirks);
   h.ready();
   shell(h, "pending");
   askPermission(h);
   h.frame("send", { id: 50, result: { outcome: { outcome: "selected", optionId: "once" } } });
   end(h);
-  expect(h.state.status).toEqual({ state: "waiting", on: "background_task" });
+  // Antigravity takes the next prompt beside it: the thread is done, the command still listed.
+  expect(h.state.status.state).toBe("done");
+  expect(tasks(h)).toEqual([["shell", "running", undefined]]);
+  prompt(h, 3, "next");
+  h.update({ sessionUpdate: "tool_call_update", toolCallId: "shell", status: "completed" });
+  h.frame("recv", { id: 3, result: { stopReason: "end_turn" } });
+  expect(tasks(h)).toEqual([["shell", "completed", undefined]]);
+  expect(required(h.tools()[0]).call.status).toBe("succeeded");
+  expect(h.state.status.state).toBe("done");
 });
-
-it("an error reply to the prompt ends a running Antigravity shell instead of holding prompts", () => {
+it("stopping a later Antigravity turn leaves a shell carried from an earlier one running", () => {
   const h = harness(antigravityQuirks);
   h.ready();
   shell(h, "in_progress");
-  h.frame("recv", { id: 2, error: { code: -32603, message: "Internal error" } });
-  expect(h.state.status.state).not.toBe("working");
-  expect(h.state.status).not.toMatchObject({ state: "waiting" });
-  expect(Object.values(h.state.tasks)).toEqual([]);
-  expect(required(h.tools()[0]).call.status).toBe("cancelled");
+  end(h);
+  prompt(h, 3, "next");
+  h.frame("recv", { id: 3, result: { stopReason: "cancelled" } });
+  expect(tasks(h)).toEqual([["shell", "running", undefined]]);
+  expect(required(h.tools()[0]).call.status).toBe("running");
 });
-
 function startSubagent(h: ReturnType<typeof harness>) {
   h.update({
     sessionUpdate: "tool_call",
@@ -154,4 +169,26 @@ it("a turn that ends normally carries no cut-off warning", () => {
   expect(
     Object.values(h.state.items).filter((i) => i.type === "notice" && i.level === "warning"),
   ).toEqual([]);
+});
+const answer = (h: ReturnType<typeof harness>) =>
+  Object.values(h.state.items).flatMap((item) =>
+    item.type === "message" && item.role === "assistant"
+      ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
+      : [],
+  );
+it("Antigravity's word that ace cancelled its prompt is never shown as its answer", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  chunk(h, "Looking into it.");
+  h.frame("send", { method: "session/cancel", params: { sessionId: "root-session" } });
+  chunk(h, "\n\nThe request was cancelled by the client.");
+  end(h, "cancelled");
+  expect(answer(h)).toEqual(["Looking into it."]);
+});
+it("the same words stay the agent's answer when ace cancelled nothing", () => {
+  const h = harness(antigravityQuirks);
+  h.ready();
+  chunk(h, "The request was cancelled by the client.");
+  end(h);
+  expect(answer(h)).toEqual(["The request was cancelled by the client."]);
 });
