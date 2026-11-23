@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
 import { provenAdoptions, reap, zombieChildren } from "@ace/provider-kit/process-reaper";
 import { captureTree, type CapturedMember } from "@ace/provider-kit/process-tree";
-import { childGroup, signalSoon, type LeaderGroup } from "@ace/provider-kit/leader-group";
+import { childGroup, type LeaderGroup } from "@ace/provider-kit/leader-group";
 import { newGroupToken, withGroupToken } from "@ace/provider-kit/group-token";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
@@ -35,12 +35,23 @@ function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
  */
 const groups = new WeakMap<ChildProcess, LeaderGroup>();
 
-/** Signal a group this isolate spawned; anything else is refused, never signalled by number. */
+/**
+ * Signal a group this isolate spawned; anything else is refused, never signalled by number. A
+ * group signal that is refused (a worker that can't prove the group to the main isolate) falls
+ * back to the child's own handle, which can't reach a reused pid while we hold it unreaped.
+ */
 function signalSpawnedGroup(pid: number, signal: NodeJS.Signals, child?: ChildProcess): void {
   const group = child && groups.get(child);
-  if (!group || group.leader !== pid)
+  if (!child || !group || group.leader !== pid)
     throw new Error(`Process group ${pid} is not one this process spawned`);
-  signalSoon(group, signal);
+  group.signal(signal).catch((error: unknown) => {
+    process.emitWarning(`Could not signal Git's process group ${pid}: ${String(error)}`);
+    try {
+      child.kill(signal);
+    } catch {
+      /* Already gone. */
+    }
+  });
 }
 
 /** Node's three-pipe overload does not describe additional inherited descriptors. Check the edge. */

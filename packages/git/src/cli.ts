@@ -99,12 +99,19 @@ function throwIfCancelled(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
 }
 
-/** `work`, failing as `git_cancelled` when it failed because `signal` aborted (its AbortError). */
+/**
+ * `work`, failing as `git_cancelled` when it failed with the abort itself (an AbortError, or the
+ * signal's reason). Any other failure (a filesystem or credential error) stays as it is, even
+ * when the signal also aborted meanwhile.
+ */
 async function cancelledAs<T>(signal: AbortSignal | undefined, work: () => Promise<T>): Promise<T> {
   try {
     return await work();
   } catch (error) {
-    if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
+    const fromAbort =
+      signal?.aborted === true &&
+      (error === signal.reason || (error instanceof Error && error.name === "AbortError"));
+    if (fromAbort) throw new GitError("git_cancelled", "Git operation cancelled");
     throw error;
   }
 }
@@ -507,12 +514,45 @@ export class GitCli {
    * caller's abort fails that caller alone and leaves the check running for the rest.
    */
   private ensureReady(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
-    this.ready ??= this.verify(cwd, directoryFd).catch((error: unknown) => {
-      this.ready = undefined;
-      this.resolvedBinary = undefined;
-      throw error;
-    });
+    // An aborted caller starts nothing: the shared check is never begun on its behalf.
+    if (signal?.aborted)
+      return Promise.reject(new GitError("git_cancelled", "Git operation cancelled"));
+    if (!this.ready) {
+      const ready = this.boundedVerify(cwd, directoryFd).catch((error: unknown) => {
+        if (this.ready === ready) {
+          this.ready = undefined;
+          this.resolvedBinary = undefined;
+        }
+        throw error;
+      });
+      // Every caller may have stopped waiting; the shared check's failure is still handled.
+      ready.catch(() => {});
+      this.ready = ready;
+    }
     return untilCancelled(this.ready, signal);
+  }
+
+  /**
+   * The version check under the service's deadline as a whole: binary discovery (a PATH lookup
+   * that can stall) included, not only the `--version` process.
+   */
+  private boundedVerify(cwd: string, directoryFd?: number): Promise<void> {
+    const deadline = this.timeoutMs;
+    return new Promise<void>((resolve, reject) => {
+      const cancel = this.runtime.scheduleTimeout(() => {
+        reject(new GitError("git_timeout", `Git's version check exceeded ${deadline}ms`));
+      }, deadline);
+      this.verify(cwd, directoryFd).then(
+        () => {
+          cancel();
+          resolve();
+        },
+        (error: unknown) => {
+          cancel();
+          reject(error);
+        },
+      );
+    });
   }
 
   private async verify(cwd: string, directoryFd?: number): Promise<void> {
