@@ -17,7 +17,7 @@ test("a role's route takes fallbacks in order, at most four, and each change sav
     withEndpoint(here);
     here.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
   });
-  const roles = within(await screen.findByRole("region", { name: "Models for other work" }));
+  const roles = within(await screen.findByRole("region", { name: "Roles" }));
   await choose("Helpers", /^Sonnet/);
   await roles.findByRole("button", { name: "Add a fallback" });
   await userEvent.click(roles.getByRole("button", { name: "Add a fallback" }));
@@ -59,7 +59,7 @@ test("a route offers no subscription, and a full one takes no more", async () =>
   });
   const row = await screen.findByRole("button", { name: "Helpers, fallback 3" });
   expect(row).toBeTruthy();
-  const roles = within(screen.getByRole("region", { name: "Models for other work" }));
+  const roles = within(screen.getByRole("region", { name: "Roles" }));
   // Only the rows without a full route offer to add one: Bots' fallbacks has none set.
   expect(roles.queryAllByRole("button", { name: "Add a fallback" })).toHaveLength(0);
   await userEvent.click(screen.getByRole("button", { name: "Helpers" }));

@@ -87,8 +87,15 @@ test("an endpoint made while saving its key stays made: trying again sets its ke
   await waitFor(() => expect(screen.queryByRole("region", { name: setupName })).toBeNull());
 });
 
-test("only the person's saved models can be removed; the preset's have no Remove", async () => {
-  await spadeApp("/settings/spade/models", (api) => {
+/** Opens the OpenRouter account's Manage models from its provider page. */
+async function manageOpenRouter() {
+  await userEvent.click(await screen.findByRole("link", { name: "OpenRouter" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage" }));
+  return within(await screen.findByRole("dialog", { name: "Models on OpenRouter" }));
+}
+
+test("a saved model turned off leaves the account; the preset's own stay on", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     const [endpoint] = api.endpoints;
     if (endpoint)
@@ -98,10 +105,22 @@ test("only the person's saved models can be removed; the preset's have no Remove
       ];
     main(api);
   });
-  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
-  await openrouter.findByText("Preset model");
-  expect(openrouter.getByRole("button", { name: "Remove Saved model" })).toBeTruthy();
-  expect(openrouter.queryByRole("button", { name: "Remove Preset model" })).toBeNull();
+  const models = await manageOpenRouter();
+  const preset = await models.findByRole("switch", { name: "Preset model on OpenRouter" });
+  expect(preset.getAttribute("aria-checked")).toBe("true");
+  expect(preset.hasAttribute("data-disabled")).toBe(true);
+  const saved = models.getByRole("switch", { name: "Saved model on OpenRouter" });
+  expect(saved.getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(saved);
+  await waitFor(() =>
+    expect(
+      ((spade.endpoints[0]?.models ?? []) as { id: string }[]).map((model) => model.id),
+    ).toEqual(["preset/model"]),
+  );
+  // The provider doesn't list it, so once off it is gone from the account and the list.
+  await waitFor(() =>
+    expect(models.queryByRole("switch", { name: "Saved model on OpenRouter" })).toBeNull(),
+  );
 });
 
 test("first run on another endpoint's key moves Spade onto that endpoint's model", async () => {
@@ -141,19 +160,18 @@ test("with a usable endpoint but Spade on one it can't reach, setup asks only fo
   await waitFor(() => expect(screen.queryByRole("region", { name: setupName })).toBeNull());
 });
 
-test("while the keychain hasn't answered, an endpoint's key says it is being checked, then what it is", async () => {
+test("while the keychain hasn't answered, a provider says its key is being checked, then that it's ready", async () => {
   const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     api.keysPending = true;
     main(api, "openrouter/saved/model");
   });
-  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
-  // The list is there at once; only the key waits.
+  const openrouter = within(await screen.findByRole("group", { name: "OpenRouter" }));
+  // The list is there at once; only the key waits, and it asks for nothing meanwhile.
   expect(await openrouter.findByText("Checking the keychain…")).toBeTruthy();
-  expect(openrouter.getByText("Saved model")).toBeTruthy();
-  expect(openrouter.queryByText("Not saved")).toBeNull();
+  expect(openrouter.queryByRole("button", { name: /key/ })).toBeNull();
   spade.keysPending = false;
-  expect(await openrouter.findByText("Saved in the keychain")).toBeTruthy();
+  expect(await openrouter.findByText("Ready")).toBeTruthy();
 });
 
 test("Spade never asks for a key the keychain may still hold", async () => {
@@ -218,23 +236,25 @@ test("first run names each service plainly once, and adds a local server by its 
   expect(spade.sent("PUT", "/v1/keys/local-server")).toEqual([]);
 });
 
-test("Add a model offers what the endpoint lists, with facts only where they are known", async () => {
+test("Manage lists what the endpoint lists, with facts only where they are known, and saves one turned on", async () => {
   const { spade } = await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     main(api, "openrouter/saved/model");
   });
-  const openrouter = within(await screen.findByRole("region", { name: "OpenRouter" }));
-  await userEvent.click(openrouter.getByRole("button", { name: "Add a model" }));
-  const models = within(await screen.findByRole("listbox", { name: "Models" }));
-  await models.findByRole("option", { name: /^Sonnet/ });
-  // Saved ones aren't offered again; Llama's list gave no tools, so none are claimed.
-  expect(models.getAllByRole("option").map((option) => option.textContent)).toEqual([
+  const models = await manageOpenRouter();
+  await models.findByText("Sonnet");
+  // Llama's list gave no tools, so none are claimed.
+  const list = within(models.getByRole("list", { name: "Models" }));
+  expect(list.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+    "Saved model",
     "Llama128K context",
     "Sonnet200K context · images, tools",
   ]);
-  await userEvent.click(models.getByRole("option", { name: /^Llama/ }));
+  await userEvent.click(models.getByRole("switch", { name: "Llama on OpenRouter" }));
   await waitFor(() =>
-    expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([{ id: "meta/llama" }]),
+    expect(spade.sent("POST", "/v1/endpoints/openrouter/models")).toEqual([
+      { id: "meta/llama", name: "Llama", context: 128_000 },
+    ]),
   );
 });
 
@@ -242,14 +262,14 @@ test("Add a model offers what the endpoint lists, with facts only where they are
 const follows = (a: Element, b: Element) =>
   Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
-test("Settings › Models reads in setup order: endpoints, Add an endpoint, then other work", async () => {
+test("Settings › Models reads in setup order: providers, Add a provider, then the roles", async () => {
   await spadeApp("/settings/spade/models", (api) => {
     withEndpoint(api);
     main(api, "openrouter/saved/model");
   });
-  const endpoint = await screen.findByRole("region", { name: "OpenRouter" });
+  const provider = await screen.findByRole("group", { name: "OpenRouter" });
   const add = screen.getByRole("button", { name: "Add a provider" });
-  const roles = await screen.findByRole("region", { name: "Models for other work" });
-  expect(follows(endpoint, add)).toBe(true);
+  const roles = await screen.findByRole("region", { name: "Roles" });
+  expect(follows(provider, add)).toBe(true);
   expect(follows(add, roles)).toBe(true);
 });

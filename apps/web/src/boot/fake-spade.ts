@@ -592,7 +592,7 @@ export function seedFakeSpade(
   seedFakeReach(here, now);
   seedFakeRunning(here, now);
   seedFakeModelAccess(here, minutes);
-  seedFakeAccounts(here);
+  seedFakeAccounts(here, now);
   seedFakeCapabilities(
     here,
     (back) => {

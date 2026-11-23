@@ -41,6 +41,14 @@ Spade is one of ace's places. It adds no navigation of its own.
   this month's ace searches against the allowance ("ace search: 312 of 1,000 searches this
   month"), or says "Sign in to ace to search the web." when signed out, and is absent when Spade
   can't say (ADR 0210). Web search has no settings page: bots search through ace only.
+- **Settings › Spade › Models** looks and behaves like Settings › Providers, from the same parts
+  (ADR 0214): one row per provider (its mark, where it stands in words, its accounts and bots, the
+  one fix it needs: Add key, Sign in), each opening its own page with the fix first on a problem
+  line, then Accounts (an account per row: state, who it is, the bots on it, the fix and a ⋯
+  menu) and Models (any model that failed Spade's check, then each account's models with Manage:
+  the provider's own list, searchable, each model on or off). Then Roles: each role's model and
+  thinking on one row. Marks are the makers' (`serviceInfo`; a model's family through
+  `modelFamily`), never letters.
 
 ## 2. List
 

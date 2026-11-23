@@ -22,7 +22,7 @@ import { EffortSelect, effortDefault } from "./spade-settings-effort.tsx";
 import { RouteSettingRow } from "./spade-settings-route.tsx";
 
 /**
- * Settings › Spade › Models › Models for other work (ADR 0162): the model every bot uses for
+ * Settings › Spade › Models › Roles (ADR 0162): the model every bot uses for
  * each role unless it sets its own. Unset, a role takes the fast model (checking done: the
  * strongest model the person uses), which its picker shows. Reviewing steps is the review's
  * model, set here and only here. Each role is a route (ADR 0205 §2): up to four models in order,
@@ -39,7 +39,7 @@ export function GlobalRoles(props: { fastModel: string | undefined }) {
     queryKey: key,
     queryFn: ({ signal }) => readGlobalRoles(client, signal),
   });
-  const label = "Models for other work";
+  const label = "Roles";
   const change = async (next: SpadeRolesChange) => {
     cache.setQueryData<SpadeGlobalRoles>(key, await setGlobalRoles(client, next));
     // Each bot's roles follow these, and the review's model is the review's own setting.
