@@ -11,6 +11,7 @@
     "**/*.gen.ts",
     "docs/protocol",
     "docs/daemon/cli.md",
+    "native/cli/table.json",
     "spade/docs/runtime.md",
     "spade/spec/*.md",
     "spade/spec/schemas/**",

@@ -18,7 +18,7 @@ import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
 import { defaultTicketLimits } from "./ticket-pool.ts";
-import type { IncomingMessage, Server } from "node:http";
+import type { IncomingHttpHeaders, Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { httpChains } from "./server-http.ts";
 import { hostedWebOrigin, webOriginAllowlist } from "./web-origins.ts";
@@ -377,7 +377,8 @@ export async function startServer(options: ServerOptions): Promise<{
   const connected = (
     socket: MainSocket,
     isLocal: boolean,
-    request?: IncomingMessage,
+    /** The upgrade's request: only its User-Agent is read. */
+    request?: { headers: IncomingHttpHeaders },
     /** A relayed main channel, whose hello the relay host already authenticated. */
     relayed?: RelayedMain,
   ) => {

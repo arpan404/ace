@@ -1,6 +1,7 @@
-# Porting the store's reads to Rust: phases 1b, 2 and 3
+# Porting the store to Rust: phases 1b to 5
 
-For the builders who move the event store's reads to Rust, in parallel, one phase each. Read
+For the builders who move the event store to Rust: the reads (phases 1b, 2 and 3, in parallel,
+one phase each), the storage format (phase 4) and the writer (phase 5, as ordered build tasks). Read
 [ADR 0222](../adr/0222-the-event-store-moves-to-rust-behind-the-same-store.md) and
 [behaviour.md](behaviour.md) first; the contract there is what you keep. Branch from
 `ace/rust-store`.
@@ -160,5 +161,1284 @@ Proof (class a): `sidebar-columns.test.ts`, `sidebar-live.process.test.ts`,
 ## When you are done
 
 Report, per proof file, the result with your switch on and off; the bench numbers before and
-after; and anything in the contract you could not keep. Do not change the writer, the storage
-format or any stored data; those are later phases and need the owner.
+after; and anything in the contract you could not keep. Phases 1b to 3 change neither the writer,
+the storage format nor any stored data; those are phases 4 and 5, below.
+
+## Rules for phases 4 and 5
+
+These add to the rules for every phase above; where they differ, these win for phases 4 and 5.
+
+1. **Builders get one task at a time**, in the order given. A task's brief lists every file it
+   may touch. Anything else, including a file the brief does not name, needs the reviewer's
+   yes first. Branch from `ace/rust-store-writer` (or the branch the orchestrator names) and push
+   with `git push origin HEAD:refs/heads/<your-branch>`; check it landed with
+   `git ls-remote origin refs/heads/<your-branch>`.
+2. **Tests move, they don't multiply.** The proof is the existing (a) files run with the
+   switch on and off. The only new checks allowed are the vectors named in a brief (generated
+   from the TypeScript, as ADR 0207 did for history) and a test for behaviour nothing covers
+   today, which the brief names. No parity harness, no duplicate suite, no test that compares
+   the two backends against each other in one process.
+3. **Run tests one file at a time.** Check the path first: an empty path runs the whole suite.
+
+   ```sh
+   f=apps/daemon/src/store.test.ts
+   test -f "$f" || { echo "missing $f"; exit 1; }
+   ACE_STORE=native ACE_STORE_WRITER=<part> bun --bun x vitest run "$f" --maxWorkers=4   # on
+   ACE_STORE=native bun --bun x vitest run "$f" --maxWorkers=4                           # off (native connection)
+   bun --bun x vitest run "$f" --maxWorkers=4                                            # off (TypeScript)
+   ```
+
+   "On and off" in the briefs means all three runs. Never run the full suite, `bun run test` or
+   `bun run check`.
+
+4. **Build and lint the Rust** in `native/daemon` with rustup's toolchain first in `PATH` (plain
+   `cargo` is Homebrew's):
+
+   ```sh
+   export PATH=$HOME/.rustup/toolchains/1.95.0-aarch64-apple-darwin/bin:$PATH CARGO_BUILD_JOBS=4
+   cd native/daemon
+   cargo fmt --check && cargo clippy --all-targets -p <crate> && cargo test -p <crate>
+   cargo build --release -p ace-daemon-node
+   cd ../.. && bun run check:daemon-native
+   ```
+
+   `cargo clean` in `native/daemon` when the task is done.
+
+5. **JavaScript-visible values go through `ace-json`** (`native/daemon/crates/ace-json`, its
+   rules are in `src/lib.rs`), never `serde_json::Value` and never a Rust `String` for a
+   JavaScript string. The E4 reducer work found each of these divergences by hitting it:
+   - key order: `ace_json::Map` keeps JavaScript's order (array-index keys first, ascending,
+     then insertion order; `insert` on an existing key keeps its place, as `object[key] = v`
+     does; `shift_remove` is `delete`). Never sort keys, never rebuild an object in a different
+     order, and add new keys in the order the TypeScript statements add them, not in the order
+     of the input;
+   - numbers: `ace_json::Number` is one f64 and prints as `Number.prototype.toString` (`1e21`,
+     `1.5e-7`, `1` for `1.0`, `0` for `-0`). Never format a number by hand; integers that cross
+     N-API as `f64` are checked with `Number.isSafeInteger`'s rule (`|n| <= 2^53 - 1`, integral);
+   - strings: `ace_json::JsString` is UTF-16. A lone surrogate (`"\ud800"`) parses, survives and
+     prints as `\ud800`. Lengths are UTF-16 units where the TypeScript uses `.length`, and
+     UTF-8 bytes counted as `Buffer.byteLength` counts them (a lone surrogate is 3 bytes) where
+     it uses that. Concatenation joins UTF-16 units, so the two halves of a pair split across
+     two strings join into one character;
+   - `__proto__` is an ordinary own key; a duplicate key replaces the earlier value in place;
+   - nothing recurses: parse, clone, compare and print use `ace-json`'s heap stack;
+   - stored JSON that Rust passes on without changing stays as text (`ace_json::Raw`/`RawRef`,
+     or the string the TypeScript gave), never parsed and printed again.
+6. **Inject what you can't control.** No `SystemTime::now`, no random ids, no thread spawning,
+   no globals in `ace-store` or `ace-projection`. Time, ids and schedulers are arguments.
+7. **Errors, not panics.** No `unwrap`, `expect`, `panic!`, `unreachable!`, indexing that can
+   panic, or `as` casts that can truncate, outside `#[cfg(test)]`. Every `#[napi]` export keeps
+   napi's `catch_unwind`. A TypeScript error message that callers or tests match (`Unknown
+thread`, `Sequence exhausted`, `workspace_unregistered`, `Store is busy`) is reproduced
+   byte for byte.
+8. **Placement must not leak into logic** (ADR 0222 §3, ADR 0223 §5). Phase 5 runs on the main
+   connection and the thread that owns it: the JS thread while TypeScript calls `Store.atomic`
+   synchronously. Write the Rust so that moving that owner to a Rust core thread later changes
+   the binding only:
+   - writer types are plain structs that take `&Connection` (or hold an `Arc<Connection>`) and
+     `&mut self`; they never spawn, block on a channel, sleep, or assume which thread they run on;
+   - no callback from Rust into JavaScript inside a call (ADR 0222, owner's answer 6), and no
+     N-API env held across calls;
+   - work that must happen after a commit (publication, settlements, cache eviction) is
+     returned as data for the caller to run, never invoked from inside `ace-store`;
+   - timers are deadlines returned to the caller ("flush due at t"), never owned by the crate.
+9. **The switch.** `ACE_STORE_WRITER`, a comma list of `fold`, `sequences`, `events`, `live`,
+   `transactions`, read once in `packages/provider-kit/src/native-switches.ts` next to `ACE_GIT`
+   (export `storeWriterOn(part)` and `storeWriterParts()`), off by default. It needs
+   `ACE_STORE=native` and refuses to start without it, and each part refuses to start without
+   the parts before it in that list. Like `ACE_STORE` it takes its value once per process, at
+   the first database boot: add it to `CrossSwitch` the way `ACE_STORE` is, so the cross-mode
+   gate (ADR 0223 §8) restarts a home written in one mode in the other. Task 5.1 adds the
+   switch; later tasks only add their part's name.
+10. **Benches** run on an APFS clone or a throwaway home, never on `~/.ace` and never with a
+    daemon or `ace` command on a clone (`never-run-daemon-on-live-home-clone`):
+
+    ```sh
+    tmp=$(mktemp -d) && cp -c ~/.ace/events.sqlite* "$tmp"/
+    bun apps/daemon/bench/sqlite-store.ts --db="$tmp/events.sqlite" --split          # reads and the write phase's commit p50/p95, WAL pages
+    bun apps/daemon/bench/event-writes.ts "$tmp/events.sqlite" 3000 7               # CPU per appended event
+    bun apps/daemon/bench/live-write-buffer.ts                                       # live path, throwaway harness
+    bun apps/daemon/bench/allocation-rate.ts                                         # allocation rate, temp ACE_HOME
+    rm -rf "$tmp"
+    ```
+
+    Each with the part on and off, alternating, reporting medians. A part stays off until its
+    numbers are no worse than off (ADR 0222 §7); a slower part may still merge switched off,
+    with the numbers in its PR.
+
+11. **Every call into the addon goes through the SQLite error translator.** The addon throws
+    `ace-store:{...}` errors that `packages/provider-kit/src/native-sqlite.ts` turns into the
+    errors node:sqlite throws (`rethrow`, `:82`; `call`, `:102`), with `errcode` and `errstr`.
+    Retry and busy handling branch on those (`isStoreBusy`, `isStoreRetry`, `store-busy.ts`), so
+    a shell that calls a binding method directly loses them. The first task that adds a shell
+    exports `call` from `native-sqlite.ts` as `nativeCall` (re-exported from
+    `@ace/provider-kit/sqlite`), and every shell call into the addon is
+    `nativeCall(() => handle.method(...))`. In Rust, SQLite failures leave the binding through
+    `fail()` (`ace-daemon-node/src/lib.rs`), never as a bare message; writer errors that are not
+    SQLite's (`WorkspaceUnregistered`, `Exhausted`, `FoldError`) throw a plain `Error` with the
+    TypeScript's message.
+
+## Phase 4: the storage format
+
+ADR 0222 §6 steps 1 and 2, and the search cap from the owner's answer 2. Each step changes rows
+written after it ships; old rows stay as they are, and nothing history-sized runs at open
+(ADR 0170). Recompression of old rows and cold storage are later work with their own switches
+(owner's answers 3 and 4) and are not part of phase 4.
+
+Two releases matter. **Release R** ships the read side (4.1): the schema step, the format-aware
+readers and writers, and the codec. It writes no format-2 row whatever the switch says. **R+1
+or later** may write format-2 rows, and only with the switch on. Nothing in 4.2 to 4.4 merges
+until R has shipped.
+
+Switch: `ACE_STORE_FORMAT`, a comma list of `refs` (4.2), `zstd` (4.3) and `search-cap` (4.4);
+ADR 0222's `ACE_STORE_FORMAT=2` means `refs,zstd`. It switches the write side only. The read
+side has no switch: from R on, every build reads both formats.
+
+Terms used below. A **body column** is `events.payload` or `history_item_revisions.item`. A
+**row kind** is an event `type`, or a revision's item `type`. The **logical body** is the JSON
+text a format-1 row stores in its body column. The **stub** is the small JSON object a format-2
+row keeps in its body column for SQL (rule 4). The **logical size** is the UTF-8 byte length of
+the logical body (what `octet_length(<body column>)` returns for a format-1 row). The **stored
+size** is the bytes the row takes on disk.
+
+### 4.0 The rollback contract (write and review this before any code)
+
+ADR 0222 §7 requires it first. The builder of 4.1 copies each rule below into
+`docs/store/format-inventory.md` as a checklist entry with the code that meets it, and the
+reviewer signs every entry off before 4.2 starts.
+
+1. **Readable with the switch off, through every path.** A build from R on, with the format
+   switch off, reads every format-2 row through the `Store` methods, the Rust reads
+   (`crates/ace-store/src/reads/`), and direct SQL in `atomic` callers. This holds with
+   `ACE_STORE` off too: decoding is a pure addon function that opens no SQLite, so a
+   node:sqlite store can call it without breaking the one-SQLite-per-file rule (ADR 0222,
+   constraint 2).
+2. **A constant-time codec check before serving a format-2 home.** R adds
+   `storage_format(id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)`. The first
+   format-2 row is written in the same transaction that inserts this row. At open, right after
+   `migrate`, the store reads it with one primary-key lookup. If it exists, the store calls the
+   addon's `bodyCodecVersion()` and refuses to open (`IncompatibleDataError`, naming the addon
+   path) when the addon is missing or its version is lower. It never falls back to reading stubs.
+3. **Builds older than R refuse the home, and R's own writes keep working.**
+   - `migrate` refuses a newer `schema_version` (`migrations.ts:221` to `:235`:
+     `version > migrations.length` throws `IncompatibleDataError`). It runs every step and the
+     version bump in one `BEGIN IMMEDIATE` transaction, so the step and the bump land together.
+   - R adds one migration step, written so it works on fresh and existing homes alike. Not every
+     changed table exists when `migrate` runs: `events` is created by an earlier step
+     (`migrations.ts:31`), but `history_item_revisions` is created later, by the `HistoryIndex`
+     constructor (`store.ts:328`, `history-index.ts:89` to `:102`), so on a fresh home it does
+     not exist yet. For each changed table, the step looks the table up in `sqlite_master`. If
+     the table exists, the step reads `PRAGMA table_info` and runs
+     `ALTER TABLE <t> ADD COLUMN <c> <type>` for each new column it lacks (so running it twice is
+     harmless). If the table does not exist, the step does nothing for it, and the table's
+     creator gets the new columns: `history-index.ts`'s `CREATE TABLE IF NOT EXISTS
+history_item_revisions` lists them last, in the same order the `ALTER`s add them, so both
+     paths give the same columns in the same order. New tables (`storage_format`,
+     `body_dictionaries`, `body_dictionary_sources`) and their indexes are created by the step
+     with `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`; they are empty, so this
+     costs nothing.
+   - Every new column on an existing table is nullable, with no default, no `CHECK`, no
+     `REFERENCES`, no `UNIQUE` and no `PRIMARY KEY`, and is not generated. SQLite then adds it by
+     rewriting the schema only: no row is read and no index is rebuilt (ADR 0170). A `CHECK` or
+     a `NOT NULL` column would make SQLite test existing rows. No index is created on an existing
+     table.
+   - In the same release, before the step is added, every positional insert into a changed table
+     becomes a named-column insert, in both writer modes: `event-writer.ts:180`
+     (`INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)` becomes
+     `INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`),
+     `history-index.ts:142` (`INSERT INTO history_item_revisions VALUES (?,?,?)` becomes
+     `(item_id, seq, item)`), task 5.3a's Rust, and every other match of
+     `rg -n "INSERT (OR [A-Z]+ )?INTO \"?(events|history_item_revisions)\"? *(VALUES|SELECT)" apps packages native`.
+   - Release gate, a manual check on a throwaway `ACE_HOME` (never `~/.ace` or a copy of it). An
+     older build sets pragmas before it reads the schema, then closes the connection when it
+     refuses (`store.ts:272` to `:291`, `:440` to `:442`). Closing the last connection may
+     checkpoint and remove the WAL and SHM files, so file hashes prove nothing. The gate checks
+     logical contents instead:
+     1. With the R+1 build and the switch on, write format-2 rows with the scripted provider, then
+        `kill -9` the daemon before any checkpoint.
+     2. Prove the format-2 commit is only in the WAL. `cp -c` all three files to scratch
+        directory A, and `events.sqlite` alone (no `-wal`, no `-shm`) to scratch directory B.
+        `sqlite3 -readonly` finds the `storage_format` row in A and not in B.
+     3. Record the logical contents from A: with the R+1 build, open A with a `Store` (not a
+        daemon) and hash every event `readEvents` returns from seq 0, in order, plus every
+        revision `readHistorical*` returns for each thread.
+     4. Open the original home with the last build before R. It must refuse with "newer than
+        this build's" and exit non-zero.
+     5. Open the original home with the R+1 build. It opens, the `storage_format` row is there,
+        and the hashes from step 3 are equal.
+     6. Delete A, B and the throwaway home.
+4. **SQL that looks inside a body keeps working, within the bounds it has today.** 4.1a lists
+   every consumer of a body column, per row kind, in `docs/store/format-inventory.md`. Find them
+   with
+   `rg -n "json_extract|json_type|json_each|json_tree|json_set|json_group_array|json_array_length|->>|->|octet_length|length\(CAST" apps packages native --glob '!*.test.ts'`,
+   then read each hit. Much of this SQL is built at runtime from helpers (for example
+   `field(path)`, `optional(...)`, `asks` and `skills` in `usage-replay.ts:20` to `:109`), and
+   the inventory records the expanded paths, not the helper. Also list every TypeScript or Rust
+   reader that reads a whole body column, and every reader that keeps a byte bound by measuring
+   or slicing a body inside SQL. Classify each consumer:
+   - **F (fixed paths):** reads named scalar or object paths only. Known so far: the
+     `json_extract` and `json_type` paths of `usage-replay.ts:20` to `:109` (usage and session
+     counters, `usageScope`, `delegatedBy`, `delegatedFrom`, `startedBy`, the ask test on
+     `item.type`, `item.role`, `item.synthetic`, `item.inherited`, `item.origin.kind`,
+     `item.origin.role`), `search-replay.ts:53` (`thread.id`, `thread.workspaceId`,
+     `thread.provider`, `thread.createdAt`, `thread.updatedAt`, `thread.status`, `status`, and the
+     rest of that statement), `draft-migration.ts:12` (`type`, `role`, `synthetic` on `items` and
+     revisions), `engine/handler.ts:419`, `engine/transition-history.ts:45`, and the partial index
+     `history_completed_revisions` (`history-index.ts:102`, `$.complete`).
+   - **A (array walk):** walks one array with `json_each`, reading named paths off each element.
+     Known so far: `usage-replay.ts:56` to `:60` (the skill names: `json_each(payload,
+'$.item.parts')`, reading `$.type`, `$.kind` and `$.name` of each part). An A consumer is
+     served by an **array projection** in the stub: the array keeps every element, in order (so
+     `json_each`'s keys, the ordinals, are the same), and each element is cut down to the paths
+     the consumer reads off `part.value`, a path absent from an element staying absent.
+   - **W (whole body, computed paths, or a byte bound kept in SQL):** walks the body, builds paths
+     from data, or measures or slices a body in SQL so as not to materialise it. Known so far:
+     `history-search-replay.ts:43` to `:69` (`json_tree(r.item)` over revisions of every item
+     type, slicing large leaves as BLOBs before they reach JavaScript), which `history-index.ts:190`
+     to `:205` routes every revision larger than the budget to; and `history-message-replay.ts:16`
+     to `:24` (`json_each` over `$.parts` with part ordinals and `$.source` objects).
+     A row kind may be written in format 2 only when every consumer of it is F or A with all its
+     paths in the stub. A W consumer is never served by decoding a whole row: decoding an oversized
+     revision, or the larger event a reference points at, would materialise on the daemon thread
+     exactly what the SQL slicing avoids. So **every revision stays format 1 in phase 4** (no
+     references, no compression). Revisions move only after a later task gives the W consumers a
+     bounded reader: one that reads `body_size` first and, over the budget, decodes with streaming
+     zstd and slices leaves without holding more than today's bound. That task is not part of this
+     guide. The stub is a JSON object holding exactly the union of the kind's F paths and A
+     projections, values copied unchanged, keys in the order the logical body has them, nested
+     objects cut down to the paths needed. A path absent from the body is absent from the stub, so
+     `json_type(...) IS NULL` answers the same. A kind whose stub would be more than half its
+     logical body stays format 1.
+5. **Sizes.** Every format-2 row stores its logical size in `body_size`, computed from the
+   logical body before anything is stored. In phase 4 only `events` has format-2 rows (rule 4),
+   but `history_item_revisions` gets the column in R too, so the revision task needs no second
+   schema step; there, a reference's `body_size` is the logical size of the revision it stands
+   for. Every query that measures a body for a budget, a page or a trust batch reads
+   `coalesce(body_size, octet_length(<column>))` in place of the bare expression, and keeps the
+   terms around it: `bounded-events.ts:37` (`+ octet_length(id) + octet_length(thread_id)`),
+   `history-index.ts:191` (`length(CAST(item AS BLOB))`, the history budget),
+   `stored-trust-batch.ts:83` (each statement), `search-replay.ts:50`, and every other size hit
+   from rule 4's search.
+   Stored-size accounting is separate and never stands in for a logical size.
+   `storage/transcript.ts:63` to `:89` (`transcriptQueries`) sums stored bytes per thread. Its
+   automatic per-column sum covers only tables with a `thread_id` column, so it never counts
+   `history_item_revisions` today. R adds them without one long statement. A single `SUM` over a thread's
+   revisions runs as one synchronous call, however many there are, and `transcriptBytes`
+   (`storage/transcript.ts:99`) yields only between statements. So revisions are summed in batches by key: `transcriptBytes` gains a second kind
+   of entry, a batched measurement, which runs short statements with a cursor and yields
+   (`setImmediate`) and checks `going()` between them. Two statements, each bounded by its
+   `LIMIT` and an index:
+
+- items: `SELECT rowid, id, created_seq FROM history_items WHERE thread_id = ?1 AND (created_seq, rowid) > (?2, ?3) ORDER BY created_seq, rowid LIMIT 64`
+  (the `history_items_creation` index on `(thread_id, created_seq)` holds the rowid, so this is
+  index order with no sort);
+- revisions of one item: `SELECT seq, octet_length(item) + COALESCE(octet_length(body),0) AS bytes FROM history_item_revisions WHERE item_id = ?1 AND seq > ?2 ORDER BY seq LIMIT 512`
+  (the primary key).
+
+It pages items 64 at a time, and for each item pages its revisions 512 at a time, yielding
+between statements. The builder checks both with `EXPLAIN QUERY PLAN`: no `SCAN` of either
+table and no `USE TEMP B-TREE`. The inventory's caller
+(`storage/inventory.ts:47`, `measure`) is unchanged. The `events` query adds `COALESCE(octet_length(body),0)`. The revision batches change
+today's numbers, so they are their own commit, with `storage/data-retention.process.test.ts`,
+`storage/retention.process.test.ts`, `storage/space-reclaim.process.test.ts` and
+`storage/transcript-indexes.process.test.ts` run with it. If any fails because the totals
+moved, stop and report.
+Diagnostics (`packages/diagnostics/src/thread-worker.ts:22`) decode a format-2 row through
+the addon and apply the 60,000-byte cap to the logical size. When the addon cannot be loaded,
+they emit `"<ENCODED EVENT OMITTED>"`. They never emit a stub as if it were the payload. 6. **One function changes a body, and trust follows it.** `rewriteStoredBody(db, table, key,
+   logicalJson, origin)` in `apps/daemon/src/stored-body.ts`, and `format::rewrite` in Rust for
+Rust callers, do all of this in the caller's transaction:
+
+- (a) materialise the references to the old body (rule 7);
+- (b) write the new stub, `body`, `body_size`, format tag and dictionary id together, or the
+  plain JSON with those columns NULL for a format-1 row;
+- (c) trust. `origin` is `"validated"` when `logicalJson` was serialised from a value this
+  build parsed or built (trust is unchanged, ADR 0125), and `"raw"` otherwise. For `"raw"`,
+  the rewritten row's seq is rejected in two places. Persisted: `INSERT OR IGNORE INTO
+stored_event_rejected VALUES (?)`, one row per rewritten seq, which commits or rolls back
+  with the rewrite. Live: the store's in-memory `StoredTrust` (`trust.rejected`, the set
+  `readStoredTrust` loads, `stored-shape.ts:225` to `:236`) gets the seq at once, so a read
+  inside the same transaction validates the row. The store records each live addition in a journal
+  (`trustJournal: number[]`, the seqs it added that were not in the set before). It does
+  not use a `TransactionOutcome` for this: a failing frame's own outcome is never called
+  back (`store.ts:601` to `:612` settle only the settlements registered inside the frame,
+  and `:637` only the nested ones). Instead, the store undoes the journal explicitly at
+  both failure points. In the savepoint catch (`store.ts:601` to `:612`), it removes the
+  seqs journalled since that savepoint began (journal length kept at `SAVEPOINT`). In the
+  top-level catch (`store.ts:637`), it removes every journalled seq. After `COMMIT`
+  returns, it clears the journal. In 5.5 the shell does the same, from `Finish.ending`.
+  Rejecting too much only costs a validation; rejecting too little
+  is the bug. Rejection is by seq, so it covers every row at that seq, events and revisions
+  alike, which `stored-trust-rows.ts:38` to `:59` maps by `(seq, kind, item_id)`. A second
+  connection (the history publication worker) reloads with `readStoredTrust` as it does today.
+- `forgetStoredTrust` (`stored-shape.ts:269`) stays for bulk raw rewrites at open, before
+  `openStoredTrust`, as `permission-mode-migration.ts:33` uses it. It is never called at
+  runtime, because it would clear persisted trust while the live set stays as it was.
+  No other code updates a body column. Each raw rewrite that exists today either gets a written
+  proof in the checklist that it can only run on a home with no format-2 row, or is converted
+  to `rewriteStoredBody`. The proof is: its marker is written on every home at or before R, and
+  a fresh home runs it at creation, before any row exists. The two known rewrites are
+  `payload-store.ts:139` (`UPDATE events SET payload`, marker `payload_migration`) and
+  `permission-mode-migration.ts:38` (`json_set` over `payload`, marker in `upgrade_cleanup`). A
+  rewrite that cannot be proven safe this way is converted. Review rejects any new raw update of
+  a body column; find them with
+  `rg -n "UPDATE \"?(events|history_item_revisions)\"? SET" apps packages native`.
+
+7. **References and deletes.** A reference revision stands for the item in the event row with
+   the same seq and the same thread, whose payload is `item.created` or `item.updated` of the
+   same item id. From an event to its references is one primary-key lookup on
+   `history_item_revisions(item_id, seq)`, with `item_id` read from the event's stub
+   (`$.item.id` is therefore an F path of both kinds). Never scan revisions per event (ADR 0170).
+   The removal paths:
+   - `deleteThread` (`store.ts:1412`) deletes the thread's events and its `threads` row in one
+     transaction. Its revisions go by cascade
+     (`threads` → `history_items` → `history_item_revisions`, `history-index.ts:93`, `:98`), so
+     nothing needs materialising.
+   - `purgeThreadData` (`store.ts:1405`) runs the generated plan
+     (`storage/transcript.ts:187` `transcriptPurgePlan`, batches at `:282`, the last step at
+     `:298`). The plan deletes owned rows, revisions included, before events (its step 3 is
+     last), so the purged thread's references go before the rows they point at, and nothing
+     needs materialising. The builder confirms this order for `history_item_revisions` from the
+     plan the code generates (including after a crash between batches, when only references
+     whose event rows still exist may remain) and writes the proof in the checklist.
+   - Every other statement that deletes or rewrites an event row, literal or generated from
+     `sqlite_master` (search `storage/transcript.ts`, `storage/compaction.ts`,
+     `storage/data-retention.ts`, `storage/apply.ts` and the rest of rule 4's search), first
+     materialises the references that survive it, by primary-key lookup, in the same
+     transaction, through rule 6's function.
+     A reader that meets a reference whose event row is missing throws an error naming the thread
+     id and seq. It never returns an empty or partial item.
+8. **Dictionaries.** R creates:
+   - `body_dictionaries(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, dictionary BLOB NOT NULL, retired INTEGER NOT NULL DEFAULT 0)`,
+     with `CREATE INDEX body_dictionaries_active ON body_dictionaries(kind, id) WHERE retired = 0`
+     for the active-kind lookup (newest non-retired id of a kind);
+   - `body_dictionary_sources(dictionary_id INTEGER NOT NULL, thread_id TEXT NOT NULL, PRIMARY KEY(dictionary_id, thread_id)) WITHOUT ROWID`,
+     with `CREATE INDEX body_dictionary_sources_thread ON body_dictionary_sources(thread_id)` for
+     retirement by source thread.
+
+   The rules:
+   - `AUTOINCREMENT` makes ids fresh and never reused in this database, even after a delete. An
+     id means something only in the database that holds it: a frame's id is resolved against
+     that database's table, through a cache owned by that connection, never a process-wide one.
+   - A dictionary's bytes never change. Which dictionary a kind writes with is the newest
+     non-retired id of that kind, so a kind can change dictionaries without changing what any
+     existing id means.
+   - Phase 4 deletes no dictionary: its bytes stay while any frame might use them. Deletion
+     comes with recompression (owner's answer 4).
+   - **The write selection** (kind → dictionary id), cached per connection, changes only at
+     commit. A transaction that installs or retires a dictionary marks the selection stale for
+     the kinds it touched. For the rest of that transaction, writes of those kinds use plain zstd
+     (id 0). After `COMMIT` returns, the selection reloads those kinds. On rollback, the marks
+     clear and nothing reloads. The decode cache takes a dictionary only after the transaction
+     that inserted it has committed.
+   - **Training** (4.3b) samples only threads that are not deleted, not tombstoned
+     (`thread-gone.ts:54` to `:59` writes the tombstone as a `deletedAt` change) and not host
+     threads (ADR 0121). It draws from at most 256 source threads per dictionary. It runs in
+     idle batches bounded by rows (2,000), sample bytes (8 MiB) and time (50 ms per batch),
+     pauses while writes run (ADR 0170), and keeps the source thread ids in memory.
+   - **Installation** is one transaction, bounded by the 256 sources. For each source it makes
+     three primary-key lookups and no scan. First, the `threads` row exists, read
+     unenriched by one statement on its primary key, never through `readThread`, which can
+     resolve up to 32 ancestors (`tree-root.ts:69` to `:89`):
+     `SELECT json_extract(client,'$.deletedAt') AS deleted, json_extract(client,'$.host') AS host FROM threads WHERE id = ?`
+     (both fields live in the `client` column, `thread-columns.ts`; the builder confirms
+     this), and both are NULL. Then there is no `thread_purges` row and no
+     `storage_purged` row (both keyed by `thread_id`, `storage/journal.ts:34`). It does not
+     probe `usage_deletions`, whose only key is `seq` (`migrations.ts:115`): every deletion that
+     leaves a `usage_deletions` row also sets `deletedAt`, removes the `threads` row, or
+     starts a purge, which the three lookups see. If any source fails, the transaction
+     inserts nothing, and training starts again later from new samples; a source tombstoned
+     between sample batches (`thread-gone.ts:88` to `:105` purges in many transactions) is
+     caught here. Otherwise it inserts the dictionary and its `body_dictionary_sources` rows,
+     **retires the kind's previous active dictionary and deletes that dictionary's source
+     rows**, and marks the selection stale. So a kind has at most one active dictionary, and a
+     thread has at most one source row per kind (six kinds today).
+   - **Retirement at the tombstone's commit.** One function,
+     `retireDictionariesOf(db, threadId)`, retires the dictionaries that thread sourced and
+     deletes their source rows:
+     `UPDATE body_dictionaries SET retired = 1 WHERE retired = 0 AND id IN (SELECT dictionary_id FROM body_dictionary_sources WHERE thread_id = ?1)`,
+     then `DELETE FROM body_dictionary_sources WHERE dictionary_id IN (<the ids it retired>)`,
+     and marks the selection stale. Since only active dictionaries keep source rows, it visits
+     at most one row per kind. It runs in the same transaction as every event that sets a
+     thread's `deletedAt` (a write hook, `Store.onWrite`, that checks the batch's
+     `thread.client.updated` changes), and in `deleteThread`, `purgeThreadData` and retention.
+     A retired dictionary keeps decoding the frames that already use it. Its bytes keep
+     fragments of its source threads until recompression rewrites those frames; the 4.3b PR
+     states this limit in its description.
+   - A copy of the database (backup, clone) carries dictionaries as it carries rows. An export
+     that leaves transcripts out (diagnostics, triage bundles) also leaves `body_dictionaries`
+     out. Find the export paths with
+     `rg -n "events\.sqlite|\.backup\(|VACUUM INTO" apps packages tools`.
+   - Until the reviewer signs off this rule's checklist, no dictionary is trained on a real
+     home: frames are plain zstd (dictionary id 0). Tests and benches train on throwaway homes.
+
+9. **Turning the switch off changes no stored bytes**, and turning it back on resumes. Nothing
+   converts rows in either direction at open.
+
+### 4.1 Release R: the read side
+
+**4.1a Inventory.** `docs/store/format-inventory.md`: every consumer from rule 4 with its class
+and expanded paths, every size query from rule 5, every rewrite and delete from rules 6 and 7
+(literal and generated), every export from rule 8, and the stub path list per row kind. Docs
+only; reviewed before 4.1b.
+
+**4.1b Code.**
+
+- Rust: `crates/ace-store/src/format/` with `mod.rs`, `body.rs` (the tagged body: one format
+  byte, the dictionary id as a varint, the zstd frame), `stub.rs` (stub from logical body and a
+  path list), `dictionaries.rs` (the table and the per-connection cache of rule 8) and
+  `rewrite.rs` (rule 6). Dependency: `zstd` 0.13 (ADR 0222 §2), checked against `deny.toml`.
+- Binding: `decodeBody(bytes: Uint8Array, dictionary: Uint8Array | null): string` (the logical
+  JSON text) and `bodyCodecVersion(): number`, both pure, needing no connection.
+- TypeScript `apps/daemon/src/stored-body.ts`: `storedPayload(row)`, `storedRevision(row)`,
+  `rewriteStoredBody(...)`, and `logicalSize(column)`, the SQL fragment of rule 5. Every reader
+  of a body column from 4.1a calls them in place of reading the column.
+- The schema step (rule 3), named inserts (rule 3), the open-time check (rule 2), the size
+  queries (rule 5), the diagnostics change (rule 5).
+- The W consumers are not changed in R. They keep reading format-1 revisions, which is all
+  phase 4 writes (rule 4).
+
+Proof, with `ACE_STORE` off and on, on homes with no format-2 row (nothing may change): every
+(a) file in behaviour.md §15, run one at a time. Bench: `sqlite-store.ts --split` before and
+after; reads must not get slower on a format-1 home.
+
+### 4.2 Write side: one body per revision (`refs`), deferred
+
+Not built in phase 4. Revisions stay format 1 (rule 4) until a later task gives the W consumers
+of revisions a bounded reader, and that task is reviewed. The outline below is for the brief that
+follows it.
+
+- Module: `history-index.ts` `record` (`:227`, the insert at `:142`). When the revision's logical
+  JSON is byte-equal to the item JSON in the event row written at the same seq, compared before
+  either is stored, store the stub, `ref_seq`, `body_size` and no body. Also every path of
+  rule 7.
+- Proof, on and off: `history-storage.process.test.ts`,
+  `history-publication-recovery.process.test.ts`, `stored-history-trust.test.ts`,
+  `write-path-reads.test.ts`, `item-store-trusted-reads.test.ts`, `thread-delete.process.test.ts`,
+  `thread-delete-crash.process.test.ts`, `thread-purge.process.test.ts`,
+  `deleted-thread-recovery.process.test.ts`, `storage/data-retention.process.test.ts`,
+  `storage/retention.process.test.ts`, `storage/compaction.process.test.ts`,
+  `storage/recovery.process.test.ts`, `payloads.process.test.ts`, `migrations.process.test.ts`,
+  the four `search-replay-*.process.test.ts`, `long-thread-lifecycle.process.test.ts`; then the
+  cross-mode gate (written with it on, reopened with it off, and back).
+- Bench: `sqlite-store.ts --split` (WAL pages per commit, database growth over the write
+  phase), `event-writes.ts`.
+- Failure modes: a crash between a revision and its event row (one transaction: both or
+  neither); a purge batch boundary (rule 7); a restart with the switch flipped (rule 9); a
+  reference read inside the transaction that wrote it (one connection, so it sees the row).
+
+### 4.3 Write side: compressed bodies (`zstd`)
+
+**4.3a Plain zstd.** Row kinds the inventory cleared get a stub, `body` (format byte, dictionary
+id 0, zstd level 3 frame) and `body_size`. Modules: the `events` insert (`event-writer.ts:180`,
+or `EventWriter::store_event` once 5.3a has landed). Revisions stay format 1 (rule 4).
+
+**4.3b Dictionaries.** Rule 8's tables and rules, the trainer in
+`crates/ace-store/src/format/train.rs`, and an idle shell beside `stored-trust-pass.ts`. Kinds:
+one dictionary per measured event type (`item.updated`, `item.created`, `item.delta`,
+`thread.client.updated`, `agent.status`), each only once the inventory has cleared it; every
+other cleared kind stays plain zstd. Revisions stay format 1 (rule 4).
+
+- Proof, on and off: the 4.2 outline's list, plus `stored-trust-pass.test.ts`, `stored-trust-rows.test.ts`,
+  `stored-trust-coverage.test.ts`, `stored-shape.test.ts`, `usage-replay.test.ts`,
+  `usage-reads.process.test.ts`, `wal-maintenance.process.test.ts`,
+  `daemon-crash-recovery.process.test.ts`; the cross-mode gate.
+- Bench: as 4.2, and decode time per row on the read benches (ADR 0222 measured 0.4 to 3 µs).
+- Failure modes: a dictionary insert rolled back after a frame was encoded with it (the frame is
+  in the same transaction, so it rolls back too; the cache never saw it, rule 8); training
+  interrupted by shutdown (it resumes, and a half-trained dictionary is never inserted); a body
+  over SQLite's limits (stays format 1).
+
+### 4.4 Search: index long tool output up to 64 KiB (`search-cap`)
+
+How the search writer takes a body today (`packages/search/src/thread-writer.ts`): each item
+field has a segment row in `search_full_segments`. An inline delta appends its text to the
+segment at once (`append`, `:200`), which keeps a bounded tail and indexes each sealed chunk
+once; sealed chunks overlap. A delta of a body backed by a stored output stream only raises the
+segment's `target` by its byte length (`:77` to `:85`). `flush` (`:249` to `:289`) then drains
+the source: while `offset < target` it reads up to 32 KiB from the output store, appends it, and
+persists `offset`.
+
+- Modules: `thread-writer.ts` (the delta path, `append`, `flush` and the segment reset on
+  replacement), `writer.ts`, and the rebuild paths (`apps/daemon/src/search-replay.ts`,
+  `history-search-replay.ts`), which feed the same writer.
+- Columns: R adds `indexed_bytes INTEGER` and `capped INTEGER` to `search_full_segments` (rule
+  3's form: nullable, read as 0).
+- Rule: message and reasoning bodies stay whole. Every other body is indexed up to 64 KiB per
+  logical body, meaning per segment, cumulatively across every way text reaches it: inline
+  deltas, the source drain, `item.created`, `item.updated` and rebuild. A rebuild indexes what
+  live indexing did, apart from legacy segments (below).
+  - Count: `indexed_bytes` grows by the UTF-8 bytes (`Buffer.byteLength`) of the new text each
+    `append` takes in, whatever the stream's encoding. Each source byte is counted once, never
+    the overlap the sealed chunks repeat.
+  - Cut: the append that reaches 64 KiB takes text only up to the last whole code point at or
+    below the cap, never between the halves of a surrogate pair. In the same statement it sets
+    `capped = 1`, and for a stream-backed segment it sets `offset = target`.
+  - Stop, as one invariant: **`capped = 1` implies `offset = target`**, kept by every
+    statement that writes `offset` or `target`. A capped row is then never pending (the
+    `search_full_pending` triggers and index count `offset < target`, `thread-schema.ts:21`), so
+    `flush` never selects it and never reads its source again. The three writers today:
+    - the stream delta (`thread-writer.ts:77` to `:85`, `target = target + ?`) becomes
+      `target = target + ?, offset = CASE WHEN capped = 1 THEN target + ? ELSE offset END`;
+    - the reusable `item.updated` source (`:131`, `SET stream=?,encoding=?,target=?`) also
+      sets `offset = CASE WHEN capped = 1 THEN ? ELSE offset END` with the same new target;
+    - `flush`'s cursor write (`:279`, `SET offset=?`) becomes
+      `SET offset = CASE WHEN capped = 1 THEN target ELSE ? END`, because the `append` just
+      before it may have set the cap.
+      On a capped segment an inline delta appends nothing.
+    - A capped row can still be dirty: the append that reached the cap sets `dirty = 1`, as
+      every `append` does. The cap never clears `dirty`. `flush`'s second loop
+      (`thread-writer.ts:291` to `:296`) publishes dirty rows whatever `capped` says, so the
+      final tail up to the cut is indexed; the pending count keeps counting the row until then
+      (`thread-schema.ts:19` to `:26` count `dirty = 1` too).
+  - Reset: the non-reusable path (`:118`, which deletes the chunks and sets `tail='t'`,
+    `offset=0`, `target=0`) also sets `indexed_bytes = 0, capped = 0` in the same statement, and
+    the cap applies afresh to the new body. The reusable path keeps the indexed text, so the
+    count and the cap persist. The count follows the indexed text and nothing else.
+  - Legacy segments: rows written before this code have `indexed_bytes` NULL, and their
+    indexed text is unknown, possibly over the cap. They are not capped: an append to a NULL row
+    leaves it NULL and indexes as today. A row enters the cap on its next reset (which sets 0),
+    and every segment the new code creates starts at `indexed_bytes = 0, capped = 0`. The code
+    keeps the count with the switch off too, and only caps with it on. So a rebuild (which
+    creates segments afresh) caps everything, while live indexing caps only segments created or
+    reset since; the PR states this difference.
+- Existing rows stay as they are, and nothing reindexes at open.
+- Proof, on and off: `packages/search/src/search.process.test.ts`,
+  `thread-search.process.test.ts`, `outputs.process.test.ts` (stream-backed bodies),
+  `pagination.process.test.ts`, `apps/daemon/src/search.outputs.process.test.ts`, the four
+  `search-replay-*.process.test.ts`. One new test file is allowed, because nothing covers this
+  behaviour today. With the cap on, text after the first 64 KiB is not found in three cases: a
+  tool output streamed inline in many deltas, a stream-backed output drained by `flush` (it also
+  asserts the drain stops reading the source at the cap), and both after a rebuild.
+- Bench: index size (`dbstat` on the search tables), source bytes the drain reads, and in-thread
+  search p50 from `sqlite-store.ts --split`, on a clone rebuilt with the cap on and off. Dropped
+  if it saves less than a gigabyte there (owner's answer 2).
+
+## Phase 5: the writer, as builder tasks
+
+Five tasks, in this order, each its own PR on the writer branch, each reviewed before the next
+starts: 5.1 the projection fold, 5.2 sequence reservation, 5.3 the event writer, 5.4 the live
+buffer, 5.5 the transaction stack. Tasks 5.1 and 5.2 are small and self-contained; 5.3 to 5.5
+are split into steps, and a step marked "needs a decision" is not briefed until the orchestrator
+makes it.
+
+Recorded decisions (orchestrator, on the owner's delegation, 2026-11-23):
+
+- 5.3b: Rust reproduces Zod's stripping and defaults through the generated `ace-protocol`
+  types, pinned by vectors from existing samples (task 5.3, step 5.3b).
+- Performance: 5.1 and 5.4 may merge switched off even if their benches are slower while
+  TypeScript is the caller, since each call converts JavaScript values to and from JSON. Their
+  gain is measured under E5 (ADR 0223) and ADR 0226, when the thread and the buffer stay in
+  Rust. Every other part stays off until its numbers are no worse (rule 10).
+
+What phase 5 does not do while TypeScript is the caller: move a loop whose body calls back into
+TypeScript collaborators. Phases 1b and 3 measured that crossing values into JavaScript costs
+more than it saves, so a loop moves to Rust only when everything it calls is Rust, or when the
+Rust engine (ADR 0223 E5) is its caller.
+
+Shared layout:
+
+```
+native/daemon/crates/ace-projection/        new: @ace/projection's daemon-side folds
+  src/lib.rs                                 pub use thread::{update_thread, is_sidebar_event, FoldError}
+  src/thread.rs
+  tests/vectors.rs                           reads native/daemon/vectors/fold.json
+native/daemon/crates/ace-store/src/writer/  new
+  mod.rs
+  sequences.rs                               5.2
+  events.rs                                  5.3
+  live/{mod.rs, compact.rs, buffer.rs, retry.rs}   5.4
+  transaction.rs                             5.5
+native/daemon/crates/ace-daemon-node/src/writer.rs  the binding for all of phase 5
+native/daemon/vectors/fold.json             generated by scripts/store-vectors.ts
+apps/daemon/src/native-writer/              the TypeScript shells, one file per task
+```
+
+### Task 5.1: the projection fold (`fold`)
+
+**Files the builder may touch:** `packages/provider-kit/src/native-switches.ts` (the switch,
+rule 9), `packages/provider-kit/src/native-sqlite.ts` and `src/sqlite.ts` (export `nativeCall`,
+rule 11), `native/daemon/crates/ace-projection/` (new), `native/daemon/crates/ace-daemon-node/`
+(`Cargo.toml`, `src/lib.rs` for `mod writer;`, `src/writer.rs`),
+`apps/daemon/src/native-writer/fold.ts` (new), `apps/daemon/src/event-writer.ts` (the call at
+`:170` and its import: `updateThread` from `@ace/projection` becomes `foldThread` from
+`./native-writer/fold.ts`), `native/daemon/Cargo.lock` (the new crate),
+`apps/daemon/src/canonical-event-samples.ts` (new, moved), `apps/daemon/src/canonical-event.test.ts`
+(import only), `scripts/store-vectors.ts` (new), `scripts/check-daemon-native.ts` (one call),
+`native/daemon/vectors/fold.json` (generated). Nothing else.
+
+**Port** `updateThread` and `isSidebarEvent` from `packages/projection/src/index.ts:164` to
+`:235`, and nothing else from that package.
+
+**What reaches the fold.** `updateThread` reads the event only for five payload types, and does
+nothing at all for the rest (every branch is gated by type, and `isSidebarEvent`, `:228`, lists
+only these). So the shell decides in TypeScript what crosses, and sends nothing for other events
+(no `item.created` or `item.updated` body ever reaches the binding):
+
+| Payload type                       | What crosses                                     | What the fold does                         |
+| ---------------------------------- | ------------------------------------------------ | ------------------------------------------ |
+| `queue.updated`                    | `JSON.stringify(payload)`                        | rule 1, then rule 5                        |
+| `thread.client.updated`            | `JSON.stringify(payload)`                        | rule 2, then rule 5                        |
+| `thread.updated`                   | `JSON.stringify(payload)`, `seq`                 | rule 3, then rule 5                        |
+| `thread.created`                   | nothing but `at`                                 | rule 5 only                                |
+| `agent.created`, `origin` `"root"` | `JSON.stringify(payload.agent.id)` (a JSON text) | rule 4 (not a sidebar event, so no rule 5) |
+| anything else                      | no call                                          | nothing; the shell returns at once         |
+
+Strings cross only inside JSON text, never as an N-API `String` argument: N-API replaces a lone
+surrogate with U+FFFD, and `JSON.stringify` escapes it (`\ud800`), which `ace-json` keeps.
+
+**Crate** `native/daemon/crates/ace-projection` (depends on `ace-json` only; `ace-store` will
+depend on it). `src/lib.rs` re-exports `src/thread.rs`:
+
+```rust
+/// One event as the fold reads it, built from what the shell sent.
+pub enum FoldEvent<'a> {
+    QueueUpdated { payload: &'a ace_json::Map },
+    ThreadClientUpdated { payload: &'a ace_json::Map },
+    ThreadUpdated { payload: &'a ace_json::Map, seq: f64 },
+    ThreadCreated,
+    RootAgentCreated { agent_id: &'a ace_json::JsString },
+}
+
+#[derive(Debug)]
+pub enum FoldError {
+    /// `kind` is not one of the five, or its payload is missing or the wrong JSON type.
+    /// Display: "fold: unexpected input for <kind>".
+    Input(String),
+    /// `changes` (thread.client.updated) or `acp` (thread.updated) is not an object.
+    /// Display: "fold: <field> is not an object".
+    NotAnObject(&'static str),
+}
+
+impl<'a> FoldEvent<'a> {
+    /// What the binding and the vector test both call: `kind` and the parsed `payload` text
+    /// (None for thread.created) as the shell sent them, and `seq`.
+    pub fn from_wire(kind: &str, payload: Option<&'a ace_json::Value>, seq: f64)
+        -> Result<FoldEvent<'a>, FoldError>;
+}
+
+/// `updateThread`: folds one event into the thread, in place.
+pub fn update_thread(thread: &mut ace_json::Map, event: FoldEvent<'_>, at: f64)
+    -> Result<(), FoldError>;
+/// `isSidebarEvent`, by payload type.
+pub fn is_sidebar_event(kind: &str) -> bool;
+```
+
+`at` and `seq` are `f64` because they are JavaScript numbers; `update_thread` stores them with
+`ace_json::Number::from(f64)`, which prints as `JSON.stringify` does (`-0` as `0`, `1e21`).
+
+**Semantics to keep, statement by statement** (the reviewer diffs the order against the TS):
+
+1. `queue.updated`: `thread.queue` = the payload without `type`, keys in the payload's order.
+   It replaces `queue` in place if present, else adds it at the end.
+2. `thread.client.updated`: for each `[key, value]` of `payload.changes` in JavaScript order:
+   `null` removes the key (`shift_remove`), anything else sets it (in place or appended).
+   `__proto__` is an ordinary key here (the TS uses `defineProperty`).
+3. `thread.updated`: the fields in exactly this order, each only when present in the payload:
+   `workspaceId`, `permission` (copied), `backend` (then, if it is `"cursor-sdk"`, remove
+   `continuation`), `capabilities`, `provider`, `lineage`, `delegatedBy`, `delegatedFrom`,
+   `startedBy`, `startedByClient`, `treeRootId`, `queuedLaunch` (`null` removes), `execution`,
+   `switch`, `title`, `titleSource`, `effectiveCapabilities`, `acpSupport`, `acp` (assigns
+   `acpAgentId`, `installationId`, `instanceId`, in that order, from `payload.acp`: a field
+   present is set in place or appended; a field absent from `payload.acp` becomes `undefined` in
+   the TS, which `JSON.stringify` omits, so the port removes that key, dropping any old value),
+   `status` (set, then `activitySeq` = `seq`), `archivedAt` (`null` removes),
+   `goal` (`null` removes). A new key is appended when its statement runs, so two new keys land
+   in statement order, not payload order.
+4. `agent.created` of a root agent: `rootAgentId` = `agent_id`.
+5. Last: if `is_sidebar_event(kind)` (`queue.updated`, `thread.created`, `thread.updated`,
+   `thread.client.updated`), `updatedAt` = `at`.
+6. `structuredCopy` is `JSON.parse(JSON.stringify(x))`; on JSON input it is a deep clone. A
+   `Value::clone` is the port.
+
+**Binding** (`ace-daemon-node/src/writer.rs`): a method on `NativeDatabase`, because the shell
+reaches the addon only through `nativeHandle(db)`. It does not touch the connection.
+
+```rust
+#[napi] impl NativeDatabase {
+    /// The folded thread as JSON text. `payload` is the text the shell sent, or None.
+    #[napi] pub fn fold_thread(&self, env: Env, thread: String, kind: String, seq: f64, at: f64,
+        payload: Option<String>) -> napi::Result<String>;
+}
+```
+
+`thread` and `payload` are parsed with `ace_json::parse`; malformed JSON throws `SyntaxError`
+through `json_bind::syntax_error`. A thread that is not an object, or a `FoldError`, throws an
+`Error` with its message. The result is `ace_json::to_string` of the folded thread.
+
+**Shell** `apps/daemon/src/native-writer/fold.ts`, two exports:
+
+```ts
+/** What crosses for this event, or undefined when the fold reads nothing of it. */
+export function foldInput(event: Event): { kind: string; payload: string | null } | undefined;
+/** updateThread with the switch off; with it on, the native fold, applied in place. */
+export function foldThread(db: DatabaseSync, thread: Thread, event: Event): void;
+```
+
+`foldInput` implements the table above, nothing more. `foldThread`: with `storeWriterOn("fold")`
+false, it calls `updateThread(thread, event)`. With it true: `input = foldInput(event)`; if
+undefined, return. Otherwise
+`text = nativeCall(() => handle.foldThread(JSON.stringify(thread), input.kind, event.seq,
+event.at, input.payload))`, `next = JSON.parse(text)`, and replace `thread`'s own keys in place:
+delete every own key, then define each key of `next` in order with `Object.defineProperty`
+(`enumerable`, `writable`, `configurable` true), so `__proto__` stays an own key. The one call
+site is `event-writer.ts:170` (`updateThread(thread, event)` becomes
+`foldThread(this.source.db, thread, event)`). For `thread.created`, `thread` is
+`event.payload.thread` itself (`event-writer.ts:132`), so the in-place replace also changes the
+stored payload's `updatedAt`, as the TypeScript fold does. `status-store.ts:271` stays
+TypeScript (it folds the cached status view, which moves with 5.3).
+
+**Vectors.**
+
+- Move the `samples` table out of `canonical-event.test.ts` into
+  `apps/daemon/src/canonical-event-samples.ts` and import it back. This is a move: the test keeps
+  every assertion.
+- `scripts/store-vectors.ts` builds `native/daemon/vectors/fold.json`. Every case is first
+  written as JSON **text** (`threadText`, `eventText`), and those texts are what the file
+  records, never anything re-serialised after a fold ran (the fold mutates its inputs, and for
+  `thread.created` the event itself). For each case it parses fresh copies:
+  - `sidebar = isSidebarEvent(JSON.parse(eventText))`, on its own copy;
+  - `kind = event.payload.type`, for every case, reaching or not;
+  - `input = foldInput(event)`, imported from `fold.ts`, so the file holds exactly what crosses
+    (`payload` is `input.payload`, or `null` when `input` is undefined, and `reaches` is whether
+    `input` is defined);
+  - `folded = JSON.stringify(thread after updateThread(thread, event))`, where for
+    `thread.created` the thread is the parsed event's `payload.thread`, as the writer does.
+    It writes
+    `{ name, thread: threadText, event: eventText, kind, payload, seq, at, sidebar, reaches, folded }`.
+    When `reaches` is false it checks that `folded` equals `JSON.stringify(JSON.parse(threadText))`
+    and exits non-zero otherwise: the skip in `foldInput` must never hide a change.
+- `--check` regenerates in memory and fails if the file differs. `scripts/check-daemon-native.ts`
+  runs it.
+- `crates/ace-projection/tests/vectors.rs` (`#![allow(clippy::expect_used, clippy::unwrap_used,
+clippy::panic)]`, as `native/history`'s vector tests do) checks, for every case,
+  `is_sidebar_event(kind) == sidebar`; and for every reaching case, that
+  `FoldEvent::from_wire` and `update_thread` on the parsed thread give
+  `ace_json::to_string(thread) == folded`, byte for byte.
+- Cases that must be present (the reviewer counts them): every sample of the moved table; every
+  field of rule 3 alone; all of them together on a thread that has none of them; each `null`
+  removal; `cursor-sdk` with and without a `continuation`; `status` (priority 1: a status fold
+  that differs could show a working thread as done); `acp` whole, and `acp` without `instanceId` on a thread that already has an `instanceId` (the
+  folded thread has none);
+  `changes` with `null`, with `__proto__`, with an array-index key, and in an order different
+  from the thread's; `queue.updated` on a thread with and without `queue`; `thread.created`;
+  `agent.created` root and non-root; an `item.created` and an `item.updated` with large bodies
+  (not reaching); an unknown payload type; strings with a lone surrogate and with a split pair
+  (in a title, in a change, in an agent id); numbers `1e21`, `1.5e-7`, `-0` and `2^53 - 1` in
+  `seq` and `at`; a thread whose keys include an array-index key.
+
+**Proof, on and off:** `thread-columns.process.test.ts` (it folds with the TypeScript
+`updateThread` and compares with what the store wrote, so with `fold` on it checks Rust against
+TypeScript), `store.test.ts`, `thread-cache.process.test.ts`, `revision-triggers.process.test.ts`,
+`sidebar-columns.test.ts`, `thread-row-trust.test.ts`, `store-held-view-rollback.test.ts`,
+`status-storage.process.test.ts`, `long-thread-lifecycle.process.test.ts`. Off only (they never
+load the addon): `packages/projection/src/projection.test.ts`, `settled-lifecycle.test.ts`,
+`live-metadata.test.ts`, `snooze-wake.test.ts`, `snooze-woke.test.ts`, and
+`apps/daemon/src/canonical-event.test.ts` after the move. Rust: `cargo test -p ace-projection`.
+Vectors: `bun scripts/store-vectors.ts --check`.
+
+**Bench:** `event-writes.ts` on and off. Only thread-level events cross now, so the cost is
+one `JSON.stringify` of the thread and one `JSON.parse` per such event. Record it. It may merge
+switched off (recorded decision above); its gain is measured under E5 and ADR 0226.
+
+**Do not:** import the addon in `packages/projection` (clients load that package); change
+`updateThread`; send an event the table does not list; pass a JavaScript string as an N-API
+`String` when it may hold a lone surrogate; use `serde_json`; add a Rust dependency other than
+`ace-json`; validate the event (canonical input is trusted, ADR 0125); write any test other than
+the vector test.
+
+**Reviewer checks:** statement order against the TS line by line; `foldInput` against the table
+and against `updateThread`'s branches; every vector case above is present and the generator's
+no-op check runs; `cargo test -p ace-projection`, `bun scripts/store-vectors.ts --check` and
+`check:daemon-native` pass; the proof files pass in all three modes; the bench numbers are in the
+PR.
+
+### Task 5.2: sequence reservation (`sequences`)
+
+Two steps, each its own commit: 5.2a fixes the TypeScript, test first; 5.2b ports the fixed
+TypeScript. **Files the builder may touch:** 5.2a: `apps/daemon/src/stream-sequences.ts`,
+`apps/daemon/src/store-stream.ts`, `apps/daemon/src/store.ts` (the construction at `:231`), and
+`apps/daemon/src/store-live-write-recovery.test.ts` (the one new test). 5.2b:
+`native/daemon/crates/ace-store/src/writer/` (`mod.rs`, `sequences.rs`),
+`native/daemon/crates/ace-store/src/lib.rs` (`pub mod writer;`),
+`native/daemon/crates/ace-daemon-node/src/writer.rs`,
+`apps/daemon/src/native-writer/sequences.ts` (new), `apps/daemon/src/stream-sequences.ts`
+(the shared interface below), `apps/daemon/src/store.ts` (the field type at `:149`, the
+construction at `:231`, the initialization at `:292`), `apps/daemon/src/event-writer.ts` (the
+`sequences` type at `:29`), `apps/daemon/src/store-stream.ts` (the `sequences` type at `:45`),
+`native/daemon/Cargo.lock`, and the switch's part name in `native-switches.ts`. Nothing else.
+
+The three consumers name the concrete class `StreamSequences`, which has private state, so the
+native class cannot stand in for it. 5.2b adds, in `stream-sequences.ts`,
+`export interface SequenceAllocator { initialize(): void; reservedThrough(): number; head(): number; replaySafe(after: number): boolean; next(after: number): number; prepare(events: number, after: number): void; covers(seq: number): boolean; }`,
+makes `StreamSequences` implement it, and changes the three declarations to
+`SequenceAllocator`. Both `StreamSequences` and `NativeStreamSequences` implement it.
+
+**What the TypeScript does today**, which the port keeps unless this brief says otherwise:
+
+- Ordinary appends allocate without reserving: `EventWriter` calls `sequences.next`
+  (`event-writer.ts:117`), and each event row's own `UPDATE host_sequence SET seq = MAX(seq,?)`
+  (`event-writer.ts:182`) moves the high-water mark in that write's commit. Deletion tombstones
+  do the same (`store.ts:1394` to `:1397`). Their sequences reach subscribers only after that
+  commit.
+- Only the live path reserves. `StoreStream.prepare` (`store-stream.ts:91`) opens a range at
+  admission. `StoreStream.append` (`:96` to `:117`) allocates first (`next` per event, before any
+  refill), pins the batch in the buffer, then calls `prepare(events.length, first.seq - 1)` to
+  refill. A refill's `commit(run)` is `Store.atomic` (`store.ts:233`), whose `transaction`
+  flushes the buffered batch first (`store.ts:568`): the flush commits those events with their
+  own `host_sequence` updates, before the reservation SQL runs. When the refill returns, the
+  batch is published (`publishPending`, `:117`) if it holds deltas only.
+- `atomic` may not commit at all when it returns: nested in an open transaction it ends with
+  `RELEASE` of a savepoint (`store.ts:576` to `:588`), and during `installHistory` it runs inline
+  (`store.ts:569`). Today `reserved` and the lineage mark move as soon as `atomic` returns, even
+  when an outer transaction later rolls back. That is a bug (a nested refill can publish deltas
+  past a reservation that then rolls back), and step 5.2a fixes it in the TypeScript first: a
+  reservation counts only once the outermost transaction that wrote it has committed.
+
+**Step 5.2a: the TypeScript fix, test first, on main.** This fixes shipped TypeScript, so it is
+not built on the rewrite branch. It goes to main as its own test-first PR: branch
+`ace/fix-live-reservation-rollback` from `origin/main` (`git fetch origin` first; base the
+worktree on `origin/main`, never the local `main`), push with
+`git push origin HEAD:refs/heads/ace/fix-live-reservation-rollback`, and open the PR against
+`main`. Once it has merged, `ace/rust-store-writer` takes it by merging `origin/main` (never a
+rebase or a cherry-pick), and 5.2b starts after that merge.
+
+The bug, as review confirmed it: a refill's `transaction` first drains the pinned batch
+(`store.ts:582`). When the refill is nested in an outer transaction, that drain and the
+reservation run inside savepoints (`store.ts:595`), so the event rows and their
+`host_sequence` updates are still provisional. Yet `prepare` advances `reserved` and the
+lineage mark as soon as `commit` returns (`stream-sequences.ts:55` to `:59`), and
+`publishPending` (`store-stream.ts:117`) can publish the delta above the old range before the
+outer transaction rolls back.
+
+1. Write the new test in `apps/daemon/src/store-live-write-recovery.test.ts`, named "a live
+   batch whose range refill rolls back with its outer transaction is published only once stored
+   and reuses no sequence". Use the file's existing helpers (`store.prepareLiveWrite` and
+   `store.bufferLiveWrite` with an unpinned snapshot, `:105`). The test:
+   1. Opens a `Store` on a temp file, creates a thread, streams one warm-up delta so a range is
+      reserved, and calls `store.flushLiveWrites()` so that delta is stored and nothing is
+      pinned. Reads `reserved` from `SELECT seq FROM host_sequence WHERE id=1`.
+   2. Moves the head to the end of the range out of band, as
+      `engine/live-write-buffer.process.test.ts:380` does: `store.atomic` inserting one
+      `thread.updated` event row at `reserved - 1`. The next batch of two deltas then has to
+      refill.
+   3. Subscribes. For every published `item.delta` it records the seq and whether, at that
+      moment, a row with that seq exists in `events`, read on a second read-only connection
+      (committed state only).
+   4. Runs `store.atomic(() => { store.prepareLiveWrite(bytes); store.bufferLiveWrite(id, twoDeltas,
+at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
+   5. Expects that no delta was published during step 4. Then calls `store.flushLiveWrites()`
+      and expects exactly two delta publications, one for each of the two deltas (by their
+      `append` text), each published once, and each with its committed row present when it was
+      delivered.
+   6. Closes and reopens the store, appends one `thread.updated`, and expects its seq to be
+      greater than every seq published before.
+
+   Run it and see it fail on today's code (step 5 fails: the nested refill publishes before the
+   outer rollback). Commit the failing test.
+
+2. Fix `stream-sequences.ts`, `store-stream.ts` and the wiring in `store.ts` so the test
+   passes, keeping every file in the proof list passing:
+   - `StreamSequences`' option `commit(run)` becomes `commit(run, outcome)`, and `store.ts:233`
+     wires it to `this.transaction(run, outcome)` (the `TransactionOutcome` form,
+     `store.ts:581`).
+   - `prepare` updates `reserved` and calls `options.reserved?.(through)` only inside the
+     outcome's `committed`, never right after `commit` returns. Its `rolledBack` does nothing
+     (the pending range is forgotten).
+   - **Confirmation is monotonic.** Commit publication can run a reentrant subscriber between
+     settlements (`store.ts:652` to `:659`), so a newer reservation's `committed` can run before
+     an older one's. `committed` therefore sets
+     `reserved = Number.isNaN(reserved) ? through : Math.max(reserved, through)` (`reserved` is
+     NaN when `host_sequence` had no row, `stream-sequences.ts:19`), and calls
+     `options.reserved?.(through)` only when that raised `reserved`.
+   - A new `covers(seq)` returns `seq <= reserved` (false while `reserved` is NaN).
+   - `store-stream.ts` `append` (`:107` to `:117`): when the batch is empty, nothing changes (no
+     `prepare`, no publication, as today). Otherwise it calls `publishPending()` only when
+     `sequences.covers(<the batch's last seq>)`. When not covered, the pinned batch publishes as
+     stored rows when its flush commits (`store-stream.ts:238` to `:256`).
+   - Ordinary appends and tombstones are unchanged. They share the allocator (`next`): a
+     tombstone (`recordDataDeletion`, `store.ts:1394` to `:1397`) and an event row each move
+     `host_sequence` with their own row, in their own transaction, and are delivered (to
+     subscribers, or to usage listeners for a tombstone) only after that commit. So they never
+     pass through `covers`, and a rollback removes the row and its high-water mark together. The
+     fix must not route them through `prepare`.
+
+   Commit the fix. Proof for the PR: every file in this task's proof list, run one at a time
+   with the default settings (TypeScript store), plus `bun run typecheck` and `bun run lint`.
+
+**Step 5.2b: the port.**
+
+**Port** `StreamSequences` (`apps/daemon/src/stream-sequences.ts`, all of it) to
+`crates/ace-store/src/writer/sequences.rs`:
+
+```rust
+pub enum SequenceError { Exhausted }        // Display: "Sequence exhausted"
+pub struct Sequences {
+    cursor: Option<f64>,                    // None models the TS NaN (no host_sequence row)
+    confirmed: Option<f64>,                 // reserved through, by a committed outermost
+                                            // transaction; None models the TS NaN
+}
+impl Sequences {
+    /// `SELECT seq FROM host_sequence WHERE id=1`. No row: `cursor` and `confirmed` are None,
+    /// as `Number(undefined)` is NaN in the TS, and every `next` fails with Exhausted.
+    pub fn initialize(conn: &Connection) -> Result<Sequences>;
+    /// `reservedThrough()`: the confirmed reservation; NaN when None.
+    pub fn reserved_through(&self) -> f64;
+    /// Larger of MAX(events.seq) and MAX(usage_deletions.seq); 0 when both are empty.
+    pub fn head(&self, conn: &Connection) -> Result<f64>;
+    /// False when `after > head && after > confirmed`; else true for 0, for head, or for a seq
+    /// stored in `events`.
+    pub fn replay_safe(&self, conn: &Connection, after: f64) -> Result<bool>;
+    /// Provisional allocation: assigns `cursor = max(cursor, after) + 1` first, then returns
+    /// Exhausted when the new cursor is past 2^53 - 1, so the cursor has moved even when it
+    /// throws (`stream-sequences.ts:46` to `:49`). A None cursor stays None and returns Exhausted.
+    pub fn next(&mut self, after: f64) -> Result<f64, SequenceError>;
+    /// Pure. None when `after + events <= confirmed`; else `Some(after + max(65536, events))`,
+    /// or Exhausted when that is not a safe integer. Pending reservations never count.
+    pub fn reservation(&self, events: f64, after: f64) -> Result<Option<f64>, SequenceError>;
+    /// `UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1`, inside the caller's transaction.
+    /// Changes no field.
+    pub fn reserve(&self, conn: &Connection, through: f64) -> Result<()>;
+    /// Monotonic, as 5.2a's TypeScript: `confirmed = Some(through)` when None or below
+    /// `through`, else unchanged. Returns whether it rose; the shell calls `reserved` only then.
+    /// Called only from the outcome's `committed`.
+    pub fn confirm(&mut self, through: f64) -> bool;
+    /// Whether every sequence through `seq` lies in the confirmed reservation.
+    pub fn covers(&self, seq: f64) -> bool;
+}
+```
+
+Every comparison with a None field is false, as every comparison with NaN is in the TS (so
+`reservation` with `confirmed` None always returns a range, and `replay_safe`'s
+`after > confirmed` test is false). Values are `f64` because both sides hold JavaScript numbers
+until no TypeScript caller is left. Statements go through `stmt_cache.rs`.
+
+**Binding:** `NativeDatabase::sequences(&self) -> napi::Result<NativeSequences>` runs
+`Sequences::initialize` on the connection and returns a `#[napi]` class holding the
+`Arc<Connection>` and the `Sequences`, with one method per function above. Non-finite or
+non-integral input throws `RangeError`. Every call from the shell goes through `nativeCall`
+(rule 11).
+
+**Shell** `apps/daemon/src/native-writer/sequences.ts`: `class NativeStreamSequences` with the
+public methods and constructor options `StreamSequences` has after 5.2a, and the same
+behaviour, step for step:
+
+- **Initialization is pinned to where it is today.** The constructor stores its options and
+  touches neither the addon nor SQL: at `store.ts:231` the database has not been migrated, and on
+  a fresh home `host_sequence` does not exist yet. `initialize()` is the first call into the
+  addon: it creates the handle (`nativeCall(() => handle.sequences())`, which reads
+  `host_sequence`). `store.ts` keeps calling it exactly where it calls
+  `this.sequences.initialize()` today: right after `migrate(this.db)` (`:291`) and before
+  `keepLineage` (`:294`), which reads `reservedThrough()`. Any method called before
+  `initialize` throws `Sequences are not initialized`.
+- **One cursor.** `store.ts` builds one `StreamSequences` or one `NativeStreamSequences` (the
+  switch decides) and hands that same instance to the three allocators: `EventWriter`
+  (`event-writer.ts:117`), `StoreStream` (`store-stream.ts:100`) and tombstones
+  (`recordDataDeletion`, `store.ts:1394`). None of them keeps a cursor or a reservation of its
+  own.
+- `prepare(events, after)`: `through = reservation(events, after)`; if none, return. Else
+  `commit(() => native.reserve(through), { committed: () => { if (native.confirm(through))
+options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
+  `COMMIT` returns; a rollback anywhere around it forgets the pending range. During
+  `installHistory`, a `transaction` with an outcome throws `Store is busy` (`store.ts:585`),
+  which the live path already treats as "retry later".
+- `covers(seq)` is `native.covers(seq)`; `store-stream.ts` already uses it after 5.2a.
+
+**Guarantees, stated separately:**
+
+- Process crash (WAL, `synchronous=NORMAL`): every committed transaction survives, so every
+  sequence a subscriber has seen is either in a committed reservation or in a committed row.
+  Restart reads `host_sequence`, which is at least every sequence handed out and committed.
+- Power loss or OS crash: commits since the last checkpoint's fsync may be lost, including a
+  reservation whose deltas clients saw. Two things catch this: the lineage mark (written after
+  the reservation committed and before publication), which makes `keepLineage`
+  (`store.ts:1047`) rename the database at open; and `replay_safe`, which refuses cursors past
+  head and reservation. The port must not weaken either one. Making the mark itself durable
+  against power loss is out of scope here.
+
+**Invariants:** strictly increasing, never reused (the cursor is in memory and never moves back,
+even when a rollback discards rows); a sequence reaches a subscriber only when covered by a
+confirmed reservation or by its own committed row; `confirmed` moves only after the outermost
+commit; `Sequence exhausted` past 2^53 - 1; head counts deletion tombstones.
+
+**Proof, on and off** (5.2a's fix is TypeScript, so every file passes with the switch off
+too): `store-live-write-recovery.test.ts` (including 5.2a's test, the one that crosses a range
+boundary and rolls back), `store.test.ts`, `sequence-lineage.test.ts`, `store-live-writes.test.ts`,
+`subscription-replay.test.ts`, `history-storage.process.test.ts`,
+`history-publication-recovery.process.test.ts`, `usage-replay.test.ts`,
+`thread-delete.process.test.ts`, `daemon-crash-recovery.process.test.ts`,
+`engine/live-write-buffer.process.test.ts` (it crosses a range boundary at `:380` without a
+rollback, and covers restart without reuse at `:266`), `engine/storage-behaviour.process.test.ts`.
+No other new test. If a file other than the new test fails after 5.2a, stop and report the
+failing test; do not change it.
+
+**Failure modes:** refill fails (the batch stays pinned and unpublished; the retry flush stores
+it with its own `host_sequence` updates); outer rollback after a nested refill (pending
+forgotten, `confirmed` and the mark unchanged, cursor not moved back); crash after a reservation
+commits and before its sequences are used (a gap, which `replay_safe` handles).
+
+**Do not:** keep a second cursor in TypeScript; open or end a transaction in Rust; change the SQL
+text; change `host_sequence`'s format (older builds read it); count a pending reservation
+anywhere.
+
+**Reviewer checks:** the no-row (NaN) and exhaustion cases match the TS; `confirm` is reached
+only through the outcome's `committed`; `publishPending` is guarded by `covers`; the proof files
+pass in all three modes; `event-writes.ts` and `live-write-buffer.ts` on and off.
+
+### Task 5.3: the event writer (`events`)
+
+`EventWriter` (`apps/daemon/src/event-writer.ts`) is a loop over collaborators that are still
+TypeScript: run-client preparation, decorations, `canonicalEvent`, live metadata, column encoding
+with Zod, payload capping and tables, history revisions, status, the long-thread index, MCP data,
+search. Per the rule above, the loop stays TypeScript; its own rows move first.
+
+**Step 5.3a: the writer's own rows.** `crates/ace-store/src/writer/events.rs`:
+
+```rust
+pub struct EventWriter { /* cached statements only; no thread or event state */ }
+pub struct NewThreadRow<'a> { id: &'a str, workspace_id: &'a str, title: &'a str, provider: &'a str,
+    status_json: &'a str, created_at: f64, updated_at: f64, imported_json: Option<&'a str>, imported: bool }
+pub struct EventRow<'a> { seq: f64, id: &'a str, thread_id: &'a str, at: f64, kind: &'a str, payload_json: &'a str }
+impl EventWriter {
+    /// `workspace_unregistered` check, `INSERT INTO threads`, and `workspace_recent` unless imported.
+    pub fn create_thread(&mut self, conn: &Connection, row: &NewThreadRow) -> Result<(), WriteError>;
+    /// `INSERT INTO events VALUES (?,?,?,?,?,?)` then `UPDATE host_sequence SET seq = MAX(seq,?)`.
+    pub fn store_event(&mut self, conn: &Connection, row: &EventRow) -> Result<(), WriteError>;
+}
+```
+
+The SQL is `event-writer.ts`'s, with the `events` insert in its named-column form
+(`INSERT INTO events (seq, id, thread_id, at, type, payload) VALUES (?, ?, ?, ?, ?, ?)`, phase 4
+rule 3); if the TypeScript insert is still positional when 5.3a starts, 5.3a changes it to the
+same named form in the same commit, so both writer modes write the same statement. `at` in `EventRow` is the append's `at`
+argument, as the TS stores it, not `event.at`. `payload_json` is the TypeScript's
+`JSON.stringify(event.payload)` after capping, stored as given. `WriteError::WorkspaceUnregistered`
+carries the message `workspace_unregistered`. Binding: `NativeDatabase::event_writer()`, a class
+with `createThread(...)` and `storeEvent(...)`. Shell: every call goes through `nativeCall` (rule 11). In `event-writer.ts`, the two blocks
+(`thread.created` insert, `events` + `host_sequence`) each become one `if (storeWriterOn("events"))`
+call into `apps/daemon/src/native-writer/events.ts`. The `Invalid thread creation` and `Unknown
+thread` checks stay in the TypeScript.
+
+Proof, on and off: `store.test.ts`, `stored-shape.test.ts`, `thread-columns.process.test.ts`,
+`thread-cache.process.test.ts`, `revision-triggers.process.test.ts`, `sidebar-columns.test.ts`,
+`store-auto-rollback.test.ts`, `store-live-writes.test.ts`, `payloads.process.test.ts`,
+`history-storage.process.test.ts`, `status-storage.process.test.ts`,
+`long-thread-lifecycle.process.test.ts`, `engine/storage-behaviour.process.test.ts`,
+`daemon-crash-recovery.process.test.ts`, `projects` tests that cover `workspace_recent` (find them
+with `rg -l workspace_recent apps/daemon/src --glob '*.test.ts'`). Bench: `event-writes.ts` and
+`sqlite-store.ts --split` (commit p50, WAL pages per commit). Failure modes: a failure in
+`store_event` after collaborators wrote rows rolls back with them (one transaction); a
+duplicate id or seq throws SQLite's constraint error unchanged (`isStoreBusy` and retry logic
+branch on `errcode`).
+
+**Step 5.3b: thread column writes (decided 2026-11-23).** `writeThread` and
+`threadColumnChanges` (`thread-columns.ts`) encode columns with `ThreadClientColumn.parse`,
+`ThreadDetails.parse` and `ThreadProviderMetadata.parse`. The orchestrator's decision, on the
+owner's delegation: Rust reproduces Zod's stripping and defaults for these schemas through the
+generated `ace-protocol` types (`native/daemon/crates/ace-protocol/src/generated.rs`, regenerated
+with `bun scripts/generate-rust-protocol.ts`), pinned by vectors made from existing samples (the
+canonical-event samples of 5.1 and the thread rows `thread-columns.process.test.ts` writes,
+moved into a shared module the same way). Rust has to own this eventually: the daemon is leaving
+Bun (ADR 0226, in progress). This overrides ADR 0222's "Rust fetches, TypeScript shapes" for
+these three schemas only. The brief for 5.3b is written once 5.3a is reviewed: it names the
+generator change, the vector cases (every optional field absent, present and `null`; unknown
+keys; defaults; lone surrogates; key order) and the proof files.
+
+**Step 5.3c onward: collaborators, then the loop.** In this order, each a later task:
+`canonicalEvent` (its samples become vectors, behaviour.md §15), decorations, payload capping
+and tables (`payload-store.ts`), history revisions (`history-index.ts`), status
+(`status-store.ts`, including its `updateThread` call), the long-thread index, MCP data, run
+client and live metadata, search notification. When each has a Rust implementation, the loop
+(`EventWriter.write`) moves, with a `Derive` trait for any collaborator still TypeScript only if
+E5 is the caller.
+
+### Task 5.4: the live buffer (`live`)
+
+**Step 5.4a, pure parts.** Port `compactDeltas` (`live-write-buffer.ts:204`) to
+`writer/live/compact.rs` and `liveWriteRetry`/`liveWriteRetryDelay` (`live-write-retry.ts`) to
+`writer/live/retry.rs`:
+
+```rust
+/// Adjacent `item.delta` events of one thread, item, agent and field merge into one row while
+/// the UTF-8 bytes of both appends total at most 4096. Inputs are not changed.
+pub fn compact_deltas(events: &[ace_json::Map]) -> Vec<ace_json::Map>;
+pub const RETRY: Retry = Retry { base_ms: 100, cap_ms: 5_000, quarantine_after: 6 };
+pub fn retry_delay(failures: u32) -> u64;
+```
+
+The merged row is the later event's envelope, with the later payload whose `append` is replaced
+in place by `earlier + later` (key position kept). Bytes are counted as `Buffer.byteLength`
+counts them (a lone surrogate is 3 bytes). The concatenation joins UTF-16 units, so a pair split
+across two deltas becomes one character, and the 4 KiB check is made on the two parts as the TS
+makes it (sum of the two counts, not the count of the joined string).
+
+**Step 5.4b, the buffer state.** Port `LiveWriteBuffer`'s bookkeeping (weights, the 64 KiB
+flush-now rule, the 8 MiB ceiling, the 75 ms and 1 s deadlines, `begin`/`committed`/`rearm`/
+`retry`) to `writer/live/buffer.rs`, holding sequences and sizes, not event objects. The buffer
+returns deadlines; the shell schedules them on the owning thread between JavaScript turns, never
+inside an open transaction (ADR 0222 §3). `StoreStream` (`store-stream.ts`) stays TypeScript
+until 5.5: it calls the transaction, `persist`, `append` and `publish`.
+
+Shell `apps/daemon/src/native-writer/live.ts`, selected where `store-stream.ts` constructs the
+buffer and calls `compactDeltas`.
+
+Proof, on and off: `store-live-writes.test.ts`, `store-live-write-recovery.test.ts`,
+`engine/live-write-buffer.process.test.ts`, `engine/live-write-quarantine.process.test.ts`,
+`engine/storage-behaviour.process.test.ts`, `subscription-tail.test.ts`,
+`text-storage.process.test.ts`, `daemon-crash-recovery.process.test.ts`,
+`shutdown-deadline.process.test.ts`. Vectors: add `compact` cases to `fold.json`'s generator
+(split pairs, lone surrogates, exactly 4096 and 4097 bytes, different agent or field, other
+threads interleaved). Bench: `live-write-buffer.ts`, `allocation-rate.ts`.
+
+Failure modes: a refill that fails or is pending leaves the batch pinned and unpublished
+(task 5.2); a crash with buffered output loses only rows nobody saw as stored (replay of a
+published-but-unstored cursor is refused by `replay_safe`, behaviour.md §11); a flush sealed
+inside an open transaction is written once after rollback and never after commit; a retry
+treats rows an earlier attempt committed (same seq and id) as stored; contention and a full disk
+never count toward quarantine.
+
+Do not: own a timer or thread in Rust; compact the held suffix; change the 4 KiB, 64 KiB, 8 MiB,
+75 ms, 1 s, 100 ms, 5 s or 6 constants.
+
+### Task 5.5: the transaction stack (`transactions`)
+
+**Port** the stack in `store.ts` `transaction` (`:581` to `:678`) and its helpers
+`recoverSavepoint`, `rollBack` and `settle` (`:679` to `:719`): depth, numbered savepoints,
+`BEGIN IMMEDIATE`, `RELEASE`, savepoint recovery, the doomed flag, rollback, settlement
+positions and the publication order. Port it to `writer/transaction.rs`. JavaScript closures
+cannot run inside a Rust call, so the API is begin, then exactly one of succeed or fail per
+frame:
+
+```rust
+pub type SettlementId = u64;
+pub enum Settled { Committed, RolledBack }
+/// What the caller runs, in order, after the stack has finished its SQL.
+pub enum Step { Publish { from: usize, to: usize }, Settle { id: SettlementId, how: Settled } }
+pub enum Ending { Released, Committed, RolledBackToSavepoint, RolledBack }
+pub enum FinishError {
+    /// COMMIT, RELEASE or a statement failed; the SQLite error, untranslated.
+    Sqlite(ace_store::Error),
+    /// "A failed step could not be undone, so the transaction rolled back", cause attached.
+    Doomed(ace_store::Error),
+}
+pub struct Finish {
+    pub ending: Ending,
+    /// The caller truncates its event list to this length before running `steps`.
+    pub events_len: usize,
+    pub steps: Vec<Step>,
+    /// Recovery failures (a failed ROLLBACK, a failed ROLLBACK TO): report, never throw.
+    pub reports: Vec<ace_store::Error>,
+    /// The error the caller throws after running `steps`; None for Released and Committed.
+    /// When the caller's own `run` threw, it throws that instead and this stays None.
+    pub error: Option<FinishError>,
+    /// Bump `rollbackGeneration` and drop the read and sidebar caches.
+    pub rolled_back: bool,
+}
+pub struct Frame { /* depth, savepoint name, events_len and settlements_len at begin, own outcome */ }
+impl TransactionStack {
+    /// BEGIN IMMEDIATE at depth 0, else SAVEPOINT nested_<n>. Err: nothing was opened and there
+    /// is nothing to clean up.
+    pub fn begin(&mut self, conn: &Connection, own: Option<SettlementId>) -> Result<Frame>;
+    /// The caller's event list grew to `len` (events written inside the open transaction).
+    pub fn note_events(&mut self, len: usize);
+    /// `run` returned. Never returns Err: every failure is in `Finish`, and on any failure the
+    /// stack has already rolled back (to the savepoint, or the whole transaction).
+    pub fn succeed(&mut self, conn: &Connection, frame: Frame) -> Finish;
+    /// `run` threw. Never returns Err.
+    pub fn fail(&mut self, conn: &Connection, frame: Frame) -> Finish;
+}
+/// For Rust callers: begin, run, then succeed or fail, returning the Finish.
+pub fn atomic<T>(stack: &mut TransactionStack, conn: &Connection, own: Option<SettlementId>,
+    run: impl FnOnce(&Connection) -> Result<T>) -> (Option<T>, Finish);
+```
+
+**One owner for each piece of state.** The stack owns depth, the doomed error, the event-range
+positions and the list of pending settlements (id and position). The TypeScript shell owns the
+`Event` objects and the settlement callbacks, in a map keyed by `SettlementId`. It applies
+`events_len` and `steps` exactly as given and holds no position of its own.
+
+**The rules, as the TS has them** (the reviewer checks each against `store.ts`):
+
+1. Top-level success: if doomed, roll back and finish with `FinishError::Doomed`. Else `COMMIT`.
+   On commit failure, roll back (unless SQLite already did, `is_transaction` false) and finish
+   `RolledBack` with `FinishError::Sqlite`. On commit success the steps are, in order:
+   `Settle { own, Committed }` if the frame has its own outcome; then, for each pending
+   settlement in order, `Publish { from, to: settlement.at }` (only when the frame has no own
+   outcome), then `Settle { id, Committed }`; then a final `Publish { from, to: events_len }`
+   (only when the frame has no own outcome). A frame with its own outcome publishes none of its
+   events (outer-outcome suppression, `store.ts:653` to `:660`).
+2. Top-level failure (`fail`, or a failed commit): roll back if SQLite has not, report a failed
+   `ROLLBACK` in `reports`, then `Settle { id, RolledBack }` for every pending settlement in
+   order. The frame's own outcome is **not** settled: the caller sees the error and handles it,
+   as `store-stream.ts` `write` does today.
+3. Nested success: `RELEASE`. If the frame has its own outcome, events recorded since the
+   frame's begin are cut from the publish range (`events_len` = the frame's begin length), and
+   the outcome joins the pending list at that position. It settles when the outermost frame
+   settles. No steps now.
+4. Nested failure: `ROLLBACK TO` and `RELEASE` the savepoint. If that is impossible (no open
+   transaction, or the statement fails), set doomed (first error kept) and add the failure to
+   `reports`. `events_len` = the frame's begin length. `Settle { id, RolledBack }` for every
+   settlement registered since the frame began, in order. The frame's own outcome is not
+   settled, because it never joined the list. `rolled_back` is true.
+5. Exactly once: every `SettlementId` that joins the pending list appears in exactly one
+   `Settle` step, ever. An id never joins twice.
+
+The TypeScript `Store.transaction` keeps the flush before begin, the history-installation inline
+path, the `Promise` check (`Store transactions must be synchronous`), the thread cache
+(`begin`, `discard`, `commit`, `end`), the read and sidebar caches, `writtenThreads`, the WAL
+wake, `transactions++`, `eventRows`, `publishFresh` (it filters at or below `publishedSeq`), the
+usage listeners, and running `steps` (each `Settle` callback in its own try, as `settle` does).
+Shell: `apps/daemon/src/native-writer/transaction.ts`, selected inside `transaction`.
+
+**Errors out of `Finish`.** `nativeCall` (rule 11) only translates errors the addon throws, but
+`succeed` and `fail` return SQLite failures as data. So the binding serialises every
+`ace_store::Error` in `Finish` (`error` and `reports`) as the same
+`{kind, errcode, message, errstr}` object `fail()` puts after `ace-store:`. In
+`packages/provider-kit/src/native-sqlite.ts`, the error-building half of `rethrow` (`:82`)
+becomes an exported `sqliteError(failure): Error`, which returns the `SqliteError` instead of
+throwing it, and `rethrow` calls it. The shell then runs, in this order:
+
+1. Truncate its event list to `events_len`.
+2. Run `steps`, each `Settle` callback in its own try, reporting a throw through `onError`.
+3. Report each entry of `reports` through `onError` as `sqliteError(entry)`.
+4. Throw:
+   - when the caller's `run` threw, that same JavaScript exception, unchanged;
+   - else for `FinishError::Sqlite`, `sqliteError(error)`, so `errcode` and `errstr` reach
+     `isStoreBusy` and `isStoreRetry` as they do today;
+   - else for `FinishError::Doomed`,
+     `new Error("A failed step could not be undone, so the transaction rolled back", { cause })`,
+     where `cause` is the JavaScript exception the nested `run` threw (`store.ts:605`:
+     `this.doomed ??= error`). Rust only knows that the frame is doomed, so `FinishError::Doomed`
+     carries no error. The shell keeps the first nested exception for which `Finish` reported a
+     new doom, and clears it when the outermost frame finishes (`store.ts:625` to `:628`).
+
+**Proof, on and off:** `store.test.ts`, `store-auto-rollback.test.ts`,
+`store-held-view-rollback.test.ts`, `store-live-write-recovery.test.ts`,
+`store-read-cache.test.ts`, `thread-cache.process.test.ts`, `sidebar-columns.test.ts`,
+`payloads.process.test.ts`, `history-storage.process.test.ts`,
+`history-publication-recovery.process.test.ts`, `wal-maintenance.process.test.ts`,
+`daemon-crash-recovery.process.test.ts`, `storage/recovery.process.test.ts`. Bench:
+`sqlite-store.ts --split` (commit p50 and p95), `event-writes.ts`.
+
+**Failure modes:** `SQLITE_FULL` or an I/O error that makes SQLite roll the whole transaction
+back inside a savepoint (`is_transaction` false, so the savepoint cannot be undone, which dooms
+the outer frame); a crash mid-transaction (uncommitted WAL frames are discarded, nothing was
+published); a throw from a settlement callback (the shell reports it, and the transaction stays
+settled).
+
+**Placement:** when no TypeScript calls `Store.atomic` any more (ADR 0223 §4), the stack and
+the connection move to one core thread. `TransactionStack` is unchanged; only the binding is
+replaced.
+
+## Reviewing a phase 5 task
+
+1. The diff touches only the files in the brief.
+2. The Rust follows the TypeScript statement by statement; the reviewer reads both side by side.
+3. Every JS-visible value is `ace-json`; no `serde_json::Value`, no `String` for JS strings, no
+   hand-formatted numbers, no sorted keys.
+4. No `unwrap`, `expect`, `panic!`, recursion over values, thread, timer, clock or global.
+5. Vectors regenerate unchanged (`bun scripts/store-vectors.ts --check`).
+6. Every proof file passes in all three modes, run one at a time, and the PR lists them.
+7. Bench numbers on and off are in the PR; the part stays off unless they are no worse.
+8. `cargo fmt --check`, `cargo clippy --all-targets`, `cargo test` and
+   `bun run check:daemon-native` pass.
