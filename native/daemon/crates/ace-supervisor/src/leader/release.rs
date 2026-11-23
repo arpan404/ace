@@ -30,12 +30,12 @@ impl Leader {
                     // hidepid hides only other users' processes; ace's own
                     // descendants stay visible because they keep the
                     // daemon's uid (unless they change uid), so this series
-                    // still reaps as before. The scans skip a stat file that
-                    // cannot be read when the `/proc/<pid>` directory itself
-                    // belongs to another uid (hidepid=1 still allows that
-                    // stat), so only an unreadable own-uid pid can make a
-                    // scan incomplete. A member that did change uid could
-                    // be missed, though, so the result is never reported as
+                    // still reaps as before. A stat file that cannot be read
+                    // (hidepid, or a same-uid process that cleared
+                    // dumpability) is classified with getpgid, which needs
+                    // no /proc permission, so only a getpgid error can make
+                    // a scan incomplete. A member that did change uid could
+                    // still be missed, so the result is never reported as
                     // "empty" and no journal row is deleted from a scan that
                     // could be blind. Re-read per release, so a remount is
                     // seen.

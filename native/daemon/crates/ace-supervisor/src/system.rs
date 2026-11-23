@@ -391,7 +391,6 @@ pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
                 };
             }
         };
-        let euid = rustix::process::geteuid().as_raw();
         for entry in dir {
             let Ok(entry) = entry else {
                 complete = false;
@@ -407,34 +406,38 @@ pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
             if pid == except {
                 continue;
             }
-            let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Ok(text) => text,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::NotFound
-                        || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
-                {
-                    continue;
-                }
-                Err(_) => match unreadable_stat_is_other_uid(pid, euid) {
-                    // Another user's pid, hidden by hidepid: not ours.
-                    Some(true) | None => continue,
-                    Some(false) => {
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Ok(text) => match crate::listing::parse_linux_stat(&text) {
+                    Ok(stat) if stat.state != 'Z' => {
+                        groups
+                            .entry(stat.group)
+                            .or_default()
+                            .insert((pid, format!("{boot}:{}", stat.ticks)));
+                    }
+                    Ok(_) => {}
+                    Err(_) => {
                         complete = false;
-                        continue;
                     }
                 },
-            };
-            match crate::listing::parse_linux_stat(&text) {
-                Ok(stat) if stat.state != 'Z' => {
-                    groups
-                        .entry(stat.group)
-                        .or_default()
-                        .insert((pid, format!("{boot}:{}", stat.ticks)));
+                // Exited between the listing and the read: gone.
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) => {
                 }
-                Ok(_) => {}
-                Err(_) => {
-                    complete = false;
-                }
+                // Unreadable stat: getpgid still places the pid, exactly as
+                // a readable stat would, but with no start time to record.
+                Err(_) => match group_by_getpgid(pid) {
+                    Ok(Some(number)) => {
+                        groups
+                            .entry(number)
+                            .or_default()
+                            .insert((pid, String::new()));
+                    }
+                    Ok(None) => {}
+                    Err(()) => {
+                        complete = false;
+                    }
+                },
             }
         }
     }
@@ -514,26 +517,25 @@ fn scan_group(group: u32, except: u32) -> (BTreeSet<(u32, String)>, bool) {
     (live, complete)
 }
 
-/// Classifies a `/proc/<pid>/stat` read that failed without the pid having
-/// vanished. hidepid=1 still permits stat on another user's `/proc/<pid>`
-/// directory, so an unreadable stat owned by another uid is a stranger and
-/// never one of ace's members (the daemon and its descendants share its
-/// uid unless one changes it): `Some(true)` means skip it. `Some(false)`
-/// means it is or may be ours, so the walk is incomplete; `None` means the
-/// pid vanished meanwhile.
+/// The process group of a pid whose `/proc/<pid>/stat` cannot be read (a
+/// hidepid mount, or a same-uid process that cleared dumpability). Linux
+/// `getpgid` checks no /proc permissions, so it still answers for any pid
+/// in the namespace: `Ok(None)` means the pid vanished, `Err` means the
+/// walk learned nothing and is incomplete.
 #[cfg(target_os = "linux")]
-fn unreadable_stat_is_other_uid(pid: u32, euid: u32) -> Option<bool> {
-    use std::os::unix::fs::MetadataExt;
-    match std::fs::metadata(format!("/proc/{pid}")) {
-        Ok(metadata) => Some(metadata.uid() != euid),
-        Err(error)
-            if error.kind() == std::io::ErrorKind::NotFound
-                || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
-        {
-            None
-        }
-        // The directory metadata failed too: prove nothing.
-        Err(_) => Some(false),
+fn group_by_getpgid(pid: u32) -> Result<Option<u32>, ()> {
+    let Some(target) = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    else {
+        return Err(());
+    };
+    match rustix::process::getpgid(Some(target)) {
+        Ok(group) => u32::try_from(group.as_raw_nonzero().get())
+            .map(Some)
+            .map_err(|_| ()),
+        Err(rustix::io::Errno::SRCH) => Ok(None),
+        Err(_) => Err(()),
     }
 }
 
@@ -542,7 +544,6 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
     {
         let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
         let boot = boot.trim();
-        let euid = rustix::process::geteuid().as_raw();
         let mut complete = true;
         for entry in std::fs::read_dir("/proc").ok()? {
             let entry = entry.ok()?;
@@ -556,30 +557,28 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
             if pid == except {
                 continue;
             }
-            let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
-                Ok(text) => text,
+            match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Ok(text) => match crate::listing::parse_linux_stat(&text) {
+                    Ok(stat) if stat.group == group && stat.state != 'Z' => {
+                        live.insert((pid, format!("{boot}:{}", stat.ticks)));
+                    }
+                    Ok(_) => {}
+                    Err(_) => complete = false,
+                },
                 // Exited between the listing and the read: gone.
                 Err(error)
                     if error.kind() == std::io::ErrorKind::NotFound
-                        || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
-                {
-                    continue;
+                        || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) => {
                 }
-                Err(_) => match unreadable_stat_is_other_uid(pid, euid) {
-                    // Another user's pid, hidden by hidepid: not ours.
-                    Some(true) | None => continue,
-                    Some(false) => {
-                        complete = false;
-                        continue;
+                // Unreadable stat: getpgid classifies the pid by group,
+                // exactly as a readable stat would.
+                Err(_) => match group_by_getpgid(pid) {
+                    Ok(Some(number)) if number == group => {
+                        live.insert((pid, String::new()));
                     }
+                    Ok(_) => {}
+                    Err(()) => complete = false,
                 },
-            };
-            match crate::listing::parse_linux_stat(&text) {
-                Ok(stat) if stat.group == group && stat.state != 'Z' => {
-                    live.insert((pid, format!("{boot}:{}", stat.ticks)));
-                }
-                Ok(_) => {}
-                Err(_) => complete = false,
             }
         }
         complete.then_some(())
