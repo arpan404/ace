@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The daemon's Rust core (ADR 0222): its own Cargo workspace, lockfile and pinned toolchain,
@@ -22,11 +24,44 @@ const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
 if (channel === undefined) throw new Error("native/daemon/rust-toolchain.toml names no channel");
 const pinned: string = channel;
 const hasRustup = spawnSync("rustup", ["--version"], { stdio: "ignore" }).status === 0;
+if (!hasRustup)
+  console.warn(
+    "check:daemon-native: rustup not found, so running cargo from PATH, not the pinned toolchain",
+  );
 
 function cargo(args: string[]): void {
-  if (hasRustup)
-    execFileSync("rustup", ["run", pinned, "cargo", ...args], { cwd, stdio: "inherit" });
-  else execFileSync("cargo", args, { cwd, stdio: "inherit" });
+  // Clippy's lints change between releases: run the toolchain the workspace pins. Its bin dir
+  // goes first on PATH and its own cargo binary is preferred: `rustup run` resolves through
+  // PATH on some setups (Homebrew rustup), and cargo finds its subcommands (`cargo-clippy`,
+  // `cargo-fmt`) on PATH, so either can pick another toolchain's binaries and lints.
+  const bin = pinnedToolchainBin();
+  const env = {
+    ...process.env,
+    CARGO_BUILD_JOBS: process.env.CARGO_BUILD_JOBS ?? "4",
+    ...(bin === undefined ? {} : { PATH: `${bin}${delimiter}${process.env.PATH ?? ""}` }),
+  };
+  const command =
+    bin === undefined ? null : join(bin, `cargo${process.platform === "win32" ? ".exe" : ""}`);
+  if (command !== null && existsSync(command))
+    execFileSync(command, args, { cwd, env, stdio: "inherit" });
+  else if (hasRustup)
+    execFileSync("rustup", ["run", pinned, "cargo", ...args], { cwd, env, stdio: "inherit" });
+  else execFileSync("cargo", args, { cwd, env, stdio: "inherit" });
+}
+
+/** The pinned toolchain's bin dir when it is installed, else undefined. */
+function pinnedToolchainBin(): string | undefined {
+  try {
+    const home = process.env.RUSTUP_HOME ?? join(homedir(), ".rustup");
+    const toolchain = readdirSync(join(home, "toolchains")).find((name) =>
+      name.startsWith(`${pinned}-`),
+    );
+    const bin = toolchain === undefined ? undefined : join(home, "toolchains", toolchain, "bin");
+    if (bin !== undefined && existsSync(join(bin, "cargo"))) return bin;
+  } catch {
+    // No toolchain dir to read: fall through below.
+  }
+  return undefined;
 }
 
 for (const args of [
@@ -36,3 +71,8 @@ for (const args of [
   ["deny", "check", "licenses", "sources"],
 ])
   cargo(args);
+
+// The core's wasm binding ships beside the addon: the `@ace/core` facade
+// reads it under `ACE_CORE=wasm`, so this check builds it on the pinned
+// toolchain (with its wasm32 target) rather than leaving a manual step.
+execFileSync("bun", ["scripts/build-core-wasm.ts"], { cwd: root, stdio: "inherit" });
