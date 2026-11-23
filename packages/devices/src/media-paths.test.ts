@@ -23,6 +23,7 @@ function device() {
         return {
           streaming: () => false,
           reconnect: () => {},
+          lost: () => {},
           codecs: (told) => void codecs.push([...told]),
           encodes: () => {},
           key: () => {},

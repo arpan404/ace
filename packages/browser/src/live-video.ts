@@ -1,3 +1,4 @@
+import { CodecCooldowns } from "./codec-cooldowns.ts";
 import type { BrowserVideoStatus, MediaAcceleration } from "@ace/protocol";
 import { listens } from "./audio-fanout.ts";
 import type {
@@ -31,6 +32,9 @@ function encodeCodec(key: string): string | undefined {
 }
 /** Codecs asked of the encoder, whatever viewers prefer; a viewer's order picks among them. */
 const knownCodecs = ["hvc1.1.6.L153.B0", "avc1.640033", "avc1.42E033", "vp09.00.41.08", "vp8"];
+/** What a view says while every codec it takes waits out an encoder failure's cooldown. */
+export const encoderRecovering = "This tab's video encoder failed. ace tries it again in a moment.";
+export { failedCodecRetryMs } from "./codec-cooldowns.ts";
 /** A capture size change waits for the pane to stop moving. */
 const settleMs = 300;
 /**
@@ -115,7 +119,12 @@ export class LiveVideo {
   private tabId: string | undefined;
   private page = { width: 1280, height: 720, scale: 1 };
   private codecs: string[] | undefined;
-  private failedCodecs = new Set<string>();
+  /** Codecs whose encoder failed, each out until its cooldown ends. */
+  private cooldowns = new CodecCooldowns();
+  /** The encoder-recovering status last told (`statusChanged`), as its attempts; 0: none. */
+  private recoveringTold = 0;
+  /** The views whose every usable codec waits out a failure now, as of the last tick. */
+  private recoveringViews = new Set<string>();
   /** The codecs last told to the open capture (`VideoCaptureHandle.codecs`), joined. */
   private told = "";
   private capture: Capture | undefined;
@@ -212,6 +221,7 @@ export class LiveVideo {
     this.page = page;
     this.retryAt = -Infinity;
     // Another tab starts afresh.
+    this.cooldowns.clear();
     this.recovered();
   }
   /**
@@ -221,8 +231,11 @@ export class LiveVideo {
   status(): BrowserVideoStatus | undefined {
     if (this.stalled !== undefined)
       return { status: "retrying", reason: this.stalled, attempts: Math.max(1, this.failures) };
-    if (!this.failures) return undefined;
-    return { status: "retrying", reason: this.failure, attempts: this.failures };
+    if (this.failures) return { status: "retrying", reason: this.failure, attempts: this.failures };
+    const recovering = this.recovering();
+    return recovering
+      ? { status: "retrying", reason: encoderRecovering, attempts: recovering }
+      : undefined;
   }
   /** What ace-media runs the video on while it carries it (`BrowserState.acceleration`). */
   acceleration(): MediaAcceleration | undefined {
@@ -259,6 +272,7 @@ export class LiveVideo {
     this.page = { ...this.page, ...page };
     const source = this.source;
     const showing = this.showing();
+    this.noteRecovering(showing);
     if (!source || !showing.length) {
       if (this.capture) this.close();
       return;
@@ -314,9 +328,56 @@ export class LiveVideo {
       open.handle.audio?.(sound);
     }
   }
-  /** The codecs the encoder supports here, less those that failed. */
+  /** The codecs the encoder supports here, less those waiting out a failure's cooldown. */
   private runnable(): string[] {
-    return (this.codecs ?? []).filter((codec) => !this.failedCodecs.has(codec));
+    const now = this.now();
+    return (this.codecs ?? []).filter((codec) => !this.cooldowns.cooling(codec, now));
+  }
+  /**
+   * While a shown view takes some codec this encoder has, but every one of them waits out a
+   * failure's cooldown: how many tries the encoder has taken (the view recovers, nothing to
+   * fix); 0 otherwise.
+   */
+  private recovering(): number {
+    return this.recoveringTold;
+  }
+  /**
+   * Works out, once per tick, which shown views wait for the encoder to recover and the most
+   * tries any has taken; whoever listens hears it when either changes, so a second view that
+   * starts recovering is told though another was recovering longer.
+   */
+  private noteRecovering(showing: [string, Viewer][]): void {
+    const runnable = this.runnable();
+    const views = new Set<string>();
+    let attempts = 0;
+    for (const [id, viewer] of showing) {
+      const tries = this.exhausted(viewer, runnable);
+      if (!tries) continue;
+      views.add(id);
+      attempts = Math.max(attempts, tries);
+    }
+    const same =
+      attempts === this.recoveringTold &&
+      views.size === this.recoveringViews.size &&
+      [...views].every((id) => this.recoveringViews.has(id));
+    if (same) return;
+    this.recoveringTold = attempts;
+    this.recoveringViews = views;
+    this.statusChanged();
+  }
+  /**
+   * Whether every codec viewer `id` takes, of those this encoder has, waits out a failure's
+   * cooldown now: its view gets nothing until one runs again, though others may play.
+   */
+  recoveringFor(id: string): boolean {
+    return this.recoveringViews.has(id);
+  }
+  /** The tries so far while all of `viewer`'s usable codecs are cooling down; 0 otherwise. */
+  private exhausted(viewer: Viewer, runnable = this.runnable()): number {
+    const takes = viewer.capture.video?.codecs ?? [];
+    const usable = (this.codecs ?? []).filter((codec) => takes.includes(codec));
+    if (!usable.length || usable.some((codec) => runnable.includes(codec))) return 0;
+    return this.cooldowns.attempts(usable);
   }
   private probe(source: LiveVideoSource, now: number): void {
     if (this.opening || now < this.retryAt) return;
@@ -343,6 +404,8 @@ export class LiveVideo {
     this.close();
     const generation = this.generation;
     let played = false;
+    /** The encoder ended the capture, perhaps before its open finished. */
+    let ended = false;
     const playing = () => {
       if (played || generation !== this.generation) return;
       played = true;
@@ -360,7 +423,7 @@ export class LiveVideo {
           chunk: () => playing(),
           failed: (encode) => {
             const codec = encodeCodec(encode);
-            if (codec && generation === this.generation) this.failedCodecs.add(codec);
+            if (codec && generation === this.generation) this.cooldowns.failed(codec, this.now());
           },
           want: (encodes) => {
             if (generation !== this.generation) return;
@@ -375,7 +438,10 @@ export class LiveVideo {
             if (generation === this.generation) this.stall(reason?.slice(0, 2048));
           },
           ended: (reason) => {
-            if (generation !== this.generation) return;
+            if (ended || generation !== this.generation) return;
+            ended = true;
+            // What the capture holds (its ace-media source, its reports) goes with it.
+            this.capture?.handle.close();
             this.capture = undefined;
             this.encodes = "";
             this.mediaWanted = undefined;
@@ -388,7 +454,7 @@ export class LiveVideo {
       )
       .then(
         (handle) => {
-          if (generation !== this.generation) return handle.close();
+          if (ended || generation !== this.generation) return handle.close();
           this.capture = { handle, ...size, announced: privacy.epoch };
           this.announce();
           this.encodes = "";

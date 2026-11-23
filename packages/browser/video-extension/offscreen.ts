@@ -271,8 +271,11 @@ function ingest(capture: Capture, target: IngestTarget | undefined): void {
         if (capture.ingest === sink) keyframes(capture);
       },
       () => {
-        // ace-media went away or refused the token: nothing is sent until it gives another.
-        if (capture.ingest === sink) capture.ingest = undefined;
+        // ace-media went away or refused the token: nothing is sent until it gives another,
+        // and the daemon hears which path's socket it was, so it opens the source again.
+        if (capture.ingest !== sink) return;
+        capture.ingest = undefined;
+        if (target.path) emit({ t: "ingest-lost", capture: capture.id, path: target.path });
       },
     );
   } catch {
@@ -585,13 +588,21 @@ Object.assign(globalThis, {
      * Stream capture `id` into ace-media's ingest from now on, or (`null`) stop sending. Nothing
      * is encoded until the socket is open, nor after it fails.
      */
-    ingest(id: string, target: { url: string; token: string; epoch: number } | null): void {
+    ingest(
+      id: string,
+      target: { url: string; token: string; epoch: number; path?: string } | null,
+    ): void {
       const capture = captures.get(id);
       if (!capture) return;
       ingest(
         capture,
         target
-          ? { url: target.url, token: base64Bytes(target.token), epoch: target.epoch }
+          ? {
+              url: target.url,
+              token: base64Bytes(target.token),
+              epoch: target.epoch,
+              ...(typeof target.path === "string" ? { path: target.path } : {}),
+            }
           : undefined,
       );
     },

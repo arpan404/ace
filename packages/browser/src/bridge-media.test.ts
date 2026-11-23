@@ -259,7 +259,11 @@ test("a bound view whose tab isn't streaming yet is told so, and told again when
   // The tab starts streaming and the view is granted: the subscriber hears it, reason gone.
   const [intent] = d.views.values();
   intent?.onGrant?.(true);
-  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: "mc_aaaaaaaaaaaa",
+  });
   // It stops again (its ingest refused): told why once more.
   intent?.onGrant?.(false);
   expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
@@ -424,6 +428,238 @@ test("a view refused at ace-media's viewer limit says so, and plays once another
   expect(deliveries().at(-1)).toMatchObject({ undelivered: limit });
   if (refused?.type !== "viewer.open") throw new Error("no view opened");
   viewers.received({ type: "viewer.playing", viewer: refused.viewer, playing: true }, none);
-  expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: connection.connection,
+  });
+  client.close();
+});
+
+test("a subscribe naming a connection the daemon no longer has is refused as gone, one owned elsewhere as not this session's", async () => {
+  const { bridge: client, results, refuse } = await bridge();
+  refuse.set("mc_cccccccccccc", "gone");
+  refuse.set("mc_dddddddddddd", "foreign");
+  await client.handle(subscribe(a, "mc_cccccccccccc"));
+  await client.handle(subscribe(b, "mc_dddddddddddd"));
+  const errors = results.flatMap((message) => {
+    const parsed = BrowserServerMessage.safeParse(message);
+    return parsed.success && parsed.data.type === "browser.result" && !parsed.data.ok
+      ? [parsed.data.error]
+      : [];
+  });
+  expect(errors).toEqual([
+    expect.stringMatching(/^media-connection-gone:/),
+    expect.stringMatching(/^media-connection:/),
+  ]);
+  client.close();
+});
+
+test("a bound view whose every codec failed is told the encoder is recovering, and nothing once it plays", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  let recovering = false;
+  // The tab's encoder, as the service reports it for this connection's view.
+  const service = Object.assign(Object.create(t.service) as typeof t.service, {
+    videoRecovering: () => recovering,
+  });
+  const client = connectBrowser(service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: { owner: () => owner, delivery: () => d.port },
+  });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [intent] = d.views.values();
+  recovering = true;
+  // ace-media withdrew the view's encode: its stop says the encoder's recovery instead.
+  intent?.onGrant?.(false, "stopped");
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "recovering" } });
+  // A refusal between the view and ace-media says more, and stays first.
+  intent?.onGrant?.(false, "limit");
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "refused" } });
+  recovering = false;
+  intent?.onGrant?.(true);
+  expect(deliveries().at(-1)).toEqual({
+    type: "browser.delivery",
+    threadId: "thread",
+    connection: "mc_aaaaaaaaaaaa",
+  });
+  client.close();
+});
+
+test("a second subscriber naming a connection the daemon has since lost is refused, not given the dead view", async () => {
+  const { bridge: client, results, refuse, views } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  expect(views.size).toBe(1);
+  refuse.set("mc_aaaaaaaaaaaa", "gone");
+  await client.handle(subscribe(b, "mc_aaaaaaaaaaaa"));
+  const failures = results.flatMap((message) => {
+    const parsed = BrowserServerMessage.safeParse(message);
+    return parsed.success && parsed.data.type === "browser.result" && !parsed.data.ok
+      ? [parsed.data.error]
+      : [];
+  });
+  expect(failures).toEqual([expect.stringMatching(/^media-connection-gone:/)]);
+  client.close();
+});
+
+test("a view bound before any grant, whose every codec failed, hears the encoder is recovering in its reply and when that changes", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  let recovering = true;
+  /** Pushes the thread's state to this connection, as the service does on every change. */
+  let push: (() => void) | undefined;
+  const service = Object.assign(Object.create(t.service) as typeof t.service, {
+    videoRecovering: () => recovering,
+    subscribe: (...args: Parameters<typeof t.service.subscribe>) => {
+      const onState = args[3];
+      push = () => onState(t.service.state("thread"));
+      return t.service.subscribe(...args);
+    },
+  });
+  const client = connectBrowser(service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    // ace-media holds the view but hasn't played it: no grant event comes while it can't.
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "live" }),
+    },
+  });
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const reply = results.find(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.result",
+  );
+  expect(reply).toMatchObject({ ok: true, undelivered: { code: "recovering" } });
+  const deliveries = () =>
+    results.filter(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    );
+  // The encoder runs again: the view says what ace-media says, starting.
+  recovering = false;
+  push?.();
+  expect(deliveries().at(-1)).toMatchObject({ undelivered: { code: "starting" } });
+  client.close();
+});
+
+test("a resubscribe on a new connection says the new view's own state, not the replaced view's refusal", async () => {
+  const t = await idleThread();
+  const d = fakeDelivery();
+  const results: unknown[] = [];
+  const client = connectBrowser(t.service, {
+    connectionId: "viewer",
+    authorize: () => true,
+    send: (message) => {
+      results.push(message);
+      return true;
+    },
+    media: {
+      owner: () => owner,
+      delivery: () => ({ ...d.port, granted: () => false, sourceState: () => "pending" }),
+    },
+  });
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [first] = d.views.values();
+  // ace-media refused the first view at its limit.
+  first?.onGrant?.(false, "limit");
+  // The client's media connection was replaced: it subscribes again naming the new one.
+  results.length = 0;
+  await client.handle({
+    ...subscribe(a, "mc_bbbbbbbbbbbb"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const reply = results.find(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.result",
+  );
+  expect(reply).toMatchObject({ ok: true, undelivered: { code: "starting" } });
+  // A late word from the replaced view changes nothing of the new one's.
+  results.length = 0;
+  first?.onGrant?.(false, "limit");
+  expect(
+    results.some(
+      (message) =>
+        typeof message === "object" &&
+        message !== null &&
+        "type" in message &&
+        message.type === "browser.delivery",
+    ),
+  ).toBe(false);
+  client.close();
+});
+
+test("two subscribers on distinct media connections each hear their own view's word, addressed to it", async () => {
+  const { bridge: client, results, views } = await bridge();
+  await client.handle({
+    ...subscribe(a, "mc_aaaaaaaaaaaa"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  await client.handle({
+    ...subscribe(b, "mc_bbbbbbbbbbbb"),
+    mediaClient: true,
+    deliveryStatus: true,
+  });
+  const [first, second] = views.values();
+  results.length = 0;
+  // The first view is refused while the second is held: the first's word still goes out.
+  first?.onGrant?.(false, "limit");
+  second?.onGrant?.(true);
+  const pushes = results.filter(
+    (message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "type" in message &&
+      message.type === "browser.delivery",
+  );
+  expect(pushes).toEqual([
+    expect.objectContaining({
+      connection: "mc_aaaaaaaaaaaa",
+      undelivered: expect.objectContaining({ code: "refused" }),
+    }),
+    { type: "browser.delivery", threadId: "thread", connection: "mc_bbbbbbbbbbbb" },
+  ]);
   client.close();
 });

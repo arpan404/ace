@@ -94,6 +94,7 @@ export function mediaFor(client: ClientApi, options: WebMediaOptions = {}): WebM
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
     unavailable: () => unavailableReason(connection.state),
+    refresh: (refused) => connection.refresh(refused),
   };
   const made: WebMedia = {
     connection,

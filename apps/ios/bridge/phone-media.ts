@@ -96,6 +96,7 @@ export function phoneMedia(owner: PhoneMediaOwner, options: PhoneMediaOptions): 
     onStream: (listener) => connection.onStream(listener),
     ack: (message) => connection.ack(message),
     unavailable: () => unavailableReason(connection.state),
+    refresh: (refused) => connection.refresh(refused),
   };
   // The connection a welcome bound is the socket opened for it: one is open at a time.
   connection.watch(() => {

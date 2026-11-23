@@ -5,13 +5,14 @@ import {
   MediaConnectionId,
   ThreadId,
   type MediaStreamClientMessage,
+  type ServerMessage,
   type MediaPoster,
 } from "@ace/protocol";
 import type { ClientApi, StreamMessage } from "@ace/client";
 import { fakeClient } from "@/test/fake-client.ts";
 import { daemonPreview, type PreviewMedia } from "./daemon-preview.ts";
 import type { PosterDecoder } from "@/lib/video/poster.ts";
-import { mediaRetryCooldownMs, mediaRetryDelaysMs } from "@ace/browser/live-view";
+import { MediaSubscriptions, mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { streamingClient } from "./stream-test-support.ts";
 import { instantDecoder } from "./video-test-support.ts";
 import { degradedSentence } from "@/lib/video/degraded.tsx";
@@ -24,6 +25,9 @@ function fakeMedia(initial: string | undefined) {
   const watchers = new Set<() => void>();
   const streams = new Set<(message: StreamMessage) => void>();
   const acks: MediaStreamClientMessage[] = [];
+  /** Connections the view asked to replace, and the one each refresh opens next. */
+  const refreshes: string[] = [];
+  let fresh = ["mc_bbbbbbbbbb", "mc_cccccccccc"];
   const media: PreviewMedia = {
     binding: () => (connection ? { connection } : undefined),
     get state() {
@@ -45,10 +49,24 @@ function fakeMedia(initial: string | undefined) {
       acks.push(message);
       return true;
     },
+    // A fresh connection, as `MediaConnection.refresh` opens one once its old one closed.
+    refresh: (refused) => {
+      if (refused !== connection) return;
+      refreshes.push(refused);
+      // The old one closes at once; the fresh one is welcomed a moment later.
+      connection = undefined;
+      for (const watcher of watchers) watcher();
+      setTimeout(() => {
+        connection = fresh[0];
+        fresh = fresh.slice(1);
+        for (const watcher of watchers) watcher();
+      }, 0);
+    },
   };
   return {
     media,
     acks,
+    refreshes,
     move(next: string | undefined) {
       connection = next;
       for (const watcher of watchers) watcher();
@@ -94,7 +112,8 @@ type Daemon =
   | "replays, answers later"
   | "fails"
   | "fails everything"
-  | "refuses";
+  | "refuses"
+  | "lost the connection";
 
 function withMediaReplies(
   api: ClientApi,
@@ -103,9 +122,19 @@ function withMediaReplies(
   refused: unknown[],
   replay: () => void,
   answered: Promise<void>,
+  heard: Set<(message: ServerMessage) => void>,
 ) {
   return new Proxy(api, {
     get(target, key) {
+      if (key === "onMessage")
+        return (listener: (message: ServerMessage) => void) => {
+          heard.add(listener);
+          const stop = target.onMessage(listener);
+          return () => {
+            heard.delete(listener);
+            stop();
+          };
+        };
       if (key === "request")
         return async (input: Parameters<ClientApi["request"]>[0], options?: object) => {
           const daemon = answers();
@@ -119,13 +148,16 @@ function withMediaReplies(
             await target.request(input, options);
             return { type: "browser.result", requestId: "r", ok: false, error: "busy" };
           }
-          if (named && daemon === "refuses") {
+          if (named && (daemon === "refuses" || daemon === "lost the connection")) {
             refused.push(input);
             return {
               type: "browser.result",
               requestId: "r",
               ok: false,
-              error: "media-connection: that media connection isn't this session's",
+              error:
+                daemon === "refuses"
+                  ? "media-connection: that media connection isn't this session's"
+                  : "media-connection-gone: that media connection is gone",
             };
           }
           const reply = await target.request(input, options);
@@ -176,6 +208,8 @@ async function watching(
   const posters: MediaPoster[] = [];
   const refused: unknown[] = [];
   let answerNow: (() => void) | undefined;
+  /** The view's listeners of the daemon's messages, for one the fake daemon never sends. */
+  const heard = new Set<(message: ServerMessage) => void>();
   let replays = 0;
   const answered = new Promise<void>((resolve) => (answerNow = resolve));
   const preview = daemonPreview(
@@ -187,6 +221,7 @@ async function watching(
       // Each replay a later number, so a test can tell which subscribe's it was.
       () => wire.stream(video(++replays, true)),
       answered,
+      heard,
     ),
     {
       schedule: (run, ms) => {
@@ -249,6 +284,10 @@ async function watching(
     refused,
     unwatch,
     answer: () => answerNow?.(),
+    /** A message from the daemon the fake daemon doesn't produce (`browser.delivery`). */
+    announce(message: ServerMessage) {
+      for (const listener of Array.from(heard)) listener(message);
+    },
     /** The daemon answers subscribes this way from now on. */
     answerAs(next: Daemon) {
       mode = next;
@@ -317,11 +356,23 @@ test("the browser's view carries the degraded sentence exactly while its video i
 });
 
 test("a refused connection subscribes again on the socket", async () => {
-  const { subscribes, refused } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
-  expect(refused).toEqual([expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } })]);
-  // The one the daemon took names no connection.
-  expect(subscribes()).toHaveLength(1);
+  const { subscribes, refused, link } = await watching("mc_aaaaaaaaaa", undefined, "refuses");
+  expect(refused[0]).toEqual(expect.objectContaining({ media: { connection: "mc_aaaaaaaaaa" } }));
+  // The one the daemon took names no connection: the thread's state still comes. Someone
+  // else's connection is never replaced from here.
+  await waitFor(() => expect(subscribes()).toHaveLength(1));
   expect(subscribes()[0]).not.toHaveProperty("media");
+  expect(link.refreshes).toEqual([]);
+});
+
+test("a connection the daemon no longer has is replaced, and the next video subscribe names the fresh one", async () => {
+  const { refused, link } = await watching("mc_aaaaaaaaaa", undefined, "lost the connection");
+  await waitFor(() => expect(link.refreshes[0]).toBe("mc_aaaaaaaaaa"));
+  await waitFor(() =>
+    expect(refused).toContainEqual(
+      expect.objectContaining({ media: { connection: "mc_bbbbbbbbbb" } }),
+    ),
+  );
 });
 
 test("video that still comes on the socket after the view moved to the media connection is dropped", async () => {
@@ -378,6 +429,9 @@ test("a poster still decoding when the view rebinds is never drawn", async () =>
   expect(closed).toContain(-100);
 });
 
+/** The thread's own wait between tries once its ladder is spent. */
+const cooldownMs = new MediaSubscriptions().cooldown(thread);
+
 const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
 const named = (request: { media?: unknown }) =>
@@ -385,7 +439,7 @@ const named = (request: { media?: unknown }) =>
     ? request.media.connection
     : undefined;
 
-test("a failing subscribe is retried on the shared ladder, then the view settles on the socket", async () => {
+test("a failing subscribe is retried on the shared ladder, then on its cooldown, still naming the healthy connection", async () => {
   const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
   await settle();
   expect(view.subscribes().map(named)).toEqual(["mc_aaaaaaaaaa"]);
@@ -394,10 +448,13 @@ test("a failing subscribe is retried on the shared ladder, then the view settles
     await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
   }
   expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
-  // The ladder is spent: after the cooldown, the next try is the socket's.
-  view.fire(mediaRetryCooldownMs);
+  // The ladder is spent: each cooldown brings another try, naming the connection, never giving
+  // video up while the view is held.
+  view.fire(cooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
-  expect(named(view.subscribes()[5]!)).toBeUndefined();
+  view.fire(cooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(7));
+  expect(view.subscribes().slice(5).map(named)).toEqual(["mc_aaaaaaaaaa", "mc_aaaaaaaaaa"]);
 });
 
 test("a rebind cancels the retry still waiting for the old connection", async () => {
@@ -435,7 +492,7 @@ test("hiding and showing the page again and again stays within the retry ladder 
   // Past the ladder, the cooldown holds however often the page flaps.
   await storm(30);
   expect(view.subscribes()).toHaveLength(1 + mediaRetryDelaysMs.length);
-  view.fire(mediaRetryCooldownMs);
+  view.fire(cooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(2 + mediaRetryDelaysMs.length));
   // The socket fails too: one more try per cooldown, flapping or not.
   await storm(30);
@@ -472,7 +529,7 @@ async function spend(view: Awaited<ReturnType<typeof watching>>) {
 test("a view that leaves and comes back starts a fresh ladder, naming the connection again", async () => {
   const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
   await spend(view);
-  expect(view.pending(mediaRetryCooldownMs)).toBe(1);
+  expect(view.pending(cooldownMs)).toBe(1);
   view.unwatch();
   await settle();
   // Back before the cache lets the thread go: nothing of the old ladder is inherited.
@@ -480,7 +537,7 @@ test("a view that leaves and comes back starts a fresh ladder, naming the connec
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
   expect(named(view.subscribes()[5]!)).toBe("mc_aaaaaaaaaa");
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
-  expect(view.pending(mediaRetryCooldownMs)).toBe(0);
+  expect(view.pending(cooldownMs)).toBe(0);
 });
 
 test("a subscribe that succeeds resets the ladder for the next failure", async () => {
@@ -498,4 +555,22 @@ test("a subscribe that succeeds resets the ladder for the next failure", async (
   view.link.move("mc_bbbbbbbbbb");
   await waitFor(() => expect(view.subscribes()).toHaveLength(4));
   await waitFor(() => expect(view.pending(mediaRetryDelaysMs[0])).toBe(1));
+});
+
+/** What the daemon says while a view's every codec waits out an encoder failure. */
+const encoderRecovering = "This tab's video encoder failed. ace tries it again in a moment.";
+
+test("the daemon's word that the tab's encoder is recovering shows on the view until a picture comes", async () => {
+  const { preview, link, announce } = await watching("mc_aaaaaaaaaa");
+  link.deliver(video(1, true));
+  await waitFor(() => expect(preview.frame(thread)?.sequence).toBe(1));
+  announce({
+    type: "browser.delivery",
+    threadId: ThreadId.parse(thread),
+    undelivered: { code: "recovering", reason: encoderRecovering },
+  });
+  await waitFor(() => expect(preview.undelivered?.(thread)).toBe(encoderRecovering));
+  // The encoder runs again: its next picture clears the notice.
+  link.deliver(video(2, true));
+  await waitFor(() => expect(preview.undelivered?.(thread)).toBeUndefined());
 });

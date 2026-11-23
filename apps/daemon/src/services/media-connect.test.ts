@@ -1,7 +1,9 @@
 import { MediaConnections, MediaIssue } from "@ace/media/media-connections";
 import { DeviceId } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { bindingRefused } from "@ace/media/media-viewers";
 import { createMediaConnectSession, mediaAdmission } from "./media-connect.ts";
+import { failedDelivery } from "./media.ts";
 
 // Paired credentials' generations are hashes (`devices.ts`), not numbers.
 const before = "3f9a1c0e7b2d4a6c8e1f0b2d4c6e8a1f";
@@ -90,4 +92,9 @@ test("a relayed session gets its grant without an address it can't reach", async
   const grant = await grantFor(false);
   expect(grant).toMatchObject({ ok: true, connection: "mc_aaaaaaaa", ticket: "A".repeat(43) });
   expect(grant).not.toHaveProperty("url");
+});
+
+test("while ace-media didn't start, a subscribe naming a connection is refused as gone, so the client asks again", () => {
+  const delivery = failedDelivery("ace-media didn't run", () => {});
+  expect(bindingRefused(delivery, "mc_aaaaaaaaaaaa").message).toMatch(/^media-connection-gone:/);
 });

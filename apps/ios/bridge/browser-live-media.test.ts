@@ -1,7 +1,7 @@
 import { host } from "./test-host.ts";
 import { ClientError } from "@ace/client";
 import {
-  mediaRetryCooldownMs,
+  MediaSubscriptions,
   mediaRetryDelaysMs,
   mediaSubscribeDeadlineMs,
   type DeliveryState,
@@ -30,7 +30,10 @@ function connection() {
   let bound: string | undefined;
   const watchers = new Set<() => void>();
   const carried: MediaStreamClientMessage[] = [];
+  /** Connections the phone asked to replace. */
+  const refreshed: string[] = [];
   const route: MediaRoute = {
+    refresh: (refused) => void refreshed.push(refused),
     binding: () => (bound ? { connection: bound } : undefined),
     codecs: () => [],
     watch: (listener) => {
@@ -47,6 +50,7 @@ function connection() {
   return {
     route,
     carried,
+    refreshed,
     bind(next: string | undefined) {
       bound = next;
       for (const listener of Array.from(watchers)) listener();
@@ -78,6 +82,9 @@ async function opened(
   await new Promise((resolve) => setTimeout(resolve, 0));
   return { ...browser, media, deliveries, delivered };
 }
+
+/** The thread's own wait between tries once its ladder is spent. */
+const cooldownMs = new MediaSubscriptions().cooldown("web");
 
 test("the view subscribes on the open media connection and acknowledges its pictures there", async () => {
   const { requested, sent, view, media, delivered } = await opened("mc_aaaaaaaa");
@@ -265,7 +272,7 @@ async function hanging() {
   return { ...browser, media, deliveries, named, timeOut };
 }
 
-test("subscribes that time out before failing climb the shared ladder, then name no connection", async () => {
+test("subscribes that time out before failing climb the shared ladder, then keep naming the connection on its cooldown", async () => {
   const view = await hanging();
   for (const wait of mediaRetryDelaysMs) {
     await view.timeOut();
@@ -280,12 +287,12 @@ test("subscribes that time out before failing climb the shared ladder, then name
     await until(() => view.named() === before + 1, `the retry after ${wait} ms`);
   }
   await view.timeOut();
-  // The ladder is spent: after the cooldown the view subscribes naming nothing.
+  // The ladder is spent: after the cooldown the view asks again, still naming the connection.
   const asked = subscribes(view.requested).length;
-  view.elapse(mediaRetryCooldownMs);
-  await until(() => subscribes(view.requested).length === asked + 1, "the unnamed subscribe");
-  expect(subscribes(view.requested).at(-1)?.media).toBeUndefined();
-  expect(view.named()).toBe(mediaRetryDelaysMs.length + 1);
+  view.elapse(cooldownMs);
+  await until(() => subscribes(view.requested).length === asked + 1, "the subscribe after it");
+  expect(subscribes(view.requested).at(-1)?.media).toBeDefined();
+  expect(view.named()).toBe(mediaRetryDelaysMs.length + 2);
 });
 
 test("events during the cooldown send nothing until it ends", async () => {
@@ -308,7 +315,7 @@ test("events during the cooldown send nothing until it ends", async () => {
   await new Promise((resolve) => setTimeout(resolve, 20));
   view.elapse(5_000);
   expect(subscribes(view.requested)).toHaveLength(asked);
-  view.elapse(mediaRetryCooldownMs);
+  view.elapse(cooldownMs);
   await until(() => subscribes(view.requested).length > asked, "the subscribe after the cooldown");
 });
 
@@ -338,12 +345,31 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
     await until(() => named() === before + 1, `the retry after ${wait} ms`);
   }
   await new Promise((resolve) => setTimeout(resolve, 0));
-  // Spent: nothing until the cooldown ends, then a subscribe that names no connection.
+  // Spent: nothing until the cooldown ends, then a subscribe naming the connection again.
   const asked = subscribes(browser.requested).length;
   browser.elapse(5_000);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(subscribes(browser.requested)).toHaveLength(asked);
-  browser.elapse(mediaRetryCooldownMs);
+  browser.elapse(cooldownMs);
   await until(() => subscribes(browser.requested).length === asked + 1, "after the cooldown");
-  expect(subscribes(browser.requested).at(-1)?.media).toBeUndefined();
+  expect(subscribes(browser.requested).at(-1)?.media).toBeDefined();
+});
+
+test("a view closed while its subscribe waited still passes on the proof that the shared connection is gone", async () => {
+  const media = connection();
+  media.bind("mc_aaaaaaaa");
+  const browser = await live({ media: "hangs" });
+  browser.view.useMedia(media.route, () => {});
+  browser.view.action({ kind: "open", threadId: "web", viewport });
+  await until(() => browser.answering.length === 1, "a subscribe left waiting");
+  // The person leaves the browser before the daemon answers.
+  browser.view.action({ kind: "close" });
+  browser.answering[0]?.({
+    type: "browser.result",
+    requestId: "gone",
+    ok: false,
+    error: "media-connection-gone: that media connection is gone",
+  });
+  await until(() => media.refreshed.length === 1, "the connection replaced");
+  expect(media.refreshed).toEqual(["mc_aaaaaaaa"]);
 });

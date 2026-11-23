@@ -1,9 +1,10 @@
-import type {
-  MediaBinding,
-  MediaPoster,
-  MediaStreamClientMessage,
-  MediaSubscribed,
-  MediaUndelivered,
+import {
+  mediaRefusals,
+  type MediaBinding,
+  type MediaPoster,
+  type MediaStreamClientMessage,
+  type MediaSubscribed,
+  type MediaUndelivered,
 } from "@ace/protocol";
 import type { StreamMessage } from "./stream.ts";
 import type { PictureChunk } from "./stream-picture.ts";
@@ -28,6 +29,11 @@ export interface MediaRoute {
   ack(message: MediaStreamClientMessage): boolean;
   /** Why there is no binding now, for the person; absent: it is still connecting. */
   unavailable?(): string | undefined;
+  /**
+   * The daemon refused `connection` as this session's: open a fresh media connection, if it is
+   * still the binding. The new binding reaches every view through `watch`.
+   */
+  refresh?(connection: string): void;
 }
 
 /**
@@ -36,9 +42,12 @@ export interface MediaRoute {
  */
 export const mediaSubscribeDeadlineMs = 15_000;
 
-/** A subscribe the daemon refused for naming a media connection that isn't this session's. */
+/** A subscribe the daemon refused for the media connection it named (gone, or not ours). */
 export const isMediaRefusal = (error: unknown): boolean =>
-  error instanceof Error && error.message.includes("media-connection");
+  error instanceof Error && error.message.includes(mediaRefusals.notOwned);
+/** A refusal because the daemon no longer has that connection: a fresh one is worth opening. */
+const isGoneConnection = (error: unknown): boolean =>
+  error instanceof Error && error.message.startsWith(mediaRefusals.gone);
 
 /** The codec every viewer decodes, kept when a source has given up on the others. */
 const baseline = "avc1.42E033";
@@ -62,8 +71,13 @@ export type AckWay = "media" | "stale";
 /** One subscribe of one source: its generation, what it named, and what the daemon answered. */
 interface Delivery {
   generation: number;
-  /** The connection the subscribe named; undefined: none (no binding). */
+  /** The connection the subscribe named; undefined: none (no binding, or one just refused). */
   asked: string | undefined;
+  /**
+   * There was a binding, but this subscribe didn't name it (the daemon had just refused it): its
+   * answer brings the source's state, never its video, so video is asked for again.
+   */
+  withheld?: boolean;
   /** The reply's answer: that connection, or `nonePath`; undefined until it comes. */
   via: string | undefined;
   /** Why no pictures come, once `via` is `nonePath`. */
@@ -132,8 +146,9 @@ export interface DeliveryState {
  * or this client had no binding to name) gets no pictures: its delivery is `nonePath`, and
  * `undelivered` says why, the daemon's reason or, without a binding, the route's own.
  *
- * - A subscribe refused for its connection is tried again (`retry`), and that connection isn't
- *   named again for the source until the binding changes.
+ * - A subscribe refused for its connection is tried again (`retry`): the route opens a fresh
+ *   connection (`refresh`), and the next subscribe names none, for the source's state; its
+ *   answer counts as unserved (`unserved`), so the one after names the binding again.
  * - A subscribe that fails otherwise keeps the delivery it replaced when that connection is
  *   still the binding (the daemon regrants the old view); either way it is tried again on
  *   `mediaRetryDelaysMs`.
@@ -155,8 +170,12 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   #attempts = new Map<string, number>();
   /** Subscribes in a row answered without delivery, per source, for `unservedDelay`. */
   #unserved = new Map<string, number>();
-  /** Refused for this source: not named again while it is the binding. */
+  /**
+   * Refused for this source just now: the next subscribe names no connection, so the source's
+   * state still comes, and the one after names it again.
+   */
   #refused = new Map<string, string>();
+
   #posters = new Map<string, MediaPoster>();
   /** Pictures that came while a subscribe naming a connection waits for its reply. */
   #candidates = new Map<string, DeliveryCandidates<F>>();
@@ -188,14 +207,18 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     this.#candidates.delete(source);
     const replaced = this.#deliveries.get(source);
     if (replaced?.via !== undefined) this.#previous.set(source, replaced);
-    const asked =
-      binding && this.#refused.get(source) !== binding.connection ? binding.connection : undefined;
+    const withheld = binding !== undefined && this.#refused.get(source) === binding.connection;
+    // One subscribe without it: a connection refused once is named again after.
+    this.#refused.delete(source);
+    const asked = binding && !withheld ? binding.connection : undefined;
+
     // A retry keeps saying why the last one got nothing, until a picture comes on this one.
     const waiting = replaced && reasonOf(replaced);
     this.#deliveries.set(source, {
       generation,
       asked,
       via: undefined,
+      ...(withheld ? { withheld } : {}),
       ...(waiting ? { waiting } : {}),
     });
     this.#emit(source);
@@ -294,16 +317,23 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * `generation`'s subscribe failed with `error`. Unless a later subscribe superseded it, or a
    * timeout already settled it, nothing more is held for it, and it is to be tried again
    * (`retry`, after `retryDelay`):
-   * - refused for the connection it named: that connection isn't named again for the source
-   *   until the binding changes;
+   * - refused for the connection it named: the route is asked for a fresh one, and the next
+   *   subscribe alone names none;
    * - otherwise the delivery it replaced is kept when its connection is still the binding, else
    *   the view gets no pictures and says why.
    */
-  failed(source: string, generation: number, error: unknown): FailedSubscribe {
+  failed(source: string, generation: number, error: unknown, named?: string): FailedSubscribe {
     const delivery = this.#current(source, generation);
-    if (!delivery || delivery.via !== undefined) return "ignore";
+    // Whatever became of its delivery, its word that the connection it named is gone counts.
+    this.connectionRefused(named ?? delivery?.asked, error);
+    if (!delivery) return "ignore";
+    // A refusal of the connection still bound counts even after the deadline settled this
+    // subscribe: only that word says the connection needs replacing.
+    const asked = delivery.asked;
+    if (asked && isMediaRefusal(error) && asked === this.#route?.binding()?.connection)
+      this.#refused.set(source, asked);
+    if (delivery.via !== undefined) return "ignore";
     this.#candidates.delete(source);
-    if (delivery.asked && isMediaRefusal(error)) this.#refused.set(source, delivery.asked);
     const previous = this.#previous.get(source);
     this.#previous.delete(source);
     const holds =
@@ -320,12 +350,14 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     return "retry";
   }
   /**
-   * Its retries are spent: the connection bound now isn't named for `source` again until the
-   * binding changes, so its next subscribe names none (and says why).
+   * A subscribe naming `named` was refused with `error`, whichever view's it was (one closed
+   * meanwhile too): when the daemon no longer has that connection and it is still the binding,
+   * a fresh one is opened. One that is someone else's is left alone, since it may still serve
+   * their views. Nothing of any source's delivery changes here.
    */
-  giveUp(source: string): void {
-    const connection = this.#route?.binding()?.connection;
-    if (connection) this.#refused.set(source, connection);
+  connectionRefused(named: string | undefined, error: unknown): void {
+    if (named && isGoneConnection(error) && named === this.#route?.binding()?.connection)
+      this.#route?.refresh?.(named);
   }
   /**
    * How long until a source whose subscribe was answered without delivery (ace-media couldn't
@@ -336,7 +368,18 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
   unservedDelay(source: string): number {
     const attempt = this.#unserved.get(source) ?? 0;
     this.#unserved.set(source, attempt + 1);
-    return mediaRetryDelaysMs[attempt] ?? mediaRetryCooldownMs;
+    return mediaRetryDelaysMs[attempt] ?? this.cooldown(source);
+  }
+  /**
+   * How long `source` waits between tries once its ladder is spent: the cooldown, plus a share
+   * of half of it fixed by the source's id, so sources that lost video together (a shared
+   * outage) come back spread out rather than all at once, each at the same pace every time.
+   */
+  cooldown(source: string): number {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < source.length; index++)
+      hash = Math.imul(hash ^ source.charCodeAt(index), 0x01000193) >>> 0;
+    return mediaRetryCooldownMs + (hash % (mediaRetryCooldownMs / 2));
   }
   /** How long until a failed source is tried again; undefined once the retries are spent. */
   retryDelay(source: string): number | undefined {
@@ -397,12 +440,14 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
     return this.#posters.get(source);
   }
   /**
-   * Whether `source`'s subscribe named a connection and ace-media couldn't serve it: it asks
-   * again on `unservedDelay`. One that named none waits for a binding instead (`watch`).
+   * Whether `source`'s subscribe got no video though this client had a connection to name: it
+   * named one and ace-media couldn't serve it, or it withheld one the daemon had just refused.
+   * Either way it asks again on `unservedDelay`. One with no binding to name waits for one
+   * instead (`watch`).
    */
   unserved(source: string): boolean {
     const delivery = this.#deliveries.get(source);
-    return delivery?.via === nonePath && delivery.asked !== undefined;
+    return delivery?.via === nonePath && (delivery.asked !== undefined || !!delivery.withheld);
   }
   /**
    * Why `source`'s current delivery gets no pictures, or hasn't yet: undefined once a picture
@@ -417,9 +462,11 @@ export class MediaSubscriptions<F extends CandidateShape = PictureChunk> {
    * into ace-media now. Its word that the view is granted clears nothing: a grant can come
    * before the source streams, so only a picture on the current delivery clears the reason.
    */
-  report(source: string, undelivered: MediaUndelivered | undefined): void {
+  report(source: string, undelivered: MediaUndelivered | undefined, connection?: string): void {
     const delivery = this.#deliveries.get(source);
     if (!delivery || delivery.via === nonePath || !undelivered) return;
+    // A word about this client's view on another media connection isn't this subscribe's.
+    if (connection !== undefined && connection !== delivery.asked) return;
     delivery.waiting = undelivered;
     this.#emit(source);
   }

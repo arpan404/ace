@@ -177,6 +177,14 @@ const pictureKinds: ReadonlySet<SourceKind> = new Set<SourceKind>([
   "screen-pictures",
 ]);
 
+/**
+ * Longest ace-media may take to admit a producer pointed at it (`source.ingest`). A producer
+ * whose ingest socket died before its hello was taken leaves ace-media nothing to report, so a
+ * path not admitted by then opens again with a fresh token. Only with an ace-media that reports
+ * admission (`source.ingest` agreed).
+ */
+export const admitMs = 10_000;
+
 /** Longest a handle waits for its end marker after its producer was pointed away. */
 export const drainMs = 2_000;
 
@@ -253,6 +261,8 @@ type Path = {
   epoch: number;
   /** ace-media answered its open: a privacy epoch sent now can't overtake it. */
   acknowledged: boolean;
+  /** Cancels the admission deadline of a pointed path ace-media hasn't admitted yet. */
+  admission: (() => void) | undefined;
 };
 
 /** A page's CSS size and its device pixel ratio, as a producer shows it. */
@@ -284,6 +294,12 @@ export type IngestSource = {
   streaming(): boolean;
   /** The producer's ingest connection ended (it said so): open the source again. */
   reconnect(): void;
+  /**
+   * The producer's socket to ace-media path `path` was lost (it said so): the source opens
+   * again only while that path is still its open one, so a late report about a path already
+   * replaced spends nothing.
+   */
+  lost(path: string): void;
   /**
    * The codecs the producer encodes, best first (WebCodecs strings): ace-media plans its views
    * only in these. Never called: whatever the views decode.
@@ -359,6 +375,9 @@ export class IngestSources {
     return {
       streaming: () => entry.state === "ingest",
       reconnect: () => this.#reconnect(entry),
+      lost: (path) => {
+        if (entry.state === "ingest" && entry.live?.id === path) this.#reconnect(entry);
+      },
       codecs: (codecs) => {
         entry.codecs = [...codecs];
         const live = entry.live;
@@ -541,13 +560,15 @@ export class IngestSources {
     if (
       message.type !== "source.status" &&
       message.type !== "source.keyframe" &&
-      message.type !== "source.want"
+      message.type !== "source.want" &&
+      message.type !== "source.ingest"
     )
       return;
     const path = this.#paths.get(message.source);
     if (!path || path.draining) return;
     const { entry } = path;
     if (entry.closed || entry.live !== path) return;
+    if (message.type === "source.ingest") return this.#admitted(path);
     if (message.type === "source.keyframe") {
       if (entry.state === "ingest") entry.producer.keyframe(message.encode);
       return;
@@ -692,6 +713,7 @@ export class IngestSources {
       want: undefined,
       epoch,
       acknowledged: false,
+      admission: undefined,
     };
     this.#paths.set(id, path);
     this.#live(entry, path);
@@ -736,6 +758,17 @@ export class IngestSources {
       path: path.id,
       ...(ingest.pid ? { pid: ingest.pid } : {}),
     };
+    // A source ace-media reads itself (a Simulator) has no producer hello to admit.
+    if (this.#options.port.speaks("source.ingest") && !readByMedia.has(entry.producer.kind))
+      path.admission = this.#options.schedule(() => {
+        path.admission = undefined;
+        if (entry.closed || entry.live !== path || entry.generation !== generation) return;
+        this.#options.log?.("ace-media never admitted the producer", {
+          source: entry.producer.source,
+          path: path.id,
+        });
+        this.#reconnect(entry);
+      }, admitMs);
     const pointed = entry.producer.point(address);
     if (path.want) entry.producer.want?.(path.want);
     pointed.then(
@@ -751,6 +784,12 @@ export class IngestSources {
         this.#failed(entry, failedReason);
       },
     );
+  }
+
+  /** ace-media took the producer's hello on this path: it no longer needs a deadline. */
+  #admitted(path: Path): void {
+    path.admission?.();
+    path.admission = undefined;
   }
 
   /** Stops the producer streaming; its path drains until its marker. */
@@ -791,6 +830,7 @@ export class IngestSources {
    * pictures come on the same lane as the close.
    */
   #retire(path: Path): void {
+    this.#admitted(path);
     path.token?.fill(0);
     path.token = undefined;
     if (!path.pointed || path.marked) {
@@ -820,6 +860,7 @@ export class IngestSources {
   #finish(path: Path, interrupted: boolean, close: boolean): void {
     if (!this.#paths.has(path.id)) return;
     this.#paths.delete(path.id);
+    this.#admitted(path);
     if (path.entry.acceleratedBy === path.id) {
       path.entry.acceleratedBy = undefined;
       this.#options.acceleration?.(path.entry.producer, undefined);

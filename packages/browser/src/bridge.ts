@@ -1,5 +1,7 @@
+import { videoNotice } from "./video-notice.ts";
 import { BrowserOriginError } from "./policy.ts";
 import {
+  MediaConnectionId,
   ThreadId,
   BrowserClientMessage,
   type BrowserCaptureViewport,
@@ -15,6 +17,7 @@ import type { EnginePreferencePort } from "./engine-move.ts";
 import type { CaptureViewer } from "./viewer-sink.ts";
 import { downloadBusy, encodeDownloadChunk } from "./stream-download.ts";
 import {
+  bindingRefused,
   mediaSubscribed,
   mediaUndelivered,
   pendingUndelivered,
@@ -123,6 +126,8 @@ export function connectBrowser(
     views: Map<string, string>;
     /** The view the capture was last told about, to tell it again when delivery changes. */
     shown?: CaptureViewer | undefined;
+    /** Whether this connection's view waits for the tab's encoder to recover (`videoNotice`). */
+    recovering?: boolean;
   };
   /**
    * This connection's view as the daemon's capture sees it: delivered by ace-media while any
@@ -147,7 +152,10 @@ export function connectBrowser(
   /** A subscriber leaves its media connection's view; the last one out closes it. */
   const retire = (entry: Subscription | undefined, subscriber: string) => {
     const mediaViewer = leave(entry, subscriber);
-    if (mediaViewer !== undefined) options.media?.delivery()?.unbind(mediaViewer);
+    if (mediaViewer !== undefined) {
+      grants.delete(mediaViewer);
+      options.media?.delivery()?.unbind(mediaViewer);
+    }
   };
   /**
    * The thread's state as this connection sees it: while only older clients watch it here, it
@@ -160,12 +168,26 @@ export function connectBrowser(
       : state;
   const subscriptions = new Map<string, Subscription>();
   const sendStream = options.sendStream;
+  /**
+   * ace-media's last word on each view this connection holds, by viewer id: a view replaced by a
+   * newer one (a new media connection) keeps its own, which never speaks for the new one.
+   */
+  const grants = new Map<string, { granted: boolean; why: string | undefined }>();
   const bind = (threadId: string, entry: Subscription, capture?: CaptureViewer) => {
     entry.stop = service.subscribe(
       threadId,
       options.connectionId,
       options.local === true ? { local: true } : {},
-      (state) => options.send({ type: "browser.state", state: forPeer(entry, state) }),
+      (state) => {
+        options.send({ type: "browser.state", state: forPeer(entry, state) });
+        // The encoder's recovery changes only the state: its view's notice follows it.
+        const recovering = service.videoRecovering(threadId, options.connectionId);
+        if (recovering === (entry.recovering ?? false)) return;
+        entry.recovering = recovering;
+        // Every bound view hears it, before its first grant too, each on its own connection.
+        for (const [connection, view] of entry.views)
+          delivered(threadId, notice(threadId, entry, view), connection);
+      },
       (event) => options.send(event),
       capture,
     );
@@ -188,10 +210,16 @@ export function connectBrowser(
     const kind = service.videoKind(threadId);
     if (!owner || !delivery || !kind || !delivery.serves(kind)) return undefined;
     // Another subscriber of this thread already has the connection's view: share it.
+    // A connection the daemon has since lost has no view to share: refused as gone, so the
+    // client opens a fresh one rather than naming it again.
+    if (!delivery.known(connection)) throw bindingRefused(delivery, connection);
     const shared = entry?.views.get(connection);
     if (shared !== undefined) return { viewer: shared, created: false };
     const viewport = message.viewport;
     const link = viewLink(viewport?.link);
+    /** The view's id, once `bind` gave it; a grant before then is held for it. */
+    let id: string | undefined;
+    let early: { granted: boolean; why: string | undefined } | undefined;
     const bound = delivery.bind({
       requester: owner,
       connection,
@@ -202,24 +230,50 @@ export function connectBrowser(
       audio: viewport?.audio === true,
       ...(link ? { link } : {}),
       shows: showsThread(threadId),
-      onGrant: (granted, why) => delivered(threadId, granted ? undefined : waiting(threadId, why)),
+      onGrant: (granted, why) => {
+        if (id === undefined) return void (early = { granted, why });
+        grants.set(id, { granted, why });
+        const current = subscriptions.get(threadId);
+        // A view still held speaks for its own media connection; a replaced one changes nothing.
+        if (!current) return delivered(threadId, granted ? undefined : waiting(threadId, why));
+        if (current.views.get(connection) !== id) return;
+        delivered(threadId, notice(threadId, current, id), connection);
+      },
     });
-    if (bound === undefined)
-      throw new Error("media-connection: that media connection isn't this session's");
+    if (bound === undefined) throw bindingRefused(delivery, connection);
+    id = bound;
+    if (early) grants.set(bound, early);
     return { viewer: bound, created: true };
   };
   /**
    * Tells this connection whether its bound view of the thread gets pictures now: on every
    * change of the view's grant in ace-media, with the reason while it doesn't.
    */
-  const delivered = (threadId: string, undelivered: MediaUndelivered | undefined) => {
+  const delivered = (
+    threadId: string,
+    undelivered: MediaUndelivered | undefined,
+    connection?: string,
+  ) => {
     // Only a subscriber that asked reads it: an older decoder refuses an unknown message type.
     if (closed || !subscriptions.get(threadId)?.status.size) return;
     options.send({
       type: "browser.delivery",
       threadId: ThreadId.parse(threadId),
       ...(undelivered ? { undelivered } : {}),
+      // Addressed to the view's own media connection: a client may hold several.
+      ...(connection ? { connection: MediaConnectionId.parse(connection) } : {}),
     });
+  };
+  /** What view `view` of the thread says now: ace-media's word on it, then the encoder's. */
+  const notice = (threadId: string, entry: Subscription, view: string) => {
+    // ace-media's last word on this view, or before its first one, what the port holds now.
+    const port = options.media?.delivery();
+    const grant =
+      grants.get(view) ?? (port ? { granted: port.granted(view), why: port.why(view) } : undefined);
+    const undelivered = grant?.granted ? undefined : waiting(threadId, grant?.why);
+    // What the view was told, so a state push tells it again only when this changes.
+    entry.recovering = service.videoRecovering(threadId, options.connectionId);
+    return videoNotice(undelivered, entry.recovering);
   };
   /** Why the thread's granted view gets no pictures yet: ace-media's `why`, else its source's. */
   const waiting = (threadId: string, why: string | undefined) => {
@@ -568,14 +622,24 @@ export function connectBrowser(
               throw error;
             }
             swap().commit();
+            // A view the swap let go of has no word left to keep.
+            const held = new Set<string>();
+            for (const each of subscriptions.values())
+              for (const view of each.views.values()) held.add(view);
+            for (const view of grants.keys()) if (!held.has(view)) grants.delete(view);
             if (joined && message.media) {
               const port = options.media?.delivery();
               const poster = await port?.poster(joined.viewer);
               // Bound, but not played yet (its tab isn't streaming into ace-media, or ace-media
               // refused the view): the reply and the view say why until the grant comes.
-              const undelivered = port?.granted(joined.viewer)
-                ? undefined
-                : waiting(threadId, port?.why(joined.viewer));
+              const bound = subscriptions.get(threadId);
+              // One reckoning for the reply and every change after: ace-media's word on the
+              // view, then the encoder's recovery.
+              const undelivered = bound
+                ? notice(threadId, bound, joined.viewer)
+                : port?.granted(joined.viewer)
+                  ? undefined
+                  : waiting(threadId, port?.why(joined.viewer));
               if (!closed)
                 options.send({
                   type: "browser.result",
@@ -585,7 +649,10 @@ export function connectBrowser(
                   media: mediaSubscribed(message.media.connection, poster),
                   ...(undelivered ? { undelivered } : {}),
                 });
-              if (undelivered) delivered(threadId, undelivered);
+              // Not for a view a later subscribe retired while the poster was read.
+              const current = subscriptions.get(threadId)?.views.get(message.media.connection);
+              if (undelivered && current === joined.viewer)
+                delivered(threadId, undelivered, message.media.connection);
               break;
             }
             // No pictures will come: the view says why instead of staying blank.
@@ -683,6 +750,7 @@ export function connectBrowser(
           options.media?.delivery()?.unbind(mediaViewer);
         entry.stop();
       }
+      grants.clear();
       subscriptions.clear();
       service.disconnect(options.connectionId);
     },

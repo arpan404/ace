@@ -28,6 +28,7 @@ function recording() {
       return {
         streaming: () => false,
         reconnect: () => {},
+        lost: () => {},
         codecs: () => {},
         encodes: () => {},
         key: () => {},

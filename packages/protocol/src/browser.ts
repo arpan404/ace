@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { MediaAcceleration } from "./media-acceleration.ts";
 import { MediaLinkHint } from "./media-link.ts";
-import { MediaBinding, MediaCodec, MediaSubscribed, MediaUndelivered } from "./media-connection.ts";
+import {
+  MediaBinding,
+  MediaCodec,
+  MediaConnectionId,
+  MediaSubscribed,
+  MediaUndelivered,
+} from "./media-connection.ts";
 import {
   BrowserTabList,
   BrowserDownload,
@@ -690,6 +696,11 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     type: z.literal("browser.delivery"),
     threadId: ThreadId,
     undelivered: MediaUndelivered.optional(),
+    /**
+     * The media connection whose view this is: one client may hold several. Absent from an
+     * older daemon, which held one; an older client strips it.
+     */
+    connection: MediaConnectionId.optional(),
   }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),
   BrowserAnnotationMessage,

@@ -3,17 +3,19 @@ import { mediaRetryCooldownMs } from "./media-route.ts";
 /*
  * When a live view asks again after a subscribe failed (ADR 0147 §4), shared by every client so
  * none re-derives it: each failed request waits the source's next step on the shared ladder
- * (`MediaSubscriptions.retryDelay`, `mediaRetryDelaysMs`); once the ladder is spent, the
- * connection isn't named for the source any more (`giveUp`) and the next try waits out the
- * cooldown (`mediaRetryCooldownMs`). Something that may make a subscribe succeed (an engine
+ * (`MediaSubscriptions.retryDelay`, `mediaRetryDelaysMs`); once the ladder is spent, each try
+ * waits out the cooldown (`mediaRetryCooldownMs`), for as long as the view is held: it never
+ * gives up, and keeps naming the connection. Something that may make a subscribe succeed (an engine
  * opened, the page shown again) may skip the wait of one ladder step, never more, and never the
  * cooldown: a page shown and hidden over and over never turns into a request each time.
  */
 
 /** What the retry needs of a source's ladder: `MediaSubscriptions` keeps it. */
 export interface RetryLadder {
+  /** The next step's wait; undefined once spent. A wait of the cooldown or more is one too. */
   retryDelay(source: string): number | undefined;
-  giveUp(source: string): void;
+  /** The source's own cooldown (`MediaSubscriptions.cooldown`); absent: the shared one. */
+  cooldown?(source: string): number;
 }
 
 /** Runs `run` after `ms`; the result cancels it. */
@@ -44,14 +46,17 @@ export class SubscribeRetry {
   failed(run: () => void): void {
     this.#cancel?.();
     const delay = this.#ladder.retryDelay(this.#source);
-    if (delay === undefined) this.#ladder.giveUp(this.#source);
     this.#skipped = false;
-    this.#cooling = delay === undefined;
-    this.#cancel = this.#schedule(() => {
-      this.#cancel = undefined;
-      this.#cooling = false;
-      run();
-    }, delay ?? mediaRetryCooldownMs);
+    // The unserved ladder answers its cooldown as a number: no event skips that either.
+    this.#cooling = delay === undefined || delay >= mediaRetryCooldownMs;
+    this.#cancel = this.#schedule(
+      () => {
+        this.#cancel = undefined;
+        this.#cooling = false;
+        run();
+      },
+      delay ?? this.#ladder.cooldown?.(this.#source) ?? mediaRetryCooldownMs,
+    );
   }
   /**
    * Something changed that a subscribe may now succeed on. True when it may go now: nothing is

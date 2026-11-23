@@ -97,6 +97,8 @@ export const mediaWelcomeMs = 5_000;
  */
 export const mediaAdmissionMs = 10_000;
 export const mediaPingMs = 5_000;
+/** A refresh this long after the last one starts its backoff over. */
+export const mediaRefreshResetMs = 60_000;
 
 /** The 37-byte hello: `"ACEC"`, the version, the ticket's 32 bytes. */
 export function mediaHello(ticket: string): Uint8Array<ArrayBuffer> {
@@ -124,6 +126,9 @@ export class MediaConnection {
   });
   #rttMs: number | undefined;
   #pingAt: number | undefined;
+  /** Refreshes in a row (`refresh`), each waiting longer; and when the last one was asked. */
+  #refreshes = 0;
+  #refreshedAt = -Infinity;
   constructor(options: MediaConnectionOptions) {
     this.#options = options;
   }
@@ -167,10 +172,25 @@ export class MediaConnection {
       return false;
     }
   }
+  /**
+   * The daemon refused `connection` as this session's (a subscribe naming it failed so): while
+   * it is still the binding, it is closed and a fresh one asked for. Refreshes in a row wait
+   * `mediaRetryMs`'s steps, so a daemon that keeps refusing never makes it reconnect in a loop.
+   */
+  refresh(connection: string): void {
+    if (this.#state.state !== "open" || this.#state.connection !== connection) return;
+    const now = this.#options.now();
+    if (now - this.#refreshedAt > mediaRefreshResetMs) this.#refreshes = 0;
+    this.#refreshedAt = now;
+    const wait = mediaRetryMs[Math.min(this.#refreshes++, mediaRetryMs.length - 1)] ?? 10_000;
+    this.#reset();
+    this.#unavailable("refused", wait);
+  }
   /** The main session is ready (again): open a connection for it. */
   start(): void {
     this.#reset();
     this.#attempt = 0;
+    this.#refreshes = 0;
     // #open retries, or waits while unavailable, by itself.
     void this.#open().catch(() => {});
   }

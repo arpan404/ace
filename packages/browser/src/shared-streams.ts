@@ -27,6 +27,10 @@ export class SharedStreams {
   refresh(target: string, open: () => void): void {
     if (this.views.has(target)) open();
   }
+  /** Whether `target` has a view now. */
+  holds(target: string): boolean {
+    return this.views.has(target);
+  }
   /** Every target with a view: a new media binding subscribes each of them again. */
   held(): string[] {
     return [...this.views.keys()];

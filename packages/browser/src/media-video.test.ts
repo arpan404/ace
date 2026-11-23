@@ -33,6 +33,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
     keys: number[];
     epochs: [number, boolean][];
     reconnects: number;
+    lost: string[];
     closed: boolean;
   }[] = [];
   const media: BrowserMedia = {
@@ -44,6 +45,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         keys: [],
         epochs: [],
         reconnects: 0,
+        lost: [],
         closed: false,
       } as (typeof added)[number];
       added.push(record);
@@ -54,6 +56,7 @@ function fakeMedia(state: { routed: boolean; wanted?: boolean; codecs?: string[]
         key: (encode) => void record.keys.push(encode),
         epoch: (epoch, followsPrivate) => void record.epochs.push([epoch, followsPrivate]),
         reconnect: () => void record.reconnects++,
+        lost: (path) => void record.lost.push(path),
         close: () => {
           record.closed = true;
         },
@@ -151,7 +154,12 @@ describe("live video routed through ace-media", () => {
     const producer = added[0]?.producer;
     await producer?.point(address("m1"));
     expect(captures[0]?.targets).toEqual([
-      { url: "ws://127.0.0.1:9/ingest", token: Buffer.alloc(32, 7).toString("base64"), epoch: 3 },
+      {
+        url: "ws://127.0.0.1:9/ingest",
+        token: Buffer.alloc(32, 7).toString("base64"),
+        epoch: 3,
+        path: "m1",
+      },
     ]);
     handle.encodes([spec("avc1/640"), spec("avc1/320")]);
     // The daemon's own encodes take ids above ace-media's, which start at 1 (D1).
@@ -542,4 +550,65 @@ it("out of daemon ids, the source reopens, and waiting encodes run once the old 
     expect.objectContaining({ key: "a", id: first }),
     expect.objectContaining({ key: "c", id: first + 1 }),
   ]);
+});
+
+it("an encoder's lost ingest socket reaches ace-media's source manager with the path it named", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, events().sink);
+  await added[0]?.producer.point(address("m1"));
+  // The target names its path, so the encoder's report can say which socket died.
+  expect(captures[0]?.targets.at(-1)).toMatchObject({ path: "m1" });
+  captures[0]?.events.ingestLost?.("m1");
+  expect(added[0]?.lost).toEqual(["m1"]);
+  // An ended capture reports nothing more.
+  captures[0]?.events.ended("gone");
+  captures[0]?.events.ingestLost?.("m1");
+  expect(added[0]?.lost).toEqual(["m1"]);
+});
+
+it("a capture its encoder ended leaves ace-media and its reports at once, and closing it after changes nothing", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  let watching = 0;
+  media.acceleration = {
+    of: () => undefined,
+    watch: () => {
+      watching++;
+      return () => void watching--;
+    },
+  };
+  const { host, captures } = fakeHost("tab", true);
+  const e = events();
+  const handle = await mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink);
+  await added[0]?.producer.point(address("m1"));
+  expect(watching).toBe(1);
+  captures[0]?.events.ended("The tab capture sent no picture");
+  expect(e.ended).toEqual(["The tab capture sent no picture"]);
+  expect(added[0]?.closed).toBe(true);
+  expect(watching).toBe(0);
+  // A second end, or the live video's close, is the same capture going again: nothing more.
+  captures[0]?.events.ended("again");
+  handle.close();
+  expect(e.ended).toEqual(["The tab capture sent no picture"]);
+  expect(watching).toBe(0);
+});
+
+it("a capture that ends before it opens never registers a source, and its open fails saying why", async () => {
+  const { media, added } = fakeMedia({ routed: true });
+  const { host, captures } = fakeHost("tab", true);
+  const open = host.open;
+  host.open = async (cdp, width, height, sink, privacy) => {
+    const handle = await open(cdp, width, height, sink, privacy);
+    sink.ended("The tab capture sent no picture");
+    return handle;
+  };
+  const e = events();
+  await expect(
+    mediaVideoHost(host, media, () => ({})).open(page, 640, 400, e.sink),
+  ).rejects.toThrow("The tab capture sent no picture");
+  // No source was ever registered for it, not even briefly.
+  expect(added).toEqual([]);
+  expect(captures[0]?.closed).toBe(true);
+  // The open's failure says it: the live video hears it once, not as an end too.
+  expect(e.ended).toEqual([]);
 });

@@ -39,6 +39,7 @@ function service() {
       return {
         streaming: () => false,
         reconnect: () => {},
+        lost: () => {},
         codecs: () => {},
         encodes: () => {},
         key: () => {},

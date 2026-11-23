@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserCdp, CaptureEvents, VideoEncode, VideoHost } from "./backend.ts";
 import type { CaptureViewer } from "./capture-policy.ts";
-import { LiveVideo } from "./live-video.ts";
+import { encoderRecovering, failedCodecRetryMs, LiveVideo } from "./live-video.ts";
 
 const page: BrowserCdp = { send: async () => ({}), on: () => {}, off: () => {} };
 const hevc = "hvc1.1.6.L153.B0";
@@ -101,6 +101,89 @@ describe("a view ace-media delivers", () => {
     t.encoder.opened[0]?.failed(planned.key);
     await t.run();
     expect(t.encoder.codecs.at(-1)).toEqual(["avc1.42E033"]);
+  });
+
+  it("tries a codec whose encoder failed again once its cooldown is over", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("phone", delivered());
+    await t.run();
+    const planned = { ...wanted, key: `media/1/${hevc}/320x200`, codec: hevc };
+    t.encoder.opened[0]?.want?.([planned]);
+    await t.run();
+    t.encoder.opened[0]?.failed(planned.key);
+    await t.run(failedCodecRetryMs - 500);
+    expect(t.encoder.codecs.at(-1)).toEqual(["avc1.42E033"]);
+    await t.run(1_000);
+    expect(t.encoder.codecs.at(-1)).toEqual([hevc, "avc1.42E033"]);
+  });
+
+  it("waits longer for a codec that fails again and again, never more than a minute", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("phone", delivered());
+    await t.run();
+    const planned = { ...wanted, key: `media/1/${hevc}/320x200`, codec: hevc };
+    const waits: number[] = [];
+    for (let failure = 0; failure < 7; failure++) {
+      t.encoder.opened[0]?.failed(planned.key);
+      await t.run(50);
+      const failedAt = t.now();
+      for (let turn = 0; turn < 300 && t.encoder.codecs.at(-1)?.[0] !== hevc; turn++)
+        await t.run(250);
+      waits.push(t.now() - failedAt);
+    }
+    expect(waits[1]).toBeGreaterThan(1.8 * (waits[0] ?? 0));
+    expect(Math.max(...waits)).toBeLessThanOrEqual(61_000);
+  });
+
+  it("says the encoder is recovering while every codec a view takes failed, and nothing once it plays", async () => {
+    const t = watched(["avc1.42E033"]);
+    t.video.add("viewer", delivered());
+    await t.run();
+    const first = t.encoder.encodes[0]?.[0];
+    if (!first) throw new Error("no encode");
+    t.encoder.opened[0]?.failed(first.key);
+    await t.run(50);
+    expect(t.video.status()).toEqual({
+      status: "retrying",
+      reason: encoderRecovering,
+      attempts: 1,
+    });
+    // Its cooldown over, the codec runs again and ace-media plans it: the video plays.
+    for (let turn = 0; turn < 300 && t.encoder.encodes.length < 2; turn++) await t.run(250);
+    expect(t.encoder.encodes.length).toBeGreaterThanOrEqual(2);
+    t.encoder.opened.at(-1)?.want?.([wanted]);
+    await t.run(50);
+    expect(t.video.status()).toBeUndefined();
+  });
+
+  it("tells only the view whose every codec failed that the encoder is recovering", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("hevc and h264", delivered());
+    t.video.add("h264 only", { ...delivered(), video: { codecs: ["avc1.42E033"] } });
+    await t.run();
+    t.encoder.opened[0]?.failed("avc1.42E033/640x400");
+    await t.run(50);
+    expect(t.video.recoveringFor("h264 only")).toBe(true);
+    expect(t.video.recoveringFor("hevc and h264")).toBe(false);
+    expect(t.video.recoveringFor("nobody")).toBe(false);
+  });
+
+  it("tells the views again when another view's codecs all fail, though one was already recovering longer", async () => {
+    const t = watched([hevc, "avc1.42E033"]);
+    t.video.add("hevc only", { ...delivered(), video: { codecs: [hevc] } });
+    t.video.add("h264 only", { ...delivered(), video: { codecs: ["avc1.42E033"] } });
+    await t.run();
+    // HEVC fails twice: its view is on its second cooldown.
+    t.encoder.opened[0]?.failed(`${hevc}/640x400`);
+    await t.run(50);
+    t.encoder.opened[0]?.failed(`${hevc}/640x400`);
+    await t.run(50);
+    const before = t.changes();
+    // Now H.264's first failure: the other view starts recovering too, and is told.
+    t.encoder.opened[0]?.failed("avc1.42E033/640x400");
+    await t.run(50);
+    expect(t.changes()).toBeGreaterThan(before);
+    expect(t.video.recoveringFor("h264 only")).toBe(true);
   });
 
   it("starts at the top rate on this machine, and lower for a viewer elsewhere", async () => {
@@ -225,6 +308,34 @@ describe("a tab whose capture keeps ending before its first picture", () => {
     expect(t.video.status()).toBeUndefined();
     t.encoder.opened.at(-1)?.ended(noPicture);
     expect(t.video.status()?.attempts).toBe(1);
+  });
+
+  it("closes a capture its encoder ended, so nothing it held stays behind", async () => {
+    const t = watched();
+    t.video.add("viewer", delivered());
+    await t.run();
+    t.encoder.opened.at(-1)?.ended(noPicture);
+    expect(t.encoder.closed()).toBe(1);
+  });
+
+  it("never keeps a capture that ended before its open finished, and opens another", async () => {
+    const t = watched();
+    const open = t.encoder.host.open;
+    let early = true;
+    t.encoder.host.open = async (cdp, width, height, events, privacy) => {
+      const handle = await open(cdp, width, height, events, privacy);
+      if (early) {
+        early = false;
+        events.ended(noPicture);
+      }
+      return handle;
+    };
+    t.video.add("viewer", delivered());
+    await t.run();
+    expect(t.encoder.closed()).toBe(1);
+    expect(t.video.status()?.attempts).toBe(1);
+    while (t.encoder.opened.length === 1) await t.run(50);
+    expect(t.video.watched()).toBe(true);
   });
 
   it("starts afresh, without waiting, when the person shows another tab", async () => {

@@ -802,6 +802,13 @@ export class BrowserService {
     if (generation === undefined) throw new Error("Browser generation unavailable");
     return generation;
   }
+  /**
+   * Whether this connection's view of the thread waits for the tab's video encoder to recover:
+   * every codec it takes failed and is cooling down, though other views may play.
+   */
+  videoRecovering(threadId: string, connectionId: string): boolean {
+    return this.sessions.get(threadId)?.videoRecovering(connectionId) ?? false;
+  }
   /** The kind of ace-media source the thread's shown tab is; undefined while it has none. */
   videoKind(threadId: string): import("./backend.ts").VideoMediaKind | undefined {
     return this.sessions.get(threadId)?.videoKind();

@@ -67,6 +67,7 @@ export async function loopbackMedia(
     return {
       streaming: () => true,
       reconnect: () => {},
+      lost: () => {},
       codecs: () => {},
       encodes: () => {},
       key: () => {},

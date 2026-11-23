@@ -61,7 +61,7 @@ const lateReplyMs = 120_000;
 /** What the browser's view uses of the daemon connection's media connection (ADR 0147 §4). */
 export type PreviewMedia = Pick<
   MediaConnection,
-  "binding" | "settled" | "watch" | "onStream" | "ack" | "state"
+  "binding" | "settled" | "watch" | "onStream" | "ack" | "state" | "refresh"
 >;
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
@@ -282,6 +282,8 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     onStream: (listener) => media.onStream(listener),
     ack: (message) => media.ack(message),
     unavailable: () => unavailableReason(media.state),
+    // A connection the daemon refused is replaced; every view follows the new binding.
+    refresh: (refused) => media.refresh(refused),
   };
   const deliveries = new MediaSubscriptions<BrowserVideoChunk>();
   deliveries.use(route);
@@ -449,7 +451,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         binding ? { timeoutMs: lateReplyMs } : undefined,
       );
     } catch (error) {
-      deliveries.failed(threadId, generation, error);
+      deliveries.failed(threadId, generation, error, binding?.connection);
       throw error;
     } finally {
       cancelDeadline?.();
@@ -458,7 +460,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       const error = new Error(reply.error ?? "browser_failed");
       // It keeps the delivery it replaced while that still holds, else says why; the poll tries
       // again.
-      deliveries.failed(threadId, generation, error);
+      deliveries.failed(threadId, generation, error, binding?.connection);
       changed(threadId);
       throw error;
     }
@@ -688,7 +690,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     }
     if (message.type === "browser.delivery") {
       // Whether the thread's bound view gets pictures now, and why not.
-      deliveries.report(message.threadId, message.undelivered);
+      deliveries.report(message.threadId, message.undelivered, message.connection);
       changed(message.threadId);
       return;
     }
@@ -886,7 +888,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           subscribing: undefined,
           retry: new SubscribeRetry(deliveries, threadId, later),
           unserved: new SubscribeRetry(
-            { retryDelay: (source) => deliveries.unservedDelay(source), giveUp: () => {} },
+            { retryDelay: (source) => deliveries.unservedDelay(source) },
             threadId,
             later,
           ),

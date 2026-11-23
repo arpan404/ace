@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
+import { mediaRetryDelaysMs, type MediaRoute, type SourcePicture } from "@ace/browser/live-view";
 import { streamKinds, type StreamMessage } from "@ace/browser/stream";
 import { encodePicture } from "@ace/browser/stream-encode";
 import type { MediaStreamClientMessage } from "@ace/protocol";
@@ -57,7 +57,10 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
   const watchers = new Set<() => void>();
   const streams = new Set<(message: StreamMessage) => void>();
   const mediaAcks: { on: string; message: MediaStreamClientMessage }[] = [];
+  /** Connections the client asked to replace. */
+  const refreshed: string[] = [];
   const route: MediaRoute = {
+    refresh: (refused) => void refreshed.push(refused),
     binding: () => (connection ? { connection } : undefined),
     codecs: () => ["hvc1.1.6.L153.B0", "avc1.42E033"],
     watch: (listener) => {
@@ -80,22 +83,33 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     drawn.push(picture);
     await draw?.(picture);
   });
-  const reply = (subscribe: Subscribe, answer: "binds" | "fails" = "binds") => {
+  const reply = (subscribe: Subscribe, answer: "binds" | "fails" | "gone" = "binds") => {
     const named = subscribe.operation.op === "subscribe" ? subscribe.operation.media : undefined;
     events?.message(
-      answer === "fails"
+      answer === "gone"
         ? {
             type: "devices.result",
             requestId: subscribe.requestId,
             ok: false,
-            error: { code: "busy", message: "Too many pending device requests", hint: "" },
+            error: {
+              code: "command_failed",
+              message: "media-connection-gone: that media connection is gone",
+              hint: "",
+            },
           }
-        : {
-            type: "devices.result",
-            requestId: subscribe.requestId,
-            ok: true,
-            ...(named ? { media: { connection: named.connection } } : {}),
-          },
+        : answer === "fails"
+          ? {
+              type: "devices.result",
+              requestId: subscribe.requestId,
+              ok: false,
+              error: { code: "busy", message: "Too many pending device requests", hint: "" },
+            }
+          : {
+              type: "devices.result",
+              requestId: subscribe.requestId,
+              ok: true,
+              ...(named ? { media: { connection: named.connection } } : {}),
+            },
     );
   };
   return {
@@ -105,6 +119,7 @@ function setup(draw?: (picture: SourcePicture) => Promise<void>) {
     mediaAcks,
     drawn,
     reply,
+    refreshed,
     /** Timers waiting on the injected clock (request deadlines, retries). */
     pendingTimers: () => deadlines.size,
     /** Every pending request's deadline passes. */
@@ -223,6 +238,48 @@ describe("device pictures across a media rebind", () => {
     expect(view.pendingTimers()).toBe(1);
     view.client.disconnect();
     expect(view.pendingTimers()).toBe(0);
+  });
+
+  it("keeps asking on its cooldown once the retries are spent, naming the healthy connection", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    for (let attempt = 0; attempt < mediaRetryDelaysMs.length + 3; attempt++) {
+      view.reply(view.subscribes.at(-1)!, "fails");
+      await flush();
+      view.timeOut();
+      await flush();
+    }
+    expect(view.subscribes).toHaveLength(mediaRetryDelaysMs.length + 4);
+    const named = view.subscribes.map((subscribe) =>
+      subscribe.operation.op === "subscribe" ? subscribe.operation.media?.connection : undefined,
+    );
+    expect(new Set(named)).toEqual(new Set(["mc_aaaaaaaaaa"]));
+  });
+
+  it("a refusal that comes after the subscribe timed out still replaces a gone connection, and its retry still waits", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.timeOut();
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.reply(view.subscribes[0]!, "gone");
+    await flush();
+    expect(view.refreshed).toEqual(["mc_aaaaaaaaaa"]);
+    expect(view.pendingTimers()).toBe(1);
+  });
+
+  it("a late refusal proving the bound connection gone replaces it even after the retry went out", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    view.timeOut();
+    await flush();
+    // The retry after the timeout goes out, naming the same connection.
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    view.reply(view.subscribes[0]!, "gone");
+    await flush();
+    expect(view.refreshed).toEqual(["mc_aaaaaaaaaa"]);
   });
 
   it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {

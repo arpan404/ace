@@ -198,6 +198,7 @@ export class MediaRuntime {
       sourceKinds: (shows) => this.sources.kinds(shows),
       sourceState: (shows) => this.sources.state(shows),
       bind: (intent) => this.viewers.bind(intent),
+      known: (connection) => this.viewers.known(connection),
       granted: (viewer) => this.viewers.granted(viewer),
       why: (viewer) => this.viewers.why(viewer),
       poster: (viewer) => this.viewers.poster(viewer),

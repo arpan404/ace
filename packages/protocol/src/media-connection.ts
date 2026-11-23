@@ -34,6 +34,16 @@ export const MediaCodecs = z.array(MediaCodec).min(1).max(8);
  * another session or another device is refused (`media-connection`).
  */
 export const MediaBinding = z.object({ connection: MediaConnectionId });
+
+/**
+ * How a subscribe naming a media connection is refused, at the start of its error: `gone`, the
+ * daemon has no such connection (closed, or never issued), so the client opens a fresh one;
+ * `notOwned`, it belongs to another session or device, whose views it may still be serving.
+ */
+export const mediaRefusals = {
+  gone: "media-connection-gone",
+  notOwned: "media-connection",
+} as const;
 export type MediaBinding = z.infer<typeof MediaBinding>;
 
 /**

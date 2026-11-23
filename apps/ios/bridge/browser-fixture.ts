@@ -56,6 +56,8 @@ export async function liveBrowser(
   const requested: unknown[] = [];
   /** Subscribes left waiting (`media: "hangs"`): each fails its request when called. */
   const hanging: ((error: Error) => void)[] = [];
+  /** The same waiting subscribes, each answered with the reply the test gives it. */
+  const answering: ((reply: unknown) => void)[] = [];
   const owner: BrowserOwner = {
     request: ((message, requestOptions) => {
       requested.push(message);
@@ -69,7 +71,11 @@ export async function liveBrowser(
         });
       if (named && options.media === "fails") return Promise.reject(new ClientError("timeout"));
       if (named && options.media === "hangs")
-        return new Promise((_resolve, reject) => void hanging.push(reject));
+        return new Promise((resolve, reject) => {
+          hanging.push(reject);
+          // The test's reply stands for the daemon's, whatever this request expects.
+          answering.push((reply) => resolve(reply as never));
+        });
       const reply = client.request(message, requestOptions);
       if (named && options.media === "unserved")
         return reply.then((value) => ({ ...value, undelivered: unservedReason }));
@@ -155,6 +161,7 @@ export async function liveBrowser(
     announce,
     scheduled,
     hanging,
+    answering,
     elapse,
   };
 }

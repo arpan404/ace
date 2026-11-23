@@ -7,6 +7,8 @@ import type { MediaDeliveryPort, ViewIntent } from "../media-viewers.ts";
  */
 export function fakeDelivery() {
   const views = new Map<string, Omit<ViewIntent, "viewer">>();
+  /** Connections it refuses: `gone` (no such connection), or `foreign` (someone else's). */
+  const refuse = new Map<string, "gone" | "foreign">();
   const live = new Set<string>();
   let ids = 0;
   const open = (viewer: string) => {
@@ -28,11 +30,13 @@ export function fakeDelivery() {
     sourceKinds: () => ["simulator"],
     sourceState: () => "live",
     bind: (intent) => {
+      if (refuse.has(intent.connection)) return undefined;
       const viewer = `view-${++ids}`;
       views.set(viewer, intent);
       open(viewer);
       return viewer;
     },
+    known: (connection) => refuse.get(connection) !== "gone",
     granted: () => true,
     why: () => undefined,
     poster: () => Promise.resolve(undefined),
@@ -44,7 +48,7 @@ export function fakeDelivery() {
       live.delete(viewer);
     },
   };
-  return { port, views, live };
+  return { port, views, live, refuse };
 }
 
 /** A paired phone's main session, as an owner of media connections. */

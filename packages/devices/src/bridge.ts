@@ -10,6 +10,7 @@ import {
 } from "@ace/protocol/devices";
 import { framePicture } from "@ace/screen";
 import {
+  bindingRefused,
   mediaSubscribed,
   mediaUndelivered,
   pendingUndelivered,
@@ -119,8 +120,7 @@ export function reserveDevices(service: DevicesService, owner: string, peer: Dev
       onGrant: (granted, why) =>
         tellDelivery(deviceId, granted ? undefined : waiting(deviceId, why)),
     });
-    if (viewer === undefined)
-      throw new Error("media-connection: that media connection isn't this session's");
+    if (viewer === undefined) throw bindingRefused(port, connection);
     return viewer;
   };
   /**

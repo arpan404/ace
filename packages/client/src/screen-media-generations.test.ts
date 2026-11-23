@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ScreenState, ServerMessage, type MediaStreamClientMessage } from "@ace/protocol";
 import { streamKinds, type StreamMessage } from "@ace/browser/stream";
 import { encodePicture } from "@ace/browser/stream-encode";
+import { mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { ScreenStreamClient, type MediaRoute, type SourcePicture } from "./screen-stream.ts";
 
 /*
@@ -86,7 +87,10 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
   const watchers = new Set<() => void>();
   const streams = new Set<(message: StreamMessage) => void>();
   const mediaAcks: { on: string | undefined; message: MediaStreamClientMessage }[] = [];
+  /** Connections the client asked to replace. */
+  const refreshed: string[] = [];
   const route: MediaRoute = {
+    refresh: (refused) => void refreshed.push(refused),
     binding: () => (connection ? { connection } : undefined),
     codecs: () => ["hvc1.1.6.L153.B0", "avc1.42E033"],
     watch: (listener) => {
@@ -114,6 +118,7 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
     subscribes,
     channelAcks,
     mediaAcks,
+    refreshed,
     drawn,
     move(next: string | undefined) {
       connection = next;
@@ -138,24 +143,31 @@ function harness(draw?: (picture: SourcePicture) => Promise<void>) {
     },
     /** `channel`: the daemon serves the stream on the channel itself (no `media` in the reply). */
     /** `fails`: a transient error, such as the daemon's pending-request limit. */
-    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "channel" | "fails") {
+    reply(subscribe: Subscribe, answer: "binds" | "refuses" | "gone" | "channel" | "fails") {
       server(
-        answer === "refuses" || answer === "fails"
+        answer === "gone"
           ? {
               type: "screen.result",
               requestId: subscribe.requestId,
               ok: false,
-              error:
-                answer === "fails"
-                  ? "Too many pending screen requests"
-                  : "media-connection: that media connection isn't this session's",
+              error: "media-connection-gone: that media connection is gone",
             }
-          : {
-              type: "screen.result",
-              requestId: subscribe.requestId,
-              ok: true,
-              ...(subscribe.media && answer === "binds" ? { media: subscribe.media } : {}),
-            },
+          : answer === "refuses" || answer === "fails"
+            ? {
+                type: "screen.result",
+                requestId: subscribe.requestId,
+                ok: false,
+                error:
+                  answer === "fails"
+                    ? "Too many pending screen requests"
+                    : "media-connection: that media connection isn't this session's",
+              }
+            : {
+                type: "screen.result",
+                requestId: subscribe.requestId,
+                ok: true,
+                ...(subscribe.media && answer === "binds" ? { media: subscribe.media } : {}),
+              },
       );
     },
   };
@@ -344,6 +356,47 @@ describe("screen pictures across a media rebind", () => {
     await flush();
     again.client.disconnect();
     expect(again.pendingTimers()).toBe(0);
+  });
+
+  it("keeps asking on its cooldown once the retries are spent, naming the healthy connection", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    for (let attempt = 0; attempt < mediaRetryDelaysMs.length + 3; attempt++) {
+      view.reply(view.subscribes.at(-1)!, "fails");
+      await flush();
+      view.timeOut();
+      await flush();
+    }
+    expect(view.subscribes).toHaveLength(mediaRetryDelaysMs.length + 4);
+    expect(new Set(view.subscribes.map((subscribe) => subscribe.media?.connection))).toEqual(
+      new Set(["mc_aaaaaaaaaa"]),
+    );
+  });
+
+  it("a refusal that comes after the subscribe timed out still replaces a gone connection, and its retry still waits", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.timeOut();
+    await flush();
+    expect(view.pendingTimers()).toBe(1);
+    view.reply(view.subscribes[0]!, "gone");
+    await flush();
+    expect(view.refreshed).toEqual(["mc_aaaaaaaaaa"]);
+    expect(view.pendingTimers()).toBe(1);
+  });
+
+  it("a late refusal proving the bound connection gone replaces it even after the retry went out", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    view.timeOut();
+    await flush();
+    // The retry after the timeout goes out, naming the same connection.
+    view.timeOut();
+    await flush();
+    expect(view.subscribes).toHaveLength(2);
+    view.reply(view.subscribes[0]!, "gone");
+    await flush();
+    expect(view.refreshed).toEqual(["mc_aaaaaaaaaa"]);
   });
 
   it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {

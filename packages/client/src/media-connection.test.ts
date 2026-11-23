@@ -135,6 +135,32 @@ describe("media connection", () => {
     expect(changes).toEqual(["mc_aaaaaaaaaa"]);
   });
 
+  it("a connection the daemon refused is replaced by a fresh one, never more often than its backoff", async () => {
+    const { media, clock, sockets, changes, welcome } = harness([
+      granted("mc_aaaaaaaaaa"),
+      granted("mc_bbbbbbbbbb"),
+      granted("mc_cccccccccc"),
+    ]);
+    media.start();
+    await flush();
+    welcome(sockets[0]!, "mc_aaaaaaaaaa");
+    // A refusal of a connection that is no longer the binding changes nothing.
+    media.refresh("mc_zzzzzzzzzz");
+    expect(sockets[0]?.closed).toBeUndefined();
+    media.refresh("mc_aaaaaaaaaa");
+    expect(sockets[0]?.closed).toBeDefined();
+    expect(media.binding()).toBeUndefined();
+    await clock.advance(250);
+    welcome(sockets[1]!, "mc_bbbbbbbbbb");
+    expect(changes).toEqual(["mc_aaaaaaaaaa", undefined, "mc_bbbbbbbbbb"]);
+    // Refused again at once: the next fresh one waits longer, though the last one opened.
+    media.refresh("mc_bbbbbbbbbb");
+    await clock.advance(250);
+    expect(sockets).toHaveLength(2);
+    await clock.advance(750);
+    expect(sockets).toHaveLength(3);
+  });
+
   it("sends acks on the media connection only while it is open", async () => {
     const { media, sockets, welcome } = harness([granted("mc_aaaaaaaaaa")]);
     const ack = {

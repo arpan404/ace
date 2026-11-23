@@ -29,7 +29,7 @@ export const mediaMissing = "ace-media isn't available on this computer";
 /** One source in ace-media, as a capture uses it (`@ace/media`'s `IngestSource`). */
 export type BrowserMediaSource = Pick<
   IngestSource,
-  "streaming" | "codecs" | "page" | "encodes" | "key" | "epoch" | "reconnect" | "close"
+  "streaming" | "codecs" | "page" | "encodes" | "key" | "epoch" | "reconnect" | "lost" | "close"
 >;
 
 /** What the browser needs of the daemon's ace-media. */
@@ -103,6 +103,7 @@ function wire(address: IngestAddress): VideoIngestTarget {
     url: address.url,
     token: Buffer.from(address.token).toString("base64"),
     epoch: address.epoch,
+    path: address.path,
   };
 }
 
@@ -169,24 +170,44 @@ async function streamed(
   ids: Ids,
   limits: MediaVideoLimits,
 ): Promise<VideoCaptureHandle> {
+  /** Set once the encoder ended the capture: before the open resolved, or since. */
+  let ended: { reason: string | undefined } | undefined;
+  /** Tears down the routed capture once it exists: its source, reports and encoder. */
+  let teardown: (() => void) | undefined;
+  /** The ace-media path the capture streams to; undefined while it streams nowhere. */
+  let current: string | undefined;
+  let renew: (() => void) | undefined;
+  let lose: ((path: string) => void) | undefined;
   const handle = await open({
     // The encoder's chunks go to ace-media's ingest; nothing comes this way.
     chunk: () => {},
     failed: (encode) => events.failed(encode),
-    ended: (reason) => events.ended(reason),
+    ended: (reason) => {
+      if (ended) return;
+      ended = { reason };
+      // Before the open resolved there is nothing routed yet: the open fails instead.
+      if (!teardown) return;
+      teardown();
+      events.ended(reason);
+    },
+    // The source manager reopens only while that path is still its open one.
+    ingestLost: (path) => {
+      if (!ended) lose?.(path);
+    },
   });
+  if (ended) {
+    handle.close();
+    throw new Error(ended.reason ?? "The tab's capture ended as it opened");
+  }
   const ingest = handle.ingest?.bind(handle);
   if (!ingest) {
     handle.close();
     throw new Error("This browser's encoder can't stream into ace-media");
   }
-  let renew: (() => void) | undefined;
   const encodeIds = new EncodeIds({ ...limits, renew: () => renew?.() });
   // The live video's last plan, stamped again when what may run changes.
   let last: readonly VideoEncode[] = [];
   const run = () => handle.encodes(encodeIds.stamp(last));
-  /** The ace-media path the capture streams to; undefined while it streams nowhere. */
-  let current: string | undefined;
   const name = `capture-${++captures}`;
   const source = media.add({
     source: name,
@@ -241,6 +262,7 @@ async function streamed(
     throw new Error(mediaMissing);
   }
   renew = () => source.reconnect();
+  lose = (path) => source.lost(path);
   const routed: VideoCaptureHandle = {
     encodes: (specs) => {
       last = specs;
@@ -255,7 +277,22 @@ async function streamed(
       handle.close();
     },
   };
-  return reported(routed, media, name, events);
+  const out = once(reported(routed, media, name, events));
+  teardown = out.close;
+  return out;
+}
+
+/** A capture handle whose `close` runs once, however many times it is called. */
+function once(handle: VideoCaptureHandle): VideoCaptureHandle {
+  let closed = false;
+  return {
+    ...handle,
+    close: () => {
+      if (closed) return;
+      closed = true;
+      handle.close();
+    },
+  };
 }
 
 /**

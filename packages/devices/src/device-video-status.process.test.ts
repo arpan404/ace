@@ -44,6 +44,7 @@ function standIn() {
       return {
         streaming: () => false,
         reconnect: () => {},
+        lost: () => {},
         codecs: () => {},
         encodes: () => {},
         key: () => {},
