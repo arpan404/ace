@@ -1,3 +1,4 @@
+import { LaneQuietLine } from "./lanes/lane-line.tsx";
 import { CardFace } from "./spade-card.tsx";
 import { SpadeAgentCard, type SpadeCardChoose } from "./spade-agent-card.tsx";
 import { SpadeNoticeRow } from "./spade-notice-row.tsx";
@@ -879,6 +880,12 @@ function Single(props: {
     case "quiet": {
       const { onOpenBot, onOpenWork } = props.handlers;
       const quiet = item.quiet;
+      if (quiet.kind === "lane")
+        return (
+          <div className={cn("flex", space)}>
+            <LaneQuietLine quiet={quiet} />
+          </div>
+        );
       // A bot worker's line opens its chat, a goal's or a check's opens Work; an ace worker's
       // is a note where it happened.
       const worker = quiet.kind === "worker-reported" && !quiet.ace ? quiet.worker : undefined;

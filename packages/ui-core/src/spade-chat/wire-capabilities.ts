@@ -23,7 +23,7 @@ export const spadeWorkerStates = [
 export type SpadeWorkerState = (typeof spadeWorkerStates)[number];
 
 /** A bot made with `bot_create`, or an ace thread started with `delegate`. */
-const workerKind = z.enum(["bot", "ace", "helper"]).catch("bot");
+const workerKind = z.enum(["bot", "ace", "helper", "lane"]).catch("bot");
 
 /** What a wake is for (`wake::Purpose`), by its `kind`; an unknown one reads as a plain wait. */
 const purpose = z
@@ -85,4 +85,17 @@ export const spadeCapabilityEvents = [
   /** An owned service started: only its name is read, for the words of a wait on it. */
   z.object({ type: z.literal("service_started"), service: z.string(), name: words }),
   z.object({ type: z.literal("wake_cancelled"), wake: z.string() }),
+  /*
+   * Prototype (ADR 0217, proposed): a task the bot runs in its own lane. `lane_started` where
+   * main started it, `reply_moved` where Spade moved main's long work to one, `ask_routed` under a
+   * person's message a reply sent to one.
+   */
+  z.object({
+    type: z.literal("lane_started"),
+    lane: z.string(),
+    conversation: words,
+    title: words,
+  }),
+  z.object({ type: z.literal("reply_moved"), lane: z.string(), title: words }),
+  z.object({ type: z.literal("ask_routed"), lane: z.string(), title: words }),
 ] as const;

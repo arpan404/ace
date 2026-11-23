@@ -50,14 +50,29 @@ export function foldSpadeCapability(
     case "worker_started":
       state.workers.set(event.worker, event.name);
       // A helper is its own line already (ADR 0152).
-      if (event.kind === "helper") return true;
+      if (event.kind === "helper" || event.kind === "lane") return true;
       started(event.call, {
         id: event.worker,
         kind: event.kind,
         name: event.name || (event.kind === "ace" ? "An ace agent" : "A worker"),
       });
       return true;
+    case "lane_started":
+      place({ kind: "lane", lane: event.lane, title: event.title, event: "started" });
+      return true;
+    case "reply_moved":
+      place({ kind: "lane", lane: event.lane, title: event.title, event: "moved" });
+      return true;
+    case "ask_routed":
+      place({ kind: "lane", lane: event.lane, title: event.title, event: "routed" });
+      return true;
     case "worker_reported":
+      if (event.kind === "lane") {
+        if (event.state === "stopping" || event.state === "parked" || event.state === "other")
+          return false;
+        place({ kind: "lane", lane: event.worker, title: event.name, event: event.state });
+        return true;
+      }
       // Stopping still counts as running: its stopped report follows. A worker started here
       // has its card, which says how it stands now; a report line would only go stale.
       if (event.kind === "helper" || event.state === "stopping") return false;

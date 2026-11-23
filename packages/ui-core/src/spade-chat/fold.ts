@@ -323,6 +323,8 @@ export interface SpadeRequest {
   /** For a connected app's tool, the definition the person is shown. */
   definition?: string;
   helper?: { job: string; task: string };
+  /** Prototype (ADR 0217): the task lane that asked. */
+  lane?: { title: string };
   answer: "allowed" | "denied" | undefined;
   /** Allowed always. */
   always: boolean;
@@ -345,6 +347,7 @@ export interface SpadeApproval {
   definition?: string;
   /** A helper's call (ADR 0152): its job and task. It outlives the reply that started it. */
   helper?: { job: string; task: string };
+  lane?: { title: string };
 }
 
 /**
@@ -710,6 +713,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(event.effect ? { effect: event.effect } : {}),
           ...(event.tool_key && event.ask !== "undeclared" ? { definition: event.tool_key } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
+          ...(event.lane ? { lane: { title: event.lane.title } } : {}),
         },
       ];
       // Asked again: the request stands where it was first asked. Asked after the person
@@ -740,12 +744,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(asked.effect ? { effect: asked.effect } : {}),
           ...(asked.definition ? { definition: asked.definition } : {}),
           ...(asked.helper ? { helper: asked.helper } : {}),
+          ...(asked.lane ? { lane: asked.lane } : {}),
           answer: undefined,
           always: false,
         };
         // In the reply that asked, after its words so far; a helper's where it arrived.
         if (
           event.helper ||
+          event.lane ||
           !updateOpen(state, event.reply, (entry) => ({
             ...entry,
             parts: [...entry.parts, request],

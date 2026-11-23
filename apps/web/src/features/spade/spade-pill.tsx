@@ -4,8 +4,14 @@ import { SpadeFace } from "./spade-face.tsx";
 import type { RosterBot } from "./use-spade-roster.ts";
 
 /** The pill's capsule: floating at the top centre of a conversation, in the composer's glass. */
-export const conversationPill =
-  "ace-glass-dock absolute top-3 left-1/2 z-10 flex h-10 max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border border-input pr-4 pl-1.5 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover";
+export const conversationPillShape =
+  "ace-glass-dock flex h-10 min-w-0 items-center gap-2 rounded-full border border-input pr-4 pl-1.5 text-ui font-medium text-foreground transition-colors duration-(--motion-fast) focus-ring hover:bg-hover";
+
+/** Where the pill floats: at the top centre of a conversation. */
+export const conversationPillPlace =
+  "absolute top-3 left-1/2 z-10 max-w-[calc(100%-2rem)] -translate-x-1/2";
+
+export const conversationPill = `${conversationPillPlace} ${conversationPillShape}`;
 
 /**
  * The scroll edge under the pill: the transcript fades into the page behind it, so words never
@@ -29,7 +35,14 @@ const face = 28;
  * its name, its machine only when that isn't this one, and "Full access" when the bot is in it.
  * It opens the bot's profile.
  */
-export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
+export function ConversationPill(props: {
+  bot: RosterBot;
+  onOpen(): void;
+  /** Prototype (ADR 0217): placed in a row with the tasks pill rather than on its own. */
+  placed?: false;
+  /** Prototype (ADR 0217): a lane's title in place of the bot's name, the bot named quietly. */
+  lane?: string | undefined;
+}) {
   const { bot } = props;
   const state = bot.away || bot.unavailable ? "idle" : botFaceStateOf(bot);
   const elsewhere = !bot.machine.primary;
@@ -39,10 +52,13 @@ export function ConversationPill(props: { bot: RosterBot; onOpen(): void }) {
       onClick={props.onOpen}
       aria-label={`${bot.name}${elsewhere ? ` on ${bot.machine.name}` : ""}${bot.fullAccess ? ", Full access" : ""}: open its profile`}
       {...part("header-title", undefined, "spade-pill")}
-      className={conversationPill}
+      className={props.placed === false ? conversationPillShape : conversationPill}
     >
       <SpadeFace avatar={bot.avatar} size={face} state={state} />
-      <span className="min-w-0 truncate">{bot.name}</span>
+      <span className="min-w-0 truncate">{props.lane ?? bot.name}</span>
+      {props.lane && (
+        <span className="shrink-0 font-normal text-subtle-foreground">Task of {bot.name}</span>
+      )}
       {elsewhere && (
         <span className="shrink-0 font-normal text-subtle-foreground">on {bot.machine.name}</span>
       )}

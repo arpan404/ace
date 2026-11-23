@@ -1,3 +1,4 @@
+import { seedFakeLanes } from "./fake-spade-lanes.ts";
 import { useFakeMediaSockets } from "@/lib/video/media.ts";
 import { seedComputerUse } from "./fake-computer-use.ts";
 import { seedFakeSkills } from "./fake-skills.ts";
@@ -320,6 +321,8 @@ export function bootFake(): {
   seedBuildServerUsage(server, Date.now());
   // `?fakeWorld=spade`: Spade and its bots, here and on the build server.
   if (world === "spade") seedFakeSpade(daemon, server);
+  // `?fakeWorld=spade-lanes`: the Spade world, and a bot running task lanes (ADR 0217 prototype).
+  if (world === "spade-lanes") seedFakeLanes(seedFakeSpade(daemon, server));
   // `?fakeWorld=spade-empty`: Spade with no bots yet, for the first visit.
   if (world === "spade-empty") seedFakeSpadeEmpty(daemon);
   // `?fakeWorld=org`: the Spade world, with the build server's Spade one of Acme Robotics'.

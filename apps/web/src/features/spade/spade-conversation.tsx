@@ -27,7 +27,11 @@ import { SpadeTermsHold } from "./spade-terms-hold.tsx";
 import { SpadeComposer } from "./spade-composer.tsx";
 import { SpadeFirstRun } from "./spade-first-run.tsx";
 import { showModelSetup, SpadeKeySetup } from "./spade-key-setup.tsx";
-import { ConversationPill, PillEdge } from "./spade-pill.tsx";
+import { ConversationPill, conversationPillPlace, PillEdge } from "./spade-pill.tsx";
+import { LanesPill } from "./lanes/lane-list.tsx";
+import { LanesPanel, LaneWorkPanel } from "./lanes/lane-panels.tsx";
+import { laneById, lanesFor, type LaneFixture } from "./lanes/lanes-fixture.ts";
+import { setLanesPlace, useLanesPlace } from "./lanes/lanes-place.ts";
 import { SpadeStateStrip } from "./spade-state.tsx";
 import type { FilesAt } from "./computer/profile-computer.tsx";
 import {
@@ -102,7 +106,11 @@ export function Conversation(props: {
   /** One of its package's panels open beside it, in place of the profile (ADR 0200 §5.2). */
   panel?: string | undefined;
 }) {
-  const { bot } = props;
+  // Prototype (ADR 0217): a bot with task lanes, and the one open, shown in the chat's place.
+  const lanesPlace = useLanesPlace();
+  const botLanes = lanesFor(props.bot.id);
+  const lane = botLanes && lanesPlace.lane ? laneById(lanesPlace.lane) : undefined;
+  const bot = lane ? laneBot(props.bot, lane) : props.bot;
   const conversation = useSpadeConversation(bot.conversation);
   const { view, problem } = conversation;
   useRevealRequest(props.request, view !== undefined);
@@ -245,13 +253,36 @@ export function Conversation(props: {
   const panels = useBotPanels(bot.conversation, props.panel !== undefined);
   const openPanel = tab === undefined ? panels.find((each) => each.id === props.panel) : undefined;
   const showPanel = (panel: string) => go({ panel });
-  const panelShown = tab !== undefined || openPanel !== undefined;
+  const lanePanel = lane ? (
+    <LaneWorkPanel bot={props.bot} lane={lane} />
+  ) : botLanes && lanesPlace.panel ? (
+    <LanesPanel bot={props.bot} lanes={botLanes} />
+  ) : undefined;
+  const panelShown = tab !== undefined || openPanel !== undefined || lanePanel !== undefined;
 
   const chat = (
     <div data-thread-column="" className="relative grid h-full min-h-0 grid-cols-1 grid-rows-1">
       <h1 className="sr-only">{bot.name}</h1>
       <PillEdge />
-      <ConversationPill bot={bot} onOpen={() => openProfile()} />
+      {lane ? (
+        <ConversationPill
+          bot={bot}
+          lane={lane.title}
+          onOpen={() => setLanesPlace({ lane: undefined })}
+        />
+      ) : botLanes ? (
+        <div className={cn(conversationPillPlace, "flex items-center gap-2")}>
+          <ConversationPill bot={bot} onOpen={() => openProfile()} placed={false} />
+          <LanesPill
+            lanes={botLanes}
+            avatar={bot.avatar}
+            open={lanesPlace.popover}
+            onOpenChange={(shown) => setLanesPlace({ popover: shown })}
+          />
+        </div>
+      ) : (
+        <ConversationPill bot={bot} onOpen={() => openProfile()} />
+      )}
       <Scroller
         top="pill"
         sent={sent}
@@ -387,7 +418,7 @@ export function Conversation(props: {
         stopping={stopping}
         blocked={line.ready ? undefined : line.sentence}
         needsModel={needsModel ? { onSetUp: setUpModel } : undefined}
-        placeholder={`Message ${bot.name}`}
+        placeholder={lane ? "Message this task" : `Message ${bot.name}`}
         recall={(older) => spadeSentText(view.entries, older)}
         quote={
           quote === undefined ? undefined : { text: quote, onRemove: () => setQuote(undefined) }
@@ -403,50 +434,52 @@ export function Conversation(props: {
     </div>
   );
 
-  const panel = openPanel ? (
-    <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-      <BotPanelView
-        key={openPanel.id}
-        bot={bot}
-        conversation={bot.conversation}
-        panel={openPanel}
-        state={spadePanelState(openPanel, view.panels)}
-        covering={covering}
-        onClose={() => go({})}
-      />
-    </Suspense>
-  ) : (
-    tab && (
-      <SpadeProfile
-        bot={bot}
-        tab={tab}
-        onTab={(next) => go({ profile: next })}
-        computer={{
-          view: props.computer,
-          files: props.files,
-          onView: openComputer,
-          state: computer,
-          side: conversation.side,
-        }}
-        work={{
-          decisions: view.decisions,
-          entries: view.entries,
-          roster: props.roster,
-          onChange: (decision) => {
-            setQuote(decision.choice);
-            // Where the profile takes the window, the chat comes back to write in.
-            if (covering) closePanel();
-          },
-          onOpenFile: (path) =>
-            openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path }),
-          onOpenActivity: () => openComputer("activity"),
-        }}
-        panels={{ list: panels, onOpen: showPanel }}
-        covering={covering}
-        onClose={closePanel}
-      />
-    )
-  );
+  const panel =
+    lanePanel ??
+    (openPanel ? (
+      <Suspense fallback={<Skeleton className="m-4 h-24" />}>
+        <BotPanelView
+          key={openPanel.id}
+          bot={bot}
+          conversation={bot.conversation}
+          panel={openPanel}
+          state={spadePanelState(openPanel, view.panels)}
+          covering={covering}
+          onClose={() => go({})}
+        />
+      </Suspense>
+    ) : (
+      tab && (
+        <SpadeProfile
+          bot={bot}
+          tab={tab}
+          onTab={(next) => go({ profile: next })}
+          computer={{
+            view: props.computer,
+            files: props.files,
+            onView: openComputer,
+            state: computer,
+            side: conversation.side,
+          }}
+          work={{
+            decisions: view.decisions,
+            entries: view.entries,
+            roster: props.roster,
+            onChange: (decision) => {
+              setQuote(decision.choice);
+              // Where the profile takes the window, the chat comes back to write in.
+              if (covering) closePanel();
+            },
+            onOpenFile: (path) =>
+              openComputer("files", { folder: path.split("/").slice(0, -1).join("/"), file: path }),
+            onOpenActivity: () => openComputer("activity"),
+          }}
+          panels={{ list: panels, onOpen: showPanel }}
+          covering={covering}
+          onClose={closePanel}
+        />
+      )
+    ));
 
   return (
     <BotVoiceContext value={speech.voice}>
@@ -460,7 +493,7 @@ export function Conversation(props: {
                   {spadeForLaterWords(view.questionsForLater)}
                 </Button>
               )}
-              {openPanel ? (
+              {lanePanel ? null : openPanel ? (
                 <IconButton
                   icon={XIcon}
                   label={`Close ${openPanel.title}`}
@@ -472,6 +505,16 @@ export function Conversation(props: {
                 <ProfileStripActions bot={bot} onClose={closePanel} />
               ) : (
                 <>
+                  {/* Prototype (ADR 0217): the task list beside the chat, by name. */}
+                  {botLanes && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setLanesPlace({ panel: true })}
+                    >
+                      Tasks
+                    </Button>
+                  )}
                   {/* Its panels, by name: the header is one way in (§5.2). */}
                   {panels.slice(0, 2).map((each) => (
                     <Button
@@ -544,4 +587,17 @@ export function Conversation(props: {
       </ConversationScreen>
     </BotVoiceContext>
   );
+}
+
+/** Prototype (ADR 0217): the bot as one of its lanes reads, for the lane's own transcript. */
+function laneBot(bot: RosterBot, lane: LaneFixture): RosterBot {
+  return {
+    ...bot,
+    conversation: lane.conversation,
+    task: lane.title,
+    state: lane.state === "working" ? "working" : lane.state === "human" ? "waiting" : "idle",
+    waitingFor: lane.state === "human" ? "approval" : undefined,
+    status: lane.state === "working" ? lane.detail : undefined,
+    unseen: false,
+  };
 }

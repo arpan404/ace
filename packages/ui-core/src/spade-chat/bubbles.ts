@@ -236,6 +236,8 @@ type SpadeBubbleOf =
       definition?: string;
       /** A helper's call (ADR 0152): its task. */
       helper: { job: string; task: string } | undefined;
+      /** Prototype (ADR 0217): the task lane that asked. */
+      lane?: { title: string };
       state: "open";
     }
   /**
@@ -630,6 +632,7 @@ function askBubble(
       ? { definition: waiting.definition ?? request.definition }
       : {}),
     helper: waiting.helper ?? request.helper,
+    ...((waiting.lane ?? request.lane) ? { lane: waiting.lane ?? request.lane } : {}),
     state: "open",
   };
 }

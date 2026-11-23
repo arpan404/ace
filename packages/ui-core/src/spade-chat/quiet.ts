@@ -15,6 +15,8 @@ export type SpadeQuiet =
   /** The bot's panel sent an action, or the person confirmed one there (ADR 0200 §5.2). */
   | { kind: "panel-action"; label: string; by: "page" | "person" }
   | { kind: "checked"; verdict: "done" | "not_yet" | "unchecked"; missing: readonly string[] }
+  /** Prototype (ADR 0217): a task lane started, moved to, sent a message, or reporting. */
+  | { kind: "lane"; lane: string; title: string; event: SpadeLaneEvent }
   | {
       kind: "worker-reported";
       worker: string;
@@ -22,6 +24,17 @@ export type SpadeQuiet =
       name: string;
       state: Exclude<SpadeWorkerState, "stopping">;
     };
+
+/** What a lane's quiet line is about (prototype, ADR 0217). */
+export type SpadeLaneEvent =
+  | "started"
+  | "moved"
+  | "routed"
+  | "done"
+  | "finished"
+  | "needs_you"
+  | "failed"
+  | "stopped";
 
 /** A plan mark: met, still being worked on, open, or what waits on the person. */
 export type SpadeQuietMark = "done" | "working" | "open";
@@ -103,6 +116,8 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
         plain("Says done, "),
         strong("not checked"),
       ]);
+    case "lane":
+      return laneLine(quiet.title || "a task", quiet.event);
     case "worker-reported": {
       const words = [
         strong(quiet.name),
@@ -116,5 +131,45 @@ export function spadeQuietLine(quiet: SpadeQuiet): SpadeQuietLine {
         ? line({ kind: "none" }, words)
         : line({ kind: "face", bot: quiet.worker, pose: reportPose(quiet.state) }, words);
     }
+  }
+}
+
+/** A lane's line in main's chat, in Spade's words (ADR 0217 §7). */
+function laneLine(title: string, event: SpadeLaneEvent): SpadeQuietLine {
+  switch (event) {
+    case "started":
+      return line({ kind: "mark", mark: "working", label: "Task" }, [
+        plain("Started a task: "),
+        strong(title),
+      ]);
+    case "moved":
+      return line({ kind: "mark", mark: "working", label: "Task" }, [
+        plain("This is taking a while, so I moved it to its own task: "),
+        strong(title),
+        plain(". I'm free to talk."),
+      ]);
+    case "routed":
+      return line({ kind: "none" }, [plain("Sent to "), strong(title)]);
+    case "done":
+    case "finished":
+      return line({ kind: "mark", mark: "done", label: "Done" }, [
+        plain("Task done: "),
+        strong(title),
+      ]);
+    case "needs_you":
+      return line({ kind: "mark", mark: "open", label: "Needs you" }, [
+        strong(title),
+        plain(" needs you"),
+      ]);
+    case "failed":
+      return line({ kind: "mark", mark: "open", label: "Stopped early" }, [
+        plain("Task stopped early: "),
+        strong(title),
+      ]);
+    case "stopped":
+      return line({ kind: "mark", mark: "open", label: "Stopped" }, [
+        plain("Task stopped: "),
+        strong(title),
+      ]);
   }
 }
