@@ -7,6 +7,7 @@ import { z } from "zod";
 import { DeviceId, HostId, InstallId, PairingLinkProof, SettingsValues } from "@ace/protocol";
 import { agentName } from "@ace/ui-core";
 import { call, scheduler } from "./host.ts";
+import { keepMemberStanding, nativeMemberProver } from "./member-standing.ts";
 import { ProjectManage } from "./project-manage.ts";
 import { PatchPump } from "./patches.ts";
 import { followInbox, inboxAction, makeActivityGeneration, type InboxFollow } from "./inbox.ts";
@@ -373,6 +374,9 @@ async function start(json: string): Promise<void> {
     keptValue("runAlerts"),
   );
   const owner = client;
+  // An organization's host: the member's standing is kept proven on each socket (ADR 0206 §2.2).
+  // Native signs only for a machine it reaches as a member, so a personal one sends nothing.
+  if (account) keepMemberStanding(client, nativeMemberProver(call), scheduler);
   const activityGeneration = makeActivityGeneration();
   connection.subscribe(() => {
     if (connection.getSnapshot() !== "ready") return;

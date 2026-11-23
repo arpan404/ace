@@ -157,8 +157,15 @@ export const AceOrgPolicy = z.object({
   audit: z.object({ content: z.enum(["digests", "targets"]) }).optional(),
 });
 export type AceOrgPolicy = z.infer<typeof AceOrgPolicy>;
-/** `PUT /v1/orgs/{org}/policy`: the next version. */
-export const AceOrgPolicySetRequest = z.object({ policy: AceOrgPolicy });
+/**
+ * `PUT /v1/orgs/{org}/policy`: the next version, and the version the edit started from. A save
+ * whose base isn't the current version is refused (`policy_changed`), so an edit made over an
+ * older version never drops a newer restriction.
+ */
+export const AceOrgPolicySetRequest = z.object({
+  policy: AceOrgPolicy,
+  version: z.number().int().nonnegative(),
+});
 /**
  * One stored version (`GET /v1/orgs/{org}/policy`): `body` is the exact text the statement's
  * `body_sha256` was made over, and `statement` the backend's signature on it, verified with

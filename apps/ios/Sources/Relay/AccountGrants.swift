@@ -33,6 +33,17 @@ final class AccountGrants: @unchecked Sendable {
         }
     }
 
+    /// One of an organization's hosts (ADR 0206 §2.2): member grants bound to that host, this phone
+    /// and the phone's key for the host, which its sockets prove with (`MemberStanding`).
+    convenience init(api: AceAccountAPI, session: AceAccountSessionStore, deviceId: String, member: MemberRoute, hostId: String) {
+        self.init { () async throws(AccountGrantError) -> AceGrant in
+            guard let token = session.token() else { throw .signedOut }
+            // Without a key of its own the phone can't be a member there; a device grant would only be refused.
+            guard let key = member.keys.publicKey(for: hostId) else { throw .refused }
+            return try await api.memberGrant(token: token, org: member.org, host: hostId, deviceId: deviceId, key: key)
+        }
+    }
+
     /// A person's grant for `host` bound to `key`, fetched anew each time: it lives minutes and is
     /// kept nowhere but the proof it goes into.
     func personGrant(host: String, key: String) async throws(AccountGrantError) -> String? {
@@ -96,6 +107,13 @@ struct AceAccountSessionStore: Sendable {
     func deviceId(install: InstallIdentity = .system) -> String { install.id() }
 }
 
+/// An organization's host reached as one of its members (ADR 0206 §2.2): the organization, and
+/// the phone's keys its sockets prove with.
+struct MemberRoute: Sendable {
+    let org: String
+    var keys = MemberKeys()
+}
+
 /// An account machine reached through ace's hosted relay.
 struct RelayRoute: Sendable {
     static let grantPrefix = "ace.grant."
@@ -104,6 +122,9 @@ struct RelayRoute: Sendable {
     let grants: AccountGrants
     /// The account session this route signs in as (`KeptScope.account`); nil while signed out.
     var principal: String? = nil
+    /// Set for an organization's host: its grants are member grants, and each socket proves the
+    /// member's standing with the phone's key for it.
+    var member: MemberRoute? = nil
     /// The key this runtime's daemon sockets prove the person's standing with (ADR 0190 §3); nil:
     /// they prove nothing.
     var standingKey: (any AccountStandingKey)? = nil

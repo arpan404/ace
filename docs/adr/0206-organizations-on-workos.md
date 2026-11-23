@@ -783,3 +783,21 @@ membership changes for accounts that hold no live grant; it is tracked separatel
   their rows at or before the deletion, with their audit entries and portal revocations queued
   from the same rows in the same batch.
 - **Organizations:** an update needs a strictly newer time, so a deletion wins a tie.
+
+## Amendment 4 (2026-11-22): admin pages on the iPhone
+
+Decided by: the owner (2026-11-22), bringing §1.5's iPhone admin pages forward from M4's end.
+
+- **Settings › Organization is on the iPhone,** for the shown space's owners and admins only:
+  Members, Sign-in, Hosts, Policy, Registry and Audit log, as §2.7 lists them. A member sees no
+  row. Remove, Leave, a role change, Revoke, Release and saving the policy each ask first.
+- **The phone calls the account backend itself,** with the person's own session, exactly as
+  `SpacesModel` already does for spaces (`Sources/Relay/AceAccountAPI.swift`). No daemon sits in
+  between: these routes belong to the account, not to one machine.
+- **The rules are the web's, run in the bridge.** Reading and writing the policy's lists as lines
+  of text and reading a host's audit export are shared code (`@ace/ui-core/org`), which web and
+  the phone's bridge (`apps/ios/bridge/organization.ts`) both run. The audit log is read from an
+  org host's own Spade, through that host's runtime, as on the web.
+- **Still not on the phone:** giving the phone's paired machine to the organization (it needs the
+  machine's owner at the machine, §2.1), and publishing to or withdrawing from the registry,
+  which no client does yet (§5); the Registry page says where those happen.

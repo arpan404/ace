@@ -1,0 +1,4 @@
+{"kind":"header","org":"org_acme","host":"host_1","key":"key-1"}
+{"kind":"entry","seq":1,"prev":"0000000000000000000000000000000000000000000000000000000000000000","hash":"h1","action":"bot.effect","occurredAt":1000,"actor":{"type":"bot","id":"bot_1","name":"Triage"},"targets":[{"type":"repo","id":"acme/web"}],"metadata":{"allowed_by":"approver","allowed_by_account":"acct_dana","effect":"publish"}}
+{"kind":"checkpoint","count":1,"head":"h1","at":1001,"signature":"sig"}
+{"kind":"entry","seq":2,"prev":"h1","hash":"h2","action":"custom.thing","occurredAt":2000,"actor":{"type":"account","id":"acct_dana"},"targets":[]}
