@@ -164,6 +164,7 @@ test("a bot's review lists what it shares, the apps it asks for and what it leav
     pick: bot?.id,
   });
   expect(check.bot).toMatchObject({
+    name: "Inbox sorter",
     task: "You look after Arlo Quint's inbox.",
     routines: [
       { index: 0, name: "Morning sort", schedule: "weekdays at 8:00" },
@@ -198,8 +199,7 @@ test("a bot published with one routine left out sends only the routines kept", a
   });
   const sent = daemon.marketplace.publishing.sources.at(-1)?.checked;
   expect(sent?.recipe?.routines.map((routine) => routine.name)).toEqual(["Morning sort"]);
-  // The names it flagged are confirmed as seen; nothing the person wasn't shown.
-  expect(sent?.accepted).toContain("Arlo Quint");
+  expect(sent?.accepted).toEqual(["Arlo Quint"]);
 });
 
 test("a draft from a check the bridge no longer holds asks to look at it again", async () => {
