@@ -120,19 +120,15 @@ fn the_verifier_and_the_reviewer_default_to_the_strongest_model_in_use_never_a_w
         );
     }
     // An unpriced bot can't be compared: its own model verifies, and the fast model reviews,
-    // as it did before; a subscription bot's reviewer is the fast endpoint model, never the
-    // subscription, which a review can't run on.
+    // as it did before.
     assert_eq!(
         choose("local/llama", &none, &none, &with_fast(), Role::Verify),
         ("local/llama".to_owned(), Source::Own)
     );
-    for own in ["local/llama", "cli:codex/gpt-6.2-sol"] {
-        assert_eq!(
-            choose(own, &none, &none, &with_fast(), Role::Review),
-            ("a/fast".to_owned(), Source::Default),
-            "{own}"
-        );
-    }
+    assert_eq!(
+        choose("local/llama", &none, &none, &with_fast(), Role::Review),
+        ("a/fast".to_owned(), Source::Default)
+    );
 }
 
 #[test]
@@ -153,23 +149,6 @@ fn the_bots_override_beats_the_global_one_and_a_gone_model_is_skipped() {
         choose("a/strong", &gone, &global, &defaults, Role::Helper),
         ("local/llama".to_owned(), Source::Global)
     );
-}
-
-#[test]
-fn one_shot_roles_never_run_on_a_subscription() {
-    let bot = overrides(&[(Role::Compact, "cli:codex/gpt-6.1-sol")]);
-    let none = Overrides::default();
-    let mut models = table();
-    models.0.insert("cli:codex/gpt-6.1-sol", None);
-    let routing = Routing {
-        own: "a/strong",
-        bot: &bot,
-        global: &none,
-        defaults: &with_fast(),
-        models: &models,
-    };
-    assert_eq!(routing.resolve(Role::Compact).model, "a/fast");
-    assert!(routing.pick("cli:codex/gpt-6.1-sol").is_err());
 }
 
 #[test]
@@ -361,15 +340,9 @@ fn a_route_skips_gone_models_and_holds_at_most_four() {
 }
 
 #[test]
-fn a_route_never_gains_a_subscription() {
+fn a_route_skips_an_old_subscription_reference() {
     let none = Overrides::default();
-    // A bot on a subscription runs on it alone, whatever routes the person set.
-    let global = routes(&[(Role::Main, &["a/mid", "local/llama"])]);
-    assert_eq!(
-        route_of("cli:codex/gpt-6.1-sol", &none, &global, Role::Main),
-        ["cli:codex/gpt-6.1-sol"]
-    );
-    // A subscription stored in a route (by hand, or an older build) is never tried.
+    // A subscription stored in a route by an older build (ADR 0133) is never tried.
     let stored = routes(&[
         (Role::Main, &["cli:claude/opus", "a/mid"]),
         (Role::Helper, &["cli:codex/gpt-6.1-sol"]),

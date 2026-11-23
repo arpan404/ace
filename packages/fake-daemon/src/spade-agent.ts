@@ -22,10 +22,8 @@ export interface FakeSpadeAgent {
   /** Its cards left for later, not yet answered or dismissed (ADR 0154). */
   questions_for_later?: number;
   status: string | null;
-  /** Why its latest reply on a subscription failed (ADR 0133). */
+  /** Why it can't run, in one line. */
   problem?: string | null;
-  /** Its subscription's terms no longer allow it: `{provider, name, text, choices}` (ADR 0205). */
-  terms_hold?: Json | null;
   last_message: {
     from: "person" | "agent";
     text: string;

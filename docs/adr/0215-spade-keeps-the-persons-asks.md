@@ -153,7 +153,7 @@ the card.
   model reads its note as Spade's: this message is still unanswered; answer it in a line and sort
   it. Once per steer: the reminder, or the next step, ends the ledger's watch on it. A first
   step that made no calls ends the reply, where the stop check (§3) already names an unsorted
-  steer. Subscription brains run their own loop, so they get the wrapper but no reminder.
+  steer. (Subscription brains, which got the wrapper but no reminder, were removed by ADR 0219.)
 
 ### The ledger's surface
 

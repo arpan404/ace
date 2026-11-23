@@ -582,43 +582,6 @@ fn the_count_for_later_goes_down_as_each_is_answered_or_dismissed_and_a_stop_lea
 }
 
 #[test]
-fn a_cli_turn_gets_late_answers_and_a_card_answer_never_swallows_the_next_message() {
-    let events = vec![
-        Event::user_message("Plan"),
-        Event::reply_started("r1", "cli:claude/opus"),
-        step("r1", &[("q1", seat())]),
-        asked("r1", "q1", seat()),
-        k(Known::QuestionDeferred {
-            call_id: "q1".into(),
-            by_bot: false,
-        }),
-        finished("r1", "q1", DEFERRED),
-        Event::user_message("Also find hotels"),
-        k(Known::QuestionAnswered {
-            call_id: "q1".into(),
-            answers: vec![json!("Aisle")],
-            late: true,
-            typed: false,
-        }),
-    ];
-    let mut seen = events.clone();
-    if let Some(Event::Known(Known::StepFinished { seen: s, .. })) = seen.get_mut(2) {
-        *s = Some(3);
-    }
-    let turn = crate::brain::next_turn(&seen).sure();
-    assert!(
-        turn.message.contains("Also find hotels"),
-        "{}",
-        turn.message
-    );
-    assert!(
-        turn.message.contains("<question_answer call=\"q1\">"),
-        "{}",
-        turn.message
-    );
-}
-
-#[test]
 fn questions_round_trip_through_stored_json_and_old_events_read_as_one_text_question() {
     let event = asked("r1", "q1", seat());
     assert_eq!(Event::from_json(event.to_json()), event);

@@ -24,7 +24,7 @@ impl Steering {
     /// that steers the running reply.
     pub fn read(&mut self, event: &Event, maker: Option<&str>) -> bool {
         let was_asking = self.asking;
-        self.asking = crate::brain::still_asking(self.asking, event);
+        self.asking = still_asking(self.asking, event);
         match event {
             Event::Known(Known::ReplyStarted { reply, .. }) => {
                 self.running = Some(reply.clone());
@@ -163,4 +163,22 @@ pub fn due(ledger: &Ledger, reply: &str) -> Option<Reminded> {
         steers: unanswered.iter().map(|w| w.id.clone()).collect(),
         note,
     })
+}
+
+/// Whether a waiting `ask_user` question still takes the person's next typed message as its
+/// answer after `event`.
+fn still_asking(asking: bool, event: &Event) -> bool {
+    match event {
+        // An app's form is answered only on its card, never by a typed message.
+        Event::Known(Known::QuestionAsked { call_id, .. }) => {
+            crate::question::elicit::call_of(call_id).is_none() || asking
+        }
+        Event::Known(
+            Known::QuestionDeferred { .. }
+            | Known::QuestionAnswered { late: false, .. }
+            | Known::QuestionDismissed { late: false, .. },
+        ) => false,
+        _ if crate::question::typed_by_person(event) => false,
+        _ => asking,
+    }
 }

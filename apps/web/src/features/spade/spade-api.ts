@@ -7,7 +7,6 @@ import {
   parseSpadeLiveModels,
   parseSpadeModels,
   parseSpadeSearchUsage,
-  parseSpadeSubscriptions,
   parseSpadeTaskHistory,
   parseSpadeUndone,
   parseSpadeTranscription,
@@ -17,7 +16,6 @@ import {
   type SpadeModelInfo,
   type SpadeModels,
   type SpadeSearchUsage,
-  type SpadeSubscription,
   type SpadeTaskVersion,
 } from "@ace/ui-core/spade-chat";
 import {
@@ -171,25 +169,6 @@ export async function pinAgent(target: SpadeTarget, id: string, pinned: boolean)
 
 export async function readModels(target: SpadeTarget, options: Signal = {}): Promise<SpadeModels> {
   return sure(parseSpadeModels(await spadeHttp(target, "GET", "/v1/models", options)), "models");
-}
-
-/** The person's subscriptions a bot can think with, as ace lists them (ADR 0133). */
-export async function readSubscriptions(
-  target: SpadeTarget,
-  options: Signal = {},
-): Promise<{ providers: SpadeSubscription[]; error: string | undefined }> {
-  const body = await spadeHttp(target, "GET", "/v1/subscriptions", options);
-  return sure(parseSpadeSubscriptions(body), "subscriptions");
-}
-
-/**
- * The person ticked Use it for `provider`'s subscription (ADR 0205 §1): what choosing it means,
- * read once per provider.
- */
-export async function acknowledgeTerms(target: SpadeTarget, provider: string): Promise<void> {
-  await spadeHttp(target, "PUT", `/v1/subscriptions/${segment(provider)}/terms`, {
-    body: { use: true },
-  });
 }
 
 /** What the endpoint itself lists now. */

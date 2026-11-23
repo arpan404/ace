@@ -1823,21 +1823,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "installed": {
-      "acceptedAt": 0,
-      "hash": "7d651639020b41b1cb382360f9dea6809355ef1996e6ae0abb23d09ac08d6c87",
-      "held": {
-        "version": "example"
-      },
-      "name": "0wzfnjrwf37x",
-      "source": "market",
-      "state": "on",
-      "title": "example",
-      "type": "spade-skill",
-      "update": "9826.62542.3250457-g7itEV",
-      "version": "example"
-    },
-    "op": "done"
+    "installed": [],
+    "op": "installed"
   },
   "type": "marketplace.result"
 }
@@ -4562,7 +4549,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"account.standing.result"` |  |
 | requestId | yes | string |  |
-| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"member":{"type":"object","properties":{"org":{"$ref":"https://ace.local/protocol/v1/AceOrgId.json"},"role":{"$ref":"https://ace.local/protocol/v1/AceOrgRole.json"}},"required":["org","role"]}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"until":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"expiresIn":{"type":"integer","minimum":0,"maximum":9007199254740991},"member":{"type":"object","properties":{"org":{"$ref":"https://ace.local/protocol/v1/AceOrgId.json"},"role":{"$ref":"https://ace.local/protocol/v1/AceOrgRole.json"}},"required":["org","role"]}},"required":["ok","until"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"code":{"type":"string","maxLength":64},"message":{"type":"string","maxLength":256}},"required":["ok","code","message"]}]} |
 
 Example:
 

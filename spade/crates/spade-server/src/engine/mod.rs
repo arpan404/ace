@@ -12,7 +12,6 @@ mod archive;
 mod asks;
 mod autonomy;
 mod bots;
-mod brain;
 mod brief;
 mod calls;
 mod cards;
@@ -76,13 +75,12 @@ mod said;
 mod search;
 mod security;
 pub use code::CodeCall;
+pub(crate) mod retired_models;
 mod self_edit;
 mod services;
 mod speech;
 mod style;
 mod suggest;
-mod terms;
-mod terms_notices;
 mod thread_asks;
 mod trim;
 mod try_again;
@@ -96,7 +94,6 @@ mod workers;
 
 pub use agents::{BOT, MAIN, NAME_CHARS, TASK_CHARS};
 pub use bots::MOST_HOPS;
-pub use brain::BrainSource;
 pub use cards::CardError;
 pub use cases::{CaseError, KeepInput};
 pub use computer::{PAUSED_FOR_YOU, TakeOverError};
@@ -129,7 +126,6 @@ pub use reach::ReachError;
 pub use replays::{ReplayError, ReplayInput};
 pub use speech::{DEFAULT_VOICE, SpeakError, SpeakRequest};
 pub use suggest::{MarketBots, MarketFuture};
-pub use terms_notices::{Applied, Notices, verify_notices};
 pub use thread_asks::FROM_ACE;
 /// How many locks images are spread over, by the first digit of their hash.
 const IMAGE_LOCKS: usize = 16;
@@ -241,9 +237,6 @@ pub struct Engine {
     /// The market keys a package's signed manifest must verify with (ADR 0200 §3.2): the ones
     /// this build ships, unless a test trusts its own.
     market_keys: std::sync::RwLock<Vec<crate::packages::envelope::MarketKey>>,
-    /// What each coding CLI's maker allows (ADR 0205 §4): the shipped record unless a test sets
-    /// its own.
-    cli_terms: std::sync::RwLock<Arc<spade_models::CliTerms>>,
     /// Each conversation's activity, so listing conversations folds only those that changed.
     /// Every stored event goes through `append_events`, which drops the entry.
     activity: Mutex<HashMap<String, Activity>>,
@@ -276,8 +269,6 @@ pub struct Engine {
     retiring: Mutex<std::collections::HashSet<String>>,
     /// Routines' timer and settings (ADR 0129, `crate::routines`).
     routines: crate::routines::Shared,
-    /// Turns on the person's subscriptions through ace (ADR 0133).
-    brains: brain::Brains,
     /// Groups and asks between machines (ADR 0132, `crate::teams`).
     teams: crate::teams::Shared,
     /// The bots' computers (ADR 0142), once the server has set them.
@@ -451,7 +442,6 @@ impl Engine {
             app_forms: app_forms::Open::default(),
             package_busy: crate::packages::Changing::default(),
             market_keys: std::sync::RwLock::new(crate::packages::envelope::shipped()),
-            cli_terms: std::sync::RwLock::new(Arc::new(spade_models::CliTerms::shipped())),
             activity: Mutex::default(),
             // Closed until `open_for_work`, so nothing runs before ace's tools are back.
             admission: AtomicBool::new(false),
@@ -467,7 +457,6 @@ impl Engine {
             endpoint_lock: Mutex::default(),
             retiring: Mutex::default(),
             routines: crate::routines::Shared::default(),
-            brains: brain::Brains::default(),
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
@@ -505,8 +494,6 @@ impl Engine {
         // What a package step records on an org host is written with the step (ADR 0206 §4.1).
         engine.watch_package_links(&engine.store);
         engine.sync_endpoints()?;
-        // The shipped terms record, tightened by the newest signed notices (ADR 0205 §4).
-        engine.reload_terms_notices();
         // Levels Spade no longer has move forward to the auto-review (ADR 0163); then Spade exists
         // from the first answer, whatever setup does later.
         engine.retire_levels()?;
@@ -579,6 +566,9 @@ impl Engine {
             .fill_missing_models(&self.default_model())
             .map_err(|e| e.to_string())?;
         self.correct_main_model().map_err(|e| e.to_string())?;
+        // Bots once on a coding subscription move to the person's default model (ADR 0219).
+        self.retire_subscription_models()
+            .map_err(|e| e.to_string())?;
         self.settled.send_replace(true);
         Ok(())
     }
@@ -654,7 +644,6 @@ impl Engine {
             last_message: roster::last_message_at(events.len(), |at| events.at(at)),
             waiting_for: memory::waiting_for(&transcript),
             questions_for_later: question::for_later(events.iter()),
-            problem: spade_core::brain::problem(events.iter()).map(str::to_owned),
             failure: spade_core::running::failure(events.iter()),
             task: spade_core::task::state_in(events.iter()),
             task_progress: spade_core::goal::view::progress_in(

@@ -2207,13 +2207,10 @@ Example:
 
 ```json
 {
-  "context": {},
-  "delivery": "steer",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "text": "example",
+      "type": "text"
     }
   ],
   "model": "example",

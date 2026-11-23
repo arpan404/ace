@@ -1049,6 +1049,14 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
       });
       return true;
     }
+    case "model_replaced":
+      steer(state, {
+        kind: "quiet",
+        key,
+        quiet: { kind: "model-replaced", line: event.line },
+        ...stamp(stored),
+      });
+      return true;
     case "bot_made":
       steer(state, {
         kind: "made",

@@ -301,6 +301,7 @@ impl Transcript {
             | Known::AgentConfigured { .. }
             | Known::NamingOpened {}
             | Known::BotMade { .. }
+            | Known::ModelReplaced { .. }
             | Known::ClubAdded { .. }
             | Known::ProfileChanged { .. }
             | Known::CallReviewed { .. }

@@ -236,9 +236,6 @@ ADR 0121 records the daemon side.
   two live children of one parent can't share a role.
 - **Skills:** `skills.request` (ADR 0103) over the daemon WebSocket with the local token, for the
   list and each skill's text, so Spade and ace share one skill library.
-- **CLI brains:** Spade asks the daemon (`POST <daemon>/spade/brains/turn`, with its grant) to
-  run a bot's turn in the bot's hidden provider session; the bot's tools reach that session
-  through ace's MCP endpoint and Spade's `/v1/agents/{id}/mcp` ([cli-brains.md](cli-brains.md)).
 
 ## How Spade calls ace's tools
 

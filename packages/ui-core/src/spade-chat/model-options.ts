@@ -11,32 +11,25 @@ import {
   spadeNoToolsShort,
   spadeWorksWell,
 } from "./model-checks.ts";
-import { splitCliModel, type SpadeSubscriptionSource } from "./subscriptions.ts";
 
 /*
  * What the one model picker offers, as plain data, in the order Spade offers models (ADR 0205
- * §1): models on this computer, the person's other endpoints, local servers' models not added
- * yet, then (only where a bot's own model is picked) their coding subscriptions, last, under
- * their own heading. Grouped by where each comes from and narrowed by what the person typed.
- * Pure, so each client's picker only draws it.
+ * §1): models on this computer, the person's other endpoints, then local servers' models not
+ * added yet. Grouped by where each comes from and narrowed by what the person typed. Pure, so
+ * each client's picker only draws it.
  */
 
-/** The heading over the subscriptions, which are never picked by themselves. */
-export const spadeSubscriptionsHeading = "Your coding subscriptions";
-
 export interface SpadeModelOption {
-  /** `endpoint/model`, `cli:<provider>@<account>/<model>`, or "" for the picker's empty choice. */
+  /** `endpoint/model`, or "" for the picker's empty choice. */
   value: string;
   name: string;
-  /** The endpoint or subscription it comes from; undefined for the empty choice. */
+  /** The endpoint it comes from; undefined for the empty choice. */
   source: string | undefined;
   facts: string;
   /** "Use … as the model id": a typed id the endpoint didn't list. */
   typed?: boolean;
   /** A local server's model not added yet: picking it adds the server first. */
   adds?: { server: string; model: string };
-  /** A subscription whose terms the person hasn't acknowledged: they read this and tick Use it. */
-  acknowledge?: { provider: string; text: string };
   /** Why it can't be picked here: a local model that can't run a bot (ADR 0205 §3). */
   cant?: string;
 }
@@ -44,8 +37,6 @@ export interface SpadeModelOption {
 export interface SpadeModelGroup {
   /** The group's label; undefined for the empty choice, above every group. */
   label: string | undefined;
-  /** A heading over this group and the ones after it (the subscriptions'). */
-  heading?: string;
   options: SpadeModelOption[];
 }
 
@@ -54,8 +45,6 @@ export interface SpadeModelSources {
   endpoints: readonly { endpoint: SpadeEndpoint; models: readonly SpadeModelInfo[] }[];
   /** Models of servers running on this computer that aren't added yet. */
   adds?: readonly { server: { id: string; name: string }; model: string }[];
-  /** Empty where only an endpoint's model may be picked (a role, a default). */
-  subscriptions: readonly SpadeSubscriptionSource[];
   /** The model runs a bot (its own model, a tool role): one that can't call tools can't be picked. */
   forBots?: boolean;
 }
@@ -65,9 +54,8 @@ const matches = (query: string, ...words: string[]) =>
 
 /**
  * The picker's groups for `query`: the empty choice when there is one (`none`), then one group
- * per endpoint (those on this computer first), then the local servers' models not added yet,
- * then one group per subscription under "Your coding subscriptions". A typed id no endpoint
- * lists is offered on each endpoint, last in its group.
+ * per endpoint (those on this computer first), then the local servers' models not added yet. A
+ * typed id no endpoint lists is offered on each endpoint, last in its group.
  */
 export function spadeModelGroups(
   sources: SpadeModelSources,
@@ -124,27 +112,6 @@ export function spadeModelGroups(
       adds: { server: server.id, model },
     }));
   if (adds.length) groups.push({ label: "On this computer", options: adds });
-  let heading: string | undefined = spadeSubscriptionsHeading;
-  for (const source of sources.subscriptions) {
-    const acknowledge = source.terms.acknowledged
-      ? undefined
-      : { provider: source.provider, text: source.terms.acknowledgement };
-    const options = source.models
-      .filter((model) => !typed || matches(typed, model.name, model.id, source.label))
-      .map((model) => {
-        const option: SpadeModelOption = {
-          value: `${source.key}/${model.id}`,
-          name: model.name,
-          source: source.label,
-          facts: "On your subscription",
-        };
-        if (acknowledge) option.acknowledge = acknowledge;
-        return option;
-      });
-    if (!options.length) continue;
-    groups.push({ label: source.label, ...(heading ? { heading } : {}), options });
-    heading = undefined;
-  }
   return groups;
 }
 
@@ -158,15 +125,6 @@ export function spadeModelLabel(
   none?: string,
 ): { name: string; source: string | undefined } {
   if (!value) return { name: none ?? "Choose a model", source: undefined };
-  const cli = splitCliModel(value);
-  if (cli) {
-    const source = sources.subscriptions.find((each) => value.startsWith(`${each.key}/`));
-    const model = source?.models.find((each) => each.id === cli.model);
-    return {
-      name: model?.name ?? spadeModelWords(cli.model),
-      source: source?.label ?? cli.provider,
-    };
-  }
   const { endpoint: id, model } = splitSpadeModel(value);
   const found = sources.endpoints.find((each) => each.endpoint.id === id);
   const info = found?.models.find((each) => each.id === model);

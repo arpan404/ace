@@ -20,8 +20,6 @@ whether it is (below).
 - `model` is a role or a model the person configured, else the profile's, else the `helper`
   role's (the fast model by default); `escalate` reruns a failed helper once on the bot's model
   ([ADR 0162](../../docs/adr/0162-spade-model-routing.md), agents.md "Models per role").
-- Bots on CLI brains (ADR 0133) are not offered `helper` (`brain_tools` leaves it out), and a
-  call that reaches it anyway is refused: their CLI splits work its own way.
 
 ## A helper's conversation
 

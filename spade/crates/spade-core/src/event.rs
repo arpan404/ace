@@ -61,6 +61,14 @@ pub enum Known {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         change: Option<Box<TaskChange>>,
     },
+    /// The bot's model was a coding subscription (`cli:…`, ADR 0133), which bots no longer think
+    /// with (ADR 0219): Spade moved it to `to`, the person's default model, or to none (`""`), so
+    /// it waits for them to pick one. `line` is what its chat shows, once.
+    ModelReplaced {
+        from: String,
+        to: String,
+        line: String,
+    },
     /// This bot made a standing bot for the person (ADR 0161, amendment 1): its chat shows it with
     /// Open and Undo.
     BotMade {

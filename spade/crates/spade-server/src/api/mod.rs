@@ -4,7 +4,6 @@
 mod a2a_agents;
 mod agents;
 mod body;
-mod brains;
 mod cards;
 mod cases;
 mod computer;
@@ -213,7 +212,6 @@ pub fn router(state: AppState) -> Router {
         .merge(connectors::routes())
         .merge(a2a_agents::routes())
         .merge(plugins::routes())
-        .merge(brains::routes())
         .merge(memory::routes())
         .merge(knowledge::routes())
         .merge(oversight::routes())

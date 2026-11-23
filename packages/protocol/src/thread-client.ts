@@ -338,11 +338,13 @@ export const ThreadClientFields = ThreadOrganization.extend({
   /**
    * Set on a thread the daemon holds for one of its own processes (ADR 0121): Spade's host
    * thread, which Spade's ace tools act as. No provider ever runs it, and no list shows it; the
-   * threads it delegates are ordinary threads with it as their parent. `spade-bot` is one Spade
-   * bot's hidden provider session (ADR 0133): it runs, but only Spade's turns, never a client's.
+   * threads it delegates are ordinary threads with it as their parent. `spade-bot` marks a Spade
+   * bot's session from when bots could think with a subscription (ADR 0133, superseded by ADR
+   * 0219): nothing makes one now, one left in a home is inert, and the value is kept so its rows
+   * still read.
    */
   host: z.enum(["spade", "spade-bot"]).optional(),
-  /** The Spade bot a `spade-bot` thread thinks for. */
+  /** Which of Spade's things a host thread is for, such as a bot's computer. */
   hostKey: z.string().min(1).max(128).optional(),
 });
 export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
