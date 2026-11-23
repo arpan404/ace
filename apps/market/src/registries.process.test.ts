@@ -122,6 +122,15 @@ const versionOf = async (org: string, name: string, caller: string) =>
     await (await read(`/v1/orgs/${org}/entries/spade-skill/${name}/1.0.0`, caller)).json(),
   ).manifest.body as { hash: string; name: string; registry: string; key: string };
 
+/** A registry version's hold and scan, as the registry's admins list it. */
+async function scanOf(name: string) {
+  const answer = await read(`/v1/orgs/${acme}/registry`, admin());
+  const [version] =
+    RegistryAdmin.parse(await answer.json()).entries.find((entry) => entry.name === name)
+      ?.versions ?? [];
+  return { held: version?.held, ...version?.scan };
+}
+
 beforeAll(async () => {
   market = await startMarket();
   await openRegistry(acme, "acme", acmeKey);
@@ -289,6 +298,33 @@ describe("publishing to the registry", () => {
       grant: grantFor("user_admin", { org: "org_01NONE", orgRole: "owner" }),
     });
     expect(answer.status).toBe(404);
+  });
+
+  it("lists the verdict and scanner version that held a rescanned version", async () => {
+    const published = await publish(market, {
+      type: "spade-skill",
+      name: "rescan-held",
+      files: sampleSkill("rescan-held"),
+      grant: grantFor("user_admin", { org: acme, orgRole: "admin" }),
+    });
+    expect(published.status).toBe(201);
+    expect(await scanOf("rescan-held")).toEqual({ held: false, verdict: "pass", scanner: 1 });
+    const scan = {
+      format: "ace-market-scan",
+      scanner: 7,
+      verdict: "warn",
+      checks: [],
+      findings: [],
+      runnable: false,
+      truncated: false,
+      read: { files: 1, textBytes: 10 },
+    };
+    const held = await signerIo(acme, acmeKey).put(
+      "/v1/signer/holds/spade-skill/rescan-held/1.0.0",
+      { decision: "hold", scan },
+    );
+    expect(held.status).toBe(200);
+    expect(await scanOf("rescan-held")).toEqual({ held: true, verdict: "warn", scanner: 7 });
   });
 
   it("goes through ace's scan, whose hold the org signer can't release, and ace's signer never signs it", async () => {
