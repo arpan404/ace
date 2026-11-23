@@ -7,7 +7,9 @@
 use crate::entries::{OwnerValue, parse_entry};
 use crate::errors::SupervisorError;
 use crate::identity::ProcessOwner;
-use crate::inventory::{Inventory, InventoryRuntime, ProbeRefused};
+#[cfg(not(windows))]
+use crate::inventory::ProbeRefused;
+use crate::inventory::{Inventory, InventoryRuntime};
 use ace_store::{Connection, OpenOptions, Value};
 use std::sync::Arc;
 
@@ -27,18 +29,16 @@ impl<R: InventoryRuntime> Inventory<R> {
     /// orphans, forgets groups proven gone, keeps the rest as evidence.
     pub fn recover(&mut self) -> Result<Recovered, SupervisorError> {
         #[cfg(windows)]
-        {
-            let partial = self.windows_recover(&crate::wintree::SystemWindowsTree::new())?;
-            return Ok(Recovered {
+        let recovered = self
+            .windows_recover(&crate::wintree::SystemWindowsTree::new())
+            .map(|partial| Recovered {
                 removed: partial.removed,
                 killed: partial.killed,
                 unresolved: 0,
             });
-        }
         #[cfg(not(windows))]
-        {
-            self.posix_recover()
-        }
+        let recovered = self.posix_recover();
+        recovered
     }
 
     /// Windows only: recovery that also counts trees left recorded because
@@ -48,11 +48,11 @@ impl<R: InventoryRuntime> Inventory<R> {
         &mut self,
         tree: &dyn crate::wintree::WindowsTreeOps,
     ) -> Result<Recovered, SupervisorError> {
-        use crate::entries::{EntryPlatform, OwnerValue};
+        use crate::entries::{EntryPlatform, OwnerValue, ProcessEntry};
         use crate::wintree::WindowsRecord;
         let now_ms = self.runtime.now_ms();
         let mut recovered = Recovered::default();
-        for (_, entries) in self.windows_trees()? {
+        for (key, entries) in self.windows_trees()? {
             let Some(leader) = entries
                 .iter()
                 .find(|entry| entry.tree.is_none())
@@ -84,9 +84,8 @@ impl<R: InventoryRuntime> Inventory<R> {
                     },
                 })
                 .collect();
-            let state = tree.state(&recorded);
+            let state = tree.state(&recorded)?;
             for member in &state.discovered {
-                let key = format!("{}:{}", leader.pid, leader.start);
                 self.write(
                     &ProcessEntry {
                         pid: member.pid,
@@ -101,7 +100,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                         name: leader.name.clone(),
                         cwd: leader.cwd.clone(),
                         created_at: now_ms,
-                        tree: Some(key),
+                        tree: Some(key.clone()),
                     },
                     EntryPlatform::Windows,
                 )?;
@@ -137,6 +136,13 @@ impl<R: InventoryRuntime> Inventory<R> {
     fn posix_recover(&mut self) -> Result<Recovered, SupervisorError> {
         let now_ms = self.runtime.now_ms();
         let mut recovered = Recovered::default();
+        // Two process-table snapshots for the call, back to back; every
+        // row's group question is answered from them, never re-listed per
+        // row.
+        let first = self.runtime.group_snapshot();
+        // Rows whose leader is gone and whose group the first snapshot
+        // finds empty; the second snapshot re-checks them after the pass.
+        let mut candidates: Vec<(u32, u32)> = Vec::new();
         for entry in self.list()? {
             let owner = self.runtime.identity(entry.owner_pid)?;
             if owner.as_ref().is_some_and(|owned| {
@@ -147,7 +153,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                 continue;
             }
             let current = self.runtime.identity(entry.pid).unwrap_or_default();
-            match self.group_alive(entry.group) {
+            match self.runtime.leader_alive(entry.pid, &entry.start) {
                 Err(ProbeRefused::Refused) => {
                     recovered.unresolved += 1;
                     continue;
@@ -155,15 +161,29 @@ impl<R: InventoryRuntime> Inventory<R> {
                 Err(ProbeRefused::Failed(message)) => {
                     return Err(SupervisorError::Operation(message));
                 }
+                // The leader is gone. The row is forgotten only when two
+                // back-to-back snapshots both find the group empty and
+                // complete: one scan can miss a member that forks after the
+                // process list is read and exits before its own check, so
+                // the child was never listed. A member that forks and hands
+                // off between enumeration and check on every scan can still
+                // be missed; that is inherent to userspace enumeration,
+                // and the group number is never signalled either way.
                 Ok(false) => {
-                    self.remove_inner(entry.pid, now_ms);
-                    recovered.removed += 1;
+                    match crate::system::group_empty_state(&first, entry.group) {
+                        Some(true) => {
+                            candidates.push((entry.pid, entry.group));
+                        }
+                        Some(false) | None => {
+                            recovered.unresolved += 1;
+                        }
+                    }
                     continue;
                 }
                 Ok(true) => {}
             }
-            // The group lives on, but its leader is gone or its pid is
-            // someone else's now: neither ended nor called stopped.
+            // The leader runs as itself, but its owner or group changed:
+            // neither ended nor called stopped.
             let verified = current.as_ref().is_some_and(|identity| {
                 identity.pid == entry.pid
                     && identity.start == entry.start
@@ -174,22 +194,33 @@ impl<R: InventoryRuntime> Inventory<R> {
                 recovered.unresolved += 1;
                 continue;
             }
-            self.runtime.kill(entry.group);
+            self.runtime.kill(entry.group, &entry.start);
             // Kept as evidence until a later recovery proves the group gone.
             recovered.killed += 1;
         }
+        if !candidates.is_empty() {
+            let second = self.runtime.group_snapshot();
+            for (pid, group) in candidates {
+                // The row leaves only when both snapshots find its group
+                // empty and complete, and the delete itself lands. Deleting
+                // here, not through the retry pass, keeps recovery to the
+                // two walks it already took.
+                let empty = crate::system::group_empty_state(&first, group) == Some(true)
+                    && crate::system::group_empty_state(&second, group) == Some(true);
+                if !empty {
+                    recovered.unresolved += 1;
+                    continue;
+                }
+                if self.delete_row(pid, now_ms) {
+                    recovered.removed += 1;
+                } else {
+                    // The delete failed: keep it for the retry pass.
+                    self.unremoved.insert(pid);
+                    recovered.unresolved += 1;
+                }
+            }
+        }
         Ok(recovered)
-    }
-
-    /// Liveness of a recorded group, or `Refused` when the kernel refuses.
-    fn group_alive(&self, group: u32) -> Result<bool, ProbeRefused> {
-        self.runtime.alive(group)
-    }
-
-    fn remove_inner(&mut self, pid: u32, now_ms: u64) {
-        // Mirrors `remove` without re-reading the clock.
-        self.unremoved.insert(pid);
-        self.retry_removals(now_ms);
     }
 }
 
@@ -311,157 +342,7 @@ pub fn windows_tree_recorded(
     Ok(false)
 }
 
+// POSIX recovery: Windows recovers trees instead (`windows_recover`).
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::inventory::Inventory;
-    use crate::test_scratch::{Fake, Scratch, identity};
-    use std::sync::Arc;
-
-    fn open(path: &str, runtime: Fake) -> Inventory<Fake> {
-        Inventory::open(path, runtime, Arc::new(|_| {})).expect("inventory opens")
-    }
-
-    #[test]
-    fn orphan_recovery_kills_no_identity_mismatch() {
-        for kind in ["pid", "start", "uid", "group", "missing", "unreadable"] {
-            let scratch = Scratch::new();
-            let (mut fake, _) = Fake::new(10);
-            fake.insert(10, "owner-start", 1000, 10);
-            fake.insert(20, "child-start", 1000, 20);
-            let mut inventory = open(&scratch.file("processes.sqlite"), fake);
-            inventory.add(20, "synthetic", None).expect("adds");
-            inventory.runtime.processes.remove(&10);
-            match kind {
-                "pid" => {
-                    inventory
-                        .runtime
-                        .processes
-                        .insert(20, identity(21, "child-start"));
-                }
-                "start" => {
-                    inventory
-                        .runtime
-                        .processes
-                        .insert(20, identity(20, "recycled"));
-                }
-                "uid" => {
-                    let mut current = identity(20, "child-start");
-                    current.owner = crate::identity::ProcessOwner::Uid(1001);
-                    inventory.runtime.processes.insert(20, current);
-                }
-                "group" => {
-                    let mut current = identity(20, "child-start");
-                    current.group = 21;
-                    inventory.runtime.processes.insert(20, current);
-                }
-                "missing" => {
-                    inventory.runtime.processes.remove(&20);
-                }
-                _ => {
-                    inventory.runtime.unreadable.push(20);
-                }
-            }
-            // Not the run's provably: left running and on record, and
-            // startup goes on unverified.
-            assert_eq!(
-                inventory.recover().expect("recovers"),
-                Recovered {
-                    removed: 0,
-                    killed: 0,
-                    unresolved: 1,
-                },
-                "{kind}"
-            );
-            assert_eq!(inventory.list().expect("lists").len(), 1, "{kind}");
-            inventory.close();
-        }
-    }
-
-    #[test]
-    fn recovery_keeps_a_live_owner_and_kills_only_a_verified_orphan() {
-        let scratch = Scratch::new();
-        let (mut fake, killed) = Fake::new(10);
-        fake.insert(10, "owner-start", 1000, 10);
-        fake.insert(20, "child-start", 1000, 20);
-        let mut inventory = open(&scratch.file("processes.sqlite"), fake);
-        inventory.add(20, "synthetic", None).expect("adds");
-        assert_eq!(
-            inventory.recover().expect("recovers"),
-            Recovered {
-                removed: 0,
-                killed: 0,
-                unresolved: 0,
-            }
-        );
-        assert!(killed.borrow().is_empty());
-        inventory.runtime.processes.remove(&10);
-        assert_eq!(
-            inventory.recover().expect("recovers"),
-            Recovered {
-                removed: 0,
-                killed: 1,
-                unresolved: 0,
-            }
-        );
-        assert_eq!(killed.borrow().clone(), vec![20]);
-        inventory.close();
-    }
-
-    #[test]
-    fn refused_group_probe_is_kept_for_later() {
-        let scratch = Scratch::new();
-        let (mut fake, killed) = Fake::new(10);
-        fake.insert(10, "owner-start", 1000, 10);
-        fake.insert(20, "exiting", 1000, 20);
-        fake.insert(30, "orphan", 1000, 30);
-        fake.alive.insert(20, Err(ProbeRefused::Refused));
-        let mut inventory = open(&scratch.file("processes.sqlite"), fake);
-        inventory.add(20, "synthetic", None).expect("adds");
-        inventory.add(30, "synthetic", None).expect("adds");
-        inventory.runtime.processes.remove(&10);
-        assert_eq!(
-            inventory.recover().expect("recovers"),
-            Recovered {
-                removed: 0,
-                killed: 1,
-                unresolved: 1,
-            }
-        );
-        assert_eq!(killed.borrow().clone(), vec![30]);
-        assert!(
-            inventory
-                .list()
-                .expect("lists")
-                .iter()
-                .any(|entry| entry.pid == 20)
-        );
-        inventory.runtime.alive.insert(20, Ok(false));
-        let recovered = inventory.recover().expect("recovers");
-        assert_eq!(recovered.unresolved, 0);
-        assert_eq!(recovered.removed, 1);
-        assert!(
-            !inventory
-                .list()
-                .expect("lists")
-                .iter()
-                .any(|entry| entry.pid == 20)
-        );
-        inventory.close();
-    }
-
-    #[test]
-    fn probe_failure_other_than_refused_stops_recovery() {
-        let scratch = Scratch::new();
-        let (mut fake, _) = Fake::new(10);
-        fake.insert(10, "owner-start", 1000, 10);
-        fake.insert(20, "child", 1000, 20);
-        fake.alive
-            .insert(20, Err(ProbeRefused::Failed("kill EINVAL".to_owned())));
-        let mut inventory = open(&scratch.file("processes.sqlite"), fake);
-        inventory.add(20, "synthetic", None).expect("adds");
-        inventory.runtime.processes.remove(&10);
-        assert!(inventory.recover().is_err());
-        inventory.close();
-    }
-}
+#[cfg(not(windows))]
+mod tests;

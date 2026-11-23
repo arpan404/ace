@@ -126,7 +126,6 @@ dependencies = [
  "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
- "ace-git",
  "ace-json",
  "ace-store",
  "ace-supervisor",
@@ -134,8 +133,6 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "process-wrap",
- "rustix",
  "serde",
  "serde_json",
  "thiserror",
@@ -217,7 +214,6 @@ dependencies = [
  "ace-store",
  "eventsource-stream",
  "libproc",
- "process-wrap",
  "procfs",
  "rustix",
  "serde",
@@ -458,12 +454,6 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
-
-[[package]]
-name = "cfg_aliases"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "chrono"
@@ -2506,18 +2496,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nix"
-version = "0.31.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bc81ce8148d3b4f3274da811f11cdd824ae661ee4ef732cdb229825cf5be7f7"
-dependencies = [
- "bitflags 2.13.2",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
-
-[[package]]
 name = "nohash-hasher"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2758,20 +2736,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "process-wrap"
-version = "10.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f21b97672d2dc848e7b25701ab4535618b92f4861c13cc3f7f7bed52ad3c8da"
-dependencies = [
- "futures",
- "indexmap 2.14.2",
- "nix",
- "tokio",
- "tracing",
- "windows",
 ]
 
 [[package]]

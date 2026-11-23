@@ -23,6 +23,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = { version = "2" }
 # tokio: the I/O runtime for processes, pipes, sockets, HTTP and timers (multi-thread, two workers), the one Spade already ships.
 tokio = { version = "1.54", features = [
+  "io-util",
   "macros",
   "net",
   "process",
@@ -33,14 +34,14 @@ tokio = { version = "1.54", features = [
 ] }
 # tokio-util: LinesCodec::new_with_max_length for bounded line framing over pipes.
 tokio-util = { version = "0.7", features = ["codec"] }
-# process-wrap: process groups on POSIX, Job Objects on Windows and kill-on-drop over tokio::process; it replaces process-containment.ts.
-process-wrap = { version = "10", features = ["tokio1"] }
-# rustix: the POSIX calls left (killpg, child-subreaper adoption, waitid).
-rustix = { version = "1", features = ["process", "thread"] }
 # sysinfo: lists processes for the owner sweep (process-marker.ts).
 sysinfo = { version = "0.40" }
 # eventsource-stream: OpenCode's SSE transport.
 eventsource-stream = "0.2"
+
+[target.'cfg(unix)'.dependencies]
+# rustix: the POSIX calls std does not offer (killpg, child-subreaper adoption, waitid without reaping).
+rustix = { version = "1", features = ["event", "process", "thread"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # procfs: exact kernel start times from /proc, so a reused pid is never signalled (identity is pid plus start time).
@@ -51,13 +52,16 @@ procfs = "0.18"
 libproc = "0.14"
 
 [target.'cfg(windows)'.dependencies]
-# windows-sys: Job Object and identity calls process-wrap does not cover (GetProcessTimes, token SID, stdin-close stop); Spade's version.
+# windows-sys: Job Objects (a child joins its job while suspended), overlapped stdin writes, Toolhelp snapshots, GetProcessTimes and the token SID for identity, the System32 path; Spade's version.
 windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Security",
-  "Win32_System_Console",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
   "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_IO",
   "Win32_System_JobObjects",
+  "Win32_System_Pipes",
+  "Win32_System_SystemInformation",
   "Win32_System_Threading",
-  "Win32_System_Time",
 ] }

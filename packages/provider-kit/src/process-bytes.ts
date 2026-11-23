@@ -9,12 +9,12 @@ import {
   type WindowsJob,
   type WindowsJobFactory,
 } from "./process-containment.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
-  nativeJobFactory,
+  nativeChildJob,
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
@@ -74,14 +74,12 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
         args: target.args,
         cwd: options.cwd,
         env: launchEnv(markedEnv(options.env)),
-        windows,
-        clearEnv: false,
         stdin: "ignore",
         stdout: "piped",
         stderr: "piped",
         verbatim: target.verbatim,
-        waiterDestroy:
-          options.windowsKillTree === undefined && options.windowsJobFactory === undefined,
+        hide: true,
+        contain: windows && options.windowsJobFactory === undefined,
       })
     : spawn(target.command, target.args, {
         cwd: options.cwd,
@@ -93,7 +91,8 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
   const pid = child.pid;
   // Never throws: it runs in the child's exit listener.
   const destroy = (leader: number) => signalTree(leader, true, windows, killTree, child);
-  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+  const factory =
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let cleanup: Promise<void> | undefined;
@@ -153,7 +152,7 @@ export function spawnBytes(options: ByteProcessOptions): ByteProcess {
         .finally(() => {
           disposeNative();
           if (pid !== undefined) {
-            unregisterGroup(pid);
+            unregisterGroup(pid, groupOf(child));
             job?.dispose();
           }
         });

@@ -6,6 +6,7 @@
 //! `lines`, `budget`, `flow`, `jsonrpc`, `jsonl` and `sse`.
 
 pub mod budget;
+pub mod child;
 pub mod contain;
 pub mod dir;
 pub mod entries;
@@ -17,11 +18,13 @@ pub mod inventory;
 pub mod journal;
 pub mod jsonl;
 pub mod jsonrpc;
+pub mod leader;
 pub mod lineage;
 pub mod lines;
 pub mod listing;
 pub mod marker;
 pub mod owner;
+pub mod pump;
 pub mod reaper;
 pub mod recover;
 pub mod retry;
@@ -29,7 +32,12 @@ pub mod signal;
 pub mod spawn;
 pub mod sse;
 pub mod stop;
+pub mod system;
 pub mod test_scratch;
 pub mod tree;
 pub mod watch;
+#[cfg(windows)]
+mod winpipe;
+#[cfg(windows)]
+mod winstdin;
 pub mod wintree;

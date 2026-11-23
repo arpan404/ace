@@ -35,7 +35,8 @@ export interface InventoryRuntime {
   alive(group: number): boolean;
   /** Non-consuming proof that an owned child has exited before Node has reaped it. */
   childExited?(pid: number): boolean;
-  kill(group: number): void;
+  /** Ends a verified group; `start` is its leader's kernel start, its identity. */
+  kill(group: number, start?: string): void;
   ownerPid: number;
   now(): number;
   /** Windows only: a recorded tree is its leader plus live descendants, not a group. */
@@ -54,7 +55,7 @@ export const inventoryRuntime: InventoryRuntime = {
     return !processGroupIsGone(group);
   },
   // Through the group guard: a previous run's group may hold another home's daemon.
-  kill: (group) => killGroup(group, "SIGKILL"),
+  kill: (group, start) => killGroup(group, "SIGKILL", undefined, start),
 };
 /** Only kernel identities and non-secret labels persist; provider input never enters this journal. */
 export class ProcessInventory implements ProcessJournal {
@@ -276,12 +277,21 @@ export class ProcessInventory implements ProcessJournal {
   recover(): { removed: number; killed: number; unresolved: number } {
     const native = this.native;
     if (native) {
-      const recovered = JSON.parse(native.handle.recover()) as {
+      const { groups, ...recovered } = JSON.parse(native.handle.recover()) as {
         removed: number;
         killed: number;
         unresolved: number;
+        groups: { pid: number; start: string }[];
       };
       this.drainNativeReports();
+      // Both scans run inside recover(); the timer only retries deletes
+      // still pending. Schedule it from the native retry hint, never as a
+      // zero-delay timer.
+      const at = native.handle.retryAtMs();
+      if (typeof at === "number" && Number.isFinite(at))
+        this.scheduleNativeRetry(native, Math.max(250, at - this.runtime.now()));
+      // The verified orphan groups end through the runtime's guarded group stop, never past it.
+      for (const group of groups) this.runtime.kill(group.pid, group.start);
       return recovered;
     }
     if (process.platform === "win32") return { ...this.windowsRecover(), unresolved: 0 };
@@ -328,7 +338,7 @@ export class ProcessInventory implements ProcessJournal {
         unresolved++;
         continue;
       }
-      this.runtime.kill(entry.group);
+      this.runtime.kill(entry.group, entry.start);
       // Keep evidence until a later recovery proves the group has disappeared.
       killed++;
     }

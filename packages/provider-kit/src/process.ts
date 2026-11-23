@@ -19,7 +19,7 @@ import { admitProcess, registerGroup, signalTree, stopRetainedGroup } from "./pr
 import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
-import { toWindowsCommand } from "./process-owner.ts";
+import { groupOf, toWindowsCommand } from "./process-owner.ts";
 import {
   createKillOnCloseJob,
   type WindowsJob,
@@ -31,7 +31,7 @@ import { markedEnv } from "./process-marker.ts";
 import { supervisorBackend } from "./native-switches.ts";
 import {
   launchEnv,
-  nativeJobFactory,
+  nativeChildJob,
   nativeKillWindowsTree,
   nativeSpawnChild,
   NativeChildProcess,
@@ -146,7 +146,7 @@ function spawnOwned(
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
-      : stopRetainedGroup(pid, graceMs);
+      : stopRetainedGroup(pid, graceMs, groupOf(child));
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -161,18 +161,13 @@ function spawnOwned(
         args: target.args,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         env: launchEnv(markedEnv({ ...base, ...options.env })),
-        windows,
-        clearEnv: base !== process.env,
         stdin: "piped",
         stdout: "piped",
         stderr: "piped",
         verbatim: target.verbatim,
-        // The waiter ends stragglers, unless the shell drives stops through
-        // injected tree fakes or the tree is retained.
-        waiterDestroy:
-          options.killGroupOnExit !== false &&
-          options.windowsKillTree === undefined &&
-          options.windowsJobFactory === undefined,
+        hide: true,
+        contain: windows && options.windowsJobFactory === undefined,
+        ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
       })
     : spawn(target.command, target.args, {
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
@@ -189,7 +184,8 @@ function spawnOwned(
   const pid = child.pid;
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
-  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
+  const factory =
+    options.windowsJobFactory ?? (native ? () => nativeChildJob(child) : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;
@@ -261,7 +257,7 @@ function spawnOwned(
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
       destroy(pid);
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     controller.abort();
@@ -281,7 +277,7 @@ function spawnOwned(
       closed = true;
       if (timer) clearTimeout(timer);
       if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
-        unregisterGroup(pid);
+        unregisterGroup(pid, groupOf(child));
         job?.dispose();
       }
       resolve({
@@ -320,7 +316,7 @@ function spawnOwned(
             clearTimeout(retainedKill);
             cancelRecheck?.();
             if (windows) {
-              unregisterGroup(pid);
+              unregisterGroup(pid, groupOf(child));
               job?.dispose();
             }
           };
@@ -391,7 +387,7 @@ function spawnOwned(
     // A journal failure cannot leave an unowned process running.
     if (pid !== undefined) {
       destroy(pid);
-      unregisterGroup(pid);
+      unregisterGroup(pid, groupOf(child));
       job?.dispose();
     }
     throw error;

@@ -188,11 +188,15 @@ export function ownProcesses(options: {
     return signallable(listing, { self, spare, kept: kept() });
   };
   // Every group signal: a protected member makes the group signalled member by member instead.
-  guardGroupSignals((group) => {
-    const members = listing.groupMembers(group).flatMap((pid) => memberOf(pid, tree) ?? []);
-    const allowed = members.filter(rules());
-    return allowed.length === members.length ? "whole" : allowed;
-  });
+  // Members of a reaped leader's group, signalled one by one, pass the same rules.
+  guardGroupSignals(
+    (group) => {
+      const members = listing.groupMembers(group).flatMap((pid) => memberOf(pid, tree) ?? []);
+      const allowed = members.filter(rules());
+      return allowed.length === members.length ? "whole" : allowed;
+    },
+    (members) => members.filter(rules()),
+  );
   const serviceCgroup = () =>
     serviceCgroupMembers({ listing, proc: systemProcFs, self: process.pid, home });
 
