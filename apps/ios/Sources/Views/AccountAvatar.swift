@@ -71,7 +71,8 @@ struct AccountMenuButton: View {
                 } icon: {
                     profileImage(name: name)
                 }
-                Text(identity?.email ?? (model?.configured == true ? "Not signed in" : "Your profile"))
+                // A menu wraps a long subtitle mid-word and ignores truncation: shorten it here.
+                Text(identity.map { AccountMenuWords.email($0.email) } ?? (model?.configured == true ? "Not signed in" : "Your profile"))
             }
             .accessibilityIdentifier("account.menu.profile")
             // The space switcher, as the web's account menu holds it (ADR 0206 §1.4).
@@ -108,6 +109,19 @@ struct AccountMenuButton: View {
             return Image(uiImage: image).renderingMode(.original)
         }
         return Image(ace: .user)
+    }
+}
+
+/// Words the account menu shows on one line, since a menu row wraps its subtitle anywhere.
+enum AccountMenuWords {
+    /// The email whole when it fits `limit` characters; else its name part cut in the middle and
+    /// the whole domain kept ("sapanakosan…@gmail.com"), so it never breaks across lines.
+    static func email(_ email: String, limit: Int = 22) -> String {
+        guard email.count > limit, let at = email.lastIndex(of: "@") else { return email }
+        let domain = String(email[at...])
+        let room = limit - domain.count - 1
+        guard room >= 3 else { return String(email.prefix(limit - 1)) + "…" }
+        return String(email[..<at].prefix(room)) + "…" + domain
     }
 }
 
