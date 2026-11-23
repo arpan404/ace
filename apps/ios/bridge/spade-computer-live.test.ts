@@ -160,3 +160,33 @@ test("a service shows its state in words, its output, and stops", async () => {
     await ask({ type: "spade.services.stop", agentId: "writer", service: preview.id }),
   ).toMatchObject({ ok: false, title: "Couldn't stop the service" });
 });
+
+test("an ended service starts again, and none is offered while one of its name runs", async () => {
+  const host = await setUp((fake) => {
+    fake.addAgent({ id: "writer", name: "Writer" });
+    fake.services.start("writer", { name: "Build", command: "bun run build", state: "exited" });
+    fake.services.start("writer", { name: "Preview", command: "bun run dev", state: "stopped" });
+    fake.services.start("writer", { name: "Preview", command: "bun run dev" });
+  });
+  const { ask } = host;
+  const listed = await ask({ type: "spade.services", agentId: "writer" });
+  if (!("services" in listed)) throw new Error(JSON.stringify(listed));
+  expect(listed.services.map(({ name, startable }) => ({ name, startable }))).toEqual([
+    { name: "Build", startable: true },
+    { name: "Preview", startable: false },
+    { name: "Preview", startable: false },
+  ]);
+  const [build, oldPreview] = listed.services;
+  if (!build || !oldPreview) throw new Error("no service");
+
+  expect(await ask({ type: "spade.services.start", agentId: "writer", service: build.id })).toEqual(
+    { ok: true },
+  );
+  const again = await ask({ type: "spade.services", agentId: "writer" });
+  expect(again).toMatchObject({
+    services: [{ words: "Running", running: true, restarts: 1 }, {}, {}],
+  });
+  expect(
+    await ask({ type: "spade.services.start", agentId: "writer", service: oldPreview.id }),
+  ).toMatchObject({ ok: false, title: "Couldn't start the service" });
+});

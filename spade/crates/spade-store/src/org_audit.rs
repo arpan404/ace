@@ -127,6 +127,25 @@ impl Store {
         Ok((stored, chained))
     }
 
+    /// Stores each conversation's events and `entries` to the audit chain, all or none: a lane's
+    /// request asked in its bot's conversation too, or an answer given in both (ADR 0217 §4).
+    pub fn append_across(
+        &self,
+        writes: &[(&str, &[Event])],
+        entries: &[Entry],
+        now_ms: i64,
+    ) -> Result<Vec<Vec<StoredEvent>>> {
+        let mut connection = self.lock()?;
+        let tx = connection.transaction()?;
+        let mut stored = Vec::with_capacity(writes.len());
+        for (conversation, events) in writes {
+            stored.push(append_in(&tx, conversation, events, now_ms)?);
+        }
+        audit_in(&tx, entries, now_ms)?;
+        tx.commit()?;
+        Ok(stored)
+    }
+
     /// Writes `changes` to the settings and `entries` to the audit chain, all or none: an access
     /// change, a grant or a switch of a shared bot with the entry that records it.
     pub fn set_settings_audited(

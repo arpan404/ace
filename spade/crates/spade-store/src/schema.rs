@@ -209,6 +209,12 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::outside::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0217: the task lanes that haven't ended, so nothing reads every lane a bot ever
+        // ran. New and empty, so its index costs nothing at open (ADR 0170).
+        sql: crate::helpers::LANES_LIVE,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

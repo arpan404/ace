@@ -50,6 +50,17 @@ fn report(lane: &str, state: ReportState) -> Event {
     }))
 }
 
+fn quiet() -> crate::tree::Around {
+    crate::tree::Around::default()
+}
+
+fn carries_on() -> crate::tree::Around {
+    crate::tree::Around {
+        carries_on: true,
+        ..quiet()
+    }
+}
+
 fn approval(reply: &str, call: &str) -> Event {
     e(
         json!({ "type": "approval_requested", "reply": reply, "call_id": call,
@@ -60,21 +71,21 @@ fn approval(reply: &str, call: &str) -> Event {
 #[test]
 fn a_lane_reads_queued_working_needs_you_and_how_it_ended() {
     let mut events = vec![lane_of("Fix the March invoice"), person("Fix it.")];
-    assert_eq!(state(&events, false), State::Queued);
+    assert_eq!(state(&events, quiet()), State::Queued);
     events.push(started("r1"));
-    assert_eq!(state(&events, false), State::Working);
+    assert_eq!(state(&events, quiet()), State::Working);
     events.push(approval("r1", "k1"));
-    assert_eq!(state(&events, false), State::NeedsYou);
+    assert_eq!(state(&events, quiet()), State::NeedsYou);
     events.push(e(
         json!({ "type": "approval_answered", "reply": "r1", "call_id": "k1",
                           "allowed": true, "always": false }),
     ));
-    assert_eq!(state(&events, false), State::Working);
+    assert_eq!(state(&events, quiet()), State::Working);
     let mut done = events.clone();
     done.push(finished("r1", "Sent."));
-    assert_eq!(state(&done, false), State::Finished);
+    assert_eq!(state(&done, quiet()), State::Finished);
     assert_eq!(
-        state(&done, true),
+        state(&done, carries_on()),
         State::Working,
         "a task that carries on by itself has not ended"
     );
@@ -83,18 +94,18 @@ fn a_lane_reads_queued_working_needs_you_and_how_it_ended() {
         json!({ "type": "reply_failed", "reply": "r1", "text": "",
                           "error": "the endpoint refused" }),
     ));
-    assert_eq!(state(&failed, false), State::Failed);
+    assert_eq!(state(&failed, quiet()), State::Failed);
     let mut stopped = events;
     stopped.push(Event::reply_ended(
         crate::event::ReplyEnd::Stopped,
         "r1",
         "",
     ));
-    assert_eq!(state(&stopped, false), State::Stopped);
+    assert_eq!(state(&stopped, quiet()), State::Stopped);
     // The person writes in an ended lane: it works again.
     done.push(person("Also cc Sam."));
     done.push(started("r2"));
-    assert_eq!(state(&done, false), State::Working);
+    assert_eq!(state(&done, quiet()), State::Working);
 }
 
 #[test]
@@ -185,14 +196,20 @@ fn task_stop_needs_a_message_the_person_wrote_naming_it() {
         e(json!({ "type": "user_message", "text": "stop it",
                   "from_agent": { "id": "a9", "name": "Other", "depth": 1 } })),
     ];
-    assert_eq!(stop_allowed(&events, "m1"), Ok(()));
-    assert!(stop_allowed(&events, "m3").is_err(), "the bot's own words");
+    assert_eq!(stop_allowed(&events, "l1", "m1"), Ok(()));
     assert!(
-        stop_allowed(&events, "m4").is_err(),
+        stop_allowed(&events, "l1", "m3").is_err(),
+        "the bot's own words"
+    );
+    assert!(
+        stop_allowed(&events, "l1", "m4").is_err(),
         "another bot's message"
     );
-    assert!(stop_allowed(&events, "").is_err(), "no because at all");
-    assert!(stop_allowed(&events, "m40").is_err());
+    assert!(
+        stop_allowed(&events, "l1", "").is_err(),
+        "no because at all"
+    );
+    assert!(stop_allowed(&events, "l1", "m40").is_err());
 }
 
 fn long_reply(steps: usize) -> Vec<Event> {
@@ -445,4 +462,110 @@ fn a_moved_replys_jobs_move_except_those_main_tracks_and_its_wakes_go_with_it() 
                           "jobs": ["j1"], "kept_jobs": ["j2"], "wakes": ["w1"] }),
     ));
     assert_eq!(Transcript::fold(&events).jobs, ["j2"]);
+}
+
+#[test]
+fn a_lane_whose_reply_closed_reads_working_while_its_job_or_a_worker_under_it_runs() {
+    let mut events = vec![
+        lane_of("Fetch the report"),
+        person("Fetch it."),
+        started("r1"),
+        e(json!({ "type": "job_started", "reply": "r1", "job": "j1", "name": "fetch" })),
+        finished("r1", "Waiting for the report."),
+    ];
+    assert_eq!(
+        state(&events, quiet()),
+        State::Working,
+        "its job still runs"
+    );
+    events.push(e(
+        json!({ "type": "job_finished", "job": "j1", "name": "fetch",
+                          "content": "done", "is_error": false }),
+    ));
+    assert_eq!(state(&events, quiet()), State::Finished);
+    let under = |working, waiting| crate::tree::Around {
+        children_working: working,
+        children_waiting: waiting,
+        ..quiet()
+    };
+    assert_eq!(
+        state(&events, under(true, false)),
+        State::Working,
+        "a worker under it runs"
+    );
+    assert_eq!(state(&events, under(false, true)), State::NeedsYou);
+}
+
+#[test]
+fn task_stop_refuses_a_message_older_than_the_tasks_latest_start_or_report() {
+    let events = vec![
+        person("Hi there"),               // m1
+        person("Fix the March invoice."), // m2
+        started("r1"),
+        lane_started("l1", &["m2"]), // m4
+        finished("r1", "Started a task."),
+        person("Stop the invoice task."),    // m6
+        report("l1", ReportState::Finished), // m7
+    ];
+    assert!(
+        stop_allowed(&events, "l1", "m1").is_err(),
+        "an old greeting"
+    );
+    assert!(
+        stop_allowed(&events, "l1", "m6").is_err(),
+        "it ended since; that stop is stale"
+    );
+    let mut later = events.clone();
+    later.push(person("Never mind the invoice."));
+    assert_eq!(stop_allowed(&later, "l1", "m8"), Ok(()));
+}
+
+#[test]
+fn a_quiet_stopped_report_is_never_taken_for_the_one_that_opened_a_reply() {
+    let events = vec![
+        person("Book flights."), // m1
+        started("r1"),
+        lane_started("l1", &["m1"]),
+        finished("r1", "Started."),
+        report("l1", ReportState::Stopped), // m5
+        person("What now?"),                // m6
+        started("r2"),
+        finished("r2", "Nothing runs."), // m8
+    ];
+    assert_eq!(replied_to(&events, "m8"), None);
+    let mut opened = events.clone();
+    opened.push(report("l2", ReportState::Done)); // m9
+    opened.push(started("r3"));
+    opened.push(finished("r3", "The other task is done.")); // m11
+    assert_eq!(replied_to(&opened, "m11").as_deref(), Some("l2"));
+}
+
+#[test]
+fn a_lane_started_with_untrusted_content_in_main_is_untrusted_in_view() {
+    let link = |untrusted: bool| {
+        e(
+            json!({ "type": "lane_of", "parent_conversation": "c1", "call": "c1.t1",
+                  "title": "T", "untrusted": untrusted }),
+        )
+    };
+    let registry = crate::tools::Registry::default();
+    let tainted = vec![link(true), person("Do it."), started("r1")];
+    assert_eq!(
+        crate::context::untrusted_in_view(&tainted, &registry).len(),
+        1
+    );
+    assert!(
+        crate::context::untrusted_in_view(&[link(false), person("Do it.")], &registry).is_empty()
+    );
+    // Main's words to a lane never pass for the person's: no ask, and tainted when marked.
+    let steered = vec![
+        link(false),
+        person("Do it."),
+        e(json!({ "type": "lane_message", "text": "Use March.", "untrusted": true })),
+    ];
+    assert_eq!(crate::asks::Ledger::of(&steered).open_asks().count(), 1);
+    assert_eq!(
+        crate::context::untrusted_in_view(&steered, &registry).len(),
+        1
+    );
 }

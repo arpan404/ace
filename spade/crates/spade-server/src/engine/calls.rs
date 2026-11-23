@@ -138,14 +138,13 @@ pub(super) async fn handle_calls(
                             by_bot: true,
                         }));
                     }
-                    match engine.record_all_unless_stopped(id, reply, &asked) {
+                    // A lane's question is asked in main too, in the same write, where the
+                    // person answers it (ADR 0217 §4).
+                    match engine.ask_question(id, reply, &asked) {
                         Ok(true) => {}
                         Ok(false) => return Handled::Stopped,
                         Err(error) => return Handled::Failed(error.to_string()),
                     }
-                    // A lane's question is asked in main too, where the person answers it
-                    // (ADR 0217 §4).
-                    engine.ask_in_main(id, &asked);
                     if ask.wait {
                         waiting = true;
                     } else {

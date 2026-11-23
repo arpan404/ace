@@ -79,6 +79,7 @@ pub use code::CodeCall;
 pub(crate) mod retired_models;
 mod self_edit;
 mod services;
+pub use services::StartAgain;
 mod speech;
 mod style;
 mod suggest;
@@ -113,6 +114,7 @@ pub use helpers::ProfileSource;
 pub use inbox::{InboxAnswer, Sender as InboxSender};
 pub use knowledge::{KnowledgeCall, KnowledgeError, entry_json};
 pub use knowledge_api::KnowledgeInput;
+pub use lanes::ENDED_SHOWN as ENDED_TASKS_SHOWN;
 pub use learned::{Forgotten, Learned};
 pub use local::LocalStatus;
 pub use maintenance::MaintenanceState;
@@ -527,7 +529,7 @@ impl Engine {
             }
         }
         // A task lane's jobs lost with the old process are reported like any (ADR 0217 §6).
-        for lane in engine.all_lanes() {
+        for lane in engine.live_lane_rows() {
             jobs::report_lost(&engine, &lane.conversation)?;
         }
         // Helpers carry on from their events (ADR 0152); only those Stop was pressed on close.

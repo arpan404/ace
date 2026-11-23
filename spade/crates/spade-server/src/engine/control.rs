@@ -19,8 +19,15 @@ impl Engine {
     /// restart recovery all honour it. If storing it fails, everything running is still stopped now, the stop is
     /// retried in the background, and the error is returned so the person is told.
     pub fn stop(self: &Arc<Self>, id: &str) -> Result<bool, StoreError> {
+        // Stop on a lane stops it alone, queued or running (ADR 0217 §5).
+        if self.is_lane(id) {
+            return self.stop_lane(id);
+        }
+        // Stop on the bot stops its task lanes first, whatever main itself is doing, and no
+        // queued lane is admitted meanwhile (ADR 0217 §5).
+        let lanes = self.stop_lanes(id)?;
         // A sleeping or waiting bot stops sleeping, and its services stop (ADR 0160).
-        self.end_work(id, Self::stop_wakes)
+        Ok(self.end_work(id, Self::stop_wakes)? || lanes)
     }
 
     /// [`Engine::stop`], with `end_wakes` sweeping the conversation's wakes and services: Stop
@@ -88,7 +95,7 @@ impl Engine {
         // sweep, ends too. One stored after the marker was refused (each is admitted under the
         // record lock), so once Stop returns none from the stopped work exists.
         // Stop on the bot stops every task lane too (ADR 0217 §5); Stop on a lane only it.
-        let woke = self.stop_workers(id) | self.stop_lanes(id) | end_wakes(self, id) || woke;
+        let woke = self.stop_workers(id) | end_wakes(self, id) || woke;
         let (turn, stopped_jobs) = self.halt(id, &live, reply.as_deref(), &jobs, stored.is_ok());
         loaded?;
         stored?;

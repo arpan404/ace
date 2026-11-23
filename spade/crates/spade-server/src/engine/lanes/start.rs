@@ -75,7 +75,7 @@ impl Engine {
         let words: Vec<String> = asks
             .iter()
             .filter_map(|id| {
-                persons_words(&events, id).or_else(|| Some(ledger.ask(id)?.words.clone()))
+                lane::persons_words(&events, id).or_else(|| Some(ledger.ask(id)?.words.clone()))
             })
             .collect();
         let registry = self.registry_for(main);
@@ -176,6 +176,16 @@ impl Engine {
         lane_id: String,
         build: impl FnOnce(&[Event]) -> Option<(Opened, Vec<Event>, Vec<Event>)>,
     ) -> Result<Option<StoredHelper>, ToolOutput> {
+        // Read before the record lock, which reading a lane's state takes; it only says whether
+        // `lane_started` reads queued: `fill_lanes` decides what starts.
+        let running_before = self
+            .lanes_of(main)
+            .iter()
+            .filter(|l| {
+                let state = self.lane_state(&l.conversation);
+                state.live() && state != lane::State::Queued
+            })
+            .count();
         let created = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(main) {
@@ -204,14 +214,7 @@ impl Engine {
                 model: self.lane_model(main),
                 created_ms: self.now_ms(),
             };
-            let running = self
-                .lanes_of(main)
-                .iter()
-                .filter(|l| {
-                    let state = self.lane_state(&l.conversation);
-                    state.live() && state != lane::State::Queued
-                })
-                .count();
+            let running = running_before;
             let started = Event::Known(Known::LaneStarted(Started {
                 lane: row.conversation.clone(),
                 conversation: row.conversation.clone(),
@@ -483,18 +486,6 @@ struct Opened {
 /// main's call).
 fn stays_with_main(name: &str) -> bool {
     name == spade_core::contract::CONTRACT_CALL || crate::tools::reattaches(name)
-}
-
-/// The verbatim words of the person's message `id` (`m<seq>`) in `events`.
-fn persons_words(events: &[Event], id: &str) -> Option<String> {
-    if id.contains('.') {
-        return None;
-    }
-    let seq = usize::try_from(spade_core::chat_markup::seq_of(id)?).ok()?;
-    match events.get(seq.checked_sub(1)?)? {
-        Event::Known(Known::UserMessage { text, .. }) => Some(text.trim().to_owned()),
-        _ => None,
-    }
 }
 
 /// A message from the person with Spade's per-turn `context`.

@@ -63,7 +63,7 @@ impl Engine {
     }
 
     /// What the worker's events don't say about whether it settled.
-    fn around(&self, id: &str, events: &[Event]) -> Around {
+    pub(in crate::engine) fn around(&self, id: &str, events: &[Event]) -> Around {
         let mut around = Around::default();
         for child in self.worker_children(id) {
             match self.node_state(&child, 1) {

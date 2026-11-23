@@ -373,6 +373,7 @@ impl Transcript {
             | Known::AskRouted(_)
             | Known::LaneTitled(_)
             | Known::LanesOverlapped(_)
+            | Known::LaneMessage(_)
             | Known::DecisionMade(_)
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)

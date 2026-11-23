@@ -597,12 +597,14 @@ impl Engine {
             if spade_core::turn::stop_requested(&events, reply) {
                 return Ok(false);
             }
-            self.append(&helper.conversation, asked)?;
-            self.append(&helper.parent, &mirror)?;
+            let mut writes: Vec<(String, Vec<Event>)> = vec![
+                (helper.conversation.clone(), vec![asked.clone()]),
+                (helper.parent.clone(), vec![mirror]),
+            ];
             // A helper that moved with main's work to a lane (ADR 0217 §2a) asks in main too,
             // where the person answers, as the lane's.
             if !is_lane && let Some(lane) = self.lane_row(&helper.parent) {
-                let mut in_main = mirror.clone();
+                let mut in_main = writes[1].1[0].clone();
                 if let Event::Known(Known::ApprovalRequested {
                     call_id: c,
                     helper: h,
@@ -619,9 +621,15 @@ impl Engine {
                         title: self.lane_title(&helper.parent),
                     }));
                 }
-                self.append(&lane.parent, &in_main)?;
+                writes.push((lane.parent.clone(), vec![in_main]));
                 also = Some(lane.parent);
             }
+            // All in one write: a crash never leaves the call waiting with nothing to answer.
+            let borrowed: Vec<(&str, &[Event])> = writes
+                .iter()
+                .map(|(id, events)| (id.as_str(), events.as_slice()))
+                .collect();
+            self.append_across(&borrowed, &[])?;
         }
         self.announce(&helper.parent);
         if let Some(main) = also {
@@ -678,45 +686,53 @@ impl Engine {
             .and_then(|m| m.reply.clone())
             .unwrap_or_default();
         // "Always" is stored in the bot's conversation, so it holds for the bot and every helper
-        // of it from now on.
-        self.append_audited(
-            bot,
-            &[Event::Known(Known::ApprovalAnswered {
-                reply: bot_reply,
-                call_id: call_id.to_owned(),
-                allowed,
-                always,
-                by: by.cloned().map(Box::new),
-            })],
-            &entry.into_iter().collect::<Vec<_>>(),
-        )?;
-        self.append(
-            &ask.conversation,
-            &Event::Known(Known::ApprovalAnswered {
-                reply: helper_reply,
-                call_id: ask.call_id.clone(),
-                allowed,
-                always,
-                by: None,
-            }),
-        )?;
+        // of it from now on. The answer lands in every conversation that asked in one write
+        // (with its audit entry), so a crash never clears the bot's request while the call still
+        // waits, nor the other way round.
+        let mut writes: Vec<(String, Vec<Event>)> = vec![
+            (
+                bot.to_owned(),
+                vec![Event::Known(Known::ApprovalAnswered {
+                    reply: bot_reply,
+                    call_id: call_id.to_owned(),
+                    allowed,
+                    always,
+                    by: by.cloned().map(Box::new),
+                })],
+            ),
+            (
+                ask.conversation.clone(),
+                vec![Event::Known(Known::ApprovalAnswered {
+                    reply: helper_reply,
+                    call_id: ask.call_id.clone(),
+                    allowed,
+                    always,
+                    by: None,
+                })],
+            ),
+        ];
         // A helper that moved with main's work to a lane (ADR 0217 §2a) asked in the lane too:
         // that copy is answered as well.
         if let Some(moved) = self.helper_of(&ask.conversation)
             && self.is_lane(&moved.parent)
             && moved.parent != bot
         {
-            self.append(
-                &moved.parent,
-                &Event::Known(Known::ApprovalAnswered {
+            writes.push((
+                moved.parent.clone(),
+                vec![Event::Known(Known::ApprovalAnswered {
                     reply: moved.reply.clone(),
                     call_id: mirrored_id(&moved.job, &ask.call_id),
                     allowed,
                     always,
                     by: None,
-                }),
-            )?;
+                })],
+            ));
         }
+        let borrowed: Vec<(&str, &[Event])> = writes
+            .iter()
+            .map(|(id, events)| (id.as_str(), events.as_slice()))
+            .collect();
+        self.append_across(&borrowed, &entry.into_iter().collect::<Vec<_>>())?;
         self.live(&ask.conversation).wake.notify_one();
         Ok(())
     }
@@ -724,7 +740,17 @@ impl Engine {
     /// After a restart: helpers Stop was pressed on close as stopped; the rest carry on from
     /// their events once Spade opens for work (`fill_slots`), rather than ending "unknown".
     pub(super) fn settle_helpers_after_restart(&self) -> Result<(), StoreError> {
+        // A task lane that ended is settled already: only the live ones are read (ADR 0170).
+        let live: std::collections::HashSet<String> = self
+            .store
+            .live_lanes(None)?
+            .into_iter()
+            .map(|row| row.conversation)
+            .collect();
         for helper in self.store.helpers()? {
+            if helper.profile == spade_core::lane::PROFILE && !live.contains(&helper.conversation) {
+                continue;
+            }
             // A stop the bot stored that names this helper's job or reply holds, even when the
             // job's end was stored and the helper's own stop was not (a crash between the two):
             // recovery by the bot's open jobs alone never sees such a helper.

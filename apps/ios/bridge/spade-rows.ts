@@ -53,6 +53,8 @@ export interface SpadeListRow {
   state: SpadeRowState;
   line: string;
   pinned: boolean;
+  /** When the person pinned it (ms), for the pin strip's order, oldest first; null when it isn't. */
+  pinnedAt: number | null;
   /** "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3); null otherwise. */
   shared: string | null;
   /** Its latest activity (ms): the merged list across machines orders by it within a rank. */
@@ -123,6 +125,7 @@ export function spadeListRows(
       state: row.state,
       line: unconfirmed ?? workerWaitLine(shown, row.line),
       pinned: agent.pinnedAt !== undefined,
+      pinnedAt: agent.pinnedAt ?? null,
       shared: agent.kind === "main" ? null : sharedIn(agent.id),
       at: agent.lastActivity,
       createdAt: agent.createdAt,
@@ -145,6 +148,7 @@ export function spadeListRows(
       state: row.state,
       line: club.unconfirmed ?? row.line,
       pinned: group.pinnedAt !== undefined,
+      pinnedAt: group.pinnedAt ?? null,
       shared: null,
       at: group.lastActivity,
       createdAt: group.createdAt,
@@ -225,6 +229,17 @@ export type SpadeBubbleRow =
   | SpadeQuestionCardRow
   /** The workers one call started, each as it stands now (ADR 0161). */
   | SpadeWorkersRow
+  /**
+   * A reply that changed the bot's files (ADR 0167): its steps in one quiet line (`text`, which
+   * an older phone shows as a note), undoing the whole reply from its first such step, or one
+   * step that changed files.
+   */
+  | {
+      kind: "changes";
+      text: string;
+      undo: { from: number; stays: string[] };
+      steps: { from: number; line: string; detail: string | null }[];
+    }
   /** Anything that is nobody's words: one quiet line between bubbles. */
   | { kind: "note"; text: string };
 
@@ -324,6 +339,20 @@ export function spadeBubbleRow(
       return undefined;
     case "files":
       return { kind: "note", text: bubble.paths.join(", ") };
+    // Only a reply undo can reach shows its steps: the rest of the work isn't drawn here yet.
+    case "steps":
+      return bubble.undo
+        ? {
+            kind: "changes",
+            text: bubble.summary,
+            undo: { from: bubble.undo.from, stays: [...new Set(bubble.undo.stays)] },
+            steps: bubble.steps.flatMap((step) =>
+              step.undoFrom === undefined
+                ? []
+                : [{ from: step.undoFrom, line: step.line, detail: step.detail ?? null }],
+            ),
+          }
+        : undefined;
     case "question":
       return spadeQuestionCardRow(bubble, who);
   }

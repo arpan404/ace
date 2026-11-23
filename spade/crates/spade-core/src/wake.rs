@@ -400,6 +400,7 @@ pub fn is_note(event: &Known) -> bool {
         Known::WakeFired { note: Some(_), .. }
             | Known::JobProgress { .. }
             | Known::WorkerReported(_)
+            | Known::LaneMessage(_)
     )
 }
 
@@ -415,6 +416,7 @@ pub fn note_text(event: &Known) -> Option<String> {
             ..
         } => Some(progress_text(job, name, *minutes, tail)),
         Known::WorkerReported(report) => Some(crate::tree::report_text(report)),
+        Known::LaneMessage(message) => Some(crate::lane::message_text(message)),
         _ => None,
     }
 }
@@ -425,6 +427,7 @@ pub fn untrusted(event: &Known) -> bool {
         Known::WakeFired { data, .. } => !data.is_empty(),
         Known::JobProgress { tail, .. } => !tail.is_empty(),
         Known::WorkerReported(report) => report.words.is_some(),
+        Known::LaneMessage(message) => message.untrusted,
         _ => false,
     }
 }

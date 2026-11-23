@@ -470,6 +470,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         )?;
         // Back to before the faces migration; the ones after it (routines' `untrusted`, the
         // skill store, helpers, seen cursors) are undone so they can run again.
+        connection.execute("DROP TABLE lanes_live", [])?;
         connection.execute("DROP TABLE helpers", [])?;
         connection.execute("ALTER TABLE routines DROP COLUMN untrusted", [])?;
         connection.execute_batch(
@@ -484,7 +485,7 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 15,
+            crate::schema::current_version() as i64 - 16,
         )?;
     }
     let store = Store::open(&path)?;
@@ -594,11 +595,11 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = crate::Store::connect(&path)?;
         connection
-            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE lanes_live; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 6,
+            crate::schema::current_version() as i64 - 7,
         )?;
     }
     let store = Store::open(&path)?;

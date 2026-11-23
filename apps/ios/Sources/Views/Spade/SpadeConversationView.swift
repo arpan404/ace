@@ -18,6 +18,10 @@ struct SpadeConversationView: View {
     var talk = false
     /// Opens another conversation over this one: a waiting member's own chat.
     var open: (SpadeRoute) -> Void = { _ in }
+    /// In a group's, the bots its profile's Add a member offers, across the machines.
+    var groupChoices: [SpadeMemberChoice] = []
+    @State private var groupProfileShown = false
+    @Environment(\.dismiss) private var dismissChat
     @State private var problem: String?
     /// The chat's voice messages, one playing at a time.
     @State private var voices = SpadeVoicePlayback()
@@ -69,7 +73,7 @@ struct SpadeConversationView: View {
     }
 
     /// The face and name at the top. A bot's open its profile, as a contact's do in Messages; a
-    /// group's show its members.
+    /// group's open the group's profile, its members and Library.
     @ViewBuilder private var titleButton: some View {
         let title = HStack(spacing: AceDesign.Space.related) {
             if let bot {
@@ -85,6 +89,13 @@ struct SpadeConversationView: View {
             Button { profileShown = true } label: { title }
                 .accessibilityLabel("\(name), profile")
                 .accessibilityIdentifier("spade.profile")
+        } else if let group, bot != nil {
+            Button { groupProfileShown = true } label: { title }
+                .accessibilityLabel("\(name), club profile")
+                .accessibilityIdentifier("spade.group.profile")
+                .sheet(isPresented: $groupProfileShown) {
+                    SpadeGroupProfileSheet(client: client, group: group, name: name, choices: groupChoices) { dismissChat() }
+                }
         } else {
             title.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
         }
@@ -126,7 +137,8 @@ struct SpadeConversationView: View {
                             }, sending: { spade.cards.isSending(conversation, callId: $0) }, drafts: { callId in
                                 Binding(get: { spade.cards.drafts(conversation, callId: callId) ?? [] },
                                         set: { spade.cards.keep($0, conversation: conversation, callId: callId) })
-                            }, audio: { ref in await recording(ref) })
+                            }, audio: { ref in await recording(ref) },
+                            undoing: group == nil ? bot.map { SpadeUndoTarget(client: client, agent: $0.id) } : nil)
                             .id(key)
                         }
                     }
