@@ -25,18 +25,12 @@ import {
 } from "@ace/ui-core/fleet-map";
 import { pairedDevices } from "@ace/ui-core";
 import { z } from "zod";
+import { fleetPicture, toneTokens, type FleetPicture } from "./fleet-map-picture.ts";
 import { FleetMapPart } from "./fleet-map-part.ts";
 import { machineReach, type FleetMachineReach } from "./fleet-map-reach.ts";
 
-/*
- * The phone's Fleet map, as the web's map falls back to a list when it's too narrow to draw:
- * every paired machine with how this phone reaches it, every device paired across them, each
- * with its state, its problem in words and the fix, plus how each machine is reached. The phone
- * has no computer of its own, so a device is judged against the machine it's paired with that
- * answers. Swift gathers each machine's part (`fleet-map-part.ts`) and its own facts about the
- * connection; the nodes and words are the web's, from `@ace/ui-core/fleet-map`. Pure.
- */
-
+// Swift gathers each runtime's part and the phone's connection facts. The shared
+// rules describe the resulting nodes and place them for the native map.
 const Machine = z.object({
   id: z.string().min(1).max(256),
   name: z.string().min(1).max(128),
@@ -136,6 +130,7 @@ export interface FleetMapView {
   summary: string;
   problems: number;
   rows: FleetMapRow[];
+  picture: FleetPicture | null;
   /** How each machine that answered is reached, for its reach section. */
   reach: FleetMachineReach[];
 }
@@ -209,13 +204,6 @@ function rowOf(node: MapNode, home: string, device?: FleetDevice): FleetMapRow {
   };
 }
 
-const toneTokens: Record<MapTone, string> = {
-  on: "done",
-  warn: "needs-you",
-  bad: "failed",
-  unknown: "idle",
-};
-
 const byName = <T extends { name: string }>(a: T, b: T) => a.name.localeCompare(b.name);
 
 export function combineFleetMap(request: FleetMapCombineRequest, now: number): FleetMapView {
@@ -253,11 +241,8 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
     links: new Set(machines.flatMap(({ machine, part }) => (part?.links ? [machine.id] : []))),
   };
   const names = (id: string) => machines.find((entry) => entry.machine.id === id)?.machine.name;
-  const machineRows = machines
-    .map(({ input }) => machineNode(input, inSentence))
-    .toSorted(byName)
-    .map((node) => rowOf(node, node.id));
-  const deviceRows = devices.toSorted(byName).map((device) => {
+  const machineNodes = machines.map(({ input }) => machineNode(input, inSentence)).toSorted(byName);
+  const pairedNodes = devices.toSorted(byName).map((device) => {
     // Judged against the machine that answers with its networks, else the first it's on.
     const on = device.on.map((entry) => machines.find((each) => each.machine.id === entry.machine));
     const home =
@@ -294,19 +279,53 @@ export function combineFleetMap(request: FleetMapCombineRequest, now: number): F
       (id) => names(id) ?? "A machine",
       { name, here: `on ${name}` },
     );
-    return rowOf(node, homeId, device);
+    // "own" here means the machine the paired device opens, not the phone viewing the map.
+    if (node.wire?.from === "own") node.wire = { ...node.wire, from: homeId };
+    return { node, homeId, device };
   });
-  const rows = [...machineRows, ...deviceRows];
+  // Keep the viewing phone as the map's anchor even before a daemon returns its pairing.
+  const pairedPhone = pairedNodes.find(({ device }) => device.self)?.node;
+  let viewerId = "viewer:iphone";
+  while (machineNodes.some((node) => node.id === viewerId)) viewerId += ":local";
+  const phone: MapNode = pairedPhone ?? {
+    id: viewerId,
+    name: viewer,
+    role: "device",
+    art: "phone",
+    tone: "on",
+    status: "This device",
+    working: undefined,
+    zones: [],
+    wire: undefined,
+    lines: [],
+    problem: undefined,
+    offer: undefined,
+  };
+  const rows = [
+    ...machineNodes.map((node) => rowOf(node, node.id)),
+    ...pairedNodes.map(({ node, homeId, device }) => rowOf(node, homeId, device)),
+    ...(!pairedPhone && machines.length ? [rowOf(phone, "")] : []),
+  ];
   const problems = rows.filter((row) => row.problem).length;
+  const summary = machines.length ? summaryLine(rows.length, problems) : "No machines paired yet.";
   return {
     type: "fleetMap.view",
-    // The phone itself is one of the devices when a machine names it; else count it here.
-    summary:
-      machines.length === 0
-        ? "No machines paired yet."
-        : summaryLine(rows.length + (devices.some((device) => device.self) ? 0 : 1), problems),
+    summary,
     problems,
     rows,
+    picture: machines.length
+      ? fleetPicture(
+          [
+            ...machineNodes,
+            ...pairedNodes.map(({ node }) => node),
+            ...(!pairedPhone ? [phone] : []),
+          ],
+          phone,
+          machines.map(({ input }) => input),
+          summary,
+          problems,
+        )
+      : null,
     reach: machines.flatMap(({ machine, part }) =>
       part
         ? [

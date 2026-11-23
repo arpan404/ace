@@ -1,12 +1,12 @@
 import type { RemoteNetworks } from "@ace/protocol";
 import { expect, test } from "vitest";
+import { fleetMapFacts } from "./map-facts.ts";
 import {
-  fleetMapFacts,
   type FleetMap,
   type FleetMapInput,
   type MapMachineInput,
   type MapDeviceInput,
-} from "@ace/ui-core/fleet-map";
+} from "./map-types.ts";
 import { fleetMapLayout, nodeBox, type Box, type MapLayout } from "./fleet-map-layout.ts";
 import { crosses, distanceToSegment, overlaps, segmentsOf } from "./fleet-map-geometry.ts";
 
