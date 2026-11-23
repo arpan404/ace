@@ -32,7 +32,8 @@ extension ConversationFeed {
     /// so the reader's place is installed as a session anchor, restored once the rows measure, and
     /// a feed following the end goes back to it.
     func restack(rows: Int, moving: Bool, replaced: Bool, proxy: ScrollViewProxy) {
-        guard ready, anchor.stack.update(rows: rows, moving: moving, replaced: replaced) != nil else { return }
+        guard ready, let switched = anchor.stack.update(rows: rows, moving: moving, replaced: replaced) else { return }
+        TranscriptJumpHooks.note("restack \(switched) rows=\(rows) following=\(following) revealed=\(revealed)")
         if !following, let top = currentTopRow() {
             viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
         }
@@ -273,14 +274,18 @@ extension ConversationFeed {
         // Under VoiceOver and Switch Control the feed makes no automatic corrections, so none here
         // either.
         guard intent.olderPage, !surface.running(.page), !Self.assistiveScrolling, let top = currentTopRow(),
-              let held = anchor.keeper.frames.inContent(top.rowID) else { return }
+              let held = anchor.keeper.frames.inContent(top.rowID) else {
+            TranscriptJumpHooks.note("hold skipped page=\(intent.olderPage) running=\(surface.running(.page)) top=\(currentTopRow() != nil)")
+            return
+        }
         let onScreen = Double(held.minY) - surface.offset
         // A feed still hidden on open has nothing drawn to freeze: its row is held all the same,
         // and the reveal, running on its own, shows it once both have settled.
         let frozen = revealed
         if frozen {
-            guard surface.freeze() else { return }
+            guard surface.freeze() else { TranscriptJumpHooks.note("hold not frozen"); return }
             TranscriptJumpHooks.covered(true)
+            TranscriptJumpHooks.note("hold start")
         }
         intent.olderPage = false
         let anchor = anchor, intent = intent, surface = surface
@@ -297,6 +302,7 @@ extension ConversationFeed {
             guard frozen else { return }
             surface.thaw()
             TranscriptJumpHooks.covered(false)
+            TranscriptJumpHooks.note("hold end")
         }
     }
     /// The reader took the feed mid-hold: it's theirs as it is.

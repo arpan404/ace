@@ -73,7 +73,8 @@ import XCTest
 
     /// The probe's last `name` run, once it has recorded one.
     private func jumpRun(_ app: XCUIApplication, _ name: String) -> JumpRun {
-        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30), "the probe recorded a \(name) run")
+        XCTAssertNotNil(app.waitForProbe("jump.\(name).frames", timeout: 30),
+                        "the probe recorded a \(name) run; it holds: \(app.probe.keys.filter { $0.hasPrefix("jump.") }.sorted())")
         let probe = app.probe
         func number(_ key: String) -> Int { Int(probe["jump.\(name).\(key)"] ?? "") ?? -1 }
         return JumpRun(frames: number("frames"), moved: number("moved"), total: number("total"), max: number("max"),
