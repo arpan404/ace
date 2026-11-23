@@ -9,6 +9,7 @@ import {
 } from "@ace/protocol";
 import { decodeStreamMessage, isStreamPiece, StreamAssembler } from "@ace/browser/stream";
 import {
+  mediaRetryCooldownMs,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -305,8 +306,11 @@ export class ScreenStreamClient {
    * A subscribe of `sessionId` failed: try again after the bounded backoff, unless the channel
    * closed, nothing holds the stream any more or another subscribe went out meanwhile.
    */
-  private retryLater(sessionId: string, delay = this.media.retryDelay(sessionId)): void {
-    if (delay === undefined) return;
+  private retryLater(
+    sessionId: string,
+    // Past the ladder, the cooldown, for as long as the stream is held: it never gives up.
+    delay = this.media.retryDelay(sessionId) ?? mediaRetryCooldownMs,
+  ): void {
     const epoch = this.epoch;
     const generation = this.media.generation(sessionId);
     this.cancelRetry(sessionId);

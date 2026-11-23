@@ -265,7 +265,7 @@ async function hanging() {
   return { ...browser, media, deliveries, named, timeOut };
 }
 
-test("subscribes that time out before failing climb the shared ladder, then name no connection", async () => {
+test("subscribes that time out before failing climb the shared ladder, then keep naming the connection on its cooldown", async () => {
   const view = await hanging();
   for (const wait of mediaRetryDelaysMs) {
     await view.timeOut();
@@ -280,12 +280,12 @@ test("subscribes that time out before failing climb the shared ladder, then name
     await until(() => view.named() === before + 1, `the retry after ${wait} ms`);
   }
   await view.timeOut();
-  // The ladder is spent: after the cooldown the view subscribes naming nothing.
+  // The ladder is spent: after the cooldown the view asks again, still naming the connection.
   const asked = subscribes(view.requested).length;
   view.elapse(mediaRetryCooldownMs);
-  await until(() => subscribes(view.requested).length === asked + 1, "the unnamed subscribe");
-  expect(subscribes(view.requested).at(-1)?.media).toBeUndefined();
-  expect(view.named()).toBe(mediaRetryDelaysMs.length + 1);
+  await until(() => subscribes(view.requested).length === asked + 1, "the subscribe after it");
+  expect(subscribes(view.requested).at(-1)?.media).toBeDefined();
+  expect(view.named()).toBe(mediaRetryDelaysMs.length + 2);
 });
 
 test("events during the cooldown send nothing until it ends", async () => {
@@ -338,12 +338,12 @@ test("subscribes that fail at once, each restoring the delivery before, still cl
     await until(() => named() === before + 1, `the retry after ${wait} ms`);
   }
   await new Promise((resolve) => setTimeout(resolve, 0));
-  // Spent: nothing until the cooldown ends, then a subscribe that names no connection.
+  // Spent: nothing until the cooldown ends, then a subscribe naming the connection again.
   const asked = subscribes(browser.requested).length;
   browser.elapse(5_000);
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(subscribes(browser.requested)).toHaveLength(asked);
   browser.elapse(mediaRetryCooldownMs);
   await until(() => subscribes(browser.requested).length === asked + 1, "after the cooldown");
-  expect(subscribes(browser.requested).at(-1)?.media).toBeUndefined();
+  expect(subscribes(browser.requested).at(-1)?.media).toBeDefined();
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { MediaRoute, SourcePicture } from "@ace/browser/live-view";
+import { mediaRetryDelaysMs, type MediaRoute, type SourcePicture } from "@ace/browser/live-view";
 import { streamKinds, type StreamMessage } from "@ace/browser/stream";
 import { encodePicture } from "@ace/browser/stream-encode";
 import type { MediaStreamClientMessage } from "@ace/protocol";
@@ -223,6 +223,22 @@ describe("device pictures across a media rebind", () => {
     expect(view.pendingTimers()).toBe(1);
     view.client.disconnect();
     expect(view.pendingTimers()).toBe(0);
+  });
+
+  it("keeps asking on its cooldown once the retries are spent, naming the healthy connection", async () => {
+    const view = setup();
+    view.client.retainStream(deviceId);
+    for (let attempt = 0; attempt < mediaRetryDelaysMs.length + 3; attempt++) {
+      view.reply(view.subscribes.at(-1)!, "fails");
+      await flush();
+      view.timeOut();
+      await flush();
+    }
+    expect(view.subscribes).toHaveLength(mediaRetryDelaysMs.length + 4);
+    const named = view.subscribes.map((subscribe) =>
+      subscribe.operation.op === "subscribe" ? subscribe.operation.media?.connection : undefined,
+    );
+    expect(new Set(named)).toEqual(new Set(["mc_aaaaaaaaaa"]));
   });
 
   it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {

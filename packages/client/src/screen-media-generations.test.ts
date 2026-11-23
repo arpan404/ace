@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ScreenState, ServerMessage, type MediaStreamClientMessage } from "@ace/protocol";
 import { streamKinds, type StreamMessage } from "@ace/browser/stream";
 import { encodePicture } from "@ace/browser/stream-encode";
+import { mediaRetryDelaysMs } from "@ace/browser/live-view";
 import { ScreenStreamClient, type MediaRoute, type SourcePicture } from "./screen-stream.ts";
 
 /*
@@ -344,6 +345,21 @@ describe("screen pictures across a media rebind", () => {
     await flush();
     again.client.disconnect();
     expect(again.pendingTimers()).toBe(0);
+  });
+
+  it("keeps asking on its cooldown once the retries are spent, naming the healthy connection", async () => {
+    const view = harness();
+    view.client.retainStream("app");
+    for (let attempt = 0; attempt < mediaRetryDelaysMs.length + 3; attempt++) {
+      view.reply(view.subscribes.at(-1)!, "fails");
+      await flush();
+      view.timeOut();
+      await flush();
+    }
+    expect(view.subscribes).toHaveLength(mediaRetryDelaysMs.length + 4);
+    expect(new Set(view.subscribes.map((subscribe) => subscribe.media?.connection))).toEqual(
+      new Set(["mc_aaaaaaaaaa"]),
+    );
   });
 
   it("a fresh subscribe cancels the retry it supersedes on the clock", async () => {

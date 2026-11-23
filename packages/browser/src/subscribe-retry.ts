@@ -3,9 +3,9 @@ import { mediaRetryCooldownMs } from "./media-route.ts";
 /*
  * When a live view asks again after a subscribe failed (ADR 0147 §4), shared by every client so
  * none re-derives it: each failed request waits the source's next step on the shared ladder
- * (`MediaSubscriptions.retryDelay`, `mediaRetryDelaysMs`); once the ladder is spent, the
- * connection isn't named for the source any more (`giveUp`) and the next try waits out the
- * cooldown (`mediaRetryCooldownMs`). Something that may make a subscribe succeed (an engine
+ * (`MediaSubscriptions.retryDelay`, `mediaRetryDelaysMs`); once the ladder is spent, each try
+ * waits out the cooldown (`mediaRetryCooldownMs`), for as long as the view is held: it never
+ * gives up, and keeps naming the connection. Something that may make a subscribe succeed (an engine
  * opened, the page shown again) may skip the wait of one ladder step, never more, and never the
  * cooldown: a page shown and hidden over and over never turns into a request each time.
  */
@@ -13,7 +13,6 @@ import { mediaRetryCooldownMs } from "./media-route.ts";
 /** What the retry needs of a source's ladder: `MediaSubscriptions` keeps it. */
 export interface RetryLadder {
   retryDelay(source: string): number | undefined;
-  giveUp(source: string): void;
 }
 
 /** Runs `run` after `ms`; the result cancels it. */
@@ -44,7 +43,6 @@ export class SubscribeRetry {
   failed(run: () => void): void {
     this.#cancel?.();
     const delay = this.#ladder.retryDelay(this.#source);
-    if (delay === undefined) this.#ladder.giveUp(this.#source);
     this.#skipped = false;
     this.#cooling = delay === undefined;
     this.#cancel = this.#schedule(() => {

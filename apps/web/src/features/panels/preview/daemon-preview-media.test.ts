@@ -385,7 +385,7 @@ const named = (request: { media?: unknown }) =>
     ? request.media.connection
     : undefined;
 
-test("a failing subscribe is retried on the shared ladder, then the view settles on the socket", async () => {
+test("a failing subscribe is retried on the shared ladder, then on its cooldown, still naming the healthy connection", async () => {
   const view = await watching("mc_aaaaaaaaaa", undefined, "fails");
   await settle();
   expect(view.subscribes().map(named)).toEqual(["mc_aaaaaaaaaa"]);
@@ -394,10 +394,13 @@ test("a failing subscribe is retried on the shared ladder, then the view settles
     await waitFor(() => expect(view.subscribes()).toHaveLength(index + 2));
   }
   expect(view.subscribes().map(named)).toEqual(Array(5).fill("mc_aaaaaaaaaa"));
-  // The ladder is spent: after the cooldown, the next try is the socket's.
+  // The ladder is spent: each cooldown brings another try, naming the connection, never giving
+  // video up while the view is held.
   view.fire(mediaRetryCooldownMs);
   await waitFor(() => expect(view.subscribes()).toHaveLength(6));
-  expect(named(view.subscribes()[5]!)).toBeUndefined();
+  view.fire(mediaRetryCooldownMs);
+  await waitFor(() => expect(view.subscribes()).toHaveLength(7));
+  expect(view.subscribes().slice(5).map(named)).toEqual(["mc_aaaaaaaaaa", "mc_aaaaaaaaaa"]);
 });
 
 test("a rebind cancels the retry still waiting for the old connection", async () => {

@@ -886,7 +886,7 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
           subscribing: undefined,
           retry: new SubscribeRetry(deliveries, threadId, later),
           unserved: new SubscribeRetry(
-            { retryDelay: (source) => deliveries.unservedDelay(source), giveUp: () => {} },
+            { retryDelay: (source) => deliveries.unservedDelay(source) },
             threadId,
             later,
           ),

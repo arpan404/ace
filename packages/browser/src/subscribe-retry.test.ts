@@ -12,11 +12,7 @@ function source() {
     return () => void timers.splice(timers.indexOf(timer), 1);
   };
   let attempt = 0;
-  let gaveUp = false;
-  const ladder = {
-    retryDelay: () => mediaRetryDelaysMs[attempt++],
-    giveUp: () => void (gaveUp = true),
-  };
+  const ladder = { retryDelay: () => mediaRetryDelaysMs[attempt++] };
   const tries: number[] = [];
   const retry = new SubscribeRetry(ladder, "thread", schedule);
   const fail = () => retry.failed(() => tries.push(now));
@@ -27,10 +23,10 @@ function source() {
       timer.run();
     }
   };
-  return { retry, fail, advance, tries, gaveUp: () => gaveUp };
+  return { retry, fail, advance, tries };
 }
 
-test("each failure waits the ladder's next step, then the cooldown, giving up the connection", () => {
+test("each failure waits the ladder's next step, then the cooldown, every time after", () => {
   const s = source();
   for (const wait of mediaRetryDelaysMs) {
     s.fail();
@@ -40,12 +36,13 @@ test("each failure waits the ladder's next step, then the cooldown, giving up th
     expect(s.retry.waiting).toBe(false);
   }
   expect(s.tries).toHaveLength(mediaRetryDelaysMs.length);
-  s.fail();
-  expect(s.gaveUp()).toBe(true);
-  s.advance(mediaRetryCooldownMs - 1);
-  expect(s.tries).toHaveLength(mediaRetryDelaysMs.length);
-  s.advance(1);
-  expect(s.tries).toHaveLength(mediaRetryDelaysMs.length + 1);
+  for (let cooldown = 1; cooldown <= 3; cooldown++) {
+    s.fail();
+    s.advance(mediaRetryCooldownMs - 1);
+    expect(s.tries).toHaveLength(mediaRetryDelaysMs.length + cooldown - 1);
+    s.advance(1);
+    expect(s.tries).toHaveLength(mediaRetryDelaysMs.length + cooldown);
+  }
 });
 
 test("one event may skip a step's wait, the next one waits it out", () => {

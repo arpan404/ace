@@ -422,7 +422,7 @@ export class BrowserLive {
           this.#schedule(ms, run),
         ),
         unserved: new SubscribeRetry(
-          { retryDelay: (source) => this.#media.unservedDelay(source), giveUp: () => {} },
+          { retryDelay: (source) => this.#media.unservedDelay(source) },
           action.threadId,
           (run, ms) => this.#schedule(ms, run),
         ),

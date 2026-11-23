@@ -9,6 +9,7 @@ import {
   type StreamMessage,
 } from "@ace/browser/stream";
 import {
+  mediaRetryCooldownMs,
   MediaSubscriptions,
   PictureQueue,
   SharedStreams,
@@ -394,8 +395,11 @@ export class DeviceClient {
    * A subscribe of `deviceId` failed: try again after the bounded backoff, unless the channel
    * closed, nothing holds the stream any more or another subscribe went out meanwhile.
    */
-  private retryLater(deviceId: string, delay = this.media.retryDelay(deviceId)): void {
-    if (delay === undefined) return;
+  private retryLater(
+    deviceId: string,
+    // Past the ladder, the cooldown, for as long as the stream is held: it never gives up.
+    delay = this.media.retryDelay(deviceId) ?? mediaRetryCooldownMs,
+  ): void {
     const epoch = this.epoch;
     const generation = this.media.generation(deviceId);
     this.cancelRetry(deviceId);
