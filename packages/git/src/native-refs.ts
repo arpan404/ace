@@ -108,14 +108,15 @@ async function invoke(
 ): Promise<NativeReply> {
   const addon = gitAddon();
   let token: number | undefined;
+  // `close()` aborts the token like it aborts a Git process, so queued work stops now.
+  const stop = () => {
+    if (token !== undefined) addon.gitRefsAbort(token);
+  };
   const native = repository.cli.nativeCall(() => {
     token = addon.gitRefsAbortToken();
     const started = token;
     return settled((settle) => read(started, settle));
-  });
-  const stop = () => {
-    if (token !== undefined) addon.gitRefsAbort(token);
-  };
+  }, stop);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   const stopped = new Promise<never>((_, reject) => {

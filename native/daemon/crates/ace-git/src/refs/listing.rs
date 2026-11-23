@@ -47,14 +47,16 @@ pub(super) fn branch_refs(
     let entries = catalog(repo, cancel)?;
     let graph = repo.commit_graph_if_enabled().ok().flatten();
     let mut listed: Vec<(i64, &Entry, gix::hash::ObjectId)> = Vec::new();
-    for (entry, target) in entries
-        .iter()
-        .filter(|entry| matches(entry.name.as_bytes(), patterns))
-        .filter_map(|entry| entry.target.map(|target| (entry, target)))
-    {
+    for entry in &entries {
         if cancel.aborted() {
             return Err(Fallback::Cancelled);
         }
+        if !matches(entry.name.as_bytes(), patterns) {
+            continue;
+        }
+        let Some(target) = entry.target else {
+            continue;
+        };
         match commit_of(repo, graph.as_ref(), target) {
             Some(Some((commit, time))) => listed.push((time, entry, commit)),
             // Not a commit: the atom has no date, and Git sorts it with the empty ones.
@@ -63,9 +65,6 @@ pub(super) fn branch_refs(
             // Missing object or unreadable store: Git both words and sorts that itself.
             None => return Err(Fallback::Unreadable),
         }
-    }
-    if listed.len() > LISTED_REF_LIMIT {
-        return Err(Fallback::TooManyRefs);
     }
     listed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
     if count > 0 {
@@ -104,13 +103,17 @@ pub(super) fn branch_names(
 ) -> Result<Vec<u8>, Fallback> {
     let entries = catalog(repo, cancel)?;
     // Git skips a dangling symbolic ref while collecting, so it never uses a `--count` slot.
-    let mut listed: Vec<(&Entry, gix::hash::ObjectId)> = entries
-        .iter()
-        .filter(|entry| matches(entry.name.as_bytes(), patterns))
-        .filter_map(|entry| entry.target.map(|target| (entry, target)))
-        .collect();
-    if listed.len() > LISTED_REF_LIMIT {
-        return Err(Fallback::TooManyRefs);
+    let mut listed: Vec<(&Entry, gix::hash::ObjectId)> = Vec::new();
+    for entry in &entries {
+        if cancel.aborted() {
+            return Err(Fallback::Cancelled);
+        }
+        if !matches(entry.name.as_bytes(), patterns) {
+            continue;
+        }
+        if let Some(target) = entry.target {
+            listed.push((entry, target));
+        }
     }
     if count > 0 {
         listed.truncate(count as usize);
@@ -142,7 +145,8 @@ fn catalog(repo: &gix::Repository, cancel: &Cancel) -> Result<Vec<Entry>, Fallba
         if cancel.aborted() {
             return Err(Fallback::Cancelled);
         }
-        if entries.len() > LISTED_REF_LIMIT {
+        // One past the cap is already too many: the sort below must never see it.
+        if entries.len() >= LISTED_REF_LIMIT {
             return Err(Fallback::TooManyRefs);
         }
         // Git warns about and skips a ref it cannot parse; so does the listing.

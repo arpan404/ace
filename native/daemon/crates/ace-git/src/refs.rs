@@ -412,7 +412,8 @@ fn reads_ref(path: &std::path::Path) -> bool {
     };
     // Git reads a symlinked root ref as a symbolic ref naming its target.
     if link.file_type().is_symlink() {
-        return std::fs::read_link(path).is_ok_and(|target| !target.as_os_str().is_empty());
+        return std::fs::read_link(path)
+            .is_ok_and(|target| link_target(&target).is_some_and(valid_ref_target));
     }
     if !link.is_file() || link.len() > ROOT_REF_MAX_BYTES {
         return false;
@@ -443,13 +444,52 @@ fn reads_ref(path: &std::path::Path) -> bool {
     let first = bytes.split(|byte| *byte == b'\n').next().unwrap_or(&[]);
     let text = trim_ascii(first);
     if let Some(target) = text.strip_prefix(b"ref:") {
-        return !trim_ascii(target).is_empty();
+        return valid_ref_target(trim_ascii(target));
     }
     let oid = text
         .split(|byte| byte.is_ascii_whitespace())
         .next()
         .unwrap_or(&[]);
     (oid.len() == 40 || oid.len() == 64) && oid.iter().all(u8::is_ascii_hexdigit)
+}
+
+/// A symlink's target bytes, as the ref name Git validates.
+#[cfg(unix)]
+fn link_target(target: &std::path::Path) -> Option<&[u8]> {
+    use std::os::unix::ffi::OsStrExt;
+    Some(target.as_os_str().as_bytes())
+}
+
+#[cfg(not(unix))]
+fn link_target(target: &std::path::Path) -> Option<&[u8]> {
+    target.to_str().map(str::as_bytes)
+}
+
+/// A symbolic ref's target as Git validates it: a full `refs/...` name Git would accept.
+fn valid_ref_target(target: &[u8]) -> bool {
+    let Some(rest) = target.strip_prefix(b"refs/") else {
+        return false;
+    };
+    if rest.is_empty()
+        || rest.starts_with(b"/")
+        || rest.ends_with(b"/")
+        || target.windows(2).any(|pair| pair == b"..")
+        || target.windows(2).any(|pair| pair == b"@{")
+    {
+        return false;
+    }
+    if target
+        .iter()
+        .any(|byte| *byte <= b' ' || *byte == 0x7f || b"~^:?*[\\".contains(byte))
+    {
+        return false;
+    }
+    rest.split(|byte| *byte == b'/').all(|part| {
+        !part.is_empty()
+            && !part.starts_with(b".")
+            && !part.ends_with(b".")
+            && !part.ends_with(b".lock")
+    })
 }
 
 /// Open a root-ref candidate without ever blocking: a FIFO or device in the Git directory
@@ -671,7 +711,19 @@ mod tests {
             std::fs::remove_file(&fifo)?;
             std::os::unix::fs::symlink("refs/heads/main", &fifo)?;
             assert!(super::root_ref(&repo, name));
+            // A symbolic ref's target is a full `refs/...` ref name, as Git validates it.
+            std::fs::remove_file(&fifo)?;
+            std::os::unix::fs::symlink("../outside", &fifo)?;
+            assert!(!super::root_ref(&repo, name));
+            std::fs::remove_file(&fifo)?;
+            std::os::unix::fs::symlink("refs/heads/bad..name", &fifo)?;
+            assert!(!super::root_ref(&repo, name));
+            std::fs::remove_file(&fifo)?;
         }
+        std::fs::write(&fifo, "ref: not-a-ref\n")?;
+        assert!(!super::root_ref(&repo, name));
+        std::fs::write(&fifo, "ref: refs/heads/main\n")?;
+        assert!(super::root_ref(&repo, name));
         Ok(())
     }
 

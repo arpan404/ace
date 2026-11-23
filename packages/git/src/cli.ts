@@ -360,16 +360,24 @@ export class GitCli {
     return result;
   }
   /**
-   * Admission and drain for work the service runs without a Git process (G1's native ref
-   * reads): the same closed check, 64-call limit and `close()` drain as `call`. The work is
-   * tracked until it settles, not until its caller stops waiting on a timeout.
+   * Admission, cancellation and drain for work the service runs without a Git process (G1's
+   * native ref reads): the same closed check, 64-call limit, `close()` cancellation and
+   * drain as `call`. The work is tracked until it settles, not until its caller stops
+   * waiting on a timeout; `cancel` stops it early, on `close()` too.
    */
-  nativeCall<T>(run: () => Promise<T>): Promise<T> {
+  nativeCall<T>(run: () => Promise<T>, cancel?: () => void): Promise<T> {
     if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     if (this.calls.size >= 64)
       return Promise.reject(new GitError("git_busy", "Git call limit reached"));
     const result = run();
     this.track(result);
+    if (cancel !== undefined) {
+      this.cancellations.add(cancel);
+      void result.then(
+        () => this.cancellations.delete(cancel),
+        () => this.cancellations.delete(cancel),
+      );
+    }
     return result;
   }
   private track(result: Promise<unknown>): void {

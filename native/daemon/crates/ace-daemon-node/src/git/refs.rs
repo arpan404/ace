@@ -153,8 +153,9 @@ impl Drop for Pending {
 /// One git read running on the pool.
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
-/// A fixed two-worker pool, bounded by the shell's admission (the CLI's 64-call limit): git
-/// reads never run on the JavaScript thread and never queue on the shared libuv pool.
+/// A fixed pool, bounded by the shell's admission (the CLI's 64-call limit) and sized like the
+/// CLI's own concurrency so many roots read at once: git reads never run on the JavaScript
+/// thread and never queue on the shared libuv pool.
 struct Pool {
     jobs: Sender<Job>,
 }
@@ -166,7 +167,10 @@ fn pool() -> Option<&'static Pool> {
     }
     let (jobs, inbox) = channel::<Job>();
     let inbox = Arc::new(Mutex::new(inbox));
-    for worker in 0..2 {
+    let workers = std::thread::available_parallelism()
+        .map_or(2, |parallelism| parallelism.get())
+        .clamp(2, 8);
+    for worker in 0..workers {
         let inbox = Arc::clone(&inbox);
         let spawned = std::thread::Builder::new()
             .name(format!("ace-git-{worker}"))
