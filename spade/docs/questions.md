@@ -40,8 +40,7 @@ Two kinds are made by Spade, never by `ask_user`: `connect` (a bot asking for an
 the thing (connecting, installing); an answer posted to one is refused. Later, Not now, restarts
 and late answers are every card's.
 
-Helpers never ask: every profile leaves `ask_user` out (helpers.md). Bots on CLI brains call it
-through `spade_call` like any tool, and read the same results.
+Helpers never ask: every profile leaves `ask_user` out (helpers.md).
 
 ## Events
 
