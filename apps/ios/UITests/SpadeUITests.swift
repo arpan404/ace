@@ -18,7 +18,9 @@ import XCTest
     /// `appearance` ("light", "dark") pins the app's own look, for screenshots of both.
     func launch(appearance: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["--spike", "--spike-port", port] + (appearance.map { ["-ace.appearance", $0] } ?? [])
+        // Start on Projects even if a preceding test left a thread open for restoration.
+        app.launchArguments = ["--spike", "--spike-port", port, "-ace.inbox.openThread", "none"]
+            + (appearance.map { ["-ace.appearance", $0] } ?? [])
         app.launchWithArguments()
         return app
     }
@@ -28,14 +30,20 @@ import XCTest
         var request = URLRequest(url: try XCTUnwrap(URL(string: "http://127.0.0.1:\(port)/review/spade")))
         request.httpMethod = "POST"
         request.httpBody = Data("\"\(kind)\"".utf8)
-        _ = try await URLSession.shared.data(for: request)
+        let (_, response) = try await URLSession.shared.data(for: request)
+        XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200, "the fixture stages Spade: \(kind)")
     }
 
     func openSpade(_ app: XCUIApplication) -> XCUIElement {
-        let tab = app.homeTab("spade")
+        let tab = spadeTab(app)
         XCTAssertTrue(tab.waitForExistence(timeout: 30))
         tab.tap()
         return tab
+    }
+
+    private func spadeTab(_ app: XCUIApplication) -> XCUIElement {
+        app.tabBars.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'tab.spade' OR label == 'Spade'")).firstMatch
     }
 
     func testTheSpadeTabListsTheBotsInWebsOrderAndOpensOne() throws {
@@ -52,7 +60,7 @@ import XCTest
 
         notes.tap()
         XCTAssertTrue(app.staticTexts["Summarise yesterday's PRs"].waitForExistence(timeout: 15))
-        XCTAssertFalse(app.homeTab("spade").isHittable)
+        XCTAssertFalse(spadeTab(app).isHittable)
         screenshot("spade-2-conversation")
     }
 
