@@ -17,7 +17,7 @@ struct UsageHeadroomBar: Decodable, Equatable, Sendable {
         if let window {
             return tone == .out ? "\(label) \(window) out" : "\(label) \(window) \(Int(left.rounded()))% left"
         }
-        switch tone {
+        return switch tone {
         case .ok: "\(label) \(Int(left.rounded()))% left for the \(span)"
         case .low: "\(label) low, \(Int(left.rounded()))% left for the \(span)"
         case .out: "\(label) out for the \(span)"
