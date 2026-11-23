@@ -59,6 +59,30 @@ import Testing
         #expect(model.thread?.items["a"]?.row.text == "Hello 😀")
     }
 
+    @Test func commandOutputEditsUseTheOutputBaseAndKeepTheCommand() throws {
+        let model = ClientModel(now: { 0 })
+        model.open("thread")
+        let epoch = try #require(model.thread?.epoch)
+        var command = row("Run checks")
+        command["type"] = "tool_call"
+        command["step"] = [
+            "icon": "terminal", "verb": "Ran", "target": "check", "note": "",
+            "settled": false, "failed": false, "needsYou": false,
+            "command": ["label": "Run checks", "full": "bun run check", "background": false],
+            "detail": ["output": "old 😀", "outputTruncated": true, "text": "", "diffs": []]
+        ] as [String: Any]
+        #expect(model.receive(try frame([["type": "thread.item", "threadId": "thread", "epoch": epoch, "id": "a", "row": command]])))
+        var output = edit(epoch, base: 8, cut: 4, append: " done")
+        output["row"] = nil
+        output["field"] = "stepOutput"
+        #expect(model.receive(try frame([output])))
+        #expect(model.thread?.items["a"]?.row.step?.detail?.output == "😀 done")
+        #expect(model.thread?.items["a"]?.row.step?.command?.full == "bun run check")
+        #expect(model.thread?.items["a"]?.row.text == "Run checks")
+        #expect(!model.receive(try frame([output])))
+        #expect(model.thread?.items["a"]?.row.step?.detail?.output == "😀 done")
+    }
+
     @Test func anEditWithoutARowKeepsEveryOtherFieldOfTheRowShown() throws {
         let model = ClientModel(now: { 0 })
         model.open("thread")

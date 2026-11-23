@@ -52,7 +52,7 @@ struct StepDetail: Codable, Sendable, Equatable {
         let lines: [Line]
         let more: Int
     }
-    let output: String
+    var output: String
     let outputTruncated: Bool
     let text: String
     let diffs: [Diff]
