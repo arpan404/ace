@@ -6,10 +6,14 @@ pub mod home;
 pub mod http;
 pub mod http_parse;
 pub mod origin;
+pub mod profile;
 pub mod protocol;
 pub mod stream;
+pub mod tls;
 pub mod types;
 pub mod ws;
+mod ws_io;
+pub mod x509;
 
 pub use error::{
     CliErrorCode, CliOutcome, DAEMON_DOWN_HINT, DAEMON_DOWN_MESSAGE, FailureMapping, WireError,
@@ -19,13 +23,19 @@ pub use home::{
     parse_host_connection, reach_local,
 };
 pub use http::{
-    DEFAULT_HTTP_TIMEOUT, HttpMethod, HttpResponse, MAX_HTTP_RESPONSE_BYTES, http_request_local,
-    http_request_local_json,
+    DEFAULT_HTTP_TIMEOUT, HttpMethod, HttpResponse, MAX_HTTP_RESPONSE_BYTES, exchange_ticket,
+    exchange_ticket_with_tls, http_request_local, http_request_local_json, http_request_remote,
+    http_request_remote_with_tls,
 };
 pub use origin::{LocalOrigin, RemoteOrigin, is_tailnet_name};
+pub use profile::{DirectRemote, ProfileName, ProfileRelay, RemoteProfile, SocketTicket};
 pub use protocol::{
     Credential, DEFAULT_COLD_START_TIMEOUT, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
     MAX_FRAME_BYTES, MAX_SEND_BYTES, PROTOCOL_VERSION, Reply, Welcome,
 };
+pub use tls::{Clock, SystemClock, TlsPinConfig};
 pub use types::{DeviceId, Fingerprint, HostId, RequestId, Ticket, Token, is_hex64};
 pub use ws::{ConnectConfig, Connection};
+pub use x509::{
+    CertificateInfo, parse_leaf_certificate, sha256_fingerprint, spki_sha256_fingerprint,
+};

@@ -10,20 +10,23 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::value::RawValue;
+use tungstenite::WebSocket;
 use tungstenite::client::client_with_config;
-use tungstenite::handshake::client::ClientHandshake;
 use tungstenite::protocol::WebSocketConfig;
-use tungstenite::{HandshakeError, Message, WebSocket};
 
 use crate::error::WireError;
 use crate::home::Local;
+use crate::http::exchange_ticket_with_tls;
+use crate::profile::DirectRemote;
 use crate::protocol::{
     Credential, DEFAULT_COLD_START_TIMEOUT, DEFAULT_HANDSHAKE_TIMEOUT, DEFAULT_REQUEST_TIMEOUT,
-    MAX_FRAME_BYTES, Reply, Welcome, classify_close_code, decode_welcome, encode_hello,
-    encode_request_into, inject_request_id, is_machine_code_refusal, parse_server_envelope,
+    MAX_FRAME_BYTES, Reply, Welcome, decode_welcome, encode_hello, encode_request_into,
+    inject_request_id, parse_server_envelope,
 };
-use crate::stream::{TransportStream, classify_io_error, connect_local_tcp};
+use crate::stream::{TransportStream, connect_local_tcp, remaining_until};
+use crate::tls::{TlsPinConfig, connect_pinned_tls};
 use crate::types::{DeviceId, HostId, RequestId};
+use crate::ws_io::{classify_handshake_error, handshake_error_frame, read_text_frame, send_text};
 
 /// Options controlling how [`Connection`] identifies itself and enforces deadlines.
 #[derive(Debug, Clone)]
@@ -75,6 +78,44 @@ impl Connection {
             &ws_url,
             TransportStream::Plain(tcp),
             Credential::Token(local.token()),
+            &config.device_id,
+            config.expected_host_id.as_ref(),
+            config,
+            deadline,
+        )
+    }
+
+    /// Opens a blocking pinned-TLS WebSocket connection to a direct remote machine.
+    ///
+    /// Exchanges a fresh single-use ticket via `POST /v1/tickets` over pinned HTTPS, then upgrades
+    /// a pinned WSS connection and authenticates with `ticket` and `direct.device_id`.
+    pub fn open_remote(
+        direct: &DirectRemote<'_>,
+        config: &ConnectConfig,
+    ) -> Result<Self, WireError> {
+        let tls = TlsPinConfig::new(direct.fingerprint.clone());
+        Self::open_remote_with_tls(direct, &tls, config)
+    }
+
+    /// Opens a blocking pinned-TLS WebSocket connection using an explicit [`TlsPinConfig`] (for
+    /// custom clocks or `.ts.net` fallback roots).
+    pub fn open_remote_with_tls(
+        direct: &DirectRemote<'_>,
+        tls: &TlsPinConfig,
+        config: &ConnectConfig,
+    ) -> Result<Self, WireError> {
+        let deadline = Instant::now() + config.handshake_timeout;
+        let ticket_budget = remaining_until(deadline, "Handshake")?;
+        let socket_ticket = exchange_ticket_with_tls(direct, tls, ticket_budget)?;
+        let stream = connect_pinned_tls(direct.origin, tls, deadline)?;
+        let ws_url = direct.origin.wss_url();
+        let expected_host_id = config.expected_host_id.as_ref().or(direct.host_id);
+        Self::open_stream(
+            &ws_url,
+            stream,
+            Credential::Ticket(&socket_ticket.ticket),
+            direct.device_id,
+            expected_host_id,
             config,
             deadline,
         )
@@ -86,6 +127,8 @@ impl Connection {
         ws_url: &str,
         stream: TransportStream,
         credential: Credential<'_>,
+        device_id: &DeviceId,
+        expected_host_id: Option<&HostId>,
         config: &ConnectConfig,
         mut deadline: Instant,
     ) -> Result<Self, WireError> {
@@ -101,7 +144,7 @@ impl Connection {
         let mut send_buf = String::with_capacity(512);
         let mut queued_lines = VecDeque::new();
 
-        encode_hello(&config.device_id, credential, &mut send_buf)?;
+        encode_hello(device_id, credential, &mut send_buf)?;
         send_text(&mut ws, &send_buf, deadline, "Handshake")?;
 
         let cold_start_deadline = Instant::now() + config.cold_start_timeout;
@@ -122,7 +165,7 @@ impl Connection {
                     }
                 }
                 "welcome" => {
-                    break decode_welcome(&read_buf, config.expected_host_id.as_ref())?;
+                    break decode_welcome(&read_buf, expected_host_id)?;
                 }
                 "error" => return Err(handshake_error_frame(&envelope)),
                 other => {
@@ -210,9 +253,16 @@ impl Connection {
         let deadline = Instant::now() + self.request_timeout;
         self.send_buf.clear();
         self.send_buf.push_str(r#"{"type":"ping"}"#);
-        self.send_text_buf(deadline, "Ping")?;
+        send_text(&mut self.ws, &self.send_buf, deadline, "Ping")?;
         loop {
-            self.read_next_text_frame(deadline, "Ping", true)?;
+            read_text_frame(
+                &mut self.ws,
+                &mut self.read_buf,
+                &mut self.queued_lines,
+                deadline,
+                "Ping",
+                true,
+            )?;
             let envelope = parse_server_envelope(&self.read_buf)?;
             if envelope.msg_type == "pong" {
                 return Ok(());
@@ -245,10 +295,17 @@ impl Connection {
         timeout: Duration,
     ) -> Result<Reply, WireError> {
         let deadline = Instant::now() + timeout;
-        self.send_text_buf(deadline, "Request")?;
+        send_text(&mut self.ws, &self.send_buf, deadline, "Request")?;
 
         loop {
-            self.read_next_text_frame(deadline, "Request", true)?;
+            read_text_frame(
+                &mut self.ws,
+                &mut self.read_buf,
+                &mut self.queued_lines,
+                deadline,
+                "Request",
+                true,
+            )?;
             let envelope = parse_server_envelope(&self.read_buf)?;
 
             if envelope.msg_type == "error" {
@@ -270,7 +327,6 @@ impl Connection {
                             .map_or_else(String::new, std::borrow::Cow::into_owned),
                     });
                 }
-                // Uncorrelated or other-id error leaves the connection usable (client-core.ts).
                 continue;
             }
 
@@ -294,171 +350,5 @@ impl Connection {
                 return Ok(Reply::new(request_id, msg_type, raw));
             }
         }
-    }
-
-    fn send_text_buf(&mut self, deadline: Instant, context: &'static str) -> Result<(), WireError> {
-        send_text(&mut self.ws, &self.send_buf, deadline, context)
-    }
-
-    fn read_next_text_frame(
-        &mut self,
-        deadline: Instant,
-        context: &'static str,
-        ignore_binary: bool,
-    ) -> Result<(), WireError> {
-        read_text_frame(
-            &mut self.ws,
-            &mut self.read_buf,
-            &mut self.queued_lines,
-            deadline,
-            context,
-            ignore_binary,
-        )
-    }
-}
-
-fn send_text(
-    ws: &mut WebSocket<TransportStream>,
-    payload: &str,
-    deadline: Instant,
-    context: &'static str,
-) -> Result<(), WireError> {
-    ws.get_ref().apply_deadline(deadline, context)?;
-    ws.send(Message::Text(payload.into()))
-        .map_err(|err| classify_ws_error(err, context))
-}
-
-fn read_text_frame(
-    ws: &mut WebSocket<TransportStream>,
-    read_buf: &mut String,
-    queued_lines: &mut VecDeque<String>,
-    deadline: Instant,
-    context: &'static str,
-    ignore_binary: bool,
-) -> Result<(), WireError> {
-    if let Some(line) = queued_lines.pop_front() {
-        read_buf.clear();
-        read_buf.push_str(&line);
-        return Ok(());
-    }
-
-    loop {
-        ws.get_ref().apply_deadline(deadline, context)?;
-        match ws.read() {
-            Ok(Message::Text(text)) => {
-                if text.len() > MAX_FRAME_BYTES {
-                    return Err(WireError::Limit {
-                        detail: "Server frame exceeded size limit".into(),
-                    });
-                }
-                if text.contains('\n') {
-                    for line in text.split('\n').filter(|l| !l.is_empty()) {
-                        queued_lines.push_back(line.to_owned());
-                    }
-                    if let Some(first) = queued_lines.pop_front() {
-                        read_buf.clear();
-                        read_buf.push_str(&first);
-                        return Ok(());
-                    }
-                    continue;
-                }
-                read_buf.clear();
-                read_buf.push_str(text.as_str());
-                return Ok(());
-            }
-            Ok(Message::Ping(payload)) => {
-                ws.get_ref().apply_deadline(deadline, context)?;
-                ws.send(Message::Pong(payload))
-                    .map_err(|err| classify_ws_error(err, context))?;
-            }
-            Ok(Message::Pong(_) | Message::Frame(_)) => {}
-            Ok(Message::Binary(_)) => {
-                if !ignore_binary {
-                    return Err(WireError::Protocol {
-                        detail: "Unexpected binary frame before welcome".into(),
-                    });
-                }
-            }
-            Ok(Message::Close(frame)) => {
-                return Err(match frame {
-                    Some(cf) => classify_close_code(u16::from(cf.code), cf.reason.as_str()),
-                    None => WireError::Offline {
-                        detail: "Daemon closed connection".into(),
-                    },
-                });
-            }
-            Err(err) => return Err(classify_ws_error(err, context)),
-        }
-    }
-}
-
-fn handshake_error_frame(envelope: &crate::protocol::ServerEnvelope<'_>) -> WireError {
-    let code = envelope.code.as_deref().unwrap_or("daemon");
-    let message = envelope.message.as_deref().unwrap_or("");
-    if code == "unauthorized" {
-        return WireError::Auth {
-            detail: if message.is_empty() {
-                "Unauthorized".into()
-            } else {
-                message.to_owned()
-            },
-            revoked: false,
-        };
-    }
-    if is_machine_code_refusal(code) {
-        return WireError::MachineCode {
-            code: code.to_owned(),
-            locked_until: envelope.locked_until,
-        };
-    }
-    WireError::Daemon {
-        code: code.to_owned(),
-        message: message.to_owned(),
-    }
-}
-
-fn classify_handshake_error(
-    err: HandshakeError<ClientHandshake<TransportStream>>,
-    context: &'static str,
-) -> WireError {
-    match err {
-        HandshakeError::Interrupted(_) => WireError::Offline {
-            detail: "WebSocket handshake interrupted".into(),
-        },
-        HandshakeError::Failure(ws_err) => classify_ws_error(ws_err, context),
-    }
-}
-
-fn classify_ws_error(err: tungstenite::Error, context: &'static str) -> WireError {
-    match err {
-        tungstenite::Error::Io(io_err) => classify_io_error(&io_err, context),
-        tungstenite::Error::Capacity(cap) => WireError::Limit {
-            detail: cap.to_string(),
-        },
-        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => {
-            WireError::Offline {
-                detail: "Daemon connection closed".into(),
-            }
-        }
-        tungstenite::Error::Http(resp) => {
-            let status = resp.status().as_u16();
-            if status == 401 || status == 403 {
-                WireError::Auth {
-                    detail: format!("HTTP {status}"),
-                    revoked: false,
-                }
-            } else if status == 429 || status >= 500 {
-                WireError::Offline {
-                    detail: format!("HTTP {status}"),
-                }
-            } else {
-                WireError::Protocol {
-                    detail: format!("WebSocket upgrade failed with HTTP {status}"),
-                }
-            }
-        }
-        other => WireError::Protocol {
-            detail: other.to_string(),
-        },
     }
 }

@@ -14,7 +14,9 @@ use serde_json::value::RawValue;
 use crate::error::WireError;
 use crate::home::Local;
 use crate::http_parse::{finish_http_response, read_http_response};
+use crate::profile::{DirectRemote, SocketTicket};
 use crate::stream::{TransportStream, classify_io_error, connect_local_tcp};
+use crate::tls::{TlsPinConfig, connect_pinned_tls};
 use crate::types::Token;
 
 /// Maximum response body accepted from `/v1/*` endpoints (1 MiB, matching `client-access.ts`).
@@ -134,6 +136,67 @@ pub fn http_request_local_json<B: Serialize>(
         detail: format!("Failed to encode HTTP request body: {err}"),
     })?;
     http_request_local(local, method, path, Some(&encoded), timeout)
+}
+
+/// Sends a blocking pinned-HTTPS `/v1/*` request to a direct remote daemon.
+pub fn http_request_remote(
+    direct: &DirectRemote<'_>,
+    method: HttpMethod,
+    path: &str,
+    body: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<HttpResponse, WireError> {
+    let tls = TlsPinConfig::new(direct.fingerprint.clone());
+    http_request_remote_with_tls(direct, &tls, method, path, body, timeout)
+}
+
+/// Sends a blocking pinned-HTTPS `/v1/*` request using an explicit [`TlsPinConfig`] (for custom
+/// clocks or `.ts.net` fallback roots).
+pub fn http_request_remote_with_tls(
+    direct: &DirectRemote<'_>,
+    tls: &TlsPinConfig,
+    method: HttpMethod,
+    path: &str,
+    body: Option<&[u8]>,
+    timeout: Duration,
+) -> Result<HttpResponse, WireError> {
+    validate_http_path(path)?;
+    let clamped = clamp_http_timeout(timeout);
+    let deadline = Instant::now() + clamped;
+    let mut stream = connect_pinned_tls(direct.origin, tls, deadline)?;
+    stream.apply_deadline(deadline, "Request")?;
+    let host_header = direct.origin.host_header();
+    let result = execute_http(
+        &mut stream,
+        &host_header,
+        method,
+        path,
+        Some(direct.token),
+        body,
+    );
+    stream.shutdown_both();
+    result
+}
+
+/// Exchanges a paired remote device token for a single-use WebSocket ticket (`POST /v1/tickets`).
+pub fn exchange_ticket(
+    direct: &DirectRemote<'_>,
+    timeout: Duration,
+) -> Result<SocketTicket, WireError> {
+    let tls = TlsPinConfig::new(direct.fingerprint.clone());
+    exchange_ticket_with_tls(direct, &tls, timeout)
+}
+
+/// Exchanges a paired remote device token for a single-use WebSocket ticket using an explicit
+/// [`TlsPinConfig`].
+pub fn exchange_ticket_with_tls(
+    direct: &DirectRemote<'_>,
+    tls: &TlsPinConfig,
+    timeout: Duration,
+) -> Result<SocketTicket, WireError> {
+    let response =
+        http_request_remote_with_tls(direct, tls, HttpMethod::Post, "/v1/tickets", None, timeout)?;
+    SocketTicket::from_json(response.as_str())
 }
 
 /// Executes one HTTP/1.1 request/response exchange over an already-connected stream.
