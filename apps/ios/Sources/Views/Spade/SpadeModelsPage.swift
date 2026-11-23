@@ -79,6 +79,7 @@ struct SpadeModelsPage: View {
                     } label: {
                         Label { Text(endpoint.key.set ? "Replace key" : "Add key") } icon: { AceIcon(.key) }
                     }
+                    .accessibilityIdentifier("spade.settings.key.edit.\(endpoint.id)")
                 }
                 if endpoint.key.canRemove {
                     Button(role: .destructive) {

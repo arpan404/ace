@@ -175,6 +175,7 @@ import Testing
         await settle { session.acks.count == chunks.count && model.thread?.items["big"] != nil }
         #expect(session.acks.count == chunks.count)
         #expect(model.thread?.items["big"] != nil)
+        #expect(model.largestFrame <= 32_768)
         await close(model, session)
     }
     /// The cap counts frames answered early until the main thread has applied them, not only
@@ -185,12 +186,12 @@ import Testing
         var frames = BridgeFrames()
         let patches = try frames.decode(try frame([item(1, "a", "A", index: 0)]))
         let half = FrameIntake.answeredLimit / 2 + 1
-        #expect(intake.push(patches, bytes: half) == true)
+        #expect(intake.push(patches, frameBytes: 100, bytes: half) == true)
         let taken = intake.take()
         // Taken into the main thread's batch, not applied yet: the next one would pass the cap.
-        #expect(intake.push(patches, bytes: half) == nil)
+        #expect(intake.push(patches, frameBytes: 100, bytes: half) == nil)
         intake.applied(taken.map(\.counted).reduce(0, +))
-        #expect(intake.push(patches, bytes: half) == true)
+        #expect(intake.push(patches, frameBytes: 100, bytes: half) == true)
     }
     private func fragment(_ index: Int, last: Bool, _ chunk: Data) -> [String: Any] {
         ["type": "fragment", "id": "transfer", "index": index, "last": last, "data": chunk.base64EncodedString()]

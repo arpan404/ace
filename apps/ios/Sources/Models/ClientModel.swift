@@ -284,6 +284,7 @@ import QuartzCore
     /// Reads the kept inbox a connection shows first (`InboxCheckpoint.background`).
     @ObservationIgnored private let checkpoints: InboxCheckpoint.Reader
     @ObservationIgnored var metrics: SpikeMetrics?
+    /// Largest physical frame received, in UTF-8 bytes.
     @ObservationIgnored var largestFrame = 0
     @ObservationIgnored var patchCount = 0
     @ObservationIgnored var streamedUpdates = 0
@@ -351,8 +352,8 @@ import QuartzCore
         heldEarly = 0
         let answers = FrameAnswers()
         let runtime = makeRuntime(target, database, { [weak self] data in
-            decoder.decode(data) { patches, bytes in
-                if let accepted = intake.push(patches, bytes: bytes) { answers.acknowledge(accepted) }
+            decoder.decode(data) { patches, frameBytes, bytes in
+                if let accepted = intake.push(patches, frameBytes: frameBytes, bytes: bytes) { answers.acknowledge(accepted) }
                 Task { @MainActor in
                     guard let self, self.runtimeEpoch == epoch else { return }
                     self.takeFrames()
@@ -389,6 +390,7 @@ import QuartzCore
     @discardableResult func receive(_ data: Data) -> Bool {
         flushFrames()
         defer { flushFrames() }
+        largestFrame = max(largestFrame, data.count)
         return accept(try? frames.decode(data), bytes: data.count)
     }
     /// Takes one decoded frame from the runtime: it applies with the frames around it on the
@@ -441,6 +443,7 @@ import QuartzCore
         taken.append(contentsOf: frames ?? intake.take())
         while !taken.isEmpty {
             let frame = taken.removeFirst()
+            largestFrame = max(largestFrame, frame.frameBytes)
             heldEarly += frame.counted
             let accepted = hold(frame.patches, bytes: frame.bytes)
             if !frame.answered { runtime?.acknowledge(accepted: accepted) }
@@ -475,7 +478,6 @@ import QuartzCore
     /// Resolves one decoded frame and holds it for the next flush; nil is a frame that could not
     /// be read.
     private func accept(_ patches: [BridgePatch]?, bytes: Int) -> Bool {
-        largestFrame = max(largestFrame, bytes)
         if !sawFrame { sawFrame = true; LaunchTrace.mark("bridge.firstFrame") }
         guard let patches else {
             error = "Could not read a client update"

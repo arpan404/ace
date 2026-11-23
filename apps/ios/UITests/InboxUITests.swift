@@ -10,17 +10,19 @@ import XCTest
         app.revealRow("thread.ios-tree")
         screenshot("inbox")
         // Snoozed threads wait on the Snoozed tab, out of the Inbox.
-        XCTAssertFalse(app.buttons["thread.ios-snoozed"].exists)
-        let inboxTab = app.buttons["threads.tab.inbox"].firstMatch
-        let snoozedTab = app.buttons["threads.tab.snoozed"].firstMatch
-        let settledTab = app.buttons["threads.tab.settled"].firstMatch
+        let snoozed = app.descendants(matching: .any)["thread.ios-snoozed"].firstMatch
+        XCTAssertFalse(snoozed.exists)
+        let inboxTab = app.inboxReady
+        let snoozedTab = app.descendants(matching: .any)["threads.tab.snoozed"].firstMatch
+        let settledTab = app.descendants(matching: .any)["threads.tab.settled"].firstMatch
         app.tapThreadsTab(snoozedTab)
-        XCTAssertTrue(app.buttons["thread.ios-snoozed"].waitForExistence(timeout: 10))
+        app.bringToMiddle(snoozed)
+        XCTAssertTrue(snoozed.isHittable, "the seeded snoozed thread is on the Snoozed tab")
         screenshot("inbox-snoozed")
         app.tapThreadsTab(inboxTab)
 
         // Trailing swipe: Snooze asks until when; a snoozed row offers Wake instead.
-        let tree = app.buttons["thread.ios-tree"]
+        let tree = app.descendants(matching: .any)["thread.ios-tree"].firstMatch
         app.bringToMiddle(tree)
         tree.swipeLeft()
         XCTAssertTrue(app.buttons["Snooze"].waitForExistence(timeout: 5))
@@ -45,7 +47,7 @@ import XCTest
         app.tapThreadsTab(inboxTab)
 
         // Settle moves a finished thread off the list; Undo, inside its five seconds, brings it back.
-        let done = app.buttons["thread.ios-done"]
+        let done = app.descendants(matching: .any)["thread.ios-done"].firstMatch
         app.bringToMiddle(done)
         done.swipeLeft()
         XCTAssertTrue(app.buttons["Settle"].waitForExistence(timeout: 5))

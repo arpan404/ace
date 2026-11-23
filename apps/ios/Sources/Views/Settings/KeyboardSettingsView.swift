@@ -141,7 +141,7 @@ struct ShortcutEditor: View {
         .insetGroupedList()
         .sensoryFeedback(.selection, trigger: draft)
         .navigationTitle(entry.label).navigationBarTitleDisplayMode(.inline)
-        .focusedSceneValue(\.recordingShortcut, true)
+        .focusedSceneValue(\.recordingShortcut, UIDevice.current.userInterfaceIdiom == .pad ? true : nil)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {

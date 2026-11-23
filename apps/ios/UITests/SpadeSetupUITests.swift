@@ -44,9 +44,14 @@ extension SpadeUITests {
         screenshot("spade-models-light")
 
         key.tap()
-        app.buttons["Add key"].firstMatch.tap()
+        let addKey = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == 'spade.settings.key.edit.openrouter' OR label == 'Add key'"))
+            .firstMatch
+        XCTAssertTrue(addKey.waitForExistence(timeout: 5), "the OpenRouter menu offers Add key")
+        addKey.tap()
         let secret = app.secureTextFields["spade.key.field"]
         XCTAssertTrue(secret.waitForExistence(timeout: 10))
+        secret.tap()
         secret.typeText("sk-or-ui-test-secret")
         app.buttons["spade.key.save"].tap()
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "In keychain"))
