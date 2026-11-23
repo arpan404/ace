@@ -96,9 +96,9 @@ fn stdout_colour(flags: &cli_out::Flags<'_>) -> bool {
 struct SpadeState {
     beta: bool,
     enabled: bool,
-    live: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<serde_json::Value>,
+    live: bool,
 }
 
 #[allow(
@@ -122,8 +122,8 @@ fn read_state(timeout: std::time::Duration) -> Result<SpadeState, Failure<'stati
     Ok(SpadeState {
         beta,
         enabled,
-        live: true,
         status: Some(status),
+        live: true,
     })
 }
 
@@ -142,8 +142,8 @@ fn offline_state() -> Result<SpadeState, Failure<'static>> {
     Ok(SpadeState {
         beta,
         enabled,
-        live: false,
         status: None,
+        live: false,
     })
 }
 
@@ -262,7 +262,7 @@ fn spade_state_lines(state: &serde_json::Value, colour: bool) -> Vec<String> {
     if !live {
         return vec!["Spade is on. It starts when the ace daemon runs (ace start).".to_owned()];
     }
-    let Some(status) = state.get("status") else {
+    let Some(status) = state.get("status").filter(|status| !status.is_null()) else {
         return vec!["Spade is on.".to_owned()];
     };
     let version = status
@@ -284,18 +284,13 @@ fn spade_state_lines(state: &serde_json::Value, colour: bool) -> Vec<String> {
         }
         Some("starting") => lines.push("Spade is starting.".to_owned()),
         Some("failed") => {
-            let reason = status
-                .get("reason")
-                .and_then(serde_json::Value::as_str)
-                .map_or_else(|| ".".to_owned(), |reason| format!(": {reason}"));
-            lines.push(red(&format!("✕ Spade failed{reason}"), colour));
+            lines.push(red(
+                &format!("✕ Spade failed{}", off_reason(status)),
+                colour,
+            ));
         }
         _ => {
-            let reason = status
-                .get("reason")
-                .and_then(serde_json::Value::as_str)
-                .map_or_else(|| ".".to_owned(), |reason| format!(": {reason}"));
-            lines.push(format!("Spade is off{reason}"));
+            lines.push(format!("Spade is off{}", off_reason(status)));
         }
     }
     if let Some(thread) = status.get("thread")
@@ -322,6 +317,13 @@ fn spade_state_lines(state: &serde_json::Value, colour: bool) -> Vec<String> {
         lines.push("See why with ace logs, or run ace doctor.".to_owned());
     }
     lines
+}
+
+fn off_reason(status: &serde_json::Value) -> String {
+    match status.get("reason").and_then(serde_json::Value::as_str) {
+        Some(reason) if !reason.is_empty() => format!(": {reason}"),
+        _ => ".".to_owned(),
+    }
 }
 
 fn red(text: &str, colour: bool) -> String {

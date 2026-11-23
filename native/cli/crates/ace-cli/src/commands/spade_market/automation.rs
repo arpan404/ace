@@ -152,7 +152,17 @@ fn ask(
     let raw: &serde_json::value::RawValue = reply
         .decode()
         .map_err(|_| uncertain(command, "The daemon gave no automation answer."))?;
-    let value: serde_json::Value = serde_json::from_str(raw.get())
+    check_automation_result(raw.get(), command)?;
+    Ok(raw.get().to_owned())
+}
+
+/// The daemon's answer, or the refusal it carries.
+#[allow(
+    clippy::result_large_err,
+    reason = "the CLI's own failure envelope, one per process"
+)]
+fn check_automation_result(raw: &str, command: &'static str) -> Result<(), Failure<'static>> {
+    let value: serde_json::Value = serde_json::from_str(raw)
         .map_err(|_| uncertain(command, "The daemon gave no automation answer."))?;
     if value.get("type").and_then(serde_json::Value::as_str) != Some("automation.result") {
         return Err(uncertain(command, "The daemon gave no automation answer."));
@@ -172,7 +182,7 @@ fn ask(
             .with_hint("See your automations with ace automation list.")
             .with_command(command));
     }
-    Ok(raw.get().to_owned())
+    Ok(())
 }
 
 fn uncertain(command: &'static str, message: &str) -> Failure<'static> {
@@ -205,6 +215,7 @@ fn admit(
     let raw: &serde_json::value::RawValue = reply
         .decode()
         .map_err(|_| uncertain(command, "The daemon gave no automation answer."))?;
+    check_automation_result(raw.get(), command)?;
     Ok(raw.get().to_owned())
 }
 
@@ -247,24 +258,6 @@ fn admit_value<W: Write, E: Write>(
             );
         }
     };
-    if value.get("type").and_then(serde_json::Value::as_str) != Some("automation.result")
-        || value.get("ok").and_then(serde_json::Value::as_bool) != Some(true)
-    {
-        let error = value
-            .get("error")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("ace refused it.")
-            .to_owned();
-        return fail(
-            out,
-            err,
-            None,
-            &Failure::new(Outcome::Refused, error)
-                .with_code(ErrorCode::Refused)
-                .with_hint("See your automations with ace automation list.")
-                .with_command(command),
-        );
-    }
     if let Some(object) = value.as_object_mut() {
         object.insert("idempotencyKey".to_owned(), key.to_owned().into());
         object.insert("automationId".to_owned(), id.to_owned().into());

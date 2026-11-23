@@ -269,8 +269,7 @@ pub fn spade_call(
     let reply = conn
         .request_expecting(&frame, &["spade.http.result"], timeout)
         .map_err(|err| crate::commands::work::common::wire_failure(&err, Some(command)))?;
-    let envelope: SpadeResultEnvelope<'_> =
-        reply.decode().map_err(|_| spade_unreadable(command))?;
+    let envelope: SpadeResultEnvelope<'_> = reply.decode().map_err(|_| spade_mangled(command))?;
     match envelope.result {
         SpadeResult::Response {
             status,
@@ -278,10 +277,10 @@ pub fn spade_call(
             parts,
         } => {
             if parts.is_some_and(|parts| parts > 1) {
-                return Err(spade_unreadable(command));
+                return Err(spade_mangled(command));
             }
             if !(100..=599).contains(&status) {
-                return Err(spade_unreadable(command));
+                return Err(spade_mangled(command));
             }
             if (200..=299).contains(&status) {
                 return Ok((status, body.to_owned()));
@@ -292,8 +291,8 @@ pub fn spade_call(
     }
 }
 
-fn spade_unreadable(command: &'static str) -> Failure<'static> {
-    Failure::new(Outcome::Uncertain, "Spade's answer had no bots in it.")
+fn spade_mangled(command: &'static str) -> Failure<'static> {
+    Failure::new(Outcome::Uncertain, "Spade's answer couldn't be read.")
         .with_code(ErrorCode::Uncertain)
         .with_command(command)
 }
