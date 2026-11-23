@@ -1,110 +1,118 @@
-# Porting automations work to Rust
+# Porting automations to Rust
 
-For the builder who moves the automation run executor and monitor to Rust (ADR 0225, A1). Read
+For the builders who move `@ace/automations` and the daemon's automation executor and monitor
+into `native/daemon` (`ace-automations`, and a module of `ace-engine` for the executor), one work
+item each. Read
 [ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-to-rust.md) and
 [behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
-every test file by class. The engine's [porting guide](../engine/porting-guide.md) sets the rules
-for daemon crates; where this guide is silent, follow it.
+every test file by class. The [devices porting guide](../devices/porting-guide.md)'s rules for
+every item apply here unchanged; this guide adds what is particular to automations.
 
-A1 starts only once ADR 0223 E5 is default-on (`ACE_ENGINE=native`): the run monitor's work is
-reading engine and thread-tree state, and through the TypeScript `Engine` facade it would gain
-nothing. Branch from the rewrite branch then, as `ace/rust-automations-a1`.
+Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one branch per item
+(`ace/rust-automations-<item>`).
 
-## What is not ported
+## Rules particular to automations
 
-The scheduler stays TypeScript: `@ace/automations` (`AutomationService`, `AutomationStore`,
-recurrence, calendar, admission, GitHub polling, webhooks). It costs microseconds per decision
-with one timer; `compileSchedule` and the calendar also run in `packages/ui-core` and
-`packages/fake-daemon`, which must stay JavaScript; and its zone rules come from ICU through
-`Intl`, which a Rust zone database could contradict (ADR 0225 question 6). Don't port it, and
-don't add `tokio-cron-scheduler` or any cron crate. `AutomationService` calls its executor
-exactly as today.
+1. **Recurrence and the calendar stay TypeScript** (ADR 0225 §4.1): `compileSchedule`,
+   `nextOccurrence`, `zonedCalendar`, `grammar` keep their one implementation, which `ui-core`
+   and `fake-daemon` share and whose zone rules come from ICU through `Intl`
+   (`calendar.ts:34`). The Rust scheduler calls them through a synchronous port on the JS thread:
+   `seek(schedule, after, previous?) → {at, ordinal} | undefined` and the validation that `put`
+   runs (`runtime.ts:41`), with their error text passed back untouched. Don't port them, and don't
+   add `jiff`, `chrono-tz`, a cron crate or `tokio-cron-scheduler`.
+2. **One timer, one query.** The service arms one timer on the core's clock for the earliest
+   deadline `nextScheduled` returns (`store.ts:314`); arming replaces the previous one. Jitter
+   comes from the injected random port (the agent store's is zero), clock and ids from the
+   engine's ports.
+3. **Both stores open through `ace-store`'s connection factory** (`automations.sqlite`,
+   `agent-automations.sqlite`), with today's tables, columns and JSON, so one SQLite library holds
+   every file in the process (ADR 0222 constraint 2) and a home either backend wrote opens in the
+   other.
+4. **Strings are `JsString`, text is exact.** Prompts, titles, trigger variables, GitHub bodies and
+   `gh` output are `JsString`; `renderPrompt`'s limit counts UTF-16 units
+   (`decisions.ts:13`); refusals ("Skipped: new work was paused.", "New work is paused. Resume new
+   work in ace to continue.", `contracts.ts:91`–`:93`; "Missing trigger variable: …",
+   `decisions.ts:9`; the org-host refusal, `apps/daemon/src/automation-executor.ts:44`) come from a
+   generated table. `AutomationResponse`, `AutomationRun` and inbox pages serialize in their
+   schema's key order through `ace-json` (types from `ace-protocol`'s generator, ADR 0223 E0).
+5. **Priority 1 (A2):** a run is never succeeded while any part of its tree works, waits on the
+   person or is uncertain. `automation-run-rules.ts` is ported rule for rule, in order.
+6. **Crypto**: AES-256-GCM for the secret box (`aes-gcm`), HMAC-SHA256 signatures (`hmac`, `sha2`,
+   constant-time compare with `subtle`), exactly as `webhook-secret-box.ts:34` and
+   `webhook-signature.ts:42` do; the key file and its owner-only mode stay.
+7. **Never start a real `gh` against GitHub.** The (a) files use fake `gh` processes; keep it so.
 
-## Rules for A1
+## Files per item
 
-1. **Same TypeScript interface.** The boundary is `AutomationExecutor`
-   (`packages/automations/src/contracts.ts:32`): `execute(input, signal)` resolves
-   `{threadId, status, result}` only when the run's whole tree is over; `recover(key, signal,
-input?)` resumes following existing work, undefined when nothing was sent; `interrupt(input)`
-   resolves once the stop is held durably. Timing, error classes and the moment each promise
-   settles are contract.
-2. **One switch, one line.** `ACE_AUTOMATION_EXECUTOR=native`, added to
-   `packages/provider-kit/src/native-switches.ts`; it refuses to start without `ACE_ENGINE=native`.
-   The shell is chosen by one `if` at the top of `automationRunExecutor`
-   (`apps/daemon/src/automation-run-executor.ts:44`), which both the person's executor
-   (`automation-executor.ts:50`) and agent-made automations' (`agent-control/owner-thread-executor.ts:32`)
-   call. Their `AutomationTarget` stays TypeScript: it builds the run's command inside the
-   admission write, so the Rust executor calls it back on the JS thread inside the store's
-   transaction, as the engine calls its ports (engine porting guide, E5).
-3. **No new tests.** The (a) files below are the proof; you don't edit them. One at a time:
+| Item | Rust (yours)                                                                          | Binding (yours)                                 | TypeScript shell (yours)                                        | Switch                            |
+| ---- | ------------------------------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------------- | --------------------------------- |
+| A1   | `ace-automations/src/{store,service,admission,queue,decisions,github,gh,webhooks}.rs` | `ace-daemon-node/src/automations/mod.rs`        | `packages/automations/src/native-service.ts`, `native-store.ts` | `ACE_AUTOMATIONS=native`          |
+| A2   | `ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs`                 | `ace-daemon-node/src/engine/automation_runs.rs` | `apps/daemon/src/native-engine/automation-runs.ts`              | `ACE_AUTOMATION_EXECUTOR=native`  |
+| A3   | `ace-automations/src/workspace.rs`                                                    | `ace-daemon-node/src/automations/workspace.rs`  | the switch line in `apps/daemon/src/automation-workspace.ts:55` | `ACE_AUTOMATION_WORKSPACE=native` |
+| A4   | `ace-automations/src/tools.rs`                                                        | `ace-daemon-node/src/tools/automations.rs`      | the family line in agent-control's automation tools             | `ACE_NATIVE_TOOLS=automations`    |
 
-   ```sh
-   f=apps/daemon/src/automation-durability.process.test.ts
-   test -f "$f" && ACE_STORE=native ACE_ENGINE=native ACE_AUTOMATION_EXECUTOR=native bun --bun x vitest run "$f" --maxWorkers=4
-   test -f "$f" && ACE_STORE=native ACE_ENGINE=native bun --bun x vitest run "$f" --maxWorkers=4
-   ```
+## A1: the scheduler (needs E2, `ACE_STORE=native`)
 
-   Never run the full suite, `bun run test`, `bun run check`, `test:process`, `test:slow` or
-   `test:changed`.
+`AutomationService` and `AutomationStore` become facades over one native handle per store; the
+executor, the workspace source, admission and `onRun` stay ports the daemon passes, so today's
+daemon executor (and the tests' fakes) run unchanged behind it.
 
-4. **(b) cases move.** `automation-run-rules.test.ts`'s cases go into `#[cfg(test)]` beside
-   `decide_run`, `run_tree_state` and `stop_plan`, unchanged. Delete the TypeScript test only with
-   its module, after default-on.
-5. **Priority 1, rule for rule.** Port `automation-run-rules.ts` in its order: `runTreeState`
-   (`:45`), `decideRun` (`:122`), `stopPlan` (`:211`). A run is never succeeded while any part of
-   its tree works, waits on the person or is uncertain; a human wait or a background task keeps
-   `execute` pending.
-6. **Rows stay as they are.** `automation_threads` and the run records (`RunRecords`,
-   `automation-run-record.ts:50`) keep their tables, columns and JSON; a run one backend started,
-   the other must recover after a restart. Statements go through `ace-store` on the main
-   connection (ADR 0222 §3), never a second connection.
-7. **Text stays TypeScript.** The run's `result` is read from the thread and returned untouched;
-   thread titles (`automationThreadTitle`, `automation-executor.ts:178`), launch settings
-   (`runSettings`, `launchChoices`) and refusal strings are computed in TypeScript and passed in.
-   `ExecutionResult` is still parsed by its Zod schema in the shell.
-8. **Same numbers.** Reconcile every 5 s (`reconcileMs`, `automation-run-monitor.ts:26`); a stop
-   sent 5 times before the run says it can't be stopped (`stopTries`, `:28`); each read touches
-   only the turn's own rows (`automation-run-facts.ts`).
-9. **JSON through `ace-json`**, clock and ids from the engine's ports, no `unwrap`, no `unsafe`:
-   engine porting guide rules 6 to 9.
+| TypeScript replaced (`packages/automations/src/`)                                                                                                                                                                                                                                  | Proof: (a) files                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | (b) cases to move                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `service`, `store`, `runtime`, `lifecycle`, `decisions`, `definition`, `contracts` (`nodeTimer`), `execution-owner`, `cancellations`, `observation`, `github`, `gh-process`, `gh-response`, `webhooks`, `webhook-store`, `webhook-body`, `webhook-signature`, `webhook-secret-box` | all 25: `admission`, `audit-reliability`, `cancellation`, `cas`, `durability`, `gh-process.process`, `github.process`, `jitter`, `lifecycle`, `metadata`, `monitoring`, `outcome-recovery`, `paused`, `polish`, `queue`, `recurrence`, `revision`, `run-options`, `service`, `startup`, `teardown`, `trigger-readiness`, `watchers`, `webhook-secret-box`, `webhooks`; daemon `automation-durability.process`, `automation-idle.process`, `automation-one-thread.process`, `automation-webhooks.process`, `thread-automations.process`, `cli-automation.process` | `webhook-body`, `webhook-signature`, daemon `automation-webhook-key`, `automation-webhook-reach` |
 
-## Files
+Same limits: 256 running, one waiting per automation, 100 resources a page, 20 pages, 2,000 events
+a poll, 30 s and 2 MiB per `gh` request, 60 webhook requests a minute per key over 2,048 keys
+(`apps/daemon/src/automation-webhooks.ts:52`), 16 signatures a header. Corrupt rows are isolated,
+never fatal. `gh` runs through `ace-supervisor`; cancellation rejects at once and ends its process
+group. Cross-mode: `automation-durability.process`, `durability`, `startup` both ways. Measure
+`bun run --filter @ace/automations bench`'s files and `bench/poll-admission.ts`, off and on.
 
-| Part             | Files (yours)                                                                                                                                                                       |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Rust             | `native/daemon/crates/ace-engine/src/automation_runs/{mod,rules,facts,records,monitor}.rs` (a module of the engine: it reads the engine's state and sends through its command path) |
-| Binding          | `native/daemon/crates/ace-daemon-node/src/engine/automation_runs.rs`                                                                                                                |
-| TypeScript shell | `apps/daemon/src/native-engine/automation-runs.ts` (an `AutomationExecutor` over the handle), the switch line in `automation-run-executor.ts`                                       |
+## A2: the run executor and monitor (needs ADR 0223 E5 default-on, A1)
 
-## A1: the run executor and monitor
+The boundary is `AutomationExecutor` (`contracts.ts:32`): `execute` resolves only when the whole
+tree is over, `recover` resumes without sending twice, `interrupt` resolves once the stop is held
+durably. The switch sits at the top of `automationRunExecutor`
+(`apps/daemon/src/automation-run-executor.ts:44`), which the person's executor
+(`automation-executor.ts:50`) and agent-made automations' (`agent-control/owner-thread-executor.ts:32`)
+both call; their `AutomationTarget` (the run's command, built inside the admission write) moves
+with it once the engine's command path is Rust, and until then is called back on the JS thread
+inside the store's transaction. Launch settings and titles (`runSettings`, `launchChoices`,
+`automationThreadTitle`) are generated text or computed by the TypeScript and passed in.
 
-| TypeScript replaced (`apps/daemon/src/`)                                                                                     | Lines | Proof: (a) files (`apps/daemon/src/`)                                                                                                                                                                                                                                            | (b) cases to move      |
-| ---------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| `automation-run-executor`, `automation-run-monitor`, `automation-run-facts`, `automation-run-rules`, `automation-run-record` | 1,433 | `automation-durability.process`, `automation-idle.process`, `automation-one-thread.process`, `automation-run-record.process`, `automation-webhooks.process`, `thread-automations.process`, `cli-automation.process`, `cursor-automation.process`, `automation-workspace.process` | `automation-run-rules` |
+| TypeScript replaced (`apps/daemon/src/`)                                                                                                                                                                           | Lines | Proof: (a) files (`apps/daemon/src/`)                                                                                                                                                                                                            | (b) cases to move                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
+| `automation-executor`, `automation-run-executor`, `automation-run-monitor`, `automation-run-facts`, `automation-run-rules`, `automation-run-record`, `automation-lifecycle`, `agent-control/owner-thread-executor` | 1,766 | `automation-durability.process`, `automation-idle.process`, `automation-one-thread.process`, `automation-run-record.process`, `automation-webhooks.process`, `thread-automations.process`, `cli-automation.process`, `cursor-automation.process` | `automation-run-rules`, `automation-org-host`, `automation-run-settings` |
 
-Also run with the switch on, to prove the service around the executor is untouched: the 25 (a)
-files of `packages/automations/src/` (they use executor fakes, so they must pass identically with
-or without the switch).
+Same numbers: reconcile every 5 s (`automation-run-monitor.ts:26`), a stop sent 5 times
+(`:28`), reads that touch only the turn's own rows. Cross-mode: the files above that restart,
+through `scripts/native-cross.ts ACE_AUTOMATION_EXECUTOR`. Measure `bench/lifecycle.ts` and
+`apps/daemon/bench/agent-control.ts`, and daemon CPU while 20 runs are followed.
 
-Cross-mode: run the files above that restart a daemon through `scripts/native-cross.ts`, both
-ways; a run started by one backend is recovered by the other.
+## A3: file triggers (needs A1 and the files tool's Rust backend)
 
-```sh
-f=apps/daemon/src/automation-durability.process.test.ts
-test -f "$f" && ACE_STORE=native ACE_ENGINE=native bun scripts/native-cross.ts ACE_AUTOMATION_EXECUTOR "$f"
-```
+`automation-workspace.ts` (`automationWorkspace`, `:55`) over the files service's Rust API, with
+its limits (paths remembered per trigger, events held while a baseline is read, the
+reconciliation bound) and `WorkspaceChanges`' contract: `receive` resolves after durable
+admission, repeated delivery is safe, a failed replacement keeps the old watcher.
 
-Measure, switch off and on: `bun packages/automations/bench/lifecycle.ts`,
-`bun apps/daemon/bench/agent-control.ts`, and the daemon's CPU while 20 runs are being followed
-(the monitor's 5 s reads).
+- (a): daemon `automation-workspace.process`, package `watchers`, `trigger-readiness`.
+- (b): daemon `automation-workspace`.
+
+## A4: the automation tools (needs A1, MCP M2, the agent-control port)
+
+`automation_put`, `automation_remove`, `automation_run`, `automations_list`, in agent-control's
+tool catalog (`packages/mcp-server/src/automation-tools.ts`). Descriptors from MCP M1's table;
+input decided by the Zod port until the family's typed decoding is pinned (ADR 0225 §4.2);
+`automation_remove` keeps `destructiveHint`.
+
+- (a): daemon `thread-automations.process`, `cli-automation.process`, `mcp-tools.process`;
+  `packages/mcp-server/src/agent-errors`, `actionable-errors`.
 
 ## When you are done
 
-- Every (a) file above passes alone with the switch on and off; the moved cases pass in
-  `cargo test -p ace-engine`; `bun run check:daemon-native` passes; the cross-mode list passes
-  both ways.
+- Every (a) file of your item passes alone with the switch on and off; your (b) cases pass in
+  `cargo test` for your crate; `check:daemon-native` passes; the cross-mode list passes both ways.
 - Report: the files run and their results, the bench figures off and on, anything in
-  behaviour.md that turned out wrong (with the code that shows it), and the one test you added,
-  if any, with the behaviour it covers that nothing did.
-- Commit and push as you go with `git push origin HEAD:refs/heads/<your-branch>`; never rebase or
-  force-push. Every commit ends with exactly `Co-Authored-By: spade <bot@acehq.dev>`.
+  behaviour.md that turned out wrong (with the code that shows it), anything you kept TypeScript
+  because it couldn't be reproduced exactly, and the one test you added, if any.
