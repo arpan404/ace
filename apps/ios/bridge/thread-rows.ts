@@ -88,6 +88,11 @@ export function stepOf(item: Item, context: Omit<StepContext, "labels"> = {}) {
           label: preview(step.command.label, 256),
           full: preview(step.command.full, 8192),
           exitCode: step.command.exitCode ?? null,
+          /** How long a finished command ran, in ms; null while it runs. */
+          durationMs:
+            item.type === "tool_call" && step.settled && item.call.endedAt !== undefined
+              ? Math.max(0, item.call.endedAt - item.call.startedAt)
+              : null,
           background: item.type === "tool_call" && item.call.backgroundTaskId !== undefined,
         }
       : null,

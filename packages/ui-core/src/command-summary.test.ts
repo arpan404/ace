@@ -36,11 +36,22 @@ test.each([
 test.each([
   [
     "a Claude Bash call names itself by its description",
-    { command: "sleep 20; cat /private/tmp/claude-501/x/out", description: "Wait for build,\n then install " },
+    {
+      command: "sleep 20; cat /private/tmp/claude-501/x/out",
+      description: "Wait for build,\n then install ",
+    },
     "Wait for build, then install",
   ],
-  ["a Codex command has no description and reads as its summary", { command: "cd ace && bun run check:size" }, "bun run check:size"],
-  ["a blank description falls back to the summary", { command: "bun run lint", description: "  " }, "bun run lint"],
+  [
+    "a Codex command has no description and reads as its summary",
+    { command: "cd ace && bun run check:size" },
+    "bun run check:size",
+  ],
+  [
+    "a blank description falls back to the summary",
+    { command: "bun run lint", description: "  " },
+    "bun run lint",
+  ],
 ])("%s", (_name, input, label) => {
   expect(commandLabel(input)).toBe(label);
 });
