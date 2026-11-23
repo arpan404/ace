@@ -114,6 +114,12 @@ export const spadeCapabilityEvents = [
     kept_jobs: z.array(z.string()).catch([]).default([]),
     wakes: z.array(z.string()).catch([]).default([]),
   }),
+  /** In a lane: main's words to it (`task_message`), the bot's and never the person's. */
+  z.object({
+    type: z.literal("lane_message"),
+    text: words,
+    untrusted: z.boolean().catch(false).default(false),
+  }),
   /** The `title` role named a moved lane: its title from now on. */
   z.object({ type: z.literal("lane_titled"), lane: z.string(), title: words }),
   /** A lane wrote a file another working lane wrote too: a line, never a lock. */
