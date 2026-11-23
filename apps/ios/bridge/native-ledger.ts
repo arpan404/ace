@@ -1,4 +1,4 @@
-import { restOf, type HeldRow } from "./text-edit.ts";
+import { heldRow, type HeldRow } from "./text-edit.ts";
 
 /*
  * What native holds of a thread it keeps between visits: for each kept key, the patch it last
@@ -81,8 +81,8 @@ export class NativeLedger {
     else {
       this.#set(key, text);
       const row = patch.row as Record<string, unknown> | null | undefined;
-      if (row?.complete === false && typeof row.text === "string")
-        this.#streaming.set(key, { text: row.text, rest: restOf(row) });
+      const streaming = row?.complete === false ? heldRow(row) : undefined;
+      if (streaming) this.#streaming.set(key, streaming);
       else this.#streaming.delete(key);
     }
   }
