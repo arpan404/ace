@@ -28,6 +28,7 @@ extension ConversationFeed {
         intent.flingProbe.phase(from: old, to: phase, geometry: geometry, velocity: velocity,
                                 holdingEnd: holdsEnd && !TranscriptFlingProbe.suppressesAnchors)
         transcriptMarkdown?.moving = phase != .idle
+        timePillPhase(phase)
         if TranscriptFlingProbe.isolated, phase == .tracking || phase == .interacting {
             intent.isolatingFling = true
             readerMovedFeed()
@@ -107,6 +108,7 @@ extension ConversationFeed {
         intent.metrics = new
         let origin = TranscriptScrollAxis.origin(offset: -new.y, viewport: new.viewport)
         if origin != anchor.keeper.frames.origin { contentScrolled(to: origin, proxy: proxy) }
+        if timeMarker.scrolling { markTopTime() }
         if new.height != old.height { PerfCounters.bump("content.height") }
         let opened = intent.opened
         if intent.opened, new.height != old.height {

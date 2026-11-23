@@ -26,6 +26,8 @@ struct ConversationFeed: View {
     /// Rows that landed since the reader left the live end, for the count on Scroll to end.
     @Binding var unseen: Int
     @State var newRows = TranscriptNewRows()
+    /// When the row on top was written, for the pill shown while the reader scrolls.
+    @State var timeMarker = TranscriptTimeMarker()
     /// Words taken back from a message that wasn't sent go into the composer.
     @State var reading = TranscriptReading()
     @State var initialScroll = false
@@ -122,6 +124,10 @@ struct ConversationFeed: View {
                     // Kept rows while the machine connects: marked over the rows, never moving them.
                     ThreadSyncingLine(opening: opening, retry: retryOpening).animation(.default, value: opening)
                 }
+            }
+            // Over the rows, never in their layout: the pill reads its marker, the feed doesn't.
+            .overlay(alignment: .top) {
+                TranscriptTimePill(marker: timeMarker).padding(.top, AceDesign.Space.related)
             }
             // ⇧⌥⌘↑ and ↓ on a hardware keyboard, as on the web: the turn before and after the one on
             // top. They repeat the thread menu's Turns list, never the only way.
