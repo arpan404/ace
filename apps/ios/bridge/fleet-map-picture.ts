@@ -38,9 +38,9 @@ export function fleetPicture(
   summary: string,
   problems: number,
 ): FleetPicture {
-  const relayed = nodes.some((node) => node.wire?.from === relayEnd);
+  const hasRelay = nodes.some((node) => node.wire?.from === relayEnd);
   const accountRelay = inputs.some((input) => input.via?.kind === "account");
-  const relay = relayed ? { label: accountRelay ? "ace cloud" : "Relay", host: "" } : undefined;
+  const relay = hasRelay ? { label: accountRelay ? "ace cloud" : "Relay", host: "" } : undefined;
   const phoneRoutes = nodes.filter(
     (node) => node.role === "machine" && node.wire?.from === relayEnd,
   );
