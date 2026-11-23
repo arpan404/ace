@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   createWorkCardStore,
+  workCardColumnWidth,
   workCardFitsSide,
   workCardMinColumn,
   workCardWidth,
@@ -8,13 +9,20 @@ import {
 
 const column = 760;
 
-test("wide and mid-width areas float the card at the side", () => {
+test("a wide area keeps the full reading column beside the card", () => {
   expect(workCardFitsSide(1800, column)).toBe(true);
-  expect(workCardFitsSide(1000, column)).toBe(true);
+  expect(workCardColumnWidth(1800, column)).toBe(column);
 });
 
-test("at the minimum the card still floats at the side", () => {
-  expect(workCardFitsSide(workCardMinColumn + workCardWidth + 48, column)).toBe(true);
+test("a mid-width area docks the card beside a narrowed column", () => {
+  expect(workCardFitsSide(1000, column)).toBe(true);
+  expect(workCardColumnWidth(1000, column)).toBe(1000 - workCardWidth - 48);
+});
+
+test("at the minimum the column reads at its narrowest", () => {
+  const area = workCardMinColumn + workCardWidth + 48;
+  expect(workCardFitsSide(area, column)).toBe(true);
+  expect(workCardColumnWidth(area, column)).toBe(workCardMinColumn);
 });
 
 test("below the minimum the card leaves the side for the header popover", () => {
