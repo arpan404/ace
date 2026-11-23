@@ -300,6 +300,11 @@ TypeScript interface.
   together with 1b.
 - `idle-store.perf.process.test.ts` (former question 7): its purpose moves to the bench check
   (`bench/idle-cpu.ts` fails naming a seeding error) and the test file is deleted.
+- Measured for that rule (2026-11-23, load 27 to 68): per statement, native `run` costs
+  2.6 µs more than node:sqlite (3.0 against 0.4 µs), `get` 0.5 µs more, each row of `all` 0.3 µs
+  more. On the clone's write phase, commit p50 was 2.07–2.22 ms native against 1.74–1.91 ms
+  (+16%) and write CPU +20%; reads were within noise. **1a makes writes slower, so it ships
+  only together with 1b.**
 - Questions 1 to 4 below change or delete stored data: nothing of phase 4 or cold storage is
   built until the owner answers them.
 
@@ -315,3 +320,7 @@ TypeScript interface.
    does not shrink. Should an idle, bounded recompression of old rows run (it rewrites history,
    in batches, and leaves free pages that space reclaim returns)?
 5. Confirm the orchestrator's calls above (in-process addon; 1a behind the switch).
+6. `status-storage.process.test.ts` uses node:sqlite's `db.function` (a JavaScript SQL
+   function) to trap reads of event bodies; no daemon code uses it. Offer `function` on the
+   native connection (a JavaScript callback from inside a SQLite step, which needs an N-API env
+   held across calls in the binding), or let that test trap the reads another way?
