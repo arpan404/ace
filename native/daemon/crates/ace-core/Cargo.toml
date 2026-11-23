@@ -17,6 +17,10 @@ workspace = true
 ace-protocol = { path = "../ace-protocol" }
 # serde: the fold's state and facts serialize for tests and for the facade's state refresh.
 serde = { version = "1", features = ["derive"] }
+# indexmap: every state map iterates in insertion order, exactly like the
+# TypeScript records and Maps they mirror; fact and event order must match
+# field for field.
+indexmap = { version = "2", features = ["serde"] }
 # serde_json: facts cross the napi boundary as JSON and state refreshes as
 # JSON; preserve_order keeps every map in insertion order like the
 # TypeScript, raw_value borrows opaque payloads without re-parsing, and

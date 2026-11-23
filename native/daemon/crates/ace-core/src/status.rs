@@ -174,6 +174,21 @@ impl ThreadStatus {
     }
 }
 
+impl AgentStatus {
+    /// The state tag, mirroring the protocol.
+    pub fn state(&self) -> &str {
+        match self {
+            Self::Starting => "starting",
+            Self::Working { .. } => "working",
+            Self::Blocked { .. } => "blocked",
+            Self::Idle => "idle",
+            Self::Interrupted => "interrupted",
+            Self::Failed { .. } => "failed",
+            Self::Unresponsive { .. } => "unresponsive",
+        }
+    }
+}
+
 /// Whether an agent status counts as finished for thread `done`.
 pub fn is_settled(status: &AgentStatus) -> bool {
     matches!(

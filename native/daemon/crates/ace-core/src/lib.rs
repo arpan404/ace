@@ -12,6 +12,7 @@ pub mod delta_text;
 pub mod diagnostics;
 pub mod emit;
 pub mod entities;
+pub mod entity_model;
 pub mod error;
 pub mod expiry_map;
 pub mod external;
