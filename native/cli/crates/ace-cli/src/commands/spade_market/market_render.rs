@@ -39,10 +39,7 @@ pub fn entry_row(entry: &serde_json::Value) -> String {
             .get("name")
             .and_then(serde_json::Value::as_str)
             .unwrap_or("");
-        let verified = publisher
-            .get("verified")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
+        let verified = entry.get("verified").and_then(serde_json::Value::as_bool) == Some(true);
         marks.push(format!(
             "@{name}{}",
             if verified { " (verified)" } else { "" }

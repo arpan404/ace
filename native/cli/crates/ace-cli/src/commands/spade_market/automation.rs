@@ -18,12 +18,26 @@ pub fn run_list<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match ask(
         &mut conn,
@@ -32,7 +46,12 @@ pub fn run_list<W: Write, E: Write>(
         timeout,
     ) {
         Ok(raw) => render_list(&raw, output, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -43,13 +62,27 @@ pub fn run_show<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let id = parsed.words.first().copied().unwrap_or("");
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let raw = match ask(
         &mut conn,
@@ -58,11 +91,23 @@ pub fn run_show<W: Write, E: Write>(
         timeout,
     ) {
         Ok(raw) => raw,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match show_value(&raw, id) {
         Ok(value) => render_show(&value, output, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -73,17 +118,50 @@ pub fn run_run<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let id = parsed.words.first().copied().unwrap_or("").to_owned();
+    // The session opens first: usage errors surface only once ace answers.
+    let mut conn = match connect(&parsed.flags, timeout) {
+        Ok(conn) => conn,
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
+    };
     let key = match common::idempotency_key(&parsed.flags) {
         Ok(key) => key,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let variables = match automation_variables(parsed.flags.value("variables")) {
         Ok(variables) => variables,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let mut operation = serde_json::Map::new();
     operation.insert("type".to_owned(), "automation.run".into());
@@ -93,13 +171,16 @@ pub fn run_run<W: Write, E: Write>(
         operation.insert("message".to_owned(), message.to_owned().into());
     }
     let frame = serde_json::Value::Object(operation);
-    let mut conn = match connect(&parsed.flags, timeout) {
-        Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
-    };
     let raw = match admit(&mut conn, &frame, &key, "automation.run", timeout) {
         Ok(raw) => raw,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     admit_value(&raw, &key, &id, "automation.run", output, out, err)
 }
@@ -111,22 +192,51 @@ pub fn run_remove<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let id = parsed.words.first().copied().unwrap_or("").to_owned();
-    let key = match common::idempotency_key(&parsed.flags) {
-        Ok(key) => key,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
-    };
-    let frame = serde_json::json!({"type": "automation.remove", "id": id});
+    // The session opens first: usage errors surface only once ace answers.
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
+    let key = match common::idempotency_key(&parsed.flags) {
+        Ok(key) => key,
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
+    };
+    let frame = serde_json::json!({"type": "automation.remove", "id": id});
     let raw = match admit(&mut conn, &frame, &key, "automation.remove", timeout) {
         Ok(raw) => raw,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     admit_value(&raw, &key, &id, "automation.remove", output, out, err)
 }

@@ -23,13 +23,25 @@ pub fn run_status<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let colour = stdout_colour(&parsed.flags);
     match read_state(timeout) {
         Ok(state) => render_state(&state, output, colour, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -40,17 +52,36 @@ pub fn run_bot_list<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let colour = stdout_colour(&parsed.flags);
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match list_bots(&mut conn, timeout, COMMAND_LIST) {
         Ok(bots) => render_bot_list(&bots, output, colour, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -61,22 +92,48 @@ pub fn run_bot_show<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let colour = stdout_colour(&parsed.flags);
     let reference = parsed.words.first().copied();
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let bots = match list_bots(&mut conn, timeout, COMMAND_SHOW) {
         Ok(bots) => bots,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match find_bot(&bots, reference, COMMAND_SHOW) {
         Ok(bot) => render_bot(&bot, output, colour, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -360,13 +417,13 @@ struct BotParent {
 #[derive(Clone, Serialize)]
 pub(crate) struct Bot {
     pub(crate) id: String,
+    pub(crate) kind: String,
     pub(crate) name: String,
-    kind: String,
     task: String,
     model: String,
     conversation: String,
     state: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "waitingFor", skip_serializing_if = "Option::is_none")]
     waiting_for: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<String>,

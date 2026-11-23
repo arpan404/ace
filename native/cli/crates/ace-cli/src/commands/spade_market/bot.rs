@@ -34,17 +34,36 @@ fn run_list<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let colour = stdout_colour(&parsed.flags);
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match list_running(&mut conn, timeout, command) {
         Ok(bots) => render_running(&bots, output, colour, out, err, command),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -57,17 +76,36 @@ pub fn run_action<W: Write, E: Write>(
 ) -> Outcome {
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     let reference = parsed.words.first().copied();
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     match act_on_bot(&mut conn, timeout, reference, action, command) {
         Ok(result) => render_action(&result, output, out, err, command),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 

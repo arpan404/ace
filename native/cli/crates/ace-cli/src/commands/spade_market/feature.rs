@@ -21,7 +21,12 @@ pub fn run<W: Write, E: Write>(parsed: &Parsed<'_>, out: &mut Out<W>, err: &mut 
     let output = crate::commands::work::common::mode(parsed);
     match read_features() {
         Ok(features) => render(features, output, out, err),
-        Err(failure) => fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => fail(
+            out,
+            err,
+            Some(&parsed.flags),
+            &failure.with_command(parsed.command.id),
+        ),
     }
 }
 
@@ -34,7 +39,21 @@ pub(crate) fn boolean_at_rest(home: &Path, key: &str) -> Option<bool> {
     }
     let text = std::fs::read_to_string(&path).ok()?;
     let parsed: serde_json::Value = serde_json::from_str(&text).ok()?;
-    parsed.get("document")?.get("settings")?.get(key)?.as_bool()
+    if let Some(on) = parsed
+        .get("settings")
+        .and_then(|settings| settings.get(key))
+        .and_then(serde_json::Value::as_bool)
+    {
+        return Some(on);
+    }
+    // A version 1 home, read as the settings service migrates it.
+    if parsed.get("version").and_then(serde_json::Value::as_u64) == Some(1) {
+        return parsed
+            .get("values")
+            .and_then(|values| values.get(key))
+            .and_then(serde_json::Value::as_bool);
+    }
+    None
 }
 
 /// The old file that showed Spade with `{"spade": true}`, folded in once a setting exists.

@@ -27,13 +27,27 @@ pub fn run<W: Write, E: Write>(
     }
     let timeout = match timeout_duration(&parsed.flags) {
         Ok(timeout) => timeout,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let output = mode(parsed);
     // Usage errors come before any connection.
     let operation = match market_operation(parsed) {
         Ok(operation) => operation,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     // No thread to ask in: an agent's shell runs only the agents' allowlist.
     let thread = common::own_thread(parsed);
@@ -50,7 +64,14 @@ pub fn run<W: Write, E: Write>(
     }
     let mut conn = match connect(&parsed.flags, timeout) {
         Ok(conn) => conn,
-        Err(failure) => return fail(out, err, Some(&parsed.flags), &failure),
+        Err(failure) => {
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
+        }
     };
     let answer = match ask_market(
         &mut conn,
@@ -65,7 +86,12 @@ pub fn run<W: Write, E: Write>(
             if failure.code == ErrorCode::SignedOut && interactive_human(parsed) {
                 return handover(parsed, os_args, out, err);
             }
-            return fail(out, err, Some(&parsed.flags), &failure);
+            return fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            );
         }
     };
     render_answer(&answer, parsed.command.id, output, out, err)
@@ -139,11 +165,21 @@ fn handover<W: Write, E: Write>(
     match crate::handover::locate(&exe) {
         Ok(launch) => {
             let failure = crate::handover::hand_over(&launch, os_args);
-            crate::run::fail(out, err, Some(&parsed.flags), &failure)
+            crate::run::fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            )
         }
         Err(error) => {
             let failure = error.failure();
-            crate::run::fail(out, err, Some(&parsed.flags), &failure)
+            crate::run::fail(
+                out,
+                err,
+                Some(&parsed.flags),
+                &failure.with_command(parsed.command.id),
+            )
         }
     }
 }
@@ -407,11 +443,16 @@ fn print_done(answer: &serde_json::Value) -> Printed {
 }
 
 fn strip_op(answer: &serde_json::Value) -> serde_json::Value {
-    let mut value = answer.clone();
-    if let Some(object) = value.as_object_mut() {
-        object.remove("op");
+    match answer.as_object() {
+        Some(object) => serde_json::Value::Object(
+            object
+                .iter()
+                .filter(|(key, _)| *key != "op")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        ),
+        None => answer.clone(),
     }
-    value
 }
 
 /// What a market command prints: the answer's data unchanged, lines for a person, ids for quiet.

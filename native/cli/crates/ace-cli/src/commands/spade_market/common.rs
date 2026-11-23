@@ -221,28 +221,27 @@ struct SpadeHttpFrame<'a> {
 }
 
 #[derive(Deserialize)]
-struct SpadeResultEnvelope<'a> {
-    #[serde(borrow)]
-    result: SpadeResult<'a>,
+struct SpadeResultEnvelope {
+    result: SpadeResult,
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "kind")]
-enum SpadeResult<'a> {
+enum SpadeResult {
     #[serde(rename = "response")]
     Response {
         status: u16,
-        #[serde(borrow, default)]
-        body: &'a str,
+        #[serde(default)]
+        body: String,
         #[serde(default)]
         parts: Option<u64>,
     },
     #[serde(rename = "error")]
     Error {
-        #[serde(borrow, default)]
-        code: &'a str,
-        #[serde(borrow, default)]
-        message: &'a str,
+        #[serde(default)]
+        code: String,
+        #[serde(default)]
+        message: String,
     },
 }
 
@@ -269,7 +268,7 @@ pub fn spade_call(
     let reply = conn
         .request_expecting(&frame, &["spade.http.result"], timeout)
         .map_err(|err| crate::commands::work::common::wire_failure(&err, Some(command)))?;
-    let envelope: SpadeResultEnvelope<'_> = reply.decode().map_err(|_| spade_mangled(command))?;
+    let envelope: SpadeResultEnvelope = reply.decode().map_err(|_| spade_mangled(command))?;
     match envelope.result {
         SpadeResult::Response {
             status,
@@ -283,11 +282,11 @@ pub fn spade_call(
                 return Err(spade_mangled(command));
             }
             if (200..=299).contains(&status) {
-                return Ok((status, body.to_owned()));
+                return Ok((status, body));
             }
-            Err(answer_failure(status, body, command))
+            Err(answer_failure(status, &body, command))
         }
-        SpadeResult::Error { code, message } => Err(spade_failure(code, message, command)),
+        SpadeResult::Error { code, message } => Err(spade_failure(&code, &message, command)),
     }
 }
 

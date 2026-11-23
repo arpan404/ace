@@ -167,11 +167,11 @@ impl fmt::Display for ErrorCode {
 /// One problem a local check found, as the sentence a person reads.
 #[derive(Clone, Debug, Serialize)]
 pub struct Problem<'a> {
+    pub message: Cow<'a, str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<Cow<'a, str>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>,
-    pub message: Cow<'a, str>,
 }
 
 /// The key to retry an uncertain mutation with.

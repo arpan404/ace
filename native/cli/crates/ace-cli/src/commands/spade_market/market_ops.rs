@@ -8,10 +8,10 @@ use cli_parse::Parsed;
 const ENTRY_TYPES: &str = "suit, spade-skill, spade-plugin, spade-bot, ace-plugin";
 const REPORT_REASONS: &[&str] = &[
     "malware",
+    "harmful",
     "impersonation",
     "spam",
     "copyright",
-    "harmful",
     "other",
 ];
 
@@ -292,10 +292,6 @@ fn parse_source(
     }
 }
 
-fn entry_json(entry: &EntryRef) -> serde_json::Value {
-    serde_json::json!({"type": entry.entry_type, "name": entry.name})
-}
-
 /// The operation one ported market command sends.
 #[allow(
     clippy::result_large_err,
@@ -427,12 +423,12 @@ fn search_operation(
             parse_source(Some(source), "--source", command)?.into(),
         );
     }
+    operation.insert("offset".to_owned(), 0.into());
     if let Some(limit) = flag("limit") {
         operation.insert("limit".to_owned(), search_limit(limit, command)?.into());
     } else {
         operation.insert("limit".to_owned(), 50.into());
     }
-    operation.insert("offset".to_owned(), 0.into());
     Ok(serde_json::Value::Object(operation))
 }
 
@@ -493,11 +489,11 @@ fn show_operation(
 }
 
 fn keyed_operation(entry: &EntryRef, op: &str) -> serde_json::Value {
-    let mut operation = entry_json(entry);
-    if let Some(object) = operation.as_object_mut() {
-        object.insert("op".to_owned(), op.into());
-    }
-    operation
+    let mut operation = serde_json::Map::new();
+    operation.insert("op".to_owned(), op.into());
+    operation.insert("type".to_owned(), entry.entry_type.clone().into());
+    operation.insert("name".to_owned(), entry.name.clone().into());
+    serde_json::Value::Object(operation)
 }
 
 #[allow(
@@ -520,19 +516,19 @@ fn report_operation(
                 .with_command(command));
         }
     };
-    let mut operation = entry_json(&entry);
-    if let Some(object) = operation.as_object_mut() {
-        object.insert("op".to_owned(), "report".into());
-        if let Some(version) = entry.version {
-            object.insert("version".to_owned(), version.into());
-        }
-        object.insert("reason".to_owned(), reason.into());
-        object.insert(
-            "note".to_owned(),
-            parsed.flags.value("note").unwrap_or("").to_owned().into(),
-        );
+    let mut operation = serde_json::Map::new();
+    operation.insert("op".to_owned(), "report".into());
+    operation.insert("type".to_owned(), entry.entry_type.clone().into());
+    operation.insert("name".to_owned(), entry.name.clone().into());
+    if let Some(version) = entry.version {
+        operation.insert("version".to_owned(), version.into());
     }
-    Ok(operation)
+    operation.insert("reason".to_owned(), reason.into());
+    operation.insert(
+        "note".to_owned(),
+        parsed.flags.value("note").unwrap_or("").to_owned().into(),
+    );
+    Ok(serde_json::Value::Object(operation))
 }
 
 #[allow(
