@@ -16,6 +16,7 @@ export * from "./local-models.ts";
 export * from "./model-checks.ts";
 export * from "./provenance.ts";
 export * from "./first-run.ts";
+export * from "./voice-models.ts";
 export type { SpadeStepWeight } from "./step-facts.ts";
 export * from "./words.ts";
 export * from "./contract-words.ts";

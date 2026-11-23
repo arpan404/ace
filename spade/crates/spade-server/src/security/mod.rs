@@ -64,6 +64,18 @@ pub enum SecurityError {
     Invalid(String),
     #[error("the settings could not be saved: {0}")]
     Store(String),
+    /// The change was made from a view of the settings that has changed since.
+    #[error("{0}")]
+    Stale(&'static str),
+}
+
+/// An edit to the current policy, applied under the same lock as a full replacement.
+#[derive(serde::Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum NetworkSiteEdit {
+    RemoveEntry { entry: String },
+    RemoveDefault { entry: String },
+    RestoreDefault { entry: String },
 }
 
 /// A network policy with each addition's form checked and every dropped name a default.
@@ -479,9 +491,21 @@ impl Security {
         &self,
         apply: impl FnOnce(&mut MachineSecurity),
     ) -> Result<MachineSecurity, SecurityError> {
+        self.try_change_machine(|machine| {
+            apply(machine);
+            Ok(())
+        })
+    }
+
+    /// The same, for a change that decides from the settings as they are once it holds the
+    /// lock, and may refuse: nothing is saved when `apply` errs.
+    pub fn try_change_machine(
+        &self,
+        apply: impl FnOnce(&mut MachineSecurity) -> Result<(), SecurityError>,
+    ) -> Result<MachineSecurity, SecurityError> {
         let _held = self.changing.lock().unwrap_or_else(|p| p.into_inner());
         let mut current = self.machine();
-        apply(&mut current);
+        apply(&mut current)?;
         let text = serde_json::to_string(&current)
             .map_err(|error| SecurityError::Store(error.to_string()))?;
         self.store
@@ -601,12 +625,53 @@ impl Security {
         policy: NetworkPolicy,
         may_loosen: &dyn Fn() -> bool,
     ) -> Result<BotSecurity, SecurityError> {
-        let policy = checked(policy)?;
+        self.update_network(bot, which, may_loosen, |_| checked(policy).map(Some))
+    }
+
+    pub fn edit_network_site(
+        &self,
+        bot: &str,
+        which: Network,
+        edit: NetworkSiteEdit,
+        may_loosen: &dyn Fn() -> bool,
+    ) -> Result<BotSecurity, SecurityError> {
+        self.update_network(bot, which, may_loosen, |old| {
+            let mut policy = old.clone();
+            match edit {
+                NetworkSiteEdit::RemoveEntry { entry } => {
+                    policy.allow.retain(|host| host != &entry)
+                }
+                NetworkSiteEdit::RemoveDefault { entry } => {
+                    if !policy.dropped.contains(&entry) {
+                        policy.dropped.push(entry);
+                    }
+                }
+                NetworkSiteEdit::RestoreDefault { entry } => {
+                    policy.dropped.retain(|host| host != &entry);
+                }
+            }
+            if &policy == old {
+                return Ok(None);
+            }
+            checked(policy).map(Some)
+        })
+    }
+
+    fn update_network(
+        &self,
+        bot: &str,
+        which: Network,
+        may_loosen: &dyn Fn() -> bool,
+        update: impl FnOnce(&NetworkPolicy) -> Result<Option<NetworkPolicy>, SecurityError>,
+    ) -> Result<BotSecurity, SecurityError> {
         self.change(bot, |current| {
             let held = settings::effective(current, &self.machine());
             let old = match which {
                 Network::Commands => &held.network,
                 Network::Plugins => &held.plugin_network,
+            };
+            let Some(policy) = update(old)? else {
+                return Ok(());
             };
             if settings::widens(old, &policy) && !may_loosen() {
                 return Err(SecurityError::PersonOnly(attest::CONFIRM));

@@ -23,6 +23,9 @@ import Observation
     /// The hosts of the person's organizations (ADR 0206 §1.5), reached like account machines;
     /// which space shows each is `SpacesModel`'s to say. Not part of "Machines on your account".
     private(set) var orgHosts: [AceMachine] = []
+    /// The organization a relay host id is a host of, if any (`SpacesModel.bind`): such a machine
+    /// is reached as one of its members.
+    @ObservationIgnored var orgOf: ((String) -> String?)?
     /// Machines turned off on this phone (by the host id the list keys them by): listed, but no
     /// runtime, no rows, no notifications. Never told to the machine.
     private(set) var off: Set<String>
@@ -375,7 +378,7 @@ import Observation
         var direct = entry.isAccountMachine ? nil : entry.connectionTarget
         let relayHost = entry.isAccountMachine ? entry.hostId : entry.accountHostId
         var relay = relayHost.flatMap { host in
-            account?.route(hostId: host).map { ConnectionTarget(relay: $0, deviceId: entry.isAccountMachine ? entry.deviceId : account?.deviceId ?? entry.deviceId) }
+            account?.route(hostId: host, org: orgOf?(host)).map { ConnectionTarget(relay: $0, deviceId: entry.isAccountMachine ? entry.deviceId : account?.deviceId ?? entry.deviceId) }
         }
         direct?.installId = installId
         relay?.installId = installId

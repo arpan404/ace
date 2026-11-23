@@ -1,6 +1,13 @@
 import { z } from "zod";
-import { MarketEntryName, MarketEntryType, MarketPublisher } from "./marketplace-base.ts";
-import { MarketHandle } from "./marketplace-publisher.ts";
+import {
+  MarketEntryName,
+  MarketEntryType,
+  MarketHash,
+  MarketPublisher,
+  MarketVersion,
+} from "./marketplace-base.ts";
+import { MarketHandle, MarketVersionStatus } from "./marketplace-publisher.ts";
+import { MarketScanVerdict } from "./marketplace-scan.ts";
 import {
   MarketKeyId,
   MarketOrgId,
@@ -82,3 +89,45 @@ export const RegistryEntries = z.strictObject({
   entries: z.array(RegistryEntry).max(5000),
 });
 export type RegistryEntries = z.infer<typeof RegistryEntries>;
+
+/**
+ * One version of a registry's entry as its admins read it (ADR 0206 amendment 5): its state, the
+ * scan's verdict, and a withdrawal still waiting for the registry's signer.
+ */
+export const RegistryVersion = z.strictObject({
+  version: MarketVersion,
+  hash: MarketHash,
+  size: z.number().int().nonnegative(),
+  published: z.number().int().nonnegative(),
+  status: MarketVersionStatus,
+  /** Waiting on a maintainer, not only on the signer. */
+  held: z.boolean(),
+  /** Why it is blocked or withdrawn, in plain words. */
+  reason: z.string().max(500).optional(),
+  /** The scan's verdict and the scanner that gave it; absent for a version never scanned. */
+  scan: z
+    .strictObject({ verdict: MarketScanVerdict, scanner: z.number().int().positive() })
+    .optional(),
+  /** Asked for and not signed yet: the version is still offered until the signer signs it. */
+  withdrawal: z
+    .strictObject({ reason: z.string().max(500), at: z.number().int().nonnegative() })
+    .optional(),
+});
+export type RegistryVersion = z.infer<typeof RegistryVersion>;
+
+/** An entry of the registry with its newest versions, newest first. */
+export const RegistryAdminEntry = RegistryEntry.extend({
+  versions: z.array(RegistryVersion).max(20),
+});
+export type RegistryAdminEntry = z.infer<typeof RegistryAdminEntry>;
+
+/**
+ * `GET /v1/orgs/{org}/registry`: every entry with its versions, for those who may publish to it
+ * (`registry:publish`, or named by an owner).
+ */
+export const RegistryAdmin = z.strictObject({
+  org: MarketOrgId,
+  publisher: MarketPublisher,
+  entries: z.array(RegistryAdminEntry).max(5000),
+});
+export type RegistryAdmin = z.infer<typeof RegistryAdmin>;

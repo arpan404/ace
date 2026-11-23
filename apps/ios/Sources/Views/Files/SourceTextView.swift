@@ -23,6 +23,11 @@ struct SourceDocument: Equatable {
     weak var view: UITextView?
     func find() { view?.findInteraction?.presentFindNavigator(showingReplace: view?.isEditable == true) }
     var text: String { view?.text ?? "" }
+    func markSaved(_ text: String) -> Bool {
+        let dirty = !self.text.utf8.elementsEqual(text.utf8)
+        (view?.delegate as? SourceTextView.Coordinator)?.rebase(to: text, dirty: dirty)
+        return dirty
+    }
     private var container: SourceContainer? { view?.superview?.superview as? SourceContainer }
     /// Lines in the text as it is now, edits included.
     var lineCount: Int { container?.lineStarts.count ?? 1 }
@@ -88,9 +93,12 @@ struct SourceTextView: UIViewRepresentable {
             if let loaded, !notes.isEmpty { Self.tell(loaded, earlier: earlier, now: document.text) }
             context.coordinator.key = document.key
             context.coordinator.original = document.original ?? document.text
-            context.coordinator.wasDirty = document.original.map { $0 != document.text } ?? false
+            context.coordinator.wasDirty = document.original.map { !$0.utf8.elementsEqual(document.text.utf8) } ?? false
             view.load(document)
             if let line { view.reveal(line: line) }
+        } else if let original = document.original,
+                  !context.coordinator.original.utf8.elementsEqual(original.utf8) {
+            context.coordinator.rebase(to: original, dirty: !view.text.text.utf8.elementsEqual(original.utf8))
         }
         view.wrap = wrap || editable
     }
@@ -105,6 +113,10 @@ struct SourceTextView: UIViewRepresentable {
         var original = ""
         var wasDirty = false
         init(parent: SourceTextView) { self.parent = parent }
+        func rebase(to text: String, dirty: Bool) {
+            original = text
+            wasDirty = dirty
+        }
         /// What the edit in progress replaces, measured before it lands (`textViewDidChange`).
         var pending: TextReplacement?
         func textViewDidChange(_ textView: UITextView) {
@@ -112,7 +124,7 @@ struct SourceTextView: UIViewRepresentable {
             container?.textChanged()
             if let pending, let container, let edited = parent.edited { edited(pending) { container.lineText($0) } }
             pending = nil
-            let now = textView.text != original
+            let now = !textView.text.utf8.elementsEqual(original.utf8)
             if now != wasDirty { wasDirty = now; parent.dirty?(now) }
         }
         func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {

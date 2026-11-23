@@ -1,6 +1,7 @@
 import type { ClientCore } from "@ace/client";
 import { z } from "zod";
 import { answerSpadeNewBot, spadeNewBotRequests } from "./spade-new-bot.ts";
+import { answerSpadeOnboarding, spadeOnboardingRequests } from "./spade-onboarding.ts";
 import { answerSpadeSettings, spadeSettingsRequests } from "./spade-settings.ts";
 import type { NativeSpade } from "./spade.ts";
 import { spadeText } from "./spade-text.ts";
@@ -14,11 +15,19 @@ import {
 import { spadeConversationRequests } from "./spade-requests-conversation.ts";
 import { spadeGroupRequests } from "./spade-requests-groups.ts";
 import { spadeProfileRequests } from "./spade-requests-profile.ts";
+import { spadeAskRequests } from "./spade-ask.ts";
+import { spadeRoutineRequests } from "./spade-routines.ts";
+import { spadeLibraryRequests } from "./spade-library.ts";
+import { spadePackageRequests } from "./spade-package.ts";
+import { spadeComputerRequests } from "./spade-computer.ts";
+import { spadeComputerLiveRequests } from "./spade-computer-live.ts";
+import { spadeProfileDetailRequests } from "./spade-requests-profile-details.ts";
+import { spadeProfileActionRequests } from "./spade-requests-profile-actions.ts";
 
 /*
  * What the iPhone asks of Spade with an outcome it waits on, one area per module
  * (`spade-requests-area.ts`): a conversation, a group, a bot's profile, Settings › Spade and New
- * bot. Every answer is `{ok: true}` or `{ok: false, title, message}` in the person's words; a
+ * bot, and first run (`spade-onboarding.ts`). Every answer is `{ok: true}` or `{ok: false, title, message}` in the person's words; a
  * card's also says which question (`at`) needs more. A new area is one module and one line in
  * `spadeRequestAreas`.
  */
@@ -33,6 +42,21 @@ export const spadeRequestAreas = [
   spadeRequestArea(spadeNewBotRequests, ({ spade, ask }, request) =>
     answerSpadeNewBot(spade, request, ask),
   ),
+  spadeRequestArea(spadeOnboardingRequests, async ({ spade, ask }, request) => {
+    const answer = await answerSpadeOnboarding(request, ask);
+    // Spade's model or first run moved: the list shows it at once.
+    if (answer.ok && request.type !== "spade.onboarding.read") spade.refresh();
+    return answer;
+  }),
+  // Siri's Ask Spade (ADR 0134, amendment 2026-11-22).
+  spadeAskRequests,
+  spadeRoutineRequests,
+  spadeLibraryRequests,
+  spadePackageRequests,
+  spadeComputerRequests,
+  spadeComputerLiveRequests,
+  spadeProfileDetailRequests,
+  spadeProfileActionRequests,
 ] as const;
 
 /** Every area's request schemas, in table order, as one tuple. */

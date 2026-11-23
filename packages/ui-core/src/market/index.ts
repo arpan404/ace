@@ -31,3 +31,4 @@ export {
 } from "./review.ts";
 export { changeTitle, runDetail, runTitle } from "./review-items.ts";
 export { andList, count, dateText, flaggedWord, readAtText, sentence, sizeText } from "./words.ts";
+export { registryFailure, registryVersionRow, type RegistryVersionRow } from "./registry.ts";

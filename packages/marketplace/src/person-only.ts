@@ -14,6 +14,10 @@ export const personOnlyActions = {
   deleteEntry: ["me-entry-delete"],
   applyVerification: ["me-verification-apply"],
   checkVerification: ["me-verification-check"],
+  // An organization's registry, read and withdrawn with the person's own grant for it (ADR 0206
+  // amendment 5); on an org host, a member standing for that organization proves it.
+  registry: ["org-registry-admin"],
+  registryWithdraw: ["org-version-withdraw"],
 } as const satisfies Partial<Record<MarketPublishAction["action"], readonly string[]>>;
 
 export type PersonOnlyAction = keyof typeof personOnlyActions;
