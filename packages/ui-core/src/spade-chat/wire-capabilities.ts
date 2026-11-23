@@ -22,8 +22,11 @@ export const spadeWorkerStates = [
 ] as const;
 export type SpadeWorkerState = (typeof spadeWorkerStates)[number];
 
-/** A bot made with `bot_create`, or an ace thread started with `delegate`. */
-const workerKind = z.enum(["bot", "ace", "helper"]).catch("bot");
+/**
+ * A bot made with `bot_create`, an ace thread started with `delegate`, a helper, or a task lane
+ * (ADR 0217): one of the bot's own tasks, reported back to its main conversation.
+ */
+const workerKind = z.enum(["bot", "ace", "helper", "lane"]).catch("bot");
 
 /** What a wake is for (`wake::Purpose`), by its `kind`; an unknown one reads as a plain wait. */
 const purpose = z
@@ -70,6 +73,10 @@ export const spadeCapabilityEvents = [
     name: words,
     state: z.enum(spadeWorkerStates).catch("other"),
     summary: words,
+    /** A failed worker's error, as the endpoint or a tool gave it: never Spade's words. */
+    error: z.string().nullish().catch(undefined),
+    /** What it reports may carry content from outside Spade. */
+    untrusted: z.boolean().catch(false).default(false),
   }),
   /** The bot will be woken: at `due_ms`, when `condition` happens, or both. */
   z.object({
@@ -85,4 +92,66 @@ export const spadeCapabilityEvents = [
   /** An owned service started: only its name is read, for the words of a wait on it. */
   z.object({ type: z.literal("service_started"), service: z.string(), name: words }),
   z.object({ type: z.literal("wake_cancelled"), wake: z.string() }),
+  /*
+   * Task lanes (ADR 0217), in main: `lane_started` where the bot started one (`moved_from` when
+   * Spade moved main's long work there, `queued` when every slot was taken), `reply_moved` where
+   * Spade moved main's reply to a lane and wrote its plain line, `ask_routed` right after a
+   * person's message a reply sent to a lane. A lane's report is a `worker_reported` of kind
+   * `lane`, whose `worker` is the lane's id.
+   */
+  z.object({
+    type: z.literal("lane_started"),
+    lane: z.string(),
+    conversation: words,
+    title: words,
+    asks: z.array(z.string()).catch([]).default([]),
+    moved_from: z.string().nullish().catch(undefined),
+    queued: z.boolean().catch(false).default(false),
+  }),
+  /** `jobs` and `wakes` moved with the work; `kept_jobs` stayed with main (ace, contract calls). */
+  z.object({
+    type: z.literal("reply_moved"),
+    reply: words,
+    lane: z.string(),
+    title: words,
+    jobs: z.array(z.string()).catch([]).default([]),
+    kept_jobs: z.array(z.string()).catch([]).default([]),
+    wakes: z.array(z.string()).catch([]).default([]),
+  }),
+  /** In a lane: main's words to it (`task_message`), the bot's and never the person's. */
+  z.object({
+    type: z.literal("lane_message"),
+    text: words,
+    untrusted: z.boolean().catch(false).default(false),
+  }),
+  /** In main: main sent a lane a message (`task_message`), handing it `asks`. */
+  z.object({
+    type: z.literal("lane_messaged"),
+    lane: z.string(),
+    title: words,
+    asks: z.array(z.string()).catch([]).default([]),
+  }),
+  /**
+   * In main: a lane ended (stopped, failed, finished), so main's copies of its open requests,
+   * question cards and approvals alike, close; `calls` are their ids here. Nothing answers them.
+   */
+  z.object({
+    type: z.literal("lane_requests_closed"),
+    lane: z.string(),
+    /** The lane's run (reply) that ended; only its requests are listed. */
+    epoch: words,
+    calls: z.array(z.string()).catch([]).default([]),
+  }),
+  /** The `title` role named a moved lane: its title from now on. */
+  z.object({ type: z.literal("lane_titled"), lane: z.string(), title: words }),
+  /** A lane wrote a file another working lane wrote too: a line, never a lock. */
+  z.object({
+    type: z.literal("lanes_overlapped"),
+    lane: z.string(),
+    title: words,
+    path: words,
+    other: z.string(),
+    other_title: words,
+  }),
+  z.object({ type: z.literal("ask_routed"), lane: z.string(), title: words, message: words }),
 ] as const;

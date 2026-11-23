@@ -144,11 +144,11 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
    machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
-   host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
+host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
    `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
    else `403` ("this move is another machine's"), the same manifest included; another manifest
    answers `409`. Unreachable, or `429`/`503` at `begin`, means wait and try again (`waiting:
-   true`); Cancel works until the commit. Every step of a move to here holds that move's lock
+true`); Cancel works until the commit. Every step of a move to here holds that move's lock
    (`steps_of`), as do its recovery and the sweep (which skips a move whose lock is taken), and
    every state change is made only from the state it expects (`advance_move`).
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
@@ -185,7 +185,7 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
      webhooks get new secrets, every bot's security settings lose every grant, its toolchains
      and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
      moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
-     arrival, host}`.
+arrival, host}`.
    - `move_arrive_undo` on any refusal, error or cut-off copy: first `unplace` puts back each
      recorded file (its record goes once that is on disk); then `undoing`, the recorded rows out
      a batch at a time, then (refused while a file record is left: `FilesPlaced`) the claims go and the move reads `receiving` (to copy again) or
@@ -332,12 +332,14 @@ carries the key.
 ## Models per role
 
 Each bot uses a model per role ([ADR 0162](../../docs/adr/0162-spade-model-routing.md)):
-`main` (its turns: the bot's model), `helper`, `verify` (the check of done), `review`, `compact`
-(summaries) and `title`. A role's model is the bot's override, else the global one, else the
-default:
+`main` (its turns: the bot's model), `task` (its task lanes' turns, [ADR
+0217](../../docs/adr/0217-spade-runs-each-task-in-its-own-lane.md)), `helper`, `verify` (the check
+of done), `review`, `compact` (summaries) and `title`. A role's model is the bot's override, else
+the global one, else the default:
 
 | Role                         | Default                                                                                                                                         |
 | ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`                       | whatever `main` resolves to: the bot's model and its `main` route; its effort is `main`'s until set                                             |
 | `helper`, `compact`, `title` | the fast model (`fast_model`), else the bot's                                                                                                   |
 | `review`                     | the review model (oversight `review_model`, the global override), else the model `verify` defaults to, else the bot's                           |
 | `verify`                     | the most expensive model the person already uses (bots', review, fast, new-bot) listing at least the bot's price, not the bot's; else the bot's |
@@ -353,8 +355,8 @@ deleted.
 - **Escalation.** With `escalate` on (the call's, else the bot's, else the global setting; off by
   default) a helper that failed on another model reruns once on the bot's model, stored as job
   `<job>~2`. Its result starts "(The helper failed on X, so it ran again on Y.)".
-- **Spend.** The ledger (`spend.role`) records each call's role; a helper's calls are `helper`,
-  rows from before the column `main`.
+- **Spend.** The ledger (`spend.role`) records each call's role; a helper's calls are `helper`, a
+  lane's `task` (under its bot), rows from before the column `main`.
 - **Cache.** A role's model applies from its next new request; past prompts are never rewritten.
   Compaction moves to the `compact` model only when that model's context holds the prompt (plus
   8,192 tokens), it takes what the conversation's model takes (tools, images, PDFs) and, unless
@@ -551,8 +553,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-  "context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

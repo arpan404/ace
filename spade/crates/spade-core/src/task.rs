@@ -151,6 +151,7 @@ pub fn nudge(step: u32) -> String {
 /// Whether Spade starts the next step of the bot's task, and when.
 pub fn next(events: &[Event], policy: &Policy) -> Next {
     if !ended_finished(events)
+        || crate::lane::task_moved(events)
         || stopped_since_last_reply(events)
         || jobs_running(events)
         || sleeping(events)

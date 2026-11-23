@@ -144,6 +144,20 @@ outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at mos
   approval pauses at once. The pause is stored as `turn_paused`. Stop on a paused reply closes it as
   stopped. The rules are in `spade_core::maintenance`.
 
+## Task lanes
+
+Main's own reply that runs long moves to a task lane of the bot's ([workers.md](workers.md),
+"Lanes"; ADR 0217 §2a). At a step boundary (`Next::CallModel`, after the stop check and the asks
+reminder) a reply that has taken 8 steps or run 2 minutes in this worker, with nothing waiting on
+the person and no job or wait of its own open, is moved in one write under the record lock: the
+lane's row and first events, and in main `lane_started`, `reply_moved` and the reply's close
+(`reply_finished` with no text). The turn ends; the lane's turn worker carries the same reply on
+from its next step. `Limits::move_long_work` turns this on (Spade does; tests choose). A lane's
+own work never moves, and `task::next` never carries a moved task on in main.
+
+Each step of main's ends with a `<tasks>` block after the `<asks>` block while lanes haven't
+ended: one line each with its id, state, title and the asks it owns, read from the events.
+
 ## Tools
 
 Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,

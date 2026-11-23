@@ -135,6 +135,7 @@ fn day() -> Vec<Event> {
             raised: None,
         }),
         k(Known::ApprovalRequested {
+            lane: None,
             reply: "r1".into(),
             call_id: "c1".into(),
             name: "shell".into(),

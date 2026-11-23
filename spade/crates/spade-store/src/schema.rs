@@ -209,6 +209,18 @@ const MIGRATIONS: &[Migration] = &[
         sql: crate::outside::SCHEMA,
         backfill: None,
     },
+    Migration {
+        // ADR 0217: the task lanes that haven't ended, so nothing reads every lane a bot ever
+        // ran. New and empty, so its index costs nothing at open (ADR 0170).
+        sql: crate::helpers::LANES_LIVE,
+        backfill: None,
+    },
+    Migration {
+        // ADR 0217: the task lanes whose requests have copies in their bot's conversation, so
+        // Spade reconciles only those when it opens. New and empty (ADR 0170).
+        sql: crate::helpers::LANE_COPIES,
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.
