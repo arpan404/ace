@@ -8,7 +8,7 @@ use crate::errors::SupervisorError;
 use crate::signal::{PidFdTable, SignalIo, SignalName};
 use crate::tree::{LiveIdentity, TreeIo};
 use crate::{identity, inventory, reaper};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Mutex;
 
 /// Signals by pid through the kernel, with Linux pidfds.
@@ -189,8 +189,8 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
         }
     }
 
-    fn group_emptied(&self, group: u32) -> bool {
-        group_live_members(group, 0).is_some_and(|live| live.is_empty())
+    fn group_snapshot(&self) -> GroupSnapshot {
+        take_group_snapshot(0)
     }
 
     fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, inventory::ProbeRefused> {
@@ -217,6 +217,168 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
             .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
             .unwrap_or(0)
     }
+}
+
+/// One process-table snapshot for a recovery or retry pass: the live
+/// (non-zombie) members by group id, and whether every candidate was read.
+/// A snapshot is answered per row, never re-listed per row, so a recover()
+/// or retryRemovals pass costs one table walk. An unreadable pid, or a
+/// getpgid permission error on macOS, makes the snapshot incomplete, and no
+/// row is removed from an incomplete snapshot.
+#[derive(Debug, Clone, Default)]
+pub struct GroupSnapshot {
+    pub groups: HashMap<u32, BTreeSet<(u32, String)>>,
+    pub complete: bool,
+}
+
+/// Three states for a recorded group against one snapshot: unknown when the
+/// snapshot is incomplete (keep the row), empty or not.
+pub fn group_empty_state(snapshot: &GroupSnapshot, group: u32) -> Option<bool> {
+    if !snapshot.complete {
+        return None;
+    }
+    Some(
+        snapshot
+            .groups
+            .get(&group)
+            .map(|members| members.is_empty())
+            .unwrap_or(true),
+    )
+}
+
+/// One system-wide walk answering every recorded group at once.
+pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
+    let mut groups: HashMap<u32, BTreeSet<(u32, String)>> = HashMap::new();
+    let mut complete = true;
+    #[cfg(target_os = "linux")]
+    {
+        let boot = match std::fs::read_to_string("/proc/sys/kernel/random/boot_id") {
+            Ok(text) => {
+                let trimmed = text.trim().to_owned();
+                if trimmed.is_empty() {
+                    return GroupSnapshot {
+                        groups,
+                        complete: false,
+                    };
+                }
+                trimmed
+            }
+            Err(_) => {
+                return GroupSnapshot {
+                    groups,
+                    complete: false,
+                };
+            }
+        };
+        let dir = match std::fs::read_dir("/proc") {
+            Ok(dir) => dir,
+            Err(_) => {
+                return GroupSnapshot {
+                    groups,
+                    complete: false,
+                };
+            }
+        };
+        for entry in dir {
+            let Ok(entry) = entry else {
+                complete = false;
+                continue;
+            };
+            let Some(pid) = entry
+                .file_name()
+                .to_str()
+                .and_then(|name| name.parse::<u32>().ok())
+            else {
+                continue;
+            };
+            if pid == except {
+                continue;
+            }
+            let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+                Ok(text) => text,
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::NotFound
+                        || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
+                {
+                    continue;
+                }
+                Err(_) => {
+                    complete = false;
+                    continue;
+                }
+            };
+            match crate::listing::parse_linux_stat(&text) {
+                Ok(stat) if stat.state != 'Z' => {
+                    groups
+                        .entry(stat.group)
+                        .or_default()
+                        .insert((pid, format!("{boot}:{}", stat.ticks)));
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    complete = false;
+                }
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        use libproc::processes::{ProcFilter, pids_by_type};
+        let candidates = match pids_by_type(ProcFilter::All) {
+            Ok(pids) => pids,
+            Err(_) => {
+                return GroupSnapshot {
+                    groups,
+                    complete: false,
+                };
+            }
+        };
+        for pid in candidates {
+            if pid == except {
+                continue;
+            }
+            match crate::listing::darwin_info(pid) {
+                Some(info) if !info.zombie => {
+                    groups
+                        .entry(info.group)
+                        .or_default()
+                        .insert((pid, info.start));
+                }
+                Some(_) => {}
+                // Unreadable (another user's): place it by getpgid so only
+                // its own group sees a member; a pid gone meanwhile is gone,
+                // and an unplaceable read (permission error) fails the whole
+                // snapshot, so no row is removed from it.
+                None => {
+                    let placed = i32::try_from(pid)
+                        .ok()
+                        .and_then(rustix::process::Pid::from_raw)
+                        .map(|target| rustix::process::getpgid(Some(target)));
+                    match placed {
+                        Some(Ok(found)) => {
+                            if let Ok(number) = u32::try_from(found.as_raw_nonzero().get()) {
+                                groups
+                                    .entry(number)
+                                    .or_default()
+                                    .insert((pid, String::new()));
+                            } else {
+                                complete = false;
+                            }
+                        }
+                        Some(Err(rustix::io::Errno::SRCH)) => {}
+                        _ => {
+                            complete = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = except;
+    }
+    GroupSnapshot { groups, complete }
 }
 
 /// The live (non-zombie) members of process group `group` other than

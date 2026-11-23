@@ -124,9 +124,23 @@ fn refused_group_probe_is_kept_for_later() {
             .any(|entry| entry.pid == 20)
     );
     inventory.runtime.alive.insert(20, Ok(false));
+    // Two-scan rule: the first empty scan only marks the row and stays
+    // unresolved; the retry pass takes the second scan a second later.
     let recovered = inventory.recover().expect("recovers");
-    assert_eq!(recovered.unresolved, 0);
-    assert_eq!(recovered.removed, 1);
+    assert_eq!(recovered.unresolved, 1);
+    assert_eq!(recovered.removed, 0);
+    assert!(
+        inventory
+            .list()
+            .expect("lists")
+            .iter()
+            .any(|entry| entry.pid == 20)
+    );
+    inventory.runtime.now = 1_000;
+    assert_eq!(
+        inventory.retry_removals(1_000),
+        crate::inventory::RetryPlan::Done
+    );
     assert!(
         !inventory
             .list()

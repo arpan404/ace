@@ -7,7 +7,7 @@ use crate::errors::SupervisorError;
 use crate::identity::{ProcessIdentity, ProcessOwner};
 use crate::inventory::{InventoryRuntime, ProbeRefused};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -57,6 +57,8 @@ pub struct Fake {
     pub occupied: Vec<u32>,
     /// The daemon's own pid: the owner recorded rows name.
     pub owner: u32,
+    /// Injected clock for the two-scan rule.
+    pub now: u64,
 }
 
 impl Fake {
@@ -71,6 +73,7 @@ impl Fake {
                 unreadable: Vec::new(),
                 occupied: Vec::new(),
                 owner,
+                now: 0,
             },
             killed,
         )
@@ -112,8 +115,15 @@ impl InventoryRuntime for Fake {
         self.alive.get(&pid).cloned().unwrap_or(Ok(true))
     }
 
-    fn group_emptied(&self, group: u32) -> bool {
-        !self.occupied.contains(&group)
+    fn group_snapshot(&self) -> crate::system::GroupSnapshot {
+        let mut groups = HashMap::new();
+        for group in &self.occupied {
+            groups.insert(*group, BTreeSet::from([(9999, "live".to_owned())]));
+        }
+        crate::system::GroupSnapshot {
+            groups,
+            complete: true,
+        }
     }
 
     fn kill(&self, group: u32, _start: &str) {
@@ -125,7 +135,7 @@ impl InventoryRuntime for Fake {
     }
 
     fn now_ms(&self) -> u64 {
-        0
+        self.now
     }
 }
 

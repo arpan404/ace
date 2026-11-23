@@ -13,7 +13,7 @@ use crate::identity::ProcessIdentity;
 use crate::identity::ProcessOwner;
 use crate::retry::{GuardedTick, inventory_backoff_ms};
 use ace_store::{Connection, OpenOptions, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 /// Why a liveness probe refused to say.
@@ -38,10 +38,10 @@ pub trait InventoryRuntime {
     /// Whether a recorded leader still runs as itself: its pid shows
     /// `start`. An identity check only; no group is ever probed.
     fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, ProbeRefused>;
-    /// Evidence that group `group` emptied: a complete read of the process
-    /// table found no live process in it. A read, never a signal; an id
-    /// reused since can only make it false (keep the record), never true.
-    fn group_emptied(&self, group: u32) -> bool;
+    /// One process-table snapshot for the pass: live members by group, and
+    /// whether every candidate was read. Answered per row, never re-listed
+    /// per row.
+    fn group_snapshot(&self) -> crate::system::GroupSnapshot;
     /// Ends a verified group whose leader started at `start`.
     fn kill(&self, group: u32, start: &str);
     /// This process: the owner recorded rows name.
@@ -66,8 +66,12 @@ pub struct Inventory<R> {
     pub(crate) runtime: R,
     report: Arc<dyn Fn(String) + Send + Sync>,
     pub(crate) unremoved: HashSet<u32>,
+    /// Recovery's first empty scans: pid to (group, first empty `now_ms`).
+    /// A row whose leader is gone is forgotten only after two empty scans at
+    /// least a second apart; the retry pass takes the second scan.
+    pub(crate) empty_since: HashMap<u32, (u32, u64)>,
     tick: GuardedTick,
-    retry_at_ms: Option<u64>,
+    pub(crate) retry_at_ms: Option<u64>,
     closed: bool,
     /// Windows only: when the descendant recorder is next due.
     #[cfg(windows)]
@@ -95,6 +99,7 @@ impl<R: InventoryRuntime> Inventory<R> {
             runtime,
             report,
             unremoved: HashSet::new(),
+            empty_since: HashMap::new(),
             tick: GuardedTick::new(),
             retry_at_ms: None,
             closed: false,
@@ -159,6 +164,7 @@ impl<R: InventoryRuntime> Inventory<R> {
     pub fn add(&mut self, pid: u32, name: &str, cwd: Option<&str>) -> Result<(), SupervisorError> {
         let now_ms = self.runtime.now_ms();
         self.unremoved.remove(&pid);
+        self.empty_since.remove(&pid);
         self.retry_removals(now_ms);
         if name.chars().count() > 256 {
             return Err(SupervisorError::InvalidInput(
@@ -241,44 +247,104 @@ impl<R: InventoryRuntime> Inventory<R> {
         self.retry_removals(now_ms);
     }
 
-    /// Retries the deletes that failed earlier. While any is left, the
-    /// caller schedules another attempt on a bounded backoff.
+    /// Retries the deletes that failed earlier, and takes the second empty
+    /// scan for rows recovery only marked. While any is left, the caller
+    /// schedules another attempt on a bounded backoff. One snapshot answers
+    /// every marked row in the pass, never one walk per row.
     pub fn retry_removals(&mut self, now_ms: u64) -> RetryPlan {
         if self.closed {
             return RetryPlan::Done;
         }
-        for pid in self.unremoved.clone() {
-            let statement = match self.db.prepare("DELETE FROM processes WHERE pid=?") {
-                Ok(statement) => statement,
-                Err(error) => {
-                    self.failed(now_ms, error.to_string());
-                    return self.plan(now_ms);
-                }
-            };
-            if statement.bind(&[Some(Value::Integer(pid as i64))]).is_err() {
-                self.failed(now_ms, format!("inventory delete of {pid} failed"));
-                return self.plan(now_ms);
-            }
-            let mut failed: Option<String> = None;
-            loop {
-                match statement.step() {
-                    Ok(None) => break,
-                    Ok(Some(_)) => {}
-                    Err(error) => {
-                        failed = Some(error.to_string());
-                        break;
+        #[cfg(not(windows))]
+        if !self.empty_since.is_empty() {
+            let snapshot = self.runtime.group_snapshot();
+            let mut wait_until: Option<u64> = None;
+            let pending: Vec<(u32, u32, u64)> = self
+                .empty_since
+                .iter()
+                .map(|(pid, (group, first))| (*pid, *group, *first))
+                .collect();
+            for (pid, group, first) in pending {
+                match crate::system::group_empty_state(&snapshot, group) {
+                    // Incomplete: proves nothing either way; keep the mark.
+                    None => {
+                        let at = first
+                            .saturating_add(1_000)
+                            .max(now_ms.saturating_add(1_000));
+                        wait_until = Some(wait_until.map_or(at, |due| due.min(at)));
+                    }
+                    // A non-empty scan in between clears the mark; the row stays.
+                    Some(false) => {
+                        self.empty_since.remove(&pid);
+                    }
+                    Some(true) if now_ms.saturating_sub(first) < 1_000 => {
+                        let at = first.saturating_add(1_000);
+                        wait_until = Some(wait_until.map_or(at, |due| due.min(at)));
+                    }
+                    Some(true) => {
+                        let db = Arc::clone(&self.db);
+                        match try_delete_row(&db, pid) {
+                            Ok(()) => {
+                                self.empty_since.remove(&pid);
+                                self.unremoved.remove(&pid);
+                            }
+                            Err(message) => {
+                                self.unremoved.insert(pid);
+                                self.failed(now_ms, message);
+                                return self.plan_with_wait(now_ms, wait_until);
+                            }
+                        }
                     }
                 }
             }
-            if let Some(message) = failed {
-                self.failed(now_ms, message);
-                return self.plan(now_ms);
+            if !self.empty_since.is_empty() {
+                if let Some(due) = wait_until {
+                    self.retry_at_ms = Some(match self.retry_at_ms {
+                        Some(at) => at.min(due),
+                        None => due,
+                    });
+                }
+                if self.retry_at_ms.is_none() {
+                    // Marks remain but nothing scheduled (all deletes just
+                    // failed above already scheduled via backoff, or the only
+                    // marks left were cleared this pass leaving none).
+                    if self.unremoved.is_empty() {
+                        return self.plan(now_ms);
+                    }
+                } else if self.unremoved.is_empty() {
+                    return self.plan(now_ms);
+                }
             }
-            self.unremoved.remove(&pid);
+        }
+        for pid in self.unremoved.clone() {
+            let db = Arc::clone(&self.db);
+            match try_delete_row(&db, pid) {
+                Ok(()) => {
+                    self.empty_since.remove(&pid);
+                    self.unremoved.remove(&pid);
+                }
+                Err(message) => {
+                    self.failed(now_ms, message);
+                    return self.plan(now_ms);
+                }
+            }
+        }
+        if !self.empty_since.is_empty() {
+            return self.plan(now_ms);
         }
         self.tick.settled();
         self.retry_at_ms = None;
         RetryPlan::Done
+    }
+
+    #[cfg(not(windows))]
+    fn plan_with_wait(&self, now_ms: u64, wait_until: Option<u64>) -> RetryPlan {
+        match (self.retry_at_ms, wait_until) {
+            (Some(at), Some(due)) => RetryPlan::RetryIn(at.min(due).saturating_sub(now_ms)),
+            (Some(at), None) => RetryPlan::RetryIn(at.saturating_sub(now_ms)),
+            (None, Some(due)) => RetryPlan::RetryIn(due.saturating_sub(now_ms)),
+            (None, None) => self.plan(now_ms),
+        }
     }
 
     fn failed(&mut self, now_ms: u64, message: String) {
@@ -352,6 +418,24 @@ fn drain(statement: &ace_store::Statement, action: &str) -> Result<(), Superviso
         .map_err(|error| SupervisorError::journal(action, error))?
         .is_some()
     {}
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn try_delete_row(db: &Arc<Connection>, pid: u32) -> Result<(), String> {
+    let statement = db
+        .prepare("DELETE FROM processes WHERE pid=?")
+        .map_err(|error| error.to_string())?;
+    statement
+        .bind(&[Some(Value::Integer(pid as i64))])
+        .map_err(|_| format!("inventory delete of {pid} failed"))?;
+    loop {
+        match statement.step() {
+            Ok(None) => break,
+            Ok(Some(_)) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
     Ok(())
 }
 
