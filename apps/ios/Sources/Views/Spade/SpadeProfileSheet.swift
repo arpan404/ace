@@ -35,7 +35,7 @@ struct SpadeProfileSheet: View {
                     switch part {
                     case .details: SpadeProfileDetails(profile: profile, retry: retry, edit: editor)
                     case .library: SpadeProfileLibrary(library: profile.library, name: profile.name, retry: retry)
-                    case .computer: SpadeProfileComputer(computer: profile.computer, retry: retry)
+                    case .computer: SpadeProfileComputer(client: client, profile: profile, retry: retry)
                     }
                 } else if let problem {
                     ProblemRow(problem, id: "spade.profile.problem") { Task { await load() } }
