@@ -1,5 +1,4 @@
 import {
-  askingLabel,
   subagentBranchStates,
   timedWords,
   waitingOnSubagentsLabel,
@@ -9,10 +8,8 @@ import { useSuitLabel } from "@/theme/suits/suit-labels.ts";
 import { useTreeWork } from "@/features/panels/index.ts";
 import { useLiveConnection } from "@/lib/live-connection.ts";
 import { ElapsedTime } from "@/components/working-indicator.tsx";
-import { StatusGlyph } from "@/components/status-glyph.tsx";
 import { PauseCircleIcon } from "@ace/icons";
 import { useTurnActivity } from "../transcript/use-turn-activity.ts";
-import { useDescendantRequest } from "../composer/descendant-request.ts";
 import { SystemRow } from "./system-row.tsx";
 import { underline } from "./work-log-view.tsx";
 
@@ -21,36 +18,36 @@ import { underline } from "./work-log-view.tsx";
  * muted `Working for 3m 6s` row over the same hairline, where the turn's "Worked for" stands once
  * it settles.
  * While the agent only waits on its subagents or its background commands the line steps aside:
- * the composer's strip says `Waiting for 3 subagents · 3m 6s`, with a Stop.
+ * the composer's strip says `Waiting for 3 subagents · 3m 6s`, with a Stop. Waiting on the person
+ * lives in Summary and the composer's strip, never on this line: if the root itself is still
+ * working while a child waits on the person, the line keeps showing `Working for …`; otherwise it
+ * steps aside.
  * It reads the same `turnActivity` as every other surface, counting the whole tree. The timer
- * writes its text through a ref, so a ticking second re-renders nothing, and it stands at the
- * time reached while the turn waits on the person (that time comes from the thread, so a redrawn
- * line shows it too).
+ * writes its text through a ref, so a ticking second re-renders nothing.
  */
 
 export function LiveHead(props: { threadId: string }) {
   const turn = useTurnActivity(props.threadId);
-  // The thread's tree waits on a delegated child's request: say what that request asks for.
-  const descendant = useDescendantRequest(props.threadId);
-  const activity =
-    turn?.tone === "needs-you" && descendant?.kind && turn.asker === descendant.name
-      ? { ...turn, label: askingLabel(descendant.kind) }
-      : turn;
   // A lost connection is the header's to say: no live line here. A copy catching up or read
   // from disk shows its live line, which then says "Syncing…" (`useTurnActivity`), not a turn.
   const live = useLiveConnection();
-  const subagents = useWorkingSubagents(props.threadId, activity?.subagents);
+  const subagents = useWorkingSubagents(props.threadId, turn?.subagents);
+  // Waiting on the person lives in Summary and the composer's strip, never on this line: show
+  // the root's own work if it is still working while a child asks, otherwise step aside.
+  const activity: TurnActivity | undefined =
+    turn?.tone === "needs-you"
+      ? turn.rootWorking
+        ? {
+            label: turn.rootWorking.label,
+            tone: "working",
+            elapsedFrom: turn.rootWorking.elapsedFrom,
+            current: undefined,
+          }
+        : undefined
+      : turn;
   // A pause is the turn's own row; a lost connection is the header's to say; what the agent
-  // only waits on is the composer's strip, with its Stop; a question the agent asked is its own
-  // "is asking" line, which is the waiting state.
-  if (
-    !activity ||
-    activity.tone === "paused" ||
-    live.staleLabel ||
-    activity.waitingOn ||
-    (activity.askedInline && activity === turn)
-  )
-    return null;
+  // only waits on is the composer's strip, with its Stop.
+  if (!activity || activity.tone === "paused" || live.staleLabel || activity.waitingOn) return null;
   // The status line stays a live region of its own; its text can be selected.
   return (
     <div role="group" aria-label="Turn in progress" className="min-w-0">
@@ -62,9 +59,8 @@ export function LiveHead(props: { threadId: string }) {
 
 /**
  * The live line, muted text with no glyph and nothing after the time: `Working for 1m 14s`;
- * `Waiting for 2 subagents` while the agent only waits on its subagents; `(!) Waiting for your answer`
- * while the person is asked (the request itself is in the composer's strip); a held line as it
- * is; a usage-limit pause as a quiet row.
+ * a held line as it is; a usage-limit pause as a quiet row. Never renders a waiting-on-you line,
+ * which lives in Summary and the composer's strip.
  */
 export function ActivityLine(props: {
   activity: TurnActivity;
@@ -78,6 +74,7 @@ export function ActivityLine(props: {
     : props.activity;
   // A Suit may say its own word for plain "Working"; any other line is ace's (`suitLabel`).
   const working = useSuitLabel("working-word", activity.label);
+  if (activity.tone === "needs-you") return null;
   if (activity.tone === "paused")
     return (
       <SystemRow
@@ -90,9 +87,7 @@ export function ActivityLine(props: {
     ? `${activity.label} ${activity.code}`
     : activity.tone === "working"
       ? working
-      : activity.tone === "needs-you" && activity.asker
-        ? `${activity.label} · ${activity.asker}`
-        : activity.label;
+      : activity.label;
   return (
     <p
       role="status"
@@ -113,13 +108,6 @@ export function ActivityLine(props: {
               <ElapsedTime from={activity.elapsedFrom} />
             </>
           )}
-        </span>
-      ) : activity.tone === "needs-you" ? (
-        // Waiting on the person outranks working: never "Working", no timer. The request
-        // itself sits in the composer's strip.
-        <span className="flex min-w-0 items-center gap-2">
-          <StatusGlyph state="needs-you" />
-          <span className="min-w-0 truncate">{label}</span>
         </span>
       ) : (
         <span className="min-w-0 truncate">{label}</span>

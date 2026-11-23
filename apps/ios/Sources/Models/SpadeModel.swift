@@ -157,18 +157,19 @@ import Observation
         /// `attached` names what isn't drawn; `images` and `files` are drawn as a thread's are,
         /// and `voice` is a recording to play (its words are `text`).
         case person(text: String, sending: Bool, attached: String?, images: [AttachmentLine], files: [AttachmentLine], voice: Voice?)
-        /// `images` and `files`: what the reply's tools showed the person, after its words.
-        case bot(text: String, live: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
+        /// `images` and `files`: what the reply's tools showed the person, after its words;
+        /// `fold`: finished and long enough to fold past ten lines (`SpadeFoldedWords`).
+        case bot(text: String, live: Bool, fold: Bool, end: End?, images: [AttachmentLine], files: [AttachmentLine])
         /// `approvers`: on a shared bot's request, who may answer it.
         case ask(callId: String, sentence: String, detail: String?, reason: String?, always: Bool, approvers: String?)
         case question(SpadeQuestionCard)
         /// A member's message in a group: its name above the first of a run, its face by the last.
-        case member(name: String, text: String, face: Face, first: Bool, last: Bool)
+        case member(name: String, text: String, fold: Bool, face: Face, first: Bool, last: Bool)
         case workers(Workers)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
-            case kind, text, sending, attached, images, files, voice, live, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
+            case kind, text, sending, attached, images, files, voice, live, fold, end, callId, sentence, detail, reason, always, approvers, name, face, first, last
         }
         init(from decoder: any Decoder) throws {
             let box = try decoder.container(keyedBy: Keys.self)
@@ -182,6 +183,7 @@ import Observation
                                voice: try box.decodeIfPresent(Voice.self, forKey: .voice))
             case "bot":
                 self = .bot(text: text, live: try box.decodeIfPresent(Bool.self, forKey: .live) ?? false,
+                            fold: try box.decodeIfPresent(Bool.self, forKey: .fold) ?? false,
                             end: try box.decodeIfPresent(End.self, forKey: .end),
                             images: try box.decodeIfPresent([AttachmentLine].self, forKey: .images) ?? [],
                             files: try box.decodeIfPresent([AttachmentLine].self, forKey: .files) ?? [])
@@ -197,6 +199,7 @@ import Observation
                 self = .workers(try Workers(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
+                               fold: try box.decodeIfPresent(Bool.self, forKey: .fold) ?? false,
                                face: try box.decode(Face.self, forKey: .face),
                                first: try box.decodeIfPresent(Bool.self, forKey: .first) ?? true,
                                last: try box.decodeIfPresent(Bool.self, forKey: .last) ?? true)

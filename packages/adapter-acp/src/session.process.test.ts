@@ -734,3 +734,54 @@ it("a fake ACP agent receives negotiated text, PDF and binary resources", async 
     await h.session.close("user");
   }
 });
+const steering = { ACE_TEST_STEERING: "1" };
+const sentOf = (h: Awaited<ReturnType<typeof setup>>, name: string) =>
+  h.frames.filter((f) => f.dir === "send" && method(f, name));
+it("an ACP agent with the steering extension takes a steer into its running turn without cancelling it", async () => {
+  const h = await setup(extensionQuirks, false, undefined, steering);
+  try {
+    const first = h.session.send(input("steerable"), "queue");
+    await h.wait((f) => JSON.stringify(f.data).includes('"toolCallId":"steerable"'));
+    await h.session.send(input("change course"), "steer");
+    await first;
+    await h.wait((f) => JSON.stringify(f.data).includes("took: change course"));
+    expect(sentOf(h, "session/cancel")).toHaveLength(0);
+    expect(sentOf(h, "session/prompt")).toHaveLength(1);
+    expect(sentOf(h, "_session/steering")).toHaveLength(1);
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("a steer the running turn can't take goes in as the next prompt once that turn ends", async () => {
+  const h = await setup(extensionQuirks, false, undefined, steering);
+  try {
+    const first = h.session.send(input("hold"), "queue");
+    await h.wait((f) => method(f, "cursor/create_plan"));
+    const steer = h.session.send(input("change course"), "steer");
+    await h.wait((f) => f.dir === "recv" && JSON.stringify(f.data).includes("promptRequired"));
+    expect(sentOf(h, "session/prompt")).toHaveLength(1);
+    await h.session.resolve(interactionKey(100), { kind: "plan_review", decision: "approve" });
+    await Promise.all([first, steer]);
+    const prompts = sentOf(h, "session/prompt").map((f) =>
+      string(object(list(object(object(f.data)["params"])["prompt"]).at(-1))["text"]),
+    );
+    expect(prompts).toEqual(["hold", "change course"]);
+    expect(sentOf(h, "session/cancel")).toHaveLength(0);
+  } finally {
+    await h.session.close("user");
+  }
+});
+it("a steer the agent fails to apply is refused unsent, and its turn runs on", async () => {
+  const h = await setup(extensionQuirks, false, undefined, steering);
+  try {
+    void h.session.send(input("steerable"), "queue").catch(() => {});
+    await h.wait((f) => JSON.stringify(f.data).includes('"toolCallId":"steerable"'));
+    await expect(h.session.send(input("steer-fails"), "steer")).rejects.toBeInstanceOf(
+      InputRejected,
+    );
+    expect(sentOf(h, "session/cancel")).toHaveLength(0);
+    expect(sentOf(h, "session/prompt")).toHaveLength(1);
+  } finally {
+    await h.session.close("user");
+  }
+});

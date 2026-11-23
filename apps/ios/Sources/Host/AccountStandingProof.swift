@@ -97,4 +97,25 @@ enum StandingVerdict {
         let result = object["result"] as? [String: Any]
         return result?["ok"] as? Bool == true && result?["member"] == nil ? .proven : .missing
     }
+
+    /// How long a proven verdict's standing has left, from `now`: the daemon's own `expiresIn`
+    /// (milliseconds) when it says, else its `until` (epoch milliseconds) against this phone's
+    /// clock. Nil for a refusal or for any other message; never negative.
+    static func remaining(_ text: String, requestId: String, now: Date) -> TimeInterval? {
+        guard read(text, requestId: requestId) == .proven,
+              let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+              let result = object["result"] as? [String: Any] else { return nil }
+        if let left = result["expiresIn"] as? Double { return max(0, left / 1000) }
+        guard let millis = result["until"] as? Double else { return nil }
+        return max(0, Date(timeIntervalSince1970: millis / 1000).timeIntervalSince(now))
+    }
+    /// Seconds before an expiry that a proof is renewed, so a renewal can still arrive in time.
+    static let lead: TimeInterval = 30
+    /// When to prove again: `interval` from now, or `lead` before the standing ends if that is
+    /// sooner. A standing too short to leave a lead is renewed halfway, and never sooner than
+    /// `floor`, so a short or skewed one can't make the socket prove in a loop.
+    static func renewal(remaining: TimeInterval, interval: TimeInterval) -> TimeInterval {
+        remaining > 2 * lead ? min(interval, remaining - lead) : max(remaining / 2, floor)
+    }
+    static let floor: TimeInterval = 5
 }

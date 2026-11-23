@@ -66,6 +66,15 @@ a TCP port.
    that needs the adapter to accept a prompt beside a surviving shell and settle it from the
    later update, recorded against a live Antigravity session.
 
+   **Amended 2026-11-22: Antigravity no longer holds.** Refusing every prompt beside such a shell
+   meant its end could never be reported: Antigravity closes `persisted_open_tool_calls` only
+   inside a later prompt. The ACP session now takes prompts beside a shell left running after a
+   finished turn (`shellCarriedAcrossTurns`), and the translator settles it from the later
+   `tool_call_update`. That shell is reported without `blocksPrompts`, so it reads as left
+   running on a done thread. A shell a cancelled prompt leaves with no proof it ended still
+   refuses new prompts. A whole-thread Stop doesn't reach a carried shell: ACP has no per-task
+   stop, so settling or archiving the thread is what ends it.
+
 3. **Host fact: the port probe** (`apps/daemon/src/background-services/`). Claude names each
    background command's output file in the call's result (no structured field carries it), kept
    as `BackgroundTask.outputPath`. The processes holding that file open (the shell and everything
@@ -106,7 +115,7 @@ a TCP port.
 - Automation runs read the same rule for open work (`automation-run-facts.ts`).
 - OpenCode and Pi keep holding until their wake behaviour is recorded; recording it is the
   follow-up that would let their adapters report `wakesAgent`. ACP keeps holding until its
-  session accepts a prompt beside a surviving shell.
+  session accepts a prompt beside a surviving shell. Antigravity stopped holding on 2026-11-22 (decision 2, amendment).
 - Windows has no probe yet: Claude dev servers there keep the thread waiting.
 
 Tests: core `background-release` (released by each fact, a woken test run waits, a stopped turn

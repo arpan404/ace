@@ -41,6 +41,7 @@ import { whenIdle } from "@/lib/idle.ts";
 import { useSeconds } from "@/lib/time.ts";
 import { useHeldPhrase } from "./use-held-phrase.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { SpadeFold } from "./spade-fold.tsx";
 import { chatBubble, framed, inputBubble, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, Failure, FileChips, SpeakerLine, WorkingLine } from "./spade-chat-parts.tsx";
 import { useShowWork } from "./spade-show-work.ts";
@@ -627,12 +628,14 @@ function RunItem(props: {
                 className={cn(chatBubble, framed)}
               >
                 {item.text && (
-                  <SpadeBubbleText
-                    text={item.text}
-                    stream={item.key}
-                    streaming={item.live}
-                    keep={handlers.keep}
-                  />
+                  <SpadeFold fold={item.fold}>
+                    <SpadeBubbleText
+                      text={item.text}
+                      stream={item.key}
+                      streaming={item.live}
+                      keep={handlers.keep}
+                    />
+                  </SpadeFold>
                 )}
                 {item.end === "failed" && item.failure ? (
                   <Failure
@@ -687,7 +690,9 @@ function RunItem(props: {
         >
           {item.text && (
             <div {...part("spade-message", undefined, "other")} className={cn(inputBubble, framed)}>
-              <SpadeBubbleText text={item.text} />
+              <SpadeFold fold={item.fold}>
+                <SpadeBubbleText text={item.text} />
+              </SpadeFold>
             </div>
           )}
           {item.doc && <DocumentCard doc={item.doc} />}

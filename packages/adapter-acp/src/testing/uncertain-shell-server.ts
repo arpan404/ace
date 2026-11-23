@@ -93,6 +93,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
             options: [{ optionId: "a", name: "Release", kind: "allow_once" }],
           },
         });
+    } else if (text === "report-shell") {
+      // Antigravity reports a shell carried from an earlier turn inside a later prompt.
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "s",
+        status: "completed",
+        rawOutput: { exitCode: 0 },
+      });
+      send({ id: frame["id"], result: { stopReason: "end_turn" } });
     } else if (text === "late-tool") {
       // The reply, then a tool of the root first reported after it, that never ends.
       send({ id: frame["id"], result: { stopReason: "end_turn" } });
@@ -124,6 +133,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     const toolId = heldTool;
     setTimeout(() => {
       update({ sessionUpdate: "tool_call_update", toolCallId: toolId, status: "cancelled" });
+      // Antigravity says it was cancelled in message text before answering.
+      update({
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "\n\nThe request was cancelled by the client." },
+      });
       send({ id: promptId, result: { stopReason: "cancelled" } });
       if (heldPrompt === promptId) heldPrompt = undefined;
     }, 25);

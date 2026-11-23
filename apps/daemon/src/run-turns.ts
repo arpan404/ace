@@ -11,6 +11,7 @@ export function migrateRunTurns(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS client_turn_sequence(thread_id TEXT PRIMARY KEY,turn INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS client_run_turn(thread_id TEXT NOT NULL,run_id TEXT NOT NULL,turn INTEGER NOT NULL,PRIMARY KEY(thread_id,run_id));
     CREATE TABLE IF NOT EXISTS client_turn_asks(thread_id TEXT NOT NULL,item_id TEXT NOT NULL,PRIMARY KEY(thread_id,item_id));
+    CREATE TABLE IF NOT EXISTS client_turn_after_steer(thread_id TEXT PRIMARY KEY);
     CREATE INDEX IF NOT EXISTS client_run_turn_number ON client_run_turn(thread_id,turn);`);
 }
 
@@ -20,6 +21,17 @@ export function migrateRunTurns(db: DatabaseSync): void {
  * joins that run's turn instead; a deleted message (a queued send withdrawn) asks nothing.
  */
 export function trackTurnAsk(db: DatabaseSync, thread: Thread, payload: EventPayload): void {
+  if (payload.type === "run.ended") {
+    // Only root runs are numbered: a subagent's end says nothing about the root's next turn.
+    const root = db
+      .prepare("SELECT 1 FROM client_run_turn WHERE thread_id=? AND run_id=?")
+      .get(thread.id, payload.runId);
+    if (!root) return;
+    if (payload.endedBy === "steer")
+      db.prepare("INSERT OR IGNORE INTO client_turn_after_steer VALUES (?)").run(thread.id);
+    else db.prepare("DELETE FROM client_turn_after_steer WHERE thread_id=?").run(thread.id);
+    return;
+  }
   if (payload.type === "item.deleted") {
     forget(db, thread.id, payload.itemId);
     return;
@@ -62,12 +74,17 @@ export function allocateRunTurn(
   if (legacy) return Number(legacy.ordinal);
   const current = db.prepare("SELECT turn FROM client_turn_sequence WHERE thread_id=?").get(thread);
   const asked = db.prepare("SELECT 1 FROM client_turn_asks WHERE thread_id=? LIMIT 1").get(thread);
+  const afterSteer = db
+    .prepare("SELECT 1 FROM client_turn_after_steer WHERE thread_id=?")
+    .get(thread);
   const turn = startedRunTurn({
     current: current ? Number(current.turn) : undefined,
     legacyBase: runSequence,
     asked: asked !== undefined,
+    afterSteer: afterSteer !== undefined,
     trigger: run.trigger,
   });
+  db.prepare("DELETE FROM client_turn_after_steer WHERE thread_id=?").run(thread);
   db.prepare(
     "INSERT INTO client_turn_sequence VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET turn=excluded.turn",
   ).run(thread, turn);
