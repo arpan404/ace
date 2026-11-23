@@ -113,8 +113,11 @@ pub fn field_order(state: &ThreadState) -> Vec<&'static str> {
         "hasRun",
         "status",
     ]);
+    // A field the fold cleared is absent from the object, so it leaves the order with it.
     for key in &state.appended {
-        order.push(key);
+        if present(state, key) {
+            order.push(key);
+        }
     }
     for key in OPTIONAL {
         if !state.appended.contains(&key) && present(state, key) {
@@ -162,6 +165,11 @@ fn record_field<S: SerializeMap>(
     key: &str,
 ) -> Result<(), S::Error> {
     match key {
+        "parentKey" => {
+            if let Some(value) = &record.parent_key {
+                map.serialize_entry("parentKey", value)?;
+            }
+        }
         "spawnedByKey" => {
             if let Some(value) = &record.spawned_by_key {
                 map.serialize_entry("spawnedByKey", value)?;
@@ -248,9 +256,6 @@ impl Serialize for crate::state::AgentRecord {
         map.serialize_entry("agent", &self.agent)?;
         map.serialize_entry("activity", &self.activity)?;
         map.serialize_entry("lastSignalAt", &self.last_signal_at)?;
-        if let Some(parent) = &self.parent_key {
-            map.serialize_entry("parentKey", parent)?;
-        }
         for key in &self.appended {
             record_field(&mut map, self, key)?;
         }

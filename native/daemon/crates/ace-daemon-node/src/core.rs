@@ -261,9 +261,16 @@ impl CoreThreadNative {
         Ok(std::mem::take(&mut self.buffer))
     }
 
-    /// Start one fact batch over this thread; the id names it for the facade.
+    /// Start one fact batch over this thread; the id names it for the facade. A wrapper that
+    /// is applied again after its flush re-begins under the same id, keeping the stable-signal
+    /// eligibility the TypeScript batch keeps.
     #[napi(catch_unwind)]
-    pub fn batch_begin(&mut self, deadline_json: Option<String>) -> napi::Result<u32> {
+    pub fn batch_begin(
+        &mut self,
+        deadline_json: Option<String>,
+        reuse_id: Option<u32>,
+        preserve: Option<bool>,
+    ) -> napi::Result<u32> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let deadline = match deadline_json {
                 None => None,
@@ -273,14 +280,22 @@ impl CoreThreadNative {
                     Some(deadline)
                 }
             };
-            Ok::<ace_core::reduce::FactBatch, CoreBindError>(ace_core::reduce::FactBatch::new(
-                deadline,
-            ))
+            let mut batch = ace_core::reduce::FactBatch::new(deadline);
+            if let Some(preserve) = preserve {
+                batch.set_preserve(preserve);
+            }
+            Ok::<ace_core::reduce::FactBatch, CoreBindError>(batch)
         }));
         match result {
             Ok(Ok(batch)) => {
-                let id = self.next_batch;
-                self.next_batch = self.next_batch.wrapping_add(1);
+                let id = match reuse_id {
+                    Some(id) => id,
+                    None => {
+                        let id = self.next_batch;
+                        self.next_batch = self.next_batch.wrapping_add(1);
+                        id
+                    }
+                };
                 self.batches.insert(id, batch);
                 Ok(id)
             }
@@ -334,9 +349,11 @@ impl CoreThreadNative {
     #[napi(catch_unwind)]
     pub fn batch_flush(&mut self, batch_id: u32) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let batch = self
+            // A flush retires the batch: the entry leaves the handle, so a frame's batch does
+            // not stay in the map.
+            let mut batch = self
                 .batches
-                .get_mut(&batch_id)
+                .remove(&batch_id)
                 .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
             Ok::<Vec<ace_core::emit::Event>, CoreBindError>(batch.flush(&mut self.state))
         }));

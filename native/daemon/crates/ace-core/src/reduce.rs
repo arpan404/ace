@@ -163,6 +163,11 @@ impl FactBatch {
         Some(())
     }
 
+    /// Carry the batch's stable-signal eligibility, which the facade mirrors across a flush.
+    pub fn set_preserve(&mut self, preserve: bool) {
+        self.preserve_signals = preserve;
+    }
+
     /// Derive the deferred status, if any.
     pub fn flush(&mut self, state: &mut ThreadState) -> Vec<Event> {
         let Some(at) = self.pending_at.take() else {

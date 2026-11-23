@@ -107,7 +107,7 @@ fn insert_placeholder(
         ended_at: None,
         appended: Vec::new(),
     };
-    let record = AgentRecord {
+    let mut record = AgentRecord {
         agent,
         external_status: None,
         active_run: None,
@@ -129,6 +129,9 @@ fn insert_placeholder(
         spawned_by_key: None,
         appended: Vec::new(),
     };
+    if record.parent_key.is_some() {
+        record.appended("parentKey");
+    }
     let created = record.agent.clone();
     put(&mut state.agents, key.to_owned(), record);
     crate::indexes::refresh_agent_index(state, key, None);
@@ -384,10 +387,14 @@ pub fn set_parent(
     });
     if let Some(parent) = parent_key {
         if let Some(record) = state.agents.get_mut(key) {
+            if record.parent_key.is_none() {
+                record.appended("parentKey");
+            }
             record.parent_key = Some(parent.to_owned());
         }
     } else if let Some(record) = state.agents.get_mut(key) {
         record.parent_key = None;
+        record.appended.retain(|key| *key != "parentKey");
     }
     let spawned = clears_spawn.then_some(None);
     change_agent(

@@ -164,7 +164,7 @@ export function ensureNativeCoreReady(): Promise<void> {
   if (coreBackend() !== "wasm" || isNode) return Promise.resolve();
   wasmBrowserReady ??= (async () => {
     const pkg = (await import("../../../native/daemon/wasm-pkg/ace_core_wasm.js")) as {
-      default: (bytes: BufferSource) => Promise<unknown>;
+      default: (bytes: ArrayBuffer) => Promise<unknown>;
     } & WasmExports;
     const response = await fetch(
       new URL("../../../native/daemon/wasm-pkg/ace_core_wasm_bg.wasm", import.meta.url),
@@ -307,11 +307,14 @@ export class FactBatch {
   private readonly deadlineJson: string | undefined;
   /** Whether the native handle retired this batch (a flush happened). */
   private closed = false;
+  /** The stable-signal eligibility the TypeScript batch keeps, mirrored across a flush. */
+  private preserveSignals: boolean;
   private readonly wasmBatch: InstanceType<WasmExports["WasmBatch"]> | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
     const backend = coreBackend();
     this.backend = backend;
+    this.preserveSignals = stableSignals !== undefined;
     if (backend === "typescript") throw new Error("native FactBatch is off");
     const deadlineJson =
       stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
@@ -327,6 +330,16 @@ export class FactBatch {
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
     if (this.closed) this.reopen();
     if (!isFactData(fact)) return this.rejectNonJson(fact, ctx);
+    const events = this.applyFact(fact, ctx);
+    // Any non-signal control fact invalidates the cached eligibility window, as in `reduce.ts`.
+    if (
+      (fact.type !== "signal" && fact.type !== "item.delta") ||
+      events.some((event) => event.type !== "item.delta")
+    )
+      this.preserveSignals = false;
+    return events;
+  }
+  private applyFact(fact: Fact, ctx: ApplyContext): EventPayload[] {
     if (this.backend === "wasm") {
       const batch = this.wasmBatch;
       if (!batch) throw new Error("wasm batch is off");
@@ -382,7 +395,12 @@ export class FactBatch {
   /** Open a fresh native batch with this wrapper's deadline after a flush retired the last. */
   private reopen(): void {
     if (this.backend === "wasm") return;
-    this.batchId = handleFor(this.state, openThread).batchBegin(this.deadlineJson);
+    // Under the same id and with the same stable-signal eligibility the batch had.
+    this.batchId = handleFor(this.state, openThread).batchBegin(
+      this.deadlineJson,
+      this.batchId,
+      this.preserveSignals,
+    );
     this.closed = false;
   }
 }

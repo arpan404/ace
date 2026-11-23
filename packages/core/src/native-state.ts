@@ -23,7 +23,7 @@ export interface CoreThreadHandle {
     nextId: (kind: string) => string,
     resolvingJson?: string,
   ): string;
-  batchBegin(deadlineJson: string | undefined): number;
+  batchBegin(deadlineJson: string | undefined, reuseId?: number, preserve?: boolean): number;
   batchApply(
     batchId: number,
     factJson: string,
@@ -48,43 +48,12 @@ export interface CoreThreadHandle {
   snapshot(): string;
 }
 
-/** Every field a `ThreadState` can carry, in the order the reducer creates them. */
-const KNOWN_FIELDS = [
-  "threadId",
-  "config",
-  "initialRoot",
-  "agents",
-  "runs",
-  "items",
-  "interactions",
-  "tasks",
-  "uncertainTasks",
-  "interactionHistory",
-  "taskHistory",
-  "indexes",
-  "outcomeOrder",
-  "pendingNotices",
-  "itemLinks",
-  "queueCount",
-  "queueSources",
-  "hasRun",
-  "status",
-  "rootKey",
-  "processExit",
-  "lastTransportSignalAt",
-  "statusObservedAt",
-  "runSeq",
-  "personTasks",
-  "rejectionNotices",
-  "queueHeld",
-  "queueStopped",
-  "movedTo",
-] as const;
-
 /** One native thread behind a `ThreadState`, with the state bytes it last read. */
 interface Slot {
   handle: CoreThreadHandle;
-  /** The view's own fields, in the state's order; absent fields have setters only. */
+  /** The object whose fields the view exposes (absent for a state the caller owns). */
+  target: Record<string, unknown> | undefined;
+  /** The view's own fields, in the state's order. */
   fields: string[];
   /** `undefined` once a fold ran: the next field read re-reads the handle's snapshot. */
   state: Record<string, unknown> | undefined;
@@ -109,8 +78,13 @@ function accessor(slot: Slot, field: string): PropertyDescriptor {
   if (known) return known;
   const descriptor: PropertyDescriptor = {
     configurable: true,
+    // Present fields are the view's own enumerable keys, so `Object.keys`, a spread and
+    // `JSON.stringify` see exactly the state's fields in its order.
+    enumerable: true,
     get: () => readState(slot)[field],
     set: (value: unknown) => {
+      // `undefined` clears the field, as a delete does in the TypeScript reducer; the handle
+      // drops it and the next reshape drops its order entry.
       const json = JSON.stringify(value) as string | undefined;
       slot.handle.setField(field, json === undefined ? "null" : json);
       invalidateSlot(slot);
@@ -120,29 +94,17 @@ function accessor(slot: Slot, field: string): PropertyDescriptor {
   return descriptor;
 }
 
-/** Rebuild the view's own fields: present ones enumerable, in the state's order; the rest as
- * setters only, so an assignment reaches the core but `Object.keys` stays faithful. */
+/** Rebuild the view's own fields: exactly the state's, in its order. A field the state does not
+ * have is absent from the object (`in`, `Object.hasOwn`), and its setter is gone with it. */
 function reshape(target: Record<string, unknown>, slot: Slot, fields: string[]): void {
   const same =
     fields.length === slot.fields.length &&
     fields.every((field, index) => field === slot.fields[index]) &&
-    KNOWN_FIELDS.every((field) => Object.hasOwn(target, field));
+    Object.getOwnPropertyNames(target).length === fields.length;
   if (same) return;
   slot.fields = fields;
-  // Every own property, enumerable or not: an absent field's setter must not keep an old
-  // position when the field appears.
   for (const key of Object.getOwnPropertyNames(target)) delete target[key];
-  for (const field of fields) {
-    const descriptor = accessor(slot, field);
-    descriptor.enumerable = true;
-    Object.defineProperty(target, field, descriptor);
-  }
-  for (const field of KNOWN_FIELDS) {
-    if (fields.includes(field)) continue;
-    const descriptor = accessor(slot, field);
-    descriptor.enumerable = false;
-    Object.defineProperty(target, field, descriptor);
-  }
+  for (const field of fields) Object.defineProperty(target, field, accessor(slot, field));
 }
 
 /** Mark the state stale and re-read its field list from the handle. */
@@ -188,7 +150,7 @@ export function handleFor(
     accessors: new Map(),
   };
   slots.set(state, slot);
-  reshape(slot.target, slot, handle.fields());
+  if (slot.target !== undefined) reshape(slot.target, slot, handle.fields());
   return handle;
 }
 

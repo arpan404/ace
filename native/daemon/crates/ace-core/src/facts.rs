@@ -563,8 +563,25 @@ fn draft_of(map: &crate::json_io::Map) -> Option<crate::json_io::Map> {
     }
 }
 
-/// The raw payloads a fact carried, decoded per element (each one's data is opaque text).
+/// The raw payloads a fact carried. Each element is read from its canonical text with the
+/// borrowed reader (iterative), never through typed decoding, so its depth cannot reach the
+/// decode budget; an element too malformed to classify is kept as inline data, never dropped.
 fn raw_of(map: &crate::json_io::Map) -> Option<Vec<RawPayload>> {
-    map.get("raw")
-        .and_then(|raw| crate::json_io::decode(raw).ok())
+    let crate::json_io::Json::Array(items) = map.get("raw")? else {
+        return None;
+    };
+    Some(
+        items
+            .iter()
+            .filter(|item| !matches!(item, crate::json_io::Json::Null))
+            .map(|item| {
+                let raw = ace_json::Raw::from_value(item);
+                RawPayload::from_raw(&raw).unwrap_or_else(|_| RawPayload::Inline {
+                    payload_type: "unknown".to_owned(),
+                    name: None,
+                    data: raw,
+                })
+            })
+            .collect(),
+    )
 }

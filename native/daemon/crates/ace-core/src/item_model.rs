@@ -43,6 +43,58 @@ pub enum RawPayload {
     },
 }
 
+impl RawPayload {
+    /// Read a payload from its canonical text: a blob reference, or inline data kept verbatim.
+    /// Iterative throughout (the borrowed reader never recurses), so a payload of any depth is
+    /// read without growing the stack.
+    pub fn from_raw(raw: &ace_json::Raw) -> Result<RawPayload, String> {
+        let view = raw.view();
+        let text = |value: Option<ace_json::RawRef<'_>>| -> Result<String, String> {
+            value
+                .and_then(|value| value.as_js_string())
+                .map(|text| text.to_rust().into_owned())
+                .ok_or_else(|| "raw payload needs a string".to_owned())
+        };
+        let optional_text =
+            |value: Option<ace_json::RawRef<'_>>| -> Result<Option<String>, String> {
+                match value {
+                    None => Ok(None),
+                    Some(value) if value.is_null() => Ok(None),
+                    Some(value) => text(Some(value)).map(Some),
+                }
+            };
+        let payload_type = text(view.get("type"))?;
+        let name = optional_text(view.get("name"))?;
+        let blob = view.get("blobRef").is_some()
+            || view.get("size").is_some()
+            || view.get("preview").is_some();
+        if blob {
+            let blob_ref = text(view.get("blobRef"))?;
+            let size = view
+                .get("size")
+                .and_then(|size| size.as_f64())
+                .ok_or_else(|| "invalid raw payload".to_owned())? as i64;
+            let preview = optional_text(view.get("preview"))?;
+            Ok(Self::Blob {
+                payload_type,
+                name,
+                blob_ref,
+                size,
+                preview,
+            })
+        } else {
+            let data = view
+                .get("data")
+                .ok_or_else(|| "invalid raw payload".to_owned())?;
+            Ok(Self::Inline {
+                payload_type,
+                name,
+                data: data.to_raw(),
+            })
+        }
+    }
+}
+
 impl<'de> serde::Deserialize<'de> for RawPayload {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

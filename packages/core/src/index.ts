@@ -5,8 +5,8 @@
  * exports below serve over the native core through `./native.ts`, behind the
  * same interface and shapes. One switch, read once at this boundary.
  */
-import type { AgentStatus, EventPayload, ThreadId, ThreadStatus } from "@ace/protocol";
-import type { CoreConfig } from "./state.ts";
+import type { AgentStatus, EventPayload, Interaction, ThreadId, ThreadStatus } from "@ace/protocol";
+import type { ApplyContext, CoreConfig, ThreadState } from "./state.ts";
 import type { RootAgentInit } from "./facts.ts";
 import type { Fact } from "./facts.ts";
 import { nativeCore } from "./backend.ts";
@@ -115,8 +115,8 @@ export class DeadlineIndex {
 }
 /** The same human attention rule governs thread status and notification links. */
 export function isActionableInteraction(
-  interaction: { state: string; blocking: boolean },
-  owner: { state: string } | undefined,
+  interaction: Pick<Interaction, "state" | "blocking">,
+  owner: Pick<AgentStatus, "state"> | undefined,
 ): boolean {
   return nativeCore()
     ? isActionableInteractionNative(interaction, owner)

@@ -50,10 +50,6 @@ type Result<T> = std::result::Result<T, Error>;
 /// The token [`JsString`] asks for: its UTF-16 units, a lone surrogate included.
 pub const JS_STRING_TOKEN: &str = "$ace_json::JsString";
 
-/// The token an opaque value asks for: its canonical JSON text, written iteratively, so a
-/// payload of any depth never goes through the visitor recursion typed decoding needs.
-pub const JS_RAW_TOKEN: &str = "$ace_json::Raw";
-
 /// The deepest document typed decoding accepts. Each level costs a handful of stack frames in
 /// serde's visitors, so this keeps a pathological payload an error rather than a crash; real
 /// provider data, and the diagnostics capture's own limit of 100, stay well inside it.
@@ -116,7 +112,6 @@ impl<'de> de::Deserializer<'de> for Deserializer<'de> {
         visitor: V,
     ) -> Result<V::Value> {
         match (name, self.value) {
-            (JS_RAW_TOKEN, value) => visitor.visit_string(crate::write::to_string(value)),
             (JS_STRING_TOKEN, Value::String(text)) => match text.as_well_formed() {
                 Some(text) => visitor.visit_str(text),
                 None => {
