@@ -306,6 +306,9 @@ const agents: Record<string, Wording> = {
 
 /** Failures any of ace's tools can report, whichever family it is. */
 const shared: Record<string, Wording> = {
+  host_policy_refused: () => ({
+    title: "Your organization doesn't allow this action on this host",
+  }),
   // The agent fixes its arguments and calls again by itself: the step reads as the call it
   // was, failed, and what the tool told the agent opens from it.
   invalid_arguments: (_, { attempt, said }) => ({

@@ -82,6 +82,21 @@ native.socket = (id, action, value) => {
           inner.send(JSON.stringify({ ...rest, token: "inner" }));
           return;
         }
+        if (message.type === "media.connect") {
+          // This daemon offers only the main channel.
+          queueMicrotask(() =>
+            entries.aceSocket(
+              id,
+              "message",
+              JSON.stringify({
+                type: "media.connect.result",
+                requestId: message.requestId,
+                result: { ok: false, code: "unavailable", message: "Media is unavailable." },
+              }),
+            ),
+          );
+          return;
+        }
         if (message.type === "account.grant.refresh" && typeof message.grant === "string") {
           const claims = admit(message.grant);
           refreshes.push({ at: Date.now(), claims });

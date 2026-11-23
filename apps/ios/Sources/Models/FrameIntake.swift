@@ -21,6 +21,7 @@ import Foundation
 final class FrameIntake: @unchecked Sendable {
     struct Frame {
         let patches: [BridgePatch]?
+        let frameBytes: Int
         let bytes: Int
         /// Already acknowledged when it was decoded: holding it must not answer again.
         let answered: Bool
@@ -49,14 +50,14 @@ final class FrameIntake: @unchecked Sendable {
     }
     /// Queues a decoded frame; returns its answer when it can be given now. A closed intake
     /// drops it and answers nothing.
-    func push(_ patches: [BridgePatch]?, bytes: Int) -> Bool? {
+    func push(_ patches: [BridgePatch]?, frameBytes: Int, bytes: Int) -> Bool? {
         lock.withLock {
             guard !closed else { return nil }
             var answer = Self.answer(patches, open: open)
             if answer == true, answeredBytes + bytes > Self.answeredLimit { answer = nil }
             let counted = answer == true ? bytes : 0
             answeredBytes += counted
-            frames.append(Frame(patches: patches, bytes: bytes, answered: answer != nil, counted: counted))
+            frames.append(Frame(patches: patches, frameBytes: frameBytes, bytes: bytes, answered: answer != nil, counted: counted))
             return answer
         }
     }

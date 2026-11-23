@@ -3,7 +3,7 @@
 
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -1016,18 +1016,7 @@ impl Spade {
                 .body(bytes.clone());
         }
         if stamp && let Some((target, value)) = guarded(method.as_str(), path, bytes.as_deref()) {
-            let key = std::fs::read_to_string(&self.person_key_path)?;
-            let key: Vec<u8> = (0..key.trim().len())
-                .step_by(2)
-                .map(|at| u8::from_str_radix(&key.trim()[at..at + 2], 16))
-                .collect::<std::result::Result<_, _>>()?;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| {
-                    i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
-                });
-            let nonce = uuid::Uuid::new_v4().simple().to_string();
-            let signed = spade_server::security::attest::sign(&key, &target, &value, now, &nonce);
+            let signed = person_stamp(&self.person_key_path, &target, &value)?;
             request = request.header(spade_server::security::attest::HEADER, signed);
         }
         let response = request.send().await?;
@@ -1281,6 +1270,25 @@ fn person_key_at(dir: &tempfile::TempDir, options: &Options) -> Result<PathBuf> 
         std::fs::write(&path, key)?;
     }
     Ok(path)
+}
+
+/// Signs a change for a client acting with the test person's standing.
+pub fn person_stamp(key_path: &Path, target: &str, value: &str) -> Result<String> {
+    let key = std::fs::read_to_string(key_path)?;
+    let key = key.trim();
+    let key: Vec<u8> = (0..key.len())
+        .step_by(2)
+        .map(|at| u8::from_str_radix(&key[at..at + 2], 16))
+        .collect::<std::result::Result<_, _>>()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| {
+            i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+        });
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    Ok(spade_server::security::attest::sign(
+        &key, target, value, now, &nonce,
+    ))
 }
 
 /// What ace's daemon stamps as the person's on `method path` with `body` for a window that proved

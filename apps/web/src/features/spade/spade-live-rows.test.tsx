@@ -50,17 +50,13 @@ test("the list row shows waiting on you while a question is open, as the chat do
   await chat.findByRole("group", { name: /Window or aisle\?/ });
   // Spade still lists Scout as thinking; the row says what the chat shows.
   expect(spade.agents.find((agent) => agent.id === "scout")?.status).toBe("Thinking");
-  await waitFor(async () =>
-    expect((await botRow("Scout")).textContent).toBe("ScoutAsked you a question"),
-  );
+  await waitFor(async () => expect((await botRow("Scout")).textContent).toBe("ScoutNeeds you"));
 });
 
 test("the row works again as soon as the person's answer arrives, as the chat does", async () => {
   const { app, spade, chat } = await openScout();
   asks(spade);
-  await waitFor(async () =>
-    expect((await botRow("Scout")).textContent).toBe("ScoutAsked you a question"),
-  );
+  await waitFor(async () => expect((await botRow("Scout")).textContent).toBe("ScoutNeeds you"));
   const scout = spade.agents.find((agent) => agent.id === "scout");
   if (scout) Object.assign(scout, { state: "waiting", waiting_for: "question", status: null });
   spade.store("c-scout", {

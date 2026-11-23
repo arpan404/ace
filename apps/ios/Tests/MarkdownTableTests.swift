@@ -51,10 +51,15 @@ import UIKit
         | Tables | Wide tables in answers run past the screen. This child lays them out to fit, wrapping the prose column. |
         | Code | `apps/ios/project.yml:35` and `cloud.acehq.dev` ran off the edge of the text instead of wrapping inside it. |
         """
-        let views = try await laidOut(answer, width: 360) { views in views.contains { $0 is UIScrollView } }
+        let views = try await laidOut(answer, width: 360) { views in
+            views.contains { ($0 as? UIScrollView).map { $0.bounds.width > 0 && $0.contentSize.width > 0 } ?? false }
+        }
         let scrollers = views.compactMap { $0 as? UIScrollView }
         #expect(!scrollers.isEmpty)
-        #expect(scrollers.allSatisfy { $0.bounds.width <= 360 && $0.contentSize.width <= $0.bounds.width + 1 })
+        #expect(scrollers.allSatisfy {
+            $0.bounds.width > 0 && $0.bounds.width <= 360
+                && $0.contentSize.width > 0 && $0.contentSize.width <= $0.bounds.width + 1
+        })
     }
 
     @Test func aTableOfLongUnbreakableWordsScrollsInsideTheRow() async throws {

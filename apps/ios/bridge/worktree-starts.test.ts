@@ -1,5 +1,5 @@
 import { native, until } from "./test-host.ts";
-import { expect, test } from "vitest";
+import { expect, onTestFinished, test } from "vitest";
 import {
   CommandId,
   WorktreeCreationProgress,
@@ -127,6 +127,11 @@ function fixture(
     observe: () => () => {},
   };
   const starts = new WorktreeStarts(owner, pump, (text, limit) => text.slice(0, limit), store);
+  // Finish native delivery before the next fixture reuses the command id and ack callback.
+  onTestFinished(async () => {
+    starts.close();
+    await pump.drained();
+  });
   const push = (report: WorktreeCreationProgress) => {
     for (const listener of listeners)
       listener({ type: "worktree.creation.progress", ...report } as ServerMessage);
