@@ -6,7 +6,12 @@
  * or falls back, and that a phase named explicitly never starts without its needs.
  */
 import { expect, test } from "vitest";
-import { NativeSwitchConflict, resolveSwitches, type SwitchNeed } from "./native-switches.ts";
+import {
+  explicitTransportPhases,
+  NativeSwitchConflict,
+  resolveSwitches,
+  type SwitchNeed,
+} from "./native-switches.ts";
 
 const phases = (list: readonly string[]) => new Set(list);
 
@@ -100,3 +105,26 @@ test.each([
   expect(message).toContain(phase);
   expect(message).toContain(need);
 });
+
+test.each([
+  { name: "unset asks for nothing", value: undefined, asked: [] },
+  {
+    name: "native asks for the loopback listener",
+    value: "native",
+    asked: ["transport.loopback"],
+  },
+  {
+    name: "native,remote asks for both listeners",
+    value: "native,remote",
+    asked: ["transport.loopback", "transport.remote"],
+  },
+])("ACE_TRANSPORT %s", ({ value, asked }) => {
+  expect([...explicitTransportPhases(value)].toSorted()).toEqual(asked);
+});
+
+test.each(["", "bogus", "remote", "native, remote"])(
+  "ACE_TRANSPORT=%s is refused, quoting the value it read",
+  (value) => {
+    expect(() => explicitTransportPhases(value)).toThrow(`ACE_TRANSPORT=${JSON.stringify(value)}`);
+  },
+);

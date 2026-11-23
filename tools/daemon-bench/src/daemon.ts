@@ -1,6 +1,6 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
@@ -92,12 +92,15 @@ const switchVariables: readonly string[] = [
   ]),
 ];
 
-/** Refuses `variable` unless it is an absolute path to an existing file. */
+/** Refuses `variable` unless it is an absolute path to a regular file. */
 function requireAddon(variable: string, because: string): void {
   const value = process.env[variable];
-  if (value === undefined || value === "") throw new Error(`${because} but ${variable} is unset`);
+  if (value === undefined || value === "")
+    throw new Error(`${because} but ${variable} is unset or empty`);
   if (!isAbsolute(value)) throw new Error(`${because} but ${variable} is relative: ${value}`);
-  if (!existsSync(value)) throw new Error(`${because} but ${variable} names no file: ${value}`);
+  const stats = statSync(value, { throwIfNoEntry: false });
+  if (stats === undefined || !stats.isFile())
+    throw new Error(`${because} but ${variable} names no regular file: ${value}`);
 }
 
 /** Refuses a switch the bench cannot run honestly, before it starts or measures anything. */

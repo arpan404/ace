@@ -445,14 +445,14 @@ export function resolveSwitches(
 
 /**
  * `ACE_TRANSPORT` names the transport parts served natively: `native` is the loopback listener,
- * `native,remote` adds the remote listeners. Unset is today's TypeScript; any other value refuses
- * to start, naming it.
+ * `native,remote` adds the remote listeners. Unset is today's TypeScript; a set value that is
+ * neither refuses to start, quoting what it read (so an empty value shows as `""`).
  */
-function explicitTransportPhases(value: string | undefined): ReadonlySet<string> {
-  if (value === undefined || value === "") return new Set<string>();
+export function explicitTransportPhases(value: string | undefined): ReadonlySet<string> {
+  if (value === undefined) return new Set<string>();
   if (value === "native") return new Set(["transport.loopback"]);
   if (value === "native,remote") return new Set(["transport.loopback", "transport.remote"]);
-  throw new Error(`ACE_TRANSPORT takes native or native,remote, not ${value}`);
+  throw new Error(`ACE_TRANSPORT=${JSON.stringify(value)} is not native or native,remote`);
 }
 
 /** Each phase's needs. The remote listeners route through the loopback listener's table. */
