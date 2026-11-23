@@ -43,31 +43,31 @@ export interface HeadRow {
 export interface BodyRow {
   id: string;
   kind: number;
-  item: string | null;
-  created_seq: number | null;
-  seq: number | null;
-  field: string | null;
-  append: string | null;
+  item: unknown;
+  created_seq: unknown;
+  seq: unknown;
+  field: unknown;
+  append: unknown;
 }
 
 export interface PreviewRow {
   id: string;
-  item: string;
-  target: number;
-  created_seq: number | null;
+  item: unknown;
+  target: unknown;
+  created_seq: unknown;
 }
 
 export interface RangeBodyRow {
-  id: string;
-  item: string;
-  created_seq: number;
+  id: unknown;
+  item: unknown;
+  created_seq: unknown;
 }
 
 export interface ChunkRow {
-  item_id: string;
-  seq: number;
-  field: string;
-  append: string;
+  item_id: unknown;
+  seq: unknown;
+  field: unknown;
+  append: unknown;
 }
 
 export interface TailHeadRow {
@@ -88,8 +88,43 @@ export interface StreamByteRow {
   bytes: Uint8Array;
 }
 
+/** node:sqlite's out-of-range integer error, as Bun reports it on a stored row read. */
+function rangeError(digits: string): RangeError {
+  const error = new RangeError(
+    `Value is too large to be represented as a JavaScript number: ${digits}`,
+  );
+  (error as unknown as Record<string, unknown>).code = "ERR_OUT_OF_RANGE";
+  return error;
+}
+
+/**
+ * A fetched cell back to its stored value: tagged integers outside the safe range throw
+ * exactly as node:sqlite's read does, tagged non-finite REALs become their number, tagged
+ * BLOBs become bytes, and anything else (including a TEXT value where a BLOB was read)
+ * passes through so the loader's own checks see it.
+ */
+function restoreCell(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(restoreCell);
+  if (typeof value === "object" && value !== null) {
+    const record = value as Record<string, unknown>;
+    const keys = Object.keys(record);
+    if (keys.length === 1) {
+      const key = keys[0];
+      const data = record[key as string];
+      if (typeof data === "string") {
+        if (key === "$b") return Buffer.from(data, "base64");
+        if (key === "$f") return Number(data);
+        if (key === "$i") throw rangeError(data);
+      }
+    }
+    for (const key of keys) record[key] = restoreCell(record[key]);
+    return record;
+  }
+  return value;
+}
+
 function parse<T>(text: string): T {
-  return JSON.parse(text) as T;
+  return restoreCell(JSON.parse(text)) as T;
 }
 
 export function fetchHeads(
@@ -146,15 +181,17 @@ export function fetchStreamSizes(db: DatabaseSync, streamIds: readonly string[])
 export function fetchStreamBytes(
   db: DatabaseSync,
   ranges: readonly { id: string; start: number; end: number }[],
-): StreamByteRow[] {
+): { stream_id: string; offset: number; bytes: Uint8Array }[] {
   if (!ranges.length) return [];
-  const rows = parse<{ stream_id: string; offset: number; bytes: string }[]>(
+  const rows = parse<{ stream_id: string; offset: number; bytes: unknown }[]>(
     binding(db).itemsFetchStreamBytes(JSON.stringify(ranges)),
   );
+  // A TEXT value in a BLOB column stays as it is: the loader's slice rejects it with
+  // "Invalid text chunk", exactly as its statement read does.
   return rows.map((row) => ({
-    stream_id: row.stream_id,
-    offset: row.offset,
-    bytes: Buffer.from(row.bytes, "base64"),
+    stream_id: String(row.stream_id),
+    offset: Number(row.offset),
+    bytes: row.bytes as Uint8Array,
   }));
 }
 
@@ -190,21 +227,22 @@ export function fetchExistence(
 
 /** Group UNION body+chunk rows by id, as `materializeAll` groups its statement's rows. */
 export function groupBodyRows(rows: BodyRow[]): {
-  bodies: Map<string, { item: string; created_seq: number }>;
-  chunks: Map<string, { seq: number; field: string; append: string }[]>;
+  bodies: Map<string, { item: unknown; created_seq: unknown }>;
+  chunks: Map<string, { seq: unknown; field: unknown; append: unknown }[]>;
 } {
-  const bodies = new Map<string, { item: string; created_seq: number }>();
-  const chunks = new Map<string, { seq: number; field: string; append: string }[]>();
+  const bodies = new Map<string, { item: unknown; created_seq: unknown }>();
+  const chunks = new Map<string, { seq: unknown; field: unknown; append: unknown }[]>();
   for (const row of rows) {
+    const id = String(row.id);
     if (row.kind === 0) {
       if (row.item !== null && row.created_seq !== null)
-        bodies.set(row.id, { item: row.item, created_seq: row.created_seq });
+        bodies.set(id, { item: row.item, created_seq: row.created_seq });
     } else {
       if (row.seq !== null && row.field !== null && row.append !== null) {
-        const list = chunks.get(row.id);
+        const list = chunks.get(id);
         const entry = { seq: row.seq, field: row.field, append: row.append };
         if (list) list.push(entry);
-        else chunks.set(row.id, [entry]);
+        else chunks.set(id, [entry]);
       }
     }
   }
