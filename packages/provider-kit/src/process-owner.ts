@@ -5,7 +5,7 @@ import { win32 } from "node:path";
 import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
-import { signalTreeMember } from "./process-tree.ts";
+import { signalTreeMember, systemTreeIo, type TreeIo, type TreeMember } from "./process-tree.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -27,16 +27,64 @@ export function observeProcessGroups(journal: ProcessJournal): () => void {
  * caller), or else the members that may be signalled, each to be signalled on its own.
  */
 export type GroupGuard = (group: number) => "whole" | readonly { pid: number; start: string }[];
+/** The same rules for members signalled one by one: the ones that may be signalled. */
+export type MemberGuard = (members: readonly TreeMember[]) => readonly TreeMember[];
 let groupGuard: GroupGuard | undefined;
-/** Install the guard every group signal passes through; returns its removal. */
-export function guardGroupSignals(guard: GroupGuard): () => void {
+let memberGuard: MemberGuard | undefined;
+/** Whether this isolate has rules of its own (else a worker relays its signals). */
+export function locallyGuarded(): boolean {
+  return groupGuard !== undefined;
+}
+/**
+ * Install this isolate's guards; returns their removal. `guardGroupSignals` (leader-group.ts)
+ * also serves the signals workers relay here.
+ */
+export function installGroupGuards(guard: GroupGuard, members?: MemberGuard): () => void {
   groupGuard = guard;
+  memberGuard = members;
   return () => {
-    if (groupGuard === guard) groupGuard = undefined;
+    if (groupGuard !== guard) return;
+    groupGuard = undefined;
+    memberGuard = undefined;
   };
 }
 
+/** Signal owned members one by one, each checked against its start just before it goes. */
+export function signalOwnedMembers(
+  members: readonly TreeMember[],
+  signal: NodeJS.Signals,
+  io: TreeIo = systemTreeIo,
+): void {
+  let allowed: readonly TreeMember[] = members;
+  if (memberGuard)
+    try {
+      allowed = memberGuard(members);
+    } catch (error) {
+      // Who is protected is unknown, so no one is signalled; later sweeps report survivors.
+      process.emitWarning(`Process members could not be checked: ${String(error)}`);
+      allowed = [];
+    }
+  for (const member of allowed) signalTreeMember(member, signal, io);
+}
+
 export function killGroup(pid: number, signal: NodeJS.Signals): void {
+  killGroupWhile(pid, signal, () => true);
+}
+/**
+ * `killGroup`, with the evidence that the number is still the group's checked last, after the
+ * guard's scan and immediately before kill(-pid). "unpinned": nothing was sent by number.
+ *
+ * Residual window, not closed here: the check and kill(-pid) are two calls, and Node and Bun
+ * reap a child on their own, so the leader can be reaped between them, and its group id reused
+ * if the group also emptied. That takes the pid range cycling in that instant, but nothing in
+ * TypeScript can rule it out. The real fix is the Rust supervisor (ACE_SUPERVISOR), which keeps
+ * the leader unreaped until its group is empty, so the id stays ace's while anything signals it.
+ */
+export function killGroupWhile(
+  pid: number,
+  signal: NodeJS.Signals,
+  pinned: () => boolean,
+): "sent" | "members" | "unpinned" {
   if (process.platform === "win32") {
     // No process groups exist; reap the tree like every other Windows stop. Exit cleanup must
     // still reach every other owner, so a failure here is reported, not thrown.
@@ -45,7 +93,7 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     } catch (error) {
       process.emitWarning(`Could not stop Windows process tree ${pid}: ${String(error)}`);
     }
-    return;
+    return "sent";
   }
   if (groupGuard) {
     let allowed: ReturnType<GroupGuard>;
@@ -56,11 +104,14 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
       process.emitWarning(`Process group ${pid} could not be checked: ${String(error)}`);
       allowed = [];
     }
+    // The scan read the group by number: it counts only if the number was still the group's.
+    if (!pinned()) return "unpinned";
     if (allowed !== "whole") {
       for (const member of allowed) signalTreeMember(member, signal);
-      return;
+      return "members";
     }
   }
+  if (!pinned()) return "unpinned";
   try {
     process.kill(-pid, signal);
   } catch (error) {
@@ -68,52 +119,38 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
     // Darwin can report EPERM for groups containing only zombies before reaping.
     if (code !== "ESRCH" && !(process.platform === "darwin" && code === "EPERM")) throw error;
   }
+  return "sent";
 }
 /**
  * Signals a spawned process's tree from code where a throw would end the daemon: timers, exit
+ * listeners and voided stop() calls. Resolves once the signal was delivered (or refused and the
+ * leader signalled through its handle instead); it never rejects. Called from timers, exit
  * listeners and voided stop() calls. A group signal refused (EPERM when every member left runs
  * as another user, or a Windows tree stop that cannot run) is reported, and the leader is still
  * signalled through its own handle, which never reaches a reused pid once it has exited.
  */
 export function signalTree(
-  pid: number,
+  group: { readonly leader: number; signal(signal: NodeJS.Signals): Promise<void> },
   force: boolean,
   windows: boolean,
   killTree: WindowsKillTree,
   leader: { kill(signal: NodeJS.Signals): boolean },
-): void {
-  try {
-    if (windows) killTree(pid, force);
-    else killGroup(pid, force ? "SIGKILL" : "SIGTERM");
-  } catch (error) {
-    process.emitWarning(`Could not signal process tree ${pid}: ${String(error)}`);
+): Promise<void> {
+  const refused = (error: unknown) => {
+    process.emitWarning(`Could not signal process tree ${group.leader}: ${String(error)}`);
     try {
       leader.kill(force ? "SIGKILL" : "SIGTERM");
     } catch {
       /* Already gone. */
     }
+  };
+  try {
+    if (windows) killTree(group.leader, force);
+    else return group.signal(force ? "SIGKILL" : "SIGTERM").catch(refused);
+  } catch (error) {
+    refused(error);
   }
-}
-/** A retained group's lifetime is independent of its leader and inherited pipes. */
-export async function stopRetainedGroup(pid: number, graceMs: number): Promise<void> {
-  killGroup(pid, "SIGTERM");
-  const deadline = performance.now() + graceMs;
-  while (true) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ESRCH" || (process.platform === "darwin" && code === "EPERM")) break;
-      throw error;
-    }
-    const remaining = deadline - performance.now();
-    if (remaining <= 0) {
-      killGroup(pid, "SIGKILL");
-      break;
-    }
-    await delay(Math.min(25, remaining));
-  }
-  unregisterGroup(pid);
+  return Promise.resolve();
 }
 function cleanup(): void {
   // Negative-pid signals are invalid on Windows; each owner registers the
@@ -153,10 +190,10 @@ export function onGroupOwned(listener: OwnershipListener): () => void {
 export function registerGroup(
   pid: number,
   stop: (graceMs: number) => Promise<unknown>,
-  metadata: { name: string; cwd?: string; unique?: string } = { name: "ace-process" },
-  destroy?: () => void,
+  metadata: { name: string; cwd?: string; unique?: string },
+  /** Ends the tree synchronously at process exit, through its leader group, never by number. */
+  end: () => void,
 ): void {
-  const end = destroy ?? (() => killGroup(pid, "SIGKILL"));
   try {
     for (const journal of journals) journal.add(pid, metadata);
   } catch (error) {

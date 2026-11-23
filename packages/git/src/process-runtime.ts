@@ -3,6 +3,8 @@ import { join } from "node:path";
 import { systemListing, type ProcessListing } from "@ace/provider-kit/process-listing";
 import { provenAdoptions, reap, zombieChildren } from "@ace/provider-kit/process-reaper";
 import { captureTree, type CapturedMember } from "@ace/provider-kit/process-tree";
+import { childGroup, type LeaderGroup } from "@ace/provider-kit/leader-group";
+import { newGroupToken, withGroupToken } from "@ace/provider-kit/group-token";
 import { developerToolsGit } from "./git-binary.ts";
 import { processGroupAlive, scanGitProcesses } from "./git-processes.ts";
 import type { GitProcessRuntime } from "./types.ts";
@@ -15,12 +17,11 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
       return () => clearTimeout(timer);
     },
     platform: process.platform,
-    signalGroup: (pid, signal) => {
-      process.kill(-pid, signal);
-    },
-    groupAlive: processGroupAlive,
+    signalGroup: signalSpawnedGroup,
+    groupAlive: (pid, child) => (child && groups.get(child)?.running()) ?? processGroupAlive(pid),
     gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
-    locateGit: (env) => developerToolsGit(overrides.platform ?? process.platform, env),
+    locateGit: (env, signal) =>
+      developerToolsGit(overrides.platform ?? process.platform, env, signal),
     fileClock: () => Date.now(),
     ...overrides,
   };
@@ -28,13 +29,50 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
 function piped(child: ChildProcess): child is ChildProcessWithoutNullStreams {
   return child.stdin !== null && child.stdout !== null && child.stderr !== null;
 }
+/**
+ * The groups of detached Git children this isolate spawned, by the child itself, never by pid: a
+ * pid may by now be a newer child's. Each is signalled by number only while its leader is
+ * unreaped, then member by member (`leader-group.ts`).
+ */
+const groups = new WeakMap<ChildProcess, LeaderGroup>();
+
+/**
+ * Signal a group this isolate spawned; anything else is refused, never signalled by number. A
+ * refused group signal (a worker that can't prove the group to the main isolate) is logged and
+ * not retried by pid: a JS child handle cannot prove its pid is still unreaped (libuv and Bun
+ * reap before JS hears the exit). The call's own deadline ends it, and the Rust supervisor
+ * (ACE_SUPERVISOR) is the real fix.
+ */
+function signalSpawnedGroup(pid: number, signal: NodeJS.Signals, child?: ChildProcess): void {
+  const group = child && groups.get(child);
+  if (!child || !group || group.leader !== pid)
+    throw new Error(`Process group ${pid} is not one this process spawned`);
+  group.signal(signal).catch((error: unknown) => {
+    process.emitWarning(`Could not signal Git's process group ${pid}: ${String(error)}`);
+  });
+}
+
 /** Node's three-pipe overload does not describe additional inherited descriptors. Check the edge. */
 export function spawnGitProcess(
   command: string,
   args: string[],
   options: Parameters<GitProcessRuntime["spawn"]>[2],
 ): ChildProcessWithoutNullStreams {
-  const child = spawn(command, args, options);
+  const token = options.detached && process.platform !== "win32" ? newGroupToken() : undefined;
+  const child = spawn(
+    command,
+    args,
+    token === undefined
+      ? options
+      : { ...options, env: withGroupToken(options.env ?? process.env, token) },
+  );
+  const pid = child.pid;
+  if (pid !== undefined && token !== undefined) {
+    const group = childGroup(pid, token, child);
+    groups.set(child, group);
+    // First of all exit listeners: once reaped its group number is never signalled.
+    child.once("exit", () => group.reaped());
+  }
   if (!piped(child)) {
     child.kill("SIGKILL");
     throw new Error("Git requires three owned pipes");
@@ -51,13 +89,14 @@ export function spawnGitProcess(
 export async function groupGone(
   runtime: GitProcessRuntime,
   pid: number | undefined,
+  child?: ChildProcess,
   ms = 3_000,
 ): Promise<void> {
   if (!pid || runtime.platform === "win32") return;
   const step = 15;
   for (let waited = 0; waited < ms; waited += step) {
     try {
-      if (!runtime.groupAlive(pid)) return;
+      if (!runtime.groupAlive(pid, child)) return;
     } catch {
       return;
     }
@@ -71,12 +110,12 @@ export function killTree(
 ): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) {
     // The leader exited, but a member it started (a helper holding Git's pipes) can live on in
-    // its group. A PID is not reused while it still names a live group, so the group is
-    // signalled while it is alive. An exited leader on Windows has no group to name; a member
-    // that left the group (setsid) is outside what any of this can reach.
-    if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid)) {
+    // its group. Its leader group signals those members by identity, never the freed number.
+    // An exited leader on Windows has no group to name; a member that left the group (setsid)
+    // is outside what any of this can reach.
+    if (child.pid && runtime.platform !== "win32" && runtime.groupAlive(child.pid, child)) {
       try {
-        runtime.signalGroup(child.pid, "SIGKILL");
+        runtime.signalGroup(child.pid, "SIGKILL", child);
       } catch {
         // Gone between the check and the signal.
       }
@@ -136,7 +175,7 @@ export function killTree(
       // Unread, the kill still goes ahead; its orphans then stay as harmless zombies.
     }
     try {
-      runtime.signalGroup(child.pid, "SIGKILL");
+      runtime.signalGroup(child.pid, "SIGKILL", child);
     } catch {
       child.kill("SIGKILL");
     }

@@ -15,7 +15,7 @@ import { byteLimit } from "./byte-limit.ts";
 import { jsonElision, type ElisionLimits } from "./elision.ts";
 import { reportBunStdinFailures } from "./bun-stdin.ts";
 import { outputGate, OutputLimitError } from "./output-budget.ts";
-import { admitProcess, registerGroup, signalTree, stopRetainedGroup } from "./process-owner.ts";
+import { admitProcess, registerGroup, signalTree } from "./process-owner.ts";
 import { unregisterGroup } from "./process-owner.ts";
 import { killWindowsTree, stopRetainedWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { windowsTreeRunning } from "./process-owner.ts";
@@ -28,17 +28,25 @@ import {
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 import { markedEnv } from "./process-marker.ts";
+import { childGroup, stopRetainedGroup, type LeaderGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 export {
   stopOwnedGroups,
   ownedGroupLeaders,
   onGroupOwned,
-  guardGroupSignals,
   observeProcessGroups,
   installShutdownHandlers,
   registerGroup,
   unregisterGroup,
-  stopRetainedGroup,
 } from "./process-owner.ts";
+export {
+  childGroup,
+  guardGroupSignals,
+  reportedGroup,
+  signalSoon,
+  stopRetainedGroup,
+  type LeaderGroup,
+} from "./leader-group.ts";
 
 export type ProcessExit = {
   code: number | null;
@@ -133,10 +141,13 @@ function spawnOwned(
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
+  let group: LeaderGroup | undefined;
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
-      : stopRetainedGroup(pid, graceMs);
+      : group
+        ? stopRetainedGroup(group, graceMs)
+        : Promise.resolve();
   const maxOutputBytes =
     options.maxOutputBytes === undefined
       ? undefined
@@ -145,19 +156,34 @@ function spawnOwned(
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv({ ...base, ...options.env });
   const child = spawn(target.command, target.args, {
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: markedEnv({ ...base, ...options.env }),
+    env: token === undefined ? env : withGroupToken(env, token),
     ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
     stdio: ["pipe", "pipe", "pipe"],
   });
+  const pid = child.pid;
+  if (pid !== undefined) group = childGroup(pid, token, child);
+  // First of all exit listeners: once the leader is reaped its group number is never signalled.
+  child.once("exit", () => group?.reaped());
   reportBunStdinFailures(child.stdin);
   // Never throws: stops run from timers, exit listeners and voided stop() calls.
-  const terminate = (pid: number) => signalTree(pid, false, windows, killTree, child);
-  const destroy = (pid: number) => signalTree(pid, true, windows, killTree, child);
+  const terminate = () =>
+    group ? signalTree(group, false, windows, killTree, child) : Promise.resolve();
+  /** The exit's own group kill, which `exited` waits for: a relayed one is delivered later. */
+  let exitKill: Promise<void> | undefined;
+  /** Resolves once delivered; never rejects (a refusal is reported, the leader signalled). */
+  const destroyed = () =>
+    group ? signalTree(group, true, windows, killTree, child).catch(() => {}) : Promise.resolve();
+  const destroy = () => {
+    destroyed().catch(() => {});
+  };
+  /** Resolves once the stop's SIGTERM was delivered: the grace before SIGKILL starts there. */
+  let termDelivered: Promise<void> | undefined;
   const controller = new AbortController();
-  const pid = child.pid;
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
@@ -173,7 +199,7 @@ function spawnOwned(
   const failOutput = (error: Error) => {
     outputLimited = true;
     controller.abort(error);
-    if (pid !== undefined) destroy(pid);
+    if (pid !== undefined) destroy();
     try {
       options.onOutputLimit?.(error);
     } catch {
@@ -227,7 +253,7 @@ function spawnOwned(
       // This runs in the child's exit listener, where a throw would be uncaught (and would end
       // a probe worker with every probe in it). A tree stop that cannot run, as on Windows
       // without a kernel32 binding, is reported and ownership still ends.
-      destroy(pid);
+      exitKill = destroyed();
       unregisterGroup(pid);
       job?.dispose();
     }
@@ -247,7 +273,7 @@ function spawnOwned(
         unregisterGroup(pid);
         job?.dispose();
       }
-      resolve({
+      const outcome: ProcessExit = {
         code,
         // After a failed spawn Bun reports no signal at all, where Node reports null.
         signal: signal ?? null,
@@ -260,7 +286,8 @@ function spawnOwned(
               : signal
                 ? "signal"
                 : "exit",
-      });
+      };
+      (exitKill ?? Promise.resolve()).then(() => resolve(outcome)).catch(() => resolve(outcome));
     });
   });
   const handle: RawSupervisedProcess = {
@@ -319,18 +346,24 @@ function spawnOwned(
         } else if (shortens(graceMs)) {
           // The group can outlive its leader, so this deadline survives the leader's exit.
           clearTimeout(retainedKill);
-          retainedKill = setTimeout(() => destroy(pid), graceMs);
+          retainedKill = setTimeout(() => destroy(), graceMs);
         }
         return retainedStop;
       }
       if (!closed && pid !== undefined && (!stopped || shortens(graceMs))) {
         // A later stop with a shorter grace (a daemon shutdown overtaking a polite close)
         // brings the SIGKILL forward; it never pushes one back.
-        if (!stopped) terminate(pid);
+        if (!stopped) termDelivered = terminate();
         stopped = true;
         killAt ??= performance.now() + graceMs;
-        if (timer) clearTimeout(timer);
-        timer = setTimeout(() => destroy(pid), graceMs);
+        (termDelivered ?? Promise.resolve())
+          .then(() => {
+            // The leader's exit already ended the group; nothing is left to escalate.
+            if (ended || closed) return;
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => destroy(), graceMs);
+          })
+          .catch(() => {});
       }
       return exited;
     },
@@ -343,14 +376,14 @@ function spawnOwned(
         name: options.name,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       },
-      () => destroy(pid),
+      () => destroy(),
     );
   try {
     if (pid !== undefined) options.lease?.spawned(pid);
   } catch (error) {
     // A journal failure cannot leave an unowned process running.
     if (pid !== undefined) {
-      destroy(pid);
+      destroy();
       unregisterGroup(pid);
       job?.dispose();
     }

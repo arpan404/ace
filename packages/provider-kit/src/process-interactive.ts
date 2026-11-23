@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
-import { killGroup, registerGroup, unregisterGroup } from "./process-owner.ts";
+import { registerGroup, unregisterGroup } from "./process-owner.ts";
+import { childGroup, signalSoon, type LeaderGroup } from "./leader-group.ts";
+import { newGroupToken, withGroupToken } from "./group-token.ts";
 import { killWindowsTree, type WindowsKillTree } from "./process-owner.ts";
 import { toWindowsCommand } from "./process-owner.ts";
 import {
@@ -29,25 +31,31 @@ export function spawnInteractive(options: {
   // Process groups do not exist on Windows; contain the tree with a Job Object and taskkill.
   const windows = (options.platform ?? process.platform) === "win32";
   const killTree = options.windowsKillTree ?? killWindowsTree;
+  let group: LeaderGroup | undefined;
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
-    else killGroup(pid, "SIGTERM");
+    else if (group) signalSoon(group, "SIGTERM");
   };
   const destroy = (pid: number) => {
     if (windows) killTree(pid, true);
-    else killGroup(pid, "SIGKILL");
+    else if (group) signalSoon(group, "SIGKILL");
   };
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
+  const token = windows ? undefined : newGroupToken();
+  const env = markedEnv(options.env);
   const child = spawn(target.command, target.args, {
-    env: markedEnv(options.env),
+    env: token === undefined ? env : withGroupToken(env, token),
     stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
     // The console stays visible: login owns credential entry and browser handoff.
     ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
     windowsVerbatimArguments: target.verbatim,
   });
   const pid = child.pid;
+  if (pid !== undefined && !windows) group = childGroup(pid, token, child);
+  // First of all exit listeners: once the leader is reaped its group number is never signalled.
+  child.once("exit", () => group?.reaped());
   const factory = options.windowsJobFactory ?? createKillOnCloseJob;
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
@@ -104,7 +112,7 @@ export function spawnInteractive(options: {
     registerGroup(
       pid,
       (graceMs) => handle.stop({ graceMs }),
-      undefined,
+      { name: "ace-process" },
       () => destroy(pid),
     );
   return handle;
