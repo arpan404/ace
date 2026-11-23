@@ -11,8 +11,14 @@ pub struct Change {
 
 /// `text` with every change applied in order, each to the text the ones before it left. Answers
 /// the new text and how many places changed, or why a change could not apply (naming it when
-/// there are several), in which case nothing is applied.
-pub fn apply(path: &str, text: &str, changes: &[Change]) -> Result<(String, usize), String> {
+/// there are several), in which case nothing is applied. A change that would make the text
+/// longer than `largest` bytes is refused before it is made.
+pub fn apply(
+    path: &str,
+    text: &str,
+    changes: &[Change],
+    largest: usize,
+) -> Result<(String, usize), String> {
     if changes.is_empty() {
         return Err("give a change: old and new, or edits".to_owned());
     }
@@ -58,6 +64,21 @@ pub fn apply(path: &str, text: &str, changes: &[Change]) -> Result<(String, usiz
             }
             _ => {}
         }
+        // Its size, worked out before anything is built.
+        let size = change
+            .new
+            .len()
+            .checked_mul(count)
+            .and_then(|added| (now.len() - change.old.len() * count).checked_add(added));
+        match size {
+            Some(size) if size <= largest => {}
+            _ => {
+                return refused(format!(
+                    "that would make {path} larger than {largest} bytes, the most a file is \
+                     written."
+                ));
+            }
+        }
         now = now.replace(change.old.as_str(), &change.new);
         places += count;
     }
@@ -79,6 +100,8 @@ fn preview(old: &str) -> String {
 mod tests {
     use super::*;
 
+    const LARGEST: usize = 1_000;
+
     fn change(old: &str, new: &str, all: bool) -> Change {
         Change {
             old: old.to_owned(),
@@ -93,16 +116,17 @@ mod tests {
             "a.txt",
             "x = 1\ny = 2\n",
             &[change("y = 2", "y = 3", false)],
+            LARGEST,
         );
         assert_eq!(one, Ok(("x = 1\ny = 3\n".to_owned(), 1)));
-        let twice = apply("a.txt", "a a", &[change("a", "b", false)]).err();
+        let twice = apply("a.txt", "a a", &[change("a", "b", false)], LARGEST).err();
         assert!(
             twice
                 .as_deref()
                 .is_some_and(|e| e.contains("appears 2 times") && e.contains("replace_all")),
             "{twice:?}"
         );
-        let missing = apply("a.txt", "a", &[change("z", "b", false)]).err();
+        let missing = apply("a.txt", "a", &[change("z", "b", false)], LARGEST).err();
         assert!(
             missing
                 .as_deref()
@@ -113,8 +137,31 @@ mod tests {
 
     #[test]
     fn replace_all_changes_every_place() {
-        let all = apply("a.txt", "red, red, blue", &[change("red", "green", true)]);
+        let all = apply(
+            "a.txt",
+            "red, red, blue",
+            &[change("red", "green", true)],
+            LARGEST,
+        );
         assert_eq!(all, Ok(("green, green, blue".to_owned(), 2)));
+    }
+
+    #[test]
+    fn a_change_that_would_grow_the_file_past_the_limit_is_refused_before_it_is_built() {
+        let text = "x".repeat(100);
+        // 100 places, each to 11 bytes: 1,100, past the limit.
+        let refused = apply("a.txt", &text, &[change("x", "yyyyyyyyyyy", true)], LARGEST).err();
+        assert!(
+            refused
+                .as_deref()
+                .is_some_and(|e| e.contains("larger than 1000 bytes")),
+            "{refused:?}"
+        );
+        assert_eq!(
+            apply("a.txt", &text, &[change("x", "yyyyyyyyy", true)], LARGEST)
+                .map(|(t, n)| (t.len(), n)),
+            Ok((900, 100))
+        );
     }
 
     #[test]
@@ -124,7 +171,7 @@ mod tests {
             change("beta gamma", "delta", false),
         ];
         assert_eq!(
-            apply("a.txt", "alpha gamma", &edits),
+            apply("a.txt", "alpha gamma", &edits, LARGEST),
             Ok(("delta".to_owned(), 2))
         );
     }
@@ -136,7 +183,7 @@ mod tests {
             change("missing", "x", false),
             change("three", "3", false),
         ];
-        let refused = apply("a.txt", "one two three", &edits).err();
+        let refused = apply("a.txt", "one two three", &edits, LARGEST).err();
         assert!(
             refused
                 .as_deref()
@@ -145,7 +192,7 @@ mod tests {
                     && e.ends_with("Nothing was changed.")),
             "{refused:?}"
         );
-        assert!(apply("a.txt", "x", &[]).is_err());
-        assert!(apply("a.txt", "x", &[change("", "y", false)]).is_err());
+        assert!(apply("a.txt", "x", &[], LARGEST).is_err());
+        assert!(apply("a.txt", "x", &[change("", "y", false)], LARGEST).is_err());
     }
 }

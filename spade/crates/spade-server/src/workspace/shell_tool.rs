@@ -225,16 +225,32 @@ pub(super) async fn run_command(
         Ok(dir) => dir,
         Err(error) => return ToolOutput::error(error.to_string()),
     };
-    let Run {
-        command,
-        timeout,
-        output_name,
-    } = run;
+    let (plan, by) = match cleared(place, shell, key, &dir) {
+        Ok(cleared) => cleared,
+        Err(refused) => return refused,
+    };
+    run_cleared(place, shell, key, workspace, run, plan, by).await
+}
+
+/// How the call with `key` may launch, as the gate cleared it, taken once: the plan and who
+/// starts it. Refused when it was cleared to run contained and the sandbox no longer holds it.
+pub(super) fn cleared(
+    place: &Place,
+    shell: &Commands,
+    key: &str,
+    dir: &std::path::Path,
+) -> Result<
+    (
+        crate::workspace::shell::LaunchPlan,
+        crate::workspace::shell::By,
+    ),
+    ToolOutput,
+> {
     // What the gate authorized for this call, decided once there and never again here
     // (ADR 0171; ADR 0167 Windows hardening): a call cleared to run contained launches
     // only contained, and is refused if the sandbox no longer holds it. With no engine
     // (no gate), a command runs as the sandbox finds it.
-    let contains_now = shell.contains(&dir);
+    let contains_now = shell.contains(dir);
     // With it, the warrant of the verdict that let it run, which a start outside the
     // sandbox must pass at its spawn (ADR 0171, amendment 5): under the terminal's lock for
     // a terminal command, so no earlier command can rewrite what it runs in between. With
@@ -245,10 +261,29 @@ pub(super) async fn run_command(
         None => (Launch::Reviewed, None),
     };
     let by = crate::workspace::shell::By::Bot(warrant);
-    let plan = match launch.plan(contains_now) {
-        Ok(plan) => plan,
-        Err(refused) => return ToolOutput::error(refused),
+    let plan = launch.plan(contains_now).map_err(ToolOutput::error)?;
+    Ok((plan, by))
+}
+
+/// Runs `run` for the call with `key` under the launch it was cleared for.
+pub(super) async fn run_cleared(
+    place: &Place,
+    shell: &Commands,
+    key: &str,
+    workspace: &Workspace,
+    run: Run<'_>,
+    plan: crate::workspace::shell::LaunchPlan,
+    by: crate::workspace::shell::By,
+) -> ToolOutput {
+    let dir = match workspace.path() {
+        Ok(dir) => dir,
+        Err(error) => return ToolOutput::error(error.to_string()),
     };
+    let Run {
+        command,
+        timeout,
+        output_name,
+    } = run;
     let (outside, sandboxed) = (plan.outside, plan.sandboxed);
     // A call Spade's classifier settled runs only in the form it was settled for, with
     // the overrides that make it ignore configuration that could run a program, whatever

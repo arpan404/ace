@@ -52,8 +52,6 @@ cap-fs-ext = "4.0.3"
 # patterns, and polling a loopback URL.
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 regex = "1"
-# File patterns for `workspace_search` and `workspace_find`.
-glob = "0.3"
 reqwest.workspace = true
 # The scripted model a package's scenario tests run against (`spade --bot-test`, ADR 0200 §9).
 spade-testkit = { path = "../spade-testkit" }

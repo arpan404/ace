@@ -87,6 +87,16 @@ impl Commands {
     }
 }
 
+impl Commands {
+    /// The one-shot shell, for Spade's own runs beside the bot's terminal (a Python set-up).
+    pub(super) fn one_shot(&self) -> &Shell {
+        match self {
+            Self::OneShot(shell) => shell,
+            Self::Terminal(terminals) => terminals.shell(),
+        }
+    }
+}
+
 impl From<Shell> for Commands {
     fn from(shell: Shell) -> Self {
         Self::OneShot(shell)
@@ -427,18 +437,22 @@ impl Tool for WorkspaceFind {
         };
         blocking(&self.0, key, move |workspace| {
             let glob = super::matching::Glob::new(&args.pattern).map_err(PathError::Io)?;
-            let (found, more) = workspace.find(&args.path, &glob)?;
+            let (found, note) = workspace.find(&args.path, &glob)?;
             let start = workspace.normal(&args.path)?;
             // Names are content too: trusted only when every file named is a trusted file.
             let trusted = workspace.plain_folder(&start)
                 && found.iter().all(|(path, size)| {
                     *size <= super::files::LARGEST_WRITE as u64
                         && workspace
-                            .bytes_up_to(path, super::files::LARGEST_WRITE as u64)
+                            .bytes_no_follow(path, super::files::LARGEST_WRITE as u64)
                             .is_ok_and(|bytes| workspace.file_trusted(path, &bytes))
                 });
             if found.is_empty() {
-                let none = format!("No file fits {:?}.", args.pattern);
+                let mut none = format!("No file fits {:?}.", args.pattern);
+                if let Some(note) = note {
+                    none.push('\n');
+                    none.push_str(&note);
+                }
                 return Ok(marked(ToolOutput::ok(none), trusted));
             }
             let mut lines: Vec<String> = found
@@ -454,11 +468,7 @@ impl Tool for WorkspaceFind {
                     format!("{count} files:")
                 },
             );
-            if more {
-                lines.push(format!(
-                    "[Only the first {count} shown; narrow the pattern.]"
-                ));
-            }
+            lines.extend(note);
             Ok(marked(ToolOutput::ok(lines.join("\n")), trusted))
         })
     }

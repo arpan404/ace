@@ -26,6 +26,7 @@ pub mod shell;
 mod shell_tool;
 mod tools;
 pub mod trust;
+mod walk;
 
 pub use identity::Identity;
 pub use installed::SKILLS_FOLDER;
@@ -172,10 +173,21 @@ impl Workspaces {
         })
     }
 
-    /// Deletes the bot's workspace, everything in it and its trust record.
+    /// The bot's Python runtime folder (ADR 0220), outside its workspace: Spade writes it, the
+    /// bot's runs only read it.
+    pub fn python_runtime(&self, bot: &str) -> Result<PathBuf, PathError> {
+        self.of(bot)?;
+        Ok(python::runtime_of(&self.root, bot))
+    }
+
+    /// Deletes the bot's workspace, everything in it, its trust record and its Python runtime.
     pub fn remove(&self, bot: &str) -> Result<(), PathError> {
         let workspace = self.of(bot)?;
         workspace.trust.forget();
+        match std::fs::remove_dir_all(python::runtime_of(&self.root, bot)) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(error.into()),
+            _ => {}
+        }
         let root = match Dir::open_ambient_dir(&self.root, ambient_authority()) {
             Ok(root) => root,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),

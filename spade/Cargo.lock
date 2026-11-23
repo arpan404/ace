@@ -3937,7 +3937,6 @@ dependencies = [
  "cap-std",
  "chrono",
  "futures-util",
- "glob",
  "hmac",
  "jiff",
  "keyring-core",

@@ -73,19 +73,15 @@ impl Needle {
 }
 
 /// A file pattern: `*.csv` (a name, in any folder), `data/*.csv` or `src/**/*.rs` (a path from
-/// the workspace's top). `*` and `?` stay within one name; `**` crosses folders.
+/// the workspace's top). `*` and `?` stay within one name, `**` crosses folders, `[abc]`,
+/// `[a-z]` and `[!abc]` match one character of a name. Compiled to a regular expression, so
+/// matching takes time linear in the path however many wildcards the pattern has.
 #[derive(Debug, Clone)]
 pub struct Glob {
-    pattern: glob::Pattern,
+    pattern: regex::Regex,
     /// A pattern with a `/` is matched against the whole path, else against the name.
     whole_path: bool,
 }
-
-const OPTIONS: glob::MatchOptions = glob::MatchOptions {
-    case_sensitive: true,
-    require_literal_separator: true,
-    require_literal_leading_dot: false,
-};
 
 impl Glob {
     pub fn new(pattern: &str) -> Result<Self, String> {
@@ -93,21 +89,102 @@ impl Glob {
         if pattern.is_empty() {
             return Err("give a file pattern, such as *.csv".to_owned());
         }
-        glob::Pattern::new(pattern)
+        if pattern.chars().count() > PATTERN_CHARS {
+            return Err(format!(
+                "that pattern is longer than {PATTERN_CHARS} characters"
+            ));
+        }
+        let translated = translate(pattern)?;
+        regex::RegexBuilder::new(&translated)
+            .size_limit(PATTERN_BYTES)
+            .dfa_size_limit(PATTERN_BYTES)
+            .build()
             .map(|compiled| Self {
                 pattern: compiled,
                 whole_path: pattern.contains('/'),
             })
-            .map_err(|error| format!("that is not a file pattern: {error}"))
+            .map_err(|_| "that file pattern is too large; make it simpler".to_owned())
     }
 
     /// Whether the file at `path` (relative to the workspace, with `/`) fits.
     pub fn fits(&self, path: &str) -> bool {
         if self.whole_path {
-            return self.pattern.matches_with(path, OPTIONS);
+            return self.pattern.is_match(path);
         }
         let name = path.rsplit('/').next().unwrap_or(path);
-        self.pattern.matches_with(name, OPTIONS)
+        self.pattern.is_match(name)
+    }
+}
+
+/// A glob as an anchored regular expression.
+fn translate(glob: &str) -> Result<String, String> {
+    let chars: Vec<char> = glob.chars().collect();
+    let mut out = String::from("^");
+    let mut i = 0;
+    while i < chars.len() {
+        match chars[i] {
+            '*' if chars.get(i + 1) == Some(&'*') => {
+                if chars.get(i + 2) == Some(&'/') {
+                    // `**/`: any number of folders, none included.
+                    out.push_str("(?:[^/]*/)*");
+                    i += 3;
+                } else {
+                    out.push_str(".*");
+                    i += 2;
+                }
+            }
+            '*' => {
+                out.push_str("[^/]*");
+                i += 1;
+            }
+            '?' => {
+                out.push_str("[^/]");
+                i += 1;
+            }
+            '[' => {
+                let mut j = i + 1;
+                let negated = matches!(chars.get(j), Some('!' | '^'));
+                if negated {
+                    j += 1;
+                }
+                // A `]` right after the opening is part of the set.
+                let first = j;
+                while j < chars.len() && (chars[j] != ']' || j == first) {
+                    j += 1;
+                }
+                if j >= chars.len() {
+                    return Err("that is not a file pattern: a [ is never closed".to_owned());
+                }
+                out.push_str(if negated { "[^/" } else { "[" });
+                for &c in &chars[first..j] {
+                    if c == '-' {
+                        out.push('-');
+                    } else {
+                        out.push_str(&class_char(c));
+                    }
+                }
+                if !negated {
+                    out.push_str("&&[^/]");
+                }
+                out.push(']');
+                i = j + 1;
+            }
+            c => {
+                out.push_str(&regex::escape(&c.to_string()));
+                i += 1;
+            }
+        }
+    }
+    out.push('$');
+    Ok(out)
+}
+
+/// One character inside a regex set, escaped when the set syntax gives it a meaning.
+fn class_char(c: char) -> String {
+    if matches!(c, '\\' | '[' | ']' | '^' | '&' | '~' | '-') {
+        format!("\\{c}")
+    } else {
+        c.to_string()
     }
 }
 
@@ -179,5 +256,21 @@ mod tests {
         assert!(glob("report-?.txt").fits("report-1.txt"));
         assert!(Glob::new("").is_err());
         assert!(Glob::new("[").is_err());
+        assert!(glob("data-[0-9].csv").fits("data-7.csv"));
+        assert!(!glob("data-[!0-9].csv").fits("data-7.csv"));
+        assert!(glob("[]x].txt").fits("].txt"));
+        // Regex characters in a name are themselves.
+        assert!(glob("a+b(1).txt").fits("a+b(1).txt"));
+        assert!(!glob("a.txt").fits("abtxt"));
+    }
+
+    #[test]
+    fn a_glob_with_many_wildcards_matches_in_linear_time() {
+        let pattern = "*a".repeat(30) + "*b";
+        let many = glob(&pattern);
+        let name = "a".repeat(5_000);
+        let started = std::time::Instant::now();
+        assert!(!many.fits(&name));
+        assert!(started.elapsed() < std::time::Duration::from_millis(500));
     }
 }

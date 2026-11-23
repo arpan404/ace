@@ -1,61 +1,140 @@
 //! The `python` tool (ADR 0220) through the real server and the machine's sandbox, with a real
-//! interpreter: a script's files are named and its images attached, the bot's environment is
-//! made once, a long script carries on as a background job, and a machine with no Python or no
-//! sandbox says so plainly.
+//! interpreter: a script's files are named and its images attached; the bot's environment is
+//! Spade's, made once from a locked package source and never changed by the bot or its workspace;
+//! the bytes classed are the bytes run; a long script carries on as a background job; and a
+//! machine with no Python or no sandbox says so plainly.
 //!
 //! The tests that run Python need Python 3.10 or newer (or uv) in `/opt/homebrew/bin`,
-//! `/usr/local/bin` or `/usr/bin`, and the sandbox; without them they say so and pass.
+//! `/usr/local/bin` or `/usr/bin`, and the sandbox; without them they say so and pass. Packages
+//! come from a wheel the tests build, never the network.
 #![cfg(any(target_os = "macos", all(target_os = "linux", feature = "landlock")))]
 
 mod support;
 
-use std::path::PathBuf;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use spade_server::workspace::python::Setup;
+use spade_server::workspace::python::{Index, Setup};
+use spade_server::workspace::workspace_tools_with;
 use spade_testkit::Script;
 use support::sandbox::{World, world_in_with_options, world_with_options};
 use support::{Options, Result};
 
-/// Where the tests look for Python: the system folders, no download, nothing to install (the
-/// default packages need the network).
-fn setup() -> Setup {
+/// The system folders the tests look in.
+const SYSTEM: &[&str] = &["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"];
+
+/// Where the tests look for Python: `folders`, no download, nothing to install.
+fn setup_in(folders: &[&str]) -> Setup {
     Setup {
-        folders: ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
-            .iter()
-            .map(PathBuf::from)
-            .collect(),
+        folders: folders.iter().map(PathBuf::from).collect(),
         pinned: None,
         packages: Vec::new(),
+        index: Index::Folder("wheels".to_owned()),
     }
 }
 
-/// Whether this machine has a Python the tool can use, checked as the launcher does.
+fn setup() -> Setup {
+    setup_in(SYSTEM)
+}
+
+/// [`setup`], installing the test's own package from the wheel folder of the bot's runtime.
+fn with_package(folders: &[&str]) -> Setup {
+    Setup {
+        packages: vec!["spadecheck==1.0".to_owned()],
+        ..setup_in(folders)
+    }
+}
+
+/// Whether `folder` holds a Python 3.10 or newer, checked as the set-up does.
+fn python_in(folder: &Path) -> bool {
+    [
+        "python3.14",
+        "python3.13",
+        "python3.12",
+        "python3.11",
+        "python3.10",
+        "python3",
+    ]
+    .iter()
+    .any(|name| {
+        std::process::Command::new(folder.join(name))
+            .args([
+                "-I",
+                "-c",
+                "import sys; sys.exit(sys.version_info < (3, 10))",
+            ])
+            .status()
+            .is_ok_and(|status| status.success())
+    })
+}
+
+/// Whether this machine has a Python the tool can use.
 fn python_here() -> bool {
-    let setup = setup();
-    let found = setup.folders.iter().any(|folder| {
-        folder.join("uv").exists()
-            || [
-                "python3.14",
-                "python3.13",
-                "python3.12",
-                "python3.11",
-                "python3.10",
-                "python3",
-            ]
-            .iter()
-            .any(|name| {
-                std::process::Command::new(folder.join(name))
-                    .args(["-c", "import sys; sys.exit(sys.version_info < (3, 10))"])
-                    .status()
-                    .is_ok_and(|status| status.success())
-            })
-    });
+    let found = SYSTEM
+        .iter()
+        .map(Path::new)
+        .any(|folder| folder.join("uv").exists() || python_in(folder));
     if !found {
         eprintln!("skipped: no Python 3.10 or newer (or uv) on this machine");
     }
     found
+}
+
+/// A folder the sandbox reads that has a Python 3.10 or newer and no uv, for the `venv` path.
+fn python_without_uv() -> Option<&'static str> {
+    let found = [
+        "/opt/homebrew/opt/python@3.14/bin",
+        "/opt/homebrew/opt/python@3.13/bin",
+        "/opt/homebrew/opt/python@3.12/bin",
+        "/usr/local/opt/python@3.13/bin",
+        "/usr/bin",
+    ]
+    .into_iter()
+    .find(|folder| !Path::new(folder).join("uv").exists() && python_in(Path::new(folder)));
+    if found.is_none() {
+        eprintln!("skipped: no Python 3.10 or newer without uv beside it here");
+    }
+    found
+}
+
+/// A wheel of the package `spadecheck` 1.0, whose `VALUE` is 42.
+fn wheel() -> Result<Vec<u8>> {
+    let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    let files: [(&str, &str); 4] = [
+        ("spadecheck/__init__.py", "VALUE = 42\n"),
+        (
+            "spadecheck-1.0.dist-info/METADATA",
+            "Metadata-Version: 2.1\nName: spadecheck\nVersion: 1.0\n",
+        ),
+        (
+            "spadecheck-1.0.dist-info/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: spade-test\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+        ),
+        (
+            "spadecheck-1.0.dist-info/RECORD",
+            "spadecheck/__init__.py,,\nspadecheck-1.0.dist-info/METADATA,,\n\
+             spadecheck-1.0.dist-info/WHEEL,,\nspadecheck-1.0.dist-info/RECORD,,\n",
+        ),
+    ];
+    for (name, text) in files {
+        writer.start_file(name, options)?;
+        writer.write_all(text.as_bytes())?;
+    }
+    Ok(writer.finish()?.into_inner())
+}
+
+/// The bot's runtime folder, with the test's wheel in its wheel folder.
+fn runtime_with_wheel(world: &World) -> Result<PathBuf> {
+    let runtime = world.workspaces.python_runtime(&world.bot)?;
+    std::fs::create_dir_all(runtime.join("wheels"))?;
+    std::fs::write(
+        runtime.join("wheels/spadecheck-1.0-py3-none-any.whl"),
+        wheel()?,
+    )?;
+    Ok(runtime)
 }
 
 async fn world(scripts: Vec<Script>, options: Options) -> Result<Option<World>> {
@@ -133,7 +212,11 @@ async fn a_script_that_writes_a_csv_and_a_png_names_both_and_attaches_the_png() 
     let ran = finished(&events, "p1")?;
     let text = content(&events, "p1")?;
     assert_eq!(ran["is_error"], false, "{ran}");
-    assert!(text.starts_with("Exit code 0.\n"), "{text}");
+    // The first run says Python was set up, then how the script went.
+    assert!(
+        text.starts_with("[Set up Python for this bot: ") && text.contains("\nExit code 0.\n"),
+        "{text}"
+    );
     assert!(text.contains("total 7"), "{text}");
     assert!(
         text.contains("Files it made or changed:\nout/chart.png (new, ")
@@ -194,33 +277,35 @@ async fn in_the_bots_terminal_a_script_runs_and_names_its_files_as_in_the_one_sh
 }
 
 #[tokio::test]
-async fn the_bots_environment_is_made_on_first_use_and_reused_after() -> Result {
+async fn the_environment_is_set_up_once_from_the_locked_source_and_its_package_imports_after()
+-> Result {
     if !python_here() {
         return Ok(());
     }
+    let read = "import spadecheck, sys; print('value', spadecheck.VALUE, sys.prefix)";
     let Some(world) = world(
         vec![
-            Script::reply("").call(
-                "p1",
-                "python",
-                json!({ "code": "import sys; print(sys.prefix)" }),
-            ),
+            Script::reply("").call("p1", "python", json!({ "code": read })),
             Script::reply("").call(
                 "p2",
                 "python",
                 json!({ "path": "tools/hello.py", "args": ["it's", "me"] }),
             ),
+            Script::reply("").call("p3", "python", json!({ "code": read })),
             Script::reply("Done."),
         ],
-        Options::default(),
+        Options {
+            python: Some(with_package(SYSTEM)),
+            ..Options::default()
+        },
     )
     .await?
     else {
         return Ok(());
     };
+    let runtime = runtime_with_wheel(&world)?;
+    assert!(!runtime.join("venv").exists(), "made before first use");
     let root = world.workspaces.of(&world.bot)?.path()?;
-    let venv = root.join(".spade/python/venv");
-    assert!(!venv.exists(), "made before first use");
     std::fs::create_dir_all(root.join("tools"))?;
     std::fs::write(
         root.join("tools/hello.py"),
@@ -233,11 +318,205 @@ async fn the_bots_environment_is_made_on_first_use_and_reused_after() -> Result 
         .await?;
     let first = content(&events, "p1")?;
     assert!(first.contains("[Set up Python for this bot: 3."), "{first}");
-    assert!(first.contains(".spade/python/venv"), "{first}");
+    assert!(
+        first.contains("[Installing Python's packages for this bot: spadecheck.]"),
+        "{first}"
+    );
+    assert!(first.contains("value 42"), "{first}");
+    // The environment is Spade's runtime folder, outside the workspace.
+    assert!(first.contains("/.python/"), "{first}");
+    assert!(!root.join(".spade/python").exists());
+    for later in ["p2", "p3"] {
+        let text = content(&events, later)?;
+        assert!(
+            !text.contains("Set up Python") && !text.contains("Installing"),
+            "{later} set up again: {text}"
+        );
+    }
+    assert!(content(&events, "p2")?.contains("it's me"));
+    assert!(content(&events, "p3")?.contains("value 42"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_venv_path_sets_up_isolated_from_modules_and_configuration_in_the_workspace() -> Result
+{
+    let Some(folder) = python_without_uv() else {
+        return Ok(());
+    };
+    let Some(world) = world(
+        vec![
+            Script::reply("").call(
+                "p1",
+                "python",
+                json!({ "code": "import spadecheck; print('value', spadecheck.VALUE)" }),
+            ),
+            Script::reply("Done."),
+        ],
+        Options {
+            python: Some(with_package(&[folder])),
+            ..Options::default()
+        },
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    runtime_with_wheel(&world)?;
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    // A `venv` module that would shadow the standard one, and installer configuration in the
+    // bot's home (the workspace) that would break every install that read it.
+    std::fs::write(
+        root.join("venv.py"),
+        "print('PLANTED'); raise SystemExit(3)\n",
+    )?;
+    for config in [
+        ".config/pip/pip.conf",
+        ".pip/pip.conf",
+        ".config/uv/uv.toml",
+    ] {
+        let path = root.join(config);
+        std::fs::create_dir_all(path.parent().ok_or("no parent")?)?;
+        std::fs::write(path, "[global\nindex-url = http://127.0.0.1:9/\n")?;
+    }
+    world.spade.say(&world.conversation, "Run it").await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    let text = content(&events, "p1")?;
+    assert_eq!(finished(&events, "p1")?["is_error"], false, "{text}");
+    assert!(!text.contains("PLANTED"), "{text}");
+    assert!(text.contains("value 42"), "{text}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_bots_own_commands_can_read_its_python_but_never_change_it() -> Result {
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world(
+        vec![
+            Script::reply("").call("p1", "python", json!({ "code": "print('first')" })),
+            Script::reply("").call(
+                "s1",
+                "shell",
+                json!({ "command": "RUNTIME=\"$(dirname \"$HOME\")/.python/$(basename \"$HOME\")\"; \
+                                    ls \"$RUNTIME/venv/bin\" >/dev/null && echo listed; \
+                                    echo 'echo planted' > \"$RUNTIME/run.sh\"; \
+                                    printf '#!/bin/sh\\necho planted\\n' > \"$RUNTIME/venv/bin/python\"; \
+                                    echo done" }),
+            ),
+            Script::reply("").call("p2", "python", json!({ "code": "print('second')" })),
+            Script::reply("Done."),
+        ],
+        Options::default(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let runtime = world.workspaces.python_runtime(&world.bot)?;
+    world
+        .spade
+        .say(&world.conversation, "Run, then try to change it")
+        .await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    assert!(content(&events, "p1")?.contains("first"));
+    let launcher = std::fs::read_to_string(runtime.join("run.sh"))?;
+    assert!(
+        !launcher.contains("planted"),
+        "the bot rewrote the launcher"
+    );
     let second = content(&events, "p2")?;
-    assert!(!second.contains("Set up Python"), "made twice: {second}");
-    assert!(second.contains("it's me"), "{second}");
-    assert!(venv.join("pyvenv.cfg").exists());
+    assert!(
+        second.contains("second") && !second.contains("planted"),
+        "{second}"
+    );
+    // It could read its Python, and every write was refused.
+    let tried = content(&events, "s1")?;
+    assert!(
+        tried.contains("listed") && tried.contains("done"),
+        "{tried}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_script_named_like_an_option_runs_as_a_script() -> Result {
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world(
+        vec![
+            Script::reply("").call("p1", "python", json!({ "path": "-c", "args": ["-c"] })),
+            Script::reply("Done."),
+        ],
+        Options::default(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    std::fs::write(
+        root.join("-c"),
+        "import sys\nprint('ran as a script with', sys.argv[1:])\n",
+    )?;
+    world.spade.say(&world.conversation, "Run it").await?;
+    let events = world
+        .spade
+        .wait_for(&world.conversation, "reply_finished")
+        .await?;
+    let text = content(&events, "p1")?;
+    assert!(text.contains("ran as a script with ['-c']"), "{text}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_script_classed_is_the_script_that_runs_and_its_whole_text_is_shown() -> Result {
+    if !python_here() {
+        return Ok(());
+    }
+    let Some(world) = world(Vec::new(), Options::default()).await? else {
+        return Ok(());
+    };
+    let tools = workspace_tools_with(
+        world.workspaces.clone(),
+        world.bots.clone(),
+        world.shell.clone(),
+        setup(),
+    );
+    let python = tools
+        .iter()
+        .find(|tool| tool.def().spec.name == "python")
+        .ok_or("no python tool")?;
+    let root = world.workspaces.of(&world.bot)?.path()?;
+    std::fs::write(root.join("job.py"), "print('the reviewed script')\n")?;
+    let key = format!("{}.c1", world.conversation);
+    let arguments = json!({ "path": "job.py" });
+    let classed = python.classed(&key, &arguments);
+    assert_eq!(
+        classed
+            .shown
+            .iter()
+            .map(|s| (s.path.as_str(), s.content.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("job.py", "print('the reviewed script')\n")]
+    );
+    // Swapped after it was classed: what runs is still what was classed.
+    std::fs::write(root.join("job.py"), "print('swapped in')\n")?;
+    let ran = python.run(&key, arguments).await;
+    assert!(
+        ran.content.contains("the reviewed script"),
+        "{}",
+        ran.content
+    );
+    assert!(!ran.content.contains("swapped in"), "{}", ran.content);
     Ok(())
 }
 
@@ -296,11 +575,7 @@ async fn a_long_script_carries_on_as_a_background_job() -> Result {
 
 #[tokio::test]
 async fn with_no_python_on_the_machine_the_run_says_so_plainly() -> Result {
-    let nowhere = Setup {
-        folders: vec![PathBuf::from("/nonexistent/spade-test")],
-        pinned: None,
-        packages: Vec::new(),
-    };
+    let nowhere = setup_in(&["/nonexistent/spade-test"]);
     let Some(world) = world(
         vec![
             Script::reply("").call("p1", "python", json!({ "code": "print(1)" })),
@@ -364,5 +639,9 @@ async fn without_the_sandbox_python_is_refused_before_anything_runs() -> Result 
     let root = world.workspaces.of(&world.bot)?.path()?;
     assert!(!root.join("ran.txt").exists());
     assert!(!root.join(".spade/python").exists(), "nothing was written");
+    assert!(
+        !world.workspaces.python_runtime(&world.bot)?.exists(),
+        "no runtime was made"
+    );
     Ok(())
 }

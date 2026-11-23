@@ -92,6 +92,10 @@ pub enum Kind {
     /// A plugin's hook or server: it may also read its plugin's folder; its network is the bot's
     /// plugin policy (open by default: the person installed it).
     Plugin { root: PathBuf },
+    /// Spade's set-up of the bot's Python (ADR 0220): as [`Kind::Command`], also writing the
+    /// bot's Python runtime (`runtime`, Spade's folder outside the workspace), which every other
+    /// run of the bot may only read.
+    PythonSetup { runtime: PathBuf },
 }
 
 /// What confining a run decided (ADR 0167). Never `Ok(None)` for a bot run that can't be held:

@@ -8,7 +8,6 @@ use cap_fs_ext::{FollowSymlinks, MetadataExt, OpenOptionsFollowExt};
 use cap_std::fs::{Dir, OpenOptions};
 use serde::Serialize;
 
-use super::matching::{Glob, Needle};
 use super::{PathError, Workspace, clean, shown, trust};
 
 /// Most entries one listing returns.
@@ -22,13 +21,6 @@ pub const READ_LINES: usize = 400;
 pub const MOST_READ_LINES: usize = 2_000;
 /// Longest line a read shows; the rest is cut.
 const LINE_CHARS: usize = 2_000;
-/// Most matches a search returns, and the largest file it looks in.
-const MOST_MATCHES: usize = 200;
-const LARGEST_SEARCHED: u64 = 2 * 1024 * 1024;
-/// How long one search looks before it answers with what it found.
-const SEARCH_TIME: std::time::Duration = std::time::Duration::from_secs(5);
-/// Spade's Python environment for the bot (`python`), which searches and finds don't walk into.
-pub(super) const PYTHON_HOME: &str = ".spade/python";
 /// Most files a search, or a look for changed files, opens.
 pub(super) const MOST_WALKED: usize = 5_000;
 
@@ -73,22 +65,20 @@ pub struct FileView {
     pub revision: Option<String>,
 }
 
-/// What a search found: its lines for the model, and each file it quoted, with its hash.
-pub struct Found {
-    pub text: String,
-    pub files: Vec<(String, String)>,
-}
-
 /// `O_NONBLOCK`, so opening a FIFO (or any special file) never waits for a writer.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-const NONBLOCK: i32 = 0o4000;
+pub(super) const NONBLOCK: i32 = 0o4000;
 #[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-const NONBLOCK: i32 = 0x0004;
+pub(super) const NONBLOCK: i32 = 0x0004;
 
 /// Opens `path` under `at` for reading without ever blocking, and answers it only when the
 /// opened handle is a regular file: a folder, FIFO, socket or device is refused, so reading,
 /// searching or downloading can never hang a worker.
-fn open_regular(at: &Dir, path: &Path, relative: &str) -> Result<cap_std::fs::File, PathError> {
+pub(super) fn open_regular(
+    at: &Dir,
+    path: &Path,
+    relative: &str,
+) -> Result<cap_std::fs::File, PathError> {
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -341,152 +331,9 @@ impl Workspace {
     ) -> Result<(String, String, usize), PathError> {
         let text = self.text(relative)?;
         let (changed, places) =
-            super::edits::apply(relative, &text, changes).map_err(PathError::Io)?;
+            super::edits::apply(relative, &text, changes, LARGEST_WRITE).map_err(PathError::Io)?;
         self.write(relative, &changed)?;
         Ok((text, changed, places))
-    }
-
-    /// Every regular file under the workspace (links not followed), with its handle's folder.
-    fn walk(
-        &self,
-        start: &str,
-        mut visit: impl FnMut(&Dir, &str, &str) -> bool,
-    ) -> Result<(), PathError> {
-        let cleaned = clean(start)?;
-        let dir = self.dir()?;
-        let mut stack = vec![shown(&cleaned)];
-        let mut opened = 0;
-        while let Some(path) = stack.pop() {
-            let at = folder(&dir, Path::new(&path), &path)?;
-            let mut names: Vec<String> = at
-                .entries()?
-                .filter_map(Result::ok)
-                .map(|e| e.file_name().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            let mut folders = Vec::new();
-            for name in names {
-                let Ok(meta) = at.symlink_metadata(&name) else {
-                    continue;
-                };
-                let full = if path.is_empty() {
-                    name.clone()
-                } else {
-                    format!("{path}/{name}")
-                };
-                if meta.file_type().is_symlink() {
-                    continue;
-                }
-                if meta.is_dir() {
-                    // Spade's own Python environment holds thousands of files nobody wrote.
-                    if full != PYTHON_HOME {
-                        folders.push(full);
-                    }
-                    continue;
-                }
-                // Pipes, sockets and devices are never opened.
-                if !meta.is_file() {
-                    continue;
-                }
-                opened += 1;
-                if opened > MOST_WALKED || !visit(&at, &name, &full) {
-                    return Ok(());
-                }
-            }
-            stack.extend(folders.into_iter().rev());
-        }
-        Ok(())
-    }
-
-    /// Lines holding `needle` under `relative`, in files that fit `only` (all when `None`), as
-    /// `path:line: text`, links not followed. Stops at [`MOST_MATCHES`] lines or after
-    /// [`SEARCH_TIME`].
-    pub fn search(
-        &self,
-        relative: &str,
-        needle: &Needle,
-        only: Option<&Glob>,
-    ) -> Result<Found, PathError> {
-        let started = std::time::Instant::now();
-        let mut lines = Vec::new();
-        let mut files = Vec::new();
-        let mut late = false;
-        self.walk(relative, |at, name, full| {
-            if started.elapsed() > SEARCH_TIME {
-                late = true;
-                return false;
-            }
-            if only.is_some_and(|glob| !glob.fits(full)) {
-                return true;
-            }
-            let Ok(mut file) = open_regular(at, Path::new(name), full) else {
-                return true;
-            };
-            if file.metadata().map(|m| m.len()).unwrap_or(u64::MAX) > LARGEST_SEARCHED {
-                return true;
-            }
-            let mut bytes = Vec::new();
-            if file.read_to_end(&mut bytes).is_err() {
-                return true;
-            }
-            let Ok(text) = std::str::from_utf8(&bytes) else {
-                return true;
-            };
-            let mut quoted = false;
-            for (number, line) in text.lines().enumerate() {
-                if needle.finds(line) {
-                    quoted = true;
-                    let shown: String = line.chars().take(400).collect();
-                    lines.push(format!("{full}:{}: {shown}", number + 1));
-                    if lines.len() == MOST_MATCHES {
-                        lines.push(format!("[Stopped at {MOST_MATCHES} matches.]"));
-                        files.push((full.to_owned(), trust::hash(&bytes)));
-                        return false;
-                    }
-                }
-            }
-            if quoted {
-                files.push((full.to_owned(), trust::hash(&bytes)));
-            }
-            true
-        })?;
-        if late {
-            lines.push(format!(
-                "[Stopped after {} seconds; give a path or glob to look in fewer files.]",
-                SEARCH_TIME.as_secs()
-            ));
-        }
-        let text = if lines.is_empty() {
-            "No line matches.".to_owned()
-        } else {
-            lines.join("\n")
-        };
-        Ok(Found { text, files })
-    }
-
-    /// Files under `relative` whose path fits `glob`, with their sizes, links not followed; at
-    /// most [`MOST_ENTRIES`], by path. Answers the files and whether there were more.
-    pub fn find(
-        &self,
-        relative: &str,
-        glob: &Glob,
-    ) -> Result<(Vec<(String, u64)>, bool), PathError> {
-        let mut found = Vec::new();
-        let mut more = false;
-        self.walk(relative, |at, name, full| {
-            if !glob.fits(full) {
-                return true;
-            }
-            if found.len() == MOST_ENTRIES {
-                more = true;
-                return false;
-            }
-            let size = at.symlink_metadata(name).map_or(0, |meta| meta.len());
-            found.push((full.to_owned(), size));
-            true
-        })?;
-        found.sort();
-        Ok((found, more))
     }
 
     /// Whether `relative` names a regular file reached through real folders only: no link on

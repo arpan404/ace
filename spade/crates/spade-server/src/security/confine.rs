@@ -68,6 +68,14 @@ impl Confine for Security {
             Kind::Command => (commands_policy, Vec::new(), Vec::new()),
             Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
             Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
+            Kind::PythonSetup { runtime } => (commands_policy, Vec::new(), vec![runtime.clone()]),
+        };
+        // The bot's Python runtime (ADR 0220): its commands read and run it, and only Spade's
+        // set-up of it writes it. Named only once it exists, so a bot without one opens nothing.
+        let python = crate::workspace::python::runtime_of(&self.workspaces, &bot);
+        let runtime = match kind {
+            Kind::Command | Kind::Terminal { .. } if python.is_dir() => vec![python],
+            _ => Vec::new(),
         };
         let run = self.ids.next("run");
         self.issuing(&bot);
@@ -85,6 +93,7 @@ impl Confine for Security {
             toolchains: toolchain_dirs.clone(),
             also_read,
             scratch,
+            runtime,
             proxy_port: ticket
                 .as_ref()
                 .and(self.proxy.as_ref())
@@ -262,6 +271,7 @@ impl Confine for Security {
             toolchains: Vec::new(),
             also_read: reads.reads,
             scratch: Vec::new(),
+            runtime: Vec::new(),
             proxy_port: None,
         });
         // A read-only run writes nowhere, so Spade makes no temporary folder for it. Creating one
@@ -422,7 +432,7 @@ impl Security {
         use spade_sandbox::policy::real;
         let held = self.effective(bot);
         let network = match kind {
-            Kind::Command | Kind::Terminal { .. } => &held.network,
+            Kind::Command | Kind::Terminal { .. } | Kind::PythonSetup { .. } => &held.network,
             Kind::Plugin { .. } => &held.plugin_network,
         };
         let networked =
@@ -443,6 +453,7 @@ impl Security {
             .collect();
         let scratch: Vec<PathBuf> = match kind {
             Kind::Terminal { scratch } => vec![real(scratch)],
+            Kind::PythonSetup { runtime } => vec![real(runtime)],
             _ => Vec::new(),
         };
         let plugin_root = match kind {

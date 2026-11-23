@@ -53,14 +53,19 @@ them: trusted only when the bytes are the ones Spade's file tools recorded.
 the text whatever the pattern; a pattern over 1,000 characters, nested past 64 or compiling past
 1 MiB is refused in words. `glob` keeps the search to files whose path fits it. A pattern without
 `/` (`*.csv`) is matched against the file's name in any folder, one with `/` (`data/*.csv`,
-`src/**/*.rs`) against its path from the top; `*` and `?` stay within a name and `**` crosses
-folders. A search stops after 5 seconds and says so. Searches and finds never walk into
-`.spade/python` (the bot's Python environment).
+`src/**/*.rs`) against its path from the top; `*` and `?` stay within a name, `**` crosses
+folders and `[a-z]`, `[!a-z]` match one character. A glob is compiled to a regular expression, so
+it matches in linear time whatever its wildcards. A search or find opens the start folder and
+every folder under it one name at a time without following a link, visits 20,000 entries (files
+and folders) at most, checks its 5-second deadline at every entry and every 4,096 lines it
+scans, reads no more of a file than its 2 MiB cap whatever the file has grown to, and says when
+it stopped early.
 
 **Edits.** Each edit must find its `old`: once, or any number of times with `replace_all`. In a
 batch each applies to what the ones before it left; when one can't, the call fails with `Edit 2
-of 3 ("old text…"): why. Nothing was changed.` and the file is left as it was. The answer says
-how many places changed. Trust is recorded as for a single edit.
+of 3 ("old text…"): why. Nothing was changed.` and the file is left as it was. Each edit's
+resulting size is worked out first, with checked arithmetic, and one past 2 MiB is refused before
+anything is built. The answer says how many places changed. Trust is recorded as for a single edit.
 
 ### The shell
 
@@ -107,49 +112,75 @@ includes a second command in the same turn.
 
 ### Python
 
-`python` runs Python 3 for the bot: `code` (written to `.spade/python/scripts/<call>.py` first)
-or a script in the workspace (`path`, with `args`), in the workspace folder. It runs only where
-Spade's sandbox holds the bot's commands (macOS and Linux with the sandbox, and not for a bot set
-to run outside it); anywhere else it answers `Not run: the python tool runs only inside Spade's
-sandbox, which isn't holding your commands here. Run python3 with shell instead.` before anything
-is written. Windows says it isn't available there yet. ADR 0220.
+`python` runs Python 3 for the bot: `code`, or a script in the workspace (`path`, with `args`),
+in the workspace folder. It runs only where Spade's sandbox holds the bot's commands (macOS and
+Linux with the sandbox, and not for a bot set to run outside it); anywhere else it answers `Not
+run: the python tool runs only inside Spade's sandbox, which isn't holding your commands here.
+Run python3 with shell instead.` before anything is written. Windows says it isn't available
+there yet. ADR 0220.
 
-**One runner.** It goes through `shell`'s runner (`shell_tool::run_command`): the call is classed
-as sandboxed like a contained command, launched under the gate's launch for it, in the bot's
-terminal on macOS and Linux (the person sees `/bin/sh <workspace>/.spade/python/run.sh <script>
-<args>…`) or the one-shot shell, with the same timeout (60 s unless `timeout_s`), the 30-second
-foreground window and background job, output caps, large-output file, `command_ran` and blocked
-hint.
+**The Python is Spade's, not the workspace's.** Each bot has a runtime folder,
+`<data folder>/workspace/.python/<bot id>/`, outside its workspace. Every one of the bot's runs
+(`shell` and `python`, one-shot or in its terminal) may read and run from it and never write it:
+the sandbox reopens it read-only after the deny-list (`Facts.runtime`, inside Spade's data only).
+It holds the launcher (`run.sh`), Spade's set-up script (`setup.sh`), the environment (`venv`,
+with uv's caches and downloaded Pythons) and the staged scripts. A bot's folder deleted deletes
+its runtime too.
 
-**The environment.** Nothing happens at start. Before each run Spade writes the launcher,
-`.spade/python/run.sh`, a short shell script built by `python::launcher` (pure). It moves to the
-workspace and, when `.spade/python/venv` has no Python, makes it:
+**Staged scripts.** When the gate classes a call, Spade reads its script (the code, or the
+workspace file opened through real folders only, no link followed, 2 MiB at most) and writes it
+to `scripts/<sha256>.py` in the runtime. A workspace script's whole text goes to the reviewer
+(`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to the person.
+The run uses that staged file, so what was classed and shown is what runs; a later change to the
+workspace file doesn't reach it. The script runs on its own: modules beside it in the workspace
+aren't on its path, and `__file__` names the staged copy.
+
+**One runner.** The call is classed as sandboxed like a contained command and goes through
+`shell`'s runner (`shell_tool::cleared` and `run_cleared`): the gate's launch is taken once, and
+the script runs in the bot's terminal on macOS and Linux (the person sees `/bin/sh
+<runtime>/run.sh <workspace> <runtime>/scripts/<hash>.py <args>…`, every word absolute or quoted,
+so no name reads as an option) or the one-shot shell, with the same timeout (60 s unless
+`timeout_s`), the 30-second foreground window and background job, output caps, large-output
+file, `command_ran` and blocked hint. `run.sh` moves to the workspace and starts
+`venv/bin/python -I -u`: no `PYTHON*` variable, no user site and no script or working folder on
+`sys.path`; `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window) and matplotlib's
+settings in the run's `TMPDIR`.
+
+**Setting up.** Nothing happens at start. Before a run, Spade writes `run.sh` and `setup.sh`
+(`python::setup_script`, pure) and, unless `ready` holds the set-up's digest, runs `setup.sh` in
+a separate contained run (`Kind::PythonSetup`, one-shot, under a per-bot lock) whose only extra
+right is writing the runtime. Its working folder is the runtime, never the workspace, and it turns
+off every installer's configuration discovery (`UV_NO_CONFIG`, `--no-config`, `PIP_CONFIG_FILE=/dev/null`,
+`--isolated`, no `PYTHON*` variables). It makes `venv` when there is none:
 
 1. with `uv` (looked for in `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`, `/bin`): first
    `uv venv --seed --managed-python --python 3.12`, a pinned uv-managed CPython downloaded once
-   into the bot's `.spade/python/pythons`; if that can't be had, `uv venv --seed
---no-python-downloads --python '>=3.10'`, a Python already on the machine;
+   into the runtime; if that can't be had, `uv venv --seed --no-python-downloads --python
+'>=3.10'`, a Python already on the machine;
 2. else the first `python3.14` … `python3.10`, `python3` in those folders that is 3.10 or newer,
-   with `python3 -m venv`;
+   with `python3 -I -m venv`;
 3. else it fails with exit code 127 and `No Python 3.10 or newer was found on this machine
 (looked for uv and python3 in …). The person can install one, for example with Homebrew: brew
 install python.`
 
-It then says `[Set up Python for this bot: 3.12.14.]`. Until `.spade/python/ready` exists it
-installs the default packages (pandas, numpy, matplotlib, openpyxl, python-docx, pypdf, requests)
-with `uv pip install` or `pip install`, and writes `ready` once they are in; when installing
-fails (the network goes through the sandbox's proxy under the person's Network permission) the
-script runs with what is there and the next run tries again. More packages are installed the same
-way, with `shell`: `.spade/python/venv/bin/python -m pip install NAME`. Caches, downloaded
-Pythons and matplotlib's settings stay under `.spade/python`; `MPLBACKEND=Agg`, so charts are
-saved to files and nothing opens a window.
+It says `[Set up Python for this bot: 3.12.14.]`, then installs a locked set of packages: pandas,
+numpy, matplotlib, openpyxl, python-docx, pypdf, requests and everything they need, each pinned
+(`python::DEFAULT_PACKAGES`), binary wheels only, from `https://pypi.org/simple` and nothing else.
+It writes `ready` once they are in. When installing fails (the network goes through the sandbox's
+proxy under the person's Network permission) the script runs with what is there and the next run
+tries again. The bot can't add packages to its environment (only the set-up writes it); it can
+make its own with `shell` in its workspace.
 
-**What it answers.** The command's result as `shell` gives it (exit code, stdout, `[stderr]`),
-then `Files it made or changed:` with each new or changed file and its size and each removed one,
-from a snapshot of the workspace before and after (Spade's own `.spade` folder left out, 50 named
-at most). Each PNG, JPEG, GIF or WebP among them (up to 3.75 MB, 8 at most) is attached to the
-result for the model and shown in the chat (a `shared` event), as `share_file` shows an image. Its
-output is untrusted like any command's, and nothing it writes is trusted.
+**What it answers.** What the set-up said, if it ran, then the command's result as `shell` gives
+it (exit code, stdout, `[stderr]`), then `Files it made or changed:` with each new or changed
+file and its size and each removed one. Changes are told from each regular file's size,
+modification time to the nanosecond and inode, before and after (links never followed, Spade's
+`.spade` folder left out, 50 named at most); a same-size rewrite in place within the file
+system's timestamp precision is not seen, and a workspace past 20,000 entries says some may be
+missing. Each PNG, JPEG, GIF or WebP among them (up to 3.75 MB, 8 at most), opened without
+following a link and checked to be a file once opened, is attached to the result for the model
+and shown in the chat (a `shared` event). Its output is untrusted like any command's, and nothing
+it writes is trusted.
 
 ### Trust
 

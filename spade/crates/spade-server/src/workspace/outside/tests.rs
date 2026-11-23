@@ -351,6 +351,12 @@ const NOT_A_BOTS: &[(&str, &str, &str)] = &[
         "bundling a push: Spade's fixed script, held in the sandbox",
     ),
     (
+        "workspace/python.rs",
+        "By::Spade",
+        "setting up a bot's Python: Spade's fixed script, contained only, the one run that \
+         writes the bot's Python runtime (ADR 0220)",
+    ),
+    (
         "plugins/hooks.rs",
         "By::Plugin",
         "a plugin's hook, which the person installed (ADR 0151)",
