@@ -39,11 +39,38 @@ import Foundation
 
     @discardableResult
     func run(_ action: [String: Any]) async -> Bool {
-        guard !writing else { return false }
+        await send(action)?.ok ?? false
+    }
+
+    private func send(_ action: [String: Any]) async -> ForgeReviewOutcome? {
+        guard !writing else { return nil }
         writing = true
         defer { writing = false }
         let outcome = await client.forgeReview(target, action)
         message = outcome.ok ? nil : outcome.message
+        return outcome
+    }
+
+    /// The pull request's suggestion batch, shared with its other pages.
+    var batch: ForgeSuggestionBatch { client.suggestionBatches.batch(for: target) }
+    /// Suggestions GitHub refused to commit: each offers the agent instead.
+    private(set) var refused: Set<Int> = []
+
+    /// Add a suggestion to the batch or take it out; a full batch says why it can't take more.
+    func toggleBatch(_ commentId: Int, _ suggestion: ForgeComment.Suggestion) {
+        if let reason = batch.toggle(commentId, suggestion) { message = reason }
+    }
+
+    /// One commit applying the suggestions at the head they were shown at; GitHub refuses it
+    /// once the branch moved. Committed ones leave the batch.
+    func commitSuggestions(_ commentIds: [Int], at head: String, message: String) async -> Bool {
+        guard let outcome = await send(["kind": "suggestions.apply", "headSha": head, "commentIds": commentIds, "message": message]) else { return false }
+        if outcome.ok {
+            batch.committed(commentIds)
+        } else if !outcome.uncertain {
+            // A lost answer may have committed it: only a clear refusal offers the agent.
+            refused.formUnion(commentIds)
+        }
         return outcome.ok
     }
 

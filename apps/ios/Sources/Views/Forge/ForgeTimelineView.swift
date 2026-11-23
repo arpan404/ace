@@ -109,6 +109,7 @@ struct ForgeTimelineView: View {
                         .accessibilityIdentifier("forge.review.reconcile")
                 }
             }
+            if composing == nil, !reviewing { ForgeSuggestionBatchBar(desk: desk) { composing = $0 } }
             if let box = timeline.box { commentBox(box, desk) }
         }
         .padding(.horizontal, AceTheme.Spacing.lg)
@@ -163,6 +164,7 @@ struct ForgeTimelineView: View {
         do {
             let read = try await client.forgeTimeline(project: route.project, number: route.number, repository: route.repository)
             if desk == nil { desk = ForgeReviewDesk(client: client, target: ForgePullTarget(project: route.project, number: read.number, repository: read.repository)) }
+            if let head = read.review?.headSha { desk?.batch.keep(at: head) }
             timeline = read
             failure = nil
         } catch is CancellationError {

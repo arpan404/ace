@@ -5,7 +5,7 @@ import {
   WorkspaceId,
   type CommandResult,
 } from "@ace/protocol";
-import { actionErrorText } from "@ace/ui-core";
+import { actionErrorText, uncertainWriteCodes } from "@ace/ui-core";
 import { z } from "zod";
 import type { ForgeOwner, ForgeReads } from "./forge-reads.ts";
 
@@ -57,7 +57,6 @@ export interface IssueWriteReply {
 
 const unconfirmed =
   "GitHub didn't confirm it. It may have gone through; check before trying again.";
-const lostCodes = new Set(["action_outcome_uncertain", "forge_write_uncertain"]);
 
 const reply = (ok: boolean, message: string, uncertain: boolean): IssueWriteReply => ({
   type: "forge.write",
@@ -68,7 +67,12 @@ const reply = (ok: boolean, message: string, uncertain: boolean): IssueWriteRepl
 
 function outcome(result: CommandResult | undefined): IssueWriteReply {
   const state = result?.issueAction?.state;
-  if (!result || state === "uncertain" || state === "pending" || lostCodes.has(result.error ?? ""))
+  if (
+    !result ||
+    state === "uncertain" ||
+    state === "pending" ||
+    uncertainWriteCodes.has(result.error ?? "")
+  )
     return reply(false, unconfirmed, true);
   if (!result.ok || state === "failed")
     return reply(false, actionErrorText(result.issueAction?.error ?? result.error), false);

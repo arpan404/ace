@@ -271,6 +271,7 @@ export async function readTimeline(
   const locked = lockedOut(lifecycle);
   const conversation: Conversation = {
     capabilities: detail,
+    head: detail.status.headSha,
     state: can(detail, "reviews.comments.write") ? state : undefined,
     url: detail.status.url,
     number: detail.status.ref.number,

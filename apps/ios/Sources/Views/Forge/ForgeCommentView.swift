@@ -36,6 +36,9 @@ struct ForgeCommentView: View {
                 if !comment.body.isEmpty {
                     ForgeText(text: comment.body, scope: actions.desk.scope, tick: ticker)
                 }
+                if let suggestion = comment.suggestion {
+                    ForgeSuggestionActions(comment: comment, suggestion: suggestion, actions: actions)
+                }
                 ForgeReactionsRow(comment: comment, desk: actions.desk)
             }
         }

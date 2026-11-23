@@ -45,6 +45,12 @@ export function verdictBlocked(
 export const reviewUncertainText = "Review change not confirmed";
 
 /** A review write whose answer was lost, in the web's words. */
+/** Answers that leave a forge write's outcome unknown: it may have happened. Never resend. */
+export const uncertainWriteCodes: ReadonlySet<string> = new Set([
+  "action_outcome_uncertain",
+  "forge_write_uncertain",
+  "forge_outcome_uncertain",
+]);
 export const reviewLostText =
   "Couldn't confirm the action. Refresh and reconcile its result; your draft is retained.";
 

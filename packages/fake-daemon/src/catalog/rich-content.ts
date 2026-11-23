@@ -119,6 +119,7 @@ export function richPullRequest(now: number): PullRequestFixture {
       replyTo: 2454,
     },
   ];
+  const suggestions = reviewSuggestions(now);
   fixture.detail.status.comments = [
     {
       kind: "issue",
@@ -175,6 +176,7 @@ export function richPullRequest(now: number): PullRequestFixture {
       reviewState: "COMMENTED",
     },
     ...thread,
+    ...suggestions.flatMap((each) => each.comments),
   ];
   // A line conversation the person can reply to and resolve from the phone's Code view.
   fixture.detail.status.reviewThreads = [
@@ -188,6 +190,7 @@ export function richPullRequest(now: number): PullRequestFixture {
       startLine: null,
       comments: thread,
     },
+    ...suggestions,
   ];
   fixture.review = {
     ...review(fixture.detail.status.headSha, true, { detail: fixture.detail }),
@@ -202,6 +205,77 @@ export function richPullRequest(now: number): PullRequestFixture {
     ],
   };
   return withCodeReview(fixture, now);
+}
+
+const fence = (words: string, lines: string) => `${words}\n\n\`\`\`suggestion\n${lines}\n\`\`\``;
+
+/**
+ * Mira's suggested changes: three on the current diff of the settings guide, to commit one by one
+ * or as a batch, and one on the save bar that a later push outdated, which only an agent can
+ * still apply.
+ */
+function reviewSuggestions(now: number) {
+  const guide = "docs/settings.md";
+  const suggested = (id: number, file: string, line: number | null, body: string) => ({
+    kind: "inline" as const,
+    id,
+    body,
+    author: "mira",
+    file,
+    line,
+    createdAt: iso(now - 13 * minute),
+    updatedAt: iso(now - 13 * minute),
+    replyTo: null,
+  });
+  const thread = (comment: ReturnType<typeof suggested>, outdated: boolean) => ({
+    id: `RT_${comment.id}`,
+    resolved: false,
+    outdated,
+    file: comment.file,
+    line: comment.line,
+    side: "RIGHT" as const,
+    startLine: null,
+    comments: [comment],
+  });
+  return [
+    thread(
+      suggested(
+        2456,
+        guide,
+        3,
+        fence(
+          "Name the count too:",
+          "Settings are grouped into three sections: Account, Appearance and Notifications.",
+        ),
+      ),
+      false,
+    ),
+    thread(
+      suggested(
+        2457,
+        guide,
+        7,
+        fence(
+          "Shorter:",
+          "The save bar stays in view as you scroll, and above the keyboard as you type.",
+        ),
+      ),
+      false,
+    ),
+    thread(
+      suggested(2459, guide, 10, fence("Plainer:", "> Unsaved changes show under the save bar.")),
+      false,
+    ),
+    thread(
+      suggested(
+        2458,
+        "apps/web/src/features/settings/save-bar.tsx",
+        null,
+        fence("Say what it saves:", '  const label = saving ? "Saving…" : "Save settings";'),
+      ),
+      true,
+    ),
+  ];
 }
 
 export const richIssueBody = [

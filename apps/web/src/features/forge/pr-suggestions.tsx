@@ -1,6 +1,10 @@
-import { can } from "@ace/ui-core";
+import {
+  can,
+  suggestionBatchMessage,
+  suggestionCommitMessage,
+  suggestionOffer,
+} from "@ace/ui-core";
 import { useState } from "react";
-import { suggestionOf } from "@ace/forge/suggestions";
 import type { ForgeComment } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import {
@@ -125,16 +129,10 @@ export function PrSuggestionActions(props: { comment: ForgeComment; outdated: bo
   const [open, setOpen] = useState(false);
   const [refused, setRefused] = useState(false);
   const { comment } = props;
-  const suggestion = suggestionOf(comment.body);
-  if (
-    !detail ||
-    !can(detail, "reviews.suggestions") ||
-    !review?.state ||
-    comment.kind !== "inline" ||
-    !suggestion
-  )
-    return null;
-  if (props.outdated)
+  const offer = detail && suggestionOffer(comment, props.outdated, detail);
+  if (!offer || !review?.state) return null;
+  const suggestion = offer.lines;
+  if (!offer.commit)
     return (
       <div className="flex items-center gap-1">
         <ApplyWithAgent comment={comment} suggestion={suggestion} />
@@ -161,7 +159,7 @@ export function PrSuggestionActions(props: { comment: ForgeComment; outdated: bo
         <CommitSuggestions
           open
           commentIds={[comment.id]}
-          message={`Apply suggestion from @${comment.author}`}
+          message={suggestionCommitMessage(comment.author)}
           onClose={() => setOpen(false)}
           onFailed={() => setRefused(true)}
         />
@@ -204,7 +202,7 @@ export function PrSuggestionBatch() {
         <CommitSuggestions
           open
           commentIds={review.batch}
-          message="Apply suggestions from code review"
+          message={suggestionBatchMessage}
           onClose={() => setOpen(false)}
           onCommitted={review.clearBatch}
         />

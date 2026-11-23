@@ -31,6 +31,8 @@ export async function connected(
   stamp: () => string = () => "",
   command?: ForgeOwner["command"],
   now: () => number = () => 0,
+  /** Called with each read just before the daemon answers it, to change GitHub in between. */
+  beforeRead?: (request: Parameters<ForgeOwner["request"]>[0]) => void,
 ) {
   const { daemon, client } = sheetFixture();
   seedForgeBrowse(daemon, Date.parse("2026-10-20T00:00:00Z"));
@@ -50,6 +52,7 @@ export async function connected(
   const owner: ForgeOwner = {
     request: (request, options) => {
       reads.push(request);
+      beforeRead?.(request);
       return client.request(request, options);
     },
     command: (payload) => {
