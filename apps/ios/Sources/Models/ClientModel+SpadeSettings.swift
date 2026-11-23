@@ -46,9 +46,11 @@ extension ClientModel {
         await spadeSettings(["type": "spade.settings.permission", "key": key, "on": on],
                             failing: on ? "Couldn't turn it on" : "Couldn't turn it off")
     }
-    /// The apps bots never use through Computer use, as the whole list.
-    func spadeSettingsNeverApps(_ apps: [String]) async -> SpadeSettings.Answer {
-        await spadeSettings(["type": "spade.settings.neverApps", "apps": apps], failing: "Couldn't change the apps bots never use")
+    /// One app added to (`block`) or taken off the apps bots never use through Computer use,
+    /// applied to the list as Spade holds it, so a block made elsewhere meanwhile stays.
+    func spadeSettingsNeverApps(_ app: String, block: Bool) async -> SpadeSettings.Answer {
+        await spadeSettings(["type": "spade.settings.neverApps", "change": [block ? "add" : "remove": app]],
+                            failing: "Couldn't change the apps bots never use")
     }
     /// How bots without their own setting decide: `auto_review` or `full_access`.
     func spadeSettingsAutonomy(_ autonomy: String) async -> SpadeSettings.Answer {

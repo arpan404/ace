@@ -74,7 +74,7 @@ struct SpadeSecurityPage: View {
                 HStack {
                     Text(app).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
                     Spacer()
-                    Button("Remove") { save(apps.filter { $0 != app }) }
+                    Button("Remove") { load.change { await client.spadeSettingsNeverApps(app, block: false) } }
                         .buttonStyle(.borderless)
                         .accessibilityLabel("Remove \(app)")
                 }
@@ -84,9 +84,9 @@ struct SpadeSecurityPage: View {
                 TextField("App name", text: $adding)
                     .autocorrectionDisabled()
                     .submitLabel(.done)
-                    .onSubmit { add(to: apps) }
+                    .onSubmit(add)
                     .accessibilityIdentifier("spade.security.neverApps.field")
-                Button("Add") { add(to: apps) }
+                Button("Add", action: add)
                     .buttonStyle(.borderless)
                     .disabled(load.busy || trimmed.isEmpty)
                     .accessibilityIdentifier("spade.security.neverApps.add")
@@ -101,17 +101,13 @@ struct SpadeSecurityPage: View {
 
     private var trimmed: String { adding.trimmingCharacters(in: .whitespacesAndNewlines) }
 
-    private func add(to apps: [String]) {
+    private func add() {
         let app = trimmed
         guard !app.isEmpty, !load.busy else { return }
         Task {
-            let answer = await load.awaiting { await client.spadeSettingsNeverApps(apps + [app]) }
+            let answer = await load.awaiting { await client.spadeSettingsNeverApps(app, block: true) }
             if answer.ok { adding = "" }
         }
-    }
-
-    private func save(_ apps: [String]) {
-        load.change { await client.spadeSettingsNeverApps(apps) }
     }
 
     /// How bots decide; Full access asks first, Auto-review saves at once.
