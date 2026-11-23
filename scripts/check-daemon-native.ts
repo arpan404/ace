@@ -15,6 +15,13 @@ execFileSync("bun", ["scripts/generate-rust-protocol.ts", "--check"], {
   cwd: root,
   stdio: "inherit",
 });
+// The transport's route table (ADR 0226): message types come from the protocol schemas, owners
+// from `scripts/transport-owners.ts`. Committed and regenerated here, so a new message type
+// can't reach the daemon without an owner.
+execFileSync("bun", ["scripts/generate-transport-routes.ts", "--check"], {
+  cwd: root,
+  stdio: "inherit",
+});
 const cwd = new URL("../native/daemon/", import.meta.url);
 const channel = /^channel\s*=\s*"([^"]+)"/m.exec(
   readFileSync(new URL("rust-toolchain.toml", cwd), "utf8"),
