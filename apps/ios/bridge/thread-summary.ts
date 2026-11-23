@@ -22,6 +22,15 @@ import {
 } from "@ace/ui-core";
 import { touchesTree, type PatchSink, type Preview } from "./agents.ts";
 import { withLiveStatus } from "./thread-summary-live.ts";
+import {
+  keptStanding,
+  loadTree,
+  saveTree,
+  settledStatus,
+  type KeptChild,
+  type Listed,
+  type TreeKeep,
+} from "./thread-summary-tree.ts";
 import { summaryView, type SummaryPlan } from "./thread-summary-view.ts";
 
 /*
@@ -42,6 +51,11 @@ export interface SummaryDeps {
   scheduler: Scheduler;
   /** The catch-up cursor the person cleared, by thread, kept while the app runs. */
   cleared: Map<string, number>;
+  /**
+   * Where settled delegates are kept between visits. Without it every delegate is read live on
+   * each open, as before.
+   */
+  tree?: TreeKeep | undefined;
 }
 
 const key = "thread:summary";
@@ -49,6 +63,8 @@ const key = "thread:summary";
 const clockKey = "thread:summary.clock";
 /** At most one read of the newest turn this often while the thread's events stream in. */
 const turnEveryMs = 2_000;
+/** Settled delegates are written once per this, however many settle in between. */
+const keepEveryMs = 1_000;
 
 const present = <T>(value: T | undefined): value is T => value !== undefined;
 
@@ -110,6 +126,14 @@ export class ThreadSummary {
   #rowItems = new Map<string, Set<string>>();
   #forest: ReturnType<typeof agentForest>;
   readonly #list: { store: SidebarSource; release(): void };
+  /** Settled delegates kept from earlier visits or learned now, by thread. */
+  #kept = new Map<string, KeptChild>();
+  /** Delegates shown from `#kept` without holding their thread, and how far it stands for them. */
+  readonly #fromKept = new Map<string, "live" | "syncing">();
+  #keptChanged = false;
+  #keepWait: (() => void) | undefined;
+  /** Delegated threads the tree reached at the last join. */
+  #reached = new Set<string>();
 
   constructor(
     reads: SummaryReads,
@@ -128,6 +152,21 @@ export class ThreadSummary {
     this.#preview = preview;
     this.#deps = deps;
     this.#list = reads.threads();
+    this.#forest = agentForest(threadId, this.#works, undefined, this.#layers);
+    if (deps.tree) {
+      // Kept delegates first, so the first tree already has them and holds only what moved.
+      void loadTree(deps.tree, threadId).then((kept) => {
+        if (this.#closed) return;
+        this.#kept = kept;
+        this.#begin();
+      });
+    } else this.#begin();
+  }
+
+  #begin(): void {
+    const reads = this.#reads;
+    const store = this.#store;
+    const threadId = this.#threadId;
     this.#works.set(threadId, this.#workOf(store));
     this.#forest = this.#join();
     const tap: ChangeTap = (keys) => {
@@ -152,6 +191,7 @@ export class ThreadSummary {
         if (keys !== "all" && ![...keys].some((changed) => changed.startsWith("thread:"))) return;
         this.#works.set(threadId, this.#workOf(store));
         for (const [id, held] of this.#held) this.#works.set(id, this.#workOf(held.lease.store));
+        this.#restand();
         this.#forest = this.#join();
         this.#put();
       }),
@@ -197,6 +237,9 @@ export class ThreadSummary {
 
   close(): void {
     this.#closed = true;
+    this.#keepWait?.();
+    this.#keepWait = undefined;
+    this.#remember();
     for (const stop of this.#stops.splice(0)) stop();
     for (const held of this.#held.values()) {
       held.stop();
@@ -295,9 +338,10 @@ export class ThreadSummary {
    * holds again until nothing new is reached: at most once per level the forest follows.
    */
   #join(): ReturnType<typeof agentForest> {
-    let forest = agentForest(this.#threadId, this.#works, undefined, this.#layers);
+    const forestOf = () => agentForest(this.#threadId, this.#works, this.#bounds(), this.#layers);
+    let forest = forestOf();
     for (let level = 0; level < forestBounds.depth && this.#hold(forest.reach); level++)
-      forest = agentForest(this.#threadId, this.#works, undefined, this.#layers);
+      forest = forestOf();
     return forest;
   }
 
@@ -308,6 +352,12 @@ export class ThreadSummary {
   #hold(reach: readonly string[]): boolean {
     let took = false;
     const wanted = new Set(reach);
+    this.#reached = wanted;
+    for (const id of this.#fromKept.keys())
+      if (!wanted.has(id)) {
+        this.#fromKept.delete(id);
+        this.#works.delete(id);
+      }
     for (const [id, held] of this.#held)
       if (!wanted.has(id)) {
         held.stop();
@@ -317,6 +367,15 @@ export class ThreadSummary {
       }
     for (const id of reach) {
       if (this.#held.has(id) || id === this.#threadId) continue;
+      if (this.#fromKept.has(id)) continue;
+      const standing = this.#standing(id);
+      if (standing) {
+        // Settled and untouched since it was kept: its facts stand, with no read of its thread.
+        this.#fromKept.set(id, standing);
+        this.#works.set(id, this.#keptWork(id, standing));
+        took = true;
+        continue;
+      }
       const lease = this.#reads.thread(id, { optional: true });
       const stop = lease.store.observe((keys) => {
         if (this.#held.get(id)?.lease !== lease) return;
@@ -333,6 +392,96 @@ export class ThreadSummary {
       took = true;
     }
     return took;
+  }
+
+  /**
+   * The thread budget the tree reaches by. Delegates shown from what was kept hold no thread, so
+   * they add to it: a busy thread's settled delegates fill in over a visit, a read budget at a time.
+   */
+  #bounds(): { depth: number; threads: number } {
+    return { depth: forestBounds.depth, threads: forestBounds.threads + this.#kept.size };
+  }
+
+  #listed(id: string): Listed | undefined {
+    const entry = this.#list.store.thread(id);
+    return entry && { status: entry.status, updatedAt: entry.updatedAt };
+  }
+
+  #standing(id: string): "live" | "syncing" | undefined {
+    const list = this.#list.store;
+    return keptStanding(this.#kept.get(id), this.#listed(id), !list.syncing && !list.unconfirmed);
+  }
+
+  #keptWork(id: string, standing: "live" | "syncing"): ThreadWork {
+    const kept = this.#kept.get(id);
+    return kept ? { ...kept.work, facts: standing } : { agents: [], tasks: [], interactions: [] };
+  }
+
+  /** The list moved: kept delegates that no longer stand are read live, the others re-marked. */
+  #restand(): void {
+    for (const id of this.#fromKept.keys()) {
+      const standing = this.#standing(id);
+      if (!standing) {
+        this.#fromKept.delete(id);
+        this.#works.delete(id);
+      } else {
+        this.#fromKept.set(id, standing);
+        this.#works.set(id, this.#keptWork(id, standing));
+      }
+    }
+  }
+
+  /**
+   * Keep each held delegate that settled, confirmed by the daemon and by the list at the same
+   * `updatedAt`, once; entries of delegates the tree no longer reaches go.
+   */
+  #remember(): void {
+    const tree = this.#deps.tree;
+    if (!tree) return;
+    const list = this.#list.store;
+    let moved = false;
+    if (!list.syncing && !list.unconfirmed)
+      for (const [id, held] of this.#held) {
+        const listed = this.#listed(id);
+        const work = this.#works.get(id);
+        const kept = this.#kept.get(id);
+        if (!listed || !work || work.facts !== "live" || !settledStatus(listed.status)) continue;
+        if (kept?.updatedAt === listed.updatedAt || held.lease.store.syncing) continue;
+        this.#kept.set(id, {
+          updatedAt: listed.updatedAt,
+          work: { ...work, status: listed.status },
+        });
+        this.#keptChanged = true;
+        if (this.#closed) continue;
+        // Its facts are kept, so its thread's room goes to the next delegate waiting for one.
+        held.stop();
+        held.lease.release();
+        this.#held.delete(id);
+        this.#fromKept.set(id, "live");
+        this.#works.set(id, this.#keptWork(id, "live"));
+        moved = true;
+      }
+    for (const id of this.#kept.keys())
+      if (this.#reached.size && !this.#reached.has(id)) {
+        this.#kept.delete(id);
+        this.#keptChanged = true;
+      }
+    if (moved) {
+      this.#forest = this.#join();
+      this.#put();
+    }
+    if (!this.#keptChanged) return;
+    this.#keptChanged = false;
+    void saveTree(tree, this.#threadId, this.#kept);
+  }
+
+  /** At most one keep per period, however often the tree moves. */
+  #keepSoon(): void {
+    if (this.#keepWait || !this.#deps.tree) return;
+    this.#keepWait = this.#deps.scheduler.set(keepEveryMs, () => {
+      this.#keepWait = undefined;
+      if (!this.#closed) this.#remember();
+    });
   }
 
   #plans(): SummaryPlan[] {
@@ -367,6 +516,7 @@ export class ThreadSummary {
 
   #put(): void {
     if (this.#closed) return;
+    this.#keepSoon();
     this.#sink.put(key, () => {
       const thread = this.#store.thread;
       if (!thread) return undefined;
