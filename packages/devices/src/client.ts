@@ -576,6 +576,9 @@ export class DeviceClient {
                 message.undelivered,
               ),
             );
+          // A late refusal still says what became of the connection it named (a gone one is
+          // replaced); the retry scheduled at its timeout keeps waiting.
+          else this.media.failed(late.sourceId, late.generation, this.failure(message.error));
           return;
         }
         if (!pending) return;

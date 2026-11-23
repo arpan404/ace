@@ -427,6 +427,9 @@ export class ScreenStreamClient {
             late.sourceId,
             this.media.subscribed(late.sourceId, late.generation, frame.media, frame.undelivered),
           );
+        // A late refusal still says what became of the connection it named (a gone one is
+        // replaced); the retry scheduled at its timeout keeps waiting.
+        else this.media.failed(late.sourceId, late.generation, new ScreenClientError(frame));
         return;
       }
       if (!request) return;
