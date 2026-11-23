@@ -581,15 +581,15 @@ commit saying which. §7's digests and verify mode are the one comparison, justi
   (§8a); raw index bytes where preservation is promised and completion values, not keys (§7);
   coverage per operation and edge, and non-vacuous strict verdicts (§7). G5 and G6 stay held.
 
-## Questions for the owner
+## The owner's answers (2026-11-23)
 
-6. **The browser's pure helpers.** Keep the TypeScript copies for `apps/web`, `ui-core` and
-   `fake-daemon` (recommended: they are about 1,300 lines, synchronous, and a WebAssembly module
-   would make the web app load it asynchronously), or build `ace-forge`'s pure module to
-   WebAssembly as `ace-core-wasm` is?
-7. **Shadow cost.** `ACE_GIT_VERIFY=shadow` doubles snapshot work while it runs. Run it for one
-   release on the owner's machines before G6 default-on (recommended), or only on the clones?
-8. **Raw bytes on restore everywhere?** On POSIX, restoring an unchanged entry under `text=auto`
-   or eol attributes can rewrite a file's line endings (§5a rule 6); Windows already restores the
-   checkpoint's exact bytes. Restore exact bytes on every platform (recommended: one behaviour,
-   no silent rewrite), or keep POSIX as it is?
+The owner answered "do whatever is best". Decided on that basis, each the recommended option:
+
+6. **The browser's pure helpers** keep their TypeScript copies for `apps/web`, `ui-core` and
+   `fake-daemon`; they are synchronous and small, and the web app is not part of the daemon.
+7. **Shadow verification** (`ACE_GIT_VERIFY=shadow`) runs for one release on the owner's machines
+   before G6 is turned on by default.
+8. **Restore writes the checkpoint's exact bytes on every platform.** POSIX stops rewriting line
+   endings under `text=auto` or eol attributes when it restores an unchanged entry, as Windows
+   already does: one behaviour, no silent rewrite. The witness of §5a rule 6 already compares raw
+   bytes, so the guard needs no change.
