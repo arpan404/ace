@@ -1,4 +1,5 @@
 import { connect, type Socket } from "node:net";
+import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import type { DeviceRuntime } from "./runtime.ts";
 import { DeviceError } from "./sdk.ts";
 import { scrcpyRelease } from "./scrcpy-jar.ts";
@@ -96,23 +97,31 @@ export async function startScrcpyTunnel(options: {
       "adb could not forward the scrcpy socket",
       "Restart adb with `adb kill-server`, then start the device view again.",
     );
-  const server = runtime.spawn({
-    command: options.adb,
-    args: [
-      "-s",
-      options.serial,
-      "shell",
-      [
-        `CLASSPATH=${remoteJar}`,
-        "app_process",
-        "/",
-        "com.genymobile.scrcpy.Server",
-        ...scrcpyServerArgs(scrcpyRelease.version, options.profile),
-      ].join(" "),
-    ],
-    env: options.env,
-    name: "device-scrcpy",
-  });
+  const removeForward = () => command(["forward", "--remove", `tcp:${port}`], 4096, 5000);
+  let server: RawSupervisedProcess;
+  try {
+    server = runtime.spawn({
+      command: options.adb,
+      args: [
+        "-s",
+        options.serial,
+        "shell",
+        [
+          `CLASSPATH=${remoteJar}`,
+          "app_process",
+          "/",
+          "com.genymobile.scrcpy.Server",
+          ...scrcpyServerArgs(scrcpyRelease.version, options.profile),
+        ].join(" "),
+      ],
+      env: options.env,
+      name: "device-scrcpy",
+    });
+  } catch (error) {
+    // The forward is already in place: a spawn that throws never leaves it behind.
+    await removeForward().catch(() => {});
+    throw error;
+  }
   // Keep a bounded tail of the server's own words for a startup failure message.
   let said = "";
   const listen = (chunk: Buffer) => {
@@ -130,10 +139,7 @@ export async function startScrcpyTunnel(options: {
   let closing: Promise<void> | undefined;
   const close = () =>
     (closing ??= (async () => {
-      await Promise.allSettled([
-        server?.stop({ graceMs: 1000 }),
-        command(["forward", "--remove", `tcp:${port}`], 4096, 5000),
-      ]);
+      await Promise.allSettled([server.stop({ graceMs: 1000 }), removeForward()]);
     })());
   return {
     port,

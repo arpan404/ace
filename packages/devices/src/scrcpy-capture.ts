@@ -18,6 +18,7 @@ import {
   type ServerProfile,
 } from "./scrcpy-protocol.ts";
 import { ScrcpyVideoUnits, type VideoUnit } from "./scrcpy-video.ts";
+import { EarlyUnits } from "./scrcpy-early.ts";
 import { HeldPointers, scrcpyInputPlan } from "./scrcpy-input.ts";
 import {
   startScrcpyServer,
@@ -33,6 +34,7 @@ import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { startHostFrames, type HostFrames } from "./host-frames.ts";
 import { DeviceVideoPaths, type DeviceMedia } from "./media-paths.ts";
 import { IngestWriter } from "@ace/media/ingest-writer";
+import type { ScrcpyGreeting } from "@ace/media/ingest-sources";
 import { encodeProducerStamp } from "@ace/media/producer-stamp";
 import type { MediaFrame } from "@ace/media/frame";
 
@@ -241,13 +243,18 @@ export async function scrcpyCapture(options: {
     control: Socket | undefined;
     /** True once control connected and the reader was told: that ack is this greeting's. */
     readyWaited: boolean;
-    /** The ace-media path whose reader greeted: control's ack goes to it alone. */
-    greetedOn: string | undefined;
+    /** The reader that greeted (its open and generation): control's ack goes to it alone. */
+    greetedOn: ScrcpyGreeting | undefined;
   };
   let handshake: ScrcpyHandshake | undefined;
   /** The path that greeted with no handshake armed yet (a reopen greets right after its
    * point). */
-  let greetedEarly: string | undefined;
+  let greetedEarly: ScrcpyGreeting | undefined;
+  /** D1: the current reader ended (ingest passes on only the current generation's end). A
+   * link is never installed over it, however its end and ready interleave. */
+  let readerEnded = false;
+  /** D1: the current reader's units that came before its link. */
+  const early = new EarlyUnits();
   const pathsFor = () =>
     (scrcpyPaths ??= media
       ? new DeviceVideoPaths({
@@ -364,6 +371,7 @@ export async function scrcpyCapture(options: {
   let repointQueued = false;
   /** D1: ace-media ended the source, mid-handshake or mid-stream. */
   const mediaClosed = (reason: string | undefined): void => {
+    readerEnded = true;
     const pending = handshake;
     handshake = undefined;
     if (pending) {
@@ -394,6 +402,22 @@ export async function scrcpyCapture(options: {
       ),
     );
   };
+  /** D1: one unit of ace-media's reader on its link. */
+  const showD1 = (live: Link, unit: VideoUnit) => {
+    // The picture's size comes from the units themselves, not a handshake: track it for
+    // input mapping, which refuses to run before the screen has started.
+    const size = live.units.size;
+    if (
+      (size.width !== unit.width || size.height !== unit.height) &&
+      unit.width > 0 &&
+      unit.height > 0 &&
+      unit.width <= 16384 &&
+      unit.height <= 16384
+    )
+      live.units.push({ type: "session", width: unit.width, height: unit.height });
+    live.streaming = true;
+    publishVideo(unit);
+  };
   const pathsForMedia = (
     port: number,
     deadlineMs: number | undefined,
@@ -407,21 +431,10 @@ export async function scrcpyCapture(options: {
       origin: { kind: "scrcpy", host: "127.0.0.1", port },
       deviceId: device.id,
       emit: (unit) => {
-        // The picture's size comes from the units themselves, not a handshake: track it
-        // for input mapping, which refuses to run before the screen has started.
-        const live = link;
-        if (!live || stopped) return;
-        const size = live.units.size;
-        if (
-          (size.width !== unit.width || size.height !== unit.height) &&
-          unit.width > 0 &&
-          unit.height > 0 &&
-          unit.width <= 16384 &&
-          unit.height <= 16384
-        )
-          live.units.push({ type: "session", width: unit.width, height: unit.height });
-        live.streaming = true;
-        publishVideo(unit);
+        if (stopped) return;
+        // Before its link is in, a reader's units wait for it: never its first keyframe lost.
+        if (link) showD1(link, unit);
+        else early.hold(unit);
       },
       // ace-media is its own producer here: it reads the socket, so there is no ingest to
       // point at. A move cuts the old path, and the new one starts at a keyframe.
@@ -430,10 +443,10 @@ export async function scrcpyCapture(options: {
       schedule: (callback, ms) => runtime.after(ms, callback),
       scrcpy: {
         ...(deadlineMs === undefined ? {} : { deadlineMs }),
-        greeted: (path) => {
+        greeted: (greeting) => {
           const attempt = handshake;
           if (!attempt) {
-            greetedEarly = path;
+            greetedEarly = greeting;
             return;
           }
           if (attempt.readyWaited) {
@@ -443,7 +456,7 @@ export async function scrcpyCapture(options: {
             attempt.ready.reject(scrcpyClosedDuringStartup());
             return;
           }
-          attempt.greetedOn ??= path;
+          attempt.greetedOn ??= greeting;
           attempt.greeted.resolve();
         },
         ready: (deviceName) => {
@@ -678,11 +691,11 @@ export async function scrcpyCapture(options: {
           "Restart ace to bring ace-media back.",
         );
       }
-      if (!fresh) {
-        // A greeting from before this dial came from a reader it replaces.
-        greetedEarly = undefined;
-        source.dial("127.0.0.1", tunnel.port);
-      }
+      // A new reader: nothing of an earlier one (a greeting, an end, its units) counts.
+      greetedEarly = undefined;
+      readerEnded = false;
+      early.clear();
+      if (!fresh) source.dial("127.0.0.1", tunnel.port);
       const deadline = runtime.now() + scrcpyMediaStartupMs;
       try {
         const { control, deviceName } = await shakeHands(tunnel, tunnel.port, source, deadline);
@@ -753,7 +766,20 @@ export async function scrcpyCapture(options: {
           await disconnect(started);
           return;
         }
+        // Its reader ended before the link was in (its end and ready came together): no link
+        // over a reader that is gone.
+        if (readerEnded) {
+          await disconnect(started);
+          throw scrcpyClosedDuringStartup();
+        }
         link = started;
+        // What the reader sent before its link, in order, from its first keyframe.
+        const before = early.take();
+        for (const unit of before.units) showD1(started, unit);
+        if (before.lost) {
+          started.streaming = true;
+          keyframe();
+        }
         control.resume();
         // A repoint that arrived mid-handshake applies after it, not during it.
         if (repointQueued) void rehandshake().catch(() => {});
@@ -864,6 +890,7 @@ export async function scrcpyCapture(options: {
     const waiting = handshake;
     handshake = undefined;
     greetedEarly = undefined;
+    early.clear();
     if (waiting) {
       const error = new DOMException("Device capture stopped", "AbortError");
       waiting.greeted.reject(error);

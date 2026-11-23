@@ -3,6 +3,7 @@
   "message": {
     "type": "source.ready",
     "source": "source-1",
-    "deviceName": "sdk_gphone64_arm64"
+    "deviceName": "sdk_gphone64_arm64",
+    "dial": 1
   }
 }

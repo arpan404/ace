@@ -388,6 +388,15 @@ pub enum ToMedia {
             skip_serializing_if = "Option::is_none"
         )]
         deadline_ms: Option<u32>,
+        /// D1: the reader generation this open's scrcpy reader runs under (the daemon's
+        /// latest dial, carried by a reopen); absent is 0.
+        #[serde(
+            rename = "dial",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        dial: Option<u32>,
         #[serde(rename = "origin")]
         origin: Origin,
     },
@@ -443,7 +452,8 @@ pub enum ToMedia {
     },
     /// D1: (re)dial a scrcpy source's video handshake at `host:port` (an adb forward).
     /// The first handshake's endpoint comes in the open's origin; a restart passes a new
-    /// one here, under the same source.
+    /// one here, under the same source, with the reader generation `dial` that everything
+    /// from the new reader carries.
     #[serde(rename = "source.dial")]
     SourceDial {
         #[serde(rename = "source")]
@@ -452,13 +462,18 @@ pub enum ToMedia {
         host: String,
         #[serde(rename = "port")]
         port: u32,
+        #[serde(rename = "dial")]
+        dial: u32,
     },
-    /// D1: the daemon connected scrcpy's control socket; the reader may now read the
-    /// device name and codec id.
+    /// D1: the daemon connected scrcpy's control socket for the reader of generation
+    /// `dial` that greeted; that reader may now read the device name and codec id. An ack
+    /// for any other generation is dropped.
     #[serde(rename = "source.controlConnected")]
     SourceControlConnected {
         #[serde(rename = "source")]
         source: Id,
+        #[serde(rename = "dial")]
+        dial: u32,
     },
     /// An ingest barrier (X1): answered by `source.synced` once ace-media has taken `frames`
     /// frames from the source's producer connection since its hello, and its recording, if any,
@@ -839,6 +854,9 @@ pub enum FromMedia {
     SourceGreeted {
         #[serde(rename = "source")]
         source: Id,
+        /// The reader generation that greeted.
+        #[serde(rename = "dial")]
+        dial: u32,
     },
     /// D1: the scrcpy handshake finished and video follows on egress. The device name up
     /// to its first NUL, decoded as UTF-8 like `toString("utf8")`.
@@ -848,6 +866,9 @@ pub enum FromMedia {
         source: Id,
         #[serde(rename = "deviceName")]
         device_name: String,
+        /// The reader generation that finished it.
+        #[serde(rename = "dial")]
+        dial: u32,
     },
     /// The barrier `source.sync` asked for holds.
     #[serde(rename = "source.synced")]
@@ -884,6 +905,14 @@ pub enum FromMedia {
             skip_serializing_if = "Option::is_none"
         )]
         acceleration: Option<Acceleration>,
+        /// D1: the scrcpy reader generation a reader's end belongs to.
+        #[serde(
+            rename = "dial",
+            default,
+            deserialize_with = "present",
+            skip_serializing_if = "Option::is_none"
+        )]
+        dial: Option<u32>,
     },
     #[serde(rename = "source.want")]
     SourceWant {

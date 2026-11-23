@@ -323,6 +323,15 @@ pub fn unit_frame(unit: &VideoUnit) -> Result<MediaFrame, ScrcpyError> {
     })
 }
 
+/// The MediaFrame extension that names the reader generation a unit came from: tag 2,
+/// length 4, the generation as a big-endian u32 (beside the producer stamp's tag 1). The
+/// daemon drops a unit whose generation isn't its source's current one.
+pub fn dial_tag(dial: u32) -> [u8; 8] {
+    let mut tag = [0, 2, 0, 4, 0, 0, 0, 0];
+    tag[4..].copy_from_slice(&dial.to_be_bytes());
+    tag
+}
+
 #[cfg(test)]
 #[path = "scrcpy_tests.rs"]
 mod tests;

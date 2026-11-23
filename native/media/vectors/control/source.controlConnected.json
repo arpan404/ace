@@ -2,6 +2,7 @@
   "direction": "ToMedia",
   "message": {
     "type": "source.controlConnected",
-    "source": "source-1"
+    "source": "source-1",
+    "dial": 1
   }
 }

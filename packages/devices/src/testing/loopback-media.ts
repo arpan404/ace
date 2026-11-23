@@ -108,7 +108,7 @@ export async function loopbackMedia(
       // The dummy byte, before anything else.
       const dummy = await stream.read(1).catch(() => undefined);
       if (dummy === undefined || gen !== generation || closed) return;
-      producer.greeted?.(path);
+      producer.greeted?.({ path, dial: gen });
       // The name and codec follow once the daemon connects control.
       const connected = await new Promise<boolean>((resolve, reject) => {
         control = () => resolve(true);
@@ -222,8 +222,8 @@ export async function loopbackMedia(
       codecs: () => {},
       encodes: () => {},
       key: () => {},
-      controlConnected: (greeted) => {
-        if (greeted === path) control?.();
+      controlConnected: (greeting) => {
+        if (greeting.path === path && greeting.dial === generation) control?.();
       },
       dial: (host, dialPort) => {
         if (host !== "127.0.0.1" && host !== "localhost") {

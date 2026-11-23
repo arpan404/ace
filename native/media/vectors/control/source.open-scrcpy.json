@@ -6,6 +6,7 @@
     "handle": 1,
     "epoch": 1,
     "deadlineMs": 10000,
+    "dial": 2,
     "origin": {
       "kind": "scrcpy",
       "host": "127.0.0.1",

@@ -324,6 +324,7 @@ impl Engine {
                 private,
                 origin,
                 deadline_ms,
+                dial,
                 ..
             } => {
                 self.sources.open(
@@ -332,6 +333,7 @@ impl Engine {
                     epoch,
                     &origin,
                     deadline_ms.map(u64::from),
+                    dial.unwrap_or(0),
                     &payload,
                     vault,
                     now.mono_ms,
@@ -413,11 +415,14 @@ impl Engine {
                 self.stills.close(source.get(), out);
                 self.delivery.source_closed(source.get());
             }
-            ToMedia::SourceDial { source, host, port } => {
-                self.sources.dial(&source, &host, port, out)
-            }
-            ToMedia::SourceControlConnected { source } => {
-                self.sources.control_connected(&source, out);
+            ToMedia::SourceDial {
+                source,
+                host,
+                port,
+                dial,
+            } => self.sources.dial(&source, &host, port, dial, out),
+            ToMedia::SourceControlConnected { source, dial } => {
+                self.sources.control_connected(&source, dial, out);
             }
             ToMedia::SourceEgress { source, on } => self.sources.egress(&source, on, out),
             ToMedia::SourceEncodes { source, encodes } => {
@@ -882,11 +887,12 @@ impl Engine {
     /// A scrcpy reader saw the dummy byte: the daemon connects control now. Late greetings
     /// (the source moved on) say nothing.
     pub fn scrcpy_greeted(&mut self, source: &str, token: u64) {
-        if self.sources.encoder_is(source, token) {
+        if let Some(dial) = self.sources.scrcpy_dial(source, token) {
             normal(
                 &mut self.out,
                 FromMedia::SourceGreeted {
                     source: id_of(source),
+                    dial,
                 },
             );
         }
@@ -895,12 +901,13 @@ impl Engine {
     /// A scrcpy reader finished the handshake: video follows on egress. A late device name
     /// (the source moved on) says nothing.
     pub fn scrcpy_ready(&mut self, source: &str, token: u64, device_name: String) {
-        if self.sources.encoder_is(source, token) {
+        if let Some(dial) = self.sources.scrcpy_dial(source, token) {
             normal(
                 &mut self.out,
                 FromMedia::SourceReady {
                     source: id_of(source),
                     device_name,
+                    dial,
                 },
             );
         }

@@ -679,7 +679,7 @@ fn a_picture_sources_jpeg_with_no_encoder_running_never_reaches_its_recording() 
 }
 
 #[test]
-fn a_redial_replaces_the_scrcpy_reader_so_the_old_readers_late_end_never_ends_the_source() {
+fn a_redial_replaces_the_scrcpy_reader_so_nothing_of_the_old_reader_reaches_or_ends_the_new_one() {
     let mut engine = engine();
     let readers = |effects: &[Effect]| -> Vec<(u64, u32)> {
         effects
@@ -704,7 +704,8 @@ fn a_redial_replaces_the_scrcpy_reader_so_the_old_readers_late_end_never_ends_th
     // A restart under the same source: the running reader is closed, a new one dials.
     let dialled = send(
         &mut engine,
-        json!({ "type": "source.dial", "source": "a1", "host": "127.0.0.1", "port": 5001 }),
+        json!({ "type": "source.dial", "source": "a1", "host": "127.0.0.1", "port": 5001,
+                "dial": 1 }),
         &[],
         NOW,
     );
@@ -717,13 +718,47 @@ fn a_redial_replaces_the_scrcpy_reader_so_the_old_readers_late_end_never_ends_th
         Effect::Encode(EncodeEffect::Close { token, .. }) if *token == first
     )));
     assert!(statuses(&dialled).is_empty(), "the source stays as it was");
+    // A greeting the old reader sent before its close says nothing; the new one's names
+    // its generation.
+    let greetings = |engine: &mut Engine| -> Vec<u32> {
+        engine
+            .effects()
+            .filter_map(|e| match e {
+                Effect::Normal(FromMedia::SourceGreeted { dial, .. }) => Some(dial),
+                _ => None,
+            })
+            .collect()
+    };
+    engine.scrcpy_greeted("a1", first);
+    assert!(greetings(&mut engine).is_empty());
+    engine.scrcpy_greeted("a1", second);
+    assert_eq!(greetings(&mut engine), [1]);
+    // Control's ack reaches the reader only under the generation that greeted.
+    let acks = |effects: Vec<Effect>| -> Vec<u64> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Encode(EncodeEffect::ScrcpyControl { token, .. }) => Some(*token),
+                _ => None,
+            })
+            .collect()
+    };
+    let stale = json!({ "type": "source.controlConnected", "source": "a1", "dial": 0 });
+    assert!(acks(send(&mut engine, stale, &[], NOW)).is_empty());
+    let current = json!({ "type": "source.controlConnected", "source": "a1", "dial": 1 });
+    assert_eq!(acks(send(&mut engine, current, &[], NOW)), [second]);
     // The old reader's end, already on its way when the dial came, changes nothing.
     engine.encoder_failed("a1", first, "scrcpy-closed");
     assert!(statuses(&engine.effects().collect::<Vec<_>>()).is_empty());
-    // The new reader's own end does end the source.
+    // The new reader's own end does end the source, under its generation.
     engine.encoder_failed("a1", second, "scrcpy-closed");
+    let ended: Vec<Effect> = engine.effects().collect();
     assert_eq!(
-        statuses(&engine.effects().collect::<Vec<_>>()),
+        statuses(&ended),
         [("a1".into(), Status::Ended, Some("scrcpy-closed".into()))]
     );
+    assert!(ended.iter().any(|e| matches!(
+        e,
+        Effect::Normal(FromMedia::SourceStatus { dial: Some(1), .. })
+    )));
 }

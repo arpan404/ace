@@ -5,6 +5,7 @@ import {
   type IngestProducer,
   type IngestSource,
   type Origin,
+  type ScrcpyGreeting,
   type StopStatus,
   type SourceStill,
 } from "@ace/media/ingest-sources";
@@ -126,8 +127,8 @@ export type DeviceVideoPathsOptions = {
   scrcpy?: {
     /** Longest ace-media spends bringing the picture, in milliseconds. */
     deadlineMs?: number;
-    /** ace-media's reader on `path` saw the dummy byte: connect control now. */
-    greeted: (path: string) => void;
+    /** ace-media's current reader saw the dummy byte: connect control now. */
+    greeted: (greeting: ScrcpyGreeting) => void;
     /** The handshake finished: video follows, under this device name. */
     ready: (deviceName: string) => void;
     /** ace-media ended the source, mid-handshake or mid-stream. */
@@ -198,7 +199,7 @@ export class DeviceVideoPaths {
         ? {
             mediaReads: true,
             ...(scrcpy.deadlineMs === undefined ? {} : { deadlineMs: scrcpy.deadlineMs }),
-            greeted: (path) => scrcpy.greeted(path),
+            greeted: (greeting) => scrcpy.greeted(greeting),
             ready: (deviceName) => {
               scrcpy.ready(deviceName);
             },
@@ -319,10 +320,10 @@ export class DeviceVideoPaths {
     return run;
   }
 
-  /** D1: the daemon connected scrcpy's control socket for the reader on `path` that greeted;
-   * read the name and codec now. Dropped once that path has been replaced. */
-  controlConnected(path: string): void {
-    this.#source.controlConnected?.(path);
+  /** D1: the daemon connected scrcpy's control socket for the reader that greeted; read the
+   * name and codec now. Dropped once that reader has been replaced. */
+  controlConnected(greeting: ScrcpyGreeting): void {
+    this.#source.controlConnected?.(greeting);
   }
 
   /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */

@@ -14,6 +14,9 @@ use media_wire::control::{
 use media_wire::frame::MediaFrame;
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[path = "sources_scrcpy.rs"]
+mod scrcpy;
+
 /// Why a JPEG source ended when its pictures came on the control lane (an older daemon's).
 pub const PICTURE_INGEST_REQUIRED: &str = "picture-ingest-required";
 
@@ -77,6 +80,9 @@ pub struct ScrcpyTarget {
     pub host: String,
     pub port: u32,
     pub deadline_ms: u64,
+    /// The reader generation the daemon dialled last: every word from the reader carries
+    /// it, and an ack for any other is dropped.
+    pub dial: u32,
 }
 
 struct Source {
@@ -200,6 +206,7 @@ fn report(
             reason: reason.map(Into::into),
             attempts,
             acceleration,
+            dial: None,
         },
     );
 }
@@ -226,6 +233,7 @@ impl Sources {
         epoch: u32,
         origin: &Origin,
         deadline_ms: Option<u64>,
+        dial: u32,
         token: &[u8],
         vault: &mut Vault,
         now: u64,
@@ -263,6 +271,7 @@ impl Sources {
                 host: host.clone(),
                 port: *port,
                 deadline_ms,
+                dial,
             }),
             _ => None,
         };
@@ -326,99 +335,6 @@ impl Sources {
             token,
             url: url.to_owned(),
         }));
-    }
-
-    /// Starts the reader of a scrcpy source (D1), under an encoder token like a
-    /// Simulator's reader.
-    fn read_scrcpy(&mut self, id: &Id, target: &ScrcpyTarget, out: &mut Vec<Effect>) {
-        if self.encoders() >= MAX_ENCODERS {
-            if let Some(source) = self.by_id.get_mut(id.get()) {
-                source.status = Status::Ended;
-            }
-            log(out, Level::Warn, "source.open refused: encoder limit", id);
-            return status(out, id, Status::Ended, Some("encoder-limit"), None);
-        }
-        self.last_token += 1;
-        let token = self.last_token;
-        if let Some(source) = self.by_id.get_mut(id.get()) {
-            source.encoder = Some(token);
-        }
-        out.push(Effect::Encode(EncodeEffect::Scrcpy {
-            source: id.get().to_owned(),
-            token,
-            host: target.host.clone(),
-            port: target.port,
-            deadline_ms: target.deadline_ms,
-        }));
-    }
-
-    /// `source.dial`: (re)dial a scrcpy source's video handshake, after a restart under the
-    /// same source or a reopen. Unknown sources stay as they are. Every dial starts a fresh
-    /// reader under a fresh token and closes the one before: that reader's end, possibly on
-    /// its way already (the restart closed its socket), names a token the source no longer
-    /// has, so it can neither end the redialled source nor swallow the dial.
-    pub fn dial(&mut self, id: &Id, host: &str, port: u32, out: &mut Vec<Effect>) {
-        let Some(previous) = self
-            .by_id
-            .get(id.get())
-            .filter(|source| source.scrcpy.is_some())
-            .map(|source| source.encoder)
-        else {
-            return;
-        };
-        if previous.is_none() && self.encoders() >= MAX_ENCODERS {
-            if let Some(source) = self.by_id.get_mut(id.get()) {
-                source.status = Status::Ended;
-            }
-            log(out, Level::Warn, "source.dial refused: encoder limit", id);
-            return status(out, id, Status::Ended, Some("encoder-limit"), None);
-        }
-        self.last_token += 1;
-        let token = self.last_token;
-        let Some(source) = self.by_id.get_mut(id.get()) else {
-            return;
-        };
-        let Some(target) = source.scrcpy.as_mut() else {
-            return;
-        };
-        target.host = host.to_owned();
-        target.port = port;
-        let deadline_ms = target.deadline_ms;
-        source.encoder = Some(token);
-        match previous {
-            Some(previous) => out.push(Effect::Encode(EncodeEffect::Close {
-                source: id.get().to_owned(),
-                token: previous,
-            })),
-            // A reader that ended took the source with it: the redial starts it again.
-            None => {
-                source.status = Status::Starting;
-                status(out, id, Status::Starting, None, None);
-            }
-        }
-        out.push(Effect::Encode(EncodeEffect::Scrcpy {
-            source: id.get().to_owned(),
-            token,
-            host: host.to_owned(),
-            port,
-            deadline_ms,
-        }));
-    }
-
-    /// `source.controlConnected`: the daemon connected a scrcpy source's control socket, so
-    /// its reader may read the device name and codec id now.
-    pub fn control_connected(&mut self, id: &Id, out: &mut Vec<Effect>) {
-        if let Some(token) = self
-            .by_id
-            .get(id.get())
-            .filter(|source| source.scrcpy.is_some())
-            .and_then(|source| source.encoder)
-        {
-            out.push(Effect::Encode(EncodeEffect::ScrcpyControl {
-                source: id.get().to_owned(),
-                token,
-            }));
-        }
     }
 
     /// The handle of an open source.
@@ -741,6 +657,12 @@ impl Sources {
             {
                 frame.epoch = stamper.stamp(now.mono_ms);
             }
+            // A scrcpy reader's units carry its generation, for the daemon to fence on.
+            if let Some(target) = &source.scrcpy {
+                frame
+                    .extension
+                    .extend_from_slice(&crate::scrcpy::dial_tag(target.dial));
+            }
             self.unit(id, frame, now, egress, out);
         } else if let Some((source, _)) = self
             .draining
@@ -794,7 +716,12 @@ impl Sources {
         source.encoder = None;
         source.egress.end(source.handle, true, egress);
         source.status = Status::Ended;
-        status(out, &source.id, Status::Ended, Some(reason), None);
+        match &source.scrcpy {
+            // A scrcpy reader's end names its generation, so the daemon can tell it from a
+            // newer reader's.
+            Some(target) => scrcpy::reader_ended(out, &source.id, reason, target.dial),
+            None => status(out, &source.id, Status::Ended, Some(reason), None),
+        }
         out.push(Effect::Encode(EncodeEffect::Close {
             source: id.to_owned(),
             token,
