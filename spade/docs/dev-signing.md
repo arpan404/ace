@@ -27,10 +27,13 @@ designated requirement, which must read the same after every rebuild.
   Certificate…, name `Spade Local Dev`, identity type Self Signed Root, certificate type Code
   Signing. The access list then matches across rebuilds, but a self-signed binary has no team ID,
   so the keychain's partition list may still ask once per rebuild (not verified).
-- **Not the Developer ID** unless you mean it. A Developer ID signed build satisfies the release
-  requirement, so on the live home (`~/.ace/spade`) it uses the live entries
-  (`dev.acehq.spade`). Any other build, or any other home, uses `dev.acehq.spade.dev.<home slot>`, one per data folder, so dev
-  Spade never prompts for or overwrites the live one's keys.
+- **Never the Developer ID as `spade`.** That identity and identifier are reserved for release
+  signing: a build signed so counts as the release and, on the live home (`~/.ace/spade`), uses
+  the live entries (`dev.acehq.spade`). Any other home uses `dev.acehq.spade.dev.<home slot>`,
+  one per data folder, so a dev Spade never prompts for or overwrites the live one's keys.
+
+A local build never opens the live home: pointed at `~/.ace/spade` it stops at start and names a
+folder to use instead (`~/.ace/dev-spade/spade`).
 
 ## Running it
 

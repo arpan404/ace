@@ -25,6 +25,9 @@ use security_framework_sys::base::SecAccessRef;
 /// `errSecItemNotFound`.
 const ITEM_NOT_FOUND: OSStatus = -25300;
 
+/// `errSecDuplicateItem`.
+const DUPLICATE_ITEM: OSStatus = -25299;
+
 /// The `kSecAttrComment` key in a search result's attributes.
 const COMMENT_KEY: &str = "icmt";
 
@@ -103,18 +106,17 @@ pub struct Item<'a> {
     pub comment: &'a str,
 }
 
-/// Replaces `item`'s secret with `secret`, in a new item whose access list trusts the running
-/// program by its designated requirement. The old item, if any, is deleted first: an existing
-/// item's access list can't be changed without its owner's consent, and a new one is filed with
-/// the access Spade chooses.
-pub fn replace_owned(item: &Item<'_>, secret: &[u8]) -> Result<(), Error> {
+/// Adds `item` with `secret`, in a new item whose access list trusts the running program by its
+/// designated requirement. Returns `false`, changing nothing, when an item with the same service
+/// and account is already there: an existing item is never deleted or replaced here, so its
+/// secret can't be lost on the way.
+pub fn add_owned(item: &Item<'_>, secret: &[u8]) -> Result<bool, Error> {
     let keychain = login()?;
-    match search(&keychain, item.service, item.account).delete() {
-        Ok(()) => {}
-        Err(error) if error.code() == ITEM_NOT_FOUND => {}
-        Err(error) => return Err(error.into()),
+    match add(&keychain, item, secret) {
+        Ok(()) => Ok(true),
+        Err(error) if error.code == DUPLICATE_ITEM => Ok(false),
+        Err(error) => Err(error),
     }
-    add_owned(&keychain, item, secret)
 }
 
 /// `item`'s comment, without reading its secret (which would be checked against the access list):
@@ -149,7 +151,7 @@ fn search(keychain: &SecKeychain, service: &str, account: &str) -> ItemSearchOpt
     options
 }
 
-fn add_owned(keychain: &SecKeychain, item: &Item<'_>, secret: &[u8]) -> Result<(), Error> {
+fn add(keychain: &SecKeychain, item: &Item<'_>, secret: &[u8]) -> Result<(), Error> {
     let access = self_access(item.label)?;
     let mut options = ItemAddOptions::new(ItemAddValue::Data {
         class: ItemClass::generic_password(),

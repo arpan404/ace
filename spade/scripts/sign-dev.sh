@@ -24,7 +24,8 @@ if [[ ! -f "$binary" ]]; then
 fi
 
 identities="$(security find-identity -v -p codesigning)"
-pick() { grep -o "\"$1[^\"]*\"" <<<"$identities" | head -n 1 | tr -d '"'; }
+# No match is a normal answer, not a failure (set -e and pipefail would end the script on it).
+pick() { { grep -o "\"$1[^\"]*\"" <<<"$identities" || true; } | head -n 1 | tr -d '"'; }
 identity="${SPADE_SIGN_IDENTITY:-}"
 [[ -n "$identity" ]] || identity="$(pick "Apple Development")"
 [[ -n "$identity" ]] || identity="$(pick "Spade Local Dev")"

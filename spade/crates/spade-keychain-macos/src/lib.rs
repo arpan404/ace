@@ -11,4 +11,4 @@
 mod macos;
 
 #[cfg(target_os = "macos")]
-pub use macos::{Error, Item, comment, replace_owned, running_code_satisfies};
+pub use macos::{Error, Item, add_owned, comment, running_code_satisfies};

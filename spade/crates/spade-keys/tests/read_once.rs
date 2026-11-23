@@ -76,14 +76,14 @@ fn a_missing_key_is_not_remembered_so_one_added_elsewhere_is_found() -> Result {
 }
 
 #[test]
-fn a_read_answered_after_spade_replaced_the_key_never_brings_the_old_one_back() -> Result {
+fn a_read_answered_after_spade_replaced_the_key_returns_and_keeps_the_new_one() -> Result {
     let store = Counting::new()?;
     store.store_directly(SERVICE, "ace:grant:home", "grant-old")?;
     let keychain = keys(&store);
-    let (reading, read_started) = mpsc::channel();
+    let (reading, read_answered) = mpsc::channel();
     let (release, released) = mpsc::channel::<()>();
     let released = Arc::new(std::sync::Mutex::new(released));
-    store.during_reads(Some(Arc::new(move || {
+    store.after_reads(Some(Arc::new(move || {
         let _ = reading.send(());
         let _ = released
             .lock()
@@ -91,12 +91,39 @@ fn a_read_answered_after_spade_replaced_the_key_never_brings_the_old_one_back() 
     })));
     let slow = keychain.clone();
     let reader = std::thread::spawn(move || slow.ace_grant("home"));
-    read_started.recv_timeout(Duration::from_secs(5))?;
-    // The read holds the old grant; Spade stores a new one meanwhile.
-    store.during_reads(None);
+    // The store has answered with the old grant; Spade rotates it before the caller sees that.
+    read_answered.recv_timeout(Duration::from_secs(5))?;
+    store.after_reads(None);
     keychain.set_ace_grant("home", "grant-new")?;
     release.send(())?;
-    let _ = reader.join().map_err(|_| "reader panicked")??;
+    let seen = reader.join().map_err(|_| "reader panicked")??;
+    assert_eq!(seen.as_deref(), Some("grant-new"), "the blocked caller");
     assert_eq!(keychain.ace_grant("home")?.as_deref(), Some("grant-new"));
+    Ok(())
+}
+
+#[test]
+fn a_read_answered_after_spade_deleted_the_key_returns_none() -> Result {
+    let store = Counting::new()?;
+    store.store_directly(SERVICE, "endpoint:openai", "sk-old")?;
+    let keychain = keys(&store);
+    let (reading, read_answered) = mpsc::channel();
+    let (release, released) = mpsc::channel::<()>();
+    let released = Arc::new(std::sync::Mutex::new(released));
+    store.after_reads(Some(Arc::new(move || {
+        let _ = reading.send(());
+        let _ = released
+            .lock()
+            .map(|r| r.recv_timeout(Duration::from_secs(5)));
+    })));
+    let slow = keychain.clone();
+    let reader = std::thread::spawn(move || slow.get("openai"));
+    read_answered.recv_timeout(Duration::from_secs(5))?;
+    store.after_reads(None);
+    assert!(keychain.delete("openai")?);
+    release.send(())?;
+    let seen = reader.join().map_err(|_| "reader panicked")??;
+    assert_eq!(seen, None, "the blocked caller");
+    assert_eq!(keychain.get("openai")?, None);
     Ok(())
 }

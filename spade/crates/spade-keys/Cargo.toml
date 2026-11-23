@@ -23,6 +23,10 @@ spade-keychain-macos = { path = "../spade-keychain-macos" }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-native-keyring-store = "1"
 
+# The account's home from the account database (getpwuid), not from HOME.
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.28", default-features = false, features = ["user"] }
+
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }
 

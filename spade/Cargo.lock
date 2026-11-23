@@ -3878,6 +3878,7 @@ version = "0.1.0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
+ "nix 0.28.0",
  "sha2 0.11.1",
  "spade-keychain-macos",
  "tempfile",

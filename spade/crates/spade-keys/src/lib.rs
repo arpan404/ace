@@ -4,7 +4,7 @@
 //! contains one.
 //!
 //! Each secret is read from the store once per process and then kept in memory until Spade itself
-//! replaces or deletes it (ADR 0119 amendment 1). On macOS every entry Spade writes carries an
+//! replaces or deletes it (ADR 0119 amendment 1). On macOS every entry Spade creates carries an
 //! access list trusting Spade by its code signature, so a signed update reads it without a prompt
 //! (see [`owner`]).
 //!
@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use keyring_core::{CredentialStore, Entry, Error};
 
 pub use lookup::{KeyRequest, Keys};
-pub use owner::{DEV_SERVICE, OWNED_MARK, Owner, Placement, SERVICE};
+pub use owner::{Created, DEV_SERVICE, NotForLiveHome, OWNED_MARK, Owner, Placement, SERVICE};
 
 /// The keychain account Spade's ace grant is filed under (docs/ace-integration.md).
 pub const ACE_GRANT: &str = "ace:grant";
@@ -91,8 +91,7 @@ impl KeyStore {
         }
     }
 
-    /// The same store, with `owner` writing every entry and filing again, once, each entry it
-    /// didn't write that this process reads.
+    /// The same store, with `owner` creating every new entry.
     pub fn owned_by(mut self, owner: Arc<dyn Owner>) -> Self {
         self.owner = Some(owner);
         self
@@ -170,85 +169,49 @@ impl KeyStore {
     }
 
     /// `account`'s secret: from memory once this process has read or written it, otherwise from
-    /// the store. A secret read from the store for the first time is filed again, once, in the
-    /// background, if Spade's owner didn't write it.
+    /// the store. If Spade changed the entry while the store was answering, that answer may be
+    /// from before the change, so it is neither kept nor returned: the entry is looked up again.
     fn read(&self, account: &str) -> Result<Option<String>, KeyError> {
-        let ticket = match self.cache.lookup(account) {
-            Ok(secret) => return Ok(Some(secret)),
-            Err(ticket) => ticket,
-        };
-        let secret = match self.entry_for(account)?.get_password() {
-            Ok(secret) => secret,
-            Err(Error::NoEntry) => return Ok(None),
-            Err(error) => return Err(classify(&error)),
-        };
-        self.cache.fill(account, ticket, &secret);
-        if self.owner.is_some() && self.cache.claim_adoption(account) {
-            self.adopt_later(account, ticket, &secret);
-        }
-        Ok(Some(secret))
-    }
-
-    /// Files `account` again with Spade's own access list, off the caller's thread, unless the
-    /// owner already wrote it or Spade has changed it since `ticket` was read. Bounded: at most
-    /// once per entry per process, and only entries under this store's own service.
-    fn adopt_later(&self, account: &str, ticket: cache::Ticket, secret: &str) {
-        let keys = self.clone();
-        let account = account.to_owned();
-        let secret = zeroize::Zeroizing::new(secret.to_owned());
-        let _ = std::thread::Builder::new()
-            .name("spade-key-owner".to_owned())
-            .spawn(move || keys.adopt(&account, ticket, &secret));
-    }
-
-    fn adopt(&self, account: &str, ticket: cache::Ticket, secret: &str) {
-        let Some(owner) = &self.owner else { return };
-        match owner.owns(&self.service, account) {
-            Ok(true) => return,
-            Ok(false) => {}
-            Err(error) => {
-                tracing::warn!(account, %error, "couldn't check a keychain entry's access list");
-                return;
+        let mut found = None;
+        // Each pass loses only to a change Spade made meanwhile; a few always settle it.
+        for _ in 0..4 {
+            let ticket = match self.cache.lookup(account) {
+                Ok(secret) => return Ok(Some(secret)),
+                Err(ticket) => ticket,
+            };
+            found = match self.entry_for(account)?.get_password() {
+                Ok(secret) => Some(secret),
+                Err(Error::NoEntry) => None,
+                Err(error) => return Err(classify(&error)),
+            };
+            let current = match &found {
+                Some(secret) => self.cache.fill(account, ticket, secret),
+                None => self.cache.unchanged(account, ticket),
+            };
+            if current {
+                return Ok(found);
             }
         }
-        let lock = self.write_lock(account);
-        let _writing = lock.lock().unwrap_or_else(|p| p.into_inner());
-        if !self.cache.unchanged(account, ticket) {
-            return;
-        }
-        if let Err(error) = owner.write(&self.service, account, secret) {
-            tracing::warn!(account, %error, "couldn't file a keychain entry with Spade's access list");
-            // The owner deletes before it adds: put the secret back as it was if that left none.
-            if let Ok(entry) = self.entry_for(account)
-                && matches!(entry.get_password(), Err(Error::NoEntry))
-                && let Err(error) = entry.set_password(secret)
-            {
-                tracing::error!(account, error = %describe(error.to_string()), "a keychain entry was lost while filing it again; add the key again");
-            }
-        } else {
-            tracing::info!(
-                account,
-                "keychain entry now trusts Spade by its code signature"
-            );
-        }
+        Ok(found)
     }
 
-    /// Stores `secret` under `account`: through the owner where there is one, falling back to a
-    /// plain store write if the owner's write fails.
+    /// Stores `secret` under `account`. With an owner, a new entry is created with Spade's
+    /// access list; an existing one keeps its own and has its secret updated in place. Nothing is
+    /// deleted first, so a failed write never loses the secret already stored.
     fn write(&self, account: &str, secret: &str) -> Result<(), KeyError> {
         let lock = self.write_lock(account);
         let _writing = lock.lock().unwrap_or_else(|p| p.into_inner());
-        let owned = self
+        let created = self
             .owner
             .as_ref()
-            .map(|owner| owner.write(&self.service, account, secret));
-        let written = match owned {
-            Some(Ok(())) => Ok(()),
+            .map(|owner| owner.create(&self.service, account, secret));
+        let written = match created {
+            Some(Ok(owner::Created::Added)) => Ok(()),
+            Some(Ok(owner::Created::Exists)) | None => self.plain_write(account, secret),
             Some(Err(error)) => {
                 tracing::warn!(account, %error, "keychain entry written without Spade's access list");
                 self.plain_write(account, secret)
             }
-            None => self.plain_write(account, secret),
         };
         match &written {
             Ok(()) => self.cache.put(account, secret),

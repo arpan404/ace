@@ -1,6 +1,6 @@
 //! Spade owning its keychain entries (ADR 0119 amendment 1): where the platform lets Spade set an
-//! entry's access list (macOS), every entry it writes trusts Spade by its code signature, and an
-//! entry from before that is filed again once, the first time this process reads it.
+//! entry's access list (macOS), every entry it creates trusts Spade by its code signature. An
+//! entry from before keeps its access list; only its secret is updated, in place.
 //!
 //! [`Owner`] is the seam: the macOS shell sits behind it, tests pass a fake, and Windows and
 //! Linux have none (their stores already tie an entry to the signed-in user, not to a binary).
@@ -17,11 +17,10 @@ pub const DEV_SERVICE: &str = "dev.acehq.spade.dev";
 
 /// The code-signing requirement of the released Spade: identifier `spade`, signed with ace's
 /// Developer ID (team 5J88TLUP2J). Every release, updates included, satisfies it; a local build
-/// signed any other way doesn't.
-pub const RELEASE_REQUIREMENT: &str = "identifier \"spade\" and anchor apple generic and \
-     certificate 1[field.1.2.840.113635.100.6.2.6] and \
-     certificate leaf[field.1.2.840.113635.100.6.1.13] and \
-     certificate leaf[subject.OU] = \"5J88TLUP2J\"";
+/// signed any other way doesn't. The identifier `spade` under that Developer ID is reserved for
+/// release signing: anything else signed so counts as the release (`spade/docs/dev-signing.md`).
+/// Kept in one file that `spade/scripts/check-release-identity.sh` checks each release against.
+pub const RELEASE_REQUIREMENT: &str = include_str!("../release-requirement.txt");
 
 /// The comment Spade's own entries carry, so one filed before Spade set access lists is told
 /// apart without reading its secret.
@@ -41,11 +40,12 @@ pub struct Placement {
 
 impl Placement {
     /// This process's placement: whether it runs the release binary, and whether `data_dir` is
-    /// the live home's under `user_home`.
-    pub fn of_this_process(data_dir: &Path, user_home: Option<&Path>) -> Self {
+    /// the live home's under the OS account's home ([`account_home`]). Call it once `data_dir`
+    /// exists, so its slot is taken from its resolved path.
+    pub fn of_this_process(data_dir: &Path) -> Self {
         Self {
             release_binary: release_binary(),
-            live_home: user_home.is_some_and(|home| is_live_home(data_dir, home)),
+            live_home: account_home().is_some_and(|home| is_live_home(data_dir, &home)),
             home_slot: home_slot(data_dir),
         }
     }
@@ -95,15 +95,23 @@ pub fn release_binary() -> bool {
     true
 }
 
-/// Writes entries with Spade's own access list, and tells whether an entry was written so.
-pub trait Owner: Send + Sync {
-    /// Stores `secret` under `service`/`account`, replacing any entry there, with an access list
-    /// that trusts Spade by its code signature and [`OWNED_MARK`] as its comment.
-    fn write(&self, service: &str, account: &str, secret: &str) -> Result<(), String>;
+/// What [`Owner::create`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Created {
+    /// A new entry, with Spade's access list.
+    Added,
+    /// An entry was already there and was left exactly as it is: the caller updates its secret
+    /// in place, keeping its access list.
+    Exists,
+}
 
-    /// Whether the entry at `service`/`account` carries [`OWNED_MARK`], read without its secret.
-    /// No entry reads as owned: there is nothing to file again.
-    fn owns(&self, service: &str, account: &str) -> Result<bool, String>;
+/// Creates entries with Spade's own access list. It never deletes or replaces an entry: an
+/// existing item's access list can't be changed without its owner's consent, and deleting it to
+/// file a new one could lose the secret, so items from before keep theirs (ADR 0119 amendment 1).
+pub trait Owner: Send + Sync {
+    /// Adds `secret` under `service`/`account` with an access list that trusts Spade by its code
+    /// signature and [`OWNED_MARK`] as its comment, unless an entry is already there.
+    fn create(&self, service: &str, account: &str, secret: &str) -> Result<Created, String>;
 }
 
 /// The macOS owner: login keychain items whose access list trusts the running Spade's designated
@@ -113,7 +121,7 @@ pub(crate) struct MacOwner;
 
 #[cfg(target_os = "macos")]
 impl Owner for MacOwner {
-    fn write(&self, service: &str, account: &str, secret: &str) -> Result<(), String> {
+    fn create(&self, service: &str, account: &str, secret: &str) -> Result<Created, String> {
         let label = format!("Spade: {account}");
         let item = spade_keychain_macos::Item {
             service,
@@ -121,17 +129,62 @@ impl Owner for MacOwner {
             label: &label,
             comment: OWNED_MARK,
         };
-        spade_keychain_macos::replace_owned(&item, secret.as_bytes()).map_err(|e| e.to_string())
-    }
-
-    fn owns(&self, service: &str, account: &str) -> Result<bool, String> {
-        match spade_keychain_macos::comment(service, account) {
-            Ok(Some(comment)) => Ok(comment == OWNED_MARK),
-            // An item with no comment is one Spade filed before it set access lists. (No item at
-            // all also lands here; filing it again then writes what this process just read.)
-            Ok(None) => Ok(false),
+        match spade_keychain_macos::add_owned(&item, secret.as_bytes()) {
+            Ok(true) => Ok(Created::Added),
+            Ok(false) => Ok(Created::Exists),
             Err(error) => Err(error.to_string()),
         }
+    }
+}
+
+/// The signed-in OS account's home folder, from the account database (`getpwuid`), not from
+/// `HOME`, so a caller can't make another folder look like the live home. Windows has no
+/// per-binary keychain access to protect, so its profile folder comes from `USERPROFILE`.
+#[cfg(unix)]
+pub fn account_home() -> Option<std::path::PathBuf> {
+    nix::unistd::User::from_uid(nix::unistd::Uid::current())
+        .ok()
+        .flatten()
+        .map(|user| user.dir)
+}
+
+/// See the Unix version.
+#[cfg(not(unix))]
+pub fn account_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+}
+
+/// Why this Spade may not open its data folder: a build other than the released one on the live
+/// home. It would file under another keychain service, so the live home's endpoints would look
+/// keyless and the guard against moving a keyed endpoint to a new host would let one through;
+/// the release Spade would then send the live key there.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "this Spade is not the released build, so it may not open the live home's folder {live}; \
+     run it with SPADE_DATA_DIR set to another folder, for example {suggested}"
+)]
+pub struct NotForLiveHome {
+    pub live: String,
+    pub suggested: String,
+}
+
+/// Refuses a build other than the released one on the live home (see [`NotForLiveHome`]).
+pub fn may_open(
+    data_dir: &Path,
+    release_binary: bool,
+    account_home: Option<&Path>,
+) -> Result<(), NotForLiveHome> {
+    match account_home {
+        Some(home) if !release_binary && is_live_home(data_dir, home) => Err(NotForLiveHome {
+            live: data_dir.display().to_string(),
+            suggested: home
+                .join(".ace")
+                .join("dev-spade")
+                .join("spade")
+                .display()
+                .to_string(),
+        }),
+        _ => Ok(()),
     }
 }
 
@@ -154,6 +207,27 @@ mod tests {
         assert_eq!(at(false, true), dev, "a local build on the live home");
         assert_eq!(at(true, false), dev, "the release binary on a dev home");
         assert_eq!(at(false, false), dev);
+    }
+
+    #[test]
+    fn a_build_other_than_the_release_is_refused_on_the_live_home_only() -> std::io::Result<()> {
+        let root = tempfile::tempdir()?;
+        let user = root.path().join("user");
+        std::fs::create_dir_all(user.join(".ace/spade"))?;
+        let live = user.join(".ace/spade");
+        let refused = may_open(&live, false, Some(&user)).err();
+        assert!(
+            refused
+                .as_ref()
+                .is_some_and(|r| r.to_string().contains("dev-spade")),
+            "{refused:?}"
+        );
+        assert!(
+            may_open(&live, true, Some(&user)).is_ok(),
+            "the release build"
+        );
+        assert!(may_open(&user.join(".ace/dev-spade/spade"), false, Some(&user)).is_ok());
+        Ok(())
     }
 
     #[test]

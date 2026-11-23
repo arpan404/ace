@@ -1,36 +1,35 @@
-//! Where the platform has an [`Owner`] (macOS), Spade writes every entry through it and files an
-//! entry it didn't write again, once, after reading it (ADR 0119 amendment 1). The owner here is a
-//! fake over `keyring-core`'s mock; the real one is checked by hand (`keys.rs`, ignored test).
+//! Where the platform has an [`Owner`] (macOS), Spade creates every new entry through it, with its
+//! own access list; an entry already there keeps its access list and only has its secret updated
+//! in place, and nothing is ever deleted to be filed again (ADR 0119 amendment 1). The owner here
+//! is a fake over `keyring-core`'s mock; the real one is checked by hand (`keys.rs`, ignored).
 
 mod support;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use spade_keys::{KeyStore, Owner, SERVICE};
+use spade_keys::{Created, KeyStore, Owner, SERVICE};
 use support::Counting;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-/// Writes into the mock and remembers which entries it wrote, as the macOS owner marks them.
+/// Adds to the mock only when the entry is new, as the macOS owner does, and remembers which
+/// entries it created.
 struct FakeOwner {
     store: Arc<Counting>,
     owned: Mutex<HashSet<(String, String)>>,
-    writes: Mutex<Vec<String>>,
-    fail_writes: bool,
-    /// While set, checking whether an entry is owned waits for a message on it.
-    hold_checks: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+    calls: Mutex<usize>,
+    fail: bool,
 }
 
 impl FakeOwner {
-    fn new(store: &Arc<Counting>, fail_writes: bool) -> Arc<Self> {
+    fn new(store: &Arc<Counting>, fail: bool) -> Arc<Self> {
         Arc::new(Self {
             store: store.clone(),
             owned: Mutex::default(),
-            writes: Mutex::default(),
-            fail_writes,
-            hold_checks: Mutex::default(),
+            calls: Mutex::default(),
+            fail,
         })
     }
 
@@ -40,18 +39,26 @@ impl FakeOwner {
             .is_ok_and(|o| o.contains(&(service.to_owned(), account.to_owned())))
     }
 
-    fn writes(&self) -> Vec<String> {
-        self.writes.lock().map(|w| w.clone()).unwrap_or_default()
+    fn calls(&self) -> usize {
+        self.calls.lock().map(|c| *c).unwrap_or_default()
     }
 }
 
 impl Owner for FakeOwner {
-    fn write(&self, service: &str, account: &str, secret: &str) -> std::result::Result<(), String> {
-        if let Ok(mut writes) = self.writes.lock() {
-            writes.push(account.to_owned());
+    fn create(
+        &self,
+        service: &str,
+        account: &str,
+        secret: &str,
+    ) -> std::result::Result<Created, String> {
+        if let Ok(mut calls) = self.calls.lock() {
+            *calls += 1;
         }
-        if self.fail_writes {
+        if self.fail {
             return Err("the keychain refused the access list".to_owned());
+        }
+        if self.store.stored(service, account).is_some() {
+            return Ok(Created::Exists);
         }
         self.store
             .store_directly(service, account, secret)
@@ -59,35 +66,19 @@ impl Owner for FakeOwner {
         if let Ok(mut owned) = self.owned.lock() {
             owned.insert((service.to_owned(), account.to_owned()));
         }
-        Ok(())
-    }
-
-    fn owns(&self, service: &str, account: &str) -> std::result::Result<bool, String> {
-        if let Ok(held) = self.hold_checks.lock()
-            && let Some(release) = held.as_ref()
-        {
-            let _ = release.recv_timeout(Duration::from_secs(5));
-        }
-        Ok(self.owned(service, account))
+        Ok(Created::Added)
     }
 }
 
-fn eventually(what: &str, check: impl Fn() -> bool) -> Result {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while !check() {
-        if Instant::now() > deadline {
-            return Err(format!("never: {what}").into());
-        }
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    Ok(())
+fn owned_keys(store: &Arc<Counting>, owner: &Arc<FakeOwner>) -> KeyStore {
+    KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone())
 }
 
 #[test]
-fn spades_writes_are_filed_with_its_own_access_list() -> Result {
+fn a_new_entry_is_created_with_spades_own_access_list() -> Result {
     let store = Counting::new()?;
     let owner = FakeOwner::new(&store, false);
-    let keys = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
+    let keys = owned_keys(&store, &owner);
     keys.set("openai", "sk-1")?;
     keys.set_sign_in_key("chatgpt-1", "11aa")?;
     assert!(owner.owned(SERVICE, "endpoint:openai"));
@@ -97,90 +88,40 @@ fn spades_writes_are_filed_with_its_own_access_list() -> Result {
 }
 
 #[test]
-fn an_entry_from_before_is_filed_again_once_after_its_first_read() -> Result {
+fn an_entry_from_before_keeps_its_access_list_and_gets_the_new_secret_in_place() -> Result {
     let store = Counting::new()?;
     store.store_directly(SERVICE, "endpoint:openai", "sk-old-build")?;
     let owner = FakeOwner::new(&store, false);
-    let keys = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
-    assert_eq!(keys.get("openai")?.as_deref(), Some("sk-old-build"));
-    eventually("the entry is owned", || {
-        owner.owned(SERVICE, "endpoint:openai")
-    })?;
-    for _ in 0..5 {
-        keys.get("openai")?;
-    }
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(owner.writes(), vec!["endpoint:openai".to_owned()]);
-    assert_eq!(
-        store.stored(SERVICE, "endpoint:openai").as_deref(),
-        Some("sk-old-build")
-    );
-    Ok(())
-}
-
-#[test]
-fn an_entry_spade_already_owns_is_left_alone() -> Result {
-    let store = Counting::new()?;
-    let owner = FakeOwner::new(&store, false);
-    let writer = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
-    writer.set("openai", "sk-1")?;
-    // A later process reads it.
-    let later = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
-    assert_eq!(later.get("openai")?.as_deref(), Some("sk-1"));
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(owner.writes().len(), 1, "{:?}", owner.writes());
-    Ok(())
-}
-
-#[test]
-fn a_key_spade_replaced_while_an_old_one_was_being_filed_again_stays_replaced() -> Result {
-    let store = Counting::new()?;
-    store.store_directly(SERVICE, "endpoint:openai", "sk-old")?;
-    let owner = FakeOwner::new(&store, false);
-    let (release, held) = std::sync::mpsc::channel();
-    *owner.hold_checks.lock().map_err(|_| "poisoned")? = Some(held);
-    let keys = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
-    keys.get("openai")?;
-    // Filing the old key again is under way when Spade stores a new one.
+    let keys = owned_keys(&store, &owner);
     keys.set("openai", "sk-new")?;
-    release.send(())?;
-    std::thread::sleep(Duration::from_millis(50));
-    assert_eq!(
-        owner.writes(),
-        vec!["endpoint:openai".to_owned()],
-        "only Spade's own write"
-    );
-    assert_eq!(keys.get("openai")?.as_deref(), Some("sk-new"));
     assert_eq!(
         store.stored(SERVICE, "endpoint:openai").as_deref(),
         Some("sk-new")
     );
+    assert!(!owner.owned(SERVICE, "endpoint:openai"));
     Ok(())
 }
 
 #[test]
-fn a_key_spade_deleted_while_it_was_being_filed_again_stays_deleted() -> Result {
+fn reading_an_entry_from_before_never_rewrites_it() -> Result {
     let store = Counting::new()?;
-    store.store_directly(SERVICE, "endpoint:openai", "sk-old")?;
+    store.store_directly(SERVICE, "endpoint:openai", "sk-old-build")?;
     let owner = FakeOwner::new(&store, false);
-    let (release, held) = std::sync::mpsc::channel();
-    *owner.hold_checks.lock().map_err(|_| "poisoned")? = Some(held);
-    let keys = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
-    keys.get("openai")?;
-    assert!(keys.delete("openai")?);
-    release.send(())?;
+    let keys = owned_keys(&store, &owner);
+    assert_eq!(keys.get("openai")?.as_deref(), Some("sk-old-build"));
+    // Deleted in Keychain Access after Spade read it: nothing brings it back.
+    store.delete_directly(SERVICE, "endpoint:openai")?;
     std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(owner.calls(), 0);
     assert_eq!(store.stored(SERVICE, "endpoint:openai"), None);
-    assert_eq!(keys.get("openai")?, None);
-    assert!(owner.writes().is_empty(), "{:?}", owner.writes());
     Ok(())
 }
 
 #[test]
-fn an_owner_that_cannot_write_still_leaves_the_key_stored() -> Result {
+fn an_owner_that_cannot_create_still_leaves_the_key_stored() -> Result {
     let store = Counting::new()?;
     let owner = FakeOwner::new(&store, true);
-    let keys = KeyStore::with_store(store.clone(), SERVICE).owned_by(owner.clone());
+    let keys = owned_keys(&store, &owner);
     keys.set("openai", "sk-1")?;
     assert_eq!(
         store.stored(SERVICE, "endpoint:openai").as_deref(),
@@ -199,7 +140,6 @@ fn entries_under_another_service_are_never_touched() -> Result {
         .owned_by(owner.clone());
     assert_eq!(dev.get("openai")?, None, "dev never reads live's key");
     dev.set("openai", "sk-dev")?;
-    std::thread::sleep(Duration::from_millis(50));
     assert_eq!(
         store.stored(SERVICE, "endpoint:openai").as_deref(),
         Some("sk-live")

@@ -7,7 +7,7 @@
 //! change. Missing entries are not remembered: looking one up never prompts, and a key another
 //! tool added is then still found.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use zeroize::Zeroizing;
@@ -22,8 +22,6 @@ struct State {
     values: HashMap<String, Zeroizing<String>>,
     /// How many times Spade has changed each entry in this process.
     changes: HashMap<String, u64>,
-    /// Entries this process has already set out to file again with Spade's access list.
-    adopting: HashSet<String>,
 }
 
 /// Where an entry stood when a read of it started.
@@ -41,23 +39,21 @@ impl Cache {
     }
 
     /// Remembers what a read started with `ticket` found, unless Spade changed the entry since.
-    pub(crate) fn fill(&self, account: &str, ticket: Ticket, value: &str) {
+    /// Returns whether it did: if not, the read's answer may be stale.
+    pub(crate) fn fill(&self, account: &str, ticket: Ticket, value: &str) -> bool {
         let mut state = self.lock();
-        if state.changes.get(account).copied().unwrap_or(0) == ticket.0 {
+        let current = state.changes.get(account).copied().unwrap_or(0) == ticket.0;
+        if current {
             state
                 .values
                 .insert(account.to_owned(), Zeroizing::new(value.to_owned()));
         }
+        current
     }
 
     /// Whether Spade has left `account` alone since `ticket` was taken.
     pub(crate) fn unchanged(&self, account: &str, ticket: Ticket) -> bool {
         self.lock().changes.get(account).copied().unwrap_or(0) == ticket.0
-    }
-
-    /// Claims filing `account` again, which happens at most once per process.
-    pub(crate) fn claim_adoption(&self, account: &str) -> bool {
-        self.lock().adopting.insert(account.to_owned())
     }
 
     /// Spade stored `value` for `account`.

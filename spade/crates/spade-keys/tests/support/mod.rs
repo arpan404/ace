@@ -1,5 +1,5 @@
-//! The mock keychain, counting the secrets read from it and optionally pausing a read: a read
-//! still waiting on a prompt, in a test.
+//! The mock keychain, counting the secrets read from it and optionally pausing a read after the
+//! store answered but before the caller sees it: a slow read racing a change, in a test.
 
 #![allow(dead_code)]
 
@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use keyring_core::api::{CredentialApi, CredentialStoreApi};
 use keyring_core::{Credential, CredentialStore, Entry, Result};
 
-/// Runs inside a read, before the mock answers.
+/// Runs inside a read, after the mock answered.
 pub type Hook = Arc<dyn Fn() + Send + Sync>;
 
 pub struct Counting {
@@ -34,8 +34,8 @@ impl Counting {
         self.reads.load(Ordering::SeqCst)
     }
 
-    /// Runs `hook` inside every later read.
-    pub fn during_reads(&self, hook: Option<Hook>) {
+    /// Runs `hook` inside every later read, after the mock answered.
+    pub fn after_reads(&self, hook: Option<Hook>) {
         *self.hook.lock().unwrap_or_else(|p| p.into_inner()) = hook;
     }
 
@@ -44,6 +44,13 @@ impl Counting {
         self.inner
             .build(service, account, None)?
             .set_password(secret)
+    }
+
+    /// Deletes a secret behind Spade's back, as Keychain Access would.
+    pub fn delete_directly(&self, service: &str, account: &str) -> Result<()> {
+        self.inner
+            .build(service, account, None)?
+            .delete_credential()
     }
 
     pub fn stored(&self, service: &str, account: &str) -> Option<String> {
@@ -107,11 +114,11 @@ impl CredentialApi for CountingCred {
     }
 
     fn get_secret(&self) -> Result<Vec<u8>> {
+        let secret = self.inner.get_secret();
         let hook = self.hook.lock().unwrap_or_else(|p| p.into_inner()).clone();
         if let Some(hook) = hook {
             hook();
         }
-        let secret = self.inner.get_secret();
         if secret.is_ok() {
             self.reads.fetch_add(1, Ordering::SeqCst);
         }
