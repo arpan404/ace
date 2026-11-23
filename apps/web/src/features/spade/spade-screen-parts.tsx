@@ -1,11 +1,12 @@
 import { spadeStateLine, type SpadeAvatar } from "@ace/ui-core/spade-chat";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { LivePill, readingColumn } from "@/features/thread/index.ts";
 import { usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
 import { SpadeFace } from "./spade-face.tsx";
+import { FoldScrollContext, type FoldScroll } from "./spade-fold.tsx";
 import { useMarkSeen, type SeenTarget } from "./use-mark-seen.ts";
 import { useSpadeEnabled } from "./use-spade-enabled.ts";
 import { useSpadeStatus } from "./use-spade-status.ts";
@@ -102,6 +103,13 @@ export function Scroller(props: {
     setAway(false);
   }, [props.sent]);
   useLayoutEffect(follow);
+  // A long message opened or closed holds the scroll where the person reads (`spade-fold.tsx`).
+  const fold = useMemo<FoldScroll>(
+    () => ({ element: () => scroller.current, hold: () => atEnd.current && letGo() }),
+    // `letGo` reads refs and stable setters only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   // It opens at its end.
   useEffect(() => reportEnd(atEnd.current), [reportEnd]);
   useLayoutEffect(() => {
@@ -151,7 +159,7 @@ export function Scroller(props: {
         className={scrollerClass}
       >
         <div ref={content} className={cn(columnClass, props.top === "pill" ? "pt-18" : "pt-6")}>
-          {props.children}
+          <FoldScrollContext value={fold}>{props.children}</FoldScrollContext>
         </div>
       </div>
       {pill.mounted && <LivePill newItems={0} more={false} phase={pill.phase} onClick={toEnd} />}

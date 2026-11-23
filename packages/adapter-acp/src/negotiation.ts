@@ -108,6 +108,7 @@ export function negotiate(
     sseMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.sse === true,
     capabilities: {
       ...existing,
+      ...(advertisesSteering(raw) ? { steeringMode: "native" as const } : {}),
       subagentTranscripts: generic ? subagentSessions : existing.subagentTranscripts,
       resume: !profile?.denyResume && resumeMethod !== undefined && (generic || existing.resume),
       imageInput: advertised.promptCapabilities?.image === true && (generic || existing.imageInput),
@@ -123,6 +124,15 @@ export function negotiate(
       planMode: false,
     },
   };
+}
+/**
+ * The steering extension (`_session/steering`, shipped by claude-agent-acp and codex-acp ahead of
+ * ACP standardizing it): advertised in the initialize reply's top-level
+ * `_meta.steering.supported`. Such an agent takes a steer into its running turn, so ace never
+ * cancels the turn for one.
+ */
+function advertisesSteering(raw: unknown): boolean {
+  return object(object(object(raw)["_meta"])["steering"])["supported"] === true;
 }
 /** Antigravity's own extension: `agentCapabilities._meta.antigravity.systemPrompt.append`. */
 function advertisesSystemPromptAppend(raw: unknown): boolean {

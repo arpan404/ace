@@ -84,3 +84,13 @@
 .markit-ace.ace-spade-prose-mine :is(blockquote, li::marker) {
   color: var(--chat-mine-meta);
 }
+
+/*
+ * A long message folded to its first ten lines (`spade-fold.tsx`, ADR 0212 amendment 2). The last
+ * line fades out, so a code block or a table cut through reads as continuing, not broken.
+ */
+.ace-spade-fold[data-folded] {
+  max-height: calc(10lh);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.5lh), transparent);
+}

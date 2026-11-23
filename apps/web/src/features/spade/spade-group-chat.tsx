@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn.ts";
 import { FromThreadLine } from "./from-thread-line.tsx";
 import { part } from "@/lib/suit-part.ts";
 import { SpadeBubbleText } from "./spade-bubble-text.tsx";
+import { SpadeFold } from "./spade-fold.tsx";
 import { chatBubble, framed, mineBubble } from "./spade-bubble-style.ts";
 import { BubbleFrame, SpeakerLine } from "./spade-chat-parts.tsx";
 import { DocumentCard, SpadeReplyContext, useReplies } from "./spade-chat-replies.tsx";
@@ -202,7 +203,9 @@ const Row = memo(function Row(props: {
                 )}
                 className={cn(chatBubble, framed)}
               >
-                <SpadeBubbleText text={row.text} />
+                <SpadeFold fold={row.fold}>
+                  <SpadeBubbleText text={row.text} />
+                </SpadeFold>
               </div>
             )}
             {row.doc && <DocumentCard doc={row.doc} />}
