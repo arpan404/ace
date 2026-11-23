@@ -4,6 +4,7 @@ use super::pictures::Pictures;
 use super::priority_gate::PriorityGate;
 use super::readers::Readers;
 use super::relay_sockets::RelaySockets;
+use super::scrcpy::ScrcpyReaders;
 use super::viewers::Outboxes;
 use super::writer::Writer;
 use crate::engine::delivery::MediaOut;
@@ -33,6 +34,7 @@ pub struct Outputs<'a> {
     pub lag: &'a Mutex<VecDeque<Instant>>,
     pub pictures: &'a mut Pictures,
     pub readers: &'a mut Readers,
+    pub scrcpy: &'a mut ScrcpyReaders,
     pub relays: &'a mut RelaySockets,
     /// Priority answers held until the sockets they report shut are gone.
     pub gate: &'a mut PriorityGate,
@@ -159,11 +161,14 @@ fn apply_once(
             Effect::Encode(command) => {
                 let pictures = &mut *outputs.pictures;
                 let readers = &mut *outputs.readers;
+                let scrcpy = &mut *outputs.scrcpy;
                 let now_ms = outputs.now_ms;
                 match command {
                     EncodeEffect::Configure { token, encodes, .. } if readers.has(token) => {
                         readers.configure(token, encodes)
                     }
+                    // A scrcpy reader passes the stream through: there is nothing to encode.
+                    EncodeEffect::Configure { token, .. } if scrcpy.has(token) => {}
                     EncodeEffect::Configure {
                         source,
                         token,
@@ -179,13 +184,28 @@ fn apply_once(
                     EncodeEffect::Read { source, token, url } => {
                         readers.open(&source, token, &url, now_ms)
                     }
-                    // A token is a reader's or an encoder's, never both.
+                    EncodeEffect::Scrcpy {
+                        source,
+                        token,
+                        host,
+                        port,
+                        deadline_ms,
+                    } => scrcpy.open(&source, token, &host, port, deadline_ms, now_ms),
+                    EncodeEffect::ScrcpyControl { token, .. } => scrcpy.control_connected(token),
+                    // A token is a reader's, a scrcpy reader's or an encoder's, never two.
                     EncodeEffect::Key { token, .. } if readers.has(token) => readers.key(token),
+                    // A scrcpy reader needs no keyframe: the daemon resets the device's
+                    // encoder over control.
+                    EncodeEffect::Key { token, .. } if scrcpy.has(token) => {}
                     EncodeEffect::Key { token, encode, .. } => pictures.key(token, encode),
                     EncodeEffect::Drain { token, .. } if readers.has(token) => readers.drain(token),
+                    EncodeEffect::Drain { token, .. } if scrcpy.has(token) => scrcpy.drain(token),
                     EncodeEffect::Drain { source, token } => pictures.drain(&source, token),
                     EncodeEffect::Close { token, .. } if readers.has(token) => {
                         readers.close(token, now_ms)
+                    }
+                    EncodeEffect::Close { token, .. } if scrcpy.has(token) => {
+                        scrcpy.close(token, now_ms)
                     }
                     EncodeEffect::Close { token, .. } => pictures.close(token, now_ms),
                 }

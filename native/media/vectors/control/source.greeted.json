@@ -1,0 +1,8 @@
+{
+  "direction": "FromMedia",
+  "message": {
+    "type": "source.greeted",
+    "source": "source-1",
+    "dial": 1
+  }
+}

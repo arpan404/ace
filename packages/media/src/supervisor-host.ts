@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
-import { mediaFeatures } from "./wire.ts";
+import { scrcpyVideoBackend } from "@ace/provider-kit/native-switches";
+import { offeredMediaFeatures } from "./wire.ts";
 import {
   connectLane,
   nodeByteSink,
@@ -42,7 +43,8 @@ export function nodeMediaHost(
     spawn(binary) {
       const { command, args } = launch(binary);
       // Offered, not assumed: an older binary ignores the variable and never lists them.
-      const offered = { ...env, ACE_MEDIA_FEATURES: mediaFeatures.join(",") };
+      const features = offeredMediaFeatures(scrcpyVideoBackend() === "native");
+      const offered = { ...env, ACE_MEDIA_FEATURES: features.join(",") };
       const child = spawnRawSupervised({ command, args, env: offered, name: "ace-media" });
       return {
         pid: child.pid,

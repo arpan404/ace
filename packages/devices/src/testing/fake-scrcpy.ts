@@ -38,9 +38,27 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
   throw new Error("Condition was not reached");
 }
 
+/** The device name, codec, session and opening units one greeting carries. */
+function greet(socket: Socket): void {
+  const name = Buffer.alloc(64);
+  name.write("sdk_gphone64_arm64");
+  socket.write(
+    Buffer.concat([
+      name,
+      Buffer.from("h264"),
+      session(540, 1200),
+      media(0x40, sps),
+      media(0x20, nal(0x65, 1)),
+      media(0x00, nal(0x41, 2)),
+    ]),
+  );
+}
+
 /**
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
- * dummy byte on the first connection, device name once control connects, then video.
+ * dummy byte on the first connection, device name once control connects, then video. Like the
+ * pinned server it pairs one video socket with one control socket per greeting: a new video
+ * socket is only greeted after the next control socket connects, never from a prior one.
  */
 export async function fakeDevice(
   cleanup: Cleanup,
@@ -48,32 +66,43 @@ export async function fakeDevice(
 ) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
+  let video: Socket | undefined;
+  let controlSocket: Socket | undefined;
+  let videoAlive = false;
+  let controlSeen = false;
   const server: Server = createServer((socket) => {
     sockets.push(socket);
-    if (sockets.length === 1) socket.write(Buffer.from([0]));
-    else if (options.atControl) options.atControl();
-    else if (options.resetAtControl) {
+    socket.on("error", () => {});
+    if (!video || video.destroyed || !videoAlive) {
+      // A new video socket: the dummy byte now, the name and stream once its own
+      // control socket connects.
+      video = socket;
+      videoAlive = true;
+      socket.once("close", () => {
+        if (video === socket) videoAlive = false;
+      });
+      socket.write(Buffer.from([0]));
+      return;
+    }
+    if (options.atControl) {
+      // The server process exits now, leaving both sockets open and silent.
+      options.atControl();
+      return;
+    }
+    if (options.resetAtControl && !controlSeen) {
+      controlSeen = true;
       // The emulator dies before it names itself: control is reset at once, and the first
       // socket, still awaited for the device name, ends a moment later.
       socket.resetAndDestroy();
-      setTimeout(() => sockets[0]?.destroy(), 200);
-    } else {
-      socket.on("data", (chunk: Buffer) => {
-        control = Buffer.concat([control, chunk]);
-      });
-      const name = Buffer.alloc(64);
-      name.write("sdk_gphone64_arm64");
-      sockets[0]?.write(
-        Buffer.concat([
-          name,
-          Buffer.from("h264"),
-          session(540, 1200),
-          media(0x40, sps),
-          media(0x20, nal(0x65, 1)),
-          media(0x00, nal(0x41, 2)),
-        ]),
-      );
+      setTimeout(() => video?.destroy(), 200);
+      return;
     }
+    controlSeen = true;
+    controlSocket = socket;
+    socket.on("data", (chunk: Buffer) => {
+      control = Buffer.concat([control, chunk]);
+    });
+    if (videoAlive) greet(video);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(
@@ -88,9 +117,9 @@ export async function fakeDevice(
   return {
     port: address.port,
     control: () => control,
-    write: (bytes: Buffer) => sockets[1]?.write(bytes),
-    /** More video on the first socket, as the device's encoder sends it. */
-    video: (bytes: Buffer) => sockets[0]?.write(bytes),
+    write: (bytes: Buffer) => controlSocket?.write(bytes),
+    /** More video on the live video socket, as the device's encoder sends it. */
+    video: (bytes: Buffer) => video?.write(bytes),
     hangUp: () => {
       for (const socket of sockets) socket.destroy();
     },
@@ -189,7 +218,7 @@ export async function fixture(
     },
     failure: (error) => failures.push(error),
     // Video comes only through ace-media: a loopback stands in for it unless a test brings one.
-    media: options.media ?? (await loopbackMedia(cleanup)),
+    media: options.media ?? (await loopbackMedia(cleanup, options.connect)),
   });
   cleanup.push(() => capture.stop());
   return { capture, device, frames, failures, commands };

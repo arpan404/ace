@@ -8,6 +8,7 @@ import {
   type SourceRoute,
 } from "./routes.ts";
 import type { MediaStill, StillRequest } from "./stills.ts";
+import { readReaderDial } from "./producer-stamp.ts";
 import type { FromMedia, MediaFeature, ToMedia } from "./wire.ts";
 
 /**
@@ -44,6 +45,12 @@ export type IngestAddress = {
   path: string;
 };
 
+/**
+ * D1: one scrcpy reader's greeting: the open it came on and its reader generation. Control's
+ * ack names it back, and is dropped once either has moved on.
+ */
+export type ScrcpyGreeting = { path: string; dial: number };
+
 export type IngestProducer = {
   /** The daemon's name for the producer; ace-media's id for it is new on every open. */
   source: string;
@@ -55,7 +62,20 @@ export type IngestProducer = {
   deviceId?: string;
   /** The privacy epoch the producer stamps now. */
   epoch: () => number;
-  /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */
+  /**
+   * D1: ace-media reads this producer's video itself (a scrcpy device's socket), not over
+   * ingest: its source is closed there at once when leaving, and its open carries the
+   * handshake's deadline below.
+   */
+  mediaReads?: boolean;
+  /** D1: longest ace-media spends bringing this source's own picture, in milliseconds. */
+  deadlineMs?: number;
+  /** D1: ace-media's current reader saw scrcpy's dummy byte; connect control now. */
+  greeted?: (greeting: ScrcpyGreeting) => void;
+  /** D1: the scrcpy handshake finished; video follows on egress, under this device name. */
+  ready?: (
+    deviceName: string,
+  ) => void /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */;
   private?: () => boolean;
   /** The daemon's legacy consumers of this source, fed from egress. */
   consumers: LegacyConsumers;
@@ -228,6 +248,16 @@ type Entry = {
   acceleratedBy?: string | undefined;
   /** The stop reason the producer was last told, while it stays stopped. */
   told?: string | undefined;
+  /**
+   * D1: the latest tunnel the daemon asked ace-media to dial, kept across an end so a
+   * retired path still accepts it and a reopen never falls back to the old port.
+   */
+  dial?: { host: string; port: number } | undefined;
+  /**
+   * D1: the reader generation, bumped by every dial. ace-media stamps it on everything from
+   * the source's reader (greeting, ready, end, units); anything of another one is dropped.
+   */
+  reader: number;
 };
 
 /** One open in ace-media: an id, its token until pointed, and its egress handle. */
@@ -300,6 +330,14 @@ export type IngestSource = {
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
   /**
+   * D1: the daemon connected scrcpy's control socket for the reader that greeted; read the
+   * name and codec now. Dropped when that open or that reader generation is no longer the
+   * source's: the ack belongs to that reader's video socket, never to a replacement's.
+   */
+  controlConnected?: (greeting: ScrcpyGreeting) => void;
+  /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */
+  dial?: (host: string, port: number) => void;
+  /**
    * The source's privacy epoch from now on (M8), for a producer whose frames ace-media stamps
    * as it reads them (a JPEG source's pictures): `followsPrivate` says the one it replaces was
    * private, so pictures read in the next 100 ms keep that one and nothing from it is a still.
@@ -349,6 +387,7 @@ export class IngestSources {
       reopens: 0,
       closed: false,
       held: [],
+      reader: 0,
     };
     this.#entries.add(entry);
     this.#sync(entry);
@@ -380,6 +419,21 @@ export class IngestSources {
       key: (encode) => {
         const live = entry.live;
         if (live) this.#send({ type: "source.key", source: live.id, encode });
+      },
+      // D1: the daemon connected scrcpy's control socket; read the name and codec now.
+      controlConnected: (greeting) => {
+        if (entry.live?.id !== greeting.path || greeting.dial !== entry.reader) return;
+        this.#send({ type: "source.controlConnected", source: greeting.path, dial: greeting.dial });
+      },
+      // D1: re-dial the video handshake at a tunnel, under the same source. The dial
+      // sticks to the entry: a retired path still accepts it, and a reopen carries it.
+      dial: (host, port) => {
+        entry.dial = { host, port };
+        // The wire's u32: 0 means "none", so a dial's generation stays in 1..=4294967295.
+        entry.reader = entry.reader >= 0xffff_ffff ? 1 : entry.reader + 1;
+        const dial = entry.reader;
+        const live = entry.live;
+        if (live) this.#send({ type: "source.dial", source: live.id, host, port, dial });
       },
       epoch: (epoch, followsPrivate) => {
         // Held until the open is acknowledged: on the priority lane it could overtake the
@@ -541,7 +595,9 @@ export class IngestSources {
     if (
       message.type !== "source.status" &&
       message.type !== "source.keyframe" &&
-      message.type !== "source.want"
+      message.type !== "source.want" &&
+      message.type !== "source.greeted" &&
+      message.type !== "source.ready"
     )
       return;
     const path = this.#paths.get(message.source);
@@ -550,6 +606,17 @@ export class IngestSources {
     if (entry.closed || entry.live !== path) return;
     if (message.type === "source.keyframe") {
       if (entry.state === "ingest") entry.producer.keyframe(message.encode);
+      return;
+    }
+    // D1: a reader the source has moved on from (an earlier dial's) says nothing.
+    if (message.type === "source.greeted") {
+      if (entry.state === "ingest" && message.dial === entry.reader)
+        entry.producer.greeted?.({ path: path.id, dial: message.dial });
+      return;
+    }
+    if (message.type === "source.ready") {
+      if (entry.state === "ingest" && message.dial === entry.reader)
+        entry.producer.ready?.(message.deviceName);
       return;
     }
     if (message.type === "source.want") {
@@ -583,6 +650,14 @@ export class IngestSources {
       return;
     }
     if (message.status === "ended" && message.reason !== undefined) {
+      // A source ace-media reads itself (a scrcpy device's video) stays open: its producer
+      // decides, and either redials it (`dial` revives its reader) or closes it.
+      if (entry.producer.mediaReads === true && entry.state === "ingest") {
+        // An earlier reader's end, already on its way when the dial came, ends nothing.
+        if (message.dial === undefined || message.dial === entry.reader)
+          entry.producer.refused?.(message.reason);
+        return;
+      }
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
       if (message.reason !== noEncoderReason) return this.#failed(entry, message.reason);
@@ -640,6 +715,15 @@ export class IngestSources {
     let path: Path | undefined;
     const consumers: LegacyConsumers = {
       ...producer.consumers,
+      // D1: a unit of a reader the source has moved on from is dropped.
+      ...(producer.mediaReads === true
+        ? {
+            deliver: (unit) => {
+              const dial = readReaderDial(unit.frame.extension);
+              if (dial === undefined || dial === entry.reader) producer.consumers.deliver(unit);
+            },
+          }
+        : {}),
       end: (end) => {
         if (path) this.#marked(path, end.interrupted);
       },
@@ -664,7 +748,20 @@ export class IngestSources {
         port.speaks("privacy-open")
           ? { private: true }
           : {}),
-        origin: producer.origin,
+        // D1: a scrcpy source ace-media reads itself carries its handshake's deadline,
+        // and only to a build that agreed to the scrcpy reader.
+        // A reopen after a dial carries that reader generation.
+        ...(producer.deadlineMs === undefined || !port.speaks("scrcpy-video")
+          ? {}
+          : {
+              deadlineMs: producer.deadlineMs,
+              ...(entry.reader > 0 ? { dial: entry.reader } : {}),
+            }),
+        // D1: a reopen after a dial carries the dial's tunnel, never the stale origin.
+        origin:
+          producer.origin.kind === "scrcpy" && entry.dial !== undefined
+            ? { ...producer.origin, host: entry.dial.host, port: entry.dial.port }
+            : producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),
         ...(producer.sessionId === undefined ? {} : { sessionId: producer.sessionId }),
@@ -800,7 +897,10 @@ export class IngestSources {
     // ace-media stays up until the path's last unit is in, whatever the routes say now.
     path.release = this.#options.port.need();
     path.draining = this.#options.schedule(() => this.#finish(path, true, true), drainMs);
-    if (readByMedia.has(path.entry.producer.kind)) this.#closeInMedia(path);
+    // A source ace-media reads itself closes there at once, so nothing of its socket
+    // outlives the capture: its units come on the same lane as the close.
+    if (readByMedia.has(path.entry.producer.kind) || path.entry.producer.mediaReads === true)
+      this.#closeInMedia(path);
   }
 
   #marked(path: Path, interrupted: boolean): void {
