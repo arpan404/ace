@@ -9,6 +9,7 @@ import {
   type AuditRow,
 } from "@ace/ui-core/org";
 import { z } from "zod";
+import { answerRegistry, registryOperations } from "./organization-registry.ts";
 import { spadeText } from "./spade-text.ts";
 
 /*
@@ -16,7 +17,8 @@ import { spadeText } from "./spade-text.ts";
  * Swift calls the account backend itself; it asks this machine's runtime for the policy as a
  * form (its lists as lines of text, `@ace/ui-core/org`) and for the body that saves a form as the
  * next version, and, on an org host, for its Spade's signed audit log (`GET
- * /v1/org/audit/export`), newest first, filtered by person and kind, or whole for Export.
+ * /v1/org/audit/export`), newest first, filtered by person and kind, or whole for Export; and
+ * the registry's versions and withdrawals (`organization-registry.ts`).
  */
 
 const Rule = z.enum(["unset", "off", "admins", "approvers"]);
@@ -68,6 +70,7 @@ export const NativeOrganizationRequest = z.object({
       fresh: z.literal(true).optional(),
     }),
     z.object({ op: z.literal("auditExport") }),
+    ...registryOperations,
   ]),
 });
 export type NativeOrganizationRequest = z.infer<typeof NativeOrganizationRequest>;
@@ -120,6 +123,10 @@ export class NativeOrganization {
         const read = await this.readLog(signal, request.fresh === true);
         return "message" in read ? { ok: false, message: read.message } : audit(read.text, request);
       }
+      case "registryIntent":
+      case "registry":
+      case "registryWithdraw":
+        return answerRegistry(this.owner, request, signal);
       case "auditExport": {
         const read = await this.readLog(signal, true);
         return "message" in read

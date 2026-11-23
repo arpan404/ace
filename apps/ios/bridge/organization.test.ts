@@ -32,14 +32,14 @@ const entry = (seq: number, action: string, actor: string, at = seq * 1000) => (
 
 async function host(seed: (fake: FakeSpadeApi) => void = () => {}) {
   let clock = 0;
-  const { owner } = await setUp(seed);
+  const { owner, daemon } = await setUp(seed);
   const organization = new NativeOrganization(owner, {
     id: () => crypto.randomUUID(),
     now: () => clock,
   });
   const ask = (request: unknown) =>
     organization.answer(NativeOrganizationRequest.parse({ type: "native.organization", request }));
-  return { ask, later: (ms: number) => (clock += ms) };
+  return { ask, daemon, later: (ms: number) => (clock += ms) };
 }
 
 const stored = JSON.stringify({
@@ -170,5 +170,71 @@ test("a machine that isn't one of the organization's hosts says so", async () =>
   expect(answer).toEqual({
     ok: false,
     message: "This machine isn't one of your organization's hosts, so it keeps no audit log.",
+  });
+});
+
+const acme = "org_01ACME";
+const withdrawal = {
+  type: "spade-skill",
+  name: "triage-mail",
+  version: "1.1.0",
+  reason: "Leaks a token",
+};
+
+test("the registry is read with the grant the phone minted for the very request the bridge named", async () => {
+  const { ask, daemon } = await host();
+  const named = (await ask({ op: "registryIntent", org: acme })) as { intent: string };
+  expect(named.intent).toMatch(new RegExp(`^GET /v1/orgs/${acme}/registry `));
+
+  const read = (await ask({ op: "registry", org: acme, grant: "grant-for-the-read" })) as {
+    ok: true;
+    entries: {
+      title: string;
+      versions: { version: string; line: string; canWithdraw: boolean }[];
+    }[];
+  };
+  expect(read.entries.map((each) => each.title)).toEqual(["Triage mail", "On-call"]);
+  expect(read.entries[0]?.versions[0]).toMatchObject({
+    version: "1.1.0",
+    line: "Live · Scan passed",
+    canWithdraw: true,
+  });
+  expect(read.entries[1]?.versions[0]?.line).toBe("Held for ace's review · Scan warned");
+  expect(daemon.marketplace.registries.asked.at(-1)?.personGrant).toBe("grant-for-the-read");
+});
+
+test("a withdrawal goes with its own grant, and the version then waits for the registry's signer", async () => {
+  const { ask, daemon } = await host();
+  const named = (await ask({ op: "registryIntent", org: acme, withdraw: withdrawal })) as {
+    intent: string;
+  };
+  expect(named.intent).toMatch(
+    new RegExp(`^POST /v1/orgs/${acme}/entries/spade-skill/triage-mail/1.1.0/withdraw `),
+  );
+  expect(
+    await ask({ op: "registryWithdraw", org: acme, ...withdrawal, grant: "grant-for-it" }),
+  ).toEqual({ ok: true });
+  expect(daemon.marketplace.registries.asked.at(-1)).toMatchObject({
+    action: { action: "registryWithdraw", reason: "Leaks a token" },
+    personGrant: "grant-for-it",
+  });
+  const read = (await ask({ op: "registry", org: acme, grant: "g" })) as {
+    entries: { versions: { line: string; detail?: string; canWithdraw: boolean }[] }[];
+  };
+  expect(read.entries[0]?.versions[0]).toMatchObject({
+    line: "Withdrawal waiting for the registry's signer · Scan passed",
+    detail: "Leaks a token",
+    canWithdraw: false,
+  });
+});
+
+test("a refused read says why in the registry's words", async () => {
+  const { ask } = await host();
+  // A version that isn't there: the market answers not found.
+  expect(
+    await ask({ op: "registryWithdraw", org: acme, ...withdrawal, version: "9.9.9", grant: "g" }),
+  ).toEqual({
+    ok: false,
+    message: "This organization has no registry yet, or that version is gone.",
   });
 });
