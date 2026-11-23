@@ -44,10 +44,11 @@ extension ConversationFeed {
     /// capture, successor search and session restore.
     func currentTopRow() -> (rowID: String, itemID: String?, top: Double)? {
         let inset = intent.metrics.topInset
-        let rows = TranscriptFeedRow.rows(shown)
-        guard let id = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: inset),
-            let first = rows.first(where: { $0.id == id }) else { return nil }
-        return (rowID: first.id, itemID: first.block.row.items.first, top: anchor.keeper.frames.top(first.id, inset: inset) ?? 0)
+        let window = shown
+        guard let id = anchor.keeper.frames.topRow(inset: inset, containing: {
+            TranscriptFeedRow.block($0, in: window) != nil
+        }), let block = TranscriptFeedRow.block(id, in: window) else { return nil }
+        return (rowID: id, itemID: block.row.items.first, top: anchor.keeper.frames.top(id, inset: inset) ?? 0)
     }
     /// Takes the row at the top as the one to hold.
     func captureTop() {
@@ -110,7 +111,7 @@ extension ConversationFeed {
             switch action {
             case .hold(let id, let top):
                 let item = viewport.held?.rowID == id ? viewport.held?.itemID
-                    : TranscriptFeedRow.rows(shown).first { $0.id == id }?.block.row.items.first
+                    : TranscriptFeedRow.block(id, in: shown)?.row.items.first
                 viewport.noteCaptured(rowID: id, itemID: item, top: top)
             case .place(let id, let top):
                 if !placeRowAtTop(id, top: top, proxy: proxy) { proxy.scrollTo(id, anchor: .top) }
@@ -273,7 +274,8 @@ extension ConversationFeed {
             evicted.formUnion(prefixedBlocks(evidence.evictedTrailing))
         }
         let removalByID = Dictionary(uniqueKeysWithValues: shown.recentRemovals.map { ($0.id, $0) })
-        for (blockID, items) in lastBlockItems where !ids.contains(blockID) {
+        let resident = Set(ids)
+        for (blockID, items) in lastBlockItems where !resident.contains(blockID) {
             guard !items.isEmpty else { continue }
             var allEvicted = true
             for item in items {

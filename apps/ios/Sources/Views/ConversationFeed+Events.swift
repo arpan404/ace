@@ -177,10 +177,10 @@ extension ConversationFeed {
         return {
             guard reading.thread != nil, !reading.loading else { return }
             let shown: ThreadModel = reading.shown ?? thread
-            let rows: [TranscriptFeedRow] = TranscriptFeedRow.rows(shown)
-            let topID: String? = anchor.keeper.frames.topRow(of: rows.map(\.id), inset: intent.metrics.topInset)
-            let first: TranscriptFeedRow? = rows.first { $0.id == topID }
-            let item: String? = first?.block.row.items.first ?? reading.lastAnchorItemId
+            let topID = anchor.keeper.frames.topRow(inset: intent.metrics.topInset, containing: {
+                TranscriptFeedRow.block($0, in: shown) != nil
+            })
+            let item = topID.flatMap { TranscriptFeedRow.block($0, in: shown)?.row.items.first } ?? reading.lastAnchorItemId
             if let item { reading.rebuild(model: model, live: thread, anchorItemId: item) }
         }
     }
