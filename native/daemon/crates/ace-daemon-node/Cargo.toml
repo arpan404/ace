@@ -17,6 +17,12 @@ crate-type = ["cdylib"]
 
 [dependencies]
 ace-store = { path = "../ace-store" }
+# ace-adapter-codex: the Codex translator behind the exported translator name (E1).
+ace-adapter-codex = { path = "../ace-adapter-codex" }
+# ace-core: facts cross the binding as JSON; the type names the spliced body.
+ace-core = { path = "../ace-core" }
+# serde_json: the binding splices fact bodies as RawValue without re-parsing them.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
 napi = { version = "3", default-features = false, features = ["napi8"] }
 napi-derive = "3"
 
