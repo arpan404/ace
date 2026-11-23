@@ -329,7 +329,7 @@ impl CodexTranslator {
         if p.get("status").is_some() {
             self.discover_status(id, p, facts, now, &revision);
         }
-        if !lost || p.get("turns").is_some_and(|v| v.is_array()) {
+        if !lost || !p.get("turns").is_some_and(|v| v.is_array()) {
             for frame in buffered {
                 self.replay_hydration_frame(frame, now, facts);
             }

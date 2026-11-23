@@ -24,8 +24,8 @@ fn valid_status(status: &str) -> Option<&'static str> {
         "active" => Some("active"),
         "paused" => Some("paused"),
         "blocked" => Some("blocked"),
-        "usage_limited" => Some("usage_limited"),
-        "budget_limited" => Some("budget_limited"),
+        "usageLimited" => Some("usage_limited"),
+        "budgetLimited" => Some("budget_limited"),
         "complete" => Some("complete"),
         _ => None,
     }
