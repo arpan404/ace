@@ -33,13 +33,39 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    (`decisions.ts:13`); refusals ("Skipped: new work was paused.", "New work is paused. Resume new
    work in ace to continue.", `contracts.ts:91`–`:93`; "Missing trigger variable: …",
    `decisions.ts:9`; the org-host refusal, `apps/daemon/src/automation-executor.ts:44`) come from a
-   generated table. `AutomationResponse`, `AutomationRun` and inbox pages serialize in their
+   catalog (`native/daemon/catalog/automations.json`, ADR 0225 safeguard 3). `AutomationResponse`, `AutomationRun` and inbox pages serialize in their
    schema's key order through `ace-json` (types from `ace-protocol`'s generator, ADR 0223 E0).
 5. **Priority 1 (A2):** a run is never succeeded while any part of its tree works, waits on the
    person or is uncertain. `automation-run-rules.ts` is ported rule for rule, in order.
-6. **Crypto**: AES-256-GCM for the secret box (`aes-gcm`), HMAC-SHA256 signatures (`hmac`, `sha2`,
-   constant-time compare with `subtle`), exactly as `webhook-secret-box.ts:34` and
-   `webhook-signature.ts:42` do; the key file and its owner-only mode stay.
+6. **Webhook secrets and signatures are byte-compatible both ways**, so a home Rust wrote opens
+   with the switch off, and the other way round:
+   - **Envelope** (`webhook-secret-box.ts:32`–`:51`): `v1.<iv>.<tag>.<ciphertext>`, each part
+     standard base64 (with padding, as `Buffer.toString("base64")` writes it), a fresh 12-byte IV
+     per seal, the 16-byte GCM tag, AES-256-GCM (`aes-gcm`) over the secret's UTF-8 bytes.
+   - **The automation id is the GCM associated data** (`setAAD(Buffer.from(automationId))`, its
+     UTF-8 bytes), so a sealed secret moved to another automation's row doesn't open.
+   - **Opening fails closed and quietly**: a wrong tag, version, part count, key or id yields
+     undefined, never an error; a missing key leaves secrets unreadable and is never replaced on
+     open (`load` only); sealing may create it.
+   - **Signatures** (`webhook-signature.ts:42`): HMAC-SHA256 (`hmac`, `sha2`) keyed with the
+     base64-decoded secret (the `whsec_` prefix stripped when present, `:10`), over the ASCII
+     `<id>.<seconds>.` followed by the request body's **raw bytes** (never a decoded or
+     re-encoded string); `v1,<base64>` entries, at most 16, compared in constant time
+     (`subtle`), one match enough; the tolerance and header rules (`deliveryId`, `timestamp`,
+     `:12`–`:13`) as written.
+   - **The key file** (`apps/daemon/src/automation-webhook-key.ts:24`–`:65`): `automation-webhooks.key`
+     in the data directory, exactly 32 bytes. Create with `O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW`,
+     mode 0600 (then `fchmod` on POSIX); on `EEXIST` read the other store's key. Load with
+     `O_RDONLY|O_NOFOLLOW|O_NONBLOCK`, so a symlink is refused (`ELOOP`) and a FIFO at the path
+     never blocks the daemon; then `fstat` on the open descriptor: a regular file, owned by this
+     user, not readable by group or others, exactly 32 bytes, else refused with today's message
+     and left as it is. Use `rustix` (`openat` flags, `fstat`) on POSIX and the Windows
+     equivalents (no reparse-point following, `FILE_FLAG_OPEN_REPARSE_POINT`) there.
+   - Proof, switch off and on, and **across switches**: `webhook-secret-box`, `webhooks`, daemon
+     `automation-webhooks.process`; then the cross-mode run of `automation-webhooks.process`
+     (secrets sealed by one backend opened and verified by the other, both ways). The (b) cases of
+     `webhook-signature`, `webhook-body` and daemon `automation-webhook-key` (symlink, FIFO,
+     mode, owner, size) move into `cargo test`.
 7. **Never start a real `gh` against GitHub.** The (a) files use fake `gh` processes; keep it so.
 
 ## Files per item
@@ -78,15 +104,24 @@ durably. The switch sits at the top of `automationRunExecutor`
 both call; their `AutomationTarget` (the run's command, built inside the admission write) moves
 with it once the engine's command path is Rust, and until then is called back on the JS thread
 inside the store's transaction. Launch settings and titles (`runSettings`, `launchChoices`,
-`automationThreadTitle`) are generated text or computed by the TypeScript and passed in.
+`automationThreadTitle`) come from the catalog or are computed by the TypeScript and passed in.
 
 | TypeScript replaced (`apps/daemon/src/`)                                                                                                                                                                           | Lines | Proof: (a) files (`apps/daemon/src/`)                                                                                                                                                                                                            | (b) cases to move                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | `automation-executor`, `automation-run-executor`, `automation-run-monitor`, `automation-run-facts`, `automation-run-rules`, `automation-run-record`, `automation-lifecycle`, `agent-control/owner-thread-executor` | 1,766 | `automation-durability.process`, `automation-idle.process`, `automation-one-thread.process`, `automation-run-record.process`, `automation-webhooks.process`, `thread-automations.process`, `cli-automation.process`, `cursor-automation.process` | `automation-run-rules`, `automation-org-host`, `automation-run-settings` |
 
 Same numbers: reconcile every 5 s (`automation-run-monitor.ts:26`), a stop sent 5 times
-(`:28`), reads that touch only the turn's own rows. Cross-mode: the files above that restart,
-through `scripts/native-cross.ts ACE_AUTOMATION_EXECUTOR`. Measure `bench/lifecycle.ts` and
+(`:28`), reads that touch only the turn's own rows.
+
+**The Cursor recovery case is part of A2's gate**, not an extra: `cursor-automation.process`
+(behaviour.md §5, class a) pins that an existing Cursor automation launches on the SDK and that
+recovery keeps the same thread. It runs with `ACE_AUTOMATION_EXECUTOR` off and on, with
+`ACE_ENGINE=native` and with the Cursor session on either backend (`ACE_SESSIONS` unset and
+`=cursor`, ADR 0223 E3), and in the cross-mode list.
+
+Cross-mode: `automation-durability.process`, `automation-run-record.process`,
+`cursor-automation.process`, and any other file above that restarts, through
+`scripts/native-cross.ts ACE_AUTOMATION_EXECUTOR`. Measure `bench/lifecycle.ts` and
 `apps/daemon/bench/agent-control.ts`, and daemon CPU while 20 runs are followed.
 
 ## A3: file triggers (needs A1 and the files tool's Rust backend)

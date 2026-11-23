@@ -24,10 +24,12 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    output schema's checked value stringifies to; `structuredContent`, descriptors and resources
    are written with `ace-json` in their schema's key order; arguments and results are `JsString`
    throughout.
-3. **Descriptors and words are generated (M1), never retyped.** `inputSchema` and
-   `outputSchema` from `z.toJSONSchema` with ace's advertising rules (`advertised-schema.ts`,
-   `schema-unions.ts`), annotations and `_meta` (`registry.ts:331`–`:380`), the `PublicToolError`
-   catalog (`public-error.ts`), `aceInstructions` and guide topics (`status.ts`), session guidance
+3. **Descriptors and words come from the catalog (M1), never retyped.** The canonical copy is
+   language-neutral JSON under `native/daemon/catalog/` (ADR 0225 safeguard 3), read by the
+   TypeScript and by Rust: each tool's descriptor as `tools/list` serves it (`inputSchema` and
+   `outputSchema` with ace's advertising rules, `advertised-schema.ts`, `schema-unions.ts`;
+   annotations and `_meta`, `registry.ts:333`–`:380`), the `PublicToolError` catalog
+   (`public-error.ts`), `aceInstructions` and guide topics (`status.ts`), session guidance
    (`session-guidance.ts`), control hints (`control-hints.ts`), listing headers (`toolsets.ts`).
 4. **Input is Zod's until a family proves otherwise** (ADR 0225 §4.2). For a JavaScript tool, the
    `JsTool` bridge runs the tool's own `parseToolArguments`, handler and output check in TypeScript.
@@ -54,22 +56,35 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
 
 | Item | Rust (yours)                                                                                        | Binding (yours)                                   | TypeScript shell (yours)                                                                       | Switch                      |
 | ---- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------- |
-| M1   | `ace-mcp/generated/{tools,errors,guidance,listing}.json`, `ace-mcp/src/generated.rs`                | none                                              | `scripts/generate-rust-mcp.ts`, a step in `check:daemon-native`                                | none                        |
+| M1   | `native/daemon/catalog/{tools,errors,guidance,listing}.json`, `ace-mcp/src/catalog.rs`              | none                                              | `scripts/export-catalog.ts` (once), `check:catalog-listing`, `check:catalog-text`              | none                        |
 | M2   | `ace-mcp/src/{http,jsonrpc,sessions,legacy,streams,auth,registry,listing,calls,budgets,js_tool}.rs` | `ace-daemon-node/src/mcp/{mod,server,js_tool}.rs` | `packages/mcp-server/src/native-server.ts` (the switch line in `startMcpServer`, `http.ts:95`) | `ACE_MCP=native`            |
 | M3   | `ace-mcp/src/{records,awareness,brief,digest,roles,guidance,search,availability}.rs`                | `ace-daemon-node/src/mcp/awareness.rs`            | the switch lines in `apps/daemon/src/tool-result-mcp.ts`, `mcp-awareness.ts`, `mcp.ts`         | `ACE_MCP_CALLS=native`      |
 | M4   | the family owner's crate, `tools.rs`                                                                | `ace-daemon-node/src/tools/<family>.rs`           | the family line in its toolkit                                                                 | `ACE_NATIVE_TOOLS=<family>` |
 | M5   | `native/cli/src/mcp_stdio.rs` (the `ace` binary, ADR 0221)                                          | none                                              | `acpStdioInjection`'s command (`injection.ts:216`)                                             | `ACE_MCP_STDIO=native`      |
 
-## M1: generated tables (needs nothing)
+## M1: the canonical catalog (needs nothing)
 
-`scripts/generate-rust-mcp.ts` builds every toolkit's registry the way
-`tools/protocol-docs/src/catalog.ts` and `apps/daemon/bench/tool-list.ts` already do (fake ports,
-no effects), and writes each tool's descriptor as `JSON.stringify` writes it, the public error
-catalog, the instructions, guide topics, session guidance, control hints and listing headers.
-`check:daemon-native` regenerates and fails on a diff. No runtime change, no switch.
+1. **Export once.** `scripts/export-catalog.ts` builds every toolkit's registry the way
+   `tools/protocol-docs/src/catalog.ts` and `apps/daemon/bench/tool-list.ts` already do (fake
+   ports, no effects) and writes, as `JSON.stringify` writes them: each tool's descriptor, the
+   public error catalog, the instructions, guide topics, session guidance, control hints and
+   listing headers, into `native/daemon/catalog/`. The area guides add their own files
+   (`devices.json`, `screen.json`, `automations.json`) the same way.
+2. **The TypeScript reads its words from the catalog**: `public-error.ts`'s messages and next
+   steps, `status.ts`'s instructions, `session-guidance.ts`, `control-hints.ts` and the listing
+   headers import the JSON (`with { type: "json" }`) instead of holding literals. Behaviour is
+   unchanged, which the (a) files prove; descriptors stay built from Zod while the TypeScript
+   runs, and the check below holds them to the catalog.
+3. **Rust embeds the same files** (`include_str!`, parsed with `ace-json`, `ace-mcp/src/catalog.rs`).
+4. **Two checks in `check:daemon-native`**: `check:catalog-listing` starts a daemon on an empty
+   temporary `HOME` and `ACE_HOME` (no provider) and compares each built backend's live
+   `tools/list`, byte for byte, with `tools.json`, and `z.toJSONSchema` of every live registration
+   with its entry; `check:catalog-text` renders every public error code and every refusal through
+   each backend's live path (`toolFailure` in TypeScript, the addon in Rust) and compares the
+   bytes. A tool added or a word changed means editing the catalog, and both sides follow.
 
-- Proof: `check:daemon-native`; `advertised-schema`, `tool-guidance.process`, `status`,
-  `session-guidance` run unchanged.
+- Proof: both checks pass; `advertised-schema`, `tool-guidance.process`, `status`,
+  `session-guidance`, `actionable-errors`, `agent-errors` run unchanged.
 
 ## M2: the server and registry (needs M1, `ACE_STORE=native`)
 
@@ -95,12 +110,19 @@ Windows VM before default-on.
 
 The per-call store work that took about 55% of a call's CPU (ADR 0225, finding 1), designed out:
 
-- **Call records**: a running call's record lives in the registry's in-flight table (the
-  overlap rule of `tool-result-mcp.ts:201`–`:211` reads it there) and is written once, when the
-  call ends, with its result, images and notice, through `ace-store` (in the writer's batch once
-  ADR 0222 phase 5 has landed). If a reader of `ace_results.finished IS NULL` across a restart
-  is found, the start row stays, written through the same batch, and the report says so (ADR 0225
-  question 5).
+- **Call records keep the start write and its whole correlation transaction.** The start row is
+  not bookkeeping: at the start of every call, inside one transaction, `observeCall`
+  (`tool-result-mcp.ts:175`–`:226`) finds the provider's tool item this call belongs to (`prior`,
+  `ace_tools` rows of the same agent, name and arguments since the lease began, within 90 s, not
+  yet bound, at most 2), detects an identical call still running in the same session
+  (`finished IS NULL`) and then clears every unbound row's `bound_id` so an ambiguous pair binds
+  to nothing, and inserts the row with `bound_id` set to the one prior item, or `''` when the
+  binding is ambiguous. The item-event side (`:150`–`:172`, `correlate`) binds results to items
+  that arrive after the call. M3 moves that whole transaction to Rust unchanged, on the main
+  connection, before the tool runs, with the same statements, windows and limits (cached
+  prepared statements; no extra reads). The finish write (`:256`–`:280`: result, images,
+  notice) keeps its own transaction, in the writer's batch once ADR 0222 phase 5 has landed. The
+  savings come from the next two items, not from dropping a write.
 - **The change digest**: each session's facts are held and updated from the store's published
   events (threads, notes, requests, delegates), so `changes` and `guidance` compare held facts
   instead of reading them per call (`awareness.ts:61`–`:118`); `renderBrief`, `renderDigest` and
@@ -116,8 +138,11 @@ The per-call store work that took about 55% of a call's CPU (ADR 0225, finding 1
 | `awareness`, `brief`, `changes`, `roles`, `session-guidance`, `status`, `tool-search`; daemon `tool-result-mcp`, `tool-result-content`, `mcp-awareness`, `mcp-data` | `brief`, `roles`, `status`, `session-guidance`, `session-brief.process`, `thread-read-view`, `actionable-errors`; daemon `mcp-awareness.process`, `mcp-guidance.process`, `mcp-roles.process`, `mcp-status-groups.process`, `claude-mcp-privacy.process`, `measurement-step.process`, `mcp-tools-find.process` | `tool-search`     |
 
 Measure with `bench/mcp-requests.ts` and its CPU profile: the share of a call outside the tool's
-own work must fall, and nothing in the (a) files may change. Cross-mode: the daemon files above
-that restart, both ways (call records).
+own work must fall, and nothing in the (a) files may change. Also run, switch on, the files that
+pin the correlation: `tool-result-mcp` binding through daemon `measurement-step.process`,
+`agent-computer-journey.process` (screen results bound to their items) and the item-event path in
+`mcp.process`. Cross-mode: the daemon files above that restart, both ways (a row started by one
+backend is finished or correlated by the other).
 
 ## M4: tool families (each needs M2 and its owner)
 
@@ -138,16 +163,37 @@ one implementation, moved with the family.
 
 ## M5: the stdio bridge (needs M2 and ADR 0221's CLI)
 
-Replaces `stdio-bridge` and `stdio-entry`.
+Replaces `stdio-bridge` and `stdio-entry`. Today a stdio-only client (ACP agents) spawns
+`stdio-entry.ts` in Bun (`injection.ts:216`–`:220`). In Rust it is a subcommand of the `ace`
+binary, and it keeps **both protocol paths** of `stdio-bridge.ts`, not a byte pipe:
 
-Today a stdio-only client (ACP agents) spawns `stdio-entry.ts` in Bun (`injection.ts:216`–`:220`),
-which forwards JSON-RPC lines to the HTTP endpoint through the MCP client. In Rust it is a
-subcommand of the `ace` binary that forwards each message's bytes without re-encoding, with the
-same 32 MiB queue cap, response limits and close behaviour; `acpStdioInjection` names it when the
-switch is on.
+1. **Requests go stateless over 2025 HTTP** (`:87`–`:150`): each stdin line is parsed as a
+   JSON-RPC message (a malformed line fails the bridge, as `Message.parse` does), POSTed alone to
+   the endpoint with `MCP-Protocol-Version: 2025-11-25`, `Accept: application/json,
+text/event-stream`, the bearer, the listing headers and `redirect: error`. A notification, or
+   a `202`, writes nothing back. A JSON reply is written as is; for an SSE reply the bridge reads
+   events until **the one whose `id` matches the request** and writes only that one, dropping
+   other events. Each written line is the reply value as `JSON.stringify` writes it, which
+   `ace-json` reproduces from the parsed value.
+2. **Notifications come over a separate 2026-07-28 subscription** (`:60`–`:93`): on the first
+   `notifications/initialized` or `tools/list`, the bridge opens one session pinned to
+   `2026-07-28` with the bearer and listing headers, and, when the server's capabilities say
+   `tools.listChanged`, listens; each `notifications/tools/list_changed` it receives is written to
+   stdout. A failure to open it is ignored, as today (`listen().catch`).
+3. **Cancellation and deadlines per request**: a `notifications/cancelled` aborts the in-flight
+   request with that `requestId` (`:91`–`:94`); a duplicate request id fails the bridge
+   (`:97`); a request's own deadline (`maxToolTimeoutMs` for `tools/call`, else 120 s)
+   aborts only that request and leaves the connection for the next (`:103`–`:110`).
+4. **Budgets**: `maxBridgeResponseBytes` per reply and `maxBridgeQueuedBytes` across replies
+   (`result-budgets.ts`), a bounded writer with the same backpressure, and the same close: a
+   failure aborts the lifetime, closes the writer and destroys stdin.
 
-- (a): `stdio-bridge.process`, `stdio-results.process`, `acp-listing.process`; the ACP adapter's
-  session (a) files that use the bridge.
+The server side (M2) therefore keeps serving both: stateless 2025 POSTs with JSON or SSE replies,
+and 2026-07-28 sessions with listen streams and `list_changed`.
+
+- (a): `stdio-bridge.process`, `stdio-results.process`, `acp-listing.process`,
+  `list-changed.process`, `notification-streams.process`; the ACP adapter's session (a) files that
+  use the bridge; each with `ACE_MCP` off and on too, since the bridge and server switch apart.
 - Measure `bench/stdio.ts`, off and on.
 
 ## Not part of this port

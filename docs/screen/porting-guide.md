@@ -5,7 +5,7 @@ Read [ADR 0225](../adr/0225-devices-screens-automations-and-the-mcp-server-move-
 [behaviour.md](behaviour.md) first: the contract there is what you keep, and behaviour.md §5 lists
 every test file by class. The [devices porting guide](../devices/porting-guide.md)'s rules for
 every item apply here unchanged (same interface, one switch, facades that grow method by method,
-no new tests, (b) cases move, `ace-json` and `JsString`, generated words, same numbers, every child
+no new tests, (b) cases move, `ace-json` and `JsString`, words from the catalog, same numbers, every child
 through `ace-supervisor`, Rust rules, build and check, commit and push); this guide adds what is
 particular to screens.
 
@@ -29,7 +29,7 @@ Branch from `ace/daemon-rust-rewrite` once the item's needs are merged, one bran
    order.
 4. **Text the model reads**: outlines and diffs (exactly "No change since your last look."),
    refusals (`blockedReason`, `computer/policy.ts:245`), the step results of `screen_act`, error
-   messages. Generated tables for ace's own words; helper messages pass through as `JsString`.
+   messages. ace's own words from `native/daemon/catalog/screen.json` (ADR 0225 safeguard 3); helper messages pass through as `JsString`.
    Outline lines are built with `JsString` and UTF-16 lengths, as `computer/outline.ts` does.
 5. **Never run a † file** (`*.native.process` gated on `ACE_SCREEN_INTEGRATION`/`ACE_COMPUTER_LIVE`,
    the Linux and native media-ingest files) or the benches that operate apps
@@ -76,8 +76,10 @@ With a built helper present, S2.1 also runs `capture-pacing.native.process` and 
 
 `ScreenMediaSource` (`media-source.ts:24`–`:32`) keeps its one ordered merge across ace-media
 paths and its two stream owners (legacy viewers and ace-media); the Rust side speaks ace-media's
-control wire through the `media-wire` crate. `Simulators` is also used by `@ace/devices` (D3.1):
-one implementation, in `ace-screen`, which `ace-devices` depends on.
+control wire through the `media-wire` crate. `Simulators` (`simulator.ts`) moves in devices D3.1,
+not here: it lands in `ace-devices/src/simulators.rs`, and S2.2 uses it from there. If S2.2 lands
+first, it calls the TypeScript `Simulators` through a port until D3.1 is merged; there is never a
+second Rust copy.
 
 ## S3: locked use (needs S1)
 
@@ -89,14 +91,46 @@ Same timeouts (ready 15 s, relock 30 s, `locked-use-attempt.ts:236`, `:284`; sta
 `locked-use-mac.ts:63`). The privileged install is the owner's to test on a real Mac.
 `locked-use-fake-mac` and `testing/` stay TypeScript test support.
 
-## S4: the tool families (needs S1, S2, MCP M2)
+### One locked-use authority, in every mix of switches
+
+S3 and S4 have separate switches, so the computer tools can run natively while locked use is still
+TypeScript, and the other way round. Whatever the mix, the process has **exactly one** gate and
+one locked-use runtime: the gate the daemon builds in `computerLockedUseGate`
+(`apps/daemon/src/computer-locked-use.ts:10`–`:33`) from the person's `computer.lockedUse`
+setting (read on every call), the runtime's shared protected interval (`intervalActive`,
+`runUnprotected`, `runProtected`), the engine's active run for the calling agent (`turn`, the
+approved turn, never from tool arguments) and the computer helper's process ids; and the one
+revocation, `cancelLockedUseWhenTurnedOff` (`:36`–`:53`), which cancels every queued or running
+protected attempt when the person turns locked use off. Never build a second gate, interval or
+subscription.
+
+- **S4 on, S3 off.** The native computer tools receive the TypeScript gate as a port and call it
+  for every `screen_state` and `screen_act`, exactly where `computerToolkit` does
+  (`computer/toolkit.ts:215`–`:217`). The `send` they pass is a JS-callable continuation that
+  starts the native helper request synchronously when called, so `runUnprotected` counts it in
+  flight from that call and no interval can begin under it (`computer/locked-use-gate.ts:37`–`:40`).
+- **S3 on, S4 off.** The native runtime and gate sit behind the TypeScript `LockedUseGate`,
+  `LockedUseConnection` and runtime facades, which the daemon wires as today; the TypeScript
+  toolkit calls the facade gate, and the settings subscription calls the native `cancelActive`.
+- **Both on.** The native gate is called in process by the native tools; the subscription stays
+  the daemon's, through the facade.
+- **Fail closed in every mix.** After deciding, with nothing awaited before the send, the gate
+  checks `intervalActive`: while an interval is queued, running, relocking or faulted, every
+  ordinary request is refused with `locked_use_interval_active` and its text from the catalog
+  table (`computer/locked-use-gate.ts:110`–`:131`), whatever the setting says. A failure while
+  deciding sends the request unprotected, counted in flight, exactly as today.
+- **Proof, in all four mixes** (S3 off/on × S4 off/on): `computer/locked-use-gate.process`,
+  `locked-use-connection.process`, daemon `computer-locked-use.process`,
+  `locked-use.server.process`; S4 does not go default-on before S3 has passed this matrix.
+
+## S4: the tool families (needs S1, S2, MCP M2; the locked-use matrix above)
 
 | Family     | TypeScript replaced (`packages/screen/src/`)                                                                                                                                                                                        | Proof: (a) files                                                                                                                                                                                            | (b) cases to move                                               |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | `computer` | `computer/toolkit`, `computer/actions`, `computer/act-log`, `computer/app-notes`, `computer/conditions`, `computer/cowork-steps`, `computer/displays`, `computer/memory`, `computer/outline`, `computer/policy`, `computer/schemas` | `computer/toolkit.process`, `computer/linux.process`; daemon `agent-computer-journey.process`, `screen-agent-access.process`, `acp-screen-bridge.process`, `spade-computer-screen.process`, `computer-name` | `computer/actions`, `computer/outline`, `computer/policy-hosts` |
 | `screen`   | `mcp` (`screenToolkit`), `tools`, `tool-schemas`                                                                                                                                                                                    | `mcp.process`, `tools.process`; daemon `screen-mcp.server.process`, `measurement-mcp.server.process`                                                                                                        | none                                                            |
 
-Descriptors come from MCP M1's generated table; input is decided by the Zod port until the
+Descriptors come from MCP M1's catalog; input is decided by the Zod port until the
 family's typed decoding is pinned by its rejection cases (ADR 0225 §4.2). The 1,568 px and
 1.15 MP screenshot bounds and the 1 MiB model image go through ace-media's image process.
 

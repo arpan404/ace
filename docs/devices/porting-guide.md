@@ -46,10 +46,11 @@ item (`ace/rust-devices-<item>`).
    `devices.*` messages, `DeviceState` and inventories serialize in their schema's key order; a
    UI tree a platform returned keeps its nodes' text exactly; device names, UDIDs, serials, bundle
    ids, AX labels and every line an SDK prints are `JsString`. Lengths and caps count UTF-16 units.
-7. **Words are generated.** Refusals and hints ("A person is controlling this device", "Only a
-   person can do this", "Only a person can download device tools", `DeviceError` messages and next
-   steps) come from a table generated from the TypeScript (`scripts/generate-rust-devices-text.ts`,
-   checked by `check:daemon-native`), never retyped.
+7. **Words come from the catalog.** Refusals and hints ("A person is controlling this device",
+   "Only a person can do this", "Only a person can download device tools", `DeviceError` messages
+   and next steps) live in `native/daemon/catalog/devices.json` (ADR 0225 safeguard 3), which the
+   TypeScript and Rust both read; `check:catalog-text` compares what each backend renders with
+   it. Never retype them.
 8. **Same numbers**: 30 s lease, 4 s inventory read where a watch can't run, 60 fps, the stream
    profiles (`stream-profile.ts:34`), 64 KiB stream pieces, 8 MiB scrcpy packets, the ten-minute
    install budget, each SDK command's byte cap and timeout (`platform.ts:342`).
@@ -80,17 +81,43 @@ item (`ace/rust-devices-<item>`).
 Today the daemon connects both of scrcpy-server's tunnel sockets (`scrcpy-server.ts:70`,
 `:112`), reads video in JavaScript (`VideoStreamReader`, `scrcpy-protocol.ts:221`) and writes
 each unit to ace-media's ingest (`scrcpy-capture.ts:185`–`:240`); egress brings it back
-(`media-paths.ts:158`–`:165`). With the switch on: the daemon starts scrcpy-server and its
+(`media-paths.ts:158`–`:165`). With the switch on, the daemon starts scrcpy-server and its
 `adb forward` as today and opens the ace-media source with origin `scrcpy {host: "127.0.0.1",
-port}` (`media-wire/src/control.rs:130`); ace-media connects first (the server greets its first
-socket, the video one, `scrcpy-server.ts:85`), reads the preamble, codec id and 12-byte packet
-headers (`scrcpy-protocol.ts:217`) in a pure reader beside `serve_sim.rs`, and reports it is
-connected; the daemon then connects control and keeps it (input, clipboard, keyframes). Restarts
-keep one source for the capture's life; video resumes at a keyframe.
+port}` (`media-wire/src/control.rs:130`). The startup handshake keeps today's order exactly
+(`scrcpy-server.ts:175`–`:196`):
+
+1. **ace-media connects the first socket and waits for the one dummy byte.** adb accepts a TCP
+   connection even while nothing listens on the device and then closes it, so ace-media retries
+   every 100 ms until a connection yields that byte, within the daemon's startup deadline
+   (10 s by default, passed in the source's open), as `preamble(socket, 1, …)` does (`:178`–`:189`).
+   Bytes read past the dummy byte are kept as the start of the metadata, never dropped.
+2. **ace-media acknowledges `greeted` on the control wire right after the dummy byte**, before
+   it reads anything else. Only the dummy byte arrives before control connects; the device name
+   and codec follow once every socket is connected, so waiting for them first would deadlock.
+3. **The daemon connects control** (the second connection of the tunnel, `:191`–`:193`) and tells
+   ace-media `controlConnected`.
+4. **ace-media reads the rest**: the 64-byte device name (`deviceNameBytes`), then the u32 codec
+   id and the 12-byte packet headers (`scrcpy-protocol.ts:217`), in a pure reader beside
+   `serve_sim.rs`, and reports `ready {deviceName}` with the name as `JsString` (bytes up to the
+   first NUL, decoded as UTF-8 like `toString("utf8")`), or a failure naming today's text
+   ("scrcpy-server closed during startup", `:198`–`:203`).
+
+Cancellation and reconnect cross two socket owners, so both sides follow one rule: whoever sees
+an end first tells the other, and the capture ends once. A stop or abort in the daemon closes its
+control socket and sends `close` for the source, and ace-media closes the video socket at once; a
+video socket that ends or fails in ace-media ends its path (end marker, `interrupted`) and
+reports it, and the daemon closes control and runs today's restart rule (`scrcpyRestartWorthIt`):
+a restart opens a new server, tunnel and handshake under the same source, and video resumes at a
+keyframe. A deadline that passes in step 1 or 4 fails the start with today's `DeviceError`
+(`"scrcpy-server did not start…"`, `:181`–`:186`), and both owners close what they opened.
 
 - (a): `scrcpy-capture.process`, `scrcpy-media.process`, `live-view.process`, `capture.process`,
   `platform.process`, `android-physical.process`, `emulator-window.process`; also with the switch
   on: `scrcpy-media-cleanup.process`, `scrcpy-host-capture.process`, `frame-encoder-media.process`.
+- Also, switch on: cancel during each handshake step (before the dummy byte, between `greeted`
+  and `controlConnected`, before `ready`), the video socket ending under a running capture, and a
+  server restart, through `scrcpy-capture.process`, `scrcpy-media.process` and
+  `scrcpy-media-cleanup.process`; nothing of either socket outlives the capture.
 - (b) to move into ace-media: the video half of `scrcpy-protocol`, `scrcpy-video`.
 - Measure `bench/frames.ts`; ask the owner for `bench/emulator-video.ts` (fps and stalls) both ways.
 
@@ -98,31 +125,66 @@ keep one source for the capture's life; video resumes at a keyframe.
 
 Replaces the 4 s read (`inventory.ts:84`–`:94`; three SDK commands,
 `android-platform.ts:104`–`:105` and `Simulators.list`) with triggers: `host:track-devices-l` on
-the adb server (127.0.0.1:5037, started with `adb start-server` when absent, reconnecting with
-backoff); `notify` on the AVD folder (`ANDROID_AVD_HOME`, else `~/.android/avd`) to re-run
-`emulator -list-avds`; `notify` on the CoreSimulator device set to re-run `simctl list`, debounced.
-A trigger only starts a read; the SDK read stays the answer. Nothing runs while no view holds the
-inventory (`holdInventoryView`, `service.ts:301`). A watch that can't start falls back to today's
-4 s read while viewed, and the state says nothing different.
+the adb server (127.0.0.1:5037, started with `adb start-server` when absent); `notify` on the AVD
+folder (`ANDROID_AVD_HOME`, else `~/.android/avd`) to re-run `emulator -list-avds`; `notify` on
+the CoreSimulator device set to re-run `simctl list`, debounced. A trigger only starts a read; the
+SDK read stays the answer. Nothing runs while no view holds the inventory (`holdInventoryView`,
+`service.ts:301`). Until D3.1 has moved `Simulators`, D2 calls the TypeScript one through a port.
 
-| TypeScript replaced (`packages/devices/src/`)      | Proof: (a) files                                                                                                                               | (b) cases to move                                       |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `inventory`, `android-inventory`, `adb-transports` | `platform.process`, `android-physical.process`, `service.process`; daemon `devices-first-use.server.process`, `device-creation.server.process` | `adb-transports`, the `InventoryWatch` cases of `audit` |
+Watches die and miss events, so each source has a health state and the inventory never trusts a
+silent one:
+
+- **Reconcile on every (re)start.** Holding the view, a source starting, and every reconnect run
+  one full read of all three lists, so anything missed while a source was down shows up.
+- **Dead sources reconnect.** The adb track socket ending (adb server killed or restarted, a new
+  SDK) reconnects with backoff (100 ms doubling to 5 s), then reconciles. A `notify` watcher that
+  errors, a watched folder that is deleted or replaced (an AVD home created later, Xcode
+  resetting the device set), or a platform rescan signal (`need_rescan`, FSEvents dropping
+  events, inotify queue overflow) restarts the watch on the path or its nearest existing parent,
+  then reconciles.
+- **While any source is unhealthy, its list falls back to today's 4 s read** (only while viewed),
+  and returns to triggers once the source is healthy and reconciled. A watch that can't start at
+  all is unhealthy from the outset. The inventory the view sees is the same in every state.
+- **Dropped triggers are harmless**: reads are debounced (250 ms) and coalesced, one read per list
+  at a time, so a burst of events gives at most one extra read.
+
+| TypeScript replaced (`packages/devices/src/`)      | Proof: (a) files                                                                                                                                                                                                                                                  | (b) cases to move                                       |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `inventory`, `android-inventory`, `adb-transports` | `platform.process`, `android-physical.process`, `service.process`; daemon `devices-first-use.server.process`, `device-creation.server.process`; the same files on Linux and in the Windows VM (FSEvents, inotify and ReadDirectoryChangesW each fail differently) | `adb-transports`, the `InventoryWatch` cases of `audit` |
 
 ## D3: the platform (needs E2, D1)
 
 Items land in order under one switch; each overrides its methods on `NativeDevicePlatform`.
 
-| Item | TypeScript replaced (`packages/devices/src/`)                                                                                                                                                                                                                                                                                                                                                                                                             | Proof: (a) files                                                                                                                                                                                                                                                                                                                           | (b) cases to move                                                                                                                                                                                                                                                                                                                                                                                  |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D3.1 | `platform` and `android-platform` lifecycle (list, boot, shutdown, install, open, configure), `commands`, `sdk`, `sdk-roots`, `android-tools`, `serve-sim-install`, `serve-sim-version`, `serve-sim-helpers`, `device-tools`, `tools-entry` (the download, check and unpack run as a task on the core's runtime, off the JS thread, instead of a separate Bun process), `emulator-args`, `emulator-discovery`, `lifecycle`, `action-budget`               | `platform.process`, `android-physical.process`, `emulator-window.process`, `simulator-recovery.process`; `packages/diagnostics` tests that use `findAndroidTools`                                                                                                                                                                          | `android-sdk-install.process`, `device-tools.process`, `serve-sim-helpers.process`, `emulator-discovery.process`, `lifecycle`                                                                                                                                                                                                                                                                      |
-| D3.2 | input and UI: `simulator-input`, `simulator-digitizer`, `simulator-fingers`, `simulator-ax`, `simulator-ui`, `simulator-screens`, `simulator-clipboard`, `simulator-posture`, `android-ui`, `android-ui-helper`, `android-input-shell`, `android-operations`, `android-posture`, `posture`, `scrcpy-input`, `scrcpy-clipboard`, `scrcpy-protocol` (control), `key-support`, `touch-support`, `clipboard`                                                  | `simulator-touch.process`, `simulator-gestures.process`, `simulator-digitizer.process`, `simulator-clipboard.process`, `android-ui-helper.process`, `service-posture.process`, `pointer-moves`                                                                                                                                             | `android-input-shell.process`, `scrcpy-input`, `scrcpy-clipboard`, `simulator-fingers`, `simulator-ax`, `simulator-screens`, `simulator-posture`, `android-posture`, `posture`                                                                                                                                                                                                                     |
-| D3.3 | captures and video paths: `capture`, `simulator-capture`, `simulator-avcc`, `simulator-frames`, `simulator-jpeg`, `simulator-transcode`, `simulator-source-rate`, `simulator-rotation`, `jpeg`, `mjpeg`, `scrcpy-server`, `scrcpy-capture`, `scrcpy-video`, `scrcpy-jar`, `frame-encoder`, `emulator-grpc`, `media-paths`, `host-frames`, `one-off-screenshot`, `still-writer`, `logs`, `log-line`, `recording`, `recording-limits`, `recording-artifact` | `capture.process`, `simulator-capture.process`, `simulator-h264.process`, `simulator-media.process`, `simulator-transcode-media.process`, `scrcpy-capture.process`, `scrcpy-media.process`, `live-view.process`, `recording-artifact.process`, `logs.process`, `service-logs.process`, `stream-control`, `stream-profile`, `media-vectors` | `device-video-status.process`, `frame-encoder-media.process`, `live-video-status`, `media-paths`, `media-want`, `scrcpy-host-capture.process`, `scrcpy-media-cleanup.process`, `scrcpy-jar.process`, `scrcpy-protocol`, `scrcpy-restart`, `simulator-avcc`, `simulator-frames`, `simulator-jpeg`, `simulator-stills.process`, `sim-serve-sim.process`, `simulator-transcode`, `one-off-screenshot` |
-| D3.4 | chrome and skins: `device-chrome-reader`, `device-chrome-sources`, `simulator-chrome`, `simulator-chrome-files`, `simulator-body`, `simulator-body-png`, `simulator-panels`, `android-skin`, `android-skin-files`, `pdf-objects`, `pdf-svg`, `chrome-raster`, `device-images`; pixels through ace-media's image process (`image.job`, ADR 0208)                                                                                                           | `service.process` (the `chrome` op), `client-screenshot`                                                                                                                                                                                                                                                                                   | `android-skin-files`, `chrome-raster`, `pdf-svg`, `simulator-body-png`, `simulator-chrome-files`                                                                                                                                                                                                                                                                                                   |
+| Item | TypeScript replaced (`packages/devices/src/`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Proof: (a) files                                                                                                                                                                                                                                                                                                                           | (b) cases to move                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D3.1 | `Simulators` (`@ace/screen`'s `simulator.ts`, also used by screen S2.2, which takes it from here), `platform` and `android-platform` lifecycle (list, boot, shutdown, install, open, configure), `commands`, `sdk`, `sdk-roots`, `android-tools`, `serve-sim-install`, `serve-sim-version`, `serve-sim-helpers`, `device-tools`, `tools-entry` (the download, check and unpack run as a task on the core's runtime, off the JS thread, instead of a separate Bun process), `emulator-args`, `emulator-discovery`, `lifecycle`, `action-budget` | `platform.process`, `android-physical.process`, `emulator-window.process`, `simulator-recovery.process`, screen `simulator.process`; `packages/diagnostics` tests that use `findAndroidTools`                                                                                                                                              | `android-sdk-install.process`, `device-tools.process`, `serve-sim-helpers.process`, `emulator-discovery.process`, `lifecycle`                                                                                                                                                                                                                                                                      |
+| D3.2 | input and UI: `simulator-input`, `simulator-digitizer`, `simulator-fingers`, `simulator-ax`, `simulator-ui`, `simulator-screens`, `simulator-clipboard`, `simulator-posture`, `android-ui`, `android-ui-helper`, `android-input-shell`, `android-operations`, `android-posture`, `posture`, `scrcpy-input`, `scrcpy-clipboard`, `scrcpy-protocol` (control), `key-support`, `touch-support`, `clipboard`                                                                                                                                       | `simulator-touch.process`, `simulator-gestures.process`, `simulator-digitizer.process`, `simulator-clipboard.process`, `android-ui-helper.process`, `service-posture.process`, `pointer-moves`                                                                                                                                             | `android-input-shell.process`, `scrcpy-input`, `scrcpy-clipboard`, `simulator-fingers`, `simulator-ax`, `simulator-screens`, `simulator-posture`, `android-posture`, `posture`                                                                                                                                                                                                                     |
+| D3.3 | captures and video paths: `capture`, `simulator-capture`, `simulator-avcc`, `simulator-frames`, `simulator-jpeg`, `simulator-transcode`, `simulator-source-rate`, `simulator-rotation`, `jpeg`, `mjpeg`, `scrcpy-server`, `scrcpy-capture`, `scrcpy-video`, `scrcpy-jar`, `frame-encoder`, `emulator-grpc`, `media-paths`, `host-frames`, `one-off-screenshot`, `still-writer`, `logs`, `log-line`, `recording`, `recording-limits`, `recording-artifact`                                                                                      | `capture.process`, `simulator-capture.process`, `simulator-h264.process`, `simulator-media.process`, `simulator-transcode-media.process`, `scrcpy-capture.process`, `scrcpy-media.process`, `live-view.process`, `recording-artifact.process`, `logs.process`, `service-logs.process`, `stream-control`, `stream-profile`, `media-vectors` | `device-video-status.process`, `frame-encoder-media.process`, `live-video-status`, `media-paths`, `media-want`, `scrcpy-host-capture.process`, `scrcpy-media-cleanup.process`, `scrcpy-jar.process`, `scrcpy-protocol`, `scrcpy-restart`, `simulator-avcc`, `simulator-frames`, `simulator-jpeg`, `simulator-stills.process`, `sim-serve-sim.process`, `simulator-transcode`, `one-off-screenshot` |
+| D3.4 | chrome and skins: `device-chrome-reader`, `device-chrome-sources`, `simulator-chrome`, `simulator-chrome-files`, `simulator-body`, `simulator-body-png`, `simulator-panels`, `android-skin`, `android-skin-files`, `pdf-objects`, `pdf-svg`, `chrome-raster`, `device-images`; pixels through ace-media's image process (`image.job`, ADR 0208)                                                                                                                                                                                                | `service.process` (the `chrome` op), `client-screenshot`                                                                                                                                                                                                                                                                                   | `android-skin-files`, `chrome-raster`, `pdf-svg`, `simulator-body-png`, `simulator-chrome-files`                                                                                                                                                                                                                                                                                                   |
 
-Emulator gRPC uses `hyper`'s HTTP/2 client and `prost` with hand-written message structs for the
-few fields `emulator-grpc.ts` reads; unknown fields are skipped, never fatal. Windows: D3.1's `adb`
-and emulator paths pass in the Windows VM before default-on.
+**The emulator's gRPC stream (D3.3)** replaces `streamScreen` (`emulator-grpc.ts:145`–`:198`)
+with `hyper`'s HTTP/2 client and `prost` structs for the few fields it reads, keeping every detail
+that the emulator checks or that keeps ace safe:
+
+- cleartext HTTP/2 with prior knowledge to `http://127.0.0.1:<grpc port>` (no TLS, no upgrade);
+  one POST to `screenshotPath` with `content-type: application/grpc`, `te: trailers` and
+  `authorization: Bearer <token>`; the token is never logged;
+- the request message as `screenshotRequest` builds it (`:38`–`:50`): RGBA8888, the box, and the
+  MMAP transport whose handle is the frame file's URL exactly as `pathToFileURL(file).href` spells
+  it (`file:///Users/…` on a Mac, `file:///C:/…` on Windows, the same percent-encoding); where a
+  Rust URL builder spells a path differently, the URL is built by the TypeScript through a port,
+  not approximated;
+- gRPC framing checked before any decode: the compression flag must be 0 and the length at most
+  `messageLimit`, refused otherwise (`GrpcMessages`, `:108`–`:124`); only then does `prost` decode;
+  unknown fields are skipped, never fatal;
+- `grpc-status` read from the response headers and from the trailers; any non-zero value refuses
+  the stream with today's text; the stream ending on its own reports "Emulator screen stream
+  ended"; `close()` ends it without a failure.
+
+**Platform gates.** D3.1's `adb` and emulator paths and D3.3's gRPC stream (the frame file's URL
+and MMAP mapping, HTTP/2 to a Windows emulator) pass in the Windows VM and on Linux before
+default-on; macOS alone is not enough.
 
 ## D4: the service (needs D3, `ACE_STORE=native`)
 
@@ -141,7 +203,7 @@ are client code: run them once with the switch on to show the server side didn't
 
 The `devices` family's handlers: `sim_list`, `sim_start`, `sim_stop`, `sim_ui`, `sim_act`,
 `sim_screenshot`, `sim_logs`. Registration, schemas, titles and risk classes stay as `mcp.ts`
-declares them (MCP M1 generates their descriptors). Input is decided by the Zod port until this
+declares them (their descriptors are in MCP M1's catalog). Input is decided by the Zod port until this
 item's typed decoding is pinned by the (a) files' rejection cases (ADR 0225 §4.2); model images
 go through ace-media's image process.
 
