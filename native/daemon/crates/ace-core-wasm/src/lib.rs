@@ -194,3 +194,131 @@ pub fn core_next_deadline(state_json: &str, provider_deadline: Option<f64>) -> R
 pub fn core_crate_name() -> String {
     "ace-core".to_owned()
 }
+
+/// One deadline index behind a handle the TypeScript shell holds.
+#[wasm_bindgen]
+pub struct WasmDeadlineIndex {
+    inner: ace_core::deadlines::DeadlineIndex,
+}
+
+#[wasm_bindgen]
+impl WasmDeadlineIndex {
+    /// Build the index over one state snapshot.
+    #[wasm_bindgen(constructor)]
+    pub fn new(state_json: &str) -> Result<WasmDeadlineIndex, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| parse_state(state_json)));
+        match result {
+            Ok(Ok(state)) => Ok(Self {
+                inner: ace_core::deadlines::DeadlineIndex::new(&state),
+            }),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("deadline index failed to start".to_owned())),
+        }
+    }
+
+    /// Rebuild the index over one state snapshot.
+    pub fn rebuild(&mut self, state_json: &str) -> Result<(), JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| parse_state(state_json)));
+        match result {
+            Ok(Ok(state)) => {
+                self.inner.rebuild(&state);
+                Ok(())
+            }
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("deadline index failed to rebuild".to_owned())),
+        }
+    }
+
+    /// Move eligibility after a signal.
+    pub fn signal(
+        &mut self,
+        agent: Option<String>,
+        at: f64,
+        silence_ms: f64,
+    ) -> Result<(), JsValue> {
+        if !at.is_finite() || !silence_ms.is_finite() || silence_ms < 0.0 {
+            return Err(failure("deadline signal needs finite times".to_owned()));
+        }
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            self.inner
+                .signal(agent.as_deref(), at as i64, silence_ms);
+        }));
+        match result {
+            Ok(()) => Ok(()),
+            Err(_) => Err(failure("deadline signal failed".to_owned())),
+        }
+    }
+
+    /// The earliest deadline, if any.
+    pub fn next(&mut self, provider_deadline: Option<f64>) -> Result<JsValue, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let provider = match provider_deadline {
+                None => None,
+                Some(deadline) => {
+                    if !deadline.is_finite() || deadline.fract() != 0.0 || deadline < 0.0 {
+                        return Err("provider deadline must be a nonnegative integer".to_owned());
+                    }
+                    Some(deadline as i64)
+                }
+            };
+            Ok::<Option<i64>, String>(self.inner.next(provider))
+        }));
+        match result {
+            Ok(Ok(deadline)) => Ok(deadline.map(JsValue::from).unwrap_or(JsValue::UNDEFINED)),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("deadline next failed".to_owned())),
+        }
+    }
+}
+
+/// Whether an agent still counts for completion, from a state snapshot.
+#[wasm_bindgen]
+pub fn core_completion_relevant(state_json: &str, key: &str) -> Result<bool, JsValue> {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let state = parse_state(state_json)?;
+        Ok::<bool, String>(ace_core::status::completion_relevance_reader(&state)(key))
+    }));
+    match result {
+        Ok(Ok(relevant)) => Ok(relevant),
+        Ok(Err(error)) => Err(failure(error)),
+        Err(_) => Err(failure("core relevance failed".to_owned())),
+    }
+}
+
+/// The human-attention rule, from interaction and owner snapshots.
+#[wasm_bindgen]
+pub fn core_is_actionable_interaction(
+    interaction_json: &str,
+    owner_json: Option<String>,
+) -> Result<bool, JsValue> {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let interaction: serde_json::Value =
+            serde_json::from_str(interaction_json).map_err(|error: serde_json::Error| error.to_string())?;
+        let state = interaction.get("state").and_then(|state| state.as_str()).unwrap_or("");
+        let blocking = interaction
+            .get("blocking")
+            .and_then(|blocking| blocking.as_bool())
+            .unwrap_or(false);
+        let owner_state = match owner_json.as_deref() {
+            None => None,
+            Some(text) => {
+                let owner: serde_json::Value =
+                    serde_json::from_str(text).map_err(|error: serde_json::Error| error.to_string())?;
+                owner
+                    .get("state")
+                    .and_then(|state| state.as_str())
+                    .map(str::to_owned)
+            }
+        };
+        Ok::<bool, String>(ace_core::human::is_actionable_interaction(
+            state,
+            blocking,
+            owner_state.as_deref(),
+        ))
+    }));
+    match result {
+        Ok(Ok(actionable)) => Ok(actionable),
+        Ok(Err(error)) => Err(failure(error)),
+        Err(_) => Err(failure("core interaction rule failed".to_owned())),
+    }
+}
