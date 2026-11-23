@@ -126,7 +126,7 @@ port.on("message", (message: ToWorker) => {
           service.updatePresence(call.session, call.device, call.update);
           break;
         case "feed":
-          value = service.feed(call.device, call.afterCursor);
+          value = service.feed(call.device, call.afterCursor, call.checkpoint);
           break;
         case "disconnect":
           service.disconnect(call.session);

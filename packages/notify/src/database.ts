@@ -462,7 +462,8 @@ export class NotificationDatabase {
     return this.matches(state, notification, generation);
   }
   /** Catch-up omits and retracts alerts that no longer match canonical state or are snoozed. */
-  feed(device: DeviceId, afterCursor: number, now: number) {
+  feed(device: DeviceId, afterCursor: number | undefined, now: number, checkpoint?: true) {
+    if (checkpoint) return this.inbox.checkpoint(device, afterCursor);
     return this.inbox.feed(device, afterCursor, now, (notification, generation) => {
       const row = this.statement("SELECT body FROM threads WHERE id=?").get(notification.threadId);
       if (!row || this.snoozed(notification.threadId, now)) return false;

@@ -30435,7 +30435,8 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"notification.feed"` |  |
 | requestId | yes | string | {"minLength":1,"maxLength":200} |
-| afterCursor | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| afterCursor | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| checkpoint | no | `true` |  |
 
 Example:
 
@@ -50177,6 +50178,7 @@ Example:
 | kind | yes | `"shell"` |  |
 | command | yes | string |  |
 | rawCommand | no | string |  |
+| description | no | string |  |
 | cwd | no | string |  |
 | exitCode | no | union | {"anyOf":[{"type":"integer","minimum":-9007199254740991,"maximum":9007199254740991},{"type":"null"}]} |
 | output | no | [OutputSummary.json](schema/OutputSummary.json) |  |
@@ -50186,7 +50188,7 @@ Example:
 ```json
 {
   "command": "example",
-  "cwd": "example",
+  "description": "example",
   "kind": "shell",
   "rawCommand": "example"
 }

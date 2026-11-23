@@ -196,9 +196,9 @@ export class NotificationService {
     this.database.snooze(thread, until);
   }
   /** This device's alerts after its cursor, rechecked against canonical state now. */
-  feed(device: DeviceId, afterCursor: number): NotificationFeed {
+  feed(device: DeviceId, afterCursor?: number, checkpoint?: true): NotificationFeed {
     if (!this.database.device(device)) throw new Error("Device unavailable");
-    return this.database.feed(device, afterCursor, this.options.now());
+    return this.database.feed(device, afterCursor, this.options.now(), checkpoint);
   }
   updatePresence(session: string, device: DeviceId, update: PresenceUpdate): void {
     if (!this.database.device(device)) throw new Error("Device unavailable");

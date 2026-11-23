@@ -101,7 +101,11 @@ export function createNotificationsSession({
           return true;
         }
         try {
-          const feed = await options.notifications.feed(device, message.afterCursor);
+          const feed = await options.notifications.feed(
+            device,
+            message.afterCursor,
+            message.checkpoint,
+          );
           send({ type: "notification.feed.result", requestId: message.requestId, ...feed });
         } catch {
           fail("notification_rejected", "Could not read missed notifications", false, correlation);

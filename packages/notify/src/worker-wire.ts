@@ -60,7 +60,8 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({
     method: z.literal("feed"),
     device: DeviceId.and(z.string().max(200)),
-    afterCursor: seq,
+    afterCursor: seq.optional(),
+    checkpoint: z.literal(true).optional(),
   }),
 ]);
 export type WorkerCall = z.infer<typeof WorkerCall>;

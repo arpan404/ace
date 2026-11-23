@@ -455,8 +455,10 @@ export class NotificationWorker {
     await this.checked({ method: "presence", session, device, update });
   }
   /** Catch-up for a client that missed live delivery while suspended. */
-  async feed(device: DeviceId, afterCursor: number): Promise<NotificationFeed> {
-    return NotificationFeed.parse(await this.checked({ method: "feed", device, afterCursor }));
+  async feed(device: DeviceId, afterCursor?: number, checkpoint?: true): Promise<NotificationFeed> {
+    return NotificationFeed.parse(
+      await this.checked({ method: "feed", device, afterCursor, checkpoint }),
+    );
   }
   async disconnect(session: string): Promise<void> {
     await this.checked({ method: "disconnect", session });
