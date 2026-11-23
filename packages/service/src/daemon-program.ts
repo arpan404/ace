@@ -9,7 +9,7 @@ import {
   rmSync,
   statSync,
 } from "node:fs";
-import { basename, dirname, isAbsolute, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { desktopAppMarker } from "./desktop-update.ts";
 import { daemonRuntimePath } from "./process-names.ts";
 
@@ -72,19 +72,66 @@ export function startableDaemonRuntime(runtime: string, platform: NodeJS.Platfor
 
 /**
  * Starts the daemon with the first of `launches` that can be spawned: the named runtime, then
- * the plain one. A spawn that fails (the file went missing or cannot run) has no pid at once.
+ * the plain one. A spawn that fails either throws at once (Windows can refuse an image outright)
+ * or returns a child with no pid; both move on to the next launch. The last launch's own failure,
+ * thrown or not, is the caller's.
  */
 export function spawnDaemonRuntime<
   Child extends { pid?: number | undefined; once(event: "error", listener: () => void): unknown },
 >(launches: readonly DaemonLaunch[], start: (launch: DaemonLaunch) => Child): Child {
   const last = launches.length - 1;
   for (const [index, launch] of launches.entries()) {
-    const child = start(launch);
-    if (child.pid !== undefined || index === last) return child;
+    if (index === last) return start(launch);
+    let child: Child;
+    try {
+      child = start(launch);
+    } catch {
+      continue;
+    }
+    if (child.pid !== undefined) return child;
     // Its spawn error arrives later; this attempt is already given up.
     child.once("error", () => {});
   }
   throw new Error("No runtime to start the daemon on");
+}
+
+/**
+ * The daemon's settings that name a file or folder. The daemon reads each with `resolve`, which
+ * is relative to its working directory, and that is now the entry script's folder, not the one
+ * ace was started from.
+ */
+const pathSettings = [
+  "ACE_HOME",
+  "ACE_WORKSPACE_ROOT",
+  "ACE_SCREEN_HELPER",
+  "ACE_SCREEN_HELPER_MANIFEST",
+  "ACE_CHROMIUM_PATH",
+  "ACE_CURSOR_SDK_HOME",
+  "ACE_ACCOUNTS_DB",
+  "ACE_APNS_KEY_FILE",
+  "ACE_VAPID_KEY_FILE",
+  "ACE_SPADE_BIN",
+  "ACE_LOCKED_USE_PLUGIN",
+  "ACE_LOCKED_USE_BROKER",
+  "ACE_LOCKED_USE_GUARDIAN",
+  "ACE_MEDIA_PATH",
+  "ACE_FILES_PATH",
+  "ACE_HISTORY_PATH",
+] as const;
+
+/**
+ * `env` for a daemon that runs in its own folder: each path-valued setting that is relative is
+ * made absolute against `from`, the folder the launcher was started in, so it names what it
+ * named before (`ACE_WORKSPACE_ROOT=./workspace` from a project folder). Every other value, and
+ * every absolute or empty path, stays as it is.
+ */
+export function daemonSettingsFrom(env: NodeJS.ProcessEnv, from: string): NodeJS.ProcessEnv {
+  const settled: NodeJS.ProcessEnv = { ...env };
+  for (const key of pathSettings) {
+    const value = env[key];
+    if (value?.trim() && !isAbsolute(value)) settled[key] = resolve(from, value);
+  }
+  return settled;
 }
 
 /** `resources/runtime/bin/node` (`resources\runtime\node.exe`) beside the app's daemon marker. */

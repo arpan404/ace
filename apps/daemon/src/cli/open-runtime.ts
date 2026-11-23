@@ -13,6 +13,7 @@ import { CliFailure } from "./output.ts";
 import { launchLogName, openLaunchLog } from "@ace/service/launch-log";
 import {
   daemonLaunches,
+  daemonSettingsFrom,
   spawnDaemonRuntime,
   startableDaemonRuntime,
 } from "@ace/service/daemon-program";
@@ -56,7 +57,8 @@ export function systemOpenRuntime(): OpenRuntime {
         const child = spawnDaemonRuntime(launches, (launch) =>
           spawn(launch.command, launch.args, {
             cwd: launch.cwd,
-            env: { ...process.env, ACE_HOME: home },
+            // Relative settings keep naming what they did from where this command ran.
+            env: daemonSettingsFrom({ ...process.env, ACE_HOME: home }, process.cwd()),
             detached: true,
             stdio: ["ignore", log, log],
           }),

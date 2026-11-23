@@ -12,20 +12,33 @@ const startTimeoutMs = 60_000;
 const LockOwner = z.object({ pid: z.number().int().positive() });
 const RuntimeRecord = z.object({
   message: z.literal("The daemon's runtime"),
-  data: z.object({ daemon: z.string(), scripts: z.string() }),
+  data: z.object({ daemon: z.string(), scripts: z.string(), cwd: z.string() }),
 });
 
 /**
  * The daemon as an installed release starts it: `ace supervise` from
- * `<home>/releases/<release>/`, in an empty home and a working directory whose `.env` would
- * silence the daemon's log if the runtime read it. Passes when the daemon holding the home's
- * lock runs the runtime's `ace Service` link (the same file as `bin/node`), and the daemon
- * reports that its child scripts run on `bin/node`.
+ * `<home>/releases/<release>/`, in an empty home, from a working directory whose `.env` would
+ * silence the daemon's log and whose `bunfig.toml` would run a preload that leaves a mark. Run
+ * twice: as the release starts it (on the runtime's `ace Service` link, the same file as
+ * `bin/node`) and with that name blocked by a folder, so it falls back to `bin/node`. Either way
+ * the daemon must run in the release's own folder, read neither file, and report that its
+ * child scripts run on `bin/node`.
  */
 export async function smokeNamedDaemon(artifact: string, version: string, target: string) {
+  await smokeSupervisedDaemon(artifact, version, target, "named");
+  await smokeSupervisedDaemon(artifact, version, target, "plain");
+}
+
+async function smokeSupervisedDaemon(
+  artifact: string,
+  version: string,
+  target: string,
+  expected: "named" | "plain",
+) {
   const root = await mkdtemp(join(tmpdir(), "ace-named-smoke-"));
   const home = join(root, "home");
   const project = join(root, "project");
+  const mark = join(root, "preload-ran");
   const name = `${version}-${target}`;
   const release = join(home, "releases", name);
   let supervisor: ChildProcess | undefined;
@@ -39,8 +52,15 @@ export async function smokeNamedDaemon(artifact: string, version: string, target
     await atomicPointer(join(home, "current"), `releases/${name}`);
     await mkdir(project);
     await writeFile(join(project, ".env"), "ACE_LOG_LEVEL=silent\n");
+    await writeFile(join(project, "bunfig.toml"), 'preload = ["./preload.mjs"]\n');
+    await writeFile(
+      join(project, "preload.mjs"),
+      `require("node:fs").appendFileSync(${JSON.stringify(mark)}, process.argv.join(" ") + "\\n");\n`,
+    );
     const runtime = join(release, "bin", scriptRuntimeName(process.platform));
     const named = join(release, "bin", shippedExecutableName("daemon", process.platform));
+    // A folder under the daemon's name is never replaced: the start falls back to bin/node.
+    if (expected === "plain") await mkdir(named);
     supervisor = spawn(runtime, [join(release, "ace.mjs"), "supervise"], {
       cwd: project,
       env: {
@@ -60,23 +80,47 @@ export async function smokeNamedDaemon(artifact: string, version: string, target
     const pid = await daemonPid(home, supervisor.pid);
     daemon = pid;
     const executable = executableOf(pid);
-    if (basename(executable) !== basename(named))
-      throw new Error(`The supervised daemon runs as ${executable}, not ${named}`);
+    const wanted = expected === "named" ? named : runtime;
+    if (basename(executable) !== basename(wanted))
+      throw new Error(`The supervised daemon runs as ${executable}, not ${wanted}`);
     if (!sameFile(executable, runtime))
       throw new Error(`${executable} is not the release's runtime ${runtime}`);
     const record = await runtimeRecord(home);
     // The log redacts the home and version in paths, so the file names are what it can show.
     if (
-      basename(record.daemon) !== basename(named) ||
+      basename(record.daemon) !== basename(wanted) ||
       basename(record.scripts) !== basename(runtime)
     )
       throw new Error(`The daemon gives its scripts ${record.scripts}, not ${runtime}`);
-    process.stdout.write(`Supervised daemon runs as ${basename(named)}, its scripts on node\n`);
+    // Its working directory is the release's folder, never the one the service started in.
+    const cwd = workingDirectoryOf(pid) ?? record.cwd;
+    if (process.platform === "win32" ? !record.cwd.endsWith(`-${target}`) : !sameFile(cwd, release))
+      throw new Error(`The supervised daemon runs in ${cwd}, not ${release}`);
+    // The supervisor itself runs in the project, so a mark there could only be its own.
+    const preload = existsSync(mark) ? readFileSync(mark, "utf8") : "";
+    if (preload.includes(join(release, "ace.mjs") + " start"))
+      throw new Error(`The daemon ran the bunfig.toml preload of ${project}`);
+    process.stdout.write(
+      `Supervised daemon (${expected}) runs as ${basename(wanted)} in its release, scripts on node\n`,
+    );
   } finally {
     if (supervisor) await stop(supervisor);
     if (daemon !== undefined) await gone(daemon);
     await rm(root, { recursive: true, force: true, maxRetries: 10 });
   }
+}
+
+/** The process's working directory, where the OS tells it (not Windows). */
+function workingDirectoryOf(pid: number): string | undefined {
+  if (process.platform === "linux") return readlinkSync(`/proc/${pid}/cwd`);
+  if (process.platform !== "darwin") return undefined;
+  const listing = execFileSync("lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+    encoding: "utf8",
+  });
+  return listing
+    .split("\n")
+    .find((line) => line.startsWith("n"))
+    ?.slice(1);
 }
 
 /** The pid in the home's `daemon-lock` once a process other than the supervisor holds it. */
@@ -116,7 +160,9 @@ function sameFile(a: string, b: string): boolean {
 }
 
 /** The daemon's record of its runtime and its scripts', from `logs/ace.jsonl`. */
-async function runtimeRecord(home: string): Promise<{ daemon: string; scripts: string }> {
+async function runtimeRecord(
+  home: string,
+): Promise<{ daemon: string; scripts: string; cwd: string }> {
   const deadline = Date.now() + startTimeoutMs;
   while (Date.now() < deadline) {
     const lines = await readFile(join(home, "logs", "ace.jsonl"), "utf8").catch(() => "");

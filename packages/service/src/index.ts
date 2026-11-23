@@ -35,6 +35,7 @@ export { localService, serviceCommand } from "./local.ts";
 export { runSupervisor, recoveryDelay, type SupervisorPorts } from "./supervisor.ts";
 export {
   daemonLaunches,
+  daemonSettingsFrom,
   spawnDaemonRuntime,
   startableDaemonRuntime,
   type DaemonLaunch,

@@ -39,6 +39,7 @@ import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
 import {
   daemonLaunches,
+  daemonSettingsFrom,
   recoveryDelay,
   spawnDaemonRuntime,
   startableDaemonRuntime,
@@ -289,14 +290,22 @@ export async function supervise() {
           fileURLToPath(new URL("./ace.mjs", import.meta.url)),
           ["start"],
         );
+        // In its own folder, so the service's working directory (a home with a bunfig.toml)
+        // never applies; relative settings still name what they did from here.
+        const env = daemonSettingsFrom(
+          {
+            ...process.env,
+            ACE_HOME: root,
+            ACE_VERSION: manifest.version,
+            ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
+          },
+          process.cwd(),
+        );
         return spawnDaemonRuntime(launches, (launch) =>
           spawn(launch.command, launch.args, {
+            cwd: launch.cwd,
             stdio: ["ignore", "pipe", "pipe"],
-            env: {
-              ...process.env,
-              ACE_VERSION: manifest.version,
-              ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
-            },
+            env,
           }),
         );
       },

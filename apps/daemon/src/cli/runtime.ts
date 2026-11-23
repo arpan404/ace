@@ -64,7 +64,11 @@ export async function runtimeCommand(args: Args, config: Config) {
   if (!daemon) return;
   logPriority(priority, daemon.log);
   // Support bundles and the release smoke read which file the daemon runs and its scripts get.
-  daemon.log.log("info", "The daemon's runtime", { daemon: runtime, scripts: process.execPath });
+  daemon.log.log("info", "The daemon's runtime", {
+    daemon: runtime,
+    scripts: process.execPath,
+    cwd: process.cwd(),
+  });
   try {
     if (development && daemon.store.listThreads().length === 0)
       createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));
