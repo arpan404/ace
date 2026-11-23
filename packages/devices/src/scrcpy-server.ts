@@ -130,12 +130,15 @@ export async function startScrcpyTunnel(options: {
   server.stdout.on("data", listen);
   server.stderr.on("data", listen);
   let exited = false;
-  // `exited` reports the server's exit and does not reject.
-  void server.exited
-    .then(() => {
+  // `exited` reports the server's exit and does not reject: either settlement marks it.
+  void server.exited.then(
+    () => {
       exited = true;
-    })
-    .catch(() => {});
+    },
+    () => {
+      exited = true;
+    },
+  );
   let closing: Promise<void> | undefined;
   const close = () =>
     (closing ??= (async () => {
@@ -290,8 +293,11 @@ export async function startScrcpyServer(options: {
       await tunnel.close();
     })());
   try {
-    // The server's exit, which does not reject, ends every startup step at once.
-    const serverExit = tunnel.exited.then(() => {});
+    // The server's exit, whatever settles it, ends every startup step at once.
+    const serverExit = tunnel.exited.then(
+      () => {},
+      () => {},
+    );
     const deadline = runtime.now() + (options.startupMs ?? 10_000);
     const remaining = () => Math.max(1, deadline - runtime.now());
     /**

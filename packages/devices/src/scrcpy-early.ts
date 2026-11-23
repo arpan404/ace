@@ -15,8 +15,12 @@ export class EarlyUnits {
   #units: VideoUnit[] = [];
   #bytes = 0;
   #lost = false;
+  #closed = false;
 
   hold(unit: VideoUnit): void {
+    // A reader that ended or failed admits nothing more: a unit already on the egress lane
+    // must not refill the queue before teardown finishes.
+    if (this.#closed) return;
     if (unit.keyframe) this.clear();
     else if (this.#units.length === 0) {
       // A delta with no keyframe held decodes to nothing.
@@ -42,10 +46,19 @@ export class EarlyUnits {
     return taken;
   }
 
-  /** A new reader, or none: what an earlier one sent is never shown. */
+  /** A new reader, or none: what an earlier one sent is never shown. A new dial is the one
+   * place a closed queue opens again. */
   clear(): void {
     this.#units = [];
     this.#bytes = 0;
     this.#lost = false;
+    this.#closed = false;
+  }
+
+  /** This reader ended or its handshake failed: what is held goes, and units still in
+   * flight are dropped until a new dial calls `clear()`. */
+  close(): void {
+    this.clear();
+    this.#closed = true;
   }
 }

@@ -251,8 +251,9 @@ fn greet(coordinator: &mut Coordinator) -> Next {
 }
 
 fn wait_control(coordinator: &mut Coordinator) -> Next {
+    // Past the greeting: a deadline here is a startup that closed, not one that never started.
     let Some(remaining) = coordinator.remaining() else {
-        return Next::Failed(NOT_STARTED);
+        return Next::Failed(CLOSED);
     };
     match coordinator.control.recv_timeout(remaining) {
         Ok(Control::Connected) => {
@@ -261,7 +262,7 @@ fn wait_control(coordinator: &mut Coordinator) -> Next {
         }
         Ok(Control::Close) => Next::Closed,
         Ok(Control::Drain) => Next::Drained,
-        Err(_) => Next::Failed(NOT_STARTED),
+        Err(_) => Next::Failed(CLOSED),
     }
 }
 
@@ -272,8 +273,9 @@ enum ReadError {
 }
 
 fn metadata(coordinator: &mut Coordinator) -> Next {
+    // Past the greeting, as `wait_control`: a deadline is a startup that closed.
     let Some(remaining) = coordinator.remaining() else {
-        return Next::Failed(NOT_STARTED);
+        return Next::Failed(CLOSED);
     };
     // One absolute deadline for the whole read: trickling bytes must not stretch it.
     let end = Instant::now() + remaining;
@@ -310,7 +312,7 @@ fn metadata(coordinator: &mut Coordinator) -> Next {
         // A close or drain interrupts the read by shutting the socket: it wins. Otherwise
         // the server went away mid-handshake: fail at once, not at the deadline.
         Err(ReadError::Closed) => return coordinator.interrupted(CLOSED),
-        Err(ReadError::TimedOut) => return coordinator.interrupted(NOT_STARTED),
+        Err(ReadError::TimedOut) => return coordinator.interrupted(CLOSED),
         Ok(()) => {}
     }
     let mut name = [0u8; DEVICE_NAME_LEN];
