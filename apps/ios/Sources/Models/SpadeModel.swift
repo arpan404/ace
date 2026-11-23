@@ -54,6 +54,8 @@ import Observation
         let state: String
         let line: String
         let pinned: Bool
+        /// When the person pinned it (ms): the pin strip shows the oldest pin first.
+        var pinnedAt: Double? = nil
         /// "Shared in Acme Robotics" for a bot an organization shares (ADR 0206 §2.3).
         var shared: String? = nil
         /// Its latest activity (ms): the list across machines orders by it within a rank.
@@ -166,6 +168,8 @@ import Observation
         /// A member's message in a group: its name above the first of a run, its face by the last.
         case member(name: String, text: String, fold: Bool, face: Face, first: Bool, last: Bool)
         case workers(Workers)
+        /// A reply that changed the bot's files: its steps in one line, and what undo can reach.
+        case changes(SpadeChanges)
         case note(text: String)
 
         private enum Keys: String, CodingKey {
@@ -197,6 +201,8 @@ import Observation
                 self = .question(try SpadeQuestionCard(from: decoder))
             case "workers":
                 self = .workers(try Workers(from: decoder))
+            case "changes":
+                self = .changes(try SpadeChanges(from: decoder))
             case "member":
                 self = .member(name: try box.decode(String.self, forKey: .name), text: text,
                                fold: try box.decodeIfPresent(Bool.self, forKey: .fold) ?? false,
@@ -322,8 +328,9 @@ struct SpadeOutcome: Decodable, Sendable {
     let at: Int?
     /// A task's save: the task as Spade stored it.
     let task: String?
+    let reviewAgain: Bool?
     init(ok: Bool, title: String? = nil, message: String? = nil, at: Int? = nil, task: String? = nil) {
-        self.ok = ok; self.title = title; self.message = message; self.at = at; self.task = task
+        self.ok = ok; self.title = title; self.message = message; self.at = at; self.task = task; self.reviewAgain = nil
     }
     /// Why it failed, in one line; nil when it went.
     var problem: String? {

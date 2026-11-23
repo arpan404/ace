@@ -7,9 +7,10 @@ extension SpadeUITests {
     func testANewBotStartsFromOneMessageAndOpensOnItsConversation() {
         let app = launch(appearance: "dark")
         _ = openSpade(app)
-        let new = app.buttons["spade.newBot"]
+        let new = app.buttons["spade.new"]
         XCTAssertTrue(new.waitForExistence(timeout: 20))
         new.tap()
+        app.buttons["spade.newBot"].tap()
         let field = app.textFields["spade.newbot.field"].exists ? app.textFields["spade.newbot.field"] : app.textViews["spade.newbot.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         // The machine's templates show under the question.
@@ -58,8 +59,9 @@ extension SpadeUITests {
     func testSpadeSettingsAndNewBotInTheOtherLook() {
         let app = launch(appearance: "light")
         _ = openSpade(app)
-        XCTAssertTrue(app.buttons["spade.newBot"].waitForExistence(timeout: 20))
+        XCTAssertTrue(app.buttons["spade.new"].waitForExistence(timeout: 20))
         screenshot("spade-list-light")
+        app.buttons["spade.new"].tap()
         app.buttons["spade.newBot"].tap()
         XCTAssertTrue(app.buttons["spade.newbot.template.reviewer"].waitForExistence(timeout: 10))
         screenshot("spade-newbot-light")

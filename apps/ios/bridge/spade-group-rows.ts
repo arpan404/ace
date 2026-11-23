@@ -203,3 +203,40 @@ export function spadeGroupHead(
     waiting: waiter && own ? { name: own.name || named, conversation: own.conversation } : null,
   };
 }
+
+/** A member as a group's profile lists it: its bot, its machine (null for the group's own), its face. */
+export interface SpadeGroupMemberRow {
+  agent: string;
+  machine: string | null;
+  name: string;
+  face: SpadeFaceRow;
+  away: boolean;
+}
+
+/**
+ * A group's profile (ADR 0132): its name, its lead and its members in the group's order, each
+ * with the face and name the roster has for it on this machine, else what the group kept.
+ */
+export function spadeGroupProfileRow(
+  group: SpadeGroup,
+  agents: readonly SpadeAgent[],
+  hostId?: string,
+) {
+  const members: SpadeGroupMemberRow[] = group.members.map((member) => ({
+    agent: member.agent,
+    machine: machineKey(member.machine, hostId),
+    name:
+      rosterAgent(agents, member.agent, member.machine, hostId)?.name ||
+      member.name ||
+      member.agent,
+    face: memberFace(member, agents, hostId),
+    away: member.away,
+  }));
+  return {
+    id: group.id,
+    name: group.name,
+    conversation: group.conversation,
+    lead: { agent: group.lead.agent, machine: machineKey(group.lead.machine, hostId) },
+    members,
+  };
+}
