@@ -141,6 +141,15 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_NATIVE_CROSS_LOG !== undefined
       ? { ACE_NATIVE_CROSS_LOG: ambient.ACE_NATIVE_CROSS_LOG }
       : {}),
+    // The transport switch (ADR 0226, T0.1) with its addon and evidence paths: the listener reads
+    // them in workers and launch helpers, where every other ACE_* value stays scrubbed.
+    ...(ambient.ACE_TRANSPORT !== undefined ? { ACE_TRANSPORT: ambient.ACE_TRANSPORT } : {}),
+    ...(ambient.ACE_TRANSPORT_ADDON !== undefined
+      ? { ACE_TRANSPORT_ADDON: ambient.ACE_TRANSPORT_ADDON }
+      : {}),
+    ...(ambient.ACE_TRANSPORT_EVIDENCE !== undefined
+      ? { ACE_TRANSPORT_EVIDENCE: ambient.ACE_TRANSPORT_EVIDENCE }
+      : {}),
     PLAYWRIGHT_BROWSERS_PATH: ambient.PLAYWRIGHT_BROWSERS_PATH ?? playwrightCache(realHome),
     // Rust toolchains are installed once per machine too. rustup finds its default toolchain
     // under RUSTUP_HOME, else $HOME/.rustup, which the test home doesn't have, so `cargo` would
