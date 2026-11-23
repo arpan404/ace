@@ -70,9 +70,13 @@ test("output the bot printed before the phone looked shows once, and the stream 
   live.handle({ type: "spade.terminal.watch", id: "t1", agentId: "writer" });
   await read("first");
 
-  // Spade restarts the stream: what was drawn isn't drawn again.
-  daemon.spade.endStreams("/v1/agents/writer/terminal/live");
-  await until(() => live.streams === 1);
+  const terminal = "/v1/agents/writer/terminal/live";
+  expect(daemon.spade.openStreams(terminal)).toEqual([`${terminal}?after=0`]);
+
+  // Spade restarts the stream: it opens again after the last seq drawn, which isn't drawn again.
+  daemon.spade.endStreams(terminal);
+  await until(() => daemon.spade.openStreams(terminal).length === 1);
+  expect(daemon.spade.openStreams(terminal)).toEqual([`${terminal}?after=1`]);
   api.computer.print("writer", "second\r\n");
   await read("second");
 
@@ -80,17 +84,38 @@ test("output the bot printed before the phone looked shows once, and the stream 
   expect(screen.gaps).toBe(0);
 });
 
-test("the stream closes when the phone stops watching, and nothing more is put", async () => {
-  const { live, api, patches, read } = await withTerminal();
+test("the stream closes at Spade when the phone stops watching, and nothing more is put", async () => {
+  const { live, api, daemon, patches, read } = await withTerminal();
   live.handle({ type: "spade.terminal.watch", id: "t1", agentId: "writer" });
   api.computer.print("writer", "hello");
   await read("hello");
 
   live.handle({ type: "spade.terminal.unwatch", id: "t1" });
   expect(live.streams).toBe(0);
+  await until(() => daemon.spade.openStreams("/v1/agents/writer/terminal/live").length === 0);
   api.computer.print("writer", "unseen");
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(patches.held.has("terminal:t1:data")).toBe(false);
+});
+
+test("a character the PTY's chunks cut in two draws once, whole", async () => {
+  const { live, daemon, read, screen } = await withTerminal();
+  live.handle({ type: "spade.terminal.watch", id: "t1", agentId: "writer" });
+  await until(() => daemon.spade.openStreams("/v1/agents/writer/terminal/live").length === 1);
+  const bytes = new TextEncoder().encode("é€ ok");
+  const frame = (seq: number, part: Uint8Array) =>
+    daemon.spade.emit("/v1/agents/writer/terminal/live", "output", {
+      seq,
+      data_b64: Buffer.from(part).toString("base64"),
+    });
+  // "é" is two bytes and "€" three: the first frame ends inside "€".
+  frame(1, bytes.subarray(0, 3));
+  await read("é");
+  expect(screen.text).toBe("é");
+  frame(2, bytes.subarray(3));
+  await read("ok");
+
+  expect(screen.text).toBe("é€ ok");
 });
 
 test("a service shows its state in words, its output, and stops", async () => {
