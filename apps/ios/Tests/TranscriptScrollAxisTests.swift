@@ -12,6 +12,15 @@ import Testing
         #expect(page.older - old.older == 1200)
     }
 
+    @Test func anOlderRowMovesDownScreenAsTheNativeOffsetAdvancesTowardHistory() {
+        let row = TranscriptScrollAxis.row(CGRect(x: 12, y: 520, width: 340, height: 120))
+        let first = row.minY + TranscriptScrollAxis.origin(offset: 20, viewport: 800)
+        let later = row.minY + TranscriptScrollAxis.origin(offset: 120, viewport: 800)
+
+        #expect(first == 180)
+        #expect(later == 280)
+    }
+
     @Test func theOlderRowSitsAboveItsNewerNeighbourInChronologicalCoordinates() {
         let newer = TranscriptScrollAxis.row(CGRect(x: 12, y: 400, width: 340, height: 85))
         let older = TranscriptScrollAxis.row(CGRect(x: 12, y: 485, width: 340, height: 170))

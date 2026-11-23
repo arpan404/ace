@@ -46,7 +46,7 @@ struct ConversationFeed: View {
     /// While the keyboard moves, the live tail doesn't jump to the end on each delta: the
     /// keyboard's ride carries the rows there.
     @State var keyboardMoving = false
-    @State var feedFrame: CGRect = .zero
+    @State var feedSize: CGSize = .zero
     /// The edge that holds still while lazy rows correct their heights (`TranscriptGrowthAnchor`).
     @State var growth = TranscriptGrowthAnchor()
     /// A row has been drawn since the feed appeared: the opening's hold counts from here.
@@ -90,18 +90,18 @@ struct ConversationFeed: View {
     var body: some View {
         // A passage opened in a row is one of the thread's folds: the feed holds the reader's place.
         GeometryReader { viewport in
-            ScrollViewReader { proxy in feed(proxy, safeArea: viewport.safeAreaInsets) }
+            ScrollViewReader { proxy in feed(proxy) }
+                .frame(width: viewport.size.width, height: viewport.size.height)
+                .clipped()
         }
             .environment(\.expansions, shown.disclosures)
             .environment(\.transcriptShowingHistory, reading.shown != nil)
     }
 
-    /// The scroll view's own frame, header and home indicator included.
-    nonisolated static let viewportSpace = "transcript.viewport"
     /// The scrolling content: rows keep their frames in it while the feed scrolls.
     nonisolated static let contentSpace = "transcript.content"
 
-    func feed(_ proxy: ScrollViewProxy, safeArea: EdgeInsets) -> some View {
+    func feed(_ proxy: ScrollViewProxy) -> some View {
         // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
         // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
         let _ = stackSwitches
@@ -195,25 +195,18 @@ struct ConversationFeed: View {
             .background { TranscriptSurfaceReader(surface: surface).accessibilityHidden(true) }
             // Hidden while a thread opens, then shown where it settled (`revealWhenSettled`).
             .opacity(ready && !revealed ? 0 : 1)
-            // Outside the rows' space and inside the reader below, so neither sees it.
+            // Outside the rows' measurement space.
             .modifier(KeyboardRideOffset(ride: keyboard, base: CGFloat(keyboardFollow.base), riding: keyboardFollow.riding, inverted: true))
-            // Where the content's top is on screen: the one number a scroll changes.
-            .onGeometryChange(for: CGFloat.self) { $0.bounds(of: .named(Self.viewportSpace))?.maxY ?? 0 } action: { origin in
-                contentScrolled(to: origin, proxy: proxy)
-            }
         }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { feedFrame = $0 }
-        .coordinateSpace(name: Self.viewportSpace)
         .defaultScrollAnchor(.top, for: .initialOffset)
         // Rows measuring above the screen don't move it while a thread opens at its end
         // (`TranscriptGrowthAnchor`).
         .defaultScrollAnchor(holdsEnd ? .top : nil, for: .sizeChanges)
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.top, for: .alignment)
-        .contentMargins(.top, safeArea.bottom, for: .scrollContent)
-        .contentMargins(.bottom, safeArea.top, for: .scrollContent)
+        .modifier(TranscriptTopEdge())
         .scaleEffect(x: 1, y: -1)
-        .ignoresSafeArea(.container, edges: .vertical)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { feedSize = $0 }
         .background(AceTheme.Colours.background)
         .overlay(alignment: .top) {
             if reading.loading, reading.operation == "older" || reading.operation == "newer" {
@@ -301,16 +294,16 @@ struct ConversationFeed: View {
             TranscriptJumpHooks.scrolling(phase)
         }
         .onScrollGeometryChange(for: TranscriptScrollIntent.Metrics.self) { geometry in
-            // The container is the area inside the insets; the feed runs under the header and
-            // the home indicator, so its frame is the container with both insets around it.
             let insets = geometry.contentInsets
-            let frame = geometry.containerSize.height + insets.top + insets.bottom
+            let frame = geometry.containerSize.height
             let distance = TranscriptScrollAxis.distances(offset: geometry.contentOffset.y, content: geometry.contentSize.height,
                                                           viewport: geometry.containerSize.height, startInset: insets.top)
             return TranscriptScrollIntent.Metrics(y: -geometry.contentOffset.y, top: distance.older, bottom: distance.live,
                 viewport: frame, topInset: insets.bottom, bottomInset: insets.top, height: geometry.contentSize.height)
         } action: { old, new in
             intent.metrics = new
+            let origin = TranscriptScrollAxis.origin(offset: -new.y, viewport: new.viewport)
+            if origin != anchor.keeper.frames.origin { contentScrolled(to: origin, proxy: proxy) }
             if new.height != old.height { PerfCounters.bump("content.height") }
             let opened = intent.opened
             if intent.opened, new.height != old.height {
@@ -423,7 +416,7 @@ struct ConversationFeed: View {
             .onChange(of: densityId) { _, _ in applyLayoutRevision() }
             // Rotation and split-view width changes invalidate measurements
             // automatically: only geometry (not paging or streaming) does.
-            .onChange(of: feedFrame.size) { _, _ in applyLayoutRevision() }
+            .onChange(of: feedSize) { _, _ in applyLayoutRevision() }
             .onChange(of: model.connection) { _, connection in connectionChanged(connection) }
     }
     /// The keyboard and the composer: the room under the last row.
@@ -451,7 +444,6 @@ struct ConversationFeed: View {
             // follows it again, so Scroll to end goes.
             .onChange(of: reading.joined) { _, joined in windowJoined(joined) }
             .onChange(of: jumps) { _, _ in returnToEnd(proxy: proxy) }
-            .modifier(TranscriptTopEdge())
             .modifier(ReaderAtEnd(model: model, thread: thread, atEnd: pinned && thread.loaded))
     }
 }
