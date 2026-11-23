@@ -7,6 +7,7 @@ export const genericQuirks: AcpQuirks = {
   clientMeta: {},
   toolKind: () => undefined,
   classifyError: () => undefined,
+  cancelNotice: () => false,
   // Effort applies at session start when the agent offers a thinking-level option.
   capabilities: () => ({ ...baseCapabilities, launchOptions: ["effort"] }),
 };

@@ -11,9 +11,15 @@ export class RunTurns {
   private current: number | undefined;
   private readonly asks = new Set<string>();
   private readonly runs = new Map<string, number>();
+  /** The last root run ended to take the person's steer; the next one carries its turn on. */
+  private afterSteer = false;
 
   /** Follows root messages: a waiting ask, or one a started run took or withdrew. */
   track(payload: EventPayload, rootAgentId: string | undefined): void {
+    if (payload.type === "run.ended" && this.runs.has(payload.runId)) {
+      this.afterSteer = payload.endedBy === "steer";
+      return;
+    }
     if (payload.type === "item.deleted") {
       this.asks.delete(payload.itemId);
       return;
@@ -33,9 +39,11 @@ export class RunTurns {
       current: this.current,
       legacyBase: 0,
       asked: this.asks.size > 0,
+      afterSteer: this.afterSteer,
       trigger: run.trigger,
     });
     this.current = turn;
+    this.afterSteer = false;
     this.asks.clear();
     this.runs.set(run.id, turn);
     return turn;
