@@ -42,17 +42,16 @@ impl GitPortBridge {
     #[napi(catch_unwind)]
     pub fn push_event(&self, event_json: String) -> napi::Result<f64> {
         caught("git port bridge push", || {
-            let mut state = self
-                .events
-                .lock()
-                .map_err(|_| ace_git::error::Error::Internal("git bridge lock failed".to_owned()))?;
+            let mut state = self.events.lock().map_err(|_| {
+                ace_git::error::Error::Internal("git bridge lock failed".to_owned())
+            })?;
             if state.closed {
-                return Err(ace_git::error::Error::Internal("git bridge is closed".to_owned()));
+                return Err(ace_git::error::Error::Internal(
+                    "git bridge is closed".to_owned(),
+                ));
             }
             state.events.push(event_json);
-            let len = state.events.len();
-            len.try_into()
-                .map_err(|_| ace_git::error::Error::Internal("git bridge queue too long".to_owned()))
+            Ok(state.events.len() as f64)
         })
     }
 
@@ -61,10 +60,9 @@ impl GitPortBridge {
     #[napi(catch_unwind)]
     pub fn drain(&self) -> napi::Result<Vec<String>> {
         caught("git port bridge drain", || {
-            let mut state = self
-                .events
-                .lock()
-                .map_err(|_| ace_git::error::Error::Internal("git bridge lock failed".to_owned()))?;
+            let mut state = self.events.lock().map_err(|_| {
+                ace_git::error::Error::Internal("git bridge lock failed".to_owned())
+            })?;
             Ok(std::mem::take(&mut state.events))
         })
     }
@@ -73,10 +71,9 @@ impl GitPortBridge {
     #[napi(catch_unwind)]
     pub fn close(&self) -> napi::Result<()> {
         caught("git port bridge close", || {
-            let mut state = self
-                .events
-                .lock()
-                .map_err(|_| ace_git::error::Error::Internal("git bridge lock failed".to_owned()))?;
+            let mut state = self.events.lock().map_err(|_| {
+                ace_git::error::Error::Internal("git bridge lock failed".to_owned())
+            })?;
             state.closed = true;
             Ok(())
         })

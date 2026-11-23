@@ -12,7 +12,7 @@ pub mod merge;
 pub mod projects;
 pub mod publication;
 pub mod push;
-pub mod stage;
 pub mod stack;
+pub mod stage;
 pub mod transfers;
 pub mod worktrees;
