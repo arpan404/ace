@@ -54,9 +54,6 @@ pub fn turn_steps(
     out.push_str(",\"rows\":[");
     for (index, row) in rows.iter().enumerate() {
         let item_id = text_at(row, 0)?;
-        if item_id.is_empty() {
-            return Err(invalid("invalid index row"));
-        }
         let seq = super::super::common::check_count(int_at(row, 1)?)?;
         if index > 0 {
             out.push(',');
