@@ -242,7 +242,7 @@ async fn history_search_finds_text_compaction_summarised_away_and_reads_it_exact
     let summary = r#"{"goal":"Travel papers","decisions":[],"facts":[],"open":[],"references":[]}"#;
     let spade = Spade::start(
         vec![
-            Script::reply("Noted."),
+            Script::reply("Noted: your passport number is X123."),
             Script::reply("").plain(r#"{"title":"Papers"}"#),
             Script::reply("You're welcome."),
             Script::reply("").plain(summary),
@@ -251,14 +251,18 @@ async fn history_search_finds_text_compaction_summarised_away_and_reads_it_exact
                 "history_search",
                 json!({ "query": "passport number" }),
             ),
-            Script::reply("").call("h2", "history_read", json!({ "from": 1, "count": 3 })),
+            Script::reply("").call("h2", "history_read", json!({ "from": 1, "count": 4 })),
             Script::reply("It is X123."),
         ],
         Vec::new(),
     )
     .await?;
     let (_, chat) = ids(&spade.new_agent("Papers", "").await?);
-    spade.say(&chat, "My passport number is X123").await?;
+    // The person's own messages survive compaction word for word (ADR 0216); the bot's words
+    // are what a summary can lose, so the number is in its reply.
+    spade
+        .say(&chat, "Keep my travel papers in mind for later")
+        .await?;
     spade.wait_for(&chat, "renamed").await?;
     spade.say(&chat, "Thanks").await?;
     spade.wait_for_count(&chat, "reply_finished", 2).await?;
@@ -282,7 +286,7 @@ async fn history_search_finds_text_compaction_summarised_away_and_reads_it_exact
     assert_eq!(results.len(), 2, "{results:?}");
     let position = events
         .iter()
-        .position(|e| e["type"] == "user_message")
+        .position(|e| e["type"] == "step_finished")
         .map_or(0, |at| at + 1);
     assert!(
         results[0].contains(&format!("[position {position}]")) && results[0].contains("X123"),
@@ -290,7 +294,7 @@ async fn history_search_finds_text_compaction_summarised_away_and_reads_it_exact
         results[0]
     );
     assert!(
-        results[1].contains("person: My passport number is X123"),
+        results[1].contains("Noted: your passport number is X123."),
         "{}",
         results[1]
     );

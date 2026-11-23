@@ -62,7 +62,6 @@ export function bindLiveServices(serverOptions: ServerOptions, services: Service
     "transfers",
     "fleet",
     "mcp",
-    "spadeBrains",
     "spadeGrantVerify",
     "notifications",
     "notificationPublicKey",

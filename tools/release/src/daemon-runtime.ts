@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { chmod, copyFile, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { chmod, copyFile, link, mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { extract } from "tar";
 import type { z } from "zod";
 import type { ReleaseTarget as ReleaseTargets } from "@ace/protocol";
 import { downloadArchive, hashFile } from "@ace/service";
+import { daemonRuntimePath } from "@ace/service/process-names";
 
 export type ReleaseTarget = z.infer<typeof ReleaseTargets>;
 
@@ -163,4 +164,23 @@ export async function stageBunRuntime(options: {
   await copyFile(licenseCache, options.licensePath);
   if (!(await trusted(options.licensePath, licenseFile.sha256)))
     throw new Error("Untrusted staged Bun LICENSE");
+}
+
+/**
+ * Gives the desktop app's staged runtime its second name, `ace Service` (`ace-service` on Linux,
+ * `ace Service.exe` on Windows), which the app starts the daemon on so it shows as ace's service
+ * rather than as the runtime. A hard link where the staging folder allows one, else a copy;
+ * packaging and signing store it as a file of its own either way (codesign rewrites each name
+ * separately). Standalone releases carry no second name: they link one on first start
+ * (`startableDaemonRuntime`).
+ */
+export async function stageDaemonRuntimeName(
+  runtime: string,
+  platform: NodeJS.Platform,
+): Promise<string> {
+  const named = daemonRuntimePath(runtime, platform);
+  await rm(named, { force: true });
+  await link(runtime, named).catch(() => copyFile(runtime, named));
+  await chmod(named, 0o755);
+  return named;
 }

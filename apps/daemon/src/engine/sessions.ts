@@ -2,7 +2,6 @@ import { mayRequeue, requeueNeedsProof, settleCursorAttempt } from "./cursor-att
 import { interruptedNotice } from "./thread-liveness.ts";
 import { SessionFenced } from "./session-fenced.ts";
 import { homeWaitText } from "@ace/accounts/home-wait";
-import { spadeBotAceTools } from "../spade/brain-tools.ts";
 import { lostWork } from "./lost-work.ts";
 import { providerCommandMetadata, type ProviderCommandEvent } from "./provider-command-metadata.ts";
 import { isDefaultSelection } from "@ace/models";
@@ -542,9 +541,6 @@ export class Sessions {
         ...(mode ? { permissionMode: mode } : {}),
         ...codexContext,
         ...(aceMcp ? { aceMcp } : {}),
-        ...(this.dependencies.repo.store.getThread(actor.id)?.host === "spade-bot"
-          ? { spadeBot: { allowAceTools: spadeBotAceTools } }
-          : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
         // A notice while the account's folder hasn't answered: the turn is waiting, not lost.

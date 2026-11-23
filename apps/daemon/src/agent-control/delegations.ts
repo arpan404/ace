@@ -133,6 +133,7 @@ export class DelegationService {
     this.journal = new DelegationJournal(deps.store, deps.journalCapacity, (error) =>
       this.report(error),
     );
+    deps.store.bindDelegationJournal(this.journal);
     this.conversations = new ConversationJournal(deps.store);
     this.senders = new MessageSenders(deps.store);
     this.launches = new LaunchQueue(deps.store);

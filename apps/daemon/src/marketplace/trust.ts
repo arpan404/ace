@@ -1,7 +1,6 @@
 import {
   tierOf,
   verifyBlocklist,
-  verifyNotices,
   verifyOfficialList,
   verifyVerifiedList,
   type RankingTier,
@@ -9,7 +8,6 @@ import {
 import type {
   MarketBlocklist,
   MarketKeySet,
-  MarketNotices,
   MarketOfficialList,
   MarketVerificationProof,
   MarketVerifiedList,
@@ -29,14 +27,12 @@ export interface TrustLists {
   blocklist?: MarketBlocklist | undefined;
   verified?: MarketVerifiedList | undefined;
   official?: MarketOfficialList | undefined;
-  notices?: MarketNotices | undefined;
 }
 
 const lists = {
   blocklist: { meta: "signed-blocklist", verify: verifyBlocklist },
   verified: { meta: "signed-verified", verify: verifyVerifiedList },
   official: { meta: "signed-official", verify: verifyOfficialList },
-  notices: { meta: "signed-notices", verify: verifyNotices },
 } as const;
 type ListName = keyof typeof lists;
 
@@ -86,7 +82,6 @@ export class Trust {
       blocklist: read(lists.blocklist),
       verified: read(lists.verified),
       official: read(lists.official),
-      notices: read(lists.notices),
     };
     return this.#cached;
   }
@@ -100,16 +95,7 @@ export class Trust {
     const blocklist = await this.#learnOne(lists.blocklist, http.blocklist, "blocklist");
     await this.#learnOne(lists.verified, http.verified, "verified");
     await this.#learnOne(lists.official, http.official, "official");
-    await this.#learnOne(lists.notices, http.notices, "notices");
     return { blocklist };
-  }
-
-  /**
-   * The terms notices as signed, for Spade, which checks the signature again with the keys its
-   * own build ships; undefined unless they verify here.
-   */
-  signedNotices(): unknown {
-    return this.current().notices ? parsed(this.#store.meta(lists.notices.meta)) : undefined;
   }
 
   async #learnOne<T extends { issued: number }>(

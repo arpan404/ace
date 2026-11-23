@@ -145,6 +145,13 @@ export const h264Only: readonly string[] = ["avc1.42E033"];
 /** Reconnects after the producer's connection ended, before the source stays stopped. */
 export const maxIngestReopens = 3;
 /**
+ * How long a failed source waits before it opens again, doubling with each failure in a row up
+ * to {@link failedRetryMaxMs}. ace-media is the only path for live video, so a source it ended
+ * (a Simulator's stream that stalled, an encoder that failed) is never left off for good.
+ */
+export const failedRetryMs = 2_000;
+const failedRetryMaxMs = 60_000;
+/**
  * Whether a stopped source comes back by itself soon (`retrying`: ace-media is restarting) or
  * not (`unavailable`: crash-looping, missing, or it can't take this source).
  */
@@ -201,8 +208,15 @@ type Entry = {
   page: IngestPage | undefined;
   /** Bumped by every switch, so a late answer to an older one is ignored. */
   generation: number;
-  /** Ingest failed or was refused: it stays off until its route changes or ace-media restarts. */
+  /**
+   * Ingest failed or was refused: it stays off until its retry, its route changes or ace-media
+   * restarts. One refused for want of an encoder has no retry: it waits for the encoders.
+   */
   failed: boolean;
+  /** Failures in a row since it last played: each doubles the wait before its retry. */
+  failures: number;
+  /** Cancels the pending retry of a failed source. */
+  retry: (() => void) | undefined;
   /**
    * ace-media refused it for want of an encoder: it also opens again once ace-media's encoders
    * change, since the last-resort one reports only after `ready`.
@@ -329,6 +343,8 @@ export class IngestSources {
       page: undefined,
       generation: 0,
       failed: false,
+      failures: 0,
+      retry: undefined,
       noEncoder: false,
       reopens: 0,
       closed: false,
@@ -412,8 +428,7 @@ export class IngestSources {
   routesChanged(kinds: readonly SourceKind[]): void {
     for (const entry of this.#entries)
       if (kinds.includes(entry.producer.kind)) {
-        entry.failed = false;
-        entry.reopens = 0;
+        this.#recovered(entry);
         const was = entry.state;
         this.#sync(entry);
         if (was !== "off" && entry.state === "off")
@@ -424,10 +439,37 @@ export class IngestSources {
   /** The supervisor's `replay`: ace-media is up, with a new ingest. Failed sources try again. */
   replay(): void {
     for (const entry of this.#entries) {
-      entry.failed = false;
-      entry.reopens = 0;
+      this.#recovered(entry);
       this.#sync(entry);
     }
+  }
+
+  /** A failed source may open again now: its retry is no longer needed. */
+  #recovered(entry: Entry): void {
+    entry.failed = false;
+    entry.reopens = 0;
+    entry.retry?.();
+    entry.retry = undefined;
+  }
+
+  /**
+   * The source failed in ace-media (`reason`, told to its producer): it is off, and opens again
+   * after a wait that doubles with each failure in a row.
+   */
+  #failed(entry: Entry, reason: string): void {
+    entry.failed = true;
+    entry.noEncoder = false;
+    // It opens again by itself.
+    this.#tell(entry, reason, "retrying");
+    entry.retry?.();
+    const wait = Math.min(failedRetryMs * 2 ** entry.failures, failedRetryMaxMs);
+    entry.failures++;
+    entry.retry = this.#options.schedule(() => {
+      entry.retry = undefined;
+      if (entry.closed || !entry.failed) return;
+      this.#recovered(entry);
+      this.#sync(entry);
+    }, wait);
   }
 
   /** The supervisor's `onExit`: every id, token and handle of that process is gone. */
@@ -450,10 +492,14 @@ export class IngestSources {
   }
 
   /** Tells a stopped producer why, once per reason while it stays stopped. */
-  #tell(entry: Entry, reason: string): void {
+  #tell(
+    entry: Entry,
+    reason: string,
+    status: StopStatus = reason === restartingReason ? "retrying" : "unavailable",
+  ): void {
     if (entry.closed || entry.told === reason) return;
     entry.told = reason;
-    entry.producer.stopped?.(reason, reason === restartingReason ? "retrying" : "unavailable");
+    entry.producer.stopped?.(reason, status);
   }
 
   #live(entry: Entry, path: Path | undefined): void {
@@ -533,13 +579,15 @@ export class IngestSources {
     if (message.status === "starting") return this.#started(entry, path);
     if (message.status === "playing") {
       entry.reopens = 0;
+      entry.failures = 0;
       return;
     }
     if (message.status === "ended" && message.reason !== undefined) {
-      entry.failed = true;
-      entry.noEncoder = message.reason === noEncoderReason;
       this.#leave(entry);
       entry.producer.refused?.(message.reason);
+      if (message.reason !== noEncoderReason) return this.#failed(entry, message.reason);
+      entry.failed = true;
+      entry.noEncoder = true;
       this.#tell(entry, message.reason);
       return;
     }
@@ -699,10 +747,8 @@ export class IngestSources {
           source: entry.producer.source,
           error: error instanceof Error ? error.message : String(error),
         });
-        entry.failed = true;
-        entry.noEncoder = false;
         this.#leave(entry);
-        this.#tell(entry, failedReason);
+        this.#failed(entry, failedReason);
       },
     );
   }
@@ -730,10 +776,8 @@ export class IngestSources {
     entry.generation++;
     if (live) this.#retire(live);
     if (++entry.reopens > maxIngestReopens) {
-      entry.failed = true;
-      entry.noEncoder = false;
       void entry.producer.point(undefined).catch(() => {});
-      this.#tell(entry, failedReason);
+      this.#failed(entry, failedReason);
       return;
     }
     // Reopened at once: the producer gets its new address.
@@ -795,6 +839,8 @@ export class IngestSources {
   #close(entry: Entry): void {
     if (entry.closed) return;
     entry.closed = true;
+    entry.retry?.();
+    entry.retry = undefined;
     entry.generation++;
     this.#entries.delete(entry);
     const live = entry.live;

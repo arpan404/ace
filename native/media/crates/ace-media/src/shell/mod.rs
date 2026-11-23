@@ -29,6 +29,7 @@ mod shutdown_tests;
 #[cfg(target_os = "macos")]
 mod sim_transcode;
 mod viewers;
+mod watch;
 mod writer;
 
 use crate::encode::worker::Output;
@@ -465,6 +466,13 @@ async fn serve(
             },
             _ = tick.tick() => {
                 let now = clock.now();
+                // A worker wedged in a call fails its source, which the daemon opens again.
+                for (source, token) in pictures.stalled(now.mono_ms) {
+                    engine.encoder_failed(&source, token, "encoder-stalled");
+                }
+                for (source, token) in readers.stalled(now.mono_ms) {
+                    engine.encoder_failed(&source, token, "reader-stalled: a call never returned");
+                }
                 engine.encoders_stuck(pictures.stuck(now.mono_ms) + readers.stuck(now.mono_ms));
                 engine.tick(now);
             }

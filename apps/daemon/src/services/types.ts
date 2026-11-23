@@ -34,6 +34,10 @@ export interface Services {
   ) => Promise<import("@ace/protocol").CommandResult>;
   externalMcp?: import("../external-mcp/server.ts").ExternalMcp;
   storage?: import("../storage/service.ts").StorageService;
+  /** The daemon's one image worker (`ace-media --images`), from the `media` service. */
+  images?: import("@ace/media/images").ImageWork;
+  /** The daemon's one ace-media (the `media` service); null when this computer has none. */
+  media?: import("./media.ts").DaemonMedia | null;
   /** Delivery by ace-media (D1), while ace-media runs. */
   mediaDelivery?: () => import("./media.ts").DaemonDelivery | undefined;
   /** ace-media's process while it runs: its listeners are ace's own (ADR 0194). */
@@ -142,13 +146,6 @@ export interface Services {
   skillLibrary?: import("@ace/commands").SkillLibrary;
   /** Spade, ace's assistant: its own service, which the daemon reads and forwards to (ADR 0123). */
   spade?: import("../spade/link.ts").SpadeLink;
-  /** How many frames of a bot's running turn precede a call its CLI makes now (ADR 0133). */
-  spadeBrainSeq?: (threadId: import("@ace/protocol").ThreadId) => Promise<number | undefined>;
-  /** `<daemon>/spade/brains/*`: Spade's bots' turns on subscriptions (ADR 0133). */
-  spadeBrains?: (
-    request: import("node:http").IncomingMessage,
-    response: import("node:http").ServerResponse,
-  ) => void;
   /** Whether a bearer is Spade's live grant (ADR 0123), for its loopback-only requests. */
   spadeGrantVerify?: (bearer: string) => boolean;
   /** Spade's bots on the person's other machines (ADR 0132). */
@@ -238,6 +235,16 @@ export interface ServiceContext {
   log: ReturnType<typeof createLogger>;
   resources: Resources;
   services: Partial<Services>;
+  /**
+   * Calls `listener` with a service's current value, then again each time startup publishes,
+   * replaces or withdraws it (a dependency that recovers on a retry, say); returns how to stop.
+   * For a service that only orders itself `after` another and so may start without it. Use
+   * `followService`, which also covers a context built without startup.
+   */
+  watchService?<K extends keyof Services>(
+    key: K,
+    listener: (value: Services[K] | undefined) => void,
+  ): () => void;
   /**
    * The daemon's maintenance gate, created before any service so engine recovery honours it
    * from the start; the server shares the same gate.

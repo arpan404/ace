@@ -11,7 +11,7 @@ describe. Agents run on models from the person's own endpoints.
 - **Main agent.** Created by the server on first start: name `Spade`, avatar `{"kind":"spade"}`,
   empty task, the person's first usable model (first endpoint with a key and a saved model, an
   endpoint on this computer first, ADR 0205), else no model (`""`): never a preset's, which the
-  person hasn't set up, and never a subscription. Until they choose one,
+  person hasn't set up. Until they choose one,
   messages to it answer `409` and say so. At most one per service. It cannot be deleted, and its name and avatar
   cannot change (`409`); its task and model can. It shows only on the machine the fleet's host
   record names (see "Where Spade lives"); elsewhere it is left out of `GET /v1/agents` and
@@ -144,11 +144,11 @@ person's say on both (ADR 0187). Code: `engine/moves/` here, `spade_store::moves
    models use, the apps and plugins it used, by name.
 4. **Sending**: inbox requests `{op: "move", step, move}` through the daemon (ADR 0132's `spade`
    machine call): `begin {manifest}` (`403` unless accepted, for that bot), answering `{have,
-host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
+   host}`; `part {index, part}`; then `commit`. Every step (`begin`, `part`, `commit`,
    `status`, `abort`) must come from the accepted `via`, as the daemon's `x-ace-from-host` says,
    else `403` ("this move is another machine's"), the same manifest included; another manifest
    answers `409`. Unreachable, or `429`/`503` at `begin`, means wait and try again (`waiting:
-true`); Cancel works until the commit. Every step of a move to here holds that move's lock
+   true`); Cancel works until the commit. Every step of a move to here holds that move's lock
    (`steps_of`), as do its recovery and the sweep (which skips a move whose lock is taken), and
    every state change is made only from the state it expects (`advance_move`).
 5. **The target** checks `begin` against what the person accepted (the manifest's hash, the
@@ -185,7 +185,7 @@ true`); Cancel works until the commit. Every step of a move to here holds that m
      webhooks get new secrets, every bot's security settings lose every grant, its toolchains
      and Full access and read `auto_review`, clubs point here, an `arrived` event closes each
      moved conversation (`since_arrival`), `arrived:<id>` and `committed`. Answers `{committed,
-arrival, host}`.
+     arrival, host}`.
    - `move_arrive_undo` on any refusal, error or cut-off copy: first `unplace` puts back each
      recorded file (its record goes once that is on disk); then `undoing`, the recorded rows out
      a batch at a time, then (refused while a file record is left: `FilesPlaced`) the claims go and the move reads `receiving` (to copy again) or
@@ -310,9 +310,13 @@ inherited. Endpoints no Spade shipped are taken whole; a shipped endpoint nobody
 only when it has a key. Either way it is moved to
 `models.json.old` and never read again.
 
-A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may), or
-one of the person's subscriptions, `cli:<provider>[@<account>]/<model>`
-([cli-brains.md](cli-brains.md)). Any
+A model is `endpoint/model`, split at the first `/` (endpoint ids have none; model ids may). A
+coding subscription's `cli:<provider>[@<account>]/<model>` is refused (`400`): bots no longer
+think with one (ADR 0219). A bot an older build left on one moves at setup to its default model
+(its `main` route, else the global one, then the model for new bots, then the first usable model, each only if it can run a bot), keeping its conversation;
+its chat gets one `model_replaced` event, `{from, to, line}`, whose `line` says what changed.
+With no model to move to, its model becomes `""` and it waits for the person, as a new bot with no
+model does. Old references in history read as before. Any
 model id on one of the person's endpoints works, saved or not. Its facts come from what the person
 saved, else the endpoint's own listing when saved from it, else the presets' facts for that id,
 else defaults: context 128,000, capabilities `["tools"]`. The defaults only run calls: the API
@@ -378,8 +382,7 @@ deleted.
   effort; what answers is what that endpoint (format and address), model and effort word are sent
   until Spade restarts. When no try answers, or one fails otherwise (a `429`, a `5xx`), the call
   fails with the first refusal. A model id that names its own effort (`o3-high`) keeps it over the
-  role's. A stored effort word this build doesn't know is skipped, never the rest of the record. A
-  `cli:` subscription runs its own sessions and is sent nothing.
+  role's. A stored effort word this build doesn't know is skipped, never the rest of the record.
 
 - **Routes** ([ADR 0205](../../docs/adr/0205-spade-bots-think-with-models-the-person-controls.md)
   §2). Each role is an ordered list of up to four models; a single model reads as a list of one.
@@ -395,8 +398,8 @@ deleted.
   `no_images` or `too_small`, and `line` ("Ran on Model B: the local server was off.") is what
   the reply shows when the step ran on another model than the route's first. The rest of the
   reply starts from the model that served its last step; the next reply reads the route from its
-  start. A route never holds a subscription: one is refused when set, skipped when stored, and a
-  bot on a subscription runs on it alone. A helper's model leads its route when it is on the
+  start. A route holds only models on the person's endpoints: an old `cli:` subscription is
+  refused when set and skipped when stored. A helper's model leads its route when it is on the
   `helper` route; a model the bot named runs alone.
 
 API: `GET`/`PUT /v1/models/roles` (`{roles: {<role>: model | null}, routes: {<role>: [model]},
@@ -405,7 +408,13 @@ efforts: {<role>: effort | null}, effort_defaults: {<role>: effort}, escalate}`;
 `GET`/`PUT /v1/agents/{id}/models` (`{roles: [{role, model, source, route, effort,
 effort_source}], overrides: {roles, routes, efforts, allowed, escalate}, escalate, spend: {today,
 month}}`; `source` is `bot`, `global`, `default` or `own`; `effort_source` is `bot`, `global` or
-`default`). An unknown effort word is refused with `400`. `roles` keeps each override's first model, for clients from before routes.
+`default`). An unknown effort word is refused with `400`. Both also carry two context choices
+([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)), each
+`null` to clear it: `context_tokens: tokens` is a lower cap on the prompt before compaction (at
+least 16,000, else `400`; none by default), and `age_results: bool` turns aging of old tool results
+on (off by default). The global view answers `context_tokens` and `age_results`; a bot's has them
+in `overrides` and resolved as `context_tokens: {tokens, source}` (`tokens` `null` for none) and
+`age_results: {on, source}`. `roles` keeps each override's first model, for clients from before routes.
 `PUT /v1/models/roles {roles: {review}}` sets oversight's `review_model` to the route's first.
 `GET /v1/models/package-routes` answers `{fast: {route, tools}, capable: {route, tools}}`: the
 models a package's bot naming `fast` or `capable` would think with, its model then the global
@@ -475,8 +484,6 @@ fields in a body are ignored. Times are integer milliseconds since the epoch.
   told before them, `Searching the web`, `Reading a page`,
   `Asking Research`, `Waiting for you`, `Working in the background`, `Using <tool>`); never
   arguments; `null` when idle.
-- `problem`: why the agent's latest reply on a subscription failed (signed out, out of quota),
-  until a later reply finishes; `null` otherwise ([cli-brains.md](cli-brains.md)).
 - `last_message`: `{"from": "person"|"agent", "text", "at", "seq", "from_agent": {"id","name"}|null}`
   or `null`. The latest message in the conversation: a message to the agent (`person`; with
   `from_agent` set when another bot sent it) or the agent's reply text (`agent`), never tool
@@ -544,8 +551,8 @@ then.
   `{"kind":"generated"}` from an older client (its colour ignored), gets a face Spade picks (see
   Faces).
 - **Endpoint** = `{"id", "name", "format", "base_url", "session_header", "header_names",
-"needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
-"context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
+  "needs_key", "key_set", "key_source": "keychain"|"environment"|null, "models": [{"id", "name",
+  "context"|null, "capabilities"|null, "source": "listed"|"typed"|"preset"}]}`. Header values and keys are
   never answered. The id is a slug of the name, unique (`-2`, `-3`, …). `format` is `openai-chat`,
   `openai-responses` or `anthropic`; `needs_key` defaults to true (false for a local server).
   With `preset`, missing fields come from that preset, its key variable and models included.

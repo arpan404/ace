@@ -1498,10 +1498,11 @@ Example:
 ```json
 {
   "operation": {
-    "op": "installed"
+    "id": "zrFhWjc-3n0XUrHFrc4UtU2x2kYXBG7K6FZTL6heBmyyrTvras0aKPYUN",
+    "op": "cancel"
   },
-  "orgGrant": "example",
   "requestId": "example",
+  "thread": "example",
   "type": "marketplace.request"
 }
 ```

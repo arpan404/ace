@@ -6,8 +6,6 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use spade_models::Effort;
 
-use crate::brain::CliModel;
-
 pub mod fallback;
 
 /// What a model call is for.
@@ -126,6 +124,34 @@ pub struct Overrides {
         deserialize_with = "known_efforts"
     )]
     pub efforts: BTreeMap<Role, Effort>,
+    /// A lower cap on the prompt in tokens (ADR 0216): the bot compacts once its prompt reaches
+    /// it, or 90% of the window when that is smaller. None by default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_tokens: Option<u32>,
+    /// Whether old tool results show as stubs in later prompts (ADR 0216): a cost choice, off
+    /// unless the person turns it on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub age_results: Option<bool>,
+}
+
+/// The smallest cap the person may set: below it a bot would compact nearly every
+/// step.
+pub const LEAST_CONTEXT_TOKENS: u32 = 16_000;
+
+/// The person's cap on the prompt (ADR 0216): the bot's, else the global one, else none.
+pub fn context_tokens(bot: &Overrides, global: &Overrides) -> (Option<u32>, Source) {
+    [(bot, Source::Bot), (global, Source::Global)]
+        .into_iter()
+        .find_map(|(overrides, source)| overrides.context_tokens.map(|t| (Some(t), source)))
+        .unwrap_or((None, Source::Default))
+}
+
+/// Whether old tool results age out (ADR 0216): the bot's choice, else the global one, else off.
+pub fn age_results(bot: &Overrides, global: &Overrides) -> (bool, Source) {
+    [(bot, Source::Bot), (global, Source::Global)]
+        .into_iter()
+        .find_map(|(overrides, source)| overrides.age_results.map(|on| (on, source)))
+        .unwrap_or((false, Source::Default))
 }
 
 /// The stored efforts this build knows; the rest (a newer build's word) are left out.
@@ -200,7 +226,7 @@ pub struct Routing<'a, M: Models> {
 impl<M: Models> Routing<'_, M> {
     /// Whether a one-shot role can run on `reference`: an endpoint model the person configured.
     fn usable(&self, reference: &str) -> bool {
-        !CliModel::is(reference) && self.models.configured(reference)
+        self.models.configured(reference)
     }
 
     /// Whether `role` can run on `reference`: usable, and able to call tools when the role's
@@ -241,8 +267,8 @@ impl<M: Models> Routing<'_, M> {
             // A checker is never weaker than the bot it checks: a reviewer a bot can talk past
             // asks the person about everything, or lets through what it shouldn't.
             Role::Verify => self.strongest_other(role),
-            // The reviewer runs on an endpoint: a bot that can't be compared (a subscription, an
-            // unpriced model) keeps the fast model rather than one the reviewer can't call.
+            // A bot that can't be compared (an unpriced model) keeps the fast model as its
+            // reviewer.
             Role::Review if self.models.strength(self.own).is_some() => self.strongest_other(role),
             Role::Review => fast(),
             _ => fast(),
@@ -258,12 +284,8 @@ impl<M: Models> Routing<'_, M> {
 
     /// The models `role` tries in order (ADR 0205 §2), at most [`MOST_IN_ROUTE`]: for `main`, the
     /// bot's own model, then the bot's `main` route, else the global one; for another role, its
-    /// override's usable models, else its one model. Gone models are skipped, and a route never
-    /// holds a subscription: a bot on one runs on it alone, never falling back to an endpoint.
+    /// override's usable models, else its one model. Gone models are skipped.
     pub fn route(&self, role: Role) -> Vec<String> {
-        if role == Role::Main && CliModel::is(self.own) {
-            return vec![self.own.to_owned()];
-        }
         let usable_of = |overrides: &Overrides| -> Vec<String> {
             overrides
                 .roles

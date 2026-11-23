@@ -8,7 +8,7 @@ import { collectRustLicenses } from "./rust-licenses.ts";
 type Target = z.infer<typeof ReleaseTarget>;
 export const mediaSizeLimit = 8_000_000;
 export const stagedAceMedia = (root: string, target: Target) =>
-  stagedRustBinary(root, target, "media", "ace-media");
+  stagedRustBinary(root, target, "media", "media");
 
 /**
  * Stages ace-media, the daemon's media process: built from `native/media` on the matching release
@@ -41,7 +41,14 @@ export async function stageAceMedia(options: {
     throw new Error(
       `ace-media reports version ${JSON.stringify(reported.slice(0, 80))}, not ${version}`,
     );
-  await installRustBinary({ executable, root, target, folder: "media", packageName: "ace-media" });
+  await installRustBinary({
+    executable,
+    root,
+    target,
+    folder: "media",
+    process: "media",
+    packageName: "ace-media",
+  });
   await collectRustLicenses({
     repo,
     workspace: "media",

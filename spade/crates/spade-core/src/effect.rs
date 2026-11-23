@@ -127,6 +127,7 @@ const BUILTIN: &[(&str, Effect)] = &[
     ("knowledge_search", Effect::Read),
     ("episode_search", Effect::Read),
     ("todo", Effect::WriteLocal),
+    (crate::asks::ASKS, Effect::WriteLocal),
     (crate::task::TASK_STATUS, Effect::WriteLocal),
     (crate::goal::TASK_GOAL, Effect::WriteLocal),
     (crate::goal::TASK_PLAN, Effect::WriteLocal),

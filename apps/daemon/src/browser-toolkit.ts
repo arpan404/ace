@@ -25,24 +25,35 @@ const agentOf = (caller: BrowserCaller) => ({
 });
 
 /**
- * One browser as the tools see it. Every call opens the thread's browser first, as an agent's
- * first call would; `connected` refuses calls while that browser cannot be reached.
+ * One browser as the tools see it, fixed to `service` for one call: once `live` says the
+ * service was replaced, each step refuses with `browser_restarted`. Every call opens the
+ * thread's browser first, as an agent's first call would; `connected` refuses calls while that
+ * browser cannot be reached.
  */
-function port(service: BrowserService, store: Store, connected: () => void): BrowserToolPort {
+function fixedPort(
+  service: BrowserService,
+  live: () => boolean,
+  store: Store,
+  connected: () => void,
+): BrowserToolPort {
+  const check = () => {
+    if (!live()) throw new PublicToolError("browser_restarted");
+  };
   const ensure = async (caller: BrowserCaller, signal: AbortSignal) => {
     signal.throwIfAborted();
     connected();
+    check();
     const threadId = ThreadId.parse(caller.threadId);
     const thread = store.getThread(threadId);
     if (!thread) throw new Error("Browser thread unavailable");
     await service.open({ threadId, workspaceId: thread.workspaceId, background: true });
     signal.throwIfAborted();
+    check();
     return threadId;
   };
   return {
     async open(caller, signal) {
       const threadId = await ensure(caller, signal);
-      signal.throwIfAborted();
       const claimed = await service.claimTab(threadId, agentOf(caller));
       // Stopped while the tab opened: the caller does nothing with it.
       signal.throwIfAborted();
@@ -54,12 +65,15 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
       const listed = service.state(threadId).tabs?.find((tab) => tab.tabId === tabId);
       if (listed) return { tabId, url: listed.url, title: listed.title };
       // A one-page backend lists no tabs: its page is the agent's current tab.
-      const current = service.currentTab(threadId, agentOf(caller));
-      if (current.tabId === tabId) return current;
+      const page = service.currentTab(threadId, agentOf(caller));
+      if (page.tabId === tabId) return page;
       // An unknown tab fails on the command itself with tab_not_found.
       return { tabId, url: "", title: "" };
     },
-    state: (caller) => service.state(caller.threadId),
+    state(caller) {
+      check();
+      return service.state(caller.threadId);
+    },
     async execute(caller, command, signal) {
       const threadId = await ensure(caller, signal);
       return service.execute(threadId, command, agentOf(caller), signal);
@@ -68,10 +82,32 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
       const threadId = await ensure(caller, signal);
       return service.capture(threadId, signal, options.tabId, options, agentOf(caller));
     },
+    // Closing only ends what is open: the browser need not be connected.
     async close(caller, signal) {
       signal.throwIfAborted();
+      check();
       await service.closeThread(caller.threadId, agentOf(caller), signal);
     },
+  };
+}
+
+/**
+ * The browser of the moment, `current()`: each tool call binds it once and keeps it for all its
+ * steps (`bind`); a step called unbound binds for itself.
+ */
+function port(current: () => BrowserService, store: Store, connected: () => void): BrowserToolPort {
+  const bind = () => {
+    const service = current();
+    return fixedPort(service, () => current() === service, store, connected);
+  };
+  return {
+    bind,
+    open: (caller, signal) => bind().open(caller, signal),
+    tab: (caller, tabId, signal) => bind().tab(caller, tabId, signal),
+    state: (caller) => bind().state(caller),
+    execute: (caller, command, signal) => bind().execute(caller, command, signal),
+    screenshot: (caller, options, signal) => bind().screenshot(caller, options, signal),
+    close: (caller, signal) => bind().close(caller, signal),
   };
 }
 
@@ -86,22 +122,39 @@ export function browserToolkit(
   route?: BrowserMachineRoute,
   user?: UserBrowserTools,
 ): Toolkit {
-  const ace = port(browser, store, () => {});
-  const mine = user
-    ? port(user.sessions, store, () => {
+  return liveBrowserToolkit(
+    () => browser,
+    store,
+    route,
+    user ? { sessions: () => user.sessions, available: user.available } : undefined,
+  );
+}
+
+/**
+ * The same tools over browsers looked up on every call, for a daemon whose browser may start,
+ * or start again, after the tools registered: while there is none, a call says so.
+ */
+export function liveBrowserToolkit(
+  browser: () => BrowserService | undefined,
+  store: Store,
+  route?: BrowserMachineRoute,
+  user?: { sessions: () => BrowserService | undefined; available(): boolean },
+): Toolkit {
+  const ace = port(
+    () => browser() ?? unavailable("browser_unavailable"),
+    store,
+    () => {},
+  );
+  const sessions = () => user?.sessions() ?? unavailable("user_browser_unavailable");
+  // The person's own Chrome: calls need it connected; closing only ends what is open.
+  const userPort = user
+    ? port(sessions, store, () => {
         if (!user.available()) throw new PublicToolError("user_browser_unavailable");
       })
     : undefined;
-  // Closing only ends what is open: the person's browser need not be connected.
-  const userPort =
-    mine && user
-      ? {
-          ...mine,
-          close: async (caller: BrowserCaller, signal: AbortSignal) => {
-            signal.throwIfAborted();
-            await user.sessions.closeThread(caller.threadId, agentOf(caller), signal);
-          },
-        }
-      : undefined;
   return scopedBrowserToolkit(ace, route, userPort);
+}
+
+function unavailable(code: "browser_unavailable" | "user_browser_unavailable"): never {
+  throw new PublicToolError(code);
 }

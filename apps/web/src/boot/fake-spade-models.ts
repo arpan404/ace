@@ -2,17 +2,10 @@ import type { FakeSpadeApi } from "@ace/fake-daemon";
 
 /*
  * Models the person controls, in the fake world (ADR 0205): an Ollama on this computer the
- * picker offers first, the subscriptions' terms as Spade's record reads them (every provider
- * unclear until its record is written), a bot whose subscription's maker no longer allows it,
- * and a bot whose route moved a step to its next model. Spade's checks on the local models
+ * picker offers first, and a bot whose route moved a step to its next model. Spade's checks on the local models
  * (ADR 0205 §3): Qwen3 called the fake tool and ace measured its family; Gemma's small model
  * didn't, so it writes titles and summaries only. Helpers and bots' fallbacks have routes.
  */
-
-const acknowledgement = (name: string) =>
-  `This bot will run in your ${name} CLI on your subscription. Its maker's terms apply to how ` +
-  "you use it. If they change, Spade may stop offering it. Its terms don't say whether this " +
-  "is allowed.";
 
 export function seedFakeModelAccess(here: FakeSpadeApi, minutes: (count: number) => number): void {
   here.endpoints.unshift({
@@ -68,24 +61,10 @@ export function seedFakeModelAccess(here: FakeSpadeApi, minutes: (count: number)
     title: ["ollama/gemma3:1b"],
   };
   here.roles.global.helper = "ollama/qwen3:8b";
-  for (const subscription of here.subscriptions)
-    subscription.terms = {
-      status: "unclear",
-      acknowledgement: acknowledgement(String(subscription.name)),
-      acknowledged: false,
-    };
-  const refusal = "Claude Code's terms no longer allow this. Pick another model for this bot.";
   const ledger = here.addAgent({
     id: "ledger",
     name: "Ledger",
-    model: "cli:claude/opus-5.5",
-    problem: refusal,
-    terms_hold: {
-      provider: "claude",
-      name: "Claude Code",
-      text: refusal,
-      choices: ["ollama/qwen3:8b", "openrouter/anthropic/claude-sonnet-5.5"],
-    },
+    model: "ollama/qwen3:8b",
     avatar: {
       kind: "character",
       v: 1,

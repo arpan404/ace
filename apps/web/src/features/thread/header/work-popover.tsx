@@ -27,6 +27,8 @@ export function WorkPopover(props: {
         // A press on the icon toggles; the popover's own outside press must not undo it.
         const target = details.event?.target;
         if (!next && target instanceof Node && button.current?.contains(target)) return;
+        // Widening the area moves an open card to the side slot: the popover yielding must not close it.
+        if (!next && store?.get().side) return;
         store?.setOpen(next);
       }}
     >

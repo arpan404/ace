@@ -262,7 +262,8 @@ test("a bot's model can answer only on an endpoint the person can use now", () =
   expect(spadeModelState("asking/m", endpoints)).toBe("checking");
   expect(spadeModelState("keyed/m", endpoints)).toBe("ready");
   expect(spadeModelState("local/llama", endpoints)).toBe("ready");
-  expect(spadeModelState("cli:codex/gpt", endpoints)).toBe("ready");
+  // A coding subscription from before ADR 0219 is no model.
+  expect(spadeModelState("cli:codex/gpt", endpoints)).toBe("none");
 });
 
 test("the first usable model is named from the person's endpoints, and is none without one", () => {

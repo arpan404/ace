@@ -27,7 +27,7 @@ const composerGap = 12;
  */
 export function WorkButton(props: { threadId: string }) {
   const store = useWorkCardStore();
-  const { open, side } = useWorkCardState(store);
+  const { open, side, wanted } = useWorkCardState(store);
   const popover = open && !side;
   const meta = useThreadMeta(props.threadId);
   const button = useRef<HTMLButtonElement>(null);
@@ -58,6 +58,7 @@ export function WorkButton(props: { threadId: string }) {
           }
           tip="Thread details"
           shortcut="workCard"
+          pressed={open || wanted}
           aria-haspopup="dialog"
           aria-expanded={open}
           onClick={() => store?.toggle()}

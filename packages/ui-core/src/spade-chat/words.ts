@@ -19,6 +19,12 @@ const tools: Record<string, ToolWords> = {
   web_search: { base: "search the web", doing: "Searching the web", done: "Searched the web" },
   web_fetch: { base: "read a web page", doing: "Reading a web page", done: "Read a web page" },
   todo: { base: "update its plan", doing: "Updating its plan", done: "Updated its plan" },
+  // The person's asks (ADR 0215): the bot sorting and closing what they asked.
+  asks: {
+    base: "keep track of what you asked",
+    doing: "Keeping track of what you asked",
+    done: "Kept track of what you asked",
+  },
   tool_search: { base: "look for a tool", doing: "Looking for a tool", done: "Looked for a tool" },
   skill_search: {
     base: "look for a skill",

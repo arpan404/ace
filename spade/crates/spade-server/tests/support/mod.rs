@@ -365,8 +365,6 @@ pub struct Options {
     pub clock: Option<Arc<dyn Clock>>,
     /// The engine's ids; counting from 1 when absent.
     pub ids: Option<Arc<dyn Ids>>,
-    /// Where bots on subscriptions reach ace (ADR 0133), set before work opens.
-    pub brains: Option<spade_server::engine::BrainSource>,
     /// Called with the engine before it opens for work: what a restarted Spade sets up before a
     /// paused turn resumes (its security service, say).
     pub before_work: Option<BeforeWork>,
@@ -486,7 +484,6 @@ impl Default for Options {
             cloud: None,
             clock: None,
             ids: None,
-            brains: None,
             before_work: None,
             model_retry: None,
             search: None,
@@ -796,9 +793,6 @@ impl Spade {
                 classifier: Some(false),
                 ..Default::default()
             })?;
-        }
-        if let Some(brains) = options.brains.clone() {
-            engine.set_brains(brains);
         }
         // A test's market signs the packages it installs; its key is what this Spade trusts.
         market::trust(&engine);

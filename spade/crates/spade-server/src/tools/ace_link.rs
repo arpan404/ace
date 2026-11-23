@@ -433,13 +433,6 @@ impl AceLink {
         *self.current.write().unwrap_or_else(|p| p.into_inner()) = None;
     }
 
-    /// The daemon's WebSocket while connected, for routines' thread events (ADR 0129).
-    /// The daemon's brain service with Spade's grant (ADR 0133), found from ace's files now.
-    pub fn brains(&self) -> Result<spade_ace::AceBrains, String> {
-        self.attempt()
-            .map(|attempt| spade_ace::AceBrains::new(&attempt.config.tools))
-    }
-
     /// The daemon's account-grant request with Spade's grant (ADR 0140), found from ace's files now.
     pub fn account(&self) -> Result<spade_ace::AceAccount, String> {
         self.attempt()

@@ -5,6 +5,7 @@ import {
   pictureIngestMissing,
   drainMs,
   failedReason,
+  failedRetryMs,
   IngestSources,
   maxIngestReopens,
   restartingReason,
@@ -303,7 +304,7 @@ describe("IngestSources", () => {
     expect(l.points.at(-1)).toMatchObject({ path: "s2" });
   });
 
-  it("gives up after a few reconnects in a row, saying so, until its route changes again", () => {
+  it("stops after a few reconnects in a row, saying so, until its retry or a route change", () => {
     const w = world();
     const l = producer();
     w.sources.add(l.p);
@@ -316,6 +317,15 @@ describe("IngestSources", () => {
     expect(l.stops).toEqual([failedReason]);
     w.sources.routesChanged(["tab"]);
     expect(w.opened()).toHaveLength(maxIngestReopens + 2);
+    // Failing the same way again, it opens once its wait is over.
+    for (let i = 0; i <= maxIngestReopens; i++) {
+      const id = `s${maxIngestReopens + 2 + i}`;
+      w.status(id, "starting");
+      w.status(id, "retrying");
+    }
+    expect(w.opened()).toHaveLength(2 * maxIngestReopens + 2);
+    w.advance(failedRetryMs * 2);
+    expect(w.opened()).toHaveLength(2 * maxIngestReopens + 3);
   });
 
   it("a Simulator ace-media reads itself is closed there at once when its route stops it, so its reader drains and the end marker follows its last unit", () => {
@@ -676,6 +686,44 @@ describe("a stopped source says why, so its live views never go blank without a 
     const l = producer();
     w.sources.add(l.p);
     expect(l.stops).toEqual([]);
+  });
+
+  it("a source ace-media ended for a reason it can get over opens again by itself, backing off each time it fails again", () => {
+    const w = world();
+    const l = producer("simulator");
+    w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.status("s1", "ended", "reader-stalled: serve-sim sent no keyframe in time");
+    expect(l.stops).toEqual(["reader-stalled: serve-sim sent no keyframe in time"]);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(failedRetryMs - 1);
+    expect(w.opened()).toHaveLength(1);
+    w.advance(1);
+    expect(w.opened()).toHaveLength(2);
+    // Failing again: it waits twice as long.
+    w.status("s2", "starting");
+    w.status("s2", "ended", "reader-stalled: serve-sim sent no keyframe in time");
+    w.advance(failedRetryMs * 2 - 1);
+    expect(w.opened()).toHaveLength(2);
+    w.advance(1);
+    expect(w.opened()).toHaveLength(3);
+    // Playing again resets the wait.
+    w.status("s3", "starting");
+    w.status("s3", "playing");
+    w.status("s3", "ended", "reader-ended");
+    w.advance(failedRetryMs);
+    expect(w.opened()).toHaveLength(4);
+  });
+
+  it("a closed source that ace-media ended never opens again", () => {
+    const w = world();
+    const l = producer("simulator");
+    const source = w.sources.add(l.p);
+    w.status("s1", "starting");
+    w.status("s1", "ended", "reader-stalled: serve-sim sent no keyframe in time");
+    source.close();
+    w.advance(failedRetryMs * 4);
+    expect(w.opened()).toHaveLength(1);
   });
 
   it("a source ace-media ended says ace-media's reason", () => {

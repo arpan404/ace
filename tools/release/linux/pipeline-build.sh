@@ -72,5 +72,10 @@ private_key=
     test -x squashfs-root/resources/helpers/ace-screen-helper-linux
     test -f squashfs-root/resources/daemon/ace.mjs
     test -x squashfs-root/resources/runtime/bin/node
+    # The daemon runs as ace-service; its natives ship under their service names.
+    test -x squashfs-root/resources/runtime/bin/ace-service
+    test -x squashfs-root/resources/media/ace-media-service
+    test -x squashfs-root/resources/files/ace-files-service
+    test -x squashfs-root/resources/history/ace-history-service
     echo "packages verified on Ubuntu 24.04"
   '

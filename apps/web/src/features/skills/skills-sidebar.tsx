@@ -204,7 +204,7 @@ function AddMenu() {
         </MenuItem>
         {marketplace && (
           <MenuItem icon={<Icon icon={StoreIcon} />} onClick={() => openMarket("tools")}>
-            From the Marketplace
+            From the Store
           </MenuItem>
         )}
       </MenuContent>

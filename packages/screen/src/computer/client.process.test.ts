@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { ComputerError } from "./client.ts";
+import { systemScheduler } from "../runtime.ts";
 import { computerWorld, manualScheduler, type WorldOptions } from "./testing/world.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -186,6 +187,130 @@ it("helpers left idle exit, and the next call starts fresh ones", async () => {
     "No change since your last look.",
   );
   expect(children.length).toBe(started + 1);
+});
+
+it("an idle helper slow to exit is force-killed before the same app gets a new one", async () => {
+  const { client, children, startedAlone, logged } = await world({
+    env: { FAKE_IGNORE_STOP: "1" },
+    client: { idleMs: 50, forceKillMs: 300 },
+  });
+  // These helpers outlive SIGTERM; make sure none outlives the test.
+  cleanups.unshift(() => {
+    for (const child of children) child.kill("SIGKILL");
+  });
+  await client.request("state", { app: "com.apple.calculator" });
+  // Left idle, the helper is asked to stop and ignores it.
+  await logged("sigterm");
+  await client.request("state", { app: "com.apple.calculator" });
+  expect(children).toHaveLength(2);
+  expect(children[0]?.signalCode).toBe("SIGKILL");
+  expect(startedAlone).toEqual([true, true]);
+});
+
+it("an app dropped while its helper was still starting never runs two helpers at once", async () => {
+  const resolving = Promise.withResolvers<NodeJS.ProcessEnv>();
+  const { client, children, startedAlone } = await world({
+    client: { idleMs: 50, environment: () => resolving.promise },
+  });
+  cleanups.unshift(() => resolving.resolve(process.env));
+  // Cancelled while its helper is still being resolved: nothing was written, the app idles.
+  const stop = new AbortController();
+  const first = client.request("state", { app: "com.apple.calculator" }, { signal: stop.signal });
+  stop.abort();
+  await expect(first).rejects.toMatchObject({ code: "cancelled" });
+  // Left idle, the app's entry is dropped while that start is still pending.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const second = client.request("state", { app: "com.apple.calculator" });
+  resolving.resolve(process.env);
+  await second;
+  // The dropped entry's start never spawned: only the second request's helper ever ran.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(children).toHaveLength(1);
+  expect(startedAlone).toEqual([true]);
+});
+
+/** Fails instead of hanging when `promise` takes longer than `ms`. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`still waiting after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
+it("an app cancelled and evicted before its helper started still gets a helper next time", async () => {
+  const { client, children } = await world({ client: { maxHelpers: 1 } });
+  // Another app holds the only helper slot.
+  const busy = client.request("act", { app: "com.example.stuck", actions: [] });
+  void busy.catch(() => {});
+  const stop = new AbortController();
+  const cancelled = client.request(
+    "state",
+    { app: "com.apple.calculator" },
+    { signal: stop.signal },
+  );
+  // Cancelled before its start ran: it goes idle at once and is evicted to make room.
+  stop.abort();
+  await expect(cancelled).rejects.toMatchObject({ code: "cancelled" });
+  await within(client.request("state", { app: "com.apple.calculator" }), 5_000);
+  expect(children).toHaveLength(2);
+});
+
+it("an evicted app whose old helper refuses to die is told so instead of waiting", async () => {
+  const { client, children } = await world({
+    env: { FAKE_IGNORE_STOP: "1" },
+    unkillable: true,
+    client: { ...quick, forceKillMs: 100, idleMs: 50 },
+  });
+  await expect(
+    client.request("act", { app: "com.example.stuck", actions: [{ type: "key", key: "Escape" }] }),
+  ).rejects.toMatchObject({ code: "timeout" });
+  // Left idle, the app is dropped while its helper still runs.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await expect(
+    within(client.request("state", { app: "com.example.stuck" }), 3_000),
+  ).rejects.toMatchObject({ code: "helper_stopping" });
+  expect(children).toHaveLength(1);
+});
+
+it("an app evicted again and again while its old helper refuses to die keeps failing fast, then recovers", async () => {
+  // Idle eviction runs at once, so thousands of request-and-evict rounds stay quick.
+  const idleMs = 7;
+  const scheduler = {
+    after(ms: number, run: () => void) {
+      if (ms !== idleMs) return systemScheduler.after(ms, run);
+      const timer = setImmediate(run);
+      return () => clearImmediate(timer);
+    },
+  };
+  const { client, children, exited, endHelpers } = await world({
+    // The app's first act hangs; after that it answers.
+    env: { FAKE_IGNORE_STOP: "1", FAKE_HANG_ONCE: await marker("hung") },
+    unkillable: true,
+    client: { ...quick, forceKillMs: 100, idleMs, scheduler },
+  });
+  const app = "com.apple.calculator";
+  await expect(
+    client.request("act", { app, actions: [{ type: "key", key: "Escape" }] }),
+  ).rejects.toMatchObject({ code: "timeout" });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const began = performance.now();
+  for (let round = 0; round < 10_000; round++) {
+    await expect(client.request("state", { app })).rejects.toMatchObject({
+      code: "helper_stopping",
+    });
+    // The failed request leaves the app idle: it is evicted before the next round.
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  // Each round costs the same however many came before: well under a millisecond apiece.
+  expect(performance.now() - began).toBeLessThan(10_000);
+  expect(children).toHaveLength(1);
+  // The old helper finally exits: the app's next request gets a helper.
+  endHelpers();
+  await exited(children[0]);
+  await within(client.request("state", { app }), 5_000);
+  expect(children).toHaveLength(2);
 });
 
 it("beyond the helper limit, the least recently used idle app's helper exits", async () => {

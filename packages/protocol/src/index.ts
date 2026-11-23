@@ -3,7 +3,6 @@ export * from "./close-report.ts";
 export * from "./skill-library.ts";
 export * from "./contained-path.ts";
 export * from "./spade.ts";
-export * from "./spade-brains.ts";
 export * from "./spade-remote.ts";
 export * from "./spade-computer.ts";
 export * from "./cowork.ts";

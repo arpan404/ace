@@ -343,7 +343,7 @@ the part of ace that already owns it:
 The marketplace is one surface for every type, with a type filter. Its layout, at the level of
 places (no mockup here):
 
-- **A place in the rail**, after Skills, named Marketplace (a new glyph in `@ace/icons`, ADR
+- **A place in the rail**, after Skills, named Store (see "Named the Store" below; a new glyph in `@ace/icons`, ADR
   0156). Its panel follows DESIGN.md's panel pieces: the title row with a filter menu in words
   ("Everything", then Suits, Skills, Plugins, Bots); "Search marketplace"; then panel rows:
   Featured, the categories, Installed, Updates (its count as a trailing word), Sources.
@@ -382,6 +382,12 @@ places (no mockup here):
   way in (`useBetaEnabled("marketplace")` in the web app) and its addresses lead home, the
   daemon answers every `marketplace.request` with `unavailable` ("turned off"), and the daily
   refresh skips the network. What was installed keeps working.
+- **Named the Store** (owner, 2026-11-22). Everything a person reads calls it the Store, or the
+  ace Store: the rail, the page, the CLI (`ace store`, `ace feature on store`), the iPhone and
+  every message. Its address is store.acehq.dev; market.acehq.dev stays attached to the same
+  Worker for older clients. Code names, the `beta.marketplace` key, the `marketplace.*` wire
+  messages, the `ace market` alias and the `/market` address keep their names, since renaming them breaks saved
+  settings and older peers without changing anything a person sees.
 
 ## Open for the owner
 

@@ -584,6 +584,17 @@ export class FakeDaemon implements Host {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
     const now = this.at(agoMs);
     const parentId = init.parentThreadId ?? init.lineage?.parentThreadId;
+    const origin = init.parentThreadId ?? init.startedBy;
+    const originThread = origin ? this.threads.get(origin)?.view.thread : undefined;
+    const treeRootId =
+      init.treeRootId ??
+      (init.host !== undefined
+        ? undefined
+        : init.delegatedFrom
+          ? (init.delegatedFrom.rootThreadId ?? init.delegatedFrom.threadId)
+          : origin && originThread?.host === undefined
+            ? (originThread?.treeRootId ?? origin)
+            : undefined);
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -613,6 +624,7 @@ export class FakeDaemon implements Host {
       ...(init.startedBy ? { startedBy: ThreadId.parse(init.startedBy) } : {}),
       ...(init.startedByClient ? { startedByClient: init.startedByClient } : {}),
       ...(init.delegatedFrom ? { delegatedFrom: init.delegatedFrom } : {}),
+      ...(treeRootId ? { treeRootId: ThreadId.parse(treeRootId) } : {}),
       ...(init.queuedLaunch ? { queuedLaunch: init.queuedLaunch } : {}),
       ...(init.host ? { host: init.host } : {}),
       ...(init.execution ? { execution: init.execution } : {}),

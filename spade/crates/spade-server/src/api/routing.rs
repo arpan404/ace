@@ -35,6 +35,12 @@ struct Change {
     /// Each role named maps to how hard its model thinks (ADR 0213), or `null` to clear it.
     #[serde(default)]
     efforts: BTreeMap<String, Option<String>>,
+    /// A cap on the prompt in tokens (ADR 0216), or `null` to clear it.
+    #[serde(default, deserialize_with = "present")]
+    context_tokens: Option<Option<u32>>,
+    /// Whether old tool results age out (ADR 0216), or `null` to clear it.
+    #[serde(default, deserialize_with = "present")]
+    age_results: Option<Option<bool>>,
 }
 
 impl Change {
@@ -44,6 +50,8 @@ impl Change {
             allowed: self.allowed,
             escalate: self.escalate,
             efforts: self.efforts,
+            context_tokens: self.context_tokens,
+            age_results: self.age_results,
         }
     }
 }
