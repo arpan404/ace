@@ -130,6 +130,7 @@ dependencies = [
  "ace-json",
  "ace-store",
  "ace-supervisor",
+ "ace-transport",
  "napi",
  "napi-build",
  "napi-derive",
@@ -226,6 +227,13 @@ dependencies = [
  "tokio",
  "tokio-util",
  "windows-sys",
+]
+
+[[package]]
+name = "ace-transport"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]
