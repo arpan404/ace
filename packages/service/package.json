@@ -19,7 +19,8 @@
     "./spade-plan": "./src/spade-plan.ts",
     "./spade-layout": "./src/spade-layout.ts",
     "./spade-service": "./src/spade-api.ts",
-    "./release-line": "./src/release-line.ts"
+    "./release-line": "./src/release-line.ts",
+    "./process-names": "./src/process-names.ts"
   },
   "scripts": {
     "typecheck": "node ../../scripts/typecheck.ts --workspace"
