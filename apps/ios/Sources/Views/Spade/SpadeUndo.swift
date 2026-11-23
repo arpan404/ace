@@ -24,7 +24,7 @@ struct SpadeChanges: Decodable, Equatable, Sendable {
 /// What undoing from a step would put back (`bridge/spade-undo.ts`), before anything changes.
 struct SpadeUndoPreview: Decodable, Sendable {
     struct Undo: Decodable, Equatable, Sendable {
-        let checkpoint: String
+        let reviewed: String
         let sentence: String
         let changed: [String]
         let added: [String]
@@ -92,7 +92,7 @@ struct SpadeChangesLine: View {
             Label("Undo this reply's changes", ace: .arrowUUpLeft)
         }
         .accessibilityIdentifier("spade.undo.reply")
-        if changes.steps.count > 1 {
+        if !changes.steps.isEmpty {
             Menu {
                 ForEach(changes.steps) { step in
                     Button([step.line, step.detail].compactMap(\.self).joined(separator: " · ")) { ask(step.from, "this change") }
@@ -191,13 +191,21 @@ private struct SpadeUndoSheet: View {
     }
 
     private func undo() {
-        guard let checkpoint = preview?.undo?.checkpoint else { return }
+        guard !undoing, let reviewed = preview?.undo?.reviewed else { return }
         undoing = true
         problem = nil
         Task {
-            let outcome = await target.client.spadeUndo(target.agent, checkpoint: checkpoint)
-            undoing = false
-            if outcome.ok { done = outcome.message ?? "Undone." } else { problem = outcome.problem }
+            defer { undoing = false }
+            let outcome = await target.client.spadeUndo(target.agent, seq: ask.from, reviewed: reviewed)
+            if outcome.ok {
+                done = outcome.message ?? "Undone."
+            } else {
+                problem = outcome.problem
+                if outcome.reviewAgain == true {
+                    preview = nil
+                    preview = await target.client.spadeUndoPreview(target.agent, seq: ask.from)
+                }
+            }
         }
     }
 }

@@ -27,7 +27,12 @@ export const spadeUndoRequests = [
     timeZone: z.string().min(1).max(64).optional(),
   }),
   /** Puts the checkpoint the preview named back. */
-  z.object({ type: z.literal("spade.undo"), agentId, checkpoint: z.string().min(1).max(256) }),
+  z.object({
+    type: z.literal("spade.undo"),
+    agentId,
+    seq: z.number().int().nonnegative(),
+    reviewed: z.string().min(1),
+  }),
 ] as const;
 
 type Preview = z.infer<(typeof spadeUndoRequests)[0]>;
@@ -50,6 +55,13 @@ function refused(name: string, error: unknown): SpadeRefusal {
   return said((error instanceof Error && error.message) || "Try again.");
 }
 
+async function readPreview(agent: string, seq: number, ask: SpadeAsk) {
+  const body = await ask("GET", `${checkpoints(agent)}/undo?seq=${seq}`);
+  const preview = parseSpadeUndoPreview(JSON.parse(body) as unknown);
+  if (!preview) throw new Error("Spade's undo didn't make sense.");
+  return preview;
+}
+
 /** The confirm's words and lists: the files that go back, go and come back. */
 export async function previewUndo(
   spade: NativeSpade,
@@ -59,9 +71,8 @@ export async function previewUndo(
 ) {
   const name = spade.bot(request.agentId)?.name || "The bot";
   try {
-    const body = await ask("GET", `${checkpoints(request.agentId)}/undo?seq=${request.seq}`);
-    const preview = parseSpadeUndoPreview(JSON.parse(body) as unknown);
-    if (!preview) throw new Error("Spade's undo didn't make sense.");
+    const preview = await readPreview(request.agentId, request.seq, ask);
+    if (preview.more) return said("Too many files changed to review them all.");
     const when = spadePastTime(preview.checkpoint.at, {
       now,
       ...(request.timeZone ? { timeZone: request.timeZone } : {}),
@@ -72,6 +83,7 @@ export async function previewUndo(
       ok: true as const,
       undo: {
         checkpoint: preview.checkpoint.id,
+        reviewed: JSON.stringify(preview),
         sentence: `${name}'s files go back to how they were at ${when}: ${summary.toLowerCase()}. Anything changed after that goes back too.`,
         changed: [...preview.changed],
         added: [...preview.added],
@@ -89,7 +101,11 @@ export async function previewUndo(
 export async function undo(spade: NativeSpade, request: Undo, ask: SpadeAsk) {
   const name = spade.bot(request.agentId)?.name || "The bot";
   try {
-    await ask("POST", `${checkpoints(request.agentId)}/${segment(request.checkpoint)}/restore`);
+    const preview = await readPreview(request.agentId, request.seq, ask);
+    if (preview.more || JSON.stringify(preview) !== request.reviewed) {
+      return { ...said("The workspace changed. Review the files again."), reviewAgain: true };
+    }
+    await ask("POST", `${checkpoints(request.agentId)}/${segment(preview.checkpoint.id)}/restore`);
     spade.refresh();
     return { ok: true as const, message: `Undone. ${name} knows its files went back.` };
   } catch (error) {

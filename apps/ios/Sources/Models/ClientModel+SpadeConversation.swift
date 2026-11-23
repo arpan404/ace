@@ -46,7 +46,7 @@ extension ClientModel {
         return await spadeAnswer(payload, failing: "Couldn't undo") { SpadeUndoPreview(ok: false, title: $0, message: $1) }
     }
     /// Puts the checkpoint the preview named back; its `message` says it went.
-    func spadeUndo(_ agent: String, checkpoint: String) async -> SpadeOutcome {
-        await spadeRequest(["type": "spade.undo", "agentId": agent, "checkpoint": checkpoint], failing: "Couldn't undo")
+    func spadeUndo(_ agent: String, seq: Int, reviewed: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.undo", "agentId": agent, "seq": seq, "reviewed": reviewed], failing: "Couldn't undo")
     }
 }

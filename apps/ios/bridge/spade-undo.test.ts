@@ -86,7 +86,7 @@ test("a reply that changed nothing undo can reach shows no undo line", async () 
   expect(changes(host.patches.bubbles)).toBeUndefined();
 });
 
-test("undo first says what goes back, then puts the checkpoint back and the bot is told", async () => {
+test("undo refuses a file created after review and restores only after a fresh confirmation", async () => {
   const { api, ask } = await opened(writeAndSend);
   const at = Date.UTC(2026, 10, 22, 9, 30);
   api.security.checkpoints.set("travel", [{ id: "cp_before", at, reason: "auto" }]);
@@ -97,7 +97,7 @@ test("undo first says what goes back, then puts the checkpoint back and the bot 
         4,
         {
           checkpoint: { id: "cp_before", at },
-          changes: { changed: ["plan.md"], added: ["notes.md"], deleted: [], more: 0 },
+          changes: { changed: ["plan.md"], added: [], deleted: [], more: 0 },
         },
       ],
     ]),
@@ -114,7 +114,7 @@ test("undo first says what goes back, then puts the checkpoint back and the bot 
     undo: {
       checkpoint: "cp_before",
       changed: ["plan.md"],
-      added: ["notes.md"],
+      added: [],
       deleted: [],
       more: 0,
       empty: false,
@@ -122,12 +122,27 @@ test("undo first says what goes back, then puts the checkpoint back and the bot 
   });
   if (!("undo" in preview)) throw new Error("no preview");
   expect(preview.undo.sentence).toMatch(
-    /^Travel's files go back to how they were at .*9:30.*: 1 file goes back and 1 new file is removed\. Anything changed after that goes back too\.$/,
+    /^Travel's files go back to how they were at .*9:30.*: 1 file goes back\. Anything changed after that goes back too\.$/,
   );
   // Nothing changed yet.
   expect(api.security.restored.get("travel")).toBeUndefined();
 
-  expect(await ask({ type: "spade.undo", agentId: "travel", checkpoint: "cp_before" })).toEqual({
+  api.security.undoPreviews.get("travel")?.set(4, {
+    checkpoint: { id: "cp_before", at },
+    changes: { changed: ["plan.md"], added: ["notes.md"], deleted: [], more: 0 },
+  });
+
+  expect(
+    await ask({ type: "spade.undo", agentId: "travel", seq: 4, reviewed: preview.undo.reviewed }),
+  ).toMatchObject({ ok: false, reviewAgain: true });
+  expect(api.security.restored.get("travel")).toBeUndefined();
+
+  const fresh = await ask({ type: "spade.undo.preview", agentId: "travel", seq: 4 });
+  expect(fresh).toMatchObject({ ok: true, undo: { added: ["notes.md"] } });
+  if (!("undo" in fresh)) throw new Error("no fresh preview");
+  expect(
+    await ask({ type: "spade.undo", agentId: "travel", seq: 4, reviewed: fresh.undo.reviewed }),
+  ).toEqual({
     ok: true,
     message: "Undone. Travel knows its files went back.",
   });
@@ -145,9 +160,26 @@ test("an undo Spade refuses says why: the bot is working, or there's no checkpoi
     message: "There's no checkpoint from before this anymore, so it can't be undone.",
   });
 
+  api.security.undoPreviews.set(
+    "travel",
+    new Map([
+      [
+        4,
+        {
+          checkpoint: { id: "cp_before", at: 1 },
+          changes: { changed: ["plan.md"], added: [], deleted: [], more: 0 },
+        },
+      ],
+    ]),
+  );
+  const reviewed = await ask({ type: "spade.undo.preview", agentId: "travel", seq: 4 });
+  if (!("undo" in reviewed)) throw new Error("no preview");
+
   const bot = api.agents.find((agent) => agent.id === "travel");
   if (bot) bot.state = "working";
-  expect(await ask({ type: "spade.undo", agentId: "travel", checkpoint: "cp_before" })).toEqual({
+  expect(
+    await ask({ type: "spade.undo", agentId: "travel", seq: 4, reviewed: reviewed.undo.reviewed }),
+  ).toEqual({
     ok: false,
     title: "Couldn't undo",
     message: "Travel is working. Stop it first, then undo.",
