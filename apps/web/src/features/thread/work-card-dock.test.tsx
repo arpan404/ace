@@ -1,6 +1,6 @@
 import { facts, workCardScenario } from "@ace/fake-daemon";
 import { createMemoryHistory } from "@tanstack/react-router";
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -18,16 +18,20 @@ afterEach(() => {
  */
 function threadArea(width: number) {
   let current = width;
-  const fires: (() => void)[] = [];
+  const fires = new Set<() => void>();
   vi.stubGlobal(
     "ResizeObserver",
     class implements ResizeObserver {
+      private readonly fire: () => void;
       constructor(changed: ResizeObserverCallback) {
-        fires.push(() => changed([], this));
+        this.fire = () => changed([], this);
+        fires.add(this.fire);
       }
       observe() {}
       unobserve() {}
-      disconnect() {}
+      disconnect() {
+        fires.delete(this.fire);
+      }
     },
   );
   const measure = HTMLElement.prototype.getBoundingClientRect;
@@ -212,4 +216,65 @@ test("a provider subagent screen uses its thread's tree root and docks on first 
     history.push(`/t/${fixture.thread.id}`);
   });
   expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+});
+
+test("a remembered-open card on a narrow area shows the Work icon pressed with no popover, opens on click, and docks when widened", async () => {
+  const resized = threadArea(1000);
+  const fixture = workCardScenario("changes");
+  const history = createMemoryHistory({ initialEntries: [`/t/${fixture.thread.id}`] });
+  const app = harness({ history });
+  app.play(fixture).runUntilBlocked();
+  app.daemon.createThread({
+    id: "started-child",
+    workspaceId: fixture.thread.workspaceId,
+    title: "Started child",
+    provider: "codex",
+    startedBy: fixture.thread.id,
+    hasSentMessage: true,
+  });
+  await app.open(`/t/${fixture.thread.id}`);
+  await screen.findByRole("feed", { name: "Transcript" });
+  resized();
+
+  // Open the card while wide, then narrow the area below the docking floor.
+  await userEvent.click(await workButton());
+  expect((await screen.findByRole("dialog", { name: "Thread details" })).getAttribute("data-edge")).toBe(
+    "right",
+  );
+  resized(800);
+
+  // Navigate to a child screen while narrow: no popover auto-opens, Work icon stays pressed.
+  await act(async () => {
+    history.push("/t/started-child");
+  });
+  await screen.findByRole("feed", { name: "Transcript" });
+  const button = await workButton();
+  expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull();
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  expect(button.getAttribute("data-state")).toBe("active");
+  expect(button.getAttribute("aria-expanded")).toBe("false");
+
+  // One click opens the popover as today.
+  await userEvent.click(button);
+  const popover = await screen.findByRole("dialog", { name: "Thread details" });
+  expect(popover.hasAttribute("data-edge")).toBe(false);
+  expect(button.getAttribute("aria-expanded")).toBe("true");
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+
+  // Widening while the popover is open docks the card beside the column.
+  resized(1000);
+  const docked = await screen.findByRole("dialog", { name: "Thread details" });
+  expect(docked.getAttribute("data-edge")).toBe("right");
+  expect(threadColumn().hasAttribute("data-work-docked")).toBe(true);
+
+  // Narrow again (squeezed out, remembered open), then widen without clicking: docks by itself.
+  resized(800);
+  expect(threadColumn().hasAttribute("data-work-docked")).toBe(false);
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Thread details" })).toBeNull());
+  expect((await workButton()).getAttribute("aria-pressed")).toBe("true");
+  expect((await workButton()).getAttribute("aria-expanded")).toBe("false");
+  resized(1000);
+  const redocked = await screen.findByRole("dialog", { name: "Thread details" });
+  expect(redocked.getAttribute("data-edge")).toBe("right");
+  expect(threadColumn().hasAttribute("data-work-docked")).toBe(true);
 });

@@ -10,6 +10,11 @@ export interface WorkCardState {
   open: boolean;
   /** The thread area has room for the card beside the reading column. */
   side: boolean;
+  /**
+   * The tree's remembered open choice, even when a narrow area keeps the card from docking
+   * (`open: false, side: false, wanted: true`).
+   */
+  wanted: boolean;
 }
 
 export interface WorkCardStore {
@@ -93,7 +98,7 @@ export function createWorkCardStore(
 ): WorkCardStore {
   let memory = initial;
   let wanted = memory?.open() ?? false;
-  let state: WorkCardState = { open: initialSide && wanted, side: initialSide };
+  let state: WorkCardState = { open: initialSide && wanted, side: initialSide, wanted };
   /** The person chose while no tree was followed; the next tree followed takes the choice. */
   let unsaved = false;
   let focus = false;
@@ -101,7 +106,8 @@ export function createWorkCardStore(
   let button: HTMLButtonElement | null = null;
   let area: HTMLElement | null = null;
   const set = (next: WorkCardState) => {
-    if (next.open === state.open && next.side === state.side) return;
+    if (next.open === state.open && next.side === state.side && next.wanted === state.wanted)
+      return;
     state = next;
     for (const listener of listeners) listener();
   };
@@ -110,13 +116,14 @@ export function createWorkCardStore(
     else if (open !== wanted) memory.remember(open);
     wanted = open;
     focus = open;
-    set({ ...state, open });
+    set({ ...state, open, wanted });
   };
   // The choice made elsewhere in the tree: shown where the card docks, never as the popover.
   const sync = (open: boolean) => {
     wanted = open;
     focus = false;
-    if (state.side || !open) set({ ...state, open });
+    const nextOpen = state.side ? open : open ? state.open : false;
+    set({ ...state, open: nextOpen, wanted });
   };
   return {
     button: () => button,
@@ -138,7 +145,7 @@ export function createWorkCardStore(
     // (a side panel opening, a window resize) is not a close.
     setSide: (side) => {
       const open = side ? state.open || wanted : state.open && !state.side;
-      set({ open, side });
+      set({ open, side, wanted });
     },
     follow(next) {
       memory = next;
@@ -167,7 +174,7 @@ export function useWorkCardStore(): WorkCardStore | null {
   return use(WorkCardContext);
 }
 
-const closed: WorkCardState = { open: false, side: false };
+const closed: WorkCardState = { open: false, side: false, wanted: false };
 const noop = () => () => {};
 
 export function useWorkCardState(store: WorkCardStore | null): WorkCardState {
