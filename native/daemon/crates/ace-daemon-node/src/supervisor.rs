@@ -1566,3 +1566,255 @@ pub fn supervisor_become_subreaper() -> napi::Result<bool> {
         Err(_) => Err(unwind("supervisor subreaper")),
     }
 }
+
+/// Ends the leader itself, ESRCH-safe: the fallback when a tree signal
+/// cannot run. Returns whether anything was signalled.
+#[napi(catch_unwind)]
+pub fn supervisor_kill_process(pid: f64, signal: String) -> napi::Result<bool> {
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let name = signal::SignalName::parse(&signal).map_err(bind_error)?;
+        let sig = match name {
+            signal::SignalName::Term => rustix::process::Signal::TERM,
+            signal::SignalName::Kill => rustix::process::Signal::KILL,
+        };
+        let Ok(raw) = i32::try_from(pid as u32) else {
+            return Ok(false);
+        };
+        let Some(target) = rustix::process::Pid::from_raw(raw) else {
+            return Ok(false);
+        };
+        Ok::<bool, napi::Error>(match rustix::process::kill_process(target, sig) {
+            Ok(()) => true,
+            Err(_) => false,
+        })
+    }));
+    match result {
+        Ok(outcome) => outcome,
+        Err(_) => Err(unwind("supervisor kill process")),
+    }
+}
+
+/// Kernel containment for one Windows tree, behind a handle the shell's
+/// stop plan holds like the TypeScript job.
+#[napi]
+pub struct NativeJob {
+    #[cfg(windows)]
+    inner: Mutex<Option<ace_supervisor::contain::KillOnCloseJob<SystemJobApi>>>,
+}
+
+#[cfg(windows)]
+struct SystemJobApi;
+
+#[cfg(windows)]
+impl SystemJobApi {
+    fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl ace_supervisor::contain::WindowsJobApi for SystemJobApi {
+    fn create(&mut self) -> ace_supervisor::contain::JobHandle {
+        use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+        ace_supervisor::contain::JobHandle(CreateJobObjectW(std::ptr::null(), std::ptr::null()) as u64)
+    }
+
+    fn set_kill_on_close(&mut self, job: ace_supervisor::contain::JobHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
+        let mut info = [0u8; 144];
+        info[16..20].copy_from_slice(&0x2000u32.to_le_bytes());
+        SetInformationJobObject(job.0 as isize, 9, info.as_mut_ptr() as *mut _, 144) != 0
+    }
+
+    fn clear_limits(&mut self, job: ace_supervisor::contain::JobHandle) -> bool {
+        use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
+        let mut info = [0u8; 144];
+        SetInformationJobObject(job.0 as isize, 9, info.as_mut_ptr() as *mut _, 144) != 0
+    }
+
+    fn open_process(&mut self, pid: u32) -> ace_supervisor::contain::ProcHandle {
+        use windows_sys::Win32::System::Threading::OpenProcess;
+        ace_supervisor::contain::ProcHandle(OpenProcess(0x0100 | 0x0001, 0, pid) as u64)
+    }
+
+    fn assign_process(
+        &mut self,
+        job: ace_supervisor::contain::JobHandle,
+        target: ace_supervisor::contain::ProcHandle,
+    ) -> bool {
+        use windows_sys::Win32::System::JobObjects::AssignProcessToJobObject;
+        AssignProcessToJobObject(job.0 as isize, target.0 as isize) != 0
+    }
+
+    fn close(
+        &mut self,
+        handle: ace_supervisor::contain::CloseHandle,
+    ) -> Result<(), ace_supervisor::errors::SupervisorError> {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        let raw = match handle {
+            ace_supervisor::contain::CloseHandle::Job(job) => job.0 as isize,
+            ace_supervisor::contain::CloseHandle::Process(process) => process.0 as isize,
+        };
+        if CloseHandle(raw) == 0 {
+            return Err(ace_supervisor::errors::SupervisorError::Operation(
+                "Windows handle close failed".to_owned(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn unload(&mut self) -> Result<(), ace_supervisor::errors::SupervisorError> {
+        Ok(())
+    }
+
+    fn active_count(&mut self, job: ace_supervisor::contain::JobHandle) -> u32 {
+        use windows_sys::Win32::System::JobObjects::QueryInformationJobObject;
+        let mut info = [0u8; 48];
+        if QueryInformationJobObject(job.0 as isize, 1, info.as_mut_ptr() as *mut _, 48, std::ptr::null_mut()) == 0 {
+            return 0;
+        }
+        u32::from_le_bytes([info[40], info[41], info[42], info[43]])
+    }
+
+    fn terminate(&mut self, job: ace_supervisor::contain::JobHandle) {
+        use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        TerminateJobObject(job.0 as isize, 1);
+    }
+}
+
+#[napi]
+impl NativeJob {
+    /// Creates an empty job; `assign` joins the tree. Fails where the
+    /// platform cannot contain, leaving the tree stop in charge.
+    #[napi(constructor, catch_unwind)]
+    pub fn new() -> napi::Result<Self> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(windows)]
+            {
+                match ace_supervisor::contain::KillOnCloseJob::create(SystemJobApi::new()) {
+                    Some(job) => Ok(Self {
+                        inner: Mutex::new(Some(job)),
+                    }),
+                    None => Err(napi::Error::from_reason("Windows job unavailable")),
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                Err(napi::Error::from_reason("Windows jobs need Windows"))
+            }
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job create")),
+        }
+    }
+
+    /// Joins `pid` to the job; a failing join never throws.
+    #[napi(catch_unwind)]
+    pub fn assign(&self, pid: f64) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(windows)]
+            {
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|_| napi::Error::from_reason("supervisor job lock failed"))?;
+                if let Some(job) = inner.as_mut() {
+                    use ace_supervisor::contain::WindowsJob as _;
+                    job.assign(pid as u32);
+                }
+                Ok(())
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = (self, pid);
+                Ok(())
+            }
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job assign")),
+        }
+    }
+
+    /// Whether the joined tree still has members.
+    #[napi(catch_unwind)]
+    pub fn running(&self) -> napi::Result<Option<bool>> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(windows)]
+            {
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|_| napi::Error::from_reason("supervisor job lock failed"))?;
+                let Some(job) = inner.as_mut() else {
+                    return Ok(None);
+                };
+                use ace_supervisor::contain::WindowsJob as _;
+                Ok(match job.running() {
+                    ace_supervisor::contain::JobRunning::Running(alive) => Some(alive),
+                    ace_supervisor::contain::JobRunning::Unjoined => None,
+                })
+            }
+            #[cfg(not(windows))]
+            {
+                Ok(None)
+            }
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job running")),
+        }
+    }
+
+    /// Ends every joined member now; never throws.
+    #[napi(catch_unwind)]
+    pub fn terminate(&self) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(windows)]
+            {
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|_| napi::Error::from_reason("supervisor job lock failed"))?;
+                if let Some(job) = inner.as_mut() {
+                    use ace_supervisor::contain::WindowsJob as _;
+                    job.terminate();
+                }
+            }
+            Ok(())
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job terminate")),
+        }
+    }
+
+    /// Closes the job; best effort during process exit.
+    #[napi(catch_unwind)]
+    pub fn dispose(&self) -> napi::Result<()> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            #[cfg(windows)]
+            {
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|_| napi::Error::from_reason("supervisor job lock failed"))?;
+                if let Some(job) = inner.as_mut() {
+                    use ace_supervisor::contain::WindowsJob as _;
+                    job.dispose();
+                }
+                *inner = None;
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = self;
+            }
+            Ok(())
+        }));
+        match result {
+            Ok(outcome) => outcome,
+            Err(_) => Err(unwind("supervisor job dispose")),
+        }
+    }
+}
