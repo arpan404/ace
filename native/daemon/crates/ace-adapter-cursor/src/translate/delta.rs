@@ -4,7 +4,7 @@
 
 use super::children::Children;
 use super::envelope::{Envelope, is, native_identity, string};
-use super::json::{J, encode_units};
+use super::text::{JsString, Value};
 use super::tool_events::ToolEvents;
 use super::transcript::Transcript;
 use super::usage::turn_usage;
@@ -17,73 +17,73 @@ pub struct DeltaFlow<'a> {
     pub tools: &'a mut ToolEvents,
     pub transcript: &'a mut Transcript,
     pub current: Option<&'a Envelope<'a>>,
-    pub envelope: &'a J,
-    pub operation: Option<&'a [u16]>,
+    pub envelope: &'a Value,
+    pub operation: Option<&'a JsString>,
     pub segment: i64,
-    pub cwd: &'a [u16],
+    pub cwd: &'a JsString,
     pub next_usage: &'a mut dyn FnMut() -> u64,
-    pub notice: &'a mut dyn FnMut(&[u16], &J, &str) -> J,
+    pub notice: &'a mut dyn FnMut(&JsString, &Value, &str) -> Value,
 }
 
 /// Decode one SDK delta body into facts for `agent` in `namespace`.
 pub fn translate_delta(
-    body: &J,
-    agent: &[u16],
-    namespace: &[u16],
+    body: &Value,
+    agent: &JsString,
+    namespace: &JsString,
     flow: &mut DeltaFlow<'_>,
     depth: u32,
-) -> BudgetResult<Vec<J>> {
-    let kind = string(body.get("type").unwrap_or(&J::Null));
+) -> BudgetResult<Vec<Value>> {
+    let kind = string(body.get("type").unwrap_or(&Value::Null));
     if kind.is_some_and(|kind| {
-        super::json::units_eq(kind, "text-delta") || super::json::units_eq(kind, "thinking-delta")
-    }) && matches!(body.get("aceTextStream"), Some(J::Bool(true)))
+        super::text::units_eq(kind, "text-delta") || super::text::units_eq(kind, "thinking-delta")
+    }) && matches!(body.get("aceTextStream"), Some(Value::Bool(true)))
     {
         return Ok(Vec::new());
     }
     if kind.is_some_and(|kind| {
-        super::json::units_eq(kind, "text-delta") || super::json::units_eq(kind, "thinking-delta")
+        super::text::units_eq(kind, "text-delta") || super::text::units_eq(kind, "thinking-delta")
     }) {
-        let field = if is(body.get("type").unwrap_or(&J::Null), "text-delta") {
+        let field = if is(body.get("type").unwrap_or(&Value::Null), "text-delta") {
             "text"
         } else {
             "thinking"
         };
-        let text = string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]);
+        let text = string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
         return flow.transcript.append(agent, field, text);
     }
-    if is(body.get("type").unwrap_or(&J::Null), "step-started")
-        || is(body.get("type").unwrap_or(&J::Null), "step-completed")
-        || is(body.get("type").unwrap_or(&J::Null), "thinking-completed")
+    if is(body.get("type").unwrap_or(&Value::Null), "step-started")
+        || is(body.get("type").unwrap_or(&Value::Null), "step-completed")
+        || is(body.get("type").unwrap_or(&Value::Null), "thinking-completed")
     {
         return Ok(flow.transcript.boundary(agent));
     }
-    if is(body.get("type").unwrap_or(&J::Null), "turn-ended") {
+    if is(body.get("type").unwrap_or(&Value::Null), "turn-ended") {
         let counter = (flow.next_usage)();
-        let usage = body.get("usage").unwrap_or(&J::Null);
-        let mut counter_key = namespace.to_vec();
-        counter_key.extend_from_slice(&encode_units(":"));
-        counter_key.extend_from_slice(agent);
-        counter_key.extend_from_slice(&encode_units(":usage:"));
-        counter_key.extend_from_slice(&super::envelope::num_units(counter as i64));
+        let usage = body.get("usage").unwrap_or(&Value::Null);
+        let mut counter_key = namespace.clone();
+        counter_key.push_js(&JsString::from(":"));
+        counter_key.push_js(agent);
+        counter_key.push_js(&JsString::from(":usage:"));
+        counter_key.push_js(&super::envelope::num_units(counter as i64));
         return Ok(turn_usage(usage, agent, &counter_key));
     }
-    if is(body.get("type").unwrap_or(&J::Null), "tool-call-delta") {
+    if is(body.get("type").unwrap_or(&Value::Null), "tool-call-delta") {
         if depth >= 1 {
             let notice = &mut *flow.notice;
             let envelope = flow.envelope;
             return Ok(vec![notice(
-                &encode_units("Nested task deltas beyond one level are incomplete"),
+                &JsString::from("Nested task deltas beyond one level are incomplete"),
                 envelope,
                 "warning",
             )]);
         }
-        let call_id = native_identity(body.get("callId").unwrap_or(&J::Null))?.unwrap_or_default();
-        let call = super::envelope::cat(&[namespace, &encode_units(":call:"), &call_id]);
+        let call_id = native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default();
+        let call = super::envelope::cat(&[namespace, &JsString::from(":call:"), &call_id]);
         if !flow.children.calls.contains_key(&call) {
             let notice = &mut *flow.notice;
             let envelope = flow.envelope;
             return Ok(vec![notice(
-                &encode_units("Nested update has no observed owning task call"),
+                &JsString::from("Nested update has no observed owning task call"),
                 envelope,
                 "warning",
             )]);
@@ -95,7 +95,7 @@ pub fn translate_delta(
             .ok_or(BudgetError::Exceeded)?
             .key
             .clone();
-        let update = body.get("taskUpdate").unwrap_or(&J::Null).clone();
+        let update = body.get("taskUpdate").unwrap_or(&Value::Null).clone();
         let facts = {
             let flow = &mut *flow;
             translate_delta(
@@ -118,8 +118,8 @@ pub fn translate_delta(
             )?
         };
         if facts.iter().any(|fact| {
-            matches!(fact.get("type"), Some(J::Str(kind)) if super::json::units_eq(kind, "item.upsert"))
-                || matches!(fact.get("type"), Some(J::Str(kind)) if super::json::units_eq(kind, "item.delta"))
+            matches!(fact.get("type"), Some(Value::String(kind)) if super::text::units_eq(kind, "item.upsert"))
+                || matches!(fact.get("type"), Some(Value::String(kind)) if super::text::units_eq(kind, "item.delta"))
         }) {
             let mut seen = flow.children.observe(&call, flow.cwd);
             seen.extend(facts);
@@ -127,9 +127,9 @@ pub fn translate_delta(
         }
         return Ok(facts);
     }
-    if is(body.get("type").unwrap_or(&J::Null), "tool-call-started")
-        || is(body.get("type").unwrap_or(&J::Null), "partial-tool-call")
-        || is(body.get("type").unwrap_or(&J::Null), "tool-call-completed")
+    if is(body.get("type").unwrap_or(&Value::Null), "tool-call-started")
+        || is(body.get("type").unwrap_or(&Value::Null), "partial-tool-call")
+        || is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed")
     {
         let flow = &mut *flow;
         return flow.tools.translate(
@@ -147,16 +147,16 @@ pub fn translate_delta(
         );
     }
     // Shell output events are opaque records; keep them rather than inventing call association.
-    if is(body.get("type").unwrap_or(&J::Null), "shell-output-delta")
-        && matches!(body.get("aceOutputStream"), Some(J::Bool(true)))
+    if is(body.get("type").unwrap_or(&Value::Null), "shell-output-delta")
+        && matches!(body.get("aceOutputStream"), Some(Value::Bool(true)))
     {
         return Ok(Vec::new());
     }
-    if is(body.get("type").unwrap_or(&J::Null), "shell-output-delta") {
+    if is(body.get("type").unwrap_or(&Value::Null), "shell-output-delta") {
         let notice = &mut *flow.notice;
         let envelope = flow.envelope;
         return Ok(vec![notice(
-            &encode_units("SDK shell output delta retained; call association unavailable"),
+            &JsString::from("SDK shell output delta retained; call association unavailable"),
             envelope,
             "info",
         )]);

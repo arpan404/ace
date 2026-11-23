@@ -45,6 +45,12 @@ impl JsString {
         JsString(Repr::Utf8(String::new()))
     }
 
+    /// A shared empty string, for defaults that borrow.
+    pub fn empty() -> &'static JsString {
+        static EMPTY: JsString = JsString::new();
+        &EMPTY
+    }
+
     /// The string of these UTF-16 code units, pairing surrogates as JavaScript does.
     pub fn from_units(units: &[u16]) -> JsString {
         let mut text = String::with_capacity(units.len());
@@ -146,6 +152,17 @@ impl JsString {
         }
     }
 
+    /// `string.startsWith(prefix)`, by code units.
+    pub fn starts_with_js(&self, prefix: &JsString) -> bool {
+        match (self.as_well_formed(), prefix.as_well_formed()) {
+            (Some(text), Some(prefix)) => text.starts_with(prefix),
+            _ => {
+                let mut units = self.units();
+                prefix.units().all(|unit| units.next() == Some(unit))
+            }
+        }
+    }
+
     /// `string.slice(start, end)` over UTF-16 code units, clamped like JavaScript's.
     pub fn slice_units(&self, start: usize, end: usize) -> JsString {
         let units: Vec<u16> = self.units().collect();
@@ -178,6 +195,14 @@ impl Iterator for Units<'_> {
             Units::Utf8(iter) => iter.next(),
             Units::Slice(iter) => iter.next().copied(),
         }
+    }
+}
+
+impl FromIterator<u16> for JsString {
+    /// The string of these UTF-16 code units.
+    fn from_iter<I: IntoIterator<Item = u16>>(iter: I) -> JsString {
+        let units: Vec<u16> = iter.into_iter().collect();
+        JsString::from_units(&units)
     }
 }
 
@@ -228,6 +253,12 @@ impl PartialEq for JsString {
 }
 
 impl Eq for JsString {}
+
+impl PartialEq<&JsString> for JsString {
+    fn eq(&self, other: &&JsString) -> bool {
+        self == *other
+    }
+}
 
 impl PartialEq<str> for JsString {
     fn eq(&self, other: &str) -> bool {

@@ -40,7 +40,7 @@ pub fn resolution_for(request: &Value, value: &Value, canonical: &Value) -> Valu
                         out.insert(k.clone(), Value::from(kept));
                     }
                     _ => {
-                        out.insert(k.clone(), Value::from(Vec::new()));
+                        out.insert(k.clone(), Value::Array(ace_json::Array::new()));
                     }
                 }
             }

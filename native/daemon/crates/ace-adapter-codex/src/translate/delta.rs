@@ -148,7 +148,7 @@ pub fn translate_delta(
                     ),
                 );
                 data.insert("command".to_owned(), Value::from(String::new()));
-                data.insert("commandActions".to_owned(), Value::from(Vec::new()));
+                data.insert("commandActions".to_owned(), Value::Array(ace_json::Array::new()));
                 data.insert("text".to_owned(), Value::from(String::new()));
                 let draft = item_draft(&data, false, &Value::Object(data.clone()));
                 if let Some(agent) = translator.agents.get_mut(agent_native) {

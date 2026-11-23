@@ -2,7 +2,7 @@
 //! The frame dispatch: envelope kinds into facts (`translator.ts` step).
 
 use super::envelope::{Envelope, cat, is, native_identity, string};
-use super::json::{J, encode_units, units_eq};
+use super::text::{JsString, Value, units_eq};
 use super::recovered_tail::{store_gap, stored_update};
 use super::translator::Step;
 use super::{BudgetError, BudgetResult};
@@ -11,41 +11,41 @@ impl Step<'_> {
     pub fn step(
         &mut self,
         event: &Envelope,
-        envelope: &J,
-        namespace: &[u16],
-        dir: &[u16],
-    ) -> BudgetResult<Vec<J>> {
+        envelope: &Value,
+        namespace: &JsString,
+        dir: &JsString,
+    ) -> BudgetResult<Vec<Value>> {
         let body = event.body;
         match event.kind {
             kind if units_eq(kind, "open") => {
-                *self.saved = Vec::new();
+                *self.saved = JsString::new();
                 *self.root_seen = true;
-                *self.cwd = string(body.get("cwd").unwrap_or(&J::Null))
-                    .unwrap_or(&[])
-                    .to_vec();
-                let model = string(body.get("model").unwrap_or(&J::Null));
-                let mut native = vec![(encode_units("provider"), J::Str(encode_units("cursor")))];
+                *self.cwd = string(body.get("cwd").unwrap_or(&Value::Null))
+                    .unwrap_or(JsString::empty())
+                    .clone();
+                let model = string(body.get("model").unwrap_or(&Value::Null));
+                let mut native = vec![(JsString::from("provider"), Value::String(JsString::from("cursor")))];
                 if let Some(agent_id) = event.agent_id {
-                    native.push((encode_units("nativeId"), J::Str(agent_id.to_vec())));
+                    native.push((JsString::from("nativeId"), Value::String(agent_id.clone())));
                 }
                 let mut seen = vec![
-                    (encode_units("type"), J::Str(encode_units("agent.seen"))),
-                    (encode_units("agent"), J::Str(self.root.to_vec())),
-                    (encode_units("origin"), J::Str(encode_units("root"))),
-                    (encode_units("fidelity"), J::Str(encode_units("full"))),
-                    (encode_units("cwd"), J::Str(self.cwd.clone())),
+                    (JsString::from("type"), Value::String(JsString::from("agent.seen"))),
+                    (JsString::from("agent"), Value::String(self.root.clone())),
+                    (JsString::from("origin"), Value::String(JsString::from("root"))),
+                    (JsString::from("fidelity"), Value::String(JsString::from("full"))),
+                    (JsString::from("cwd"), Value::String(self.cwd.clone())),
                 ];
                 if let Some(model) = model.filter(|model| !model.is_empty()) {
-                    seen.push((encode_units("model"), J::Str(model.to_vec())));
+                    seen.push((JsString::from("model"), Value::String(model.clone())));
                 }
-                seen.push((encode_units("native"), J::Obj(native)));
-                return Ok(vec![J::Obj(seen)]);
+                seen.push((JsString::from("native"), Value::from(native)));
+                return Ok(vec![Value::from(seen)]);
             }
             kind if units_eq(kind, "send") => {
                 *self.attempt = Some(super::translator::Attempt {
-                    generation: event.generation.to_vec(),
-                    operation_id: event.operation_id.to_vec(),
-                    command_id: event.command_id.map(|command| command.to_vec()),
+                    generation: event.generation.clone(),
+                    operation_id: event.operation_id.clone(),
+                    command_id: event.command_id.map(|command| command.clone()),
                     segment: event.segment,
                     body: event.body.clone(),
                 });
@@ -54,12 +54,12 @@ impl Step<'_> {
                 if *self.active {
                     return Ok(Vec::new());
                 }
-                return Ok(vec![J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("wake.expected"))),
-                    (encode_units("agent"), J::Str(self.root.to_vec())),
+                return Ok(vec![Value::from(vec![
+                    (JsString::from("type"), Value::String(JsString::from("wake.expected"))),
+                    (JsString::from("agent"), Value::String(self.root.clone())),
                     (
-                        encode_units("until"),
-                        J::Num((self.now + 600_000).to_string()),
+                        JsString::from("until"),
+                        Value::from(self.now + 600_000),
                     ),
                 ])]);
             }
@@ -76,16 +76,16 @@ impl Step<'_> {
             kind if units_eq(kind, "admission") => {
                 let admitted = self.attempt.as_ref().is_some_and(|attempt| {
                     attempt.operation_id
-                        == string(body.get("operationId").unwrap_or(&J::Null)).unwrap_or(&[])
+                        == string(body.get("operationId").unwrap_or(&Value::Null)).unwrap_or(JsString::empty())
                         && Some(attempt.segment)
                             == body
                                 .get("segment")
-                                .and_then(|segment| segment.as_int().ok())
+                                .and_then(|segment| segment.as_i64())
                 });
                 if !admitted {
                     return Ok(Vec::new());
                 }
-                if matches!(body.get("admitted"), Some(J::Bool(true))) {
+                if matches!(body.get("admitted"), Some(Value::Bool(true))) {
                     let attempt = self.attempt.clone().ok_or(BudgetError::Exceeded)?;
                     return self.admit(&attempt);
                 }
@@ -93,10 +93,10 @@ impl Step<'_> {
                 // Cursor's store had no run for it. Whether it was sent is the
                 // daemon's to say: only it knows whether the last run's
                 // processes were proven gone before that read.
-                return Ok(vec![J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("wake.expected"))),
-                    (encode_units("agent"), J::Str(self.root.to_vec())),
-                    (encode_units("until"), J::Num(self.now.to_string())),
+                return Ok(vec![Value::from(vec![
+                    (JsString::from("type"), Value::String(JsString::from("wake.expected"))),
+                    (JsString::from("agent"), Value::String(self.root.clone())),
+                    (JsString::from("until"), Value::from(self.now)),
                 ])]);
             }
             kind if units_eq(kind, "recovered") => {
@@ -119,9 +119,9 @@ impl Step<'_> {
                 };
             }
             kind if units_eq(kind, "recovered-result") => {
-                if self.saved.len() < 4 * 1024 * 1024 {
-                    self.saved.extend_from_slice(
-                        string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]),
+                if self.saved.len_utf16() < 4 * 1024 * 1024 {
+                    self.saved.push_js(
+                        string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty()),
                     );
                 }
                 return Ok(Vec::new());
@@ -129,12 +129,12 @@ impl Step<'_> {
             kind if units_eq(kind, "recovery") => return self.recover(event, envelope, body),
             kind if units_eq(kind, "snapshot") => {
                 return Ok(vec![self.notice(
-                    &encode_units(
+                    &JsString::from(
                         "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
                     ),
                     envelope,
                     "warning",
-                    &encode_units("cursor.diagnostic"),
+                    &JsString::from("cursor.diagnostic"),
                 )]);
             }
             _ => {}
@@ -143,32 +143,32 @@ impl Step<'_> {
         if units_eq(event.kind, "error")
             && ["boundary_overflow", "checkpoint_budget"]
                 .iter()
-                .any(|code| is(body.get("code").unwrap_or(&J::Null), code))
+                .any(|code| is(body.get("code").unwrap_or(&Value::Null), code))
         {
             let mut facts = Vec::new();
             facts.extend(self.tools.preserve(None));
             facts.extend(self.children.preserve());
             facts.push(
                 self.notice(
-                    &string(body.get("message").unwrap_or(&J::Null))
-                        .map(|message| message.to_vec())
+                    &string(body.get("message").unwrap_or(&Value::Null))
+                        .map(|message| message.clone())
                         .unwrap_or_else(|| {
-                            encode_units("SDK host resource budget failed; checkpoint retained")
+                            JsString::from("SDK host resource budget failed; checkpoint retained")
                         }),
                     envelope,
                     "error",
-                    &encode_units("cursor.diagnostic"),
+                    &JsString::from("cursor.diagnostic"),
                 ),
             );
-            facts.push(J::Obj(vec![
-                (encode_units("type"), J::Str(encode_units("process.exited"))),
-                (encode_units("deliberate"), J::Bool(false)),
+            facts.push(Value::from(vec![
+                (JsString::from("type"), Value::String(JsString::from("process.exited"))),
+                (JsString::from("deliberate"), Value::Bool(false)),
                 (
-                    encode_units("message"),
-                    J::Str(super::turns::utf16_head(
-                        &string(body.get("message").unwrap_or(&J::Null))
-                            .map(|message| message.to_vec())
-                            .unwrap_or_else(|| encode_units("Cursor's turn was fenced")),
+                    JsString::from("message"),
+                    Value::String(super::turns::utf16_head(
+                        &string(body.get("message").unwrap_or(&Value::Null))
+                            .map(|message| message.clone())
+                            .unwrap_or_else(|| JsString::from("Cursor's turn was fenced")),
                         512,
                     )),
                 ),
@@ -176,16 +176,16 @@ impl Step<'_> {
             return Ok(facts);
         }
         if units_eq(event.kind, "blob") {
-            return Ok(vec![J::Obj(vec![
-                (encode_units("type"), J::Str(encode_units("signal"))),
-                (encode_units("agent"), J::Str(self.root.to_vec())),
+            return Ok(vec![Value::from(vec![
+                (JsString::from("type"), Value::String(JsString::from("signal"))),
+                (JsString::from("agent"), Value::String(self.root.clone())),
             ])]);
         }
         if units_eq(event.kind, "shell-output") {
-            let parent = native_identity(body.get("parentCallId").unwrap_or(&J::Null))?;
+            let parent = native_identity(body.get("parentCallId").unwrap_or(&Value::Null))?;
             let child = match &parent {
                 Some(parent) => {
-                    let call = cat(&[namespace, &encode_units(":call:"), parent]);
+                    let call = cat(&[namespace, &JsString::from(":call:"), parent]);
                     self.children
                         .calls
                         .get(&call)
@@ -195,13 +195,13 @@ impl Step<'_> {
             };
             if parent.is_some() && child.is_none() {
                 return Ok(vec![self.notice(
-                    &encode_units("Shell output has no observed owning child"),
+                    &JsString::from("Shell output has no observed owning child"),
                     envelope,
                     "warning",
-                    &encode_units("cursor.diagnostic"),
+                    &JsString::from("cursor.diagnostic"),
                 )]);
             }
-            let agent = child.unwrap_or_else(|| self.root.to_vec());
+            let agent = child.unwrap_or_else(|| self.root.clone());
             let mut notice = Step::notice_fn(
                 &mut *self.diagnostics,
                 &mut *self.notice_index,
@@ -218,14 +218,14 @@ impl Step<'_> {
                 envelope,
                 &mut *self.transcript,
                 &mut *self.children,
-                self.operation.as_deref(),
+                self.operation.as_ref(),
                 *self.segment,
                 &self.cwd.clone(),
                 &mut notice,
             );
         }
         let stale =
-            Some(event.operation_id) != self.operation.as_deref() || event.segment != *self.segment;
+            Some(event.operation_id) != self.operation.as_ref() || event.segment != *self.segment;
         if units_eq(event.kind, "host-exit") {
             let unsettled =
                 self.children.calls.values().any(|child| !child.settled) || self.tools.has_open();
@@ -235,10 +235,10 @@ impl Step<'_> {
             }
             let mut facts = preserved;
             facts.push(self.notice(
-                &encode_units("Cursor stopped unexpectedly. Unfinished work needs your attention."),
+                &JsString::from("Cursor stopped unexpectedly. Unfinished work needs your attention."),
                 envelope,
                 "warning",
-                &encode_units("cursor.work-stopped"),
+                &JsString::from("cursor.work-stopped"),
             ));
             return Ok(facts);
         }
@@ -256,25 +256,25 @@ impl Step<'_> {
         {
             // Surviving child facts belong to their original call namespace, never the replacement root.
             if units_eq(event.kind, "delta")
-                && is(body.get("type").unwrap_or(&J::Null), "tool-call-completed")
+                && is(body.get("type").unwrap_or(&Value::Null), "tool-call-completed")
             {
                 let call = cat(&[
                     namespace,
-                    &encode_units(":call:"),
-                    &native_identity(body.get("callId").unwrap_or(&J::Null))?.unwrap_or_default(),
+                    &JsString::from(":call:"),
+                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default(),
                 ]);
                 if self.tools.calls.contains_key(&call) || self.children.calls.contains_key(&call) {
-                    let agent = self.tools.agent_of(&call).unwrap_or(self.root).to_vec();
+                    let agent = self.tools.agent_of(&call).unwrap_or(self.root).clone();
                     return self.delta(body, &agent, namespace, envelope, Some(event), 0);
                 }
             }
             if (units_eq(event.kind, "delta") || units_eq(event.kind, "delta-chunk"))
-                && is(body.get("type").unwrap_or(&J::Null), "tool-call-delta")
+                && is(body.get("type").unwrap_or(&Value::Null), "tool-call-delta")
             {
                 let call = cat(&[
                     namespace,
-                    &encode_units(":call:"),
-                    &native_identity(body.get("callId").unwrap_or(&J::Null))?.unwrap_or_default(),
+                    &JsString::from(":call:"),
+                    &native_identity(body.get("callId").unwrap_or(&Value::Null))?.unwrap_or_default(),
                 ]);
                 let child = self
                     .children
@@ -282,7 +282,7 @@ impl Step<'_> {
                     .get(&call)
                     .map(|child| (child.key.clone(), child.settled));
                 if let Some((key, false)) = child {
-                    let update = body.get("taskUpdate").unwrap_or(&J::Null).clone();
+                    let update = body.get("taskUpdate").unwrap_or(&Value::Null).clone();
                     return self.delta(&update, &key, namespace, envelope, Some(event), 1);
                 }
             }

@@ -2,7 +2,8 @@
 //! Tool kinds, statuses and detail drafts (`tools.ts`).
 
 use super::envelope::string;
-use super::json::{J, encode_units, units_eq};
+use super::text::{JsString, Value, units_eq};
+use ace_json::Array;
 
 /// The native names that fold to each normalized kind, matched case-insensitively.
 const KINDS: [(&str, &str); 19] = [
@@ -28,14 +29,14 @@ const KINDS: [(&str, &str); 19] = [
 ];
 
 /// The normalized kind of a native tool name.
-pub fn tool_kind(name: &[u16]) -> &'static str {
+pub fn tool_kind(name: &JsString) -> &'static str {
     let lowered = name
-        .iter()
+        .units()
         .map(|unit| {
-            if (0x41..=0x5au16).contains(unit) {
+            if (0x41..=0x5au16).contains(&unit) {
                 unit + 32
             } else {
-                *unit
+                unit
             }
         })
         .collect::<Vec<u16>>();
@@ -52,23 +53,23 @@ pub fn tool_kind(name: &[u16]) -> &'static str {
     "custom"
 }
 
-fn is_lit(value: Option<&J>, lit: &str) -> bool {
-    matches!(value, Some(J::Str(units)) if units_eq(units, lit))
+fn is_lit(value: Option<&Value>, lit: &str) -> bool {
+    matches!(value, Some(Value::String(units)) if units_eq(units, lit))
 }
 
 /// The call status from the SDK's terminal word and its stored result.
-pub fn tool_status(status: &[u16], result: &J) -> &'static str {
-    let value = result.get("value").unwrap_or(&J::Null);
+pub fn tool_status(status: &JsString, result: &Value) -> &'static str {
+    let value = result.get("value").unwrap_or(&Value::Null);
     if units_eq(status, "error")
         || is_lit(result.get("status"), "error")
         || is_lit(result.get("status"), "rejected")
         || is_lit(result.get("status"), "denied")
-        || matches!(value.get("permissionDenied"), Some(J::Bool(true)))
-        || matches!(value.get("rejected"), Some(J::Bool(true)))
-        || matches!(value.get("isError"), Some(J::Bool(true)))
+        || matches!(value.get("permissionDenied"), Some(Value::Bool(true)))
+        || matches!(value.get("rejected"), Some(Value::Bool(true)))
+        || matches!(value.get("isError"), Some(Value::Bool(true)))
         || value
             .get("exitCode")
-            .and_then(|code| code.as_int().ok())
+            .and_then(|code| code.as_i64())
             .is_some_and(|code| code != 0)
     {
         return "failed";
@@ -80,7 +81,7 @@ pub fn tool_status(status: &[u16], result: &J) -> &'static str {
     }
 }
 
-fn todo_entry(value: &J) -> Option<J> {
+fn todo_entry(value: &Value) -> Option<Value> {
     let content = string(value.get("content")?)?;
     let status = string(value.get("status")?)?;
     let status = if units_eq(status, "inProgress") {
@@ -97,71 +98,71 @@ fn todo_entry(value: &J) -> Option<J> {
         return None;
     };
     let mut entry = vec![
-        (encode_units("content"), J::Str(content.to_vec())),
-        (encode_units("status"), J::Str(encode_units(status))),
+        (JsString::from("content"), Value::String(content.clone())),
+        (JsString::from("status"), Value::String(JsString::from(status))),
     ];
-    if let Some(id) = string(value.get("id").unwrap_or(&J::Null)) {
-        entry.push((encode_units("id"), J::Str(id.to_vec())));
+    if let Some(id) = string(value.get("id").unwrap_or(&Value::Null)) {
+        entry.push((JsString::from("id"), Value::String(id.clone())));
     }
-    Some(J::Obj(entry))
+    Some(Value::from(entry))
 }
 
-fn todo_list(args: &J, result_value: &J) -> J {
+fn todo_list(args: &Value, result_value: &Value) -> Value {
     let source = match args.get("todos").or_else(|| result_value.get("todos")) {
-        Some(J::Arr(todos)) if todos.len() <= 128 => todos,
-        _ => return J::Arr(Vec::new()),
+        Some(Value::Array(todos)) if todos.len() <= 128 => todos,
+        _ => return Value::Array(Array::new()),
     };
     let mut todos = Vec::new();
     for todo in source {
-        if !matches!(todo, J::Obj(_)) {
-            return J::Arr(Vec::new());
+        if !matches!(todo, Value::Object(_)) {
+            return Value::Array(Array::new());
         }
-        if string(todo.get("content").unwrap_or(&J::Null)).is_none()
-            || string(todo.get("status").unwrap_or(&J::Null)).is_none()
+        if string(todo.get("content").unwrap_or(&Value::Null)).is_none()
+            || string(todo.get("status").unwrap_or(&Value::Null)).is_none()
         {
-            return J::Arr(Vec::new());
+            return Value::Array(Array::new());
         }
         let Some(entry) = todo_entry(todo) else {
-            return J::Arr(Vec::new());
+            return Value::Array(Array::new());
         };
         todos.push(entry);
     }
-    J::Arr(todos)
+    Value::from(todos)
 }
 
 /// The normalized detail draft for a tool call's input and stored result.
-pub fn tool_detail(name: &[u16], args: &J, result: &J) -> J {
+pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
     let kind = tool_kind(name);
-    let value = result.get("value").unwrap_or(&J::Null);
-    let path = string(args.get("path").unwrap_or(&J::Null))
-        .or_else(|| string(args.get("filePath").unwrap_or(&J::Null)))
-        .unwrap_or(&[]);
+    let value = result.get("value").unwrap_or(&Value::Null);
+    let path = string(args.get("path").unwrap_or(&Value::Null))
+        .or_else(|| string(args.get("filePath").unwrap_or(&Value::Null)))
+        .unwrap_or(JsString::empty());
     match kind {
         "shell" => {
             let mut detail = vec![
-                (encode_units("kind"), J::Str(encode_units(kind))),
+                (JsString::from("kind"), Value::String(JsString::from(kind))),
                 (
-                    encode_units("command"),
-                    J::Str(
-                        string(args.get("command").unwrap_or(&J::Null))
-                            .unwrap_or(&[])
-                            .to_vec(),
+                    JsString::from("command"),
+                    Value::String(
+                        string(args.get("command").unwrap_or(&Value::Null))
+                            .unwrap_or(JsString::empty())
+                            .clone(),
                     ),
                 ),
             ];
-            if let Some(cwd) = string(args.get("workingDirectory").unwrap_or(&J::Null))
+            if let Some(cwd) = string(args.get("workingDirectory").unwrap_or(&Value::Null))
                 .filter(|cwd| !cwd.is_empty())
             {
-                detail.push((encode_units("cwd"), J::Str(cwd.to_vec())));
+                detail.push((JsString::from("cwd"), Value::String(cwd.clone())));
             }
-            if let Some(code) = value.get("exitCode").and_then(|code| code.as_int().ok()) {
-                detail.push((encode_units("exitCode"), J::Num(code.to_string())));
+            if let Some(code) = value.get("exitCode").and_then(|code| code.as_i64()) {
+                detail.push((JsString::from("exitCode"), Value::from(code)));
             }
-            J::Obj(detail)
+            Value::from(detail)
         }
-        "file.read" => J::Obj(vec![
-            (encode_units("kind"), J::Str(encode_units(kind))),
-            (encode_units("path"), J::Str(path.to_vec())),
+        "file.read" => Value::from(vec![
+            (JsString::from("kind"), Value::String(JsString::from(kind))),
+            (JsString::from("path"), Value::String(path.clone())),
         ]),
         "file.edit" | "file.write" | "file.delete" => {
             let change_kind = if kind == "file.write" {
@@ -172,84 +173,84 @@ pub fn tool_detail(name: &[u16], args: &J, result: &J) -> J {
                 "update"
             };
             let mut change = vec![
-                (encode_units("path"), J::Str(path.to_vec())),
-                (encode_units("kind"), J::Str(encode_units(change_kind))),
+                (JsString::from("path"), Value::String(path.clone())),
+                (JsString::from("kind"), Value::String(JsString::from(change_kind))),
             ];
-            if let Some(old) = string(args.get("oldString").unwrap_or(&J::Null)) {
-                change.push((encode_units("oldText"), J::Str(old.to_vec())));
+            if let Some(old) = string(args.get("oldString").unwrap_or(&Value::Null)) {
+                change.push((JsString::from("oldText"), Value::String(old.clone())));
             }
-            let new = string(args.get("fileText").unwrap_or(&J::Null))
-                .or_else(|| string(args.get("newString").unwrap_or(&J::Null)));
+            let new = string(args.get("fileText").unwrap_or(&Value::Null))
+                .or_else(|| string(args.get("newString").unwrap_or(&Value::Null)));
             if let Some(new) = new {
-                change.push((encode_units("newText"), J::Str(new.to_vec())));
+                change.push((JsString::from("newText"), Value::String(new.clone())));
             }
-            let diff = string(value.get("diffString").unwrap_or(&J::Null))
-                .or_else(|| string(value.get("diff").unwrap_or(&J::Null)));
+            let diff = string(value.get("diffString").unwrap_or(&Value::Null))
+                .or_else(|| string(value.get("diff").unwrap_or(&Value::Null)));
             if let Some(diff) = diff {
-                change.push((encode_units("diff"), J::Str(diff.to_vec())));
+                change.push((JsString::from("diff"), Value::String(diff.clone())));
             }
-            J::Obj(vec![
-                (encode_units("kind"), J::Str(encode_units(kind))),
-                (encode_units("changes"), J::Arr(vec![J::Obj(change)])),
+            Value::from(vec![
+                (JsString::from("kind"), Value::String(JsString::from(kind))),
+                (JsString::from("changes"), Value::from(vec![Value::from(change)])),
             ])
         }
         "search" => {
-            let query = string(args.get("pattern").unwrap_or(&J::Null))
-                .or_else(|| string(args.get("query").unwrap_or(&J::Null)))
+            let query = string(args.get("pattern").unwrap_or(&Value::Null))
+                .or_else(|| string(args.get("query").unwrap_or(&Value::Null)))
                 .unwrap_or(path);
-            J::Obj(vec![
-                (encode_units("kind"), J::Str(encode_units(kind))),
-                (encode_units("query"), J::Str(query.to_vec())),
+            Value::from(vec![
+                (JsString::from("kind"), Value::String(JsString::from(kind))),
+                (JsString::from("query"), Value::String(query.clone())),
             ])
         }
         "mcp" => {
-            let server = string(args.get("providerIdentifier").unwrap_or(&J::Null))
-                .or_else(|| string(args.get("server").unwrap_or(&J::Null)))
-                .map(|server| server.to_vec())
-                .unwrap_or_else(|| encode_units("unknown"));
-            let tool = string(args.get("tool").unwrap_or(&J::Null))
-                .or_else(|| string(args.get("toolName").unwrap_or(&J::Null)))
+            let server = string(args.get("providerIdentifier").unwrap_or(&Value::Null))
+                .or_else(|| string(args.get("server").unwrap_or(&Value::Null)))
+                .map(|server| server.clone())
+                .unwrap_or_else(|| JsString::from("unknown"));
+            let tool = string(args.get("tool").unwrap_or(&Value::Null))
+                .or_else(|| string(args.get("toolName").unwrap_or(&Value::Null)))
                 .unwrap_or(name);
             let mut detail = vec![
-                (encode_units("kind"), J::Str(encode_units(kind))),
-                (encode_units("server"), J::Str(server)),
-                (encode_units("tool"), J::Str(tool.to_vec())),
+                (JsString::from("kind"), Value::String(JsString::from(kind))),
+                (JsString::from("server"), Value::String(server)),
+                (JsString::from("tool"), Value::String(tool.clone())),
             ];
             if let Some(arguments) = args.get("args").or_else(|| args.get("arguments")) {
-                detail.push((encode_units("arguments"), arguments.clone()));
+                detail.push((JsString::from("arguments"), arguments.clone()));
             }
-            J::Obj(detail)
+            Value::from(detail)
         }
         "agent.spawn" => {
-            let mut detail = vec![(encode_units("kind"), J::Str(encode_units(kind)))];
-            if let Some(description) = string(args.get("description").unwrap_or(&J::Null))
+            let mut detail = vec![(JsString::from("kind"), Value::String(JsString::from(kind)))];
+            if let Some(description) = string(args.get("description").unwrap_or(&Value::Null))
                 .filter(|description| !description.is_empty())
             {
-                detail.push((encode_units("description"), J::Str(description.to_vec())));
+                detail.push((JsString::from("description"), Value::String(description.clone())));
             }
             if let Some(prompt) =
-                string(args.get("prompt").unwrap_or(&J::Null)).filter(|prompt| !prompt.is_empty())
+                string(args.get("prompt").unwrap_or(&Value::Null)).filter(|prompt| !prompt.is_empty())
             {
-                detail.push((encode_units("prompt"), J::Str(prompt.to_vec())));
+                detail.push((JsString::from("prompt"), Value::String(prompt.clone())));
             }
-            J::Obj(detail)
+            Value::from(detail)
         }
-        "todo" => J::Obj(vec![
-            (encode_units("kind"), J::Str(encode_units(kind))),
-            (encode_units("todos"), todo_list(args, value)),
+        "todo" => Value::from(vec![
+            (JsString::from("kind"), Value::String(JsString::from(kind))),
+            (JsString::from("todos"), todo_list(args, value)),
         ]),
         "plan" => {
-            let mut detail = vec![(encode_units("kind"), J::Str(encode_units(kind)))];
-            let markdown = string(args.get("plan").unwrap_or(&J::Null))
-                .or_else(|| string(args.get("markdown").unwrap_or(&J::Null)));
+            let mut detail = vec![(JsString::from("kind"), Value::String(JsString::from(kind)))];
+            let markdown = string(args.get("plan").unwrap_or(&Value::Null))
+                .or_else(|| string(args.get("markdown").unwrap_or(&Value::Null)));
             if let Some(markdown) = markdown.filter(|markdown| !markdown.is_empty()) {
-                detail.push((encode_units("markdown"), J::Str(markdown.to_vec())));
+                detail.push((JsString::from("markdown"), Value::String(markdown.clone())));
             }
-            J::Obj(detail)
+            Value::from(detail)
         }
         "ask_user" | "image" | "browser" => {
-            J::Obj(vec![(encode_units("kind"), J::Str(encode_units(kind)))])
+            Value::from(vec![(JsString::from("kind"), Value::String(JsString::from(kind)))])
         }
-        _ => J::Obj(vec![(encode_units("kind"), J::Str(encode_units("custom")))]),
+        _ => Value::from(vec![(JsString::from("kind"), Value::String(JsString::from("custom")))]),
     }
 }

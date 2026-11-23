@@ -4,13 +4,13 @@
 
 use std::collections::BTreeMap;
 
-use super::json::{J, encode_units};
+use super::text::{JsString, Value};
 use super::{BudgetError, BudgetResult};
 
 struct Position {
     order: u64,
-    text: Option<Vec<u16>>,
-    thinking: Option<Vec<u16>>,
+    text: Option<JsString>,
+    thinking: Option<JsString>,
     field: Option<Field>,
 }
 
@@ -22,13 +22,13 @@ enum Field {
 
 /// The open items per agent, keyed by agent key with an order per field.
 pub struct Transcript {
-    prefix: Vec<u16>,
+    prefix: JsString,
     limit: usize,
-    positions: BTreeMap<Vec<u16>, Position>,
+    positions: BTreeMap<JsString, Position>,
 }
 
 impl Transcript {
-    pub fn new(prefix: Vec<u16>, limit: usize) -> Self {
+    pub fn new(prefix: JsString, limit: usize) -> Self {
         Transcript {
             prefix,
             limit,
@@ -36,7 +36,7 @@ impl Transcript {
         }
     }
 
-    pub fn append(&mut self, agent: &[u16], field: &str, text: &[u16]) -> BudgetResult<Vec<J>> {
+    pub fn append(&mut self, agent: &JsString, field: &str, text: &JsString) -> BudgetResult<Vec<Value>> {
         if text.is_empty() {
             return Ok(Vec::new());
         }
@@ -46,7 +46,7 @@ impl Transcript {
                 return Err(BudgetError::Exceeded);
             }
             self.positions.insert(
-                agent.to_vec(),
+                agent.clone(),
                 Position {
                     order: 0,
                     text: None,
@@ -68,49 +68,49 @@ impl Transcript {
             position.thinking.as_ref()
         };
         if position.field != Some(want) || current.is_none() {
-            let agent_units = agent.to_vec();
+            let agent_units = agent.clone();
             facts.extend(self.boundary(&agent_units));
             let position = self.positions.get_mut(agent).ok_or(BudgetError::Exceeded)?;
             position.order += 1;
             let order = position.order.to_string();
-            let order = order.encode_utf16().collect::<Vec<u16>>();
+            let order = order.encode_utf16().collect::<JsString>();
             let mut item = self.prefix.clone();
-            item.push(u16::from(b':'));
-            item.extend_from_slice(agent);
-            item.push(u16::from(b':'));
-            item.extend_from_slice(&field.encode_utf16().collect::<Vec<u16>>());
-            item.push(u16::from(b':'));
-            item.extend_from_slice(&order);
+            item.push_str(":");
+            item.push_js(agent);
+            item.push_str(":");
+            item.push_js(&field.encode_utf16().collect::<JsString>());
+            item.push_str(":");
+            item.push_js(&order);
             if want == Field::Text {
                 position.text = Some(item.clone());
                 position.field = Some(Field::Text);
-                facts.push(J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("item.upsert"))),
-                    (encode_units("agent"), J::Str(agent.to_vec())),
-                    (encode_units("item"), J::Str(item)),
+                facts.push(Value::from(vec![
+                    (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                    (JsString::from("agent"), Value::String(agent.clone())),
+                    (JsString::from("item"), Value::String(item)),
                     (
-                        encode_units("draft"),
-                        J::Obj(vec![
-                            (encode_units("type"), J::Str(encode_units("message"))),
-                            (encode_units("role"), J::Str(encode_units("assistant"))),
-                            (encode_units("parts"), J::Arr(Vec::new())),
-                            (encode_units("complete"), J::Bool(false)),
+                        JsString::from("draft"),
+                        Value::from(vec![
+                            (JsString::from("type"), Value::String(JsString::from("message"))),
+                            (JsString::from("role"), Value::String(JsString::from("assistant"))),
+                            (JsString::from("parts"), Value::Array(ace_json::Array::new())),
+                            (JsString::from("complete"), Value::Bool(false)),
                         ]),
                     ),
                 ]));
             } else {
                 position.thinking = Some(item.clone());
                 position.field = Some(Field::Thinking);
-                facts.push(J::Obj(vec![
-                    (encode_units("type"), J::Str(encode_units("item.upsert"))),
-                    (encode_units("agent"), J::Str(agent.to_vec())),
-                    (encode_units("item"), J::Str(item)),
+                facts.push(Value::from(vec![
+                    (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                    (JsString::from("agent"), Value::String(agent.clone())),
+                    (JsString::from("item"), Value::String(item)),
                     (
-                        encode_units("draft"),
-                        J::Obj(vec![
-                            (encode_units("type"), J::Str(encode_units("reasoning"))),
-                            (encode_units("text"), J::Str(Vec::new())),
-                            (encode_units("complete"), J::Bool(false)),
+                        JsString::from("draft"),
+                        Value::from(vec![
+                            (JsString::from("type"), Value::String(JsString::from("reasoning"))),
+                            (JsString::from("text"), Value::String(JsString::new())),
+                            (JsString::from("complete"), Value::Bool(false)),
                         ]),
                     ),
                 ]));
@@ -123,25 +123,25 @@ impl Transcript {
             position.thinking.clone()
         };
         if let Some(item) = item {
-            facts.push(J::Obj(vec![
-                (encode_units("type"), J::Str(encode_units("item.delta"))),
-                (encode_units("agent"), J::Str(agent.to_vec())),
-                (encode_units("item"), J::Str(item)),
+            facts.push(Value::from(vec![
+                (JsString::from("type"), Value::String(JsString::from("item.delta"))),
+                (JsString::from("agent"), Value::String(agent.clone())),
+                (JsString::from("item"), Value::String(item)),
                 (
-                    encode_units("field"),
-                    J::Str(encode_units(if want == Field::Text {
+                    JsString::from("field"),
+                    Value::String(JsString::from(if want == Field::Text {
                         "text"
                     } else {
                         "reasoning"
                     })),
                 ),
-                (encode_units("append"), J::Str(text.to_vec())),
+                (JsString::from("append"), Value::String(text.clone())),
             ]));
         }
         Ok(facts)
     }
 
-    pub fn boundary(&mut self, agent: &[u16]) -> Vec<J> {
+    pub fn boundary(&mut self, agent: &JsString) -> Vec<Value> {
         let position = match self.positions.get_mut(agent) {
             Some(position) => position,
             None => return Vec::new(),
@@ -153,15 +153,15 @@ impl Transcript {
         };
         position.field = None;
         match item {
-            Some(item) => vec![J::Obj(vec![
-                (encode_units("type"), J::Str(encode_units("item.upsert"))),
-                (encode_units("agent"), J::Str(agent.to_vec())),
-                (encode_units("item"), J::Str(item)),
+            Some(item) => vec![Value::from(vec![
+                (JsString::from("type"), Value::String(JsString::from("item.upsert"))),
+                (JsString::from("agent"), Value::String(agent.clone())),
+                (JsString::from("item"), Value::String(item)),
                 (
-                    encode_units("draft"),
-                    J::Obj(vec![
-                        (encode_units("type"), J::Str(encode_units(kind))),
-                        (encode_units("complete"), J::Bool(true)),
+                    JsString::from("draft"),
+                    Value::from(vec![
+                        (JsString::from("type"), Value::String(JsString::from(kind))),
+                        (JsString::from("complete"), Value::Bool(true)),
                     ]),
                 ),
             ])],
@@ -169,8 +169,8 @@ impl Transcript {
         }
     }
 
-    pub fn end(&mut self) -> Vec<J> {
-        let agents: Vec<Vec<u16>> = self.positions.keys().cloned().collect();
+    pub fn end(&mut self) -> Vec<Value> {
+        let agents: Vec<JsString> = self.positions.keys().cloned().collect();
         let mut facts = Vec::new();
         for agent in &agents {
             facts.extend(self.boundary(agent));

@@ -189,7 +189,7 @@ impl AcpTranslator {
                     draft
                         .get("parts")
                         .cloned()
-                        .unwrap_or(Value::from(Vec::new())),
+                        .unwrap_or(Value::Array(ace_json::Array::new())),
                 );
                 ordered.insert("complete".to_owned(), Value::Bool(true));
                 ordered.insert(

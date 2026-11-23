@@ -9,7 +9,7 @@
 
 use sha2::{Digest, Sha256};
 
-use super::json::{is_high, is_low};
+use super::text::{JsString, is_high, is_low};
 
 /// The recovered answer is cut after this many UTF-8 bytes.
 const CAP: usize = 4 * 1024 * 1024;
@@ -72,7 +72,9 @@ impl StreamedAnswer {
         *self = StreamedAnswer::new();
     }
 
-    pub fn add(&mut self, units: &[u16]) {
+    pub fn add(&mut self, text: &JsString) {
+        let units: Vec<u16> = text.units().collect();
+        let units = units.as_slice();
         self.length += units.len();
         let mut bytes = Vec::with_capacity(units.len() * 2);
         le_bytes(units, &mut bytes);
@@ -163,11 +165,13 @@ impl StreamedAnswer {
     /// its start, all of it (`apart`) when what streamed differs, nothing when
     /// it is all shown. A saved answer recovery cut (`cut`) is shown already
     /// only when it is exactly the start of what streamed that fits in 4 MiB.
-    pub fn missing(&self, result: &[u16], cut: bool) -> Option<Missing> {
+    pub fn missing(&self, result: &JsString, cut: bool) -> Option<Missing> {
+        let units: Vec<u16> = result.units().collect();
+        let result = units.as_slice();
         if self.length > result.len() {
             if !cut {
                 return Some(Missing {
-                    text: result.to_vec(),
+                    text: JsString::from_units(result),
                     apart: true,
                 });
             }
@@ -177,7 +181,7 @@ impl StreamedAnswer {
                 None
             } else {
                 Some(Missing {
-                    text: result.to_vec(),
+                    text: JsString::from_units(result),
                     apart: true,
                 })
             };
@@ -185,7 +189,7 @@ impl StreamedAnswer {
         if hex_bytes(&digest_of(&result[..self.length])) != hex_bytes(&self.hash.clone().finalize())
         {
             return Some(Missing {
-                text: result.to_vec(),
+                text: JsString::from_units(result),
                 apart: true,
             });
         }
@@ -193,7 +197,7 @@ impl StreamedAnswer {
             None
         } else {
             Some(Missing {
-                text: result[self.length..].to_vec(),
+                text: JsString::from_units(&result[self.length..]),
                 apart: false,
             })
         }
@@ -202,6 +206,6 @@ impl StreamedAnswer {
 
 /// The unsliced saved answer when it differs, or its unshown tail.
 pub struct Missing {
-    pub text: Vec<u16>,
+    pub text: JsString,
     pub apart: bool,
 }

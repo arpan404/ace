@@ -150,7 +150,7 @@ pub fn handle_turn_completed(
             "title".to_owned(),
             Value::from("Codex is waiting for input".to_owned()),
         );
-        request.insert("options".to_owned(), Value::from(Vec::new()));
+        request.insert("options".to_owned(), Value::Array(ace_json::Array::new()));
         let mut body = Map::with_capacity(5);
         body.insert("agent".to_owned(), Value::from(agent_key));
         body.insert(

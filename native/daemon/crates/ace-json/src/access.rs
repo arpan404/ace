@@ -301,6 +301,13 @@ impl From<Array> for Value {
     }
 }
 
+impl<K: Into<JsString>> From<Vec<(K, Value)>> for Value {
+    /// An object from entries, in JavaScript's key order (a repeated key keeps the last value).
+    fn from(entries: Vec<(K, Value)>) -> Value {
+        Value::Object(entries.into_iter().collect())
+    }
+}
+
 impl From<Map> for Value {
     fn from(map: Map) -> Value {
         Value::Object(map)

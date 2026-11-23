@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use super::BudgetResult;
 use super::children::Children;
 use super::envelope::{Envelope, cat, native_identity, string};
-use super::json::{J, encode_units};
+use super::text::{JsString, Value};
 use super::tool_events::ToolEvents;
 use super::tools::tool_kind;
 use super::transcript::Transcript;
@@ -16,39 +16,39 @@ impl ToolEvents {
     #[allow(clippy::too_many_arguments)]
     pub fn output(
         &mut self,
-        body: &J,
-        agent: &[u16],
-        namespace: &[u16],
+        body: &Value,
+        agent: &JsString,
+        namespace: &JsString,
         event: &Envelope,
-        envelope: &J,
+        envelope: &Value,
         transcript: &mut Transcript,
         children: &mut Children,
-        operation: Option<&[u16]>,
+        operation: Option<&JsString>,
         segment: i64,
-        cwd: &[u16],
-        notice: &mut dyn FnMut(&[u16], &J, &str) -> J,
-    ) -> BudgetResult<Vec<J>> {
-        let id = native_identity(body.get("callId").unwrap_or(&J::Null))?;
-        let text = string(body.get("text").unwrap_or(&J::Null)).unwrap_or(&[]);
+        cwd: &JsString,
+        notice: &mut dyn FnMut(&JsString, &Value, &str) -> Value,
+    ) -> BudgetResult<Vec<Value>> {
+        let id = native_identity(body.get("callId").unwrap_or(&Value::Null))?;
+        let text = string(body.get("text").unwrap_or(&Value::Null)).unwrap_or(JsString::empty());
         let Some(id) = id else { return Ok(Vec::new()) };
         if text.is_empty() {
             return Ok(Vec::new());
         }
-        let key = cat(&[namespace, &encode_units(":call:"), &id]);
+        let key = cat(&[namespace, &JsString::from(":call:"), &id]);
         let mut facts = Vec::new();
         if !self.calls.contains_key(&key) {
             let mut started = vec![
                 (
-                    encode_units("type"),
-                    J::Str(encode_units("tool-call-started")),
+                    JsString::from("type"),
+                    Value::String(JsString::from("tool-call-started")),
                 ),
-                (encode_units("callId"), J::Str(id.clone())),
+                (JsString::from("callId"), Value::String(id.clone())),
             ];
             if let Some(tool_call) = body.get("toolCall") {
-                started.push((encode_units("toolCall"), tool_call.clone()));
+                started.push((JsString::from("toolCall"), tool_call.clone()));
             }
             facts.extend(self.translate(
-                &J::Obj(started),
+                &Value::from(started),
                 agent,
                 namespace,
                 Some(event),
@@ -69,24 +69,24 @@ impl ToolEvents {
         }
         tool.output = true;
         let owner = tool.agent.clone();
-        facts.push(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("item.delta"))),
-            (encode_units("agent"), J::Str(owner)),
-            (encode_units("item"), J::Str(key)),
-            (encode_units("field"), J::Str(encode_units("output"))),
-            (encode_units("append"), J::Str(text.to_vec())),
+        facts.push(Value::from(vec![
+            (JsString::from("type"), Value::String(JsString::from("item.delta"))),
+            (JsString::from("agent"), Value::String(owner)),
+            (JsString::from("item"), Value::String(key)),
+            (JsString::from("field"), Value::String(JsString::from("output"))),
+            (JsString::from("append"), Value::String(text.clone())),
         ]));
         Ok(facts)
     }
 
-    pub fn preserve(&mut self, owner: Option<&[u16]>) -> Vec<J> {
+    pub fn preserve(&mut self, owner: Option<&JsString>) -> Vec<Value> {
         let mut facts = Vec::new();
-        let owners: Vec<Vec<u16>> = match owner {
-            Some(owner) => vec![owner.to_vec()],
+        let owners: Vec<JsString> = match owner {
+            Some(owner) => vec![owner.clone()],
             None => self.pending_by_owner.keys().cloned().collect(),
         };
         for key in owners {
-            let pending: Vec<Vec<u16>> = self
+            let pending: Vec<JsString> = self
                 .pending_by_owner
                 .get(&key)
                 .map(|pending| pending.iter().cloned().collect())
@@ -112,35 +112,35 @@ impl ToolEvents {
                 } else {
                     "other"
                 };
-                facts.push(J::Obj(vec![
+                facts.push(Value::from(vec![
                     (
-                        encode_units("type"),
-                        J::Str(encode_units("background.started")),
+                        JsString::from("type"),
+                        Value::String(JsString::from("background.started")),
                     ),
-                    (encode_units("agent"), J::Str(agent)),
+                    (JsString::from("agent"), Value::String(agent)),
                     (
-                        encode_units("task"),
-                        J::Str(cat(&[&encode_units("surviving:"), &item])),
+                        JsString::from("task"),
+                        Value::String(cat(&[&JsString::from("surviving:"), &item])),
                     ),
-                    (encode_units("kind"), J::Str(encode_units(kind))),
+                    (JsString::from("kind"), Value::String(JsString::from(kind))),
                     (
-                        encode_units("title"),
-                        J::Str(cat(&[&encode_units("Unresolved SDK "), &name])),
+                        JsString::from("title"),
+                        Value::String(cat(&[&JsString::from("Unresolved SDK "), &name])),
                     ),
-                    (encode_units("item"), J::Str(item.clone())),
-                    (encode_units("stoppable"), J::Bool(false)),
+                    (JsString::from("item"), Value::String(item.clone())),
+                    (JsString::from("stoppable"), Value::Bool(false)),
                 ]));
-                facts.push(J::Obj(vec![
+                facts.push(Value::from(vec![
                     (
-                        encode_units("type"),
-                        J::Str(encode_units("background.ended")),
+                        JsString::from("type"),
+                        Value::String(JsString::from("background.ended")),
                     ),
                     (
-                        encode_units("task"),
-                        J::Str(cat(&[&encode_units("surviving:"), &item])),
+                        JsString::from("task"),
+                        Value::String(cat(&[&JsString::from("surviving:"), &item])),
                     ),
-                    (encode_units("status"), J::Str(encode_units("unknown"))),
-                    (encode_units("uncertain"), J::Bool(true)),
+                    (JsString::from("status"), Value::String(JsString::from("unknown"))),
+                    (JsString::from("uncertain"), Value::Bool(true)),
                 ]));
             }
             if self

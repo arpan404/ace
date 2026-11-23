@@ -2,15 +2,15 @@
 //! Per-turn usage facts (`usage.ts`). The SDK's onDelta usage is authoritative
 //! per turn; run totals never fold twice.
 
-use super::json::{J, encode_units};
+use super::text::{JsString, Value};
 
 /// The largest integer JavaScript holds exactly.
 const SAFE: f64 = 9_007_199_254_740_991.0;
 
-fn tokens(value: &J) -> Option<i64> {
+fn tokens(value: &Value) -> Option<i64> {
     match value {
-        J::Num(raw) => {
-            let float: f64 = raw.parse().ok()?;
+        Value::Number(raw) => {
+            let float: f64 = raw.value();
             if !float.is_finite() || float.fract() != 0.0 || !(0.0..=SAFE).contains(&float) {
                 return None;
             }
@@ -21,7 +21,7 @@ fn tokens(value: &J) -> Option<i64> {
 }
 
 /// The usage facts for one `turn-ended` delta, or nothing when invalid.
-pub fn turn_usage(value: &J, agent: &[u16], counter_key: &[u16]) -> Vec<J> {
+pub fn turn_usage(value: &Value, agent: &JsString, counter_key: &JsString) -> Vec<Value> {
     let Some(input) = value.get("inputTokens").and_then(tokens) else {
         return Vec::new();
     };
@@ -43,45 +43,45 @@ pub fn turn_usage(value: &J, agent: &[u16], counter_key: &[u16]) -> Vec<J> {
         + cache_write.unwrap_or(0) as i128;
     let mut facts = Vec::new();
     if occupied <= SAFE as i128 {
-        facts.push(J::Obj(vec![
-            (encode_units("type"), J::Str(encode_units("context.sample"))),
-            (encode_units("agent"), J::Str(agent.to_vec())),
+        facts.push(Value::from(vec![
+            (JsString::from("type"), Value::String(JsString::from("context.sample"))),
+            (JsString::from("agent"), Value::String(agent.clone())),
             (
-                encode_units("usedTokens"),
-                J::Num((occupied as i64).to_string()),
+                JsString::from("usedTokens"),
+                Value::from(occupied as i64),
             ),
         ]));
     }
     let mut usage = vec![
-        (encode_units("type"), J::Str(encode_units("usage"))),
-        (encode_units("agent"), J::Str(agent.to_vec())),
-        (encode_units("inputTokens"), J::Num(input.to_string())),
-        (encode_units("outputTokens"), J::Num(output.to_string())),
+        (JsString::from("type"), Value::String(JsString::from("usage"))),
+        (JsString::from("agent"), Value::String(agent.clone())),
+        (JsString::from("inputTokens"), Value::from(input)),
+        (JsString::from("outputTokens"), Value::from(output)),
     ];
     if let Some(cached) = cache_read {
         usage.push((
-            encode_units("cachedInputTokens"),
-            J::Num(cached.to_string()),
+            JsString::from("cachedInputTokens"),
+            Value::from(cached),
         ));
     }
     if let Some(written) = cache_write {
         usage.push((
-            encode_units("cacheWriteTokens"),
-            J::Num(written.to_string()),
+            JsString::from("cacheWriteTokens"),
+            Value::from(written),
         ));
     }
     if let Some(reasoning) = reasoning {
         usage.push((
-            encode_units("reasoningTokens"),
-            J::Num(reasoning.to_string()),
+            JsString::from("reasoningTokens"),
+            Value::from(reasoning),
         ));
     }
     usage.push((
-        encode_units("counterMode"),
-        J::Str(encode_units("cumulative")),
+        JsString::from("counterMode"),
+        Value::String(JsString::from("cumulative")),
     ));
-    usage.push((encode_units("counterKey"), J::Str(counter_key.to_vec())));
-    usage.push((encode_units("billingMode"), J::Str(encode_units("unknown"))));
-    facts.push(J::Obj(usage));
+    usage.push((JsString::from("counterKey"), Value::String(counter_key.clone())));
+    usage.push((JsString::from("billingMode"), Value::String(JsString::from("unknown"))));
+    facts.push(Value::from(usage));
     facts
 }

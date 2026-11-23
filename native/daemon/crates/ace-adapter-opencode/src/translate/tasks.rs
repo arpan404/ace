@@ -8,7 +8,7 @@ use crate::translate::data::s_in;
 use crate::translate::state::{NativeState, Out, StateError};
 use indexmap::IndexMap;
 use serde::Serialize;
-use ace_json::{Map, Value};
+use ace_json::Map;
 
 #[derive(Serialize)]
 struct BackgroundStarted<'a> {
