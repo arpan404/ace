@@ -264,6 +264,19 @@ tree builds it from `scripts/` on demand. With `ACE_STORE=native` and no addon, 
 to open and says so; it never falls back silently, so a test run with the switch on proves the
 native path.
 
+### Measured after building phases 1b, 2 and 3 (2026-11-23)
+
+- **Phase 3 is dropped in this form.** Built on `ace/rust-store-3`, it returned byte-identical
+  sidebar pages, but ran about 25% slower than the TypeScript: on this home most thread rows still
+  need the TypeScript lenient decode, and a row decoded in Rust crosses as JSON that JavaScript
+  parses again, which costs more than V8 decoding the row itself. Review also found it bypassed
+  `ThreadCache` and journal-only ancestry. The sidebar moves when the socket path can forward
+  Rust's bytes to clients without building JavaScript objects; until then it stays TypeScript.
+- **Rule this taught:** a native read pays off where the cost is inside SQLite and statement
+  count (thread opens: 212 statements to 4), not where it is decoding into JavaScript objects.
+- Phase 2's first build was 2.5 to 4 times slower (no prepared-statement reuse, per-child
+  lookups, intermediate trees); it ships only once it is no slower than the TypeScript.
+
 ## Consequences
 
 - A Rust crash in the store crashes the daemon, as a node:sqlite crash does today. Panics are
