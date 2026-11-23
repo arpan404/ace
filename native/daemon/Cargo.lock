@@ -126,6 +126,7 @@ dependencies = [
  "ace-adapter-opencode",
  "ace-adapter-pi",
  "ace-core",
+ "ace-git",
  "ace-json",
  "ace-store",
  "ace-supervisor",
