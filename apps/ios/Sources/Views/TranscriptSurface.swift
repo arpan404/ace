@@ -106,6 +106,15 @@ import UIKit
         frozen = nil
     }
 
+    func scroll(_ proxy: ScrollViewProxy, to id: String, anchor: UnitPoint) {
+        PerfCounters.bump("offset.proxy")
+        if TranscriptFlingProbe.isolated, let scroller, scroller.isDragging || scroller.isDecelerating {
+            PerfCounters.bump("offset.blocked")
+            return
+        }
+        proxy.scrollTo(id, anchor: anchor)
+    }
+
     /// Moves the content `delta` points up the screen (down, when negative), within its scroll.
     /// Returns how far it moved: less than `delta` at either end of the content.
     @discardableResult func shift(by delta: Double) -> Double {
@@ -114,7 +123,12 @@ import UIKit
         let highest = max(lowest, scroller.contentSize.height + scroller.adjustedContentInset.bottom - scroller.bounds.height)
         let was = scroller.contentOffset.y
         let target = min(max(was - CGFloat(delta), lowest), highest)
-        guard target != was, !scroller.isTracking, !scroller.isDragging, !scroller.isDecelerating else { return 0 }
+        guard target != was else { return 0 }
+        guard !scroller.isTracking, !scroller.isDragging, !scroller.isDecelerating else {
+            PerfCounters.bump("offset.blocked")
+            return 0
+        }
+        PerfCounters.bump("offset.write")
         scroller.setContentOffset(CGPoint(x: scroller.contentOffset.x, y: target), animated: false)
         return Double(was - target)
     }
