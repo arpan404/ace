@@ -1,8 +1,8 @@
 /*
- * Streaming text as an edit of what native already shows. A row's text is the last 8,192 units
+ * Streaming fields as edits of what native already shows. A row's text is the last 8,192 units
  * of the item, so a delta either extends it or, once it is long, slides it: drop `cut` from the
  * front, then add `append`. JavaScript decides the edit; native only applies it, after checking
- * that its text is still `base` long (`ClientModel.resolveTextEdits`). On the wire `base` and
+ * that the field is still `base` long (`ClientModel.resolveTextEdits`). On the wire `base` and
  * `cut` count UTF-8 bytes, which Swift's strings count without transcoding.
  */
 
@@ -45,6 +45,7 @@ const isLow = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 export interface HeldRow {
   text: string;
   rest: string;
+  field?: "stepOutput";
 }
 
 /** A row's fields apart from its text, as JSON, to tell whether only the text changed. */
@@ -53,37 +54,57 @@ export function restOf(row: Record<string, unknown>): string {
   return JSON.stringify(rest);
 }
 
+/** The growing field and the other fields that must still agree with native's copy. */
+export function heldRow(row: Record<string, unknown>): HeldRow | undefined {
+  const output = stepOutput(row);
+  if (output) return output;
+  return typeof row.text === "string" ? { text: row.text, rest: restOf(row) } : undefined;
+}
+
+function stepOutput(row: Record<string, unknown>): HeldRow | undefined {
+  if (row.type !== "tool_call" || !record(row.step) || !record(row.step.detail)) return undefined;
+  const { output, ...detail } = row.step.detail;
+  if (typeof output !== "string") return undefined;
+  return {
+    field: "stepOutput",
+    text: output,
+    rest: JSON.stringify({ ...row, step: { ...row.step, detail } }),
+  };
+}
+
+function record(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /**
  * The patch to send for a thread item, given the row native last confirmed for it (`held`): an
- * edit of its text when that is smaller, else the patch itself. The edit carries the row only
- * when another of its fields changed too; without one, native edits the row it shows.
+ * compact edit of its text or command output. A text edit can carry other changed fields.
+ * An output edit keeps the acknowledged command and requires the other fields to match.
  */
 export function itemPatch(
   patch: Record<string, unknown>,
   held: HeldRow | undefined,
   utf8Length: (text: string) => number,
 ): Record<string, unknown> {
-  if (patch.type !== "thread.item" || held === undefined) return patch;
-  const text = textOf(patch.row);
-  if (text === undefined) return patch;
-  const edit = textEdit(held.text, text);
-  if (!edit) return patch;
+  if (patch.type !== "thread.item" || held === undefined || !record(patch.row)) return patch;
   const { row, ...scope } = patch;
-  const rest = restOf(row as Record<string, unknown>);
+  const next = heldRow(row);
+  if (!next || next.field !== held.field) return patch;
+  const { text, rest, field } = next;
+  if (text === held.text || (field && rest !== held.rest)) return patch;
+  // Even replacing the entire output field leaves the command and row metadata on native.
+  const edit =
+    textEdit(held.text, text) ?? (field ? { cut: held.text.length, append: text } : undefined);
+  if (!edit) return patch;
   const base = utf8Length(held.text);
   const cut = edit.cut && utf8Length(held.text.slice(0, edit.cut));
   return {
     ...scope,
     type: "thread.item.text",
-    ...(rest === held.rest ? {} : { row: { ...(row as object), text: "" } }),
+    ...(field ? { field } : {}),
+    ...(rest === held.rest ? {} : { row: { ...row, text: "" } }),
     base,
     cut,
     append: edit.append,
   };
-}
-
-function textOf(row: unknown): string | undefined {
-  if (typeof row !== "object" || row === null) return undefined;
-  const text: unknown = Reflect.get(row, "text");
-  return typeof text === "string" ? text : undefined;
 }
