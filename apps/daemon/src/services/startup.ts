@@ -178,6 +178,41 @@ export class ServiceStartup {
       this.context.log.log("error", "Startup observer failed", logError(error));
     }
   }
+  private readonly serviceWatchers = new Map<string, Set<(value: unknown) => void>>();
+  /** See `ServiceContext.watchService`. */
+  watchService = <K extends keyof Services>(
+    key: K,
+    listener: (value: Services[K] | undefined) => void,
+  ): (() => void) => {
+    // Each slot holds the listeners of its own key only, so the stored value is that key's.
+    const heard = listener as (value: unknown) => void;
+    const watchers = this.serviceWatchers.get(key) ?? new Set();
+    this.serviceWatchers.set(key, watchers);
+    watchers.add(heard);
+    heard(this.context.services[key]);
+    return () => void watchers.delete(heard);
+  };
+  /** Tells the watchers of `keys` their service's value now. */
+  private announce(keys: readonly PropertyKey[]): void {
+    for (const key of keys) {
+      if (typeof key !== "string") continue;
+      const value: unknown = Reflect.get(this.context.services, key);
+      for (const listener of this.serviceWatchers.get(key) ?? []) {
+        try {
+          listener(value);
+        } catch (error) {
+          this.context.log.log(
+            "error",
+            "Service watcher failed",
+            logFields([
+              ["service", key],
+              ["error", error instanceof Error ? error.message : String(error)],
+            ]),
+          );
+        }
+      }
+    }
+  }
   private readonly changeListeners = new Set<() => void>();
   /** Tells `listener` whenever a service's status changes; returns how to stop. */
   onChange = (listener: () => void): (() => void) => {
@@ -275,7 +310,10 @@ export class ServiceStartup {
             : Reflect.get(this.context.services, key),
       set: (target, key, value) => {
         if (controller.signal.aborted) return true;
-        return Reflect.set(committed ? this.context.services : target, key, value);
+        if (!committed) return Reflect.set(target, key, value);
+        const set = Reflect.set(this.context.services, key, value);
+        this.announce([key]);
+        return set;
       },
     });
     const onListen: ServiceContext["onListen"] = [];
@@ -342,6 +380,7 @@ export class ServiceStartup {
                 ...this.context,
                 resources,
                 services,
+                watchService: this.watchService,
                 onListen,
                 signal: controller.signal,
                 readiness: (read, rerun) => {
@@ -366,10 +405,12 @@ export class ServiceStartup {
       this.context.signal.throwIfAborted();
       Object.assign(this.context.services, published);
       committed = true;
+      this.announce(Object.keys(published));
       const disable = () => {
         resources.beginShutdown();
         for (const key of Object.keys(published))
           Reflect.deleteProperty(this.context.services, key);
+        this.announce(Object.keys(published));
         // The deadline only stops the log waiting; the close itself fences the next retry.
         this.hold(name, resources.close());
         void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>

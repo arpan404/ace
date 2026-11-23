@@ -22,7 +22,8 @@ import {
 import { daemonSuitPort } from "../suits/port.ts";
 import { builtinGuides } from "@ace/plugins";
 import { devicesToolkit } from "@ace/devices/tools";
-import { browserToolkit } from "../browser-toolkit.ts";
+import { liveBrowserToolkit } from "../browser-toolkit.ts";
+import { followService } from "./service-watch.ts";
 import { commandToolkit, commandToolNames } from "../machines/command-tools.ts";
 import { screenToolkit, computerToolNames } from "@ace/screen";
 import { cancelLockedUseWhenTurnedOff } from "../computer-locked-use.ts";
@@ -59,24 +60,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
     },
   });
   services.asks = asks;
-  const browser = services.browser;
-  const help = browser
-    ? new BrowserHelp({
-        store,
-        engine: () => services.engine,
-        tab: browserHelpTab(browser),
-        id: context.id,
-        schedule: (run, ms) => {
-          const timer = setTimeout(run, ms);
-          timer.unref();
-          return () => clearTimeout(timer);
-        },
-      })
-    : undefined;
-  if (help) {
-    services.browserHelp = help;
-    resources.own(() => help.close());
-  }
+  // ace's browser may start after these tools (a startup retry), or start again: every call
+  // looks it up, and the tool list follows it (see the watch below).
+  const help = new BrowserHelp({
+    store,
+    engine: () => services.engine,
+    tab: browserHelpTab(() => services.browser),
+    id: context.id,
+    schedule: (run, ms) => {
+      const timer = setTimeout(run, ms);
+      timer.unref();
+      return () => clearTimeout(timer);
+    },
+  });
+  services.browserHelp = help;
+  resources.own(() => help.close());
   const contextGit = new GitService({ timeoutMs: 10_000 });
   resources.own(() => contextGit.close());
   const measurements = measurementObserver({
@@ -200,35 +198,27 @@ export async function startMcp(context: ServiceContext): Promise<void> {
           signal,
         });
       }),
-      ...(services.browser
-        ? [
-            browserToolkit(
-              services.browser,
-              store,
-              async (call, { caller, signal }) => {
-                const machines = services.machines;
-                if (!machines) throw new PublicToolError("machine_unavailable");
-                return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                  timeoutMs: call.timeoutMs,
-                  signal,
-                });
-              },
-              userBrowserTools(services),
-            ),
-          ]
-        : []),
-      ...(help
-        ? [
-            browserHelpToolkit(help, async (call, { caller, signal }) => {
-              const machines = services.machines;
-              if (!machines) throw new PublicToolError("machine_unavailable");
-              return machines.caller.browser(caller, call.machine, call.tool, call.args, {
-                timeoutMs: call.timeoutMs,
-                signal,
-              });
-            }),
-          ]
-        : []),
+      liveBrowserToolkit(
+        () => services.browser,
+        store,
+        async (call, { caller, signal }) => {
+          const machines = services.machines;
+          if (!machines) throw new PublicToolError("machine_unavailable");
+          return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+            timeoutMs: call.timeoutMs,
+            signal,
+          });
+        },
+        userBrowserTools(services),
+      ),
+      browserHelpToolkit(help, async (call, { caller, signal }) => {
+        const machines = services.machines;
+        if (!machines) throw new PublicToolError("machine_unavailable");
+        return machines.caller.browser(caller, call.machine, call.tool, call.args, {
+          timeoutMs: call.timeoutMs,
+          signal,
+        });
+      }),
       // Registered at startup; the devices implementation loads on an agent's first call.
       ...(devices
         ? [
@@ -324,20 +314,21 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   );
   resources.own(() => mcp.close());
   services.mcp = mcp;
+  // ace's browser coming up after a failed start, or going, changes which tools are offered.
+  resources.own(followService(context, "browser", () => mcp.toolsChanged()));
   // Turning computer use or devices on or off changes which ace tools are offered.
   if (services.screen) resources.own(services.screen.watchEnabled(mcp.toolsChanged));
   if (services.devices) resources.own(services.devices.watchEnabled(mcp.toolsChanged));
   // An agent that carries on (a new turn) no longer waits on a help request nobody answered,
   // and a request whose tab closed or whose thread was archived is withdrawn.
-  if (help)
-    resources.own(
-      store.subscribe((events) => {
-        for (const { threadId, payload } of events) {
-          if (payload.type === "run.started") help.withdrawIdle(threadId, payload.run.agentId);
-          help.sweep(threadId);
-        }
-      }),
-    );
+  resources.own(
+    store.subscribe((events) => {
+      for (const { threadId, payload } of events) {
+        if (payload.type === "run.started") help.withdrawIdle(threadId, payload.run.agentId);
+        help.sweep(threadId);
+      }
+    }),
+  );
   // A preview lasts one turn: it ends with the run that started it.
   resources.own(
     store.subscribe((events) => {
@@ -498,12 +489,17 @@ export function createMcpSession(context: SocketContext): SocketService {
   };
 }
 
-/** The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). */
+/**
+ * The person's own Chrome for agents, when the daemon runs "Use my Chrome" (ADR 0084). Its thread sessions belong to
+ * ace's browser service, so they are looked up on every call, like that browser.
+ */
 function userBrowserTools(
   services: Pick<Partial<import("./types.ts").Services>, "userBrowser" | "userBrowserSessions">,
-): import("../browser-toolkit.ts").UserBrowserTools | undefined {
+): Parameters<typeof liveBrowserToolkit>[3] {
   const user = services.userBrowser;
-  const sessions = services.userBrowserSessions;
-  if (!user || !sessions) return undefined;
-  return { sessions, available: () => user.backend.available() };
+  if (!user) return undefined;
+  return {
+    sessions: () => services.userBrowserSessions,
+    available: () => user.backend.available() && services.userBrowserSessions !== undefined,
+  };
 }

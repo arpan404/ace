@@ -16,8 +16,10 @@ const HelpInput = z.object({ machine: z.string().optional() }).passthrough();
  * A tab of the thread's ace browser, as the agent may name it. A backend without a tab list
  * holds one page, which is the agent's current tab. Private tabs are never offered.
  */
-export function browserHelpTab(browser: BrowserService): BrowserHelpTab {
+export function browserHelpTab(current: () => BrowserService | undefined): BrowserHelpTab {
   return (threadId: ThreadId, tabId: string, agentId: string) => {
+    const browser = current();
+    if (!browser) return undefined;
     try {
       const tabs = browser.state(threadId).tabs;
       if (tabs) {

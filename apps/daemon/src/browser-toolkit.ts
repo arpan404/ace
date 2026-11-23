@@ -28,10 +28,11 @@ const agentOf = (caller: BrowserCaller) => ({
  * One browser as the tools see it. Every call opens the thread's browser first, as an agent's
  * first call would; `connected` refuses calls while that browser cannot be reached.
  */
-function port(service: BrowserService, store: Store, connected: () => void): BrowserToolPort {
+function port(current: () => BrowserService, store: Store, connected: () => void): BrowserToolPort {
   const ensure = async (caller: BrowserCaller, signal: AbortSignal) => {
     signal.throwIfAborted();
     connected();
+    const service = current();
     const threadId = ThreadId.parse(caller.threadId);
     const thread = store.getThread(threadId);
     if (!thread) throw new Error("Browser thread unavailable");
@@ -43,34 +44,35 @@ function port(service: BrowserService, store: Store, connected: () => void): Bro
     async open(caller, signal) {
       const threadId = await ensure(caller, signal);
       signal.throwIfAborted();
-      const claimed = await service.claimTab(threadId, agentOf(caller));
+      const claimed = await current().claimTab(threadId, agentOf(caller));
       // Stopped while the tab opened: the caller does nothing with it.
       signal.throwIfAborted();
       return claimed;
     },
     async tab(caller, tabId, signal) {
       const threadId = await ensure(caller, signal);
+      const service = current();
       if (tabId === undefined) return service.currentTab(threadId, agentOf(caller));
       const listed = service.state(threadId).tabs?.find((tab) => tab.tabId === tabId);
       if (listed) return { tabId, url: listed.url, title: listed.title };
       // A one-page backend lists no tabs: its page is the agent's current tab.
-      const current = service.currentTab(threadId, agentOf(caller));
-      if (current.tabId === tabId) return current;
+      const page = service.currentTab(threadId, agentOf(caller));
+      if (page.tabId === tabId) return page;
       // An unknown tab fails on the command itself with tab_not_found.
       return { tabId, url: "", title: "" };
     },
-    state: (caller) => service.state(caller.threadId),
+    state: (caller) => current().state(caller.threadId),
     async execute(caller, command, signal) {
       const threadId = await ensure(caller, signal);
-      return service.execute(threadId, command, agentOf(caller), signal);
+      return current().execute(threadId, command, agentOf(caller), signal);
     },
     async screenshot(caller, options, signal) {
       const threadId = await ensure(caller, signal);
-      return service.capture(threadId, signal, options.tabId, options, agentOf(caller));
+      return current().capture(threadId, signal, options.tabId, options, agentOf(caller));
     },
     async close(caller, signal) {
       signal.throwIfAborted();
-      await service.closeThread(caller.threadId, agentOf(caller), signal);
+      await current().closeThread(caller.threadId, agentOf(caller), signal);
     },
   };
 }
@@ -86,22 +88,48 @@ export function browserToolkit(
   route?: BrowserMachineRoute,
   user?: UserBrowserTools,
 ): Toolkit {
-  const ace = port(browser, store, () => {});
+  return liveBrowserToolkit(
+    () => browser,
+    store,
+    route,
+    user ? { sessions: () => user.sessions, available: user.available } : undefined,
+  );
+}
+
+/**
+ * The same tools over browsers looked up on every call, for a daemon whose browser may start,
+ * or start again, after the tools registered: while there is none, a call says so.
+ */
+export function liveBrowserToolkit(
+  browser: () => BrowserService | undefined,
+  store: Store,
+  route?: BrowserMachineRoute,
+  user?: { sessions: () => BrowserService | undefined; available(): boolean },
+): Toolkit {
+  const ace = port(
+    () => browser() ?? unavailable("browser_unavailable"),
+    store,
+    () => {},
+  );
+  const sessions = () => user?.sessions() ?? unavailable("user_browser_unavailable");
   const mine = user
-    ? port(user.sessions, store, () => {
+    ? port(sessions, store, () => {
         if (!user.available()) throw new PublicToolError("user_browser_unavailable");
       })
     : undefined;
   // Closing only ends what is open: the person's browser need not be connected.
-  const userPort =
-    mine && user
-      ? {
-          ...mine,
-          close: async (caller: BrowserCaller, signal: AbortSignal) => {
-            signal.throwIfAborted();
-            await user.sessions.closeThread(caller.threadId, agentOf(caller), signal);
-          },
-        }
-      : undefined;
+  const userPort = mine
+    ? {
+        ...mine,
+        close: async (caller: BrowserCaller, signal: AbortSignal) => {
+          signal.throwIfAborted();
+          await sessions().closeThread(caller.threadId, agentOf(caller), signal);
+        },
+      }
+    : undefined;
   return scopedBrowserToolkit(ace, route, userPort);
+}
+
+function unavailable(code: "browser_unavailable" | "user_browser_unavailable"): never {
+  throw new PublicToolError(code);
 }
