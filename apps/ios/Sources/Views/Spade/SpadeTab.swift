@@ -4,7 +4,8 @@ import SwiftUI
 /// shown that shows Spade (`MachineInbox.spadeRoster`), Spade itself once, from the machine the
 /// fleet chose to host it, then whoever needs the person, then working, failed, finished and the
 /// rest, each with its face, its name, one line and, with several machines, the machine it runs
-/// on. A bot opens its conversation on its own machine. Every word about a bot is its bridge's.
+/// on. A bot opens its conversation on its own machine. New makes a bot or a group (ADR 0132).
+/// Every word about a bot is its bridge's.
 struct SpadeTab: View {
     let inbox: MachineInbox
     /// The tab is the one showing: its bots are read only then.
@@ -20,6 +21,8 @@ struct SpadeTab: View {
     @State private var settingsAfterMaking: SettingsRoute?
     @Environment(\.openSettingsPage) private var openSettingsPage
     @State private var settings: SpadeMachineChoice?
+    /// New group's sheet shows.
+    @State private var grouping = false
 
     private var machines: [MachineSession] { inbox.spadeSessions }
     private var hosts: [MachineSession] { inbox.spadeHosts }
@@ -40,19 +43,24 @@ struct SpadeTab: View {
                         Button { settings = settingsMachine.map(SpadeMachineChoice.init) } label: { AceIcon(.gear) }
                             .accessibilityLabel("Spade settings")
                             .accessibilityIdentifier("spade.openSettings")
-                        Button(action: newBot) { AceIcon(.notePencil) }
-                            .accessibilityLabel("New bot")
-                            .accessibilityIdentifier("spade.newBot")
+                        Menu {
+                            Button(action: newBot) { Label("New bot", ace: .robot) }
+                                .accessibilityIdentifier("spade.newBot")
+                            Button { grouping = true } label: { Label("New club", ace: .users) }
+                                .accessibilityIdentifier("spade.newGroup")
+                        } label: { AceIcon(.notePencil) }
+                            .accessibilityLabel("New")
+                            .accessibilityIdentifier("spade.new")
                             .disabled(hosts.isEmpty)
                     }
                 }
             }
             .navigationDestination(for: SpadeRoute.self) { route in
                 if let client = inbox.client(route.machine) {
-                    SpadeConversationView(client: client, conversation: route.conversation, group: route.group) {
+                    SpadeConversationView(client: client, conversation: route.conversation, group: route.group, open: {
                         // A worker's chat opened from this one is on the same machine.
                         path.append(SpadeRoute(conversation: $0.conversation, group: $0.group, machine: route.machine))
-                    }
+                    }, groupChoices: route.group == nil ? [] : SpadeGroupDraft.choices(inbox.spadeMachines))
                     // A conversation has no tab bar, as Projects' pages: its composer takes the foot.
                     .toolbarVisibility(.hidden, for: .tabBar)
                 }
@@ -84,6 +92,11 @@ struct SpadeTab: View {
                 // Settings can't show over this sheet: it closes, then the page opens.
                 .environment(\.openSettingsPage) { route in settingsAfterMaking = route; making = nil }
             }
+        }
+        .sheet(isPresented: $grouping) {
+            SpadeGroupNewSheet(choices: SpadeGroupDraft.choices(inbox.spadeMachines),
+                               spadeOn: inbox.spadeRoster.first { $0.bot.main }?.machine,
+                               client: { inbox.client($0) }) { path = [$0] }
         }
         .sheet(item: $settings) { choice in
             if let client = inbox.client(choice.id) {

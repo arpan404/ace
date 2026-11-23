@@ -396,6 +396,11 @@ export class NativeSpade {
     return this.machine ?? "This machine";
   }
 
+  /** This machine's ace host id, as groups name their members' machines; undefined until said. */
+  get host(): string | undefined {
+    return this.hostId;
+  }
+
   /** A group's name, once the list has said; undefined before. */
   groupName(id: string): string | undefined {
     return this.list.groups?.find((group) => group.id === id)?.name || undefined;

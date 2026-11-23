@@ -1,12 +1,34 @@
-import { SpadeRequestError } from "@ace/ui-core/spade-chat";
+import {
+  parseSpadeGroup,
+  parseSpadeGroupFiles,
+  parseSpadeGroups,
+  SpadeRequestError,
+  spadeGroupMembersMax,
+  spadeGroupNameMax,
+  type SpadeGroup,
+  type SpadeGroupFile,
+} from "@ace/ui-core/spade-chat";
 import { z } from "zod";
+import { utf8Bytes } from "./spade-profile.ts";
 import type { NativeSpade } from "./spade.ts";
 import { segment } from "./spade-text.ts";
+import { spadeGroupProfileRow } from "./spade-group-rows.ts";
 import { spadeRefused, spadeRequestArea, type SpadeOutcome } from "./spade-requests-area.ts";
 
-/* A group (ADR 0132): post to it, and stop its run. */
+/*
+ * A group (ADR 0132, spade/docs/teams.md): make one, read its profile, rename it and change its
+ * members and lead, read its Library, delete it, pin it, post to it and stop its run.
+ */
 
 const groupId = z.string().min(1).max(256);
+const agentId = z.string().min(1).max(256);
+const name = z.string().trim().min(1).max(spadeGroupNameMax);
+
+/** A member as Spade takes it: `machine` is its bot's host id, absent for the group's own. */
+const members = z
+  .array(z.object({ agent: agentId, machine: z.string().min(1).max(256).optional() }))
+  .min(1)
+  .max(spadeGroupMembersMax);
 
 /** A message the person posts to a group: it starts a run its lead answers. */
 const SpadeGroupSendRequest = z.object({
@@ -16,6 +38,9 @@ const SpadeGroupSendRequest = z.object({
   text: z.string().trim().min(1).max(200_000),
 });
 
+/** What a Library answer may weigh in UTF-8, leaving the rest of a 32 KiB frame for its envelope. */
+const filesBudget = 28_000;
+
 export const spadeGroupRequests = spadeRequestArea(
   [
     SpadeGroupSendRequest,
@@ -23,16 +48,32 @@ export const spadeGroupRequests = spadeRequestArea(
     z.object({ type: z.literal("spade.group.stop"), groupId }),
     /** Pin the group to the strip above the list, or unpin it, on every device. */
     z.object({ type: z.literal("spade.group.pin"), groupId, pinned: z.boolean() }),
+    /** A new group, made on its lead's machine: the members are named against it. */
+    z.object({ type: z.literal("spade.group.create"), name, members, lead: agentId }),
+    /** A group's profile, read afresh: its name, lead and members with their faces. */
+    z.object({ type: z.literal("spade.group.read"), groupId }),
+    /** Only what changed: a new name, the members as they now are, or another lead. */
+    z.object({
+      type: z.literal("spade.group.edit"),
+      groupId,
+      name: name.optional(),
+      members: members.optional(),
+      lead: agentId.optional(),
+    }),
+    /** Deletes the group and its conversation; its bots stay. */
+    z.object({ type: z.literal("spade.group.delete"), groupId }),
+    /** The files its members made answering it, newest first: its Library. */
+    z.object({ type: z.literal("spade.group.files"), groupId }),
   ],
-  async ({ spade, deps, ask }, request): Promise<SpadeOutcome> => {
+  async ({ spade, deps, ask }, request) => {
     switch (request.type) {
       case "spade.group.send":
         return sendToGroup(spade, request, deps, () =>
-          ask("POST", `/v1/groups/${segment(request.groupId)}/messages`, { text: request.text }),
+          ask("POST", `${groupPath(request.groupId)}/messages`, { text: request.text }),
         );
       case "spade.group.stop":
         try {
-          await ask("POST", `/v1/groups/${segment(request.groupId)}/stop`);
+          await ask("POST", `${groupPath(request.groupId)}/stop`);
         } catch (error) {
           // 404: nothing was running by the time Stop arrived, which is what Stop wanted.
           if (!(error instanceof SpadeRequestError && error.status === 404))
@@ -41,18 +82,110 @@ export const spadeGroupRequests = spadeRequestArea(
         spade.refresh();
         return { ok: true };
       case "spade.group.pin":
+        return changed(spade, request.pinned ? "Couldn't pin" : "Couldn't unpin", () =>
+          ask("PUT", `${groupPath(request.groupId)}/pin`, { pinned: request.pinned }),
+        );
+      case "spade.group.create":
         try {
-          await ask("PUT", `/v1/groups/${segment(request.groupId)}/pin`, {
-            pinned: request.pinned,
-          });
+          const { type: _, ...draft } = request;
+          const group = parseSpadeGroup(await ask("POST", "/v1/groups", draft));
+          if (!group) throw new Error("Spade's new club didn't make sense.");
           spade.refresh();
-          return { ok: true };
+          return { ok: true, group: group.id, conversation: group.conversation };
         } catch (error) {
-          return spadeRefused(request.pinned ? "Couldn't pin" : "Couldn't unpin", error);
+          return spadeRefused("Couldn't make the club", error);
+        }
+      case "spade.group.read":
+        try {
+          const group = await readGroup(request.groupId, () => ask("GET", "/v1/groups"));
+          const agents = group.members.flatMap((member) => spade.bot(member.agent) ?? []);
+          return { ok: true, group: spadeGroupProfileRow(group, agents, spade.host) };
+        } catch (error) {
+          return spadeRefused("Couldn't read the club", error);
+        }
+      case "spade.group.edit": {
+        const { type: _, groupId: id, ...change } = request;
+        const said = spade.groupName(id);
+        return changed(spade, said ? `Couldn't change ${said}` : "Couldn't change the club", () =>
+          ask("PATCH", groupPath(id), change),
+        );
+      }
+      case "spade.group.delete": {
+        const said = spade.groupName(request.groupId);
+        return changed(spade, said ? `Couldn't delete ${said}` : "Couldn't delete the club", () =>
+          ask("DELETE", groupPath(request.groupId)),
+        );
+      }
+      case "spade.group.files":
+        try {
+          const read = (route: string) => ask("GET", route);
+          const [files, group] = await Promise.all([
+            parseSpadeGroupFiles(await read(`${groupPath(request.groupId)}/files`)),
+            readGroup(request.groupId, () => read("/v1/groups")).catch(() => undefined),
+          ]);
+          if (!files) throw new Error("Spade's club files didn't make sense.");
+          return { ok: true, ...fileRows(files, group, spade) };
+        } catch (error) {
+          return spadeRefused("Couldn't read the club's files", error);
         }
     }
   },
 );
+
+const groupPath = (id: string) => `/v1/groups/${segment(id)}`;
+
+/** A change to Spade's groups; the list is read again once it went, so the rows follow. */
+async function changed(
+  spade: NativeSpade,
+  title: string,
+  send: () => Promise<string>,
+): Promise<SpadeOutcome> {
+  try {
+    await send();
+    spade.refresh();
+    return { ok: true };
+  } catch (error) {
+    return spadeRefused(title, error);
+  }
+}
+
+/** The group as Spade lists it now; one it no longer has is refused in words. */
+async function readGroup(id: string, read: () => Promise<string>): Promise<SpadeGroup> {
+  const groups = parseSpadeGroups(await read());
+  if (!groups) throw new Error("Spade's clubs didn't make sense.");
+  const group = groups.find((each) => each.id === id);
+  if (!group) throw new Error("This club isn't in Spade any more.");
+  return group;
+}
+
+/**
+ * The Library's rows, newest first as Spade sends them, each naming the member that made it: the
+ * roster's name, else the group's, else (a member that left) its id. Rows past what one answer
+ * may weigh are counted in `more`.
+ */
+function fileRows(
+  files: readonly SpadeGroupFile[],
+  group: SpadeGroup | undefined,
+  spade: NativeSpade,
+) {
+  const by = (agent: string) =>
+    spade.bot(agent)?.name ||
+    group?.members.find((member) => member.agent === agent)?.name ||
+    agent;
+  const rows = files.map((file) => ({
+    agent: file.agent,
+    by: by(file.agent),
+    name: file.path.split("/").at(-1) || file.path,
+    path: file.path,
+    at: file.at,
+  }));
+  let more = 0;
+  while (rows.length && utf8Bytes(JSON.stringify(rows)) > filesBudget) {
+    rows.pop();
+    more++;
+  }
+  return { files: rows, more };
+}
 
 /**
  * A post to a group shows at once, as a bot's message does; one Spade never stored is refused,
@@ -82,7 +215,7 @@ async function sendToGroup(
       return { ok: true };
     }
     follow?.apply({ kind: "refused", key });
-    const name = spade.groupName(request.groupId);
-    return spadeRefused(name ? `Couldn't send to ${name}` : "Couldn't send", error);
+    const said = spade.groupName(request.groupId);
+    return spadeRefused(said ? `Couldn't send to ${said}` : "Couldn't send", error);
   }
 }

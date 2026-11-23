@@ -327,3 +327,135 @@ test("a group pinned from the phone is pinned in Spade, and its row says since w
   expect(typeof pinnedAt).toBe("number");
   await until(() => row()?.pinnedAt === pinnedAt);
 });
+
+test("a group made on the phone has the members and lead it was given, and says its conversation", async () => {
+  const { api, patches, ask } = await setUp((fake) => {
+    fake.addAgent({ id: "spade", name: "Spade", kind: "main" });
+    fake.addAgent({ id: "research", name: "Research" });
+  });
+  await until(() => (patches.state?.list.rows?.length ?? 0) === 2);
+
+  const made = await ask({
+    type: "spade.group.create",
+    name: "Launch",
+    members: [{ agent: "spade" }, { agent: "research" }, { agent: "writer", machine: "studio" }],
+    lead: "research",
+  });
+
+  const group = api.teams.groups[0];
+  expect(made).toEqual({ ok: true, group: group?.id, conversation: group?.conversation });
+  expect(group?.name).toBe("Launch");
+  expect(group?.lead.agent).toBe("research");
+  expect(group?.members.map((member) => [member.agent, member.machine])).toEqual([
+    ["spade", null],
+    ["research", null],
+    ["writer", "studio"],
+  ]);
+  // The new group lists at once, so its conversation opens with its row.
+  await until(() => patches.state?.list.rows?.some((row) => row.group === group?.id) === true);
+});
+
+test("a group Spade refuses to make says why in its words", async () => {
+  const { ask } = await setUp((fake) => {
+    fake.addAgent({ id: "research", name: "Research" });
+  });
+  // With no Spade of its own to join, one member is too few.
+  expect(
+    await ask({
+      type: "spade.group.create",
+      name: "Solo",
+      members: [{ agent: "research" }],
+      lead: "research",
+    }),
+  ).toMatchObject({ ok: false, title: "Couldn't make the club", message: /2 to 32 members/ });
+});
+
+test("a group's profile reads its members with faces and its lead, and its edits reach Spade", async () => {
+  const { api, patches, ask } = await setUp((fake) => {
+    team(fake);
+    fake.teams.groups[0]?.members.push({
+      agent: "studio-notes",
+      machine: "studio",
+      name: "Studio Notes",
+      avatar: null,
+      away: true,
+    });
+  });
+  // The profile opens from the group's row: the bots have been read by then.
+  await until(() => patches.state?.list.rows?.some((row) => row.group === "launch") === true);
+
+  const read = await ask({ type: "spade.group.read", groupId: "launch" });
+  expect(read).toMatchObject({
+    ok: true,
+    group: {
+      id: "launch",
+      name: "Launch team",
+      conversation: "c-launch",
+      lead: { agent: "spade", machine: null },
+      members: [
+        { agent: "spade", machine: null, name: "Spade", face: { main: true }, away: false },
+        { agent: "research", machine: null, name: "Research", face: { initial: "R" } },
+        { agent: "writer", machine: null, name: "Writer" },
+        { agent: "notes", machine: null, name: "Notes" },
+        { agent: "studio-notes", machine: "studio", name: "Studio Notes", away: true },
+      ],
+    },
+  });
+
+  expect(await ask({ type: "spade.group.edit", groupId: "launch", name: "Ship it" })).toEqual({
+    ok: true,
+  });
+  expect(api.teams.groups[0]?.name).toBe("Ship it");
+
+  expect(
+    await ask({
+      type: "spade.group.edit",
+      groupId: "launch",
+      members: [{ agent: "spade" }, { agent: "research" }],
+      lead: "research",
+    }),
+  ).toEqual({ ok: true });
+  expect(api.teams.groups[0]?.members.map((member) => member.agent)).toEqual(["spade", "research"]);
+  expect(api.teams.groups[0]?.lead.agent).toBe("research");
+});
+
+test("a group Spade no longer has can't be read, and says so", async () => {
+  const { ask } = await setUp();
+  expect(await ask({ type: "spade.group.read", groupId: "gone" })).toMatchObject({
+    ok: false,
+    title: "Couldn't read the club",
+  });
+});
+
+test("deleting a group removes it from Spade and from the list; its bots stay", async () => {
+  const { api, patches, ask } = await setUp((fake) => team(fake));
+  await until(() => patches.state?.list.rows?.some((row) => row.group === "launch") === true);
+
+  expect(await ask({ type: "spade.group.delete", groupId: "launch" })).toEqual({ ok: true });
+
+  expect(api.teams.groups).toEqual([]);
+  await until(() => patches.state?.list.rows?.some((row) => row.group === "launch") === false);
+  expect(patches.state?.list.rows?.map((row) => row.name)).toContain("Research");
+});
+
+test("a group's Library lists the files its members made, newest first, with who made each", async () => {
+  const { ask } = await setUp((fake) => {
+    const { group } = team(fake);
+    group.files = [
+      { agent: "writer", path: "drafts/launch.md", at: 2_000 },
+      { agent: "research", path: "notes.txt", at: 1_000 },
+      { agent: "left", path: "old/plan.md", at: 500 },
+    ];
+  });
+
+  expect(await ask({ type: "spade.group.files", groupId: "launch" })).toEqual({
+    ok: true,
+    files: [
+      { agent: "writer", by: "Writer", name: "launch.md", path: "drafts/launch.md", at: 2_000 },
+      { agent: "research", by: "Research", name: "notes.txt", path: "notes.txt", at: 1_000 },
+      // A member who has left is named by its id, as Spade still keeps its file.
+      { agent: "left", by: "left", name: "plan.md", path: "old/plan.md", at: 500 },
+    ],
+    more: 0,
+  });
+});
