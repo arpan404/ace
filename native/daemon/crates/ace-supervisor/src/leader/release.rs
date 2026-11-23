@@ -30,11 +30,15 @@ impl Leader {
                     // hidepid hides only other users' processes; ace's own
                     // descendants stay visible because they keep the
                     // daemon's uid (unless they change uid), so this series
-                    // still reaps as before. A member that did change uid
-                    // could be missed, though, so the result is never
-                    // reported as "empty" and no journal row is deleted
-                    // from a scan that could be blind. Re-read per release,
-                    // so a remount is seen.
+                    // still reaps as before. The scans skip a stat file that
+                    // cannot be read when the `/proc/<pid>` directory itself
+                    // belongs to another uid (hidepid=1 still allows that
+                    // stat), so only an unreadable own-uid pid can make a
+                    // scan incomplete. A member that did change uid could
+                    // be missed, though, so the result is never reported as
+                    // "empty" and no journal row is deleted from a scan that
+                    // could be blind. Re-read per release, so a remount is
+                    // seen.
                     state.confirmed_empty = !crate::system::proc_hides_pids();
                 }
                 _ => return ReleaseStep::Held,

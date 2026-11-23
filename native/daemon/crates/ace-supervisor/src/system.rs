@@ -391,6 +391,7 @@ pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
                 };
             }
         };
+        let euid = rustix::process::geteuid().as_raw();
         for entry in dir {
             let Ok(entry) = entry else {
                 complete = false;
@@ -414,10 +415,14 @@ pub fn take_group_snapshot(except: u32) -> GroupSnapshot {
                 {
                     continue;
                 }
-                Err(_) => {
-                    complete = false;
-                    continue;
-                }
+                Err(_) => match unreadable_stat_is_other_uid(pid, euid) {
+                    // Another user's pid, hidden by hidepid: not ours.
+                    Some(true) | None => continue,
+                    Some(false) => {
+                        complete = false;
+                        continue;
+                    }
+                },
             };
             match crate::listing::parse_linux_stat(&text) {
                 Ok(stat) if stat.state != 'Z' => {
@@ -509,11 +514,35 @@ fn scan_group(group: u32, except: u32) -> (BTreeSet<(u32, String)>, bool) {
     (live, complete)
 }
 
+/// Classifies a `/proc/<pid>/stat` read that failed without the pid having
+/// vanished. hidepid=1 still permits stat on another user's `/proc/<pid>`
+/// directory, so an unreadable stat owned by another uid is a stranger and
+/// never one of ace's members (the daemon and its descendants share its
+/// uid unless one changes it): `Some(true)` means skip it. `Some(false)`
+/// means it is or may be ours, so the walk is incomplete; `None` means the
+/// pid vanished meanwhile.
+#[cfg(target_os = "linux")]
+fn unreadable_stat_is_other_uid(pid: u32, euid: u32) -> Option<bool> {
+    use std::os::unix::fs::MetadataExt;
+    match std::fs::metadata(format!("/proc/{pid}")) {
+        Ok(metadata) => Some(metadata.uid() != euid),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
+        {
+            None
+        }
+        // The directory metadata failed too: prove nothing.
+        Err(_) => Some(false),
+    }
+}
+
 fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) -> Option<()> {
     #[cfg(target_os = "linux")]
     {
         let boot = std::fs::read_to_string("/proc/sys/kernel/random/boot_id").ok()?;
         let boot = boot.trim();
+        let euid = rustix::process::geteuid().as_raw();
         let mut complete = true;
         for entry in std::fs::read_dir("/proc").ok()? {
             let entry = entry.ok()?;
@@ -536,10 +565,14 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
                 {
                     continue;
                 }
-                Err(_) => {
-                    complete = false;
-                    continue;
-                }
+                Err(_) => match unreadable_stat_is_other_uid(pid, euid) {
+                    // Another user's pid, hidden by hidepid: not ours.
+                    Some(true) | None => continue,
+                    Some(false) => {
+                        complete = false;
+                        continue;
+                    }
+                },
             };
             match crate::listing::parse_linux_stat(&text) {
                 Ok(stat) if stat.group == group && stat.state != 'Z' => {
