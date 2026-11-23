@@ -101,14 +101,6 @@ pub struct Terminals {
 }
 
 impl Terminals {
-    /// The one-shot shell the terminals' commands start through, for Spade's own runs beside
-    /// them.
-    pub(crate) fn shell(&self) -> &Shell {
-        &self.shell
-    }
-}
-
-impl Terminals {
     pub fn new(
         scratch: impl Into<PathBuf>,
         workspaces: crate::workspace::Workspaces,

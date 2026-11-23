@@ -173,6 +173,11 @@ impl Workspaces {
         })
     }
 
+    /// Where every bot's workspace is.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
     /// The bot's Python runtime folder (ADR 0220), outside its workspace: Spade writes it, the
     /// bot's runs only read it.
     pub fn python_runtime(&self, bot: &str) -> Result<PathBuf, PathError> {

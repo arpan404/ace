@@ -34,23 +34,16 @@ pub struct Info {
 
 pub type Changed = Arc<dyn Fn(&str) + Send + Sync>;
 
-pub struct Terminals {
-    shell: Shell,
-}
+pub struct Terminals;
 
 impl Terminals {
     pub fn new(
         _scratch: impl Into<PathBuf>,
         _workspaces: crate::workspace::Workspaces,
-        shell: Shell,
+        _shell: Shell,
         _clock: Arc<dyn Clock>,
     ) -> Arc<Self> {
-        Arc::new(Self { shell })
-    }
-
-    /// The one-shot shell, for Spade's own runs.
-    pub(crate) fn shell(&self) -> &Shell {
-        &self.shell
+        Arc::new(Self)
     }
 
     pub fn on_change(&self, _changed: Changed) {}

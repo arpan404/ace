@@ -87,16 +87,6 @@ impl Commands {
     }
 }
 
-impl Commands {
-    /// The one-shot shell, for Spade's own runs beside the bot's terminal (a Python set-up).
-    pub(super) fn one_shot(&self) -> &Shell {
-        match self {
-            Self::OneShot(shell) => shell,
-            Self::Terminal(terminals) => terminals.shell(),
-        }
-    }
-}
-
 impl From<Shell> for Commands {
     fn from(shell: Shell) -> Self {
         Self::OneShot(shell)

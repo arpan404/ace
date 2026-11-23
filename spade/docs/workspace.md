@@ -35,7 +35,7 @@ never waits on one. Searches skip anything but regular files without opening it.
 | `workspace_write`  | `path, content`                                                             | write | Writes the whole file (2 MiB max), creating folders                                                              |
 | `workspace_edit`   | `path, old, new, replace_all?` or `path, edits: [{old, new, replace_all?}]` | write | Replaces `old` at its one place (every place with `replace_all`); several edits apply in order, all or none      |
 | `shell`            | `command, timeout_s?, outside_sandbox?`                                     | write | Runs the command in the folder (see below)                                                                       |
-| `python`           | `code` or `path, args?`, `packages?`, `timeout_s?`                          | write | Runs Python in the folder, in the bot's sandbox only (see below)                                                 |
+| `python`           | `code` or `path, args?`, `timeout_s?`                                       | write | Runs Python in the folder, in the bot's sandbox only (see below)                                                 |
 
 Text files are read up to 4 MiB; anything not UTF-8 is reported as binary.
 
@@ -113,35 +113,75 @@ includes a second command in the same turn.
 ### Python
 
 `python` runs Python 3 for the bot: `code`, or a script in the workspace (`path`, with `args`),
-in the workspace folder, optionally adding `packages` first. It runs only where Spade's sandbox
-holds the bot's commands (macOS and Linux with the sandbox, and not for a bot set to run outside
-it); anywhere else it answers `Not run: the python tool runs only inside Spade's sandbox, which
-isn't holding your commands here. Run python3 with shell instead.` before anything is written.
-Windows says it isn't available there yet. ADR 0220.
+in the workspace folder, with a fixed set of packages. It runs only where Spade's sandbox holds
+the bot's commands (macOS and Linux with the sandbox, and not for a bot set to run outside it);
+anywhere else it answers `Not run: the python tool runs only inside Spade's sandbox, which isn't
+holding your commands here. Run python3 with shell instead.` before anything is written. Windows
+says it isn't available there yet. ADR 0220.
 
-**The Python is Spade's, not the workspace's.** Each bot has a runtime folder,
-`<data folder>/workspace/.python/<bot id>/`, outside its workspace, which the sandbox reopens
-read-only for every run of the bot (`Facts.runtime`, inside Spade's data only):
+**One environment per machine, built by Spade.** The packages are pandas, numpy, matplotlib,
+openpyxl, python-docx, pypdf and requests, with everything they need, as `spade/config/python-lock.txt`
+pins them: exact versions and every wheel's hash, from `https://pypi.org/simple`. Nothing else can
+be installed, and nothing is resolved at runtime. Spade builds the environment itself, on the
+host, never in a bot's sandbox, the first time any bot runs `python` (never at start), into
+`<data folder>/workspace/.python/shared/`:
 
-| In the runtime       | What it is                                                                                                                              | Written by                        |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `control/`           | `run.sh`, `boot.py`, `setup.sh`, `locked.txt`, staged scripts and module lists (`scripts/`), the current generation (`generation.json`) | Spade only, on the host           |
-| `generations/<id>/`  | One environment                                                                                                                         | Only the set-up run that built it |
-| `cache/`, `pythons/` | uv's cache and the CPython it downloaded                                                                                                | Only set-up runs                  |
+| In `shared/`                  | What it is                                                        |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `control/`                    | `run.sh` and `boot.py`                                            |
+| `environments/<name>/`        | One environment, read-only once built, named by the lock it holds |
+| `current.json`                | Which environment bots run with now                               |
+| `pythons/`, `cache/`, `home/` | uv's downloaded CPython, its cache, its home                      |
+| `locks/`, `leases/`           | The lock installed, and the files runs hold their environment by  |
 
-No sandboxed run, the set-up included, can write `control/`. Spade reads and writes the runtime
-through directory handles, opening every folder and file by name without following a link, and
-writes only in `control/` (a new file beside the old, renamed over it) and to new, empty
-generation folders it makes. Deleting a bot deletes its runtime.
+Every bot's runs read `control/`, `environments/` and `pythons/` (the sandbox reopens them
+read-only, `Facts.runtime`, inside Spade's data only); nothing in any sandbox writes there.
+
+**Building.** Under a machine-wide lock (`leases/build.lock`), with an environment that has only
+the system folders on `PATH`, a home of its own, uv's configuration discovery off
+(`UV_NO_CONFIG`, `--no-config`), files copied (`UV_LINK_MODE=copy`) and the machine's proxy and
+certificate variables passed on:
+
+1. **With uv** (looked for in `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`, `/bin`): `uv venv`
+   with a pinned uv-managed CPython 3.12 (downloaded once into `pythons/`), else a Python 3.10 or
+   newer on the machine; uv's own start-up hook (`_virtualenv.pth`) is removed; then `uv pip
+install --no-deps --require-hashes --only-binary :all: --index-url https://pypi.org/simple -r
+<the lock>`. Spade then checks what got installed: every package locked at its installed
+   version, every one of the seven there, and no `.pth` start-up file among them (a lock entry
+   that installs one is refused).
+2. **Without uv:** `python3 -I -m venv --without-pip` from the first Python 3.10 or newer in
+   those folders: the standard library only, said plainly (`with its standard library only: uv
+isn't on this machine, and Spade installs packages only with uv…`). Spade doesn't fetch uv:
+   one command installs it, and a fetched binary would be one more pinned, hash-checked download
+   per platform to keep.
+3. **Neither:** `Python could not be set up: No Python 3.10 or newer was found on this machine
+(looked for uv and python3 in …). The person can install one, for example with Homebrew:
+brew install python.`
+
+The environment is built in `environments/.building-<random>`, made read-only, and moved to its
+name with one rename; only then is `current.json` replaced (one rename), and only then are other
+environments swept. A failure at any step deletes only the folder being built and leaves
+`current.json` naming a whole environment. It is built again only when Spade's lock changes (a
+new name), or uv comes or goes. The first call waits for the build and its result starts with
+`[Set up Python for Spade's bots: 3.12.14, with pandas, numpy, matplotlib, openpyxl,
+python-docx, pypdf, requests.]`.
+
+**Leases.** A run takes a shared lock on `leases/<environment>.lock` before it starts and holds
+it until its script has ended, however long that takes (a background job included). An
+environment other than the current one is deleted only when Spade can take that lock
+exclusively, so never under a running script; one still held is kept until a later sweep.
 
 **Staged scripts.** When the gate classes a call, Spade reads its script (the code, or the
 workspace file opened through real folders only, 2 MiB at most) and stages it as
-`control/scripts/<sha256>.py`. A workspace script's whole text goes to the reviewer
-(`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to the person;
-the packages it asks for are in its arguments. Staging is required: a call whose staged copy
-couldn't be written, is missing at launch or no longer holds its bytes is refused (`Not run:
-Spade runs only the copy of the script it took when the call was checked…`), and the workspace is
-never read again.
+`.python/bots/<bot id>/scripts/<sha256>.py`, written by Spade through no-follow handles; the
+bot's runs read it and nothing in any sandbox writes it. A workspace script's whole text goes to
+the reviewer (`Classed.shown`) on any reviewed route, and a call too long for the reviewer goes to
+the person. Staging is required: a call whose staged copy couldn't be written, is missing at
+launch or no longer holds its bytes is refused (`Not run: Spade runs only the copy of the script
+it took when the call was checked…`), and the workspace is never read again. The scope the person
+is asked with names the staged bytes' hashes; a call they allowed runs only if those are the bytes
+staged when it runs, so a copy staged again (after a restart) from a changed file isn't run on
+their answer (`Not run: the script (or a module it imports) isn't the one the person allowed…`).
 
 **Workspace modules.** With the script Spade stages the modules it may import: each `.py` under
 the script's folder (the workspace for code, `.spade` left out, 500 at most) that Spade's file
@@ -157,59 +197,14 @@ folder is the workspace, and no bytecode is written.
 **One runner.** The call is classed as sandboxed like a contained command and goes through
 `shell`'s runner (`shell_tool::cleared` and `run_cleared`): the gate's launch is taken once, and
 the script runs in the bot's terminal on macOS and Linux (the person sees `/bin/sh
-<runtime>/control/run.sh <generation> <workspace> <script> <modules> <name> <args>…`, every word
+<shared>/control/run.sh <environment> <workspace> <script> <modules> <name> <args>…`, every word
 absolute or quoted, so no name reads as an option) or the one-shot shell, with the same timeout
 (60 s unless `timeout_s`), the 30-second foreground window and background job, output caps,
-large-output file, `command_ran` and blocked hint. `run.sh` starts the generation's Python with
-`-I -u boot.py`; `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window) and
+large-output file, `command_ran` and blocked hint. `run.sh` starts the environment's Python with
+`-I -S -u boot.py`: no `PYTHON*` variable, no user site, no `site` at all (so no `.pth` file and no
+`sitecustomize` runs at start), and `boot.py` adds the environment's installed packages to
+`sys.path` itself. `MPLBACKEND=Agg` (charts are saved to files, nothing opens a window), with
 matplotlib's settings in the run's `TMPDIR`.
-
-**Generations.** Nothing happens at start. Before a run, under a per-bot lock, Spade writes its
-control files and reads `generation.json`. A new generation is built when there is none, the
-set-up changed (its script or locked packages), uv appeared or went, or a package the call asks
-for isn't installed at the version asked. It is built from the whole wanted set: the locked
-packages, the packages calls asked for before (a later ask for a name replacing an earlier one)
-and the new ones. The set-up runs in a contained run of its own (`Kind::PythonSetup`, one-shot,
-working folder the runtime) that may write only the new generation and uv's folders:
-
-1. **With uv** (looked for in `/usr/local/bin`, `/opt/homebrew/bin`, `/usr/bin`, `/bin`): `uv
-venv` (first `--managed-python --python 3.12`, a pinned uv-managed CPython downloaded once;
-   else `--no-python-downloads --python '>=3.10'`, a Python on the machine); then `uv pip
-compile` of the wanted set, binary wheels only, from `https://pypi.org/simple` alone, held to
-   the locked versions (`-c locked.txt`), with every artifact's hash; every line of the
-   resolution must be a pinned name or a hash, so a URL, path or option is refused; then `uv pip
-install --no-deps --require-hashes` of exactly that. uv's configuration discovery is off
-   (`UV_NO_CONFIG`, `--no-config`), files are copied (`UV_LINK_MODE=copy`), and nothing starts
-   the environment's Python once a package is in, so no package's start-up hook (`.pth`) runs
-   during a set-up. pip never runs.
-2. **Without uv:** the first `python3.14` … `python3.10`, `python3` in those folders that is 3.10
-   or newer makes the environment with `python3 -I -m venv --without-pip`. It has the standard
-   library only and says so (`[uv isn't on this machine, so this Python has only its standard
-library: Spade installs packages only with uv. The person can install it, for example with
-Homebrew: brew install uv.]`); a call asking for packages is refused. Spade doesn't fetch uv
-   itself: that would add a download, a pinned binary per platform and its hashes to keep, for a
-   tool the person can install with one command.
-3. **Neither:** exit code 127 and `No Python 3.10 or newer was found on this machine (looked for
-uv and python3 in …). The person can install one, for example with Homebrew: brew install
-python.`
-
-Then Spade, on the host, reads what the generation resolved and has installed (each package's
-`METADATA`, through no-follow handles) and checks that every resolved package is installed at
-its resolved version and every package asked for is there. Only then does it record the
-generation as current (one rename of `generation.json`, with what is installed) and delete all
-but the newest three. A set-up that fails, or a generation that doesn't check out, is deleted
-and the call fails with what was said; its script doesn't run. A run is given the generation
-current when it starts, by path, and nothing changes that generation after.
-
-**Packages.** The locked set is pandas, numpy, matplotlib, openpyxl, python-docx, pypdf, requests
-and everything they need, each pinned (`python::DEFAULT_PACKAGES`). A call may name more with
-`packages` (20 at most), each a name or `name==version` and nothing else (`python::package_spec`
-refuses URLs, paths, options, extras, markers and other specifiers before anything runs). They
-are part of the call's arguments, so the gate classes them and a reviewer sees them, and
-"always" covers only the same list. They are installed as above, through the sandbox's proxy
-under the person's Network permission; a package with no wheel is never built from source, and
-one whose metadata names a URL dependency is refused by the resolver. Installed once, later runs
-use them.
 
 **What it answers.** What the set-up said, if it ran, then the command's result as `shell` gives
 it (exit code, stdout, `[stderr]`), then `Files it made or changed:` with each new or changed

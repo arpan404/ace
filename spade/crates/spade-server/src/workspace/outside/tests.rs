@@ -301,6 +301,12 @@ fn sources() -> Vec<(String, String)> {
 /// where there is a sandbox, started plainly where there is none (ADR 0171, amendment 6).
 const SPAWNS: &[(&str, usize, &str)] = &[
     (
+        "workspace/python/machine.rs",
+        2,
+        "building the machine's Python (ADR 0220): Spade's fixed uv and python3 commands on the \
+         host, with a cleared environment, from the lock Spade ships; never a bot's command",
+    ),
+    (
         "workspace/shell.rs",
         5,
         "the shell itself: one spawn, after `admit` for any bot's run nothing holds; the rest \
@@ -349,12 +355,6 @@ const NOT_A_BOTS: &[(&str, &str, &str)] = &[
         "tools/outward/git.rs",
         "By::Spade",
         "bundling a push: Spade's fixed script, held in the sandbox",
-    ),
-    (
-        "workspace/python/mod.rs",
-        "By::Spade",
-        "setting up a bot's Python: Spade's fixed script, contained only, the one run that \
-         writes the bot's Python runtime (ADR 0220)",
     ),
     (
         "plugins/hooks.rs",

@@ -68,18 +68,18 @@ impl Confine for Security {
             Kind::Command => (commands_policy, Vec::new(), Vec::new()),
             Kind::Terminal { scratch } => (commands_policy, Vec::new(), vec![scratch.clone()]),
             Kind::Plugin { root } => (plugins_policy, vec![root.clone()], Vec::new()),
-            Kind::PythonSetup { writable, .. } => (commands_policy, Vec::new(), writable.clone()),
         };
-        // The bot's Python runtime (ADR 0220): its commands read and run it, and only Spade's
-        // set-up of it writes it. Named only once it exists, so a bot without one opens nothing.
-        let python = crate::workspace::python::runtime_of(&self.workspaces, &bot);
+        // Spade's Python (ADR 0220): the machine's environments and the bot's own staged
+        // scripts, which its commands read and run and nothing in any sandbox writes. Named only
+        // once they exist, so a bot that never ran Python opens nothing.
         let runtime = match kind {
-            Kind::Command | Kind::Terminal { .. } if python.is_dir() => vec![python],
-            // The set-up reads the runtime it builds in only where it is Spade's for this bot.
-            Kind::PythonSetup { runtime, .. } if *runtime == python && python.is_dir() => {
-                vec![python]
+            Kind::Command | Kind::Terminal { .. } => {
+                crate::workspace::python::readable(&self.workspaces, &bot)
+                    .into_iter()
+                    .filter(|path| path.is_dir())
+                    .collect()
             }
-            _ => Vec::new(),
+            Kind::Plugin { .. } => Vec::new(),
         };
         let run = self.ids.next("run");
         self.issuing(&bot);
@@ -436,7 +436,7 @@ impl Security {
         use spade_sandbox::policy::real;
         let held = self.effective(bot);
         let network = match kind {
-            Kind::Command | Kind::Terminal { .. } | Kind::PythonSetup { .. } => &held.network,
+            Kind::Command | Kind::Terminal { .. } => &held.network,
             Kind::Plugin { .. } => &held.plugin_network,
         };
         let networked =
@@ -457,7 +457,6 @@ impl Security {
             .collect();
         let scratch: Vec<PathBuf> = match kind {
             Kind::Terminal { scratch } => vec![real(scratch)],
-            Kind::PythonSetup { writable, .. } => writable.iter().map(|p| real(p)).collect(),
             _ => Vec::new(),
         };
         let plugin_root = match kind {
