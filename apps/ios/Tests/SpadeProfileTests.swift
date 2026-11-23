@@ -105,4 +105,9 @@ import Testing
                                                from: Data(#"{"ok":false,"title":"Couldn't change the permission","message":"Confirm it's you."}"#.utf8))
         #expect(refused.problem == "Couldn't change the permission. Confirm it's you.")
     }
+
+    @Test func aMoveIdIsOnePlainLowercaseNameAsSpadeTakesIt() throws {
+        let uuid = try #require(UUID(uuidString: "0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9"))
+        #expect(SpadeProfileAccess.moveId(uuid) == "mv_0a1b2c3d4e5f60718293a4b5c6d7e8f9")
+    }
 }

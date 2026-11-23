@@ -10,12 +10,15 @@ struct SpadeProfileSheet: View {
     let name: String
     /// Change on one of its decisions: the words go into its composer, and the sheet closes.
     var quote: (String) -> Void = { _ in }
+    /// It was deleted from here: its chat closes too.
+    var deleted: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var part: Part = .details
     /// Publish this bot to the Store (#2548).
     @State private var publishing = false
     @State private var reads = SpadeProfileReads()
+    @State private var deleting = false
     private var profile: SpadeProfile? { reads.profile }
     private var problem: String? { reads.problem }
 
@@ -37,6 +40,8 @@ struct SpadeProfileSheet: View {
                         SpadeProfileDetails(client: client, agent: agent, profile: profile, retry: retry, edit: editor)
                     case .permissions:
                         SpadeProfilePermissions(client: client, agent: agent, name: profile.name)
+                        SpadeProfileApps(client: client, agent: agent, name: profile.name)
+                        SpadeProfilePlugins(client: client, agent: agent)
                         SpadeProfileNetwork(client: client, agent: agent)
                         SpadeProfileCheckpoints(client: client, agent: agent, name: profile.name)
                         SpadeProfileSpending(client: client, agent: agent)
@@ -62,12 +67,17 @@ struct SpadeProfileSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }.accessibilityIdentifier("spade.profile.done")
                 }
-                if profile != nil {
+                if let profile {
                     ToolbarItem(placement: .topBarLeading) {
                         Menu {
                             Button("Publish to the Store", ace: .trayArrowUp) { publishing = true }
                                 .disabled(client.connection != "ready" || !client.canOperate)
                                 .accessibilityIdentifier("spade.profile.publish")
+                            // Spade itself can't be deleted.
+                            if !profile.face.main {
+                                Button("Delete bot…", role: .destructive) { deleting = true }
+                                    .accessibilityIdentifier("spade.profile.delete")
+                            }
                         } label: { Image(bar: .dotsThree) }
                             .barGlyph()
                             .accessibilityLabel("More")
@@ -76,6 +86,10 @@ struct SpadeProfileSheet: View {
                 }
             }
             .sheet(isPresented: $publishing) { MarketPublishView(model: client, bot: agent) }
+            .modifier(SpadeBotDelete(client: client, agent: agent, name: profile?.name ?? name, asking: $deleting) {
+                dismiss()
+                deleted()
+            })
         }
         .task { await load() }
         .presentationDragIndicator(.visible)
@@ -132,7 +146,8 @@ struct SpadeProfileSheet: View {
     }
 }
 
-/// Details, in web's order: what the bot is for (its task, which opens to edit), the model and
+/// Details, in web's order: a move to another machine, or what needs the person since one,
+/// first (ADR 0187); what the bot is for (its task, which opens to edit), the model and
 /// machine it runs with and the models for its other work, its personality, its routines with
 /// when each runs, and its notifications. Personality and notifications read together as the
 /// tab shows; what can reach and spend sits on Permissions, as on web.
@@ -143,10 +158,18 @@ struct SpadeProfileDetails<Editor: View>: View {
     let retry: () -> Void
     @ViewBuilder let edit: (String) -> Editor
     @State private var details: SpadeProfileEdits.Details?
+    @State private var move: SpadeMoveFlow?
+    @Environment(\.spadeMoveTargets) private var machines
+    /// Where it could move: the other machines that run Spade.
+    private var targets: [SpadeMoveTarget] { machines.filter { $0.host != client.spade.host } }
 
     var body: some View {
+        if let move { SpadeMoveLine(flow: move, targets: targets) }
         SpadeProfileTask(task: profile.details.task, edit: edit)
-        SpadeProfileRunsWith(client: client, agent: agent, details: profile.details)
+            .task(id: agent) { if move == nil { move = SpadeMoveFlow(client: client, agent: agent) } }
+        SpadeProfileRunsWith(client: client, agent: agent, details: profile.details) {
+            if let move { SpadeMoveMenu(flow: move, targets: targets, name: profile.name) }
+        }
         if let personality = Binding($details)?.personality {
             SpadeProfilePersonality(client: client, agent: agent, personality: personality)
         }

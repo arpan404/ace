@@ -23,6 +23,13 @@ struct SpadeTab: View {
 
     private var machines: [MachineSession] { inbox.spadeSessions }
     private var hosts: [MachineSession] { inbox.spadeHosts }
+    /// Every machine that shows Spade, for a profile's Move to….
+    private var moveTargets: [SpadeMoveTarget] {
+        machines.map { session in
+            SpadeMoveTarget(host: session.client.spade.host ?? session.hostId, name: inbox.name(session.hostId),
+                            ready: inbox.spadeHosts.contains { $0.hostId == session.hostId }, client: session.client)
+        }
+    }
     /// Where Settings opens: the machine Spade shows from, else the first that answers.
     private var settingsMachine: String? {
         inbox.spadeRoster.first { $0.bot.main }?.machine ?? hosts.first?.hostId ?? machines.first?.hostId
@@ -55,6 +62,7 @@ struct SpadeTab: View {
                     }
                     // A conversation has no tab bar, as Projects' pages: its composer takes the foot.
                     .toolbarVisibility(.hidden, for: .tabBar)
+                    .environment(\.spadeMoveTargets, moveTargets)
                 }
             }
         }

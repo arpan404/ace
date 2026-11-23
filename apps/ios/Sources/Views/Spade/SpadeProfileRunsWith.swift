@@ -1,12 +1,15 @@
 import SwiftUI
 
-/// Runs with: the model and machine the bot runs with, then Models for other work (ADR 0162), a
-/// fold that opens to its five roles. Each says what it spent this month and, when nothing is set
-/// on this bot, that it follows Settings; it opens the model picker with Follow Settings first.
-struct SpadeProfileRunsWith: View {
+/// Runs with: the model and machine the bot runs with (the Machine row offers Move to…), then
+/// Models for other work (ADR 0162), a fold that opens to its five roles. Each says what it spent
+/// this month and, when nothing is set on this bot, that it follows Settings; it opens the model
+/// picker with Follow Settings first.
+struct SpadeProfileRunsWith<Move: View>: View {
     let client: ClientModel
     let agent: String
     let details: SpadeProfile.Details
+    /// The Machine row's Move to….
+    @ViewBuilder let move: () -> Move
     @State private var open = false
     @State private var roles: SpadeProfileEdits.Roles?
     @State private var problem: String?
@@ -14,7 +17,12 @@ struct SpadeProfileRunsWith: View {
     var body: some View {
         Section("Runs with") {
             LabeledContent("Model", value: details.model)
-            LabeledContent("Machine", value: details.machine)
+            LabeledContent("Machine") {
+                HStack(spacing: AceDesign.Space.related) {
+                    Text(details.machine)
+                    move()
+                }
+            }
             DisclosureGroup("Models for other work", isExpanded: $open) {
                 if let roles {
                     ForEach(roles.roles) { role(roles, $0) }

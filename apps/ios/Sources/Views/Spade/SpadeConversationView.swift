@@ -23,6 +23,8 @@ struct SpadeConversationView: View {
     /// Cards for later opened from their line or the top bar's count.
     @State private var unfolded: Set<String> = []
     @State private var profileShown = false
+    /// Closes the chat once its bot is deleted from the profile.
+    @Environment(\.dismiss) private var dismiss
     /// A decision's words the profile's Change quotes into the composer.
     @State private var quoted: String?
     /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
@@ -166,7 +168,8 @@ struct SpadeConversationView: View {
         .navigationTitle(name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $profileShown) {
-            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name) { quoted = $0 } }
+            if let bot { SpadeProfileSheet(client: client, agent: bot.id, name: bot.name, quote: { quoted = $0 },
+                                         deleted: { dismiss() }) }
         }
         .background(AceDesign.Surface.background)
         .sensoryFeedback(AceDesign.Haptic.send, trigger: sends)
