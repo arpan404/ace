@@ -152,6 +152,10 @@ if (name === "ACE_GIT") {
       const env = {
         ...process.env,
         ACE_NATIVE_CROSS: name,
+        // Git boots no root, so no boot log is asserted; the switch module
+        // still requires the variable, and workers read it through the
+        // test-home allowlist.
+        ACE_NATIVE_CROSS_LOG: join(dir, "boots.jsonl"),
         ACE_GIT_CROSS_START: start,
         ACE_GIT_OP_LOG: log,
       };

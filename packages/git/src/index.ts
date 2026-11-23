@@ -52,9 +52,9 @@ import {
   writeResolution,
 } from "./merge-conflicts.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
-import { GitCli } from "./cli.ts";
+import { GitCli, textOutput } from "./cli.ts";
 import { gitParts, type GitPart } from "@ace/provider-kit/native-switches";
-import { appendDigest, ensureGitAddon, gitFallbackCounts } from "./native-common.ts";
+import { appendDigest, digestLogOn, ensureGitAddon, gitFallbackCounts } from "./native-common.ts";
 import { runNativeCore, runNativeCoreSync } from "./native-core.ts";
 import { runNativeRefs } from "./native-refs.ts";
 import { runNativeReads } from "./native-reads.ts";
@@ -402,7 +402,18 @@ export class GitService {
   }): Promise<string> {
     const run = async (): Promise<string> => {
       const sha = await commitChanges(this.repository, options);
-      appendDigest("commit", `commit:${sha}`);
+      // HEAD's tree after the commit is the content identity the digest gate
+      // compares; the commit sha embeds the clock and never matches. Read
+      // only in gate runs: proof and benchmark runs spawn nothing extra.
+      if (digestLogOn()) {
+        const root = await this.repository.root(options.worktree);
+        const tree = textOutput(
+          await this.repository.cli.call(root, ["rev-parse", "HEAD^{tree}"]),
+        ).trim();
+        appendDigest("commit", `commit:${tree}`);
+      } else {
+        appendDigest("commit", "commit");
+      }
       return sha;
     };
     if (this.gitNative.has("writes")) return runNativeWrites("commit", run);
@@ -545,7 +556,15 @@ export class GitService {
   commitMerge(options: { worktree: string; expectedHead: string }) {
     const run = async (): Promise<string> => {
       const sha = await commitMerge(this.repository, options);
-      appendDigest("commitMerge", `merge-commit:${sha}`);
+      if (digestLogOn()) {
+        const root = await this.repository.root(options.worktree);
+        const tree = textOutput(
+          await this.repository.cli.call(root, ["rev-parse", "HEAD^{tree}"]),
+        ).trim();
+        appendDigest("commitMerge", `merge-commit:${tree}`);
+      } else {
+        appendDigest("commitMerge", "merge-commit");
+      }
       return sha;
     };
     if (this.gitNative.has("writes")) return runNativeWrites("commitMerge", run);
@@ -682,10 +701,7 @@ export class GitService {
   createWorktree(options: CreateWorktreeOptions) {
     const run = async () => {
       const worktree = await createWorktree(this.repository, options);
-      appendDigest(
-        "createWorktree",
-        `worktree:${worktree.path}:${worktree.head ?? "unborn"}:${worktree.branch ?? ""}`,
-      );
+      appendDigest("createWorktree", `worktree:${options.branch}`);
       return worktree;
     };
     if (this.gitNative.has("writes")) return runNativeWrites("createWorktree", run);
@@ -766,10 +782,7 @@ export class GitService {
       const checkpoint = await this.repository.serial(root, () =>
         createCheckpoint(this.repository, root, options.threadId, options.label),
       );
-      appendDigest(
-        "createCheckpoint",
-        `checkpoint:${checkpoint.id}:${checkpoint.sha}:${checkpoint.tree}`,
-      );
+      appendDigest("createCheckpoint", `checkpoint:${checkpoint.id}:${checkpoint.tree}`);
       return checkpoint;
     };
     if (this.gitNative.has("checkpoints")) return runNativeCheckpoints("createCheckpoint", run);
@@ -909,10 +922,7 @@ export class GitService {
       const restored = await this.repository.serial(root, () =>
         restoreCheckpoint(this.repository, root, options.checkpoint),
       );
-      appendDigest(
-        "restoreCheckpoint",
-        `restore:${options.checkpoint}:${restored.safetyCheckpointId}`,
-      );
+      appendDigest("restoreCheckpoint", `restore:${options.checkpoint}`);
       return restored;
     };
     if (this.gitNative.has("checkpoints")) return runNativeCheckpoints("restoreCheckpoint", run);

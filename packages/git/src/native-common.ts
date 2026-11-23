@@ -159,15 +159,26 @@ function appendOp(record: Omit<GitOpRecord, "seq" | "pid">): void {
 
 /**
  * Records one write for the digest gate (`ACE_GIT_DIGEST_LOG`): the
- * operation, its order in the test, and result-derived identity. Both
- * backends log the same shape, so `scripts/native-git-digest.ts` compares
- * results, not backends. G4 and G5 extend `summary` with the trees the gate
- * then requires identical.
+ * operation, its order in the test, and result-derived identity. Summaries
+ * hold content identity only (trees, ref names, sequences): commit shas and
+ * checkout paths embed the clock and the test's temp directories, so they
+ * can never match across runs. Both backends log the same shape, so
+ * `scripts/native-git-digest.ts` compares results, not backends. G4 and G5
+ * extend `summary` with the trees the gate then requires identical.
  */
 export function appendDigest(op: string, summary: string): void {
   const path = process.env.ACE_GIT_DIGEST_LOG;
   if (!path) return;
   appendLine(path, JSON.stringify({ op, order: digestOrder++, summary } satisfies GitDigestEntry));
+}
+
+/**
+ * Whether the digest gate records: extra trees are read only in gate runs,
+ * never in proof or benchmark runs.
+ */
+export function digestLogOn(): boolean {
+  const log = process.env.ACE_GIT_DIGEST_LOG;
+  return log !== undefined && log !== "";
 }
 
 /** Fallback reasons counted for `resourceUsage().nativeFallbacks`. */
