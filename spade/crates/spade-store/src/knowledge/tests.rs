@@ -270,6 +270,7 @@ fn past_text_is_found_by_date_oldest_first_including_compaction_summaries() -> R
             images_left_out: None,
             untrusted: false,
             carried: None,
+            asks: None,
         }),
         20 * day,
     )?;

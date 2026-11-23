@@ -55,6 +55,10 @@ pub struct Limits {
     /// Each bot's knowledge base, in bytes, when the person set no size for it
     /// (`SPADE_KNOWLEDGE_BYTES`, ADR 0164).
     pub knowledge_bytes: u64,
+    /// Keep the person's asks in front of the model (ADR 0215): the block at the end of each
+    /// call and the stop check. On in Spade as it runs (`main.rs`); off by default, so a scripted
+    /// test's steps and prompts are only its own unless it turns this on.
+    pub asks: bool,
 }
 
 impl Default for Limits {
@@ -77,6 +81,7 @@ impl Default for Limits {
             move_pre_commit: Duration::from_secs(2 * 60 * 60),
             workers_at_once: 32,
             knowledge_bytes: spade_core::knowledge::DEFAULT_BYTES,
+            asks: false,
         }
     }
 }

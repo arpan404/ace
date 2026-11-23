@@ -3,6 +3,7 @@
 
 pub mod activity;
 pub mod app_page;
+pub mod asks;
 pub mod autonomy;
 pub mod card;
 pub mod chat_markup;
