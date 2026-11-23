@@ -144,6 +144,15 @@ reachable, not a lost agent. Spade's standing instructions (`context::SYSTEM`) g
 with the person" section, guidance in the prompt rather than any fixed line the app adds: keep
 each reply short and hand long work to the background; answer the person first when they write
 mid-task; say up front when something will take a while; end every reply with where things
-stand; and keep each message small, writing a long result as a document in parts so no answer
-runs into an output limit, and carrying on after one that was cut short. It sits beside the
-narration rule ("X is done, now Y") added the same day.
+stand; never put a big result in one answer an output limit could cut off, but write it over
+several steps; and carry on after an answer that was cut short. It sits beside the narration
+rule ("X is done, now Y") added the same day.
+
+## Amendment 2: a long message folds in place instead of becoming a document
+
+Accepted 2026-11-22, on the owner's word: "instead of docs lets make the message expand like
+imessage does after 10 lines". A message past ten lines stays a message: its bubble shows the
+first ten lines and the rest opens in place on a tap, on every client. This replaces decision
+'A long reply renders as its first paragraph and a document card' (`spadeLongWords`). The
+instructions say so: a long answer stays in the message with what matters first, markdown, lists
+and code are fine in it, and `<doc>` is only for something the person will keep, copy or share.
