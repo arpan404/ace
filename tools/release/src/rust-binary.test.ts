@@ -1,6 +1,8 @@
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { expect, test } from "vitest";
-import { assertRustLibraries, stagedRustBinary } from "./rust-binary.ts";
+import { assertRustLibraries, installRustBinary, stagedRustBinary } from "./rust-binary.ts";
 
 test("Linux refuses missing libraries, libva and shipped encoder dependencies", () => {
   assertRustLibraries(
@@ -17,8 +19,36 @@ test("Linux refuses missing libraries, libva and shipped encoder dependencies", 
     );
 });
 
-test("Windows stages the executable under its .exe name in the native's folder", () => {
-  expect(stagedRustBinary("/bundle", "win32-x64", "files", "ace-files")).toBe(
-    join("/bundle", "files", "ace-files.exe"),
+test("each native is staged under its shipped service name in its own folder", () => {
+  expect(stagedRustBinary("/bundle", "win32-x64", "files", "files")).toBe(
+    join("/bundle", "files", "ace Files Service.exe"),
   );
+  expect(stagedRustBinary("/bundle", "darwin-arm64", "media", "media")).toBe(
+    join("/bundle", "media", "ace Media Service"),
+  );
+  expect(stagedRustBinary("/bundle", "linux-x64", "history", "history")).toBe(
+    join("/bundle", "history", "ace-history-service"),
+  );
+});
+
+test("staging copies Cargo's build to the shipped name, runnable", async () => {
+  const scratch = await mkdtemp(join(tmpdir(), "ace-stage-native-"));
+  try {
+    const built = join(scratch, "target", "ace-media");
+    await mkdir(dirname(built), { recursive: true });
+    await writeFile(built, "built bytes", { mode: 0o644 });
+    const staged = await installRustBinary({
+      executable: built,
+      root: join(scratch, "bundle"),
+      target: "darwin-arm64",
+      folder: "media",
+      process: "media",
+      packageName: "ace-media",
+    });
+    expect(staged).toBe(join(scratch, "bundle", "media", "ace Media Service"));
+    expect(await readFile(staged, "utf8")).toBe("built bytes");
+    expect((await stat(staged)).mode & 0o111).not.toBe(0);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 });

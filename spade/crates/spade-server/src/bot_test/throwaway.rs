@@ -21,7 +21,7 @@ use crate::api::AppState;
 use crate::clock::{CountingIds, SystemClock};
 use crate::engine::{Engine, GlobalChange, Limits, Setup};
 use crate::tools::{
-    CardShow, DecisionLog, EngineHandle, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, Toolbox,
+    Asks, CardShow, DecisionLog, EngineHandle, TaskGoal, TaskPlan, TaskStatus, Todo, Tool, Toolbox,
 };
 
 /// Whether a run gives the bot a fake for `name`: every tool that reaches outside, and any name
@@ -42,6 +42,7 @@ pub(crate) fn own_tools(workspace: &Path, bots: &EngineHandle) -> Vec<Arc<dyn To
         Arc::new(TaskGoal),
         Arc::new(TaskPlan),
         Arc::new(DecisionLog),
+        Arc::new(Asks),
         Arc::new(CardShow::new(bots.clone(), Some(workspaces.clone()))),
     ];
     tools.extend(

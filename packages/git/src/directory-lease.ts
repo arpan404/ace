@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { openLibrary, wideString } from "@ace/provider-kit/bun-ffi";
+import { openLibrary, wideString, type NativeLibrary } from "@ace/provider-kit/bun-ffi";
 import { GitError } from "./types.ts";
 
 /**
@@ -105,21 +105,36 @@ function kernelLibrary() {
     CreateDirectoryW: { args: ["ptr", "ptr"], returns: "i32" },
     GetFinalPathNameByHandleW: { args: ["i64_fast", "ptr", "u32", "u32"], returns: "u32" },
     CloseHandle: { args: ["i64_fast"], returns: "i32" },
+    GetModuleFileNameW: { args: ["i64_fast", "ptr", "u32"], returns: "u32" },
   });
 }
 
+/**
+ * The running executable's own path, from the loader rather than `process.execPath`: the
+ * daemon, started as `ace Service.exe`, points `process.execPath` at the plain runtime for its
+ * child scripts, and loading that file would bring in a second copy of libuv, not the one whose
+ * descriptor table the daemon's fd is in.
+ */
+function runningImage(kernel: ReturnType<typeof kernelLibrary>): string {
+  const buffer = Buffer.alloc(pathCharacters * 2);
+  const length = nativeInteger.parse(kernel.symbols.GetModuleFileNameW(0, buffer, pathCharacters));
+  if (length <= 0 || length >= pathCharacters)
+    throw new Error("The running executable's path could not be read");
+  return buffer.subarray(0, length * 2).toString("utf16le");
+}
+
 // bun:ffi binds only on Windows. uv_get_osfhandle comes from the running executable (the Bun
-// runtime, which exports libuv's API to native add-ons), so the descriptor table is the one the
-// daemon's fd is in.
+// runtime, which exports libuv's API to native add-ons), found by its loaded path, so the
+// descriptor table is the one the daemon's fd is in.
 function loadDirectoryLeaseApi(): DirectoryLeaseApi {
-  const node = openLibrary(process.execPath, {
-    uv_get_osfhandle: { args: ["i32"], returns: "i64_fast" },
-  });
-  let kernel: ReturnType<typeof kernelLibrary>;
+  const kernel = kernelLibrary();
+  let node: NativeLibrary<"uv_get_osfhandle">;
   try {
-    kernel = kernelLibrary();
+    node = openLibrary(runningImage(kernel), {
+      uv_get_osfhandle: { args: ["i32"], returns: "i64_fast" },
+    });
   } catch (error) {
-    node.close();
+    kernel.close();
     throw error;
   }
   const k = kernel.symbols;

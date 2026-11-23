@@ -1,10 +1,12 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
+import { z } from "zod";
+import { shippedExecutableName } from "@ace/service/process-names";
 import { launchVerdict } from "../src/packaging/launch-verdict.ts";
 import { e2eSwitches } from "./common.ts";
 
@@ -22,7 +24,8 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env))
     if (!key.startsWith("ACE_") && !key.startsWith("ELECTRON_")) env[key] = value;
-  env.ACE_HOME = join(scratch, "home");
+  const home = join(scratch, "home");
+  env.ACE_HOME = home;
   env.ACE_DESKTOP_USER_DATA = join(scratch, "electron");
   env.ACE_PORT = String(await freePort());
   const child = spawn(join(app, "Contents/MacOS/ace"), e2eSwitches(process.platform), {
@@ -55,6 +58,7 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
         reject(new Error(`The packaged app exited during launch:\n${lines.join("\n")}`));
       });
     });
+    assertDaemonName(home);
   } finally {
     // A stuck app is killed. Its daemon outlives it (ADR 0186), so it is stopped next.
     child.kill("SIGTERM");
@@ -64,6 +68,21 @@ export async function checkPackagedLaunch(app: string): Promise<void> {
     stopDaemon(env);
     await rm(scratch, { recursive: true, force: true });
   }
+}
+
+/**
+ * The app's daemon must show as `ace Service` in Activity Monitor, not as the runtime it runs on:
+ * the pid in the home's lock runs the runtime's `ace Service` copy.
+ */
+function assertDaemonName(home: string): void {
+  const lock = z
+    .object({ pid: z.number().int().positive() })
+    .parse(JSON.parse(readFileSync(join(home, "daemon-lock"), "utf8")));
+  const ps = spawnSync("ps", ["-o", "comm=", "-p", String(lock.pid)], { encoding: "utf8" });
+  const name = basename(ps.stdout.trim());
+  const expected = shippedExecutableName("daemon", "darwin");
+  if (name !== expected)
+    throw new Error(`The packaged app's daemon runs as ${JSON.stringify(name)}, not ${expected}`);
 }
 
 /** Stops the daemon the check's app left running, with the `ace` command the app wrote. */

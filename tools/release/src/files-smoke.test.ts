@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { shippedExecutableName } from "@ace/service/process-names";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, test } from "vitest";
@@ -62,7 +63,7 @@ process.stdin.on("end", () => process.exit(0));
 /** Stages `script` as the bundle's ace-files and returns the bundle root. */
 async function staged(script: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "ace-files-smoke-"));
-  const binary = join(root, "files", "ace-files");
+  const binary = join(root, "files", shippedExecutableName("files", process.platform));
   await mkdir(join(root, "files"), { recursive: true });
   await writeFile(binary, script, { mode: 0o755 });
   return root;

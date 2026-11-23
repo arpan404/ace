@@ -80,6 +80,7 @@ fn compact(events: &mut Vec<Event>) {
         images_left_out: None,
         untrusted: false,
         carried: Some(ledger),
+        asks: None,
     }));
 }
 
@@ -177,6 +178,7 @@ fn a_summary_stored_without_a_list_makes_the_next_compaction_walk_from_the_start
         images_left_out: None,
         untrusted: false,
         carried: None,
+        asks: None,
     }));
     events.extend(written("new", "b"));
     let lines = listed(&events);

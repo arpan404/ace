@@ -1,7 +1,7 @@
 //! Where each question of a conversation stands, folded from its events, so it survives
 //! restarts: what the card shows, and how many are left for later.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{Question, asked, typed_by_person};
@@ -132,6 +132,75 @@ pub fn views<'a>(events: impl IntoIterator<Item = &'a Event>) -> Vec<View> {
         }
     }
     cards
+}
+
+/// The cards still open (waiting, or left for later), kept event by event by the rules of
+/// [`views`], so a caller that only asks whether one is open reads each event once instead of
+/// walking the history (the stop check, ADR 0215).
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct OpenCards(Vec<OpenCard>);
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct OpenCard {
+    call_id: String,
+    reply: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    deferred: bool,
+}
+
+impl OpenCards {
+    /// Whether a card waits on the person, or was left for later.
+    pub fn any(&self) -> bool {
+        !self.0.is_empty()
+    }
+
+    pub fn read(&mut self, event: &Event) {
+        if typed_by_person(event) {
+            self.0.retain(|c| c.deferred || is_form(&c.call_id));
+            return;
+        }
+        let Event::Known(known) = event else { return };
+        let last = |cards: &[OpenCard], id: &str, waiting_only: bool| {
+            cards
+                .iter()
+                .rposition(|c| c.call_id == id && !(waiting_only && c.deferred))
+        };
+        match known {
+            Known::QuestionAsked { reply, call_id, .. } => self.0.push(OpenCard {
+                call_id: call_id.clone(),
+                reply: reply.clone(),
+                deferred: false,
+            }),
+            Known::QuestionDeferred { call_id, .. } => {
+                if let Some(at) = last(&self.0, call_id, true) {
+                    self.0[at].deferred = true;
+                }
+            }
+            Known::QuestionAnswered { call_id, .. } | Known::QuestionDismissed { call_id, .. } => {
+                if let Some(at) = last(&self.0, call_id, false) {
+                    self.0.remove(at);
+                }
+            }
+            Known::ToolFinished { call_id, .. } => {
+                if let Some(at) = last(&self.0, call_id, true) {
+                    self.0.remove(at);
+                }
+                self.0.retain(|c| {
+                    c.deferred || super::elicit::call_of(&c.call_id) != Some(call_id.as_str())
+                });
+            }
+            Known::StopRequested {
+                reply: Some(reply), ..
+            }
+            | Known::ReplyFinished { reply, .. }
+            | Known::ReplyStopped { reply, .. }
+            | Known::ReplyFailed { reply, .. }
+            | Known::ReplyInterrupted { reply, .. } => {
+                self.0.retain(|c| c.deferred || &c.reply != reply);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Whether the card is an app's form, which only an answer on it answers.

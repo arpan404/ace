@@ -33,6 +33,20 @@ export { releaseFetch } from "./feed.ts";
 export { BoundedLog } from "./log.ts";
 export { localService, serviceCommand } from "./local.ts";
 export { runSupervisor, recoveryDelay, type SupervisorPorts } from "./supervisor.ts";
+export {
+  daemonLaunches,
+  launchEnvironment,
+  spawnDaemonRuntime,
+  startableDaemonRuntime,
+  type DaemonLaunch,
+} from "./daemon-program.ts";
+export {
+  shippedExecutableName,
+  scriptRuntimeName,
+  scriptRuntimePath,
+  daemonRuntimePath,
+  type AceProcess,
+} from "./process-names.ts";
 
 export {
   resolveDaemonHome,

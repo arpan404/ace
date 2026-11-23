@@ -39,6 +39,12 @@ const TOOLS: &[(&str, &str, &str, &str)] = &[
         "Updated its plan",
     ),
     (
+        "asks",
+        "keep track of what you asked",
+        "Keeping track of what you asked",
+        "Kept track of what you asked",
+    ),
+    (
         "tool_search",
         "look for a tool",
         "Looking for a tool",
@@ -380,6 +386,8 @@ fn object_detail(name: &str, fields: &Map<String, Value>) -> Option<String> {
         "memory_save" | "memory_update" => return text(fields, "text").map(str::to_owned),
         // Only the note's id: its text is the person's to look up.
         "memory_forget" => return None,
+        // Each change in a few words: "m12 done · m14 waiting · standing: Never email the client".
+        "asks" => return asks_detail(fields),
         "bot_message" => {
             let words = text(fields, "text")?;
             return Some(match text(fields, "bot") {
@@ -425,6 +433,26 @@ fn object_detail(name: &str, fields: &Map<String, Value>) -> Option<String> {
         .filter_map(|(k, v)| said(v, 1).map(|s| format!("{}: {s}", label(k))))
         .collect();
     (!parts.is_empty()).then(|| parts.join("; "))
+}
+
+fn asks_detail(fields: &Map<String, Value>) -> Option<String> {
+    let changes = fields.get("changes")?.as_array()?;
+    let parts: Vec<String> = changes
+        .iter()
+        .filter_map(|change| {
+            let change = change.as_object()?;
+            let op = text(change, "op")?;
+            Some(match (op, text(change, "ask"), text(change, "standing")) {
+                ("standing", _, _) => format!("standing: {}", text(change, "text")?),
+                ("lift", _, Some(id)) => format!("{id} lifted"),
+                ("chat", Some(ask), _) => format!("{ask} nothing to do"),
+                ("open", Some(ask), _) => format!("{ask} open"),
+                (op, Some(ask), _) => format!("{ask} {op}"),
+                _ => return None,
+            })
+        })
+        .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }
 
 fn capitalised(text: &str) -> String {
@@ -545,6 +573,14 @@ mod tests {
                 Some("Likes tea"),
             ),
             ("memory_forget", json!({ "id": "n1" }), None),
+            (
+                "asks",
+                json!({ "changes": [
+                    { "op": "done", "ask": "m12", "reason": "sent" },
+                    { "op": "chat", "ask": "m14" },
+                    { "op": "standing", "from": "m4", "text": "Never email the client" } ] }),
+                Some("m12 done · m14 nothing to do · standing: Never email the client"),
+            ),
             (
                 "bot_message",
                 json!({ "bot": "Research", "text": "Hi" }),

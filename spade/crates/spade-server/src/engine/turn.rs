@@ -258,6 +258,19 @@ async fn drive(
                 // A subscription (ADR 0133) runs its own loop and keeps its own context:
                 // compaction is for endpoint models.
                 let cli = spade_core::brain::CliModel::is(&model);
+                // The stop check's one extra step only sorted the open asks: the reply ends
+                // without another model call, unless the person wrote meanwhile (ADR 0215 §3).
+                if !cli && spade_core::asks::check::settled(&events, &reply) {
+                    match finish_unless_steered(engine, id, &reply) {
+                        Ok(true) => return Ended::Finished,
+                        Ok(false) => {}
+                        Err(error) => return Ended::Failed(String::new(), error),
+                    }
+                }
+                // A steer the last step left unanswered: one note first (ADR 0215 §4).
+                if !cli && super::asks::remind(engine, id, &reply) {
+                    continue;
+                }
                 // A helper has no indexes: it starts from Spade's rules, its profile and its task
                 // alone. No step count or cost ends a turn (ADR 0158, ADR 0166); Stop does.
                 let helper = engine.helper_of(id).is_some();
@@ -302,6 +315,8 @@ async fn drive(
                         super::brain::step(engine, id, &reply, &events, &model, &mut stop, pause)
                             .await;
                     match step {
+                        // One more step when the reply would leave an ask open (ADR 0215 §3).
+                        Step::Answered if super::asks::check(engine, id, &reply) => {}
                         Step::Answered => {
                             match super::brain::finish_unless_steered(engine, id, &reply) {
                                 Ok(true) => return Ended::Finished,
@@ -334,11 +349,13 @@ async fn drive(
                     _ = stopped(&mut stop) => return Ended::Stopped(String::new()),
                     _ = pausing(pause, Point::Streaming) => return Ended::Paused,
                 };
-                if compacted {
+                if compacted || super::compact::age_if_due(engine, id, &events) {
                     continue;
                 }
                 match model_step(engine, id, &reply, &events, &mut stop, pause).await {
-                    // A plugin's Stop hook may ask for one more step first (ADR 0151).
+                    // One more step when the reply would leave an ask open (ADR 0215 §3), and
+                    // a plugin's Stop hook may ask for one more step first (ADR 0151).
+                    Step::Answered if super::asks::check(engine, id, &reply) => {}
                     Step::Answered if super::plugin_hooks::at_stop(engine, id).await => {}
                     Step::Answered => match finish_unless_steered(engine, id, &reply) {
                         Ok(true) => return Ended::Finished,
@@ -432,6 +449,12 @@ async fn model_step(
     let prompt = context::prompt_with(&system, engine.offered_for(id), events, &images)
         .session(id)
         .effort(engine.step_effort(id));
+    // The person's asks close the prompt, after everything stored (ADR 0215 §2). A helper has
+    // no person: it works from its one task.
+    let prompt = match engine.limits.asks && engine.helper_of(id).is_none() {
+        true => spade_core::asks::block::appended(prompt, &engine.asks_of(id, events)),
+        false => prompt,
+    };
     let live = engine.live(id);
     engine.step_began(id);
     engine.set_status(id, Some(super::roster::THINKING.to_owned()));
@@ -623,10 +646,18 @@ fn finish_unless_steered(engine: &Engine, id: &str, reply: &str) -> Result<bool,
     if steered {
         return Ok(false);
     }
-    let text = match events.get(last_step) {
-        Some(Event::Known(Known::StepFinished { text, .. })) => text.clone(),
-        _ => String::new(),
-    };
+    // A last step with no words (one that only sorted asks) leaves the reply's latest words.
+    let text = events[..=last_step.min(events.len().saturating_sub(1))]
+        .iter()
+        .rev()
+        .take_while(|e| !matches!(e, Event::Known(Known::ReplyStarted { .. })))
+        .find_map(|e| match e {
+            Event::Known(Known::StepFinished { text, .. }) if !text.is_empty() => {
+                Some(text.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_default();
     let total = progress(&events);
     // What the person sees the turn cost counts the helpers whose results it read (ADR 0152).
     let helpers = spade_core::helper::cost_in_turn(&events);
