@@ -458,6 +458,8 @@ export class Store {
   /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
   readonly storedTrustBuild: string | undefined;
   private onError: (error: unknown) => void;
+  /** The failure onError last took, or the error it threw, so `settle` reports neither again. */
+  private reported: unknown;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
     if (mode === "PASSIVE")
@@ -694,6 +696,20 @@ export class Store {
       /* The caller rethrows its own error. */
     }
   }
+  /**
+   * Report a failure once. `onError` may throw, and the throw reaches a settlement's catch as
+   * the same failure: neither that error nor one already reported is handed back to it.
+   */
+  private reportOnce(error: unknown): void {
+    if (error === this.reported) return;
+    this.reported = error;
+    try {
+      this.onError(error);
+    } catch (thrown) {
+      this.reported = thrown;
+      throw thrown;
+    }
+  }
   private rollBack(): void {
     if (!this.db.isTransaction) return;
     try {
@@ -711,7 +727,7 @@ export class Store {
         outcome[result]();
       } catch (error) {
         try {
-          this.onError(error);
+          this.reportOnce(error);
         } catch {
           /* The transaction has already settled. */
         }
@@ -1147,7 +1163,7 @@ export class Store {
       this.lineage.write({ token: this.sidebarToken(), reserved: seq });
     } catch (error) {
       // A mark not written only narrows what a rollback can be told by; never fatal to a write.
-      this.onError(error);
+      this.reportOnce(error);
     }
   }
   /**
