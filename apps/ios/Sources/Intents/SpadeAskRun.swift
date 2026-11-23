@@ -83,9 +83,14 @@ private struct SpadeAskWire: Decodable, Sendable {
                 let client = entry.model
                 group.addTask { @MainActor in
                     let left = deadline - ContinuousClock.now
-                    guard ready, left > .zero,
-                          let answer = try? await client.service(["type": "spade.main.read"], as: SpadeAskWire.self, timeout: left) else {
-                        return (index, .init(key: key, name: name, answer: nil))
+                    let unanswered = (index, SpadeAsk.Reach(key: key, name: name, answer: nil))
+                    guard ready, left > .zero else { return unanswered }
+                    // A do/catch, not `try?` in the guard: Swift 6's region checker can't follow that form here.
+                    let answer: SpadeAskWire
+                    do {
+                        answer = try await client.service(["type": "spade.main.read"], as: SpadeAskWire.self, timeout: left)
+                    } catch {
+                        return unanswered
                     }
                     guard answer.ok else { return (index, .init(key: key, name: name, answer: .init(problem: answer.message))) }
                     let spade = answer.conversationId.map {
