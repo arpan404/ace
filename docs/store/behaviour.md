@@ -415,3 +415,16 @@ No (a) test reaches into store internals: of the store modules only `store-busy`
 `migrations` are imported by tests at all, and in the (a) files only for helpers and options
 that are part of the public surface (`isStoreBusy`, `lineageFile`, `storedEventShape`,
 `migrate`).
+
+### Phase 1a status (2026-11-23, `ace/rust-store`)
+
+The 69 class (a) files above (the storage, sidebar, search-replay and engine files included,
+`idle-store.perf` excluded) were run one file at a time with `--maxWorkers=4`:
+
+- Switch off: 69 of 69 pass.
+- `ACE_STORE=native`: 68 of 69 pass. `status-storage.process.test.ts` fails one test ("loads
+  cold work status and the item window without reading historical event bodies"): it registers
+  a JavaScript SQL function with `db.function`, which the native connection does not offer. No
+  daemon code calls `db.function`. Offering it means calling into JavaScript from inside a
+  SQLite step, which needs an N-API env held across calls; that is a decision for ADR 0222's
+  binding rules, not made here.
