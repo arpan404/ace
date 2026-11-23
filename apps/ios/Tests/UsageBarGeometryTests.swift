@@ -13,9 +13,9 @@ import Testing
 
     @Test func testFillsGrowFromTheBottomAndKeepTheirMinimumHeight() {
         let tracks = UsageBarGeometry.tracks([
-            .init(key: "a", label: "Claude", left: 40, tone: .ok, span: "session"),
-            .init(key: "b", label: "Codex", left: 8, tone: .low, span: "session"),
-            .init(key: "c", label: "Other", left: 0, tone: .out, span: "session")
+            .init(key: "a", label: "Claude", left: 40, tone: .ok, span: "session", window: nil),
+            .init(key: "b", label: "Codex", left: 8, tone: .low, span: "session", window: nil),
+            .init(key: "c", label: "Other", left: 0, tone: .out, span: "session", window: nil)
         ])
         #expect(tracks[0].fill == CGRect(x: 3.5, y: 11.6, width: 3, height: 6.4))
         #expect(tracks[1].fill == CGRect(x: 8.5, y: 15, width: 3, height: 3))

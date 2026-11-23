@@ -2,7 +2,10 @@ import type { ClientCore } from "@ace/client";
 import { UsageQuery } from "@ace/protocol";
 import {
   accountView,
+  RailPins,
   knownTimeZone,
+  migrateRailPins,
+  railSessionKinds,
   railUsage,
   usageDay,
   usageLimits,
@@ -14,13 +17,18 @@ import type { InboxClock } from "./inbox-rows.ts";
 
 const minute = 60_000;
 
-/** The desktop rail's session bars, followed on this machine's connection. */
+/**
+ * The desktop rail's session bars, followed on this machine's connection. The phone's own choice
+ * of accounts (`choose`, the web's pins) picks and orders them; with none, the accounts used most.
+ * `usage.choices` lists every account with a reading, for the picker.
+ */
 export function followUsageBars(owner: ClientCore, sink: PatchSink, clock: InboxClock) {
   const connection = owner.connectionState();
   const socket = owner.connectionGeneration();
   let accounts: AccountView[] = [];
   let used: ReadonlyMap<string, number> | undefined;
-  let sent = "[]";
+  let sent = JSON.stringify({ bars: [], choices: [] });
+  let pins: RailPins = [];
   let cancelTick: (() => void) | undefined;
   let active: AbortController | undefined;
   let loadingAccounts = false;
@@ -33,11 +41,16 @@ export function followUsageBars(owner: ClientCore, sink: PatchSink, clock: Inbox
       accounts.map((account) => ({ account, environment: "This machine" })),
       Math.floor(now / minute) * minute,
     );
-    const { bars } = railUsage(limits, used, "session");
-    const encoded = JSON.stringify(bars);
+    const { bars, choices } = railUsage(
+      limits,
+      used,
+      "session",
+      migrateRailPins(pins, railSessionKinds(limits)),
+    );
+    const encoded = JSON.stringify({ bars, choices });
     if (sent === encoded) return;
     sent = encoded;
-    sink.put("usage.bars", () => ({ type: "usage.bars", value: bars }));
+    sink.put("usage.bars", () => ({ type: "usage.bars", value: bars, choices }));
   };
 
   const refresh = async (readAccounts: boolean) => {
@@ -139,9 +152,17 @@ export function followUsageBars(owner: ClientCore, sink: PatchSink, clock: Inbox
     }),
   ];
   reconnect();
-  return () => {
+  const stop = () => {
     active?.abort();
     cancelTick?.();
-    for (const stop of stops) stop();
+    for (const each of stops) each();
   };
+  return Object.assign(stop, {
+    /** Draws these accounts, by id, in this order; an unreadable list falls back to the default. */
+    choose(ids: unknown) {
+      const parsed = RailPins.safeParse(ids);
+      pins = parsed.success ? parsed.data : [];
+      publish();
+    },
+  });
 }

@@ -3,6 +3,7 @@ import SwiftUI
 struct UsageToolbarButton: View {
     let client: ClientModel?
     let open: () -> Void
+    @State private var choosing = false
 
     var body: some View {
         let bars = client?.usageBars ?? []
@@ -15,6 +16,14 @@ struct UsageToolbarButton: View {
         .accessibilityLabel("Usage")
         .accessibilityValue(bars.isEmpty ? "No limits read yet" : bars.map(\.spoken).joined(separator: ", "))
         .accessibilityIdentifier("inbox.usage")
+        .accessibilityAction(named: "Choose the bars") { if client != nil { choosing = true } }
+        // A long press opens the choice of what the bars show.
+        .contextMenu {
+            if client != nil { Button("Choose the bars") { choosing = true } }
+        }
+        .sheet(isPresented: $choosing) {
+            if let client { UsageBarsChooser(client: client) }
+        }
     }
 }
 
