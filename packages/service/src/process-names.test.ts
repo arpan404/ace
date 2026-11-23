@@ -48,8 +48,8 @@ test("the daemon's child scripts run on the plain runtime beside it, never as th
 });
 
 test("a standalone release links its runtime under the daemon's name once, sharing its bytes", () => {
-  const release = scratch();
-  mkdirSync(join(release, "bin"));
+  const release = join(scratch(), "releases", "1.2.3-darwin-arm64");
+  mkdirSync(join(release, "bin"), { recursive: true });
   writeFileSync(join(release, "release.json"), "{}");
   const runtime = join(release, "bin", "node");
   writeFileSync(runtime, "runtime bytes");
@@ -62,14 +62,16 @@ test("a standalone release links its runtime under the daemon's name once, shari
   expect(startableDaemonRuntime(runtime, process.platform)).toBe(named);
 });
 
-test("outside a standalone release nothing is written and the daemon runs on the runtime", () => {
-  const resources = scratch();
-  mkdirSync(join(resources, "bin"));
-  const runtime = join(resources, "bin", "node");
+test("outside a release ace installed nothing is written and the daemon runs on the runtime", () => {
+  // A Homebrew keg carries a release's files, release.json included, but is not ace's to add to.
+  const keg = join(scratch(), "Cellar", "ace", "1.2.3", "libexec");
+  mkdirSync(join(keg, "bin"), { recursive: true });
+  writeFileSync(join(keg, "release.json"), "{}");
+  const runtime = join(keg, "bin", "node");
   writeFileSync(runtime, "runtime bytes");
 
   expect(startableDaemonRuntime(runtime, process.platform)).toBe(runtime);
   expect(() =>
-    statSync(join(resources, "bin", shippedExecutableName("daemon", process.platform))),
+    statSync(join(keg, "bin", shippedExecutableName("daemon", process.platform))),
   ).toThrow();
 });
