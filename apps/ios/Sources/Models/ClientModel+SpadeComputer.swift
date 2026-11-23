@@ -85,9 +85,9 @@ struct SpadeComputerReply: Decodable, Sendable {
     let services: [SpadeService]?
     let lines: [SpadeServiceLine]?
 
-    init(ok: Bool, title: String? = nil, message: String? = nil) {
-        self.ok = ok; self.title = title; self.message = message
-        changed = nil; gone = nil; computer = nil; folder = nil; file = nil; revision = nil; services = nil; lines = nil
+    init(ok: Bool, title: String? = nil, message: String? = nil, computer: SpadeComputerState? = nil) {
+        self.ok = ok; self.title = title; self.message = message; self.computer = computer
+        changed = nil; gone = nil; folder = nil; file = nil; revision = nil; services = nil; lines = nil
     }
     /// Why it failed, in one line; nil when it went.
     var problem: String? {

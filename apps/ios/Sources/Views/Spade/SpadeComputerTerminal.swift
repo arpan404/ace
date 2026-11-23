@@ -12,13 +12,29 @@ struct SpadeComputerTerminal: View {
     @Environment(\.scenePhase) private var scene
     @AppStorage("terminal.fontSize") private var fontSize = 12.0
     @State private var modifiers = TerminalModifiers()
-    @State private var queue = TerminalSendQueue()
     @State private var typing = false
-    @State private var problem: String?
-    /// This page's stream id on the shared terminal model, while it follows.
-    @State private var stream: String?
+    @State private var keys: SpadeKeySender
     private var output: TerminalScreenModel { model.terminal }
-    private var canType: Bool { watch.mayAct(model) }
+    private var canType: Bool { scene == .active && watch.mayAct(model) }
+
+    init(model: ClientModel, watch: SpadeComputerWatch, name: String, face: SpadeModel.Face) {
+        self.model = model
+        self.watch = watch
+        self.name = name
+        self.face = face
+        let agent = watch.agent
+        _keys = State(initialValue: SpadeKeySender(
+            // The shared terminal model still shows this page's stream, and Spade says now.
+            allowed: { stream in model.terminal.streamId == stream && watch.mayAct(model) },
+            permission: { watch.permissionGeneration },
+            send: { batch in
+                let request: [String: Any] = [
+                    "type": "spade.terminal.input", "agentId": agent,
+                    "applicationCursor": model.terminal.applicationCursor, "input": batch.map(\.payload),
+                ]
+                return await model.spadeComputer(request, failing: "That didn't reach the terminal").problem
+            }))
+    }
 
     var body: some View {
         VStack(spacing: AceDesign.Space.related) {
@@ -28,7 +44,7 @@ struct SpadeComputerTerminal: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, AceDesign.Space.margin)
             }
-            ServiceProblem(message: problem ?? output.problem)
+            ServiceProblem(message: keys.problem ?? output.problem)
             TerminalSurface(
                 session: output.session, fontSize: fontSize, focused: typing,
                 matches: [], current: nil, revealToken: 0,
@@ -39,7 +55,7 @@ struct SpadeComputerTerminal: View {
             .id(output.streamId)
             .accessibilityLabel("\(name)'s terminal")
             .accessibilityIdentifier("spade.terminal.output")
-            keys
+            keyRow
             SpadeDriveLineView(model: model, watch: watch, kind: "terminal", face: face)
                 .padding(.horizontal, AceDesign.Space.margin)
         }
@@ -48,20 +64,19 @@ struct SpadeComputerTerminal: View {
         .navigationTitle("Terminal")
         .navigationBarTitleDisplayMode(.inline)
         .followsComputer(watch, model: model)
-        .task(id: "\(scene)-\(model.connection)") {
+        .task(id: "\(scene)-\(model.connection)-\(model.connectionEpoch)") {
+            unwatch()
             // In the background or away from the daemon nothing streams.
-            guard scene == .active, model.connection == "ready" else { unwatch(); return }
-            guard stream == nil else { return }
+            guard scene == .active, model.connection == "ready" else { return }
             let id = UUID().uuidString
-            stream = id
-            queue.reset()
+            keys.start(id)
             model.spadeTerminalWatch(watch.agent, stream: id)
         }
         .onAppear { output.onReply = { reply in type([.text(reply)]) } }
         .onDisappear { output.onReply = nil; unwatch() }
     }
 
-    private var keys: some View {
+    private var keyRow: some View {
         VStack(spacing: AceTheme.Spacing.none) {
             TerminalKeyBar(modifiers: $modifiers) { type([$0]) }
             TerminalKeyField(
@@ -79,8 +94,8 @@ struct SpadeComputerTerminal: View {
     }
 
     private func unwatch() {
-        guard let id = stream else { return }
-        stream = nil
+        guard let id = keys.stream else { return }
+        keys.stop()
         model.spadeTerminalUnwatch(stream: id)
     }
 
@@ -88,27 +103,15 @@ struct SpadeComputerTerminal: View {
     private func fit(_ columns: Int, _ rows: Int) {
         guard output.fit(columns: columns, rows: rows), canType else { return }
         Task {
+            guard canType, keys.stream == output.streamId, keys.stream != nil else { return }
             _ = await model.spadeComputer(["type": "spade.terminal.resize", "agentId": watch.agent, "cols": columns, "rows": rows],
                                           failing: "")
         }
     }
 
-    /// Typed input goes out in order, one write at a time; what arrives meanwhile waits.
+    /// Typed input goes out in order, one write at a time, each checked right before it goes.
     private func type(_ input: [TerminalInput]) {
-        guard canType, let batch = queue.add(input) else { return }
-        send(batch)
-    }
-
-    private func send(_ batch: [TerminalInput]) {
-        let request: [String: Any] = [
-            "type": "spade.terminal.input", "agentId": watch.agent,
-            "applicationCursor": output.applicationCursor, "input": batch.map(\.payload),
-        ]
-        Task {
-            let reply = await model.spadeComputer(request, failing: "That didn't reach the terminal")
-            problem = reply.problem
-            guard let next = queue.finished() else { return }
-            send(next)
-        }
+        guard canType else { return }
+        keys.type(input)
     }
 }
