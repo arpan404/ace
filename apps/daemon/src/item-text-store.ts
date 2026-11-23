@@ -172,6 +172,48 @@ export class ItemTextStore {
       this.statement("SELECT size FROM item_text_streams WHERE id = ?").get(source.streamId)?.size,
     );
   }
+  /** Fill `item`'s carried text from `size` and `slice`, shared by single and batched reads. */
+  private fill(
+    item: Item,
+    sizeOf: (source: TextSource) => number,
+    slice: (streamId: string, start: number, end: number) => string,
+  ): Item {
+    let remaining = 4096;
+    // Text still streaming shows its newest end, marked so deltas keep extending it; finished
+    // text shows from its start.
+    const streaming = !item.complete;
+    const head = (source: TextSource, units: number): string => {
+      source.bytes = sizeOf(source);
+      delete source.offset;
+      return slice(source.streamId, 0, Math.min(units * 2, source.bytes));
+    };
+    const tail = (source: TextSource, units: number): string => {
+      source.bytes = sizeOf(source);
+      let start = Math.max(0, source.bytes - units * 2);
+      let text = slice(source.streamId, start, source.bytes);
+      const first = text.charCodeAt(0);
+      if (first >= 0xdc00 && first <= 0xdfff) {
+        text = text.slice(1);
+        start += 2;
+      }
+      if (start) source.offset = start;
+      else delete source.offset;
+      return text;
+    };
+    const read = (source: TextSource) =>
+      streaming ? tail(source, remaining) : head(source, remaining);
+    if (item.type === "message") {
+      const parts = streaming ? item.parts.toReversed() : item.parts;
+      for (const part of parts)
+        if (part.type === "text" && part.source) {
+          part.text = read(part.source);
+          remaining -= part.text.length;
+        }
+    }
+    if ((item.type === "reasoning" || item.type === "notice") && item.source)
+      item.text = read(item.source);
+    return item;
+  }
   /** The text in bytes [start, end) of a stream, read from the chunks that hold it. */
   private slice(streamId: string, start: number, end: number): string {
     if (end <= start) return "";
@@ -191,48 +233,63 @@ export class ItemTextStore {
     }
     return Buffer.concat(pieces).toString("utf16le");
   }
-  /** The stream's first `units`: the preview of finished text, read from the top. */
-  private head(source: TextSource, units: number): string {
-    source.bytes = this.size(source);
-    delete source.offset;
-    return this.slice(source.streamId, 0, Math.min(units * 2, source.bytes));
-  }
-  /**
-   * The stream's last `units`, marked with where they start: the preview of text still streaming,
-   * which the client extends with each delta. Never starts inside a surrogate pair.
-   */
-  private tail(source: TextSource, units: number): string {
-    source.bytes = this.size(source);
-    let start = Math.max(0, source.bytes - units * 2);
-    let text = this.slice(source.streamId, start, source.bytes);
-    const first = text.charCodeAt(0);
-    if (first >= 0xdc00 && first <= 0xdfff) {
-      text = text.slice(1);
-      start += 2;
-    }
-    if (start) source.offset = start;
-    else delete source.offset;
-    return text;
-  }
   read(id: string): Item {
     const item = this.preview(id)?.item;
     if (!item) throw new Error("Missing item preview");
-    let remaining = 4096;
-    // Text still streaming shows its newest end, marked so deltas keep extending it; finished
-    // text shows from its start.
+    return this.fill(
+      item,
+      (source) => this.size(source),
+      (streamId, start, end) => this.slice(streamId, start, end),
+    );
+  }
+  /** A stored preview row fetched in batch, parsed exactly as `preview` parses it. */
+  previewFromRow(row: { item: string; target: unknown; created_seq: number | null }): {
+    item: Item;
+    target: unknown;
+  } {
+    const created = row.created_seq === null ? Number.NEGATIVE_INFINITY : Number(row.created_seq);
+    return { item: storedItem(created, String(row.item), this.trust), target: row.target };
+  }
+  /**
+   * `read` from prefetched rows: `preview` is the batch's preview row (or undefined when the
+   * id had none), `sizes` maps stream id to its whole length, `byteRows` maps stream id to
+   * its chunk rows in offset order. Slicing, surrogate handling and `remaining` match `read`.
+   */
+  readBatched(
+    id: string,
+    preview: { item: string; target: unknown; created_seq: number | null } | undefined,
+    sizes: Map<string, number>,
+    byteRows: Map<string, { offset: number; bytes: Uint8Array }[]>,
+  ): Item {
+    const stored = preview ? this.previewFromRow(preview) : undefined;
+    if (!stored) throw new Error("Missing item preview");
+    const sizeOf = (source: TextSource): number => StreamSize.parse(sizes.get(source.streamId));
+    const slice = (streamId: string, start: number, end: number): string => {
+      if (end <= start) return "";
+      const pieces: Buffer[] = [];
+      for (const row of byteRows.get(streamId) ?? []) {
+        if (!ArrayBuffer.isView(row.bytes)) throw new Error("Invalid text chunk");
+        const offset = Number(row.offset);
+        const bytes = Buffer.from(row.bytes.buffer, row.bytes.byteOffset, row.bytes.byteLength);
+        const from = Math.max(0, start - offset);
+        const to = Math.min(bytes.length, end - offset);
+        if (to > from) pieces.push(bytes.subarray(from, to));
+      }
+      return Buffer.concat(pieces).toString("utf16le");
+    };
+    return this.fill(stored.item, sizeOf, slice);
+  }
+  /** Every text source a preview carries, with whether its item streams (tail) or not (head). */
+  sourcesOf(item: Item): { streamId: string; streaming: boolean }[] {
     const streaming = !item.complete;
-    const read = (source: TextSource) =>
-      streaming ? this.tail(source, remaining) : this.head(source, remaining);
+    const out: { streamId: string; streaming: boolean }[] = [];
     if (item.type === "message") {
-      const parts = streaming ? item.parts.toReversed() : item.parts;
-      for (const part of parts)
-        if (part.type === "text" && part.source) {
-          part.text = read(part.source);
-          remaining -= part.text.length;
-        }
+      for (const part of item.parts)
+        if (part.type === "text" && part.source)
+          out.push({ streamId: part.source.streamId, streaming });
+    } else if ((item.type === "reasoning" || item.type === "notice") && item.source) {
+      out.push({ streamId: item.source.streamId, streaming });
     }
-    if ((item.type === "reasoning" || item.type === "notice") && item.source)
-      item.text = read(item.source);
-    return item;
+    return out;
   }
 }

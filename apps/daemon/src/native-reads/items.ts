@@ -1,268 +1,212 @@
 import { nativeHandle } from "@ace/provider-kit/sqlite";
-import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { Item as ItemSchema } from "@ace/protocol";
-import type { Item, ItemsPage, OmittedItem, ThreadId } from "@ace/protocol";
-import { ItemId } from "@ace/protocol";
-import { inRootLane, retainedTail } from "@ace/projection";
-import { z } from "zod";
-import { ItemPageCapacityExceeded } from "../item-page-capacity.ts";
-import { decodeStoredItem, type StoredTrust } from "../stored-decode.ts";
+import type { DatabaseSync } from "node:sqlite";
 
 /**
- * Phase 1b's native item reads (docs/store/porting-guide.md): the loaders' SQL and shaping run
- * in Rust on the store's own connection and come back as one JSON string. Rows below the trust
- * floor come back marked and are decoded here with the existing lenient decoder.
+ * Phase 1b's native item fetches (docs/store/porting-guide.md): Rust runs the batched
+ * statements on the store's own connection and returns the raw column values exactly as
+ * stored. TypeScript keeps every shaping step after the fetch.
  */
-interface ItemsBinding {
-  itemsWirePage(
+interface ItemsFetchBinding {
+  itemsFetchHeads(threadId: string, before: number, limit: number): string;
+  itemsFetchHeadsBySeqs(threadId: string, seqsJson: string): string;
+  itemsFetchBodies(idsJson: string): string;
+  itemsFetchPreviews(idsJson: string): string;
+  itemsFetchRangeBodies(threadId: string, oldest: number, before: number): string;
+  itemsFetchChunks(idsJson: string): string;
+  itemsFetchTailHeads(threadId: string, rootAgentId: string | undefined, limit: number): string;
+  itemsFetchStreamSizes(streamIdsJson: string): string;
+  itemsFetchStreamBytes(rangesJson: string): string;
+  itemsFetchTarget(threadId: string, aroundSeq: number): string;
+  itemsFetchNeighborSeqs(
     threadId: string,
+    targetSeq: number,
     before: number,
-    limit: number,
-    byteLimit: number,
-    trust: { trustFrom: number | undefined; rejected: number[] },
+    after: number,
   ): string;
-  itemsPage(
-    threadId: string,
-    before: number,
-    limit: number,
-    byteLimit: number | undefined,
-    trust: { trustFrom: number | undefined; rejected: number[] },
-  ): string;
-  itemsWindow(query: {
-    threadId: string;
-    aroundSeq: number;
-    before: number;
-    after: number;
-    byteLimit: number;
-    trust: { trustFrom: number | undefined; rejected: number[] };
-    drop: number[];
-  }): string;
-  itemsTailRows(
-    threadId: string,
-    kept: { id: string; seq: number }[],
-    before: number | undefined,
-    preview: boolean,
-    rows: string,
-    trust: { trustFrom: number | undefined; rejected: number[] },
-  ): string;
+  itemsFetchExistence(threadId: string, first: number, last: number): string;
 }
 
-function binding(db: DatabaseSync): ItemsBinding {
-  const handle = nativeHandle(db) as Partial<ItemsBinding> | undefined;
-  if (!handle || typeof handle.itemsWirePage !== "function")
-    throw new Error("Native item reads need the phase 1b store addon");
-  return handle as ItemsBinding;
+function binding(db: DatabaseSync): ItemsFetchBinding {
+  const handle = nativeHandle(db) as Partial<ItemsFetchBinding> | undefined;
+  if (!handle || typeof handle.itemsFetchHeads !== "function")
+    throw new Error("Native item fetches need the phase 1b store addon");
+  return handle as ItemsFetchBinding;
 }
 
-// Tail heads, validated like the loader's own: one entry per creation sequence.
-const TailHead = z.object({
-  id: ItemId,
-  created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  size: z.number().int().nonnegative(),
-  agent_id: z.string(),
-});
-
-/** The native answer with its marked rows decoded, and the mark removed. */
-function take<T extends { items: Item[]; untrusted: string[] }>(parsed: T): Omit<T, "untrusted"> {
-  const marked = new Set(parsed.untrusted);
-  const items = parsed.items.map((item) => (marked.has(item.id) ? decodeStoredItem(item) : item));
-  const rest = { ...parsed, items };
-  delete (rest as { untrusted?: unknown }).untrusted;
-  return rest;
+export interface HeadRow {
+  id: string;
+  created_seq: number;
+  size: number;
+  item_type: string;
 }
 
-function read(
+export interface BodyRow {
+  id: string;
+  kind: number;
+  item: string | null;
+  created_seq: number | null;
+  seq: number | null;
+  field: string | null;
+  append: string | null;
+}
+
+export interface PreviewRow {
+  id: string;
+  item: string;
+  target: number;
+  created_seq: number | null;
+}
+
+export interface RangeBodyRow {
+  id: string;
+  item: string;
+  created_seq: number;
+}
+
+export interface ChunkRow {
+  item_id: string;
+  seq: number;
+  field: string;
+  append: string;
+}
+
+export interface TailHeadRow {
+  id: string;
+  created_seq: number;
+  size: number;
+  agent_id: string;
+}
+
+export interface StreamSizeRow {
+  id: string;
+  size: number;
+}
+
+export interface StreamByteRow {
+  stream_id: string;
+  offset: number;
+  bytes: Uint8Array;
+}
+
+function parse<T>(text: string): T {
+  return JSON.parse(text) as T;
+}
+
+export function fetchHeads(
   db: DatabaseSync,
-  trust: StoredTrust,
-  call: (native: ItemsBinding, trust: { trustFrom: number | undefined; rejected: number[] }) => string,
-): unknown {
-  const target = binding(db);
-  let text: string;
-  try {
-    text = call(target, {
-      trustFrom: Number.isFinite(trust.from) ? trust.from : undefined,
-      rejected: [...trust.rejected],
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("ItemPageCapacityExceeded: "))
-      throw new ItemPageCapacityExceeded(error.message.slice("ItemPageCapacityExceeded: ".length));
-    // The TypeScript loader decodes `undefined` as a body: reproduce its throw exactly.
-    if (error instanceof Error && error.message === "AceItemsUndefinedJson") JSON.parse("undefined");
-    throw error;
-  }
-  return JSON.parse(text);
-}
-
-export function nativeWirePage(
-  db: DatabaseSync,
-  trust: StoredTrust,
-  threadId: ThreadId,
+  threadId: string,
   before: number,
   limit: number,
-  byteLimit: number,
-): Omit<ItemsPage, "seq"> {
-  return take(
-    read(db, trust, (native, args) =>
-      native.itemsWirePage(threadId, before, limit, byteLimit, args),
-    ) as {
-      threadId: ThreadId;
-      items: Item[];
-      itemSeqs: Record<string, number>;
-      itemsBefore: number | null;
-      untrusted: string[];
-    },
-  );
+): HeadRow[] {
+  return parse<HeadRow[]>(binding(db).itemsFetchHeads(threadId, before, limit));
 }
 
-export function nativePage(
+export function fetchHeadsBySeqs(db: DatabaseSync, threadId: string, seqs: number[]): HeadRow[] {
+  return parse<HeadRow[]>(binding(db).itemsFetchHeadsBySeqs(threadId, JSON.stringify(seqs)));
+}
+
+export function fetchBodies(db: DatabaseSync, ids: readonly string[]): BodyRow[] {
+  if (!ids.length) return [];
+  return parse<BodyRow[]>(binding(db).itemsFetchBodies(JSON.stringify(ids)));
+}
+
+export function fetchPreviews(db: DatabaseSync, ids: readonly string[]): PreviewRow[] {
+  if (!ids.length) return [];
+  return parse<PreviewRow[]>(binding(db).itemsFetchPreviews(JSON.stringify(ids)));
+}
+
+export function fetchRangeBodies(
   db: DatabaseSync,
-  trust: StoredTrust,
-  threadId: ThreadId,
+  threadId: string,
+  oldest: number,
   before: number,
-  limit: number,
-  byteLimit?: number,
-): Omit<ItemsPage, "seq"> {
-  return take(
-    read(db, trust, (native, args) =>
-      native.itemsPage(threadId, before, limit, byteLimit ?? undefined, args),
-    ) as {
-      threadId: ThreadId;
-      items: Item[];
-      itemSeqs: Record<string, number>;
-      itemsBefore: number | null;
-      untrusted: string[];
-    },
-  );
+): RangeBodyRow[] {
+  return parse<RangeBodyRow[]>(binding(db).itemsFetchRangeBodies(threadId, oldest, before));
 }
 
-export function nativeWindow(
-  db: DatabaseSync,
-  trust: StoredTrust,
-  threadId: ThreadId,
-  aroundSeq: number,
-  before: number,
-  after: number,
-  byteLimit: number,
-): Omit<ItemsPage, "seq"> & {
-  targetSeq: number | null;
-  itemsAfter: number | null;
-  omitted?: OmittedItem[];
-} {
-  type Window = {
-    threadId: ThreadId;
-    targetSeq: number | null;
-    items: Item[];
-    itemSeqs: Record<string, number>;
-    itemsBefore: number | null;
-    itemsAfter: number | null;
-    omitted?: OmittedItem[];
-    untrusted: string[];
-    validate: string[];
-  };
-  const readWindow = (drop: number[]): Window =>
-    read(db, trust, (native, args) =>
-      native.itemsWindow({ threadId, aroundSeq, before, after, byteLimit, trust: args, drop }),
-    ) as Window;
-  const first = readWindow([]);
-  // Clipped items show only if the item schema still accepts them cut down, as the loader's
-  // own clip does: a rejected one is re-read without it, summarized instead of shown.
-  // Decoding throws exactly where the loader's own decode would, for the same rows.
-  const rejected: number[] = [];
-  for (const id of first.validate ?? []) {
-    const item = first.items.find((candidate) => candidate.id === id);
-    if (!item) continue;
-    if (!ItemSchema.safeParse(decodeStoredItem(item)).success) {
-      const seq = first.itemSeqs[id];
-      if (seq !== undefined) rejected.push(seq);
-    }
-  }
-  const page = rejected.length ? readWindow(rejected) : first;
-  delete (page as { validate?: unknown }).validate;
-  return take(page);
+export function fetchChunks(db: DatabaseSync, ids: readonly string[]): ChunkRow[] {
+  if (!ids.length) return [];
+  return parse<ChunkRow[]>(binding(db).itemsFetchChunks(JSON.stringify(ids)));
 }
 
-export function nativeTail(
+export function fetchTailHeads(
   db: DatabaseSync,
-  trust: StoredTrust,
-  threadId: ThreadId,
+  threadId: string,
   rootAgentId: string | undefined,
   limit: number,
-  byteLimit: number,
-  statement: (sql: string) => StatementSync,
-): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
-  // Heads and lanes read like the loader's own: three indexed reads, whatever the length.
-  const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
-  const lane = (agentId: string) =>
-    statement(`${columns} AND agent_id = ? ORDER BY created_seq DESC LIMIT ?`).all(
-      threadId,
-      agentId,
-      Math.floor(limit / 2),
-    );
-  const rows = [
-    ...statement(`${columns} ORDER BY created_seq DESC LIMIT ?`).all(threadId, limit + 1),
-    ...(rootAgentId === undefined ? [] : lane(rootAgentId)),
-    ...lane(""),
-  ];
-  const heads = new Map<number, z.infer<typeof TailHead>>();
-  // The bound follows `limit`; the element schema is the shared, compiled `TailHead`.
-  // oxlint-disable-next-line ace/zod-schema-in-function -- wraps a module-level schema
-  for (const row of z
-    .array(TailHead)
-    .max(3 * limit + 1)
-    .parse(rows))
-    heads.set(row.created_seq, row);
-  const sorted = [...heads.values()].toSorted((a, b) => a.created_seq - b.created_seq);
-  const entries = sorted.map((head) => ({
-    id: String(head.id),
-    seq: head.created_seq,
-    root: inRootLane(head.agent_id, rootAgentId),
-  }));
-  const sizes = new Map(sorted.map((head) => [String(head.id), head.size]));
-  const bytes = (ids: readonly { id: string }[]) =>
-    ids.reduce(
-      (total, { id }, index) =>
-        total +
-        (sizes.get(id) ?? 0) +
-        2 * Buffer.byteLength(JSON.stringify(id)) +
-        1 +
-        (index ? 2 : 0),
-      4,
-    );
-  let capacity = Math.min(limit, entries.length);
-  let tail = retainedTail(entries, capacity);
-  while (capacity > 1 && bytes(tail.kept) > byteLimit) tail = retainedTail(entries, --capacity);
-  // A newest item larger than the whole budget still shows, as its bounded text preview.
-  const preview = tail.kept.length === 1 && bytes(tail.kept) > byteLimit;
-  // Bodies and their chunks from one statement, so one snapshot: a completion committed
-  // meanwhile is seen whole or not at all, as the loader's own batched read is.
-  const bodies =
-    "SELECT j.value AS id, 0 AS kind, i.item, i.created_seq, NULL AS seq, NULL AS field, NULL AS append " +
-    "FROM json_each(?1) j JOIN items i ON i.id = j.value " +
-    "UNION ALL " +
-    "SELECT j.value, 1, NULL, NULL, c.seq, c.field, c.append " +
-    "FROM json_each(?1) j JOIN item_text_chunks c ON c.item_id = j.value " +
-    "ORDER BY 1, 2, 5";
-  const kept = tail.kept.map((entry) => ({ id: entry.id, seq: entry.seq ?? 0 }));
-  const union = preview
-    ? []
-    : [...statement(bodies).iterate(JSON.stringify(kept.map((entry) => entry.id)))];
-  return take(
-    read(db, trust, (native, args) =>
-      native.itemsTailRows(
-        threadId,
-        kept.map((entry) => ({ id: entry.id, seq: entry.seq })),
-        tail.before ?? undefined,
-        preview,
-        JSON.stringify(union),
-        args,
-      ),
-    ) as {
-      threadId: ThreadId;
-      items: Item[];
-      itemSeqs: Record<string, number>;
-      itemsBefore: number | null;
-      previewed?: string[];
-      untrusted: string[];
-    },
+): TailHeadRow[] {
+  return parse<TailHeadRow[]>(binding(db).itemsFetchTailHeads(threadId, rootAgentId, limit));
+}
+
+export function fetchStreamSizes(db: DatabaseSync, streamIds: readonly string[]): StreamSizeRow[] {
+  if (!streamIds.length) return [];
+  return parse<StreamSizeRow[]>(binding(db).itemsFetchStreamSizes(JSON.stringify(streamIds)));
+}
+
+export function fetchStreamBytes(
+  db: DatabaseSync,
+  ranges: readonly { id: string; start: number; end: number }[],
+): StreamByteRow[] {
+  if (!ranges.length) return [];
+  const rows = parse<{ stream_id: string; offset: number; bytes: string }[]>(
+    binding(db).itemsFetchStreamBytes(JSON.stringify(ranges)),
   );
+  return rows.map((row) => ({
+    stream_id: row.stream_id,
+    offset: row.offset,
+    bytes: Buffer.from(row.bytes, "base64"),
+  }));
+}
+
+export function fetchTarget(db: DatabaseSync, threadId: string, aroundSeq: number): number | null {
+  const parsed = parse<{ targetSeq: number | null }>(
+    binding(db).itemsFetchTarget(threadId, aroundSeq),
+  );
+  return parsed.targetSeq;
+}
+
+export function fetchNeighborSeqs(
+  db: DatabaseSync,
+  threadId: string,
+  targetSeq: number,
+  before: number,
+  after: number,
+): { older: number[]; newer: number[] } {
+  return parse<{ older: number[]; newer: number[] }>(
+    binding(db).itemsFetchNeighborSeqs(threadId, targetSeq, before, after),
+  );
+}
+
+export function fetchExistence(
+  db: DatabaseSync,
+  threadId: string,
+  first: number,
+  last: number,
+): { hasBefore: boolean; hasAfter: boolean } {
+  return parse<{ hasBefore: boolean; hasAfter: boolean }>(
+    binding(db).itemsFetchExistence(threadId, first, last),
+  );
+}
+
+/** Group UNION body+chunk rows by id, as `materializeAll` groups its statement's rows. */
+export function groupBodyRows(rows: BodyRow[]): {
+  bodies: Map<string, { item: string; created_seq: number }>;
+  chunks: Map<string, { seq: number; field: string; append: string }[]>;
+} {
+  const bodies = new Map<string, { item: string; created_seq: number }>();
+  const chunks = new Map<string, { seq: number; field: string; append: string }[]>();
+  for (const row of rows) {
+    if (row.kind === 0) {
+      if (row.item !== null && row.created_seq !== null)
+        bodies.set(row.id, { item: row.item, created_seq: row.created_seq });
+    } else {
+      if (row.seq !== null && row.field !== null && row.append !== null) {
+        const list = chunks.get(row.id);
+        const entry = { seq: row.seq, field: row.field, append: row.append };
+        if (list) list.push(entry);
+        else chunks.set(row.id, [entry]);
+      }
+    }
+  }
+  return { bodies, chunks };
 }
