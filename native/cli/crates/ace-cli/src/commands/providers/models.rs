@@ -227,8 +227,7 @@ pub fn model_list<W: Write, E: Write>(
 }
 
 fn limit_size(limit: &str) -> CommandResult<u32> {
-    let trimmed = limit.trim();
-    let number: f64 = trimmed.parse().unwrap_or(f64::NAN);
+    let number = cli_parse::js_number(limit);
     if number.is_finite() && number.fract() == 0.0 && (1.0..=100.0).contains(&number) {
         // Range-checked to 1..=100 just above, so neither lint applies.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
