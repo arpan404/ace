@@ -12,12 +12,14 @@ struct SpadeComputerFileEditor: View {
     let path: String
     let name: String
     let face: SpadeModel.Face
+    @Environment(\.scenePhase) private var scene
     @State private var file: SpadeFile?
     @State private var problem: String?
     /// The revision the text on screen began from: a save sends it back.
     @State private var revision: String?
     /// Bumps when other text loads over the editor's, so the view takes it.
     @State private var loads = 0
+    @State private var savedText: String?
     @State private var dirty = false
     @State private var saving = false
     @State private var clashed = false
@@ -27,7 +29,7 @@ struct SpadeComputerFileEditor: View {
     @State private var handle = SourceHandle()
 
     private var fileName: String { path.split(separator: "/").last.map(String.init) ?? path }
-    private var mayAct: Bool { watch.mayAct(model) }
+    private var mayAct: Bool { scene == .active && watch.mayAct(model) }
 
     var body: some View {
         content
@@ -63,7 +65,7 @@ struct SpadeComputerFileEditor: View {
 
     @ViewBuilder private var content: some View {
         if let file, let text = file.text {
-            SourceTextView(document: SourceDocument(key: "\(path)|\(loads)", text: text, language: nil, marks: [:]),
+            SourceTextView(document: SourceDocument(key: "\(path)|\(loads)", text: text, language: nil, marks: [:], original: savedText),
                            wrap: true, editable: mayAct, line: nil, handle: handle, dirty: { dirty = $0 })
                 .accessibilityIdentifier("spade.file.text")
         } else if let file {
@@ -88,6 +90,7 @@ struct SpadeComputerFileEditor: View {
         problem = nil
         file = read
         revision = read.revision
+        savedText = read.text
         dirty = false
         loads += 1
         // Not text: it opens in the viewer at once.
@@ -96,14 +99,17 @@ struct SpadeComputerFileEditor: View {
 
     private func save(over base: String?) async {
         // Checked right before it goes: the person may have handed back meanwhile.
+        guard !saving else { return }
         guard mayAct else { alert = spadeNotNowToChange; return }
         saving = true
         defer { saving = false }
-        var payload: [String: Any] = ["type": "spade.files.save", "agentId": watch.agent, "path": path, "text": handle.text]
-        if let base { payload["base"] = base }
+        guard let base else { alert = "Couldn't check the file. Try again."; return }
+        let text = handle.text
+        let payload: [String: Any] = ["type": "spade.files.save", "agentId": watch.agent, "path": path, "text": text, "base": base]
         let reply = await model.spadeComputer(payload, failing: "Couldn't save \(fileName)", timeout: .seconds(120))
         if reply.ok {
-            dirty = false
+            savedText = text
+            dirty = handle.markSaved(text)
             // Unknown when the bot wrote again right after: a revision no file has, so the next
             // save is refused and asks rather than writing over the bot's.
             revision = reply.revision ?? "unconfirmed-\(UUID().uuidString)"
