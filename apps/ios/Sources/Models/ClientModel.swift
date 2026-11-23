@@ -18,7 +18,7 @@ import QuartzCore
     /// Whether `metadata` came from this visit. A reopened thread keeps its last metadata for
     /// the title, but not its word on status until the current snapshot arrives.
     var metadataCurrent = false
-    var items: [String: ItemModel] = [:]
+    let items = TranscriptItems<ItemModel>()
     var order: [String] = []
     var interactions: [String: ApprovalRow] = [:]
     /// The browser-help request whose card last opened the browser (`BrowserHelpPick`).
@@ -732,7 +732,7 @@ import QuartzCore
                 }
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -761,7 +761,7 @@ import QuartzCore
                 guard let target = scoped(id, epoch) else { continue }
                 moving(target)
                 target.beginSnapshot(revision: revision, warm: true, before: before)
-                target.items.removeAll(keepingCapacity: true)
+                target.items.removeAll()
                 target.positions.removeAll(keepingCapacity: true)
                 target.order = []
                 target.interactions = [:]
@@ -796,7 +796,7 @@ import QuartzCore
                     // Only a row this model holds can leave it.
                     guard target.items[itemId] != nil else { break }
                     moving(target)
-                    target.items.removeValue(forKey: itemId); target.positions.removeValue(forKey: itemId)
+                    target.items[itemId] = nil; target.positions.removeValue(forKey: itemId)
                     target.noteRemoval(id: itemId, seq: removal?.seq, reason: removal?.reason)
                     if live { reorder = true } else { readingReorder = true }
                 }
