@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 
 /// A bar from the shared usage rail. Its height is in percentage points.
