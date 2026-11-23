@@ -13,7 +13,7 @@ fn quote_string(value: &str) -> String {
     }
 }
 
-fn facts_json(facts: &[ace_core::Fact]) -> String {
+fn facts_json(facts: &[ace_core::RawFact]) -> String {
     let mut out = String::with_capacity(facts.len().saturating_mul(256).max(2));
     out.push('[');
     for (index, fact) in facts.iter().enumerate() {

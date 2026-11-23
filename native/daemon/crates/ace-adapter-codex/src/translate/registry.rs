@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Agent registry: ensure and discover threads, replaying history.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde_json::{Map, Value};
 
 use super::facts::fact;
@@ -134,7 +134,7 @@ impl CodexTranslator {
         &mut self,
         id: &str,
         known: bool,
-        facts: &mut Vec<Fact>,
+        facts: &mut Vec<RawFact>,
         metadata: &Map<String, Value>,
         parent: Option<&str>,
     ) -> String {
@@ -192,7 +192,7 @@ impl CodexTranslator {
         &mut self,
         id: &str,
         p: &Map<String, Value>,
-        facts: &mut Vec<Fact>,
+        facts: &mut Vec<RawFact>,
         now: i64,
         options: DiscoverOptions<'_>,
     ) {
@@ -362,7 +362,7 @@ impl CodexTranslator {
         self.finish_unknown(facts);
     }
 
-    fn finish_unknown(&mut self, facts: &mut Vec<Fact>) {
+    fn finish_unknown(&mut self, facts: &mut Vec<RawFact>) {
         if self.unknown_guard && self.buffers.pending() == 0 && !self.buffers.is_overflow() {
             let mut body = Map::with_capacity(2);
             body.insert(

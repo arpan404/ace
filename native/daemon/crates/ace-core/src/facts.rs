@@ -18,6 +18,17 @@ use crate::status::{AgentError, ThreadStatus};
 /// Adapter-owned identity, unique within an entity kind and provider process.
 pub type Key = String;
 
+/// A translator-built fact as untyped JSON: the `type` tag names the fold,
+/// and the body crosses verbatim. Translators build these; only the core
+/// allocates ace ids.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RawFact {
+    /// The fact's `type` tag, which the core's `Fact` enum matches on.
+    pub fact_type: String,
+    /// The fact's body as JSON, kept whole.
+    pub data: Box<serde_json::value::RawValue>,
+}
+
 /// What a translator says a frame means, in adapter-owned native keys.
 /// Drafts stay transient `Map`s: they are validated and merged within the
 /// same apply call, never stored.

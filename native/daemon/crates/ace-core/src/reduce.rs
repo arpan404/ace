@@ -95,7 +95,7 @@ impl FactBatch {
         let batchable = is_batchable(state, &fact);
         let mut preceding = Vec::new();
         if !batchable || self.pending_at != Some(now) {
-            preceding = self.flush(state, events);
+            preceding = self.flush(state);
         }
         let stable_signal = self.preserve_signals
             && matches!(&fact, Fact::Signal { agent: Some(agent) } if get(&state.agents, agent).is_some())
@@ -133,14 +133,13 @@ impl FactBatch {
     }
 
     /// Derive the deferred status, if any.
-    pub fn flush(&mut self, state: &mut ThreadState, events: &mut Vec<Event>) -> Vec<Event> {
+    pub fn flush(&mut self, state: &mut ThreadState) -> Vec<Event> {
         let Some(at) = self.pending_at.take() else {
             return Vec::new();
         };
         let mut flushed = Vec::new();
         recompute_statuses(state, at, &mut flushed);
-        flushed.extend(events.drain(..));
-        std::mem::replace(events, flushed)
+        flushed
     }
 }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Item translation: started and completed thread items.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde_json::{Map, Value};
 
 use super::facts::{fact, raw_payload};
@@ -9,7 +9,7 @@ use super::helpers::{list_of, obj_map, str_empty};
 use super::item::{item_draft, tool_draft};
 use super::state::CodexTranslator;
 
-fn retry_cleared(agent_key: &str) -> Fact {
+fn retry_cleared(agent_key: &str) -> RawFact {
     let mut body = Map::with_capacity(1);
     body.insert("agent".to_owned(), Value::String(agent_key.to_owned()));
     fact("retry.cleared", body)
@@ -26,7 +26,7 @@ pub fn translate_item(
     frame_data: &Value,
     frame_channel: &str,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let agent_key = match translator.agents.get(agent_native) {
         Some(agent) => agent.key.clone(),

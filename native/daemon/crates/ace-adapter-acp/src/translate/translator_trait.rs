@@ -4,13 +4,13 @@
 use crate::translate::translator::AcpTranslator;
 use serde_json::Value;
 
-fn value_to_fact(value: &Value) -> Option<ace_core::Fact> {
+fn value_to_fact(value: &Value) -> Option<ace_core::RawFact> {
     let fact_type = value.get("type")?.as_str()?.to_owned();
     let mut body = value.as_object()?.clone();
     body.shift_remove("type");
     let json = serde_json::to_string(&Value::Object(body)).ok()?;
     let data = serde_json::value::RawValue::from_string(json).ok()?;
-    Some(ace_core::Fact { fact_type, data })
+    Some(ace_core::RawFact { fact_type, data })
 }
 
 fn value_to_json_string(value: &Value) -> Option<String> {
@@ -34,7 +34,7 @@ impl ace_adapter_api::translator::Translator for AcpTranslator {
         &mut self,
         frame: &ace_adapter_api::frame::Frame,
         now_ms: i64,
-    ) -> Vec<ace_core::Fact> {
+    ) -> Vec<ace_core::RawFact> {
         let dir = match frame.dir {
             ace_adapter_api::frame::FrameDirection::Send => "send",
             ace_adapter_api::frame::FrameDirection::Recv => "recv",
@@ -65,7 +65,7 @@ impl ace_adapter_api::translator::Translator for AcpTranslator {
         values.iter().filter_map(value_to_fact).collect()
     }
 
-    fn tick(&mut self, now_ms: i64) -> Vec<ace_core::Fact> {
+    fn tick(&mut self, now_ms: i64) -> Vec<ace_core::RawFact> {
         let values = self.tick(now_ms);
         // Name the inherent method to avoid recursing into this trait method.
         // (The inherent `tick` above is what folds time-based facts.)

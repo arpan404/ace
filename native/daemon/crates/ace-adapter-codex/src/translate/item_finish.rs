@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Item completion: command actions, waiting, background ends and async questions.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde_json::{Map, Value};
 
 use super::command::command_action_items;
@@ -24,7 +24,7 @@ pub fn finish_item(
     translator: &mut CodexTranslator,
     agent_native: &str,
     args: FinishArgs,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let agent_key = args.agent_key;
     let item_id = args.item_id;

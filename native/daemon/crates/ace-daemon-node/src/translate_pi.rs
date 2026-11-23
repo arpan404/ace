@@ -37,7 +37,7 @@ impl PiTranslatorNative {
             let frame = parse_frame(&frame_json)?;
             let now_ms = to_millis(now);
             let facts = self.inner.translate(&frame, now_ms);
-            Ok::<Vec<ace_core::Fact>, PiBindError>(facts)
+            Ok::<Vec<ace_core::RawFact>, PiBindError>(facts)
         }));
         let facts = match result {
             Ok(Ok(facts)) => facts,
@@ -63,7 +63,7 @@ impl PiTranslatorNative {
     pub fn tick(&mut self, now: f64) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             let now_ms = to_millis(now);
-            Ok::<Vec<ace_core::Fact>, PiBindError>(self.inner.tick(now_ms))
+            Ok::<Vec<ace_core::RawFact>, PiBindError>(self.inner.tick(now_ms))
         }));
         let facts = match result {
             Ok(Ok(facts)) => facts,

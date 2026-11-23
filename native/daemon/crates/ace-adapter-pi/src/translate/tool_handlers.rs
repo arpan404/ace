@@ -10,7 +10,7 @@ use super::tools::{
     ace_mcp_error, edit_result_detail, result_is_error, result_suffix, tool_detail, tool_kind,
 };
 use super::{PiTranslator, ToolEntry};
-use ace_core::Fact;
+use ace_core::RawFact;
 use std::collections::HashMap;
 
 impl PiTranslator {
@@ -20,7 +20,7 @@ impl PiTranslator {
         map: &HashMap<String, Box<serde_json::value::RawValue>>,
         data: &serde_json::value::RawValue,
         now: i64,
-        out: &mut Vec<Fact>,
+        out: &mut Vec<RawFact>,
     ) -> bool {
         use super::native::str_field;
         let id = str_field(map, "toolCallId");
@@ -79,7 +79,7 @@ impl PiTranslator {
         data: &serde_json::value::RawValue,
         now: i64,
         is_end: bool,
-        out: &mut Vec<Fact>,
+        out: &mut Vec<RawFact>,
     ) -> bool {
         use super::native::str_field;
         let id = str_field(map, "toolCallId");

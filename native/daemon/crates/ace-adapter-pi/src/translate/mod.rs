@@ -19,7 +19,7 @@ use self::native::{
     bool_field, envelope_type, extract_item, field, list_len, number_field, parse_object, str_field,
 };
 use ace_adapter_api::{Frame, FrameDirection, Translator};
-use ace_core::Fact;
+use ace_core::RawFact;
 use std::collections::HashMap;
 
 #[derive(Debug, thiserror::Error)]
@@ -78,9 +78,9 @@ impl PiTranslator {
         dir: &FrameDirection,
         data: &serde_json::value::RawValue,
         now: i64,
-    ) -> (Vec<Fact>, bool) {
+    ) -> (Vec<RawFact>, bool) {
         let mut retained = false;
-        let mut out: Vec<Fact> = Vec::new();
+        let mut out: Vec<RawFact> = Vec::new();
         let map = parse_object(data).unwrap_or_default();
         let type_name = match envelope_type(data) {
             Some(value) => value,
@@ -314,7 +314,7 @@ impl PiTranslator {
         (out, retained)
     }
 
-    fn on_settled(&mut self, out: &mut Vec<Fact>) {
+    fn on_settled(&mut self, out: &mut Vec<RawFact>) {
         if !self.active || self.poisoned {
             return;
         }
@@ -348,7 +348,7 @@ impl PiTranslator {
     fn on_message_update(
         &mut self,
         map: &HashMap<String, Box<serde_json::value::RawValue>>,
-        out: &mut Vec<Fact>,
+        out: &mut Vec<RawFact>,
     ) {
         let delta_map = match field(map, "assistantMessageEvent") {
             Some(raw) => parse_object(raw).unwrap_or_default(),
@@ -394,7 +394,7 @@ impl Translator for PiTranslator {
         self.deadline
     }
 
-    fn translate(&mut self, frame: &Frame, now_ms: i64) -> Vec<Fact> {
+    fn translate(&mut self, frame: &Frame, now_ms: i64) -> Vec<RawFact> {
         self.diagnostics.clear();
         let (facts, retained) = self.inner(frame.seq, &frame.dir, &frame.data, now_ms);
         if !retained {
@@ -406,7 +406,7 @@ impl Translator for PiTranslator {
         facts
     }
 
-    fn tick(&mut self, now_ms: i64) -> Vec<Fact> {
+    fn tick(&mut self, now_ms: i64) -> Vec<RawFact> {
         let mut out = Vec::new();
         let mut expired = Vec::new();
         for (id, due) in &self.dialogs {

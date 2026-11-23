@@ -178,7 +178,7 @@ impl super::PiTranslator {
         map: &std::collections::HashMap<String, Box<serde_json::value::RawValue>>,
         data: &serde_json::value::RawValue,
         now: i64,
-        out: &mut Vec<ace_core::Fact>,
+        out: &mut Vec<ace_core::RawFact>,
     ) -> bool {
         use super::context_usage::pi_context_sample;
         use super::facts::{

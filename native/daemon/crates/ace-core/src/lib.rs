@@ -42,5 +42,5 @@ pub mod validate_shapes;
 pub mod validate_unknown;
 
 pub use error::CoreError;
-pub use facts::{Fact, Key};
+pub use facts::{Fact, Key, RawFact};
 pub use state::ThreadState;

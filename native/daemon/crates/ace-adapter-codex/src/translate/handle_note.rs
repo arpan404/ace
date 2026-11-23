@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Note frames: session scope, history, discovery, queue and exits.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde_json::{Map, Value};
 
 use super::ParsedFrame;
@@ -14,7 +14,7 @@ pub fn handle_note(
     translator: &mut CodexTranslator,
     frame: &ParsedFrame,
     now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     translator.answer_echoes.note(&frame.data);
     let message = obj_map(&frame.data).clone();

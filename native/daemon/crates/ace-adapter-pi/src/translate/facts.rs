@@ -3,7 +3,7 @@
 
 use super::dialogs::DialogRequest;
 use super::tools::ToolDetail;
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde::Serialize;
 use serde_json::value::RawValue;
 
@@ -19,16 +19,16 @@ pub fn raw_payload<'a>(data: &'a RawValue, default: &str) -> RawPayload<'a> {
     RawPayload { payload_type, data }
 }
 
-pub fn make_fact<T: Serialize + ?Sized>(fact_type: &str, value: &T) -> Option<Fact> {
+pub fn make_fact<T: Serialize + ?Sized>(fact_type: &str, value: &T) -> Option<RawFact> {
     let json = serde_json::to_string(value).ok()?;
     let data = serde_json::from_str::<Box<RawValue>>(&json).ok()?;
-    Some(Fact {
+    Some(RawFact {
         fact_type: fact_type.to_owned(),
         data,
     })
 }
 
-pub fn push_fact<T: Serialize + ?Sized>(out: &mut Vec<Fact>, fact_type: &str, value: &T) {
+pub fn push_fact<T: Serialize + ?Sized>(out: &mut Vec<RawFact>, fact_type: &str, value: &T) {
     if let Some(fact) = make_fact(fact_type, value) {
         out.push(fact);
     }

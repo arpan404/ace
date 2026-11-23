@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Turns: started brackets the agent's work, completed settles it.
 
-use ace_core::Fact;
+use ace_core::RawFact;
 use serde_json::{Map, Value};
 
 use super::ParsedFrame;
@@ -14,7 +14,7 @@ pub fn handle_turn_started(
     native: &str,
     p: &Map<String, Value>,
     _now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let turn = p
         .get("turn")
@@ -81,7 +81,7 @@ pub fn handle_turn_completed(
     p_value: &Value,
     frame: &ParsedFrame,
     _now: i64,
-    facts: &mut Vec<Fact>,
+    facts: &mut Vec<RawFact>,
 ) {
     let turn = p
         .get("turn")

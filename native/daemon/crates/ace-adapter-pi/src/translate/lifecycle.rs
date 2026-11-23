@@ -4,7 +4,7 @@
 use super::PiTranslator;
 use super::facts::{AgentOnly, TurnEnded, TurnStarted, push_fact};
 use super::native::raw_type_of;
-use ace_core::Fact;
+use ace_core::RawFact;
 
 impl PiTranslator {
     pub(super) fn refresh_deadline(&mut self) {
@@ -29,7 +29,7 @@ impl PiTranslator {
         data: &serde_json::value::RawValue,
         text: &str,
         level: &str,
-    ) -> Option<Fact> {
+    ) -> Option<RawFact> {
         let draft = super::facts::NoticeDraft {
             draft_type: "notice".to_owned(),
             complete: true,
@@ -49,7 +49,7 @@ impl PiTranslator {
         super::facts::make_fact("item.upsert", &upsert)
     }
 
-    pub(super) fn start(&mut self) -> Vec<Fact> {
+    pub(super) fn start(&mut self) -> Vec<RawFact> {
         self.settled = false;
         if self.active {
             return Vec::new();
@@ -71,7 +71,7 @@ impl PiTranslator {
         out
     }
 
-    pub(super) fn recovered(&mut self) -> Vec<Fact> {
+    pub(super) fn recovered(&mut self) -> Vec<RawFact> {
         if !self.retrying {
             return Vec::new();
         }
@@ -92,7 +92,7 @@ impl PiTranslator {
         &mut self,
         seq: u64,
         data: &serde_json::value::RawValue,
-    ) -> Vec<Fact> {
+    ) -> Vec<RawFact> {
         self.poisoned = true;
         let mut out = Vec::new();
         if let Some(fact) = self.notice(
@@ -114,7 +114,7 @@ impl PiTranslator {
         out
     }
 
-    pub(super) fn finish(&mut self) -> Vec<Fact> {
+    pub(super) fn finish(&mut self) -> Vec<RawFact> {
         if !self.active || !self.settled || self.poisoned || !self.dialogs.is_empty() {
             return Vec::new();
         }
