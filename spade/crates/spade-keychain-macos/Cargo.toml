@@ -1,7 +1,7 @@
 [package]
 name = "spade-keychain-macos"
 version = "0.1.0"
-description = "The macOS Security calls behind Spade owning its keychain entries (ADR 0119 amendment 2); empty on other systems"
+description = "The macOS Security calls behind Spade owning its keychain entries (ADR 0119 amendment 1); empty on other systems"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

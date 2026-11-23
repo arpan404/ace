@@ -1,4 +1,4 @@
-//! Spade owning its keychain entries (ADR 0119 amendment 2): where the platform lets Spade set an
+//! Spade owning its keychain entries (ADR 0119 amendment 1): where the platform lets Spade set an
 //! entry's access list (macOS), every entry it writes trusts Spade by its code signature, and an
 //! entry from before that is filed again once, the first time this process reads it.
 //!

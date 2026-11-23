@@ -12,7 +12,7 @@ keyring-core.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt"] }
 tracing.workspace = true
-# Secrets held in memory are wiped when dropped (ADR 0119 amendment 2).
+# Secrets held in memory are wiped when dropped (ADR 0119 amendment 1).
 zeroize = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]

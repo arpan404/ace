@@ -1,5 +1,5 @@
 //! Where the platform has an [`Owner`] (macOS), Spade writes every entry through it and files an
-//! entry it didn't write again, once, after reading it (ADR 0119 amendment 2). The owner here is a
+//! entry it didn't write again, once, after reading it (ADR 0119 amendment 1). The owner here is a
 //! fake over `keyring-core`'s mock; the real one is checked by hand (`keys.rs`, ignored test).
 
 mod support;

@@ -1,5 +1,5 @@
 //! Secrets Spade has already read, kept in this process's memory for its life (ADR 0119
-//! amendment 2), so the keychain is asked for each one once: a read the keychain's access list
+//! amendment 1), so the keychain is asked for each one once: a read the keychain's access list
 //! doesn't cover puts up a prompt, and a prompt on every model call is what this stops.
 //!
 //! Only Spade's own API changes an entry, so only Spade's own changes invalidate one. A read that

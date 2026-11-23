@@ -276,7 +276,7 @@ async fn run() -> Result<(), Failure> {
 
     // A release Spade on the live home files its keychain entries under its own service; any
     // other build or home under the dev one, so the two never touch each other's (ADR 0119
-    // amendment 2).
+    // amendment 1).
     let user_home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
     let placement = spade_keys::Placement::of_this_process(
         &config.data_dir,

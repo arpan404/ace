@@ -4,7 +4,7 @@
 //! contains one.
 //!
 //! Each secret is read from the store once per process and then kept in memory until Spade itself
-//! replaces or deletes it (ADR 0119 amendment 2). On macOS every entry Spade writes carries an
+//! replaces or deletes it (ADR 0119 amendment 1). On macOS every entry Spade writes carries an
 //! access list trusting Spade by its code signature, so a signed update reads it without a prompt
 //! (see [`owner`]).
 //!

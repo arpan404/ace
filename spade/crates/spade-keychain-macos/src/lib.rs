@@ -1,4 +1,4 @@
-//! The macOS Security calls behind Spade owning its keychain entries (ADR 0119 amendment 2). Each
+//! The macOS Security calls behind Spade owning its keychain entries (ADR 0119 amendment 1). Each
 //! call is wrapped in a safe function; `spade-keys`, which forbids `unsafe`, decides when to make
 //! them. Empty on other systems.
 //!

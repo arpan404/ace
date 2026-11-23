@@ -1,7 +1,7 @@
 //! Legacy (file-based) login keychain items with an explicit access list, through the Security
 //! framework. The data-protection keychain would need a `keychain-access-groups` entitlement,
 //! which a Developer ID command-line binary can only carry with an embedded provisioning profile
-//! (ADR 0119 amendment 2), so Spade stays on the login keychain and sets the access list itself.
+//! (ADR 0119 amendment 1), so Spade stays on the login keychain and sets the access list itself.
 
 use std::ffi::c_char;
 use std::fmt;

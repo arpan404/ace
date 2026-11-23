@@ -1,5 +1,5 @@
 //! Each secret is read from the keychain once per process, then kept in memory until Spade
-//! changes it (ADR 0119 amendment 2). The keychain is `keyring-core`'s mock.
+//! changes it (ADR 0119 amendment 1). The keychain is `keyring-core`'s mock.
 
 mod support;
 

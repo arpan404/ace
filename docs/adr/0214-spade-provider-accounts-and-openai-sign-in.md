@@ -24,8 +24,8 @@ clients do, rather than only through the Codex CLI.
 ## Decision
 
 1. **An account is an endpoint.** Spade's endpoints (ADR 0126) already have their own id, key and
-   models, and nothing stopped two from the same preset. Each one is now shown as an *account* of
-   a *provider*: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
+   models, and nothing stopped two from the same preset. Each one is now shown as an _account_ of
+   a _provider_: the preset it was made from (`openai`, `anthropic`, `opencode-go`, …), or its
    own address for one added from scratch. A provider holds any number of accounts. An account
    signs in one of three ways: an API key (ADR 0119), none (a local server), or a ChatGPT
    sign-in (below).
@@ -57,7 +57,10 @@ clients do, rather than only through the Codex CLI.
    pair is always written and read together. The sealing key, 32 random bytes per account, is
    the only secret in the OS credential store, under `oauth:<account id>`: small, with a
    fixed-length name, so every platform's store takes it (Windows limits a secret to 2,560 bytes
-   and a name to 513). Tokens are held in memory while in use, and never written to SQLite, the
+   and a name to 513). Like every Spade secret, the sealing key is read from the store once per
+   process and then kept in memory until Spade replaces or deletes it, and on macOS its entry
+   trusts Spade by its code signature (ADR 0119 amendment 1), so opening the sealed file on each
+   call never asks the keychain again. Tokens are held in memory while in use, and never written to SQLite, the
    event log, logs, traces, crash reports, settings files or sync, never returned by any API, and
    never sent to the relay or ace's cloud. Only facts that are not secrets (email, plan, the
    ChatGPT account id) are kept in Spade's database. Signing out deletes the sealed file and its
@@ -85,7 +88,9 @@ clients do, rather than only through the Codex CLI.
    a home's folder holds the same account ids and sealed files, so it opens the same sign-ins,
    just as it already resumes the same work: a copy of a live home is never run (the project's
    standing rule). Nothing here guards against that. API keys stay filed by endpoint id as
-   before; that they are shared across homes predates this decision (issue #2651).
+   before. Since ADR 0119 amendment 1 a dev build or dev home files every entry under its own
+   service (`dev.acehq.spade.dev`), so dev and live Spade never share an entry (issue #2651);
+   dev homes on one machine still share that one service.
 8. **A signed-in call's waits.** A call holds the account's dispatch gate until the backend's
    first frame (its headers and first event) arrives, at most two minutes, so a sign-out never
    overtakes a send and a backend that never answers can't hold one off for longer. After that

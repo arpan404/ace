@@ -616,7 +616,7 @@ async fn a_keychain_that_fails_to_answer_refuses_a_host_change_instead_of_passin
         .await?;
     assert_eq!(status, 201, "{body}");
     // The key was stored by an earlier run, so this process has yet to read it: a key Spade has
-    // read once is answered from memory (ADR 0119 amendment 2).
+    // read once is answered from memory (ADR 0119 amendment 1).
     spade.store_key_directly("gate", KEY)?;
     spade.fail_keychain_once("gate")?;
     let (status, body) = patch(
