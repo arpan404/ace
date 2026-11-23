@@ -16,7 +16,12 @@ import { BoundedEvents } from "./bounded-events.ts";
 import { rolledBack, type LineageFile } from "./sequence-lineage.ts";
 /** Committed sequences between marks: a rollback within the last this many may go unseen. */
 const lineageStride = 64;
-import { StoreStream, type TransactionOutcome } from "./store-stream.ts";
+import {
+  SettlementPass,
+  settleOutcomes,
+  StoreStream,
+  type TransactionOutcome,
+} from "./store-stream.ts";
 import { closeStore } from "./store-shutdown.ts";
 import { EventEncodings } from "./event-encodings.ts";
 import { ThreadReadCache } from "./thread-read-cache.ts";
@@ -458,8 +463,7 @@ export class Store {
   /** The key what the idle trust pass confirms is kept under; see `storedTrustBuild`. */
   readonly storedTrustBuild: string | undefined;
   private onError: (error: unknown) => void;
-  /** The failure onError last took, or the error it threw, so `settle` reports neither again. */
-  private reported: unknown;
+  private settlementsPass: SettlementPass | undefined;
   /** A checkpoint on this connection that gives up rather than wait for a lock. */
   private checkpointWal(mode: "PASSIVE" | "TRUNCATE"): boolean {
     if (mode === "PASSIVE")
@@ -596,7 +600,7 @@ export class Store {
         this.rolledBack++;
         this.sidebarReads.invalidate();
         this.transactionEvents.length = length;
-        this.settle(this.settlements.splice(settling), "rolledBack");
+        settleOutcomes(this.settlements.splice(settling), "rolledBack", this.onError);
         throw error;
       } finally {
         this.depth--;
@@ -628,7 +632,7 @@ export class Store {
       this.writtenThreads.clear();
       this.rolledBack++;
       this.sidebarReads.invalidate();
-      this.settle(this.settlements.splice(0), "rolledBack");
+      settleOutcomes(this.settlements.splice(0), "rolledBack", this.onError);
       throw error;
     } finally {
       this.threads.end();
@@ -636,42 +640,35 @@ export class Store {
       this.doomed = undefined;
     }
     // The live buffer publishes its own commits: stored rows may compact a prefix that
-    // subscribers have already received. Every committed settlement runs even when a
-    // publication throws (a lineage write's onError may rethrow): a skipped reservation would
-    // stay unconfirmed and keep gating publication. The first error is rethrown last.
+    // subscribers have already received. A committed settlement runs even if publication throws.
     const settlements = this.settlements.splice(0);
-    let failed = false;
-    let failure: unknown;
-    const step = (action: () => void) => {
-      try {
-        action();
-      } catch (error) {
-        if (!failed) {
-          failed = true;
-          failure = error;
-        }
+    const pass = new SettlementPass(this.onError);
+    const enclosing = this.settlementsPass;
+    this.settlementsPass = pass;
+    try {
+      if (outcome) pass.step(() => outcome.committed());
+      let from = 0;
+      for (const settlement of settlements) {
+        if (!outcome) pass.step(() => this.publishFresh(events.slice(from, settlement.at)));
+        from = settlement.at;
+        settleOutcomes([settlement], "committed", this.onError, pass);
       }
-    };
-    if (outcome) step(() => outcome.committed());
-    let from = 0;
-    for (const settlement of settlements) {
-      if (!outcome) step(() => this.publishFresh(events.slice(from, settlement.at)));
-      from = settlement.at;
-      this.settle([settlement], "committed");
-    }
-    if (!outcome) step(() => this.publishFresh(events.slice(from)));
-    for (const listener of this.usageListeners) {
-      try {
-        listener();
-      } catch (error) {
+      if (!outcome) pass.step(() => this.publishFresh(events.slice(from)));
+      for (const listener of this.usageListeners) {
         try {
-          this.onError(error);
-        } catch {
-          /* committed */
+          listener();
+        } catch (error) {
+          try {
+            this.onError(error);
+          } catch {
+            /* committed */
+          }
         }
       }
+    } finally {
+      this.settlementsPass = enclosing;
     }
-    if (failed) throw failure;
+    pass.rethrow();
     return result;
   }
   /**
@@ -696,42 +693,12 @@ export class Store {
       /* The caller rethrows its own error. */
     }
   }
-  /**
-   * Report a failure once. `onError` may throw, and the throw reaches a settlement's catch as
-   * the same failure: neither that error nor one already reported is handed back to it.
-   */
-  private reportOnce(error: unknown): void {
-    if (error === this.reported) return;
-    this.reported = error;
-    try {
-      this.onError(error);
-    } catch (thrown) {
-      this.reported = thrown;
-      throw thrown;
-    }
-  }
   private rollBack(): void {
     if (!this.db.isTransaction) return;
     try {
       this.db.exec("ROLLBACK");
     } catch (error) {
       this.reportQuietly(error);
-    }
-  }
-  private settle(
-    settlements: { outcome: TransactionOutcome }[],
-    result: keyof TransactionOutcome,
-  ): void {
-    for (const { outcome } of settlements) {
-      try {
-        outcome[result]();
-      } catch (error) {
-        try {
-          this.reportOnce(error);
-        } catch {
-          /* The transaction has already settled. */
-        }
-      }
     }
   }
   private publishFresh(events: Event[]): void {
@@ -1163,7 +1130,9 @@ export class Store {
       this.lineage.write({ token: this.sidebarToken(), reserved: seq });
     } catch (error) {
       // A mark not written only narrows what a rollback can be told by; never fatal to a write.
-      this.reportOnce(error);
+      const pass = this.settlementsPass;
+      if (!pass) this.onError(error);
+      else if (!pass.threw(error)) pass.report(error);
     }
   }
   /**

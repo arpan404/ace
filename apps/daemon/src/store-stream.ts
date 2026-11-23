@@ -21,6 +21,73 @@ export interface TransactionOutcome {
   rolledBack(): void;
 }
 
+/**
+ * One post-commit pass's failures. `onError` may throw; the throw is boxed by identity so a
+ * settlement that sees it again, or a lineage mark inside the pass, reports it only once.
+ */
+export class SettlementPass {
+  private readonly boxes = new WeakSet<object>();
+  private failed = false;
+  private failure: unknown;
+  private readonly onError: (error: unknown) => void;
+  constructor(onError: (error: unknown) => void) {
+    this.onError = onError;
+  }
+  /** Report a failure; a throw from onError is boxed, recorded and rethrown internally. */
+  report(error: unknown): void {
+    try {
+      this.onError(error);
+    } catch (thrown) {
+      const box = { fromOnError: thrown };
+      this.boxes.add(box);
+      throw box;
+    }
+  }
+  /** Whether `error` is a box this pass produced. */
+  threw(error: unknown): boolean {
+    return typeof error === "object" && error !== null && this.boxes.has(error);
+  }
+  /** Run one step, keeping the first error while the rest still run. */
+  step(action: () => void): void {
+    try {
+      action();
+    } catch (error) {
+      if (!this.failed) {
+        this.failed = true;
+        this.failure = error;
+      }
+    }
+  }
+  /** Throw what the first failing step threw, unwrapped, or nothing. */
+  rethrow(): void {
+    if (!this.failed) return;
+    const error: unknown = this.failure;
+    throw this.threw(error) ? (error as { fromOnError: unknown }).fromOnError : error;
+  }
+}
+
+/** Settle nested outcomes, reporting each failure once through `pass` (or `onError` directly). */
+export function settleOutcomes(
+  settlements: { outcome: TransactionOutcome }[],
+  result: keyof TransactionOutcome,
+  onError: (error: unknown) => void,
+  pass?: SettlementPass,
+): void {
+  for (const { outcome } of settlements) {
+    try {
+      outcome[result]();
+    } catch (error) {
+      try {
+        if (pass?.threw(error)) continue;
+        if (pass) pass.report(error);
+        else onError(error);
+      } catch {
+        /* The transaction has already settled. */
+      }
+    }
+  }
+}
+
 /** Thin store shell around the pinned buffer. Sequence reservation and publication share one owner. */
 export class StoreStream {
   readonly buffer: LiveWriteBuffer;
