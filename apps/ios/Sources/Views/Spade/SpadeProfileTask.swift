@@ -24,8 +24,9 @@ struct SpadeProfileTask<Editor: View>: View {
             if let scope { SpadeTaskHistory(scope: scope, task: task) }
         }
         .task(id: scope?.agent) { await readPackage() }
-        if let scope, let effects = package?.effects, !effects.isEmpty {
-            SpadeProfileEffects(scope: scope, effects: effects, changed: readPackage)
+        if let scope, let effects = package?.effects, !effects.isEmpty || package?.effectsIncomplete == true {
+            SpadeProfileEffects(scope: scope, effects: effects, hash: package?.hash,
+                                incomplete: package?.effectsIncomplete == true, changed: readPackage)
         }
     }
 

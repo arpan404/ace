@@ -64,7 +64,9 @@ struct SpadeRoutineDraft: Equatable {
     init(name: String, instruction: String, trigger: SpadeRoutineTrigger?, words: String) {
         self.name = name
         self.instruction = instruction
-        defer { opened = trigger == nil ? nil : self.trigger }
+        // A kept schedule opened as nothing the form says: once the person picks new fields,
+        // even the ones the form starts on (every day at 9:00), they are a change to save.
+        defer { opened = trigger == nil || kept != nil ? nil : self.trigger }
         guard let trigger else {
             kept = words
             return
@@ -86,6 +88,15 @@ struct SpadeRoutineDraft: Equatable {
         default:
             kept = words
         }
+    }
+
+    /// The form keeps a schedule it can't show; its fields are hidden until `chooseNewTime`.
+    var keepsSchedule: Bool { kept != nil }
+
+    /// The person sets a new time in place of the kept schedule: the fields show as they stand
+    /// (every day at 9:00 at first), and Save sends them.
+    mutating func chooseNewTime() {
+        kept = nil
     }
 
     /// Name, what it does each time, and (with no schedule kept) days to run on.

@@ -58,6 +58,16 @@ import Testing
         #expect(draft.changedTrigger == Self.schedule("every 2 hours"))
     }
 
+    @Test func replacingAKeptCronWithTheFormsOwnDefaultSavesIt() {
+        var draft = SpadeRoutineDraft(name: "Brief", instruction: "Sum up", trigger: Self.schedule("0 9 * * *"), words: "Cron 0 9 * * *")
+        #expect(draft.keepsSchedule)
+        draft.chooseNewTime()
+        // Nothing else touched: every day at 9:00, which is not what Spade holds.
+        #expect(!draft.keepsSchedule)
+        #expect(draft.changedTrigger == Self.schedule("daily at 9:00"))
+        #expect(draft.words == "Every day at 9:00")
+    }
+
     @Test func anUnchangedRoutineSendsNoTriggerAndARetimedOneDoes() {
         var draft = SpadeRoutineDraft(name: "Brief", instruction: "Sum up", trigger: Self.schedule("weekdays at 9:00"), words: "")
         #expect(draft.changedTrigger == nil)

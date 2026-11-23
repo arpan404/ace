@@ -11,7 +11,11 @@ struct SpadePackageLine: Decodable, Equatable, Sendable {
         let on: Bool
         /// A send, a payment or an access change still goes to the person every time.
         let eachTime: Bool
+        /// What it is held to beyond its words: "env matching staging".
+        let limits: [String]
         var id: String { key }
+        /// Its words with what it is held to: "Uses deploy without asking, env matching staging".
+        var held: String { ([words] + limits).joined(separator: ", ") }
     }
     /// "From flight-watcher 1.0.0 in the Marketplace."
     let sentence: String
@@ -23,7 +27,11 @@ struct SpadePackageLine: Decodable, Equatable, Sendable {
     let withdrawn: Bool
     /// A template bot's newer template from its Spade.
     let template: String?
+    /// The version the switches were read on; a switch goes with it, so it can't land on another.
+    let hash: String?
     let effects: [Effect]
+    /// Spade sent effects this build can't read: the list isn't all the package declares.
+    let effectsIncomplete: Bool
 }
 
 /// A template update's review: what changes, what stays because the person or the bot changed
@@ -32,6 +40,8 @@ struct SpadeTemplateOffer: Decodable, Equatable, Sendable {
     struct Effect: Decodable, Equatable, Hashable, Sendable {
         let words: String
         let why: String
+        let limits: [String]
+        var held: String { ([words] + limits).joined(separator: ", ") }
     }
     /// The very version reviewed, sent back as it came so only it is taken.
     struct Identity: Codable, Equatable, Sendable {
@@ -72,9 +82,10 @@ extension ClientModel {
         await spadePackageCall(["type": "spade.package", "agentId": agent], failing: "Couldn't read its package")
     }
 
-    /// One declared effect's switch: on is the person's grant, off narrows it.
-    func spadePackageEffect(_ agent: String, key: String, on: Bool) async -> SpadeOutcome {
-        await spadeRequest(["type": "spade.package.effect", "agentId": agent, "key": key, "on": on],
+    /// One declared effect's switch, on the package version it was read on (`hash`): on is the
+    /// person's grant, off narrows it. Spade refuses it if the package changed since.
+    func spadePackageEffect(_ agent: String, key: String, on: Bool, hash: String) async -> SpadeOutcome {
+        await spadeRequest(["type": "spade.package.effect", "agentId": agent, "key": key, "on": on, "hash": hash],
                            failing: on ? "Couldn't turn it on" : "Couldn't turn it off")
     }
 

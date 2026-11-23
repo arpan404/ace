@@ -43,6 +43,9 @@ struct SpadeLibraryResults: View {
     let query: String
     @State private var answer: SpadeLibraryAnswer?
     @State private var asked = ""
+    /// Each search's number: only the latest one asked may land, even when two ask the same
+    /// words (a retry beside a typed search) and an older one comes back last.
+    @State private var generation = 0
 
     private var trimmed: String { query.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -82,8 +85,10 @@ struct SpadeLibraryResults: View {
     }
 
     private func search(_ words: String) async {
+        generation += 1
+        let ticket = generation
         let read = await scope.client.spadeLibrarySearch(scope.agent, query: words)
-        guard words == trimmed else { return }
+        guard ticket == generation, words == trimmed else { return }
         answer = read
         asked = words
     }

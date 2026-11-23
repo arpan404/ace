@@ -1,21 +1,41 @@
 import SwiftUI
 
-/// The task's history, folded under the task (spade/docs/agents.md, "A bot's task over time"):
-/// each earlier version, newest first, with who made it and when ("Nov 19, 8:02 AM"), opening to
-/// read whole. Read again whenever the task changes; nothing shows while it has only ever had one.
+/// The task's history (spade/docs/agents.md, "A bot's task over time"): under the task, who made
+/// the version in use and when; then, folded, each earlier version, newest first, with who made
+/// it and when ("Nov 19, 8:02 AM"), opening to read whole, a page of them at a time. Read again
+/// whenever the task changes; nothing folds while it has only ever had one.
 struct SpadeTaskHistory: View {
     let scope: SpadeProfileScope
     let task: String
+    /// Earlier versions shown before Show more, and how many each press adds.
+    static let page = 5
     @State private var versions: [SpadeTaskVersion] = []
+    /// How many versions Spade kept that this read left out, oldest last.
+    @State private var more = 0
+    @State private var shown = SpadeTaskHistory.page
     @State private var open = false
 
     var body: some View {
         Group {
+            if let newest = versions.first {
+                Text(Self.meta(newest))
+                    .aceFont(AceDesign.TextRole.meta)
+                    .foregroundStyle(AceDesign.Ink.muted)
+                    .accessibilityIdentifier("spade.task.newest")
+            }
             if versions.count > 1 {
+                let earlier = Array(versions.dropFirst())
                 DisclosureGroup(isExpanded: $open) {
-                    ForEach(versions.dropFirst()) { version in
+                    ForEach(earlier.prefix(shown)) { version in
                         NavigationLink { SpadeTaskVersionPage(version: version) } label: { row(version) }
                             .accessibilityIdentifier("spade.task.version")
+                    }
+                    if earlier.count > shown {
+                        Button("Show \(min(Self.page, earlier.count - shown)) more") { shown += Self.page }
+                            .buttonStyle(.rowAction)
+                            .accessibilityIdentifier("spade.task.history.more")
+                    } else if more > 0 {
+                        SpadeProfileNone(text: "\(more) older on the computer")
                     }
                 } label: {
                     Label("Earlier versions", ace: .clockCounterClockwise)
@@ -28,7 +48,11 @@ struct SpadeTaskHistory: View {
         .task(id: task) {
             let answer = await scope.client.spadeTaskHistory(scope.agent)
             // A read that failed leaves the history folded away as it was.
-            if let read = answer.versions { versions = read }
+            if let read = answer.versions {
+                versions = read
+                more = answer.more ?? 0
+                shown = Self.page
+            }
         }
     }
 

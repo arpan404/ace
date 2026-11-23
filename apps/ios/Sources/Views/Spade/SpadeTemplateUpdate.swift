@@ -11,7 +11,8 @@ struct SpadeTemplateUpdate: View {
     let updated: () async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var answer: SpadePackageAnswer?
-    @State private var confirming = false
+    /// The offer the confirmation names and takes: the one read and shown, never a later read.
+    @State private var confirming: SpadeTemplateOffer?
     @State private var saving = false
     @State private var problem: String?
 
@@ -31,6 +32,9 @@ struct SpadeTemplateUpdate: View {
                         ForEach(offer.effects, id: \.self) { effect in
                             VStack(alignment: .leading, spacing: AceTheme.Spacing.none) {
                                 Text(effect.words).aceFont(AceDesign.TextRole.rowTitle)
+                                ForEach(effect.limits, id: \.self) { limit in
+                                    Text("Only with \(limit)").aceFont(AceDesign.TextRole.meta)
+                                }
                                 Text(effect.why).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
                             }
                             .accessibilityElement(children: .combine)
@@ -56,15 +60,17 @@ struct SpadeTemplateUpdate: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 if saving { ProgressView() } else {
-                    Button("Update to \(version)") { confirming = true }
+                    Button("Update to \(answer?.offer?.version ?? version)") { confirming = answer?.offer }
                         .disabled(answer?.offer == nil)
                         .accessibilityIdentifier("spade.template.update")
                 }
             }
         }
-        .confirmationDialog("Update \(scope.name) to \(version)?", isPresented: $confirming, titleVisibility: .visible) {
-            Button("Update") { take() }
-        } message: {
+        .confirmationDialog(confirming.map { "Update \(scope.name) to \($0.version)?" } ?? "",
+                            isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
+                            titleVisibility: .visible, presenting: confirming) { offer in
+            Button("Update") { take(offer) }
+        } message: { _ in
             Text("What it asks for more starts off until you turn it on in its Security section.")
         }
         .presentationDetents([.medium, .large])
@@ -83,8 +89,8 @@ struct SpadeTemplateUpdate: View {
         answer = await scope.client.spadeTemplateOffer(scope.agent)
     }
 
-    private func take() {
-        guard let offer = answer?.offer, !saving else { return }
+    private func take(_ offer: SpadeTemplateOffer) {
+        guard !saving else { return }
         saving = true
         problem = nil
         Task {

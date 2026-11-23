@@ -22,18 +22,27 @@ struct SpadeRoutineEditor: View {
                     .accessibilityIdentifier("spade.routine.name")
             }
             Section {
-                Picker("When it runs", selection: $draft.kind) {
-                    ForEach(SpadeRoutineDraft.Kind.allCases) { Text($0.rawValue).tag($0) }
+                if draft.keepsSchedule {
+                    // A schedule the form can't show (cron, several times a day): kept as it is
+                    // until the person sets a new time.
+                    Text(draft.words).aceFont(AceDesign.TextRole.rowTitle).foregroundStyle(AceDesign.Ink.primary)
+                    Button("Choose a new time") { draft.chooseNewTime() }
+                        .buttonStyle(.rowAction)
+                        .accessibilityIdentifier("spade.routine.newTime")
+                } else {
+                    Picker("When it runs", selection: $draft.kind) {
+                        ForEach(SpadeRoutineDraft.Kind.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                    .accessibilityIdentifier("spade.routine.kind")
+                    fields
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .accessibilityIdentifier("spade.routine.kind")
-                fields
             } header: {
                 Text("When it runs")
             } footer: {
-                Text(draft.words).accessibilityIdentifier("spade.routine.words")
+                if !draft.keepsSchedule { Text(draft.words).accessibilityIdentifier("spade.routine.words") }
             }
             Section("Each time") {
                 TextEditor(text: $draft.instruction)
