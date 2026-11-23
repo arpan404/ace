@@ -8,18 +8,18 @@ import SwiftUI
 struct SpadeKeySetupCard: View {
     let setup: SpadeOnboarding.Setup
     let save: (_ choice: String, _ key: String?, _ address: String?, _ model: String?) async -> SpadeOnboarding.Answer
-    @State private var picked: String?
-    @State private var key = ""
-    @State private var address = ""
-    @State private var model = ""
+    @State private var draft = SpadeKeySetupDraft()
     @State private var saving = false
     @State private var problem: String?
 
-    private var choice: String { picked ?? setup.picked }
+    private var choice: String { draft.picked ?? setup.picked }
     private var option: SpadeOnboarding.Option? { setup.options.first { $0.value == choice } }
     private var keyless: Bool { option?.key == true && !setup.keychain }
-    private var typedKey: String { key.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var typedAddress: String { address.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var typedKey: String { draft.key.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var typedAddress: String { draft.address.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var key: Binding<String> { Binding(get: { draft.key }, set: { draft.key = $0 }) }
+    private var address: Binding<String> { Binding(get: { draft.address }, set: { draft.typeAddress($0) }) }
+    private var model: Binding<String> { Binding(get: { draft.model }, set: { draft.model = $0 }) }
     private var waiting: Bool {
         guard let option else { return true }
         return (option.key && typedKey.isEmpty) || (option.address && typedAddress.isEmpty)
@@ -38,7 +38,7 @@ struct SpadeKeySetupCard: View {
             endpointMenu
             if let option {
                 if option.address {
-                    field("http://localhost:11434/v1/", text: $address, id: "spade.setup.address")
+                    field("http://localhost:11434/v1/", text: address, id: "spade.setup.address")
                         .keyboardType(.URL)
                     Text("Ollama, LM Studio and most other servers work as they are.")
                         .aceFont(AceDesign.TextRole.meta).foregroundStyle(AceDesign.Ink.muted)
@@ -49,8 +49,9 @@ struct SpadeKeySetupCard: View {
                 } else if option.key || (option.address && setup.keychain) {
                     keyField(optional: option.address)
                 }
+                // With no models to pick, an id can be typed: a retry after a server listed none.
                 if !option.models.isEmpty { modelMenu(option.models) }
-                else if option.address { field("Model id (optional)", text: $model, id: "spade.setup.model") }
+                else { field("Model id (optional)", text: model, id: "spade.setup.model") }
             }
             if let problem {
                 Text(problem).aceFont(AceDesign.TextRole.meta).foregroundStyle(AceTheme.StatusText.failed)
@@ -84,10 +85,10 @@ struct SpadeKeySetupCard: View {
     private func modelMenu(_ models: [SpadeOnboarding.ModelChoice]) -> some View {
         Menu {
             ForEach(models) { each in
-                Button(each.name) { model = each.id }
+                Button(each.name) { draft.model = each.id }
             }
         } label: {
-            menuRow(title: "Model", value: models.first { $0.id == model }?.name ?? models.first?.name)
+            menuRow(title: "Model", value: models.first { $0.id == draft.model }?.name ?? models.first?.name)
         }
         .disabled(saving)
         .accessibilityIdentifier("spade.setup.modelChoice")
@@ -105,7 +106,7 @@ struct SpadeKeySetupCard: View {
     }
 
     private func keyField(optional: Bool) -> some View {
-        SecureField(optional ? "Key, only if the server asks for one" : "Paste the key", text: $key)
+        SecureField(optional ? "Key, only if the server asks for one" : "Paste the key", text: key)
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .submitLabel(.done)
@@ -125,28 +126,62 @@ struct SpadeKeySetupCard: View {
     }
 
     private func choose(_ value: String) {
-        picked = value
-        model = ""
+        draft.choose(value, from: choice)
         problem = nil
     }
 
     private func submit() {
         guard !saving, !waiting else { return }
-        let sent = typedKey
         // The field lets go of the key as it leaves.
-        key = ""
+        let sent = draft.takeKey()
         saving = true
         problem = nil
         let chosen = choice
         let server = typedAddress
-        let id = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = draft.model.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             let answer = await save(chosen, sent.isEmpty ? nil : sent, server.isEmpty ? nil : server, id.isEmpty ? nil : id)
             saving = false
             guard !answer.ok else { return }
             problem = answer.problem
-            if let made = answer.picked { picked = made; address = "" }
+            if let made = answer.picked { draft.adopt(made) }
         }
+    }
+}
+
+/// What the setup card holds as the person types. A pasted key belongs to the endpoint or server
+/// it was typed for: choosing another, or changing the address, lets it go, so it can never be
+/// saved under, or sent to, a different provider.
+struct SpadeKeySetupDraft: Equatable {
+    private(set) var picked: String?
+    var key = ""
+    private(set) var address = ""
+    var model = ""
+
+    /// Another endpoint, service or server: the key and model typed for the last one go.
+    mutating func choose(_ value: String, from current: String) {
+        guard value != current else { return }
+        picked = value
+        key = ""
+        model = ""
+    }
+    /// The server's address as typed: any change lets the key go.
+    mutating func typeAddress(_ text: String) {
+        guard text != address else { return }
+        address = text
+        key = ""
+    }
+    /// The key, trimmed, for one save; the draft holds it no longer.
+    mutating func takeKey() -> String {
+        defer { key = "" }
+        return key.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    /// A refused save had made its endpoint: that endpoint is the choice now, so a retry never
+    /// adds another; the typed model stays for it.
+    mutating func adopt(_ made: String) {
+        picked = made
+        address = ""
+        key = ""
     }
 }
 

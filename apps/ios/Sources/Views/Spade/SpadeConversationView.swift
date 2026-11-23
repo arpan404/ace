@@ -26,6 +26,8 @@ struct SpadeConversationView: View {
     @State private var profileShown = false
     /// A voice message couldn't go for want of a transcription model: the choice of one, at the foot.
     @State private var voiceSetup: SpadeOnboarding.Voice?
+    /// The person put first run's interview off until this chat opens again.
+    @State private var firstRunLater = false
     /// Whether the chat keeps its end on screen (`ChatEndFollow`): only while the person is there.
     @State private var follow = ChatEndFollow(slack: Double(AceDesign.Space.group))
     /// Where the scroll is and which stack holds the rows, kept where writing them redraws nothing.
@@ -245,7 +247,7 @@ struct SpadeConversationView: View {
             }
             .padding(.top, AceDesign.Space.related)
         }
-        SpadeFirstRunFoot(client: client, conversation: conversation)
+        SpadeFirstRunFoot(client: client, conversation: conversation, later: $firstRunLater)
     }
 
     /// Offers a transcription model when none is chosen; a voice message refused for another reason

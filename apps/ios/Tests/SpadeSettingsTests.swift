@@ -53,6 +53,35 @@ import Testing
         #expect(shown.answer != nil)
     }
 
+    @Test func aPastedKeyGoesWhenTheEndpointOrAddressChanges() {
+        var draft = SpadeKeySetupDraft()
+        draft.key = "sk-or-typed-for-openrouter"
+        draft.choose("endpoint:openrouter", from: "endpoint:openrouter")
+        #expect(draft.key == "sk-or-typed-for-openrouter")
+
+        draft.choose("custom", from: "endpoint:openrouter")
+        #expect(draft.key.isEmpty)
+
+        draft.typeAddress("http://localhost:11434/v1/")
+        draft.key = "sk-local"
+        draft.typeAddress("http://elsewhere.example/v1/")
+        #expect(draft.key.isEmpty)
+    }
+
+    @Test func aRefusedSetupThatMadeItsEndpointRetriesOnItWithTheTypedModel() {
+        var draft = SpadeKeySetupDraft()
+        draft.choose("custom", from: "endpoint:openrouter")
+        draft.typeAddress("http://localhost:11434/v1/")
+        draft.model = "llama3"
+        _ = draft.takeKey()
+
+        draft.adopt("endpoint:localhost")
+
+        #expect(draft.picked == "endpoint:localhost")
+        #expect(draft.address.isEmpty)
+        #expect(draft.model == "llama3")
+    }
+
     @Test func aSecurityChangeLandsAsThePageSpadeNowHolds() throws {
         func security(apps: Bool) throws -> SpadeSettings.Answer {
             try answer("""

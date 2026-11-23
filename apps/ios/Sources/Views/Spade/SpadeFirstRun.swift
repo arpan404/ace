@@ -8,15 +8,17 @@ struct SpadeFirstRunFoot: View {
     let client: ClientModel
     let conversation: String
     @State private var foot: SpadeOnboarding.Foot?
-    /// Later: the interview waits until the chat opens again.
-    @State private var later = false
+    /// Later: the interview waits until the chat opens again. Held by the conversation, so the
+    /// foot drawn again (a sent message moves the rows) keeps it.
+    @Binding var later: Bool
 
     var body: some View {
         Group {
             if let setup = foot?.setup {
                 SpadeKeySetupCard(setup: setup) { choice, key, address, model in
                     let answer = await client.spadeOnboardingModel(conversation, choice: choice, key: key, address: address, model: model)
-                    if answer.ok { foot = answer.foot }
+                    // A refused setup that made its endpoint offers it for the retry.
+                    if answer.ok || answer.foot != nil { foot = answer.foot }
                     return answer
                 }
             } else if let about = foot?.aboutYou, !later {
