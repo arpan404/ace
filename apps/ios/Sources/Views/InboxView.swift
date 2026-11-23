@@ -141,11 +141,11 @@ struct InboxView: View {
     }
 
     @TabContentBuilder<InboxTab> private var placeTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads, chosen: tab == .threads), value: InboxTab.threads) {
+        Tab(HomeTabs.title(.threads), image: HomeTabs.tabImage(.threads), value: InboxTab.threads) {
             stack(.threads, path: $threadsPath, drawer: $threadsDrawer).environment(\.homePlace, .threads)
         }
         .placeTab(.threads, waiting: waiting(.threads))
-        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats, chosen: tab == .chats), value: InboxTab.chats) {
+        Tab(HomeTabs.title(.chats), image: HomeTabs.tabImage(.chats), value: InboxTab.chats) {
             stack(.chats, path: $chatsPath, drawer: $chatsDrawer).environment(\.homePlace, .chats)
         }
         .placeTab(.chats, waiting: waiting(.chats))
@@ -155,7 +155,7 @@ struct InboxView: View {
     /// bar draws its face still (`tab-spade`); the sidebar's foot draws it moving.
     @TabContentBuilder<InboxTab> private var spadeTab: some TabContent<InboxTab> {
         if showsSpade {
-            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade, chosen: tab == .spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
+            Tab(HomeTabs.title(.spade), image: HomeTabs.tabImage(.spade), value: InboxTab.spade) { spade.environment(\.homePlace, .spade) }
                 .placeTab(.spade, waiting: waiting(.spade))
         }
     }
@@ -164,7 +164,7 @@ struct InboxView: View {
     /// opens it over Projects instead (`reviewing`).
     @TabContentBuilder<InboxTab> private var reviewTab: some TabContent<InboxTab> {
         if sizeClass == .regular {
-            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review, chosen: tab == .review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
+            Tab(HomeTabs.title(.review), image: HomeTabs.tabImage(.review), value: InboxTab.review) { review.environment(\.homePlace, .review) }
                 .accessibilityIdentifier("tab.\(HomeTabs.identifier(.review))")
         }
     }
@@ -173,7 +173,7 @@ struct InboxView: View {
     /// tab holds the only search role and no tab-level search is set, so the system never gives
     /// Compose Search's field.
     @TabContentBuilder<InboxTab> private var searchTabs: some TabContent<InboxTab> {
-        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search, chosen: tab == .search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
+        Tab(HomeTabs.title(.search), image: HomeTabs.tabImage(.search), value: InboxTab.search) { search.environment(\.homePlace, .search) }
             .accessibilityIdentifier("tab.\(HomeTabs.identifier(.search))")
     }
 
@@ -182,7 +182,7 @@ struct InboxView: View {
     /// leaves the tab showing (`tabChoice`). A regular window composes from the list's top bar.
     @TabContentBuilder<InboxTab> private var composeTab: some TabContent<InboxTab> {
         if sizeClass != .regular && inbox.canStartThreads {
-            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose, chosen: false), value: InboxTab.compose, role: .search) {
+            Tab(tab == .chats ? "New chat" : HomeTabs.title(.compose), image: HomeTabs.tabImage(.compose), value: InboxTab.compose, role: .search) {
                 Color.clear
             }
             .accessibilityIdentifier("inbox.compose")

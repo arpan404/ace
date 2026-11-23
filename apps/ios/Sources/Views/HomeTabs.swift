@@ -26,12 +26,9 @@ enum HomeTabs {
         }
     }
 
-    /// A place's glyph on the phone's system tab bar and the iPad sidebar's foot: ace's own icon
-    /// at the bar's size, filled while its tab is chosen. Spade's is its face, still and the same
-    /// chosen or not (`tab-spade`); the sidebar's foot draws it moving instead (`SpadeMark`).
-    static func tabImage(_ tab: InboxTab, chosen: Bool) -> String {
-        if tab == .spade { return "tab-spade" }
-        return "tab-\(icon(tab).rawValue)\(chosen ? "-fill" : "")"
+    /// The system tab bar uses the same glyph for both selection states.
+    static func tabImage(_ tab: InboxTab) -> String {
+        tab == .spade ? "tab-spade" : "tab-\(icon(tab).rawValue)"
     }
 
     /// The web rail's glyph for each place.

@@ -100,7 +100,7 @@ struct HomePlaceGlyph: View {
             if place == .spade {
                 SpadeMark(size: AceDesign.Size.barIcon, moving: spadeWorking)
             } else {
-                Image(HomeTabs.tabImage(place, chosen: chosen))
+                Image(HomeTabs.tabImage(place) + (chosen ? "-fill" : ""))
                     .resizable()
                     .scaledToFit()
                     .frame(width: AceDesign.Size.barIcon, height: AceDesign.Size.barIcon)

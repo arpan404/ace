@@ -20,6 +20,7 @@ import {
   extra,
   filledIcons,
   fromSymbols,
+  sidebarFilledIcons,
   tabIconSize,
   tabIcons,
 } from "./icon-names.ts";
@@ -34,7 +35,7 @@ import {
  * written in regular (`icon-<name>`) and bold (`icon-<name>-bold`), and those in `filledIcons`
  * filled (`icon-<name>-fill`). A name is the `@ace/icons`
  * glyph of the same name, else the glyph `drawnAs` gives it. The tab bar's glyphs (`tabIcons`) are
- * also written at its size, outline and filled (`tab-<name>`, `tab-<name>-fill`), with Spade's
+ * also written at its size (`tab-<name>`), with filled variants for the iPad sidebar and Spade's
  * face still and in one colour as `tab-spade` (the app draws it moving elsewhere, `SpadeMark`), and the navigation bar's button glyphs (`barIcons`) at a bar symbol's size (`bar-<name>`). Add an icon by adding its name to
  * `extra`, or a row to `fromSymbols` when it replaces an SF Symbol. Every curated project glyph and machine mark (`@ace/ui-core`) is included, so
  * the bridge can name them. The outputs are committed.
@@ -119,12 +120,13 @@ for (const name of filledIcons) {
   if (!source) throw new Error(`${name} is a filled icon but not one of the icons.`);
   await writeAsset(assetName(name, "fill"), filledAssetSvg(source.icon, source.turn));
 }
-// The tab bar's glyphs at its size, outline and filled, each named in `names` above.
+// The tab bar's glyphs at its size, each named in `names` above.
 for (const name of tabIcons) {
   const source = sources.find((entry) => entry.name === name);
   if (!source) throw new Error(`${name} is a tab icon but not one of the icons: add it to extra.`);
   await writeAsset(`tab-${name}`, assetSvg(source.icon, "regular", source.turn, tabIconSize));
-  await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
+  if (sidebarFilledIcons.has(name))
+    await writeAsset(`tab-${name}-fill`, assetSvg(source.icon, "fill", source.turn, tabIconSize));
 }
 // Spade's face for the system tab bar: the bar draws one colour and can't move it.
 const { pupil, pad } = spadePupilForSize(tabIconSize - 2);
