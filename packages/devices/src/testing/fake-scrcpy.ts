@@ -38,38 +38,66 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
   throw new Error("Condition was not reached");
 }
 
+/** The device name, codec, session and opening units one greeting carries. */
+function greet(socket: Socket, initial: boolean): void {
+  const name = Buffer.alloc(64);
+  name.write("sdk_gphone64_arm64");
+  socket.write(
+    Buffer.concat([
+      name,
+      Buffer.from("h264"),
+      session(540, 1200),
+      media(0x40, sps),
+      // A reopened handshake resumes at the next keyframe the daemon asks for: only the
+      // first handshake carries the opening key and delta.
+      ...(initial ? [media(0x20, nal(0x65, 1)), media(0x00, nal(0x41, 2))] : []),
+    ]),
+  );
+}
+
 /**
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
  * dummy byte on the first connection, device name once control connects, then video.
+ *
+ * A new connection greets as video again once the last video socket is gone (ace-media
+ * restarting dials the same tunnel): control it collects, every video greeting it answers
+ * with the dummy byte, and once control has connected once, with the name and stream too.
  */
 export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
   const sockets: Socket[] = [];
   let control = Buffer.alloc(0);
+  let video: Socket | undefined;
+  let controlSocket: Socket | undefined;
+  let videoAlive = false;
+  let controlSeen = false;
   const server: Server = createServer((socket) => {
     sockets.push(socket);
-    if (sockets.length === 1) socket.write(Buffer.from([0]));
-    else if (options.resetAtControl) {
+    socket.on("error", () => {});
+    if (!video || video.destroyed || !videoAlive) {
+      // (Re)greet as video: the dummy byte now, the name and stream once control connects.
+      video = socket;
+      videoAlive = true;
+      socket.once("close", () => {
+        if (video === socket) videoAlive = false;
+      });
+      socket.write(Buffer.from([0]));
+      if (controlSeen) greet(socket, false);
+      return;
+    }
+    if (options.resetAtControl && !controlSeen) {
+      controlSeen = true;
       // The emulator dies before it names itself: control is reset at once, and the first
       // socket, still awaited for the device name, ends a moment later.
       socket.resetAndDestroy();
-      setTimeout(() => sockets[0]?.destroy(), 200);
-    } else {
-      socket.on("data", (chunk: Buffer) => {
-        control = Buffer.concat([control, chunk]);
-      });
-      const name = Buffer.alloc(64);
-      name.write("sdk_gphone64_arm64");
-      sockets[0]?.write(
-        Buffer.concat([
-          name,
-          Buffer.from("h264"),
-          session(540, 1200),
-          media(0x40, sps),
-          media(0x20, nal(0x65, 1)),
-          media(0x00, nal(0x41, 2)),
-        ]),
-      );
+      setTimeout(() => video?.destroy(), 200);
+      return;
     }
+    controlSeen = true;
+    controlSocket = socket;
+    socket.on("data", (chunk: Buffer) => {
+      control = Buffer.concat([control, chunk]);
+    });
+    if (videoAlive) greet(video, true);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(
@@ -84,9 +112,9 @@ export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: b
   return {
     port: address.port,
     control: () => control,
-    write: (bytes: Buffer) => sockets[1]?.write(bytes),
-    /** More video on the first socket, as the device's encoder sends it. */
-    video: (bytes: Buffer) => sockets[0]?.write(bytes),
+    write: (bytes: Buffer) => controlSocket?.write(bytes),
+    /** More video on the live video socket, as the device's encoder sends it. */
+    video: (bytes: Buffer) => video?.write(bytes),
     hangUp: () => {
       for (const socket of sockets) socket.destroy();
     },

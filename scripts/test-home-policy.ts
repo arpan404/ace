@@ -122,6 +122,10 @@ export function isolatedTestEnvironment(
     ...(ambient.ACE_SUPERVISOR !== undefined ? { ACE_SUPERVISOR: ambient.ACE_SUPERVISOR } : {}),
     ...(ambient.ACE_ENGINE !== undefined ? { ACE_ENGINE: ambient.ACE_ENGINE } : {}),
     ...(ambient.ACE_CORE !== undefined ? { ACE_CORE: ambient.ACE_CORE } : {}),
+    // The devices switches (ADR 0225): a run with one on proves the native phase.
+    ...(ambient.ACE_SCRCPY_VIDEO !== undefined
+      ? { ACE_SCRCPY_VIDEO: ambient.ACE_SCRCPY_VIDEO }
+      : {}),
     ...(ambient.ACE_NATIVE_CROSS !== undefined
       ? { ACE_NATIVE_CROSS: ambient.ACE_NATIVE_CROSS }
       : {}),

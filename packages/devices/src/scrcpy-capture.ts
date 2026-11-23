@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
+import type { Socket } from "node:net";
 import { framePacket, type Frame } from "@ace/screen";
 import type { ScreenStreamSettings } from "@ace/protocol";
 import type { AppDevice as Device, DeviceInput } from "@ace/protocol/devices";
+import { scrcpyVideoBackend } from "@ace/provider-kit/native-switches";
 import type { DeviceCapture } from "./capture.ts";
 import type { DevicePlatform } from "./platform.ts";
 import type { DeviceRuntime } from "./runtime.ts";
@@ -17,7 +19,15 @@ import {
 } from "./scrcpy-protocol.ts";
 import { ScrcpyVideoUnits, type VideoUnit } from "./scrcpy-video.ts";
 import { HeldPointers, scrcpyInputPlan } from "./scrcpy-input.ts";
-import { startScrcpyServer, type ScrcpyConnection } from "./scrcpy-server.ts";
+import {
+  startScrcpyServer,
+  startScrcpyTunnel,
+  openScrcpySocket,
+  scrcpyDidNotStart,
+  scrcpyClosedDuringStartup,
+  type ScrcpyConnection,
+  type ScrcpyTunnel,
+} from "./scrcpy-server.ts";
 import { ScrcpyClipboard } from "./scrcpy-clipboard.ts";
 import type { EmulatorGrpc } from "./emulator-discovery.ts";
 import { startHostFrames, type HostFrames } from "./host-frames.ts";
@@ -61,6 +71,39 @@ function profileFor(
     fps: settings.fps,
   };
 }
+/** How long ace-media gets for one scrcpy video handshake (D1): one startup deadline. */
+const scrcpyMediaStartupMs = 10_000;
+
+/** The addon D1 needs is missing: fail, never fall back to the daemon's sockets. */
+function scrcpyAddonMissing(): DeviceError {
+  return new DeviceError(
+    "command_failed",
+    "The Android live view needs ace-media's scrcpy reader",
+    "Update ace to a build that reads scrcpy's video, or unset ACE_SCRCPY_VIDEO.",
+  );
+}
+
+/** D1: whether ace-media reads a run's video socket itself. */
+function mediaVideoFor(profile: ServerProfile): boolean {
+  return profile.video !== false && scrcpyVideoBackend() === "native";
+}
+
+/**
+ * Rejects when `signal` aborts: a handshake wait ends at once, not at its deadline.
+ * The wait's own timer still fires later, harmlessly, once the race has settled.
+ */
+function abortRace<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  signal?.throwIfAborted();
+  if (!signal) return promise;
+  const cancel = Promise.withResolvers<never>();
+  const onAbort = () =>
+    cancel.reject(new DOMException("Device capture startup cancelled", "AbortError"));
+  signal.addEventListener("abort", onAbort, { once: true });
+  return Promise.race([promise, cancel.promise]).finally(() =>
+    signal.removeEventListener("abort", onAbort),
+  );
+}
+
 /**
  * Whether a new profile is worth restarting the server, which costs a second or more without
  * a picture. A new size or frame rate always is. A bit rate alone (a viewer's link moving) is
@@ -199,6 +242,14 @@ export async function scrcpyCapture(options: {
   let forwarded = 0;
   const media = options.media;
   let scrcpyPaths: DeviceVideoPaths | undefined;
+  /** One D1 handshake's waiters: greeted, then ready with the device name. */
+  type ScrcpyHandshake = {
+    greeted: PromiseWithResolvers<void>;
+    ready: PromiseWithResolvers<string>;
+  };
+  let handshake: ScrcpyHandshake | undefined;
+  /** Greeted with no handshake armed yet (a reopen greets right after its point). */
+  let greetedEarly = false;
   const pathsFor = () =>
     (scrcpyPaths ??= media
       ? new DeviceVideoPaths({
@@ -271,6 +322,211 @@ export async function scrcpyCapture(options: {
     // Opens the source in ace-media, which points the capture at its ingest once it has it.
     pathsFor();
   };
+  /** D1: the tunnel and port the current handshake runs on, for failure texts and re-dials. */
+  let activeTunnel: ScrcpyTunnel | undefined;
+  let activePort = 0;
+  const armHandshake = (): ScrcpyHandshake => {
+    const attempt: ScrcpyHandshake = {
+      greeted: Promise.withResolvers<void>(),
+      ready: Promise.withResolvers<string>(),
+    };
+    handshake = attempt;
+    if (greetedEarly) {
+      greetedEarly = false;
+      attempt.greeted.resolve();
+    }
+    return attempt;
+  };
+  /** D1: ace-media ended the source, mid-handshake or mid-stream. */
+  const mediaClosed = (reason: string | undefined): void => {
+    const pending = handshake;
+    handshake = undefined;
+    if (pending) {
+      const error =
+        reason === "scrcpy-not-started"
+          ? scrcpyDidNotStart(activeTunnel?.said() ?? "")
+          : scrcpyClosedDuringStartup();
+      pending.greeted.reject(error);
+      pending.ready.reject(error);
+      return;
+    }
+    const live = link;
+    if (!live || stopped) return;
+    // The stream ended under a running capture: today's restart rule, as for new viewer
+    // settings. Unchanged settings are never worth a restart, so the capture ends.
+    const wanted = profileFor(settings, transport, live.profile.scid);
+    if (scrcpyRestartWorthIt(live.profile, wanted, runtime.now() - live.startedAt)) {
+      link = undefined;
+      restarting = (async () => {
+        await disconnect(live);
+        if (!stopped) await connect();
+      })();
+      void restarting.then(
+        () => {
+          restarting = undefined;
+        },
+        (error: unknown) => {
+          restarting = undefined;
+          fail(error);
+        },
+      );
+      return;
+    }
+    lost(
+      live,
+      new DeviceError(
+        "command_failed",
+        "The Android screen stream ended",
+        "Start the device view again.",
+      ),
+    );
+  };
+  const pathsForMedia = (
+    port: number,
+    deadlineMs: number | undefined,
+  ): DeviceVideoPaths | undefined => {
+    if (scrcpyPaths) return scrcpyPaths;
+    if (!media) return undefined;
+    const d1 = new DeviceVideoPaths({
+      media,
+      source: `scrcpy:${options.streamId}`,
+      kind: "scrcpy",
+      origin: { kind: "scrcpy", host: "127.0.0.1", port },
+      deviceId: device.id,
+      emit: (unit) => {
+        // The picture's size comes from the units themselves, not a handshake: track it
+        // for input mapping, which refuses to run before the screen has started.
+        const live = link;
+        if (!live || stopped) return;
+        const size = live.units.size;
+        if (
+          (size.width !== unit.width || size.height !== unit.height) &&
+          unit.width > 0 &&
+          unit.height > 0 &&
+          unit.width <= 16384 &&
+          unit.height <= 16384
+        )
+          live.units.push({ type: "session", width: unit.width, height: unit.height });
+        live.streaming = true;
+        publishVideo(unit);
+      },
+      // ace-media is its own producer here: it reads the socket, so there is no ingest to
+      // point at. A move cuts the old path, and the new one starts at a keyframe.
+      switch: async (address) => ({ ingest: address ? "on" : "off", boundary: null, cut: true }),
+      keyframe: () => keyframe(),
+      schedule: (callback, ms) => runtime.after(ms, callback),
+      scrcpy: {
+        ...(deadlineMs === undefined ? {} : { deadlineMs }),
+        greeted: () => {
+          if (handshake) handshake.greeted.resolve();
+          else greetedEarly = true;
+        },
+        ready: (deviceName) => {
+          handshake?.ready.resolve(deviceName);
+        },
+        closed: (reason) => mediaClosed(reason),
+        repointed: () => {
+          void rehandshake().catch(() => {});
+        },
+      },
+    });
+    scrcpyPaths = d1;
+    return d1;
+  };
+  /** D1: one video handshake under the single startup deadline. */
+  const shakeHands = async (
+    tunnel: ScrcpyTunnel,
+    port: number,
+    paths: DeviceVideoPaths,
+    haveControl: Socket | undefined,
+    deadline: number,
+  ): Promise<{ control: Socket; deviceName: string }> => {
+    const remaining = () => Math.max(1, deadline - runtime.now());
+    const failAt = (error: () => unknown): Promise<never> =>
+      new Promise((_, reject) => {
+        runtime.after(remaining(), () => reject(error()));
+      });
+    // A server exit fails the start at once, with today's text; a rejecting server is no
+    // exit, as today.
+    const serverExit = (): Promise<never> =>
+      tunnel.exited.then(
+        () => {
+          throw scrcpyDidNotStart(tunnel.said());
+        },
+        () => new Promise<never>(() => {}),
+      );
+    const attempt = armHandshake();
+    try {
+      activeTunnel = tunnel;
+      activePort = port;
+      options.signal?.throwIfAborted();
+      // The dummy byte, before anything else: the device name follows only once every
+      // socket is connected.
+      await abortRace(
+        Promise.race([
+          attempt.greeted.promise,
+          serverExit(),
+          failAt(() => scrcpyDidNotStart(tunnel.said())),
+        ]),
+        options.signal,
+      );
+      options.signal?.throwIfAborted();
+      let control = haveControl && !haveControl.destroyed ? haveControl : undefined;
+      if (!control) {
+        const socket = await abortRace(
+          Promise.race([
+            openScrcpySocket(port, runtime, remaining(), options.signal).then((connected) => {
+              options.signal?.throwIfAborted();
+              if (connected === undefined)
+                throw remaining() <= 1
+                  ? scrcpyDidNotStart(tunnel.said())
+                  : scrcpyClosedDuringStartup();
+              return connected;
+            }),
+            serverExit(),
+            failAt(() => scrcpyDidNotStart(tunnel.said())),
+          ]),
+          options.signal,
+        );
+        control = socket;
+      }
+      paths.controlConnected();
+      options.signal?.throwIfAborted();
+      const deviceName = await abortRace(
+        Promise.race([
+          attempt.ready.promise,
+          serverExit(),
+          failAt(() => scrcpyDidNotStart(tunnel.said())),
+        ]),
+        options.signal,
+      );
+      return { control, deviceName };
+    } finally {
+      if (handshake === attempt) handshake = undefined;
+    }
+  };
+  /** D1: ace-media restarted under a live capture: the same tunnel gets a fresh handshake. */
+  let rehandshaking = false;
+  const rehandshake = async (): Promise<void> => {
+    const live = link;
+    const source = scrcpyPaths;
+    const tunnel = activeTunnel;
+    if (!live || !source || !tunnel || stopped || rehandshaking || handshake) return;
+    rehandshaking = true;
+    try {
+      await shakeHands(
+        tunnel,
+        activePort,
+        source,
+        live.connection.control,
+        runtime.now() + scrcpyMediaStartupMs,
+      );
+    } catch (error) {
+      fail(error);
+    } finally {
+      rehandshaking = false;
+    }
+  };
   /** Starts a server run and makes it the current link before any of its video is read. */
   const connect = async (): Promise<void> => {
     let current: Link | undefined;
@@ -319,6 +575,118 @@ export async function scrcpyCapture(options: {
         schedule: (callback, ms) => runtime.after(ms, callback),
       });
     const profile: ServerProfile = { ...wanted, video: frames === undefined };
+    if (mediaVideoFor(profile)) {
+      // D1: ace-media reads the video socket itself. The daemon keeps the server, the
+      // forward and control; video arrives on egress once the handshake finishes.
+      if (media === undefined) throw scrcpyAddonMissing();
+      const tunnel = await startScrcpyTunnel({
+        adb: transport.adb,
+        serial,
+        jar: options.jar,
+        profile,
+        command: (args, maxBytes, timeoutMs) =>
+          platform.transportCommand(device, serial, args, maxBytes, timeoutMs),
+        runtime,
+        env: options.env,
+        ...(options.signal ? { signal: options.signal } : {}),
+      }).catch(async (error: unknown) => {
+        paths?.close();
+        await frames?.stop();
+        throw error;
+      });
+      // The source opens first, so a missing addon fails with nothing half-started; only a
+      // build that speaks the reader gets the handshake's deadline. A media the capture
+      // cannot query (a test stand-in) is tried: the startup deadline bounds an old one.
+      const queried = media.speaks?.("scrcpy-video");
+      const d1 = pathsForMedia(tunnel.port, queried === false ? undefined : scrcpyMediaStartupMs);
+      if (!d1 || queried === false) {
+        await tunnel.close();
+        throw scrcpyAddonMissing();
+      }
+      const deadline = runtime.now() + scrcpyMediaStartupMs;
+      try {
+        const { control, deviceName } = await shakeHands(
+          tunnel,
+          tunnel.port,
+          d1,
+          undefined,
+          deadline,
+        );
+        let closingTunnel: Promise<void> | undefined;
+        const started: Link = {
+          connection: {
+            video: undefined,
+            control,
+            initialVideo: Buffer.alloc(0),
+            initialControl: Buffer.alloc(0),
+            deviceName,
+            exited: tunnel.exited,
+            close: () =>
+              (closingTunnel ??= (async () => {
+                control.destroy();
+                await tunnel.close();
+              })()),
+          },
+          profile,
+          frames,
+          paths,
+          startedAt: runtime.now(),
+          clipboard: new ScrcpyClipboard({
+            send: (message) => send(message, started),
+            after: runtime.after,
+          }),
+          streaming: false,
+          // The picture's size comes from the units, not a handshake: the paths track it.
+          units: new ScrcpyVideoUnits(
+            () => {},
+            () => {},
+          ),
+        };
+        current = started;
+        const messages = new DeviceMessageReader((message) => started.clipboard.received(message));
+        control.on("data", (chunk: Buffer) => {
+          try {
+            messages.push(chunk);
+          } catch (error) {
+            lost(started, error);
+          }
+        });
+        control.on("error", () => {});
+        control.once("close", () =>
+          lost(
+            started,
+            new DeviceError(
+              "command_failed",
+              "The Android screen stream ended",
+              "Start the device view again.",
+            ),
+          ),
+        );
+        // `exited` reports the tunnel's exit and does not reject.
+        void tunnel.exited
+          .then(() =>
+            lost(
+              started,
+              new DeviceError(
+                "command_failed",
+                "scrcpy-server stopped on the device",
+                "Start the device view again.",
+              ),
+            ),
+          )
+          .catch(() => {});
+        if (stopped) {
+          await disconnect(started);
+          return;
+        }
+        link = started;
+        control.resume();
+        return;
+      } catch (error) {
+        await tunnel.close();
+        throw error;
+      }
+    }
     const connection = await startScrcpyServer({
       adb: transport.adb,
       serial,
@@ -416,6 +784,15 @@ export async function scrcpyCapture(options: {
     if (stopped) return;
     stopped = true;
     unwatch?.();
+    // A handshake still waiting ends now: its waits would otherwise hang until the deadline.
+    const waiting = handshake;
+    handshake = undefined;
+    greetedEarly = false;
+    if (waiting) {
+      const error = new DOMException("Device capture stopped", "AbortError");
+      waiting.greeted.reject(error);
+      waiting.ready.reject(error);
+    }
     const current = link;
     link = undefined;
     await restarting?.catch(() => {});
@@ -442,9 +819,10 @@ export async function scrcpyCapture(options: {
     });
 
   // The source opens in ace-media before the device sends its first keyframe, so that one
-  // is the first unit forwarded.
+  // is the first unit forwarded. With the switch on, the D1 handshake opens it instead,
+  // once the tunnel's port is known.
   try {
-    pathsFor();
+    if (scrcpyVideoBackend() !== "native") pathsFor();
     await connect();
     options.signal?.throwIfAborted();
     unwatch = platform.watchCaptureTransport(device, serial, (error) => fail(error));

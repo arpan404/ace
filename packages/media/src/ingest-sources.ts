@@ -55,7 +55,20 @@ export type IngestProducer = {
   deviceId?: string;
   /** The privacy epoch the producer stamps now. */
   epoch: () => number;
-  /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */
+  /**
+   * D1: ace-media reads this producer's video itself (a scrcpy device's socket), not over
+   * ingest: its source is closed there at once when leaving, and its open carries the
+   * handshake's deadline below.
+   */
+  mediaReads?: boolean;
+  /** D1: longest ace-media spends bringing this source's own picture, in milliseconds. */
+  deadlineMs?: number;
+  /** D1: ace-media saw scrcpy's dummy byte; connect control now. */
+  greeted?: () => void;
+  /** D1: the scrcpy handshake finished; video follows on egress, under this device name. */
+  ready?: (
+    deviceName: string,
+  ) => void /** Whether that epoch is private (M8), for a JPEG source's open in ace-media. */;
   private?: () => boolean;
   /** The daemon's legacy consumers of this source, fed from egress. */
   consumers: LegacyConsumers;
@@ -299,6 +312,10 @@ export type IngestSource = {
   encodes(encodes: EncodeSpec[]): void;
   /** For a JPEG source: the encode's next unit is a keyframe. */
   key(encode: number): void;
+  /** D1: the daemon connected scrcpy's control socket; read the name and codec now. */
+  controlConnected?: () => void;
+  /** D1: re-dial the video handshake at an adb-forwarded tunnel, under the same source. */
+  dial?: (host: string, port: number) => void;
   /**
    * The source's privacy epoch from now on (M8), for a producer whose frames ace-media stamps
    * as it reads them (a JPEG source's pictures): `followsPrivate` says the one it replaces was
@@ -380,6 +397,16 @@ export class IngestSources {
       key: (encode) => {
         const live = entry.live;
         if (live) this.#send({ type: "source.key", source: live.id, encode });
+      },
+      // D1: the daemon connected scrcpy's control socket; read the name and codec now.
+      controlConnected: () => {
+        const live = entry.live;
+        if (live) this.#send({ type: "source.controlConnected", source: live.id });
+      },
+      // D1: re-dial the video handshake at a tunnel, under the same source.
+      dial: (host, port) => {
+        const live = entry.live;
+        if (live) this.#send({ type: "source.dial", source: live.id, host, port });
       },
       epoch: (epoch, followsPrivate) => {
         // Held until the open is acknowledged: on the priority lane it could overtake the
@@ -541,7 +568,9 @@ export class IngestSources {
     if (
       message.type !== "source.status" &&
       message.type !== "source.keyframe" &&
-      message.type !== "source.want"
+      message.type !== "source.want" &&
+      message.type !== "source.greeted" &&
+      message.type !== "source.ready"
     )
       return;
     const path = this.#paths.get(message.source);
@@ -550,6 +579,14 @@ export class IngestSources {
     if (entry.closed || entry.live !== path) return;
     if (message.type === "source.keyframe") {
       if (entry.state === "ingest") entry.producer.keyframe(message.encode);
+      return;
+    }
+    if (message.type === "source.greeted") {
+      if (entry.state === "ingest") entry.producer.greeted?.();
+      return;
+    }
+    if (message.type === "source.ready") {
+      if (entry.state === "ingest") entry.producer.ready?.(message.deviceName);
       return;
     }
     if (message.type === "source.want") {
@@ -664,6 +701,8 @@ export class IngestSources {
         port.speaks("privacy-open")
           ? { private: true }
           : {}),
+        // D1: a scrcpy source ace-media reads itself carries its handshake's deadline.
+        ...(producer.deadlineMs === undefined ? {} : { deadlineMs: producer.deadlineMs }),
         origin: producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),
@@ -800,7 +839,10 @@ export class IngestSources {
     // ace-media stays up until the path's last unit is in, whatever the routes say now.
     path.release = this.#options.port.need();
     path.draining = this.#options.schedule(() => this.#finish(path, true, true), drainMs);
-    if (readByMedia.has(path.entry.producer.kind)) this.#closeInMedia(path);
+    // A source ace-media reads itself closes there at once, so nothing of its socket
+    // outlives the capture: its units come on the same lane as the close.
+    if (readByMedia.has(path.entry.producer.kind) || path.entry.producer.mediaReads === true)
+      this.#closeInMedia(path);
   }
 
   #marked(path: Path, interrupted: boolean): void {
