@@ -8,7 +8,11 @@ import {
   spadeModelGroups,
   spadeModelLabel,
   spadeModelState,
+  spadeAccountState,
+  spadeProviderCounts,
   spadeProviderGroups,
+  spadeProviderProblem,
+  spadeProviderState,
   spadeUsedByWords,
   type SpadeEndpoint,
 } from "./index.ts";
@@ -165,5 +169,102 @@ describe("signing in to ChatGPT", () => {
 
   test("an answer without a flow doesn't read as one", () => {
     expect(parseSpadeSignInFlow(JSON.stringify({ error: "no" }))).toBeUndefined();
+  });
+});
+
+const now = Date.UTC(2026, 10, 22, 12, 0);
+const hour = 3_600_000;
+const keyed = (fields: Record<string, unknown>) =>
+  endpoint({
+    id: "anthropic",
+    provider: "anthropic",
+    auth: "key",
+    needs_key: true,
+    key_set: true,
+    ...fields,
+  });
+const limited = (id: string, until: number) =>
+  endpoint({
+    ...chatgpt(true),
+    id,
+    name: id,
+    account: { email: id, plan: "plus", signed_in: true, limited_until: until },
+  });
+
+describe("where a provider and its accounts stand", () => {
+  test("an account at its usage limit says when it lifts, then reads ready once it has", () => {
+    const account = limited("work", now + 4 * hour);
+    const state = spadeAccountState(account, true, now);
+    expect(state.tone).toBe("problem");
+    expect(state.text).toMatch(/^Limit reached · resets /);
+    expect(state.fix).toBeUndefined();
+    expect(spadeAccountState(account, true, now + 5 * hour)).toEqual({
+      tone: "ready",
+      text: "Ready",
+    });
+  });
+
+  test("a missing key or a signed-out sign-in is the person's to fix", () => {
+    expect(spadeAccountState(keyed({ key_set: false }), true, now)).toEqual({
+      tone: "action",
+      text: "Key missing",
+      fix: "key",
+    });
+    expect(spadeAccountState(endpoint(chatgpt(false)), true, now)).toEqual({
+      tone: "action",
+      text: "Signed out",
+      fix: "sign_in",
+    });
+  });
+
+  test("without a keychain a missing key is said but offers no paste", () => {
+    expect(spadeAccountState(keyed({ key_set: false }), false, now).fix).toBeUndefined();
+  });
+
+  test("a provider names the account that needs the person before any limit", () => {
+    const accounts = [
+      limited("work", now + hour),
+      endpoint({ ...chatgpt(false), id: "home", name: "home" }),
+    ];
+    expect(spadeProviderState(accounts, true, now)).toEqual({
+      tone: "action",
+      text: "home: signed out",
+      fix: "sign_in",
+    });
+  });
+
+  test("a provider with one of three accounts at its limit stays usable and says so", () => {
+    const accounts = [
+      keyed({ id: "api", name: "API" }),
+      endpoint(chatgpt(true)),
+      limited("work", now + hour),
+    ];
+    expect(spadeProviderState(accounts, true, now)).toEqual({
+      tone: "idle",
+      text: "1 at the usage limit",
+    });
+  });
+
+  test("a provider counts its accounts and every bot on them, even two of one name", () => {
+    const accounts = [
+      keyed({ id: "a", used_by: ["Inbox", "Ledger"] }),
+      keyed({ id: "b", used_by: ["Inbox"] }),
+    ];
+    expect(spadeProviderCounts(accounts)).toBe("2 accounts · 3 bots");
+    expect(spadeProviderCounts([keyed({ id: "a", used_by: [] })])).toBe("");
+  });
+
+  test("a missing key leads the provider's page with the bots it stops", () => {
+    const problem = spadeProviderProblem(
+      [keyed({ id: "anthropic", key_set: false, used_by: ["Digest", "Triage"] })],
+      true,
+      now,
+    );
+    expect(problem?.fix).toBe("key");
+    expect(problem?.text).toBe("Add a key so Digest and Triage can run.");
+  });
+
+  test("a usage limit is no problem to lead with: it lifts by itself", () => {
+    expect(spadeProviderProblem([limited("work", now + hour)], true, now)).toBeUndefined();
   });
 });

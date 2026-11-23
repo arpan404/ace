@@ -116,10 +116,16 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
       },
     ]),
   );
-  await userEvent.click(await screen.findByRole("button", { name: "Remove OpenRouter" }));
+  // An account is removed from its provider's page, from the account's menu.
+  await userEvent.click(await screen.findByRole("link", { name: /^OpenRouter/ }));
+  await userEvent.click(await screen.findByRole("button", { name: "Manage OpenRouter" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Remove account…" }));
   // It asks once, saying the key goes too, then Spade's refusal shows where it was asked.
-  expect(screen.getByText("Remove OpenRouter and its key?")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Remove" }));
-  expect((await screen.findByRole("alert")).textContent).toBe("Spade, Inbox use this endpoint.");
+  const asked = within(
+    await screen.findByRole("dialog", { name: "Remove OpenRouter from OpenRouter?" }),
+  );
+  expect(asked.getByText(/Its key leaves the keychain too\./)).toBeTruthy();
+  await userEvent.click(asked.getByRole("button", { name: "Remove account" }));
+  expect((await asked.findByRole("alert")).textContent).toBe("Spade, Inbox use this endpoint.");
   expect(spade.endpoints.map((endpoint) => endpoint.id)).toContain("openrouter");
 });

@@ -262,7 +262,7 @@ function ModelList(props: {
         ))}
         {nothing && (
           <p className="px-2 py-1.5 text-ui text-muted-foreground">
-            Add an endpoint in Models first.
+            Add a provider in Models first.
           </p>
         )}
         {!nothing && flat.length === 0 && (

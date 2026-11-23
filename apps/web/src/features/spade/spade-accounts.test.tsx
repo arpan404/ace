@@ -51,7 +51,22 @@ const chatgpt = (signedIn: boolean) =>
 const main = (spade: FakeSpadeApi, model: string) =>
   spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" }, model });
 
-test("each provider lists its accounts, with how each signs in and the bots on it", async () => {
+/** An account's row on its provider's page, by the account's name. */
+async function accountRow(name: string) {
+  const list = within(await screen.findByRole("list", { name: /accounts$/ }));
+  await list.findByText(name);
+  const row = list.getAllByRole("listitem").find((item) => within(item).queryByText(name));
+  if (!row) throw new Error(`No account named ${name}`);
+  return within(row);
+}
+
+/** Picks `item` from an account's ⋯ menu. */
+async function fromMenu(name: string, item: string) {
+  await userEvent.click(await screen.findByRole("button", { name: `Manage ${name}` }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: item }));
+}
+
+test("the list gives each provider one row: its state, accounts and bots, and the fix it needs", async () => {
   await spadeApp("/settings/spade/models", (api) => {
     api.presets.push(openaiPreset);
     api.endpoints.push(
@@ -68,19 +83,53 @@ test("each provider lists its accounts, with how each signs in and the bots on i
     main(api, "chatgpt/gpt-5.5");
     api.addAgent({ id: "inbox", name: "Inbox", model: "chatgpt/gpt-5.5" });
   });
-  const openai = within(await screen.findByRole("region", { name: "OpenAI" }));
-  const personal = within(openai.getByRole("group", { name: "Personal" }));
-  expect(personal.getByText("Saved in the keychain")).toBeTruthy();
-  expect(personal.getByText("No bot uses it")).toBeTruthy();
-  const signedIn = within(openai.getByRole("group", { name: "ChatGPT" }));
-  expect(signedIn.getByText("Signed in as pat@example.com · Pro")).toBeTruthy();
+  const openai = within(await screen.findByRole("group", { name: "OpenAI" }));
+  expect(openai.getByText("Ready")).toBeTruthy();
+  expect(openai.getByText(/2 accounts · 2 bots/)).toBeTruthy();
+  expect(openai.queryByRole("button")).toBeNull();
+  const go = within(screen.getByRole("group", { name: "OpenCode Go" }));
+  expect(go.getByText("Key missing")).toBeTruthy();
+  expect(go.getByRole("button", { name: "Add a key to OpenCode Go" })).toBeTruthy();
+});
+
+test("a provider's page lists its accounts: who each is, how it signs in, and the bots on it", async () => {
+  await spadeApp("/settings/spade/models/openai", (api) => {
+    api.presets.push(openaiPreset);
+    api.endpoints.push(account({ id: "openai", name: "Personal" }), chatgpt(true));
+    main(api, "chatgpt/gpt-5.5");
+    api.addAgent({ id: "inbox", name: "Inbox", model: "chatgpt/gpt-5.5" });
+  });
+  const personal = await accountRow("Personal");
+  expect(personal.getByLabelText("Signed in with an API key")).toBeTruthy();
+  const signedIn = await accountRow("ChatGPT");
+  expect(signedIn.getByText("pat@example.com · Pro")).toBeTruthy();
   expect(signedIn.getByText("Used by Inbox and Spade")).toBeTruthy();
-  const go = within(screen.getByRole("region", { name: "OpenCode Go" }));
-  expect(go.getByText("Not saved")).toBeTruthy();
+});
+
+test("a missing key is fixed from the list: the key goes to Spade once and the provider is ready", async () => {
+  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+    api.endpoints.push(
+      account({
+        id: "opencode-go",
+        name: "OpenCode Go",
+        provider: "opencode-go",
+        key_set: false,
+        key_source: null,
+      }),
+    );
+    main(api, "opencode-go/gpt-5.5");
+  });
+  await userEvent.click(await screen.findByRole("button", { name: "Add a key to OpenCode Go" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add the key for OpenCode Go" }));
+  await userEvent.type(dialog.getByLabelText("OpenCode Go key"), "sk-go-123");
+  await userEvent.click(dialog.getByRole("button", { name: "Save key" }));
+  const go = within(await screen.findByRole("group", { name: "OpenCode Go" }));
+  expect(await go.findByText("Ready")).toBeTruthy();
+  expect(spade.sent("PUT", "/v1/keys/opencode-go")).toEqual([{ key: "sk-go-123" }]);
 });
 
 test("signing in to ChatGPT with a code starts only after the terms sentence, then shows the account", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models/openai", (api) => {
     api.presets.push(openaiPreset);
     api.endpoints.push(account({ id: "openai", name: "Personal" }));
     main(api, "openai/gpt-5.5");
@@ -103,19 +152,20 @@ test("signing in to ChatGPT with a code starts only after the terms sentence, th
   ]);
   expect(await dialog.findByText("Signed in as sam@example.com · Plus.")).toBeTruthy();
   await userEvent.click(dialog.getByRole("button", { name: "Done" }));
-  const openai = within(await screen.findByRole("region", { name: "OpenAI" }));
-  const added = within(await openai.findByRole("group", { name: "ChatGPT" }));
-  expect(added.getByText("Signed in as sam@example.com · Plus")).toBeTruthy();
+  const added = await accountRow("ChatGPT");
+  expect(added.getByText("sam@example.com · Plus")).toBeTruthy();
 });
 
-test("a sign-in that fails says why and can be tried again", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+test("a signed-out account leads its page, and a sign-in that fails says why and can be tried again", async () => {
+  const { spade } = await spadeApp("/settings/spade/models/openai", (api) => {
     api.accounts.ending = "failed";
     api.endpoints.push(chatgpt(false));
     main(api, "chatgpt/gpt-5.5");
   });
-  const signedOut = within(await screen.findByRole("group", { name: "ChatGPT" }));
-  await userEvent.click(signedOut.getByRole("button", { name: "Sign in again" }));
+  const problem = await screen.findByRole("status");
+  expect(within(problem).getByText("ChatGPT is signed out, so Spade can't run.")).toBeTruthy();
+  const signedOut = await accountRow("ChatGPT");
+  await userEvent.click(signedOut.getByRole("button", { name: "Sign in" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Sign in with ChatGPT" }));
   await userEvent.click(dialog.getByRole("button", { name: "Continue" }));
   expect((await dialog.findByRole("alert")).textContent).toBe(
@@ -130,29 +180,30 @@ test("a sign-in that fails says why and can be tried again", async () => {
 });
 
 test("signing out keeps the account and its bots, and says it is signed out", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models/openai", (api) => {
     api.endpoints.push(chatgpt(true));
     main(api, "chatgpt/gpt-5.5");
   });
-  const card = within(await screen.findByRole("group", { name: "ChatGPT" }));
-  await userEvent.click(card.getByRole("button", { name: "Sign out" }));
-  expect(await card.findByText("Signed out")).toBeTruthy();
-  expect(card.getByText("Used by Spade")).toBeTruthy();
-  expect(card.queryByRole("button", { name: "Sign out" })).toBeNull();
+  await fromMenu("ChatGPT", "Sign out");
+  const row = await accountRow("ChatGPT");
+  expect(await row.findByText("Signed out")).toBeTruthy();
+  expect(row.getByText("Used by Spade")).toBeTruthy();
   expect(spade.sent("POST", "/v1/endpoints/chatgpt/sign-out")).toHaveLength(1);
+  await userEvent.click(row.getByRole("button", { name: "Manage ChatGPT" }));
+  expect(screen.queryByRole("menuitem", { name: "Sign out" })).toBeNull();
 });
 
 test("renaming an account changes its name only: the bots' model references stay", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models/openai", (api) => {
     api.presets.push(openaiPreset);
     api.endpoints.push(account({ id: "openai", name: "Personal" }));
     main(api, "openai/gpt-5.5");
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Rename Personal" }));
-  const name = screen.getByRole("textbox", { name: "Name" });
+  await fromMenu("Personal", "Rename");
+  const name = await screen.findByRole("textbox", { name: "Name" });
   await userEvent.clear(name);
   await userEvent.type(name, "Work{Enter}");
-  const work = within(await screen.findByRole("group", { name: "Work" }));
+  const work = await accountRow("Work");
   expect(work.getByText("Used by Spade")).toBeTruthy();
   expect(spade.sent("PATCH", "/v1/endpoints/openai")).toEqual([{ name: "Work" }]);
   expect(spade.sent("PATCH", "/v1/agents/main")).toEqual([]);
@@ -160,7 +211,7 @@ test("renaming an account changes its name only: the bots' model references stay
 });
 
 test("another account of a preset is added by its name, and the preset fills in the rest", async () => {
-  const { spade } = await spadeApp("/settings/spade/models", (api) => {
+  const { spade } = await spadeApp("/settings/spade/models/openai", (api) => {
     api.presets.push(openaiPreset);
     api.accounts.signIn = [];
     api.endpoints.push(account({ id: "openai", name: "Personal" }));
@@ -172,8 +223,8 @@ test("another account of a preset is added by its name, and the preset fills in 
   expect(dialog.queryByRole("radio")).toBeNull();
   await userEvent.type(dialog.getByRole("textbox", { name: "Name" }), "Work");
   await userEvent.click(dialog.getByRole("button", { name: "Add account" }));
-  const openai = within(await screen.findByRole("region", { name: "OpenAI" }));
-  const work = within(await openai.findByRole("group", { name: "Work" }));
-  expect(work.getByText("Not saved")).toBeTruthy();
+  const work = await accountRow("Work");
+  expect(work.getByText("Key missing")).toBeTruthy();
+  expect(work.getByRole("button", { name: "Add key" })).toBeTruthy();
   expect(spade.sent("POST", "/v1/endpoints")).toEqual([{ preset: "openai", name: "Work" }]);
 });

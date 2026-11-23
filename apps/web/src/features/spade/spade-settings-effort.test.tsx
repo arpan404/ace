@@ -20,7 +20,7 @@ async function choose(select: string, option: string) {
 
 test("each role's thinking shows its default until the person sets it for every bot", async () => {
   const { spade } = await spadeApp("/settings/spade/models", withFlights);
-  const roles = within(await screen.findByRole("region", { name: "Models for other work" }));
+  const roles = within(await screen.findByRole("region", { name: "Roles" }));
   const review = await roles.findByRole("combobox", { name: "Reviewing steps thinking" });
   expect(review.textContent).toContain("Default: medium thinking");
   expect(roles.getByRole("combobox", { name: "Titles thinking" }).textContent).toContain(

@@ -16,6 +16,7 @@ import {
   useProviderEntries,
   type ProviderEntry,
 } from "./provider-entries.ts";
+import { PageMark } from "./problem-line.tsx";
 import { ProviderProblemLine } from "./provider-problem-line.tsx";
 import { SettingsBody } from "./settings-body.tsx";
 import { part } from "@/lib/suit-part.ts";
@@ -156,14 +157,14 @@ function ProviderPage(props: { entry: ProviderEntry }) {
       page={install.name}
       back={back}
       icon={
-        <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-surface-1">
+        <PageMark>
           <ProviderIcon
             provider={install.kind}
             acpAgentId={install.acpAgentId}
             size={20}
             className={missing || off ? "opacity-60 grayscale" : undefined}
           />
-        </span>
+        </PageMark>
       }
       lede={
         (version || update) && (

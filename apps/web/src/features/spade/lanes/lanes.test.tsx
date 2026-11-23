@@ -155,7 +155,7 @@ test("Settings has a Tasks row that runs tasks on the chat's own model and think
     spade.addAgent({ id: "main", kind: "main", name: "Spade", avatar: { kind: "spade" } });
     spade.roles.globalEfforts = { main: "high" };
   });
-  const roles = within(await screen.findByRole("region", { name: "Models for other work" }));
+  const roles = within(await screen.findByRole("region", { name: "Roles" }));
   expect(await roles.findByText("Tasks")).toBeTruthy();
   expect(roles.getByText("Default: each bot's own model, as its chat")).toBeTruthy();
   expect(roles.getByText("Same as the chat")).toBeTruthy();

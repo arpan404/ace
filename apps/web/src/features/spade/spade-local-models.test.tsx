@@ -144,7 +144,9 @@ test("Settings says what Spade's checks found on a local model, and Check again 
       ],
     });
   });
-  const ollama = within(await screen.findByRole("region", { name: "Ollama" }));
+  // Its provider's row on the list opens its page, where the check's finding leads the models.
+  await userEvent.click(await screen.findByRole("link", { name: "Ollama" }));
+  const ollama = within(await screen.findByRole("list", { name: "Model problems" }));
   expect(
     ollama.getByText("This model didn't call tools in Spade's check, so it can't run a bot."),
   ).toBeTruthy();

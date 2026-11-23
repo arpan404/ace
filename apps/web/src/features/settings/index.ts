@@ -65,3 +65,10 @@ export { AppPreview } from "./app-preview.tsx";
 export { useMachineAccountAccess } from "./machine-account.tsx";
 /** Settings › Organization's page registry (ADR 0206 §2.7), for its own feature's screens. */
 export { organizationPageNeeds, type SettingsPath } from "./settings-pages.ts";
+/**
+ * The Providers page's parts, for Spade's providers (Settings › Spade › Models), which look and
+ * behave like ace's own: the group, a page's problem line and mark, an account's row.
+ */
+export { ProvidersGroup } from "./providers-group.tsx";
+export { PageMark, ProblemLine } from "./problem-line.tsx";
+export { AccountRowFrame, AccountStateWords } from "./account-row.tsx";

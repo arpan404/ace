@@ -6,6 +6,7 @@ import { useAccountViews } from "@/features/accounts/index.ts";
 import { useSignIn } from "@/features/sign-in/index.ts";
 import { useProviderConfiguration } from "@/lib/provider-configuration.ts";
 import { useNow } from "@/lib/time.ts";
+import { ProblemLine } from "./problem-line.tsx";
 import { accountSignInTarget, providerProblem } from "./provider-problem.ts";
 
 /**
@@ -64,13 +65,5 @@ export function ProviderProblemLine(props: {
         {problem.fix === "sign_in" ? "Sign in" : "Reconnect"}
       </Button>
     ) : null;
-  return (
-    <div
-      role="status"
-      className="mb-7 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-[color-mix(in_oklab,var(--status-needs-you)_12%,var(--surface-1))] px-4 py-2 text-ui"
-    >
-      <p className="min-w-0 flex-1">{problem.text}</p>
-      {fix && <div className="flex shrink-0 items-center gap-2">{fix}</div>}
-    </div>
-  );
+  return <ProblemLine fix={fix}>{problem.text}</ProblemLine>;
 }
