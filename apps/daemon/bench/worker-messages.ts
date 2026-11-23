@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { Event, Item, Thread } from "@ace/protocol";
 import { NotificationWorker } from "@ace/notify";
 import { SearchIndex, SearchQueries } from "@ace/search";

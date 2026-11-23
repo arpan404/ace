@@ -126,9 +126,11 @@ const heldCheckpoints = () => {
 };
 const [store, openMs] = time(
   () =>
-    new Store(path, (error) => console.error("store error", error), {
-      ...(splitting ? { checkpointWorker: heldCheckpoints } : {}),
-    }),
+    new Store(
+      path,
+      (error) => console.error("store error", error),
+      splitting ? { checkpointWorker: heldCheckpoints } : {},
+    ),
 );
 result.openMs = +openMs.toFixed(3);
 // The engine opens its schema when the daemon starts; this includes its one-time upgrade passes.

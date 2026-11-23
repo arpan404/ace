@@ -256,6 +256,41 @@ impl Connection {
         })
     }
 
+    /// Copy the main database to a new file at `path` with SQLite's online backup, as
+    /// node:sqlite's `backup` does; returns the pages copied.
+    pub fn backup(&self, path: &str) -> Result<i64> {
+        let destination = Connection::open(path, OpenOptions::default())?;
+        let target = destination.lock();
+        let Some(target) = target.as_ref() else {
+            return Err(own(ErrorKind::Closed, "database is not open"));
+        };
+        self.with(|raw| {
+            // SAFETY: both handles are valid and locked; "main" is NUL-terminated. The backup
+            // object is finished before either lock drops.
+            unsafe {
+                let backup = ffi::sqlite3_backup_init(
+                    target.db.as_ptr(),
+                    c"main".as_ptr(),
+                    raw.db.as_ptr(),
+                    c"main".as_ptr(),
+                );
+                if backup.is_null() {
+                    return Err(last_error(target.db, ffi::SQLITE_ERROR));
+                }
+                let step = ffi::sqlite3_backup_step(backup, -1);
+                let pages = ffi::sqlite3_backup_pagecount(backup);
+                let finish = ffi::sqlite3_backup_finish(backup);
+                if step != ffi::SQLITE_DONE {
+                    return Err(last_error(target.db, step));
+                }
+                if finish != ffi::SQLITE_OK {
+                    return Err(last_error(target.db, finish));
+                }
+                Ok(i64::from(pages))
+            }
+        })
+    }
+
     /// Finalize every statement and close. Later use fails; closing twice does nothing.
     pub fn close(&self) -> Result<()> {
         let Some(raw) = self.lock().take() else {
@@ -469,12 +504,18 @@ impl Statement {
         })
     }
 
-    /// Reset so the next step starts again; keeps bindings.
+    /// Reset so the next step starts again; keeps bindings. Reset finishes a statement
+    /// stopped before its end, so its result is checked: a write with RETURNING commits
+    /// there in autocommit mode, and a commit that fails (busy, I/O) fails the reset.
     pub fn reset(&self) -> Result<()> {
-        // SAFETY: a live statement under the connection's lock.
-        self.with(|_, stmt| {
-            unsafe { ffi::sqlite3_reset(stmt.as_ptr()) };
-            Ok(())
+        self.with(|db, stmt| {
+            // SAFETY: a live statement under the connection's lock.
+            let rc = unsafe { ffi::sqlite3_reset(stmt.as_ptr()) };
+            if rc == ffi::SQLITE_OK {
+                Ok(())
+            } else {
+                Err(last_error(db, rc))
+            }
         })
     }
 

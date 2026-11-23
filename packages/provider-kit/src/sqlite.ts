@@ -45,12 +45,29 @@ class NativeDatabase extends NativeDatabaseSync {
  * I/O boundary, serves every connection from the Rust core, so one SQLite library holds every
  * lock on a file in the process (ADR 0222); unset keeps node:sqlite.
  */
-export const DatabaseSync: typeof NodeDatabaseSync =
-  process.env.ACE_STORE === "native"
-    ? // Trusted: NativeDatabaseSync implements the part of node:sqlite's API ace uses and throws
-      // a named error for the rest.
-      (NativeDatabase as unknown as typeof NodeDatabaseSync)
-    : NodeDatabase;
+const nativeStore = process.env.ACE_STORE === "native";
+// One decision per process: worker isolates inherit this environment, so they choose the same.
+if (nativeStore) process.env.ACE_STORE = "native";
+else delete process.env.ACE_STORE;
+
+/**
+ * Refuse a connection served by the other SQLite library than this process's: two copies of
+ * SQLite on one file in one process release each other's locks (ADR 0222).
+ */
+export function assertProcessSqlite(database: object): void {
+  if (database instanceof NativeDatabaseSync !== nativeStore)
+    throw new Error(
+      nativeStore
+        ? "This process serves SQLite from the native store (ACE_STORE=native); a node:sqlite connection cannot share its files"
+        : "A native store connection was given to a process running node:sqlite; set ACE_STORE=native for the whole process",
+    );
+}
+
+export const DatabaseSync: typeof NodeDatabaseSync = nativeStore
+  ? // Trusted: NativeDatabaseSync implements the part of node:sqlite's API ace uses and throws
+    // a named error for the rest.
+    (NativeDatabase as unknown as typeof NodeDatabaseSync)
+  : NodeDatabase;
 export type DatabaseSync = NodeDatabaseSync;
 
 /**

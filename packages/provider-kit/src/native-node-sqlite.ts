@@ -6,6 +6,4 @@
 export { DatabaseSync } from "./sqlite.ts";
 export { NativeStatementSync as StatementSync } from "./native-sqlite.ts";
 export { constants } from "node:sqlite";
-export function backup(): never {
-  throw new Error("backup is not supported by the native store");
-}
+export { backup } from "./sqlite-backup.ts";

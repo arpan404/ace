@@ -70,11 +70,12 @@ process was 1.35 GB against a 57 MiB heap, so most of the daemon's peak is outsi
 max 146 ms, on the main thread. Each commit appended **66 pages (270 KB) to the WAL** for items
 of a few hundred bytes; a streamed item cost 79 KB of database. Checkpointing that WAL (276 MB)
 took 3.6 s on the checkpoint connection. With `wal_autocheckpoint=0` and the checkpoint worker
-(`wal-maintenance.ts`), no checkpoint or fsync runs inside a `COMMIT` any more
-(`synchronous=NORMAL` does not fsync on commit in WAL mode): the earlier profile that found
-checkpoint fsyncs in commits predates that worker (2026-11-01). The cost left on the main thread
-is the page writes themselves, set by how many copies and indexes each event touches. Open took
-2.25 s.
+(`wal-maintenance.ts`), no checkpoint runs inside a `COMMIT` any more, and with
+`synchronous=NORMAL` a commit does not fsync the WAL, with one exception: the first commit
+after the WAL is reset or created writes and syncs the WAL header. So a commit after each quiet
+`TRUNCATE` pays one fsync. The earlier profile that found checkpoint fsyncs in commits predates
+the worker (2026-11-01). The cost left on the main thread is mostly the page writes themselves,
+set by how many copies and indexes each event touches. Open took 2.25 s.
 
 ### Constraints the design must meet
 
@@ -162,7 +163,9 @@ is the page writes themselves, set by how many copies and indexes each event tou
   read-your-writes: socket reads outside any open transaction, as async variants added next to
   the synchronous ones (the server can await; the synchronous form stays and the tests use it).
   A read issued while the main connection has a transaction open always runs on the main
-  connection.
+  connection. A pooled read keeps the main connection's read rules (behaviour.md §6 and §8):
+  live writes are flushed before it is dispatched, and the whole response, its rows and the
+  sequence watermark (head) it reports, comes from one read snapshot opened after that flush.
 - **One writer.** SQLite allows one writer per file. The writer phase (5) moves commits to a
   writer thread only when the writer's logic itself is in Rust; until then the main connection
   writes.
@@ -170,7 +173,7 @@ is the page writes themselves, set by how many copies and indexes each event tou
 ### 4. Group commit: not added
 
 The live buffer already batches provider output (75 ms or 64 KiB, ADR 0076), and with the
-checkpoint worker no commit fsyncs. A commit now costs its page writes: 66 pages for a small
+checkpoint worker commits do not fsync, except the first after a WAL reset (header sync). A commit now costs its page writes: 66 pages for a small
 item. Batching more events per commit would delay publication (events publish only after
 commit, behaviour.md §4) for a saving that cutting the pages per event gives without that
 trade. Phase 4 cuts the pages; group commit is reconsidered only if a measurement after it
@@ -226,6 +229,13 @@ one core, off the main thread on the reader pool.
 | 4     | Storage format (section 6, steps 1 and 2), writes still from TS through the native connection                                                                                                                                          | `ACE_STORE_FORMAT=2`               | All (a) tests, with format 2 on and off; a home written with it on must open with it off                                             |
 | 5     | The writer: `EventWriter`, the live buffer and sequence reservation in Rust, on a writer thread, with the event folding (`@ace/projection` `updateThread`) ported and pinned by vectors generated from the TypeScript, as ADR 0207 did | separate switch, decided then      | All (a) tests; `canonical-event` samples become vectors                                                                              |
 
+Phase 4 is deferred until the owner answers the storage questions below, and its rollback
+contract must be written before it is built: with the format switch off, every reader of a
+changed table, including direct SQL through `atomic` callers, must still read rows written
+with it on; and a revision stored as a reference to an event row must survive the operations
+that rewrite or remove that row (`PayloadStore` capping and rewriting payloads,
+`payload-store.ts:139`; thread deletion, `store.ts:1485`; purge and retention).
+
 Each phase is off by default until its tests pass on macOS, Linux and Windows and a
 before-and-after run of `sqlite-store.ts --split` on a clone shows it is no slower. A phase that
 fails in the field is turned off by its switch with no data change (phases 1 to 3 change no
@@ -243,7 +253,14 @@ native path.
 ## Consequences
 
 - A Rust crash in the store crashes the daemon, as a node:sqlite crash does today. Panics are
-  caught at the binding (`napi` `catch_unwind`) and thrown as JS errors.
+  caught at the binding: every export carries napi's `catch_unwind` and a panic is thrown as a
+  JS error.
+- One SQLite library per process is enforced, not assumed: the switch is read once per process
+  and pinned in the environment every worker isolate inherits; `Store` refuses an injected
+  connection from the other library (`assertProcessSqlite`); a lint rule forbids opening SQLite
+  from `node:sqlite` outside `@ace/provider-kit/sqlite`; benches open through the wrapper; and
+  the test runner resolves tests' own `node:sqlite` imports to the native store when the switch
+  is on.
 - Phase 1a alone changes no behaviour and gains little speed: its value is that the native
   connection exists, so phases 1b to 3 can run Rust reads in process without the two-copies
   hazard, and the Rust engine later shares the store's transactions.

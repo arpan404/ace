@@ -56,7 +56,7 @@ pub struct NativeDatabase {
 
 #[napi]
 impl NativeDatabase {
-    #[napi(constructor)]
+    #[napi(constructor, catch_unwind)]
     pub fn new(path: String, read_only: bool, timeout_ms: i32) -> napi::Result<Self> {
         let connection = Connection::open(
             &path,
@@ -69,33 +69,42 @@ impl NativeDatabase {
         Ok(NativeDatabase { connection })
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn exec(&self, sql: String) -> napi::Result<()> {
         self.connection.exec(&sql).map_err(fail)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn prepare(&self, sql: String) -> napi::Result<NativeStatement> {
         let statement = self.connection.prepare(&sql).map_err(fail)?;
         Ok(NativeStatement { statement })
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn is_transaction(&self) -> napi::Result<bool> {
         self.connection.is_transaction().map_err(fail)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn location(&self) -> napi::Result<Option<String>> {
         self.connection.location().map_err(fail)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn is_open(&self) -> bool {
         self.connection.is_open()
     }
 
-    #[napi]
+    /// Copy the database to `path`; the pages copied.
+    #[napi(catch_unwind)]
+    pub fn backup(&self, path: String) -> napi::Result<f64> {
+        self.connection
+            .backup(&path)
+            .map(|pages| pages as f64)
+            .map_err(fail)
+    }
+
+    #[napi(catch_unwind)]
     pub fn close(&self) -> napi::Result<()> {
         self.connection.close().map_err(fail)
     }
@@ -158,19 +167,18 @@ fn cell(value: Value) -> napi::Result<Cell> {
 #[napi]
 impl NativeStatement {
     /// Parameter names by index from 1; null for an anonymous `?`.
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn parameter_names(&self) -> napi::Result<Vec<Option<String>>> {
         self.statement.parameter_names().map_err(fail)
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn columns(&self) -> napi::Result<Vec<String>> {
         self.statement.columns().map_err(fail)
     }
 
     /// Reset and bind `params[i]` to parameter `i + 1`.
-    #[napi]
-    pub fn bind(&self, params: Vec<Param>) -> napi::Result<()> {
+    fn bind(&self, params: Vec<Param>) -> napi::Result<()> {
         let values = params
             .into_iter()
             .enumerate()
@@ -179,15 +187,26 @@ impl NativeStatement {
         self.statement.bind(&values).map_err(fail)
     }
 
-    /// Step up to `limit` rows.
-    #[napi]
-    pub fn step_rows(&self, limit: u32) -> napi::Result<Rows> {
+    /// Step up to `limit` rows; with `params`, reset and bind them first (one call, not two).
+    #[napi(catch_unwind)]
+    pub fn step_rows(&self, params: Option<Vec<Param>>, limit: u32) -> napi::Result<Rows> {
+        if let Some(params) = params {
+            self.bind(params)?;
+        }
         let mut cells = Vec::new();
         for _ in 0..limit {
+            // A failed step resets itself (`Statement::step`).
             match self.statement.step().map_err(fail)? {
                 Some(row) => {
                     for value in row {
-                        cells.push(cell(value)?);
+                        match cell(value) {
+                            Ok(value) => cells.push(value),
+                            Err(error) => {
+                                // Leave no statement mid-result: it would hold a read snapshot.
+                                let _ = self.statement.reset();
+                                return Err(error);
+                            }
+                        }
                     }
                 }
                 None => return Ok(Rows { cells, done: true }),
@@ -197,14 +216,15 @@ impl NativeStatement {
     }
 
     /// Step to the end, discarding rows; the rows changed and the last inserted rowid.
-    #[napi]
-    pub fn run(&self) -> napi::Result<Vec<f64>> {
+    #[napi(catch_unwind)]
+    pub fn run(&self, params: Vec<Param>) -> napi::Result<Vec<f64>> {
+        self.bind(params)?;
         while self.statement.step().map_err(fail)?.is_some() {}
         let (changes, rowid) = self.statement.changes().map_err(fail)?;
         Ok(vec![changes as f64, rowid as f64])
     }
 
-    #[napi]
+    #[napi(catch_unwind)]
     pub fn reset(&self) -> napi::Result<()> {
         self.statement.reset().map_err(fail)
     }

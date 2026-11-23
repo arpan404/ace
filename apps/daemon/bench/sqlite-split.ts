@@ -42,9 +42,9 @@ export function installSplit(): void {
   statement.all = timed(all, (result) => {
     statements++;
     rows += Array.isArray(result) ? result.length : 0;
-  });
-  statement.get = timed(get, () => statements++);
-  statement.run = timed(run, () => statements++);
+  }) as typeof all;
+  statement.get = timed(get, () => statements++) as typeof get;
+  statement.run = timed(run, () => statements++) as typeof run;
   statement.iterate = function (this: StatementSync, ...args: Parameters<typeof iterate>) {
     statements++;
     const iterator = timed(iterate).apply(this, args);

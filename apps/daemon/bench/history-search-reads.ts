@@ -1,4 +1,4 @@
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { ThreadId } from "@ace/protocol";
 import { HistoryIndex } from "../src/history-index.ts";

@@ -16,9 +16,8 @@ interface Rows {
 interface AddonStatement {
   parameterNames(): (string | null)[];
   columns(): string[];
-  bind(params: unknown[]): void;
-  stepRows(limit: number): Rows;
-  run(): number[];
+  stepRows(params: unknown[] | null, limit: number): Rows;
+  run(params: unknown[]): number[];
   reset(): void;
 }
 interface AddonDatabase {
@@ -28,6 +27,7 @@ interface AddonDatabase {
   location(): string | null;
   isOpen(): boolean;
   close(): void;
+  backup(path: string): number;
 }
 interface Addon {
   NativeDatabase: new (path: string, readOnly: boolean, timeoutMs: number) => AddonDatabase;
@@ -131,6 +131,9 @@ function isNamed(value: unknown): value is Record<string, unknown> {
   );
 }
 
+const finalized = () => new SqliteError("statement has been finalized", "ERR_INVALID_STATE");
+const invalidated = () => new SqliteError("iterator was invalidated", "ERR_INVALID_STATE");
+
 /** Rows stepped per call into the addon while iterating. */
 const iterateBatch = 64;
 
@@ -138,14 +141,27 @@ export class NativeStatementSync {
   readonly #statement: AddonStatement;
   #names: (string | null)[] | undefined;
   #columns: string[] | undefined;
-  constructor(statement: AddonStatement) {
+  #generation = 0;
+  readonly #open: () => boolean;
+  constructor(statement: AddonStatement, open: () => boolean) {
     this.#statement = statement;
+    this.#open = open;
   }
-  #bind(args: unknown[]): void {
+  /** The parameters by index, as node:sqlite binds `args`. */
+  #params(args: unknown[]): Param[] {
     const names = (this.#names ??= call(() => this.#statement.parameterNames()));
+    const named = args[0];
+    // Most statements take positional values only: they bind in order, nothing to look up.
+    if (!isNamed(named) && names.every((name) => name === null || name.startsWith("?"))) {
+      const params: Param[] = Array.from(
+        { length: Math.max(names.length, args.length) },
+        () => null,
+      );
+      for (let i = 0; i < args.length; i++) params[i] = bindable(args[i], i + 1);
+      return params;
+    }
     const params: Param[] = Array.from({ length: names.length }, () => null);
     let start = 0;
-    const named = args[0];
     if (isNamed(named)) {
       start = 1;
       for (const [key, value] of Object.entries(named)) {
@@ -165,7 +181,7 @@ export class NativeStatementSync {
       params[slot] = bindable(args[i], slot + 1);
       slot++;
     }
-    call(() => this.#statement.bind(params));
+    return params;
   }
   #rows(cells: unknown[]): Record<string, unknown>[] {
     const columns = (this.#columns ??= call(() => this.#statement.columns()));
@@ -178,48 +194,78 @@ export class NativeStatementSync {
     }
     return rows;
   }
+  /**
+   * Every use of the statement resets it, so it starts a new generation: an iterator from an
+   * earlier one throws, as node:sqlite's does, instead of stepping someone else's results.
+   */
+  #begin(): number {
+    if (!this.#open()) throw finalized();
+    return ++this.#generation;
+  }
   run(...args: unknown[]): { changes: number; lastInsertRowid: number } {
-    this.#bind(args);
-    const [changes = 0, lastInsertRowid = 0] = call(() => this.#statement.run());
+    this.#begin();
+    const params = this.#params(args);
+    const [changes = 0, lastInsertRowid = 0] = call(() => this.#statement.run(params));
     return { changes, lastInsertRowid };
   }
   get(...args: unknown[]): Record<string, unknown> | undefined {
-    this.#bind(args);
-    const rows = call(() => this.#statement.stepRows(1));
+    this.#begin();
+    const params = this.#params(args);
+    const rows = call(() => this.#statement.stepRows(params, 1));
+    // A statement stopped after its first row finishes at reset; a RETURNING write commits
+    // there, and a failed commit is this call's failure (the addon reports reset's result).
     if (!rows.done) call(() => this.#statement.reset());
     return this.#rows(rows.cells)[0];
   }
   all(...args: unknown[]): Record<string, unknown>[] {
-    this.#bind(args);
+    this.#begin();
+    let params: Param[] | null = this.#params(args);
     const rows: Record<string, unknown>[] = [];
     for (;;) {
-      const batch = call(() => this.#statement.stepRows(1024));
+      const batch = call(() => this.#statement.stepRows(params, 1024));
+      params = null;
       for (const row of this.#rows(batch.cells)) rows.push(row);
       if (batch.done) return rows;
     }
   }
   iterate(...args: unknown[]): IterableIterator<Record<string, unknown>> {
-    this.#bind(args);
+    const generation = this.#begin();
+    // Bound now, as node:sqlite binds at iterate(); rows are stepped as they are asked for.
+    call(() => this.#statement.stepRows(this.#params(args), 0));
     const statement = this.#statement;
     let pending: Record<string, unknown>[] = [];
     let index = 0;
     let done = false;
+    const finish = () => {
+      done = true;
+      pending = [];
+    };
     const iterator: IterableIterator<Record<string, unknown>> = {
       next: () => {
+        if (!this.#open()) throw finalized();
+        if (generation !== this.#generation) throw invalidated();
         if (index >= pending.length && !done) {
-          const batch = call(() => statement.stepRows(iterateBatch));
+          let batch: Rows;
+          try {
+            batch = call(() => statement.stepRows(null, iterateBatch));
+          } catch (error) {
+            // The addon reset the statement on its failure: nothing stays held.
+            finish();
+            throw error;
+          }
           pending = this.#rows(batch.cells);
           index = 0;
           done = batch.done;
         }
         if (index < pending.length) return { done: false, value: pending[index++] as never };
-        done = true;
+        finish();
         return { done: true, value: undefined };
       },
       return: (value?: unknown) => {
-        if (!done) call(() => statement.reset());
-        done = true;
-        pending = [];
+        // Release the read snapshot an unfinished iteration holds, unless a later use did.
+        const holding = !done && generation === this.#generation && this.#open();
+        finish();
+        if (holding) call(() => statement.reset());
         return { done: true, value: value as never };
       },
       [Symbol.iterator]() {
@@ -240,9 +286,9 @@ export class NativeStatementSync {
 }
 
 export interface NativeDatabaseOptions {
-  readOnly?: boolean;
-  timeout?: number;
-  open?: boolean;
+  readOnly?: boolean | undefined;
+  timeout?: number | undefined;
+  open?: boolean | undefined;
 }
 
 export class NativeDatabaseSync {
@@ -267,13 +313,27 @@ export class NativeDatabaseSync {
     call(() => this.#database.exec(sql));
   }
   prepare(sql: string): NativeStatementSync {
-    return new NativeStatementSync(call(() => this.#database.prepare(sql)));
+    const database = this.#database;
+    return new NativeStatementSync(
+      call(() => database.prepare(sql)),
+      () => database.isOpen(),
+    );
   }
   location(): string | null {
     return call(() => this.#database.location());
   }
   close(): void {
     call(() => this.#database.close());
+  }
+  /** node:sqlite's `backup(db, path)`, copying the whole database at once. */
+  backup(path: string | Buffer | URL): Promise<number> {
+    const file =
+      path instanceof URL ? fileURLToPath(path) : typeof path === "string" ? path : String(path);
+    try {
+      return Promise.resolve(call(() => this.#database.backup(file)));
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
   }
   [Symbol.dispose](): void {
     if (this.#database.isOpen()) this.close();
