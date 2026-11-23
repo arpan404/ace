@@ -5,7 +5,7 @@
 //! them into JS errors.
 
 use ace_adapter_cursor::{
-    next_deadline_json, take_diagnostics_json, tick_json, translate_json, CursorTranslator,
+    CursorTranslator, next_deadline_json, take_diagnostics_json, tick_json, translate_json,
 };
 use napi_derive::napi;
 
@@ -37,7 +37,11 @@ impl NativeCursorTranslator {
     /// Fold one frame's JSON into its facts' JSON array.
     #[napi(catch_unwind)]
     pub fn translate(&mut self, frame_json: String, now_ms: f64) -> napi::Result<String> {
-        Ok(translate_json(&mut self.translator, &frame_json, now_ms as i64))
+        Ok(translate_json(
+            &mut self.translator,
+            &frame_json,
+            now_ms as i64,
+        ))
     }
 
     /// Facts implied by time passing, as JSON. The translator sets none.
