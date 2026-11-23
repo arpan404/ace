@@ -68,7 +68,7 @@ export class LongThreadQueries {
     },
     cachedIcon?: TurnStepsSource["cachedIcon"],
   ) {
-    if (nativeReads("long")) return turnStepsNative(this.source, input, cachedIcon);
+    if (nativeReads("long")) return turnStepsNative(this.source, input, cachedIcon, this.stepSites);
     const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
     this.readableThread(query.threadId);
     return readTurnSteps(

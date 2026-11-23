@@ -5,6 +5,6 @@ pub mod activity;
 pub mod agent;
 pub mod thread;
 
-pub use activity::{linked_rank, owned_rank, status_state, turn_activity_status, turn_is_settled};
+pub use activity::{status_state, turn_activity_status, turn_is_settled};
 pub use agent::agent_thread_status;
 pub use thread::{MoveTarget, Status, parse_thread_status};

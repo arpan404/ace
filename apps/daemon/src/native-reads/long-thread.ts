@@ -108,6 +108,7 @@ export function turnStepsNative(
     "type" | "requestId" | "limit"
   > & { requestId?: string; limit?: number },
   cachedIcon?: TurnStepsSource["cachedIcon"],
+  sites?: Map<string, string | null>,
 ): TurnStepsResponse {
   const query = TurnStepsRequest.parse({ type: "turn.steps", requestId: "steps", ...input });
   readable(source, query.threadId);
@@ -121,14 +122,14 @@ export function turnStepsNative(
   );
   // Rust fetches the range rows; TypeScript shapes them with the existing
   // item, trust and tail code, so streaming previews, the byte budget and
-  // in-memory trust match the legacy path exactly.
+  // in-memory trust match the legacy path exactly. The site cache is the
+  // loader's own instance, shared with `stepSurface`, never a global.
   const fetched = JSON.parse(json) as { end_seq: number; rows: TurnStepRow[] };
-  if (!nativeStepSites) nativeStepSites = new Map();
   return shapeTurnSteps(
     {
       data: source.index.data,
       item: (threadId, itemId) => source.payloads.stepItem(threadId, itemId),
-      sites: nativeStepSites,
+      sites: sites ?? new Map(),
       cachedIcon,
     },
     query,
@@ -140,9 +141,6 @@ export function turnStepsNative(
     })),
   );
 }
-
-/** Sites already worked out for native step pages, misses included, like the loader's map. */
-let nativeStepSites: Map<string, string | null> | undefined;
 
 export function threadSearchNative(
   source: NativeSource,

@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //! A turns page's agent shares and thread statuses.
 //!
-//! Linked and owned statuses are read for the whole page at once, one statement
-//! each, and the best status per turn wins by the loader's rank. Agent rows
-//! arrive as cells in the `SELECT` list's order and validate as they are read.
+//! Linked and owned statuses are read exactly as the loader reads them: one
+//! `ORDER BY` + `LIMIT 1` row per turn, in the SQL's row order, validated only
+//! once chosen. Agent rows arrive as cells in the `SELECT` list's order and
+//! validate as they are read.
 
 use super::super::common::{
-    LongError, all_rows_raw, check_count, check_timestamp, invalid, js_len,
+    LongError, all_rows_raw, check_count, check_timestamp, get_row_raw, invalid, js_len,
 };
 use super::super::row::{int_at, ints_json, opt_int_at, opt_text_at, text_at};
-use super::super::status::{Status, linked_rank, owned_rank, parse_thread_status};
+use super::super::status::{Status, parse_thread_status};
 use crate::{Connection, Value};
 use std::sync::Arc;
 
@@ -135,7 +136,9 @@ pub fn head_row(conn: &Arc<Connection>, thread_id: &str) -> Result<HeadRow, Long
     Ok((ordinal, root, status))
 }
 
-/// The best linked status per turn ordinal, by the loader's rank.
+/// The best linked status per turn ordinal, exactly as the loader reads it:
+/// one `ORDER BY` + `LIMIT 1` row per turn, validated only once chosen, so an
+/// invalid chosen row fails the read instead of falling through to another.
 pub fn linked_statuses(
     conn: &Arc<Connection>,
     thread: &str,
@@ -144,33 +147,24 @@ pub fn linked_statuses(
     if ordinals.is_empty() {
         return Ok(Vec::new());
     }
-    let list = ints_json(ordinals);
-    let rows = all_rows_raw(
-        conn,
-        "SELECT a.ordinal AS ordinal,t.status AS status FROM long_agents a JOIN threads t ON t.id=a.child_thread WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND json_extract(t.status,'$.state')='working' AND json_extract(t.client,'$.deletedAt') IS NULL",
-        vec![Value::Text(thread.to_owned()), Value::Text(list)],
-    )?;
-    let mut best: Vec<(i64, i64, Status)> = Vec::new();
-    for row in rows {
-        let ordinal = int_at(&row, 0)?;
-        let text = text_at(&row, 1)?;
-        let Ok(status) = parse_thread_status(text) else {
-            continue;
-        };
-        let rank = linked_rank(&status);
-        match best.iter_mut().find(|(at, _, _)| *at == ordinal) {
-            Some(slot) if rank < slot.1 => *slot = (ordinal, rank, status),
-            Some(_) => {}
-            None => best.push((ordinal, rank, status)),
+    let mut out = Vec::new();
+    for ordinal in ordinals {
+        let row = get_row_raw(
+            conn,
+            "SELECT t.status FROM long_agents a JOIN threads t ON t.id=a.child_thread WHERE a.thread_id=? AND a.ordinal=? AND json_extract(t.status,'$.state')='working' AND json_extract(t.client,'$.deletedAt') IS NULL ORDER BY CASE json_extract(t.status,'$.state') WHEN 'needs_you' THEN 0 WHEN 'working' THEN 1 WHEN 'limited' THEN 2 WHEN 'waiting' THEN CASE json_extract(t.status,'$.on') WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 WHEN 'background_task' THEN 5 ELSE 7 END ELSE 6 END LIMIT 1",
+            vec![Value::Text(thread.to_owned()), Value::Integer(*ordinal)],
+        )?;
+        if let Some(row) = row {
+            let text = text_at(&row, 0)?;
+            out.push((*ordinal, parse_thread_status(text)?));
         }
     }
-    Ok(best
-        .into_iter()
-        .map(|(ordinal, _, status)| (ordinal, status))
-        .collect())
+    Ok(out)
 }
 
-/// The best owned status per turn ordinal, by the loader's rank.
+/// The best owned status per turn ordinal, exactly as the loader reads it:
+/// one `ORDER BY` + `LIMIT 1` row per turn, validated only once chosen, so an
+/// invalid chosen row fails the read instead of falling through to another.
 pub fn owned_statuses(
     conn: &Arc<Connection>,
     thread: &str,
@@ -179,51 +173,19 @@ pub fn owned_statuses(
     if ordinals.is_empty() {
         return Ok(Vec::new());
     }
-    let list = ints_json(ordinals);
-    let rows = all_rows_raw(
-        conn,
-        "SELECT a.ordinal AS ordinal,a.status AS status,a.id AS id FROM long_agents a WHERE a.thread_id=? AND a.ordinal IN (SELECT value FROM json_each(?)) AND a.completion_relevant=1 AND json_extract(a.status,'$.state') NOT IN ('idle','interrupted','failed') ORDER BY a.ordinal,a.id",
-        vec![Value::Text(thread.to_owned()), Value::Text(list)],
-    )?;
-    let mut best: Vec<(i64, i64, String, Status)> = Vec::new();
-    for row in rows {
-        let ordinal = int_at(&row, 0)?;
-        let text = text_at(&row, 1)?;
-        let id = text_at(&row, 2)?.to_owned();
-        let Ok(agent) = super::super::status::agent_thread_status(text) else {
-            continue;
-        };
-        let (state, on) = raw_state_on(text);
-        let rank = owned_rank(state, on.as_deref());
-        match best.iter_mut().find(|(at, _, _, _)| *at == ordinal) {
-            Some(slot) if rank < slot.1 => *slot = (ordinal, rank, id, agent),
-            Some(slot) if rank == slot.1 && id < slot.2 => *slot = (ordinal, rank, id, agent),
-            Some(_) => {}
-            None => best.push((ordinal, rank, id, agent)),
+    let mut out = Vec::new();
+    for ordinal in ordinals {
+        let row = get_row_raw(
+            conn,
+            "SELECT status FROM long_agents WHERE thread_id=? AND ordinal=? AND completion_relevant=1 AND json_extract(status,'$.state') NOT IN ('idle','interrupted','failed') ORDER BY CASE json_extract(status,'$.state') WHEN 'blocked' THEN CASE json_extract(status,'$.on') WHEN 'human' THEN 0 WHEN 'subagents' THEN 1 WHEN 'rate_limit' THEN 2 WHEN 'network' THEN 3 WHEN 'upstream' THEN 4 ELSE 5 END WHEN 'unresponsive' THEN 6 ELSE 1 END LIMIT 1",
+            vec![Value::Text(thread.to_owned()), Value::Integer(*ordinal)],
+        )?;
+        if let Some(row) = row {
+            let text = text_at(&row, 0)?;
+            out.push((*ordinal, super::super::status::agent_thread_status(text)?));
         }
     }
-    Ok(best
-        .into_iter()
-        .map(|(ordinal, _, _, status)| (ordinal, status))
-        .collect())
-}
-
-/// The raw `state` and `on` of an agent status, for the loader's rank.
-/// Returns empty state when the body is not an object, so the caller skips it
-/// the same way the conversion does.
-fn raw_state_on(text: &str) -> (&str, Option<String>) {
-    #[derive(serde::Deserialize)]
-    struct Raw<'a> {
-        #[serde(borrow, default)]
-        state: Option<&'a str>,
-        #[serde(borrow, default)]
-        on: Option<&'a str>,
-    }
-    let parsed: Result<Raw<'_>, _> = serde_json::from_str(text);
-    match parsed {
-        Ok(raw) => (raw.state.unwrap_or(""), raw.on.map(|on| on.to_owned())),
-        Err(_) => ("", None),
-    }
+    Ok(out)
 }
 
 /// The live threads of the page's subagents, with their validated statuses.

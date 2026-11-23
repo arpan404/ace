@@ -170,6 +170,35 @@ pub fn empty_digest() -> DigestOut {
 
 /// A stored command body, validated as the loader's schema does.
 pub fn parse_command(data: &str) -> Result<CommandOut, LongError> {
+    /// `exitCode` distinguishes absent from explicit `null`, as the protocol
+    /// schema does: missing reads as no field, `null` as `Some(None)`.
+    fn de_exit_code<'de, D>(deserializer: D) -> Result<Option<Option<i64>>, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct KeepNull;
+        impl<'de> serde::de::Visitor<'de> for KeepNull {
+            type Value = Option<Option<i64>>;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("an integer or null")
+            }
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(Some(None))
+            }
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(Some(None))
+            }
+            fn visit_some<D2>(self, deserializer: D2) -> Result<Self::Value, D2::Error>
+            where
+                D2: serde::Deserializer<'de>,
+            {
+                let code = <i64 as serde::Deserialize>::deserialize(deserializer)
+                    .map_err(serde::de::Error::custom)?;
+                Ok(Some(Some(code)))
+            }
+        }
+        deserializer.deserialize_option(KeepNull)
+    }
     #[derive(Deserialize)]
     struct CommandJson<'a> {
         #[serde(rename = "itemId", default, borrow)]
@@ -178,8 +207,8 @@ pub fn parse_command(data: &str) -> Result<CommandOut, LongError> {
         command: Option<Cow<'a, str>>,
         #[serde(default, borrow)]
         failed: Option<&'a serde_json::value::RawValue>,
-        #[serde(rename = "exitCode", default, borrow)]
-        exit_code: Option<&'a serde_json::value::RawValue>,
+        #[serde(rename = "exitCode", default, deserialize_with = "de_exit_code")]
+        exit_code: Option<Option<i64>>,
     }
     let parsed: CommandJson<'_> =
         serde_json::from_str(data).map_err(|_| invalid("invalid index row"))?;
@@ -194,15 +223,7 @@ pub fn parse_command(data: &str) -> Result<CommandOut, LongError> {
     let failed_raw = parsed.failed.ok_or_else(|| invalid("invalid index row"))?;
     let failed: bool =
         serde_json::from_str(failed_raw.get()).map_err(|_| invalid("invalid index row"))?;
-    let exit_code = match parsed.exit_code {
-        None => None,
-        Some(raw) if raw.get() == "null" => Some(None),
-        Some(raw) => {
-            let code: i64 =
-                serde_json::from_str(raw.get()).map_err(|_| invalid("invalid index row"))?;
-            Some(Some(code))
-        }
-    };
+    let exit_code = parsed.exit_code;
     Ok(CommandOut {
         item_id: item_id.into_owned(),
         command: command.to_owned(),

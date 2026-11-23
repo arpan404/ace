@@ -40,42 +40,6 @@ fn status_on(status: &Status) -> Option<&str> {
     }
 }
 
-/// The rank a linked child status sorts by: the most demanding first.
-pub fn linked_rank(status: &Status) -> i64 {
-    match status {
-        Status::NeedsYou { .. } => 0,
-        Status::Working { .. } => 1,
-        Status::Limited { .. } => 2,
-        Status::Waiting { on, .. } => match on.as_str() {
-            "network" => 3,
-            "upstream" => 4,
-            "background_task" => 5,
-            _ => 7,
-        },
-        _ => 6,
-    }
-}
-
-/// The rank an owned agent status sorts by: the most demanding first.
-/// Matches `reader.ts` exactly: blocked/human first, then working (and
-/// blocked/subagents alongside it), rate-limited, network, upstream, other
-/// blocked, and unresponsive last. Takes the raw agent state, not the
-/// converted thread status, so a human-blocked agent outranks a working one.
-pub fn owned_rank(state: &str, on: Option<&str>) -> i64 {
-    match state {
-        "blocked" => match on {
-            Some("human") => 0,
-            Some("subagents") => 1,
-            Some("rate_limit") => 2,
-            Some("network") => 3,
-            Some("upstream") => 4,
-            _ => 5,
-        },
-        "unresponsive" => 6,
-        _ => 1,
-    }
-}
-
 /// Historical turns combine their own live activity, not a later root turn's status.
 pub fn turn_activity_status(counters: &Counters, candidates: &[Status]) -> Option<Status> {
     let mut interactions = counters.get("live:interactions").unwrap_or(0);
