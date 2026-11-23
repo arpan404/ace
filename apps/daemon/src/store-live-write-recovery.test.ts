@@ -127,6 +127,78 @@ function failure(run: () => void): unknown {
   throw new Error("Expected the write to fail");
 }
 
+test("a live batch whose range refill rolls back with its outer transaction is published only once stored and reuses no sequence", async () => {
+  const state = setup();
+  const [id] = state.ids;
+  if (!id) throw new Error("Missing thread");
+  // One warm-up delta reserves a range and is stored, so nothing stays pinned.
+  stream(state.store, id, 0, ["warm-up"]);
+  state.store.flushLiveWrites();
+  expect(state.store.hasLiveWrite(id)).toBe(false);
+  const reserved = Number(
+    state.store.statement("SELECT seq FROM host_sequence WHERE id=1").get()?.seq,
+  );
+  // Simulate an out-of-band durable writer at the reserved range's end without sending 65,536
+  // provider frames: the next batch has to refill the range.
+  state.store.atomic((db) =>
+    db
+      .prepare("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)")
+      .run(
+        reserved - 1,
+        "reservation-boundary",
+        id,
+        999,
+        "thread.updated",
+        JSON.stringify({ type: "thread.updated", title: "near reservation boundary" }),
+      ),
+  );
+  // Committed state only: a delta that was published before its rows committed is not stored.
+  const committed = new DatabaseSync(state.path, { readOnly: true });
+  cleanup.push(() => committed.close());
+  const delivered: { append: string; seq: number; stored: boolean }[] = [];
+  cleanup.push(
+    state.store.subscribe((events) => {
+      for (const event of events) {
+        if (event.payload.type !== "item.delta" || event.payload.itemId !== "answer-0") continue;
+        delivered.push({
+          append: event.payload.append,
+          seq: event.seq,
+          stored:
+            committed.prepare("SELECT 1 FROM events WHERE seq=?").get(event.seq) !== undefined,
+        });
+      }
+    }),
+  );
+  expect(() =>
+    state.store.atomic(() => {
+      const payloads = ["first", "second"].map((append) =>
+        EventPayload.parse({
+          type: "item.delta",
+          itemId: "answer-0",
+          agentId: "root",
+          field: "text",
+          append,
+        }),
+      );
+      state.store.prepareLiveWrite(Buffer.byteLength(JSON.stringify(payloads)));
+      state.store.bufferLiveWrite(id, payloads, 1001, unpinned);
+      throw new Error("outer");
+    }),
+  ).toThrow("outer");
+  // The refill ran in a savepoint that the outer rollback undid: nothing may be published yet.
+  expect(delivered).toEqual([]);
+  state.store.flushLiveWrites();
+  expect(delivered.map(({ append, stored }) => [append, stored])).toEqual([
+    ["first", true],
+    ["second", true],
+  ]);
+  const published = delivered.map(({ seq }) => seq);
+  await state.reopen();
+  const [later] = state.store.appendEvents(id, [{ type: "thread.updated", title: "After reopen" }]);
+  if (!later) throw new Error("Missing event");
+  expect(later.seq).toBeGreaterThan(Math.max(...published));
+});
+
 test("a burst of 64 KiB or more streamed inside a transaction commits once, publishes once and leaves the store writable", async () => {
   const state = setup();
   const [id] = state.ids;
