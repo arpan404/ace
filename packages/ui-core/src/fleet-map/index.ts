@@ -11,3 +11,4 @@ export * from "./map-nodes.ts";
 export * from "./map-types.ts";
 export * from "./networks.ts";
 export * from "./map-words.ts";
+export * from "./fleet-map-layout.ts";
