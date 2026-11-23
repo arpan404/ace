@@ -1,6 +1,11 @@
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
+import { cliProgram } from "./cli/pty-test-support.ts";
+
+/*
+ * The real CLI in a child process: the TypeScript entry, or the Rust binary with
+ * ACE_CLI_IMPL=rust (ADR 0221), so one suite describes both implementations.
+ */
+const program = cliProgram();
 export function startCli(home: string, args: string[], stdin = "", env: NodeJS.ProcessEnv = {}) {
   const invocation = openCli(home, args, env);
   invocation.child.stdin.end(stdin);
@@ -8,28 +13,10 @@ export function startCli(home: string, args: string[], stdin = "", env: NodeJS.P
 }
 /** An open stdin lets process tests exercise a real interactive CLI session. */
 export function openCli(home: string, args: string[], env: NodeJS.ProcessEnv = {}) {
-  // `ACE_CLI_IMPL=rust` runs the same file against `native/cli`'s binary (ADR 0221); `ACE_CLI_BIN`
-  // picks another build. Hand-over finds the runtime and bundle through the override.
-  const rust =
-    process.env.ACE_CLI_IMPL === "rust"
-      ? (process.env.ACE_CLI_BIN ??
-        fileURLToPath(new URL("../../../native/cli/target/release/ace", import.meta.url)))
-      : undefined;
-  const child = rust
-    ? spawn(rust, args, {
-        env: {
-          ...process.env,
-          ...env,
-          ACE_HOME: home,
-          ACE_CLI_NODE: process.execPath,
-          ACE_CLI_ENTRY: cli,
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-      })
-    : spawn(process.execPath, [cli, ...args], {
-        env: { ...process.env, ...env, ACE_HOME: home },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
+  const child = spawn(program.command, [...program.prefix, ...args], {
+    env: { ...process.env, ...program.env, ...env, ACE_HOME: home },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
   let stdout = "",
     stderr = "";
   child.stdout.on("data", (bytes: Buffer) => {

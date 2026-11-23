@@ -3,10 +3,12 @@
 //! command it names or the usage problem with it.
 
 mod flags;
+mod number;
 mod parse;
 mod suggest;
 mod types;
 
+pub use number::js_number;
 pub use parse::parse;
 pub use suggest::{distance, nearest};
 pub use types::{NounOnly, ParseResult, Parsed, Usage};

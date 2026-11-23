@@ -2,9 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { prepareDaemonHome } from "@ace/service";
+import { cliProgram } from "./cli/pty-test-support.ts";
+const program = cliProgram();
 
 test.each(["codex", "claude"])(
   "%s account login streams progress before exit and preserves JSON stdout",
@@ -33,9 +34,9 @@ else if (args.includes("status")) {
       { mode: 0o700 },
     );
     const child = spawn(
-      process.execPath,
+      program.command,
       [
-        fileURLToPath(new URL("./cli.ts", import.meta.url)),
+        ...program.prefix,
         "accounts",
         "add",
         provider,
@@ -44,7 +45,10 @@ else if (args.includes("status")) {
         "Synthetic",
         "--json",
       ],
-      { env: { ...process.env, ACE_HOME: home, PATH: bin }, stdio: ["pipe", "pipe", "pipe"] },
+      {
+        env: { ...process.env, ...program.env, ACE_HOME: home, PATH: bin },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
     );
     let stdout = "",
       stderr = "",
