@@ -248,10 +248,14 @@ working-tree-encoding` over `C`. The set `L` that Git adds itself is: every path
 --exclude-standard` again; any added, removed or reclassified path is drift);
   - the ignore inputs: every `.gitignore` in a directory of `C` or its ancestors,
     `info/exclude`, and `core.excludesFile`;
-  - from N10–N11: every `.gitattributes` in those directories, `info/attributes`, and the config
-    sources' stamp;
+  - from N10–N11: every `.gitattributes` in those directories, `info/attributes`, the global
+    attributes file (`core.attributesFile`, `/dev/null` in protected roots), the system attributes
+    file (unless `GIT_ATTR_NOSYSTEM` is set, as in protected roots), and the config sources' stamp;
   - from N12: the (device, inode, size, mtime, ctime) of every path Rust hashed, statted again
-    now, not only across its read.
+    now, not only across its read;
+  - from N14: the same tuple for every path of `L` that Git added, taken just before N14 and again
+    now, so the bytes Git read are the bytes still there (a changed tuple is drift; ctime can't be
+    set back by a tool, so an edit that restores mtime still shows).
 
   Any difference is drift: the attempt's temporary index is discarded and the snapshot restarts
   **from S1** (sparse check, a new temporary index, a fresh S3 of HEAD and the index), on the CLI
@@ -271,18 +275,48 @@ after the safety capture. So:
 1. **Restore's safety capture always runs the CLI snapshot (S1–S13 with `git add`)**, in G5 and
    after G6, whatever `ACE_GIT` says. `snapshot-hash` never produces a safety tree. Changing this
    needs an amendment of this ADR.
-2. **A safety capture is valid through the destructive step only if, immediately before
-   `read-tree --reset -u`, every path that differs between the safety tree and the target (and its
-   ancestors) still holds the safety tree's bytes and mode**: the core hashes exactly those paths
-   with Git (`hash-object --stdin-paths`, with the filters `git add` applied) and compares them with
-   the safety tree's entries, and checks the person's index and HEAD as at the capture. On drift it
-   takes a new safety capture from S1 and checks again, twice at most, then fails without touching
-   the checkout. This check is new behaviour for both backends: it lands in TypeScript first, with
-   its own test, then G5 ports it; until then G5's restore is today's, step for step.
-3. **The window left** is between that check and Git's writes of the same files (milliseconds,
-   proportional to the differing paths). It can't be fenced without the other writer's
-   cooperation; the daemon's callers keep pausing their own agents while restoring (README,
-   "All operations serialize…"), and the safety checkpoint stays the recovery point.
+2. **The guard covers every path `read-tree --reset -u` may touch, by raw bytes and stat.** Restore
+   loads the owned safety tree into a temporary index with no stat data and resets it to the
+   target (`restore-nested.ts:63`–`:81`), so Git may rewrite an entry that is the same in both
+   trees if its file drifted. The touch set of each repository is therefore every path of its owned
+   safety tree and of its owned target tree, with their ancestors, not only the differences.
+   - **Witness.** The core stats every touch-set path (type, mode, size, mtime and ctime in
+     nanoseconds, device, inode) immediately before the safety capture's S1 and again right after
+     its S13 (before S1 the safety tree isn't known yet, so that stat covers the target's paths and
+     the checkout's listed files, `ls-files --cached --others --exclude-standard`; a safety-tree path
+     missing from it is drift); a path whose tuple moved in between is drift during the capture
+     (retry). The second
+     stat, with a hash of each regular file's raw bytes and each symlink's target, is the witness.
+     Raw bytes, not Git's filtered blob: two byte sequences that normalise to one blob (CRLF and
+     LF under `text=auto`) are different witnesses, and on Windows the exact-byte path restores
+     `checkpointBytes` trees (`checkpoint-bytes.ts:101`, `:158`), which a raw witness matches.
+   - **Check.** Immediately before the first write, the core stats every touch-set path again;
+     a path whose tuple moved is re-hashed raw and is drift unless its bytes, type and mode equal
+     the witness (so a bare `touch` is not drift). The person's index file (raw bytes) and HEAD
+     must equal the capture's.
+   - **On drift**: discard the plan, take a new safety capture from S1, and check again, twice at
+     most; then fail without writing anything (today's error, with `safetyCheckpointId`).
+3. **Nested restores check everything before writing anything.** Today the parent's
+   `read-tree --reset -u` runs before any child is processed (`restore-nested.ts:63`–`:86`), so a
+   child's drift would be found after the parent changed. The restore becomes plan, then check,
+   then apply: for the whole hierarchy (`withNestedWorktrees`, child locks held throughout) the core
+   computes every repository's owned trees and subtrees and copies the objects children need
+   (`transferTree`, object writes only), then runs the check of rule 2 over every repository's touch
+   set, and only when all pass does it write, parent first. Just before each child's write its own
+   touch set is checked once more; a child that drifted while the parent was written stops the
+   restore there with the safety checkpoint as the recovery point (the error carries
+   `safetyCheckpointId` and the repositories already written), rather than overwrite.
+4. **This guard is new behaviour for both backends**: it lands in TypeScript first, with its own
+   tests, in its own change; G5 ports it after. Until it lands, G5's restore is today's, step for
+   step, and restore stays CLI-only (rule 1).
+5. **The window left** is between a repository's last check and Git's writes in it (milliseconds,
+   proportional to its touch set). It can't be fenced without the other writer's cooperation; the
+   daemon's callers keep pausing their own agents while restoring (README, "All operations
+   serialize…"), and the safety checkpoint stays the recovery point.
+6. **Normalisation is not drift but can still change bytes.** Where `text=auto` or eol attributes
+   apply, Git's checkout of an unchanged entry may rewrite a CRLF file as LF on POSIX (Windows
+   already restores exact bytes). The witness shows it; whether restore should keep the raw bytes
+   everywhere is question 8.
 
 ### 6. Refs and worktrees keep their callers' contracts
 
@@ -307,7 +341,9 @@ minimum that compares, and it adds no test case or fixture: the existing ones ar
   write and every failed write, two records: the **state digest** (below) and the **completion
   record** (the returned value through `ace-json`, with commit ids replaced by their position in
   the test's commit order; the error code and the names of `details`' keys; the cleanup receipt's
-  status). `scripts/native-git-digest.ts <file>` runs the file with the parts off and on, with the
+  status), compared by value: messages exactly; every `details` value, including
+  `safetyCheckpointId` and other ids, after the same position mapping as commit ids; paths
+  relative to the fixture. `scripts/native-git-digest.ts <file>` runs the file with the parts off and on, with the
   clock and ids the tests already inject, and fails unless both logs are identical, record for
   record. A write part ships only when every file of its proof list passes.
 - **The state digest** is read with Git and the filesystem, never with a fresh snapshot, so
@@ -317,7 +353,10 @@ minimum that compares, and it adds no test case or fixture: the existing ones ar
     or fixture ids), author and committer names and emails, and message bytes; dates only where the
     test injects the clock;
   - the person's index: `ls-files --stage -z` (mode, id, stage, path, so conflict stages show) and
-    `ls-files -v -z` (assume-unchanged and skip-worktree flags);
+    `ls-files -v -z` (assume-unchanged and skip-worktree flags); and, wherever the operation
+    promises preservation (every snapshot and checkpoint, restore, failed writes), the raw bytes of
+    `.git/index`, any `sharedindex.*`, `HEAD`, `packed-refs`, the loose ref files and the stash
+    reflog, byte for byte;
   - operation state: presence and bytes of `MERGE_HEAD`, `MERGE_MSG`, `MERGE_MODE`, `AUTO_MERGE`,
     `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `rebase-merge/`, `rebase-apply/`, `sequencer/`;
   - the checkout: every path outside `.git`, ignored files included, with type, mode bits, a hash
@@ -341,21 +380,29 @@ minimum that compares, and it adds no test case or fixture: the existing ones ar
   every snapshot (a) file under it. `ACE_GIT_VERIFY=shadow` does the same in a daemon, keeps the
   CLI's tree, and counts differences: the measurement on this repository and the main checkout's
   read-only clones (question 5) runs in shadow.
-- **Both directions, proven by the pairs that happened.** `ACE_NATIVE_CROSS=ACE_GIT` alternates
-  the backend per call; `scripts/native-cross.ts` runs each file twice, starting native and
-  starting TypeScript. The log names, for every checkpoint, its producer backend, and for every
-  use of it (list, diff, restore as safety or target) the consumer backend. The script fails
-  unless, over the two runs, each of these pairs occurred at least once in the file: native →
-  TypeScript and TypeScript → native, for checkpoint → diff and checkpoint → restore. List:
+- **Both directions, per operation edge that actually occurs.** `ACE_NATIVE_CROSS=ACE_GIT`
+  alternates the backend per call; `scripts/native-cross.ts` runs each file twice, starting native
+  and starting TypeScript. The log keys every record by operation (`createCheckpoint`,
+  `listCheckpoints`, live `diff`, `restoreCheckpoint` as safety producer and as target consumer,
+  `workspaceRevision`, `captureChanges`, …) and names each checkpoint's producer and each use's
+  consumer. The script derives from the switch-off run which producer → consumer edges the file
+  exercises (checkpoint → list, checkpoint → live diff, checkpoint → restore), and requires both
+  backend directions for each of those edges over the two runs; it requires no edge the file never
+  exercises (`snapshot-index.process` has no diff consumer, so none is required there). List:
   `checkpoints.process`, `snapshot-index.process`, `workspace-revision.process`, `nested.process`,
   `diff.process`, `transfer-capture.process`, `untracked-links.process`, `audit-restore.process`,
   `credential-restoration.process`.
-- **Native coverage is counted, not assumed.** Every log records per operation the backend
-  selected, the one that completed it and any fallback reason. The porting guide lists, per test
-  (not per file), the fallbacks it expects, with their reason and count; the gate fails on any
-  other fallback, on an expected one that didn't occur, and on any test whose selected-native
-  operations completed natively zero times. A file passes only with at least one native
-  completion per test that selected native.
+- **Native coverage per test and per operation.** Every record names the operation, the backend
+  selected, the one that completed it and any fallback reason. For each test and each operation
+  that selected native, at least one call of that operation completed natively; another operation's
+  native completion never counts for it. Expected fallbacks are listed per test and operation, with
+  reason and count; any other, or a listed one that didn't occur, fails.
+- **Strict verdicts for the paths exercised.** Under `ACE_GIT_VERIFY=strict` every verified call
+  records its verdict and how its rows were produced (hashed by Rust, added by Git as `L`, or the
+  whole call fallen back). A test counts as `snapshot-hash` coverage only if one of its calls
+  compared equal with at least one Rust-hashed row; a file whose snapshot tests all ran with zero
+  Rust-hashed rows fails as vacuous. The same applies to G7's status (rows from `gix` versus a
+  fallback).
 - **CLI contract tests stay CLI contract tests.** Files that inject a fake `gitBinary`
   (`malformed.process.test.ts:24`, `:66` and the 17 others) prove the Rust parsers against the
   same fake output; `snapshot-hash` and `status-gix` never run with a non-default binary, so the
@@ -406,7 +453,16 @@ quotes a URL with `user:token@`, a body that includes an auth header). So:
    URL user-info. The values exist only in the matcher, for the request's lifetime: never written,
    logged or put in an error; the daemon already holds them in its environment, so nothing is
    collected (ADR 0002).
-3. **Redaction comes first.** Every reply, stderr tail and diagnostic is redacted before it is
+3. **Redaction runs over the whole capture, before any clipping.** A clipped tail can cut a secret
+   so that neither half matches. Git's failure text clips, then redacts
+   (`packages/git/src/failure-text.ts:28`: `redact(...slice(-4000))`), and forge's runner decodes
+   each stderr chunk separately into a 4,096-character head (`packages/forge/src/command.ts:138`–
+   `:140`). Both become: keep a bounded byte window, decode it once, drop a partial first (or last)
+   line at the window's cut, redact the whole window with the request's environment values, and
+   only then clip to the reported size. It lands in TypeScript first with a test (a secret straddling
+   the cut), then the cores port it. Forge's stderr stays private (`command.ts:36`); only `tea`'s
+   narrow header projection leaves the runner, after redaction.
+4. **Redaction comes first.** Every reply, stderr tail and diagnostic is redacted before it is
    cached (`GhApi`'s ETag and GraphQL caches, list caches), kept as `raw`, written to a log, put
    in an error's `details`, or serialized for JavaScript. The Rust cores redact through
    **`ace-redaction`**, a port of `@ace/redaction` (F0 owns it; its 11 test files move with it),
@@ -519,6 +575,11 @@ commit saying which. §7's digests and verify mode are the one comparison, justi
   postconditions and separate completion records (§7), proof of the backend pairs that occurred
   and of native coverage per test (§7), credentials kept out of journals, caches and output
   (§8a), and the end-to-end bench (§10a). G0 and G1 start from the current guides.
+- **Round 4 (re-check on 3f1509b9be)**: the restore guard covers every path the reset may touch, by
+  raw bytes and stat, and nested restores check the whole hierarchy before any write (§5a); N15
+  adds the paths Git added and the global and system attributes; redaction runs before clipping
+  (§8a); raw index bytes where preservation is promised and completion values, not keys (§7);
+  coverage per operation and edge, and non-vacuous strict verdicts (§7). G5 and G6 stay held.
 
 ## Questions for the owner
 
@@ -528,3 +589,7 @@ commit saying which. §7's digests and verify mode are the one comparison, justi
    WebAssembly as `ace-core-wasm` is?
 7. **Shadow cost.** `ACE_GIT_VERIFY=shadow` doubles snapshot work while it runs. Run it for one
    release on the owner's machines before G6 default-on (recommended), or only on the clones?
+8. **Raw bytes on restore everywhere?** On POSIX, restoring an unchanged entry under `text=auto`
+   or eol attributes can rewrite a file's line endings (§5a rule 6); Windows already restores the
+   checkpoint's exact bytes. Restore exact bytes on every platform (recommended: one behaviour,
+   no silent rewrite), or keep POSIX as it is?
