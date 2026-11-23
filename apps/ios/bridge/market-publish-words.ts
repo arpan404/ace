@@ -207,11 +207,12 @@ export function confirmationOf(
   };
   for (const finding of check.findings) if (!finding.blocking) accept(finding.text);
   const bot = check.bot;
+  const kept = (index: number) => routines === undefined || routines.includes(index);
   if (bot)
     for (const spans of [
       bot.name,
       bot.task,
-      ...bot.routines.flatMap((r) => [r.name, r.instruction]),
+      ...bot.routines.filter((_, index) => kept(index)).flatMap((r) => [r.name, r.instruction]),
     ])
       for (const span of spans) if (span.kind !== "secret") accept(span.text);
   const shipped = new Set(check.files.filter((file) => file.binary).map((file) => file.path));
@@ -224,7 +225,7 @@ export function confirmationOf(
           recipe: {
             task: bot.recipe.task,
             routines: bot.recipe.routines
-              .filter((_, index) => routines === undefined || routines.includes(index))
+              .filter((_, index) => kept(index))
               .map(({ name, instruction, schedule }) => ({ name, instruction, schedule })),
           },
         }
