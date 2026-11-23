@@ -135,6 +135,7 @@ export function createMarketplaceSession(context: SocketContext): SocketService 
           operation,
           unproven: context.personProven?.() !== true,
           contentOnly,
+          member: () => context.memberStanding?.(),
         });
       const asPerson = async (market: MarketAgent) => {
         const decided = standing();
