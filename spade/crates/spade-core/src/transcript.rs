@@ -275,6 +275,16 @@ impl Transcript {
                 self.paused = false;
                 self.jobs.push(job.clone());
             }
+            // The work moved to a lane (ADR 0217 §2a): its jobs are the lane's, and a helper's
+            // request waits until answered or the lane moves on.
+            Known::ReplyMoved(moved) => {
+                self.jobs.retain(|id| !moved.jobs.contains(id));
+                for (_, owner) in self.helper_awaiting.iter_mut() {
+                    if moved.jobs.contains(owner) {
+                        owner.clone_from(&moved.lane);
+                    }
+                }
+            }
             Known::JobFinished { job, .. } => {
                 self.jobs.retain(|id| id != job);
                 // A helper that ended asks nothing more.
@@ -360,7 +370,6 @@ impl Transcript {
             | Known::WorkerDetached { .. }
             | Known::LaneOf(_)
             | Known::LaneStarted(_)
-            | Known::ReplyMoved(_)
             | Known::AskRouted(_)
             | Known::LaneTitled(_)
             | Known::LanesOverlapped(_)

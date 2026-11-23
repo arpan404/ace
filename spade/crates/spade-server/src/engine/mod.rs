@@ -309,6 +309,7 @@ pub struct Engine {
     continuations: Mutex<HashMap<String, String>>,
     /// Helpers' profiles and the jobs waiting on them (ADR 0152, `helpers`).
     helpers: helpers::Shared,
+    lanes: lanes::Shared,
     /// Bots' wakes, armed (ADR 0160, `wakes`).
     wakes: wakes::Shared,
     /// Bots' owned services (ADR 0160), once the server has set them.
@@ -473,6 +474,7 @@ impl Engine {
             drive_places: Mutex::default(),
             continuations: Mutex::default(),
             helpers: helpers::Shared::default(),
+            lanes: lanes::Shared::default(),
             wakes: wakes::Shared::default(),
             services: std::sync::OnceLock::new(),
             security: std::sync::OnceLock::new(),
@@ -523,6 +525,10 @@ impl Engine {
             if spade_core::knowledge::episode::owed(&events) {
                 engine.owe_episodes(&conversation.id);
             }
+        }
+        // A task lane's jobs lost with the old process are reported like any (ADR 0217 §6).
+        for lane in engine.all_lanes() {
+            jobs::report_lost(&engine, &lane.conversation)?;
         }
         // Helpers carry on from their events (ADR 0152); only those Stop was pressed on close.
         engine.settle_helpers_after_restart()?;
@@ -888,6 +894,12 @@ impl Engine {
         event: &Event,
         ask: Option<spade_store::Delivery<'_>>,
     ) -> Result<spade_store::Delivered, StoreError> {
+        // A job that moved with main's work to a lane reports there (ADR 0217 §2a).
+        if let Event::Known(Known::JobFinished { job, .. } | Known::JobProgress { job, .. }) = event
+            && let Some(lane) = self.moved_job(id, job)
+        {
+            return self.deliver_as(&lane, event, ask);
+        }
         let (start, delivered) = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
             if self.deleting(id) {

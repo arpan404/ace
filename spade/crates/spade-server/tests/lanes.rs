@@ -15,7 +15,7 @@ use spade_core::tools::Risk;
 use spade_server::engine::Limits;
 use spade_server::tools::Tool;
 use spade_testkit::{Route, Script};
-use support::{FakeTool, Options, Result, Spade, types};
+use support::{FakeTool, ManualClock, Options, Result, Spade, types};
 
 fn title() -> Script {
     Script::reply("").plain(r#"{"title":"Errands"}"#)
@@ -993,5 +993,302 @@ async fn a_lanes_question_shows_in_main_as_the_lanes_and_its_answer_goes_back_to
         .filter(|s| s.body.to_string().contains(&lane("Book flights to Lisbon")))
         .count();
     assert_eq!(lane_asked, 2, "the lane's next step read the answer");
+    Ok(())
+}
+
+/// Main's reply that starts `first` (a job, a wait), then reads a sheet seven times: eight steps,
+/// so it moves to a lane at the next boundary. The lane takes `lane_scripts`.
+async fn moves_with(
+    first: Script,
+    lane_scripts: Vec<Script>,
+    extra: Vec<FakeTool>,
+    options: Options,
+) -> Result<(Spade, String, Value)> {
+    let read = FakeTool::new("read_sheet", Risk::Read, "Q3 revenue: 1.2M");
+    let mut main = warm_up();
+    main.push(first);
+    for n in 1..8 {
+        main.push(Script::reply("").call(&format!("s{n}"), "read_sheet", json!({ "n": n })));
+    }
+    main.push(Script::reply("Noted."));
+    let routes = vec![
+        Route::when(
+            "for a task the person asked for",
+            vec![Script::failing(500)],
+        ),
+        route("Draft the quarterly note from Q3", lane_scripts),
+    ];
+    let mut list = vec![read];
+    list.extend(extra);
+    let spade = Spade::start_routed(routes, main, tools(list), options).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Draft the quarterly note from Q3.xlsx")
+        .await?;
+    let events = wait_count(&spade, &conversation, "reply_moved", 1).await?;
+    let moved = events
+        .iter()
+        .find(|e| e["type"] == "reply_moved")
+        .cloned()
+        .unwrap_or_default();
+    Ok((spade, conversation, moved))
+}
+
+fn moving() -> Limits {
+    Limits {
+        move_long_work: true,
+        ..Default::default()
+    }
+}
+
+#[tokio::test]
+async fn a_background_job_of_mains_moved_work_reports_to_the_lane_not_main() -> Result {
+    let fetch = FakeTool::new("fetch_report", Risk::Read, "The report: revenue is up 12%.")
+        .background()
+        .slow(Duration::from_millis(1500));
+    let (spade, conversation, moved) = moves_with(
+        Script::reply("").call("j1", "fetch_report", json!({})),
+        vec![
+            Script::reply("Waiting for the report."),
+            Script::reply("The report says revenue is up 12%."),
+        ],
+        vec![fetch],
+        with(moving()),
+    )
+    .await?;
+    assert_eq!(moved["jobs"], json!(["j1"]), "{moved}");
+    let lane_id = moved["lane"].as_str().unwrap_or_default().to_owned();
+    // The job's result arrives in the lane, which reads it in a reply of its own.
+    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 2).await?;
+    let result = lane_events
+        .iter()
+        .find(|e| e["type"] == "job_finished" && e["job"] == "j1")
+        .cloned()
+        .ok_or("the job's result never reached the lane")?;
+    assert_eq!(result["content"], "The report: revenue is up 12%.");
+    let last = lane_events
+        .iter()
+        .rev()
+        .find(|e| e["type"] == "reply_finished")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(last["text"], "The report says revenue is up 12%.");
+    // Main never got it, and reads no job of its own open.
+    wait_count(&spade, &conversation, "worker_reported", 1).await?;
+    let main_events = spade.events(&conversation).await?;
+    assert_eq!(
+        count(&main_events, "job_finished"),
+        0,
+        "{:?}",
+        types(&main_events)
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let events = spade.events(&conversation).await?;
+        if count(&events, "reply_started") == count(&events, "reply_finished") {
+            break;
+        }
+        if Instant::now() > deadline {
+            return Err("main's report reply never ended".into());
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let (_, agents) = spade.get("/v1/agents").await?;
+    let row = agents["agents"]
+        .as_array()
+        .and_then(|list| {
+            list.iter()
+                .find(|a| a["conversation"] == conversation.as_str())
+                .cloned()
+        })
+        .unwrap_or_default();
+    assert_eq!(row["state"], "idle", "{row}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_wait_of_mains_moved_work_fires_in_the_lane() -> Result {
+    const T0: i64 = 1_800_000_000_000;
+    let clock = ManualClock::at(T0);
+    let options = Options {
+        clock: Some(clock.clone()),
+        ..with(moving())
+    };
+    let (spade, conversation, moved) = moves_with(
+        Script::reply("").call(
+            "w1",
+            "sleep_until",
+            json!({ "after": "10m", "reason": "the numbers settle" }),
+        ),
+        vec![
+            Script::reply("Waiting for the numbers to settle."),
+            Script::reply("The numbers settled; drafted."),
+        ],
+        Vec::new(),
+        options,
+    )
+    .await?;
+    let wake = moved["wakes"][0].as_str().unwrap_or_default().to_owned();
+    assert!(!wake.is_empty(), "{moved}");
+    let lane_id = moved["lane"].as_str().unwrap_or_default().to_owned();
+    let main_events = spade.events(&conversation).await?;
+    let cancelled = main_events
+        .iter()
+        .find(|e| e["type"] == "wake_cancelled")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(
+        (cancelled["wake"].as_str(), cancelled["by"].as_str()),
+        (Some(wake.as_str()), Some("moved"))
+    );
+    wait_count(&spade, &lane_id, "reply_finished", 1).await?;
+
+    clock.set(T0 + 10 * 60_000);
+    spade.engine.kick_wakes();
+    let lane_events = wait_count(&spade, &lane_id, "reply_finished", 2).await?;
+    assert!(
+        lane_events
+            .iter()
+            .any(|e| e["type"] == "wake_fired" && e["wake"] == wake.as_str()),
+        "{:?}",
+        types(&lane_events)
+    );
+    assert_eq!(count(&spade.events(&conversation).await?, "wake_fired"), 0);
+    Ok(())
+}
+
+#[tokio::test]
+async fn try_again_on_a_failed_lane_answers_its_last_reply_again() -> Result {
+    let routes = vec![route(
+        "Renew the domain",
+        // Refused twice: once, and once more when Spade sends the step again.
+        vec![
+            Script::failing(400),
+            Script::failing(400),
+            Script::reply("Renewed for a year."),
+        ],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Renew the domain"),
+        Script::reply("Started."),
+        Script::reply("The renewal failed."),
+        Script::reply("The domain is renewed."),
+    ]);
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Renew the domain.").await?;
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.first().is_some_and(|t| t["state"] == "failed")
+    })
+    .await?;
+    let lane_id = id_of(found.first());
+    let events = spade.events(&lane_id).await?;
+    let failed = events
+        .iter()
+        .find(|e| e["type"] == "reply_failed")
+        .cloned()
+        .unwrap_or_default();
+    let reply = failed["reply"].as_str().unwrap_or_default();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{lane_id}/retry"),
+            json!({ "reply": reply }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let found = wait_tasks(&spade, &conversation, |t| {
+        t.first().is_some_and(|t| t["state"] == "finished")
+    })
+    .await?;
+    assert_eq!(found[0]["report"], "Renewed for a year.");
+    let reports: Vec<String> = wait_count(&spade, &conversation, "worker_reported", 2)
+        .await?
+        .iter()
+        .filter(|e| e["type"] == "worker_reported")
+        .filter_map(|e| e["state"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(reports, ["failed", "finished"]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_helper_of_mains_moved_work_asks_in_main_and_reports_to_the_lane() -> Result {
+    let note = FakeTool::new("send_note", Risk::Write, "sent");
+    let sent = note.calls();
+    let read = FakeTool::new("read_sheet", Risk::Read, "Q3 revenue: 1.2M");
+    let mut main = warm_up();
+    main.push(Script::reply("").call("h1", "helper", json!({ "task": "Send Sam the Q3 note" })));
+    for n in 1..8 {
+        main.push(Script::reply("").call(&format!("s{n}"), "read_sheet", json!({ "n": n })));
+    }
+    let routes = vec![
+        Route::when(
+            "for a task the person asked for",
+            vec![Script::failing(500)],
+        ),
+        Route::when(
+            "You are a helper Spade started",
+            vec![
+                Script::reply("")
+                    .call("n1", "send_note", json!({ "to": "Sam" }))
+                    .held(Duration::from_millis(1500)),
+                Script::reply("Sent Sam the note."),
+            ],
+        ),
+        route(
+            "Draft the quarterly note from Q3",
+            vec![
+                Script::reply("A helper is sending the note."),
+                Script::reply("Sam has the note."),
+            ],
+        ),
+    ];
+    let spade = Spade::start_routed(routes, main, tools(vec![note, read]), with(moving())).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade
+        .say(&conversation, "Draft the quarterly note from Q3.xlsx")
+        .await?;
+    let events = wait_count(&spade, &conversation, "reply_moved", 1).await?;
+    let moved = events
+        .iter()
+        .find(|e| e["type"] == "reply_moved")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(moved["jobs"], json!(["h1"]), "{moved}");
+    let lane_id = moved["lane"].as_str().unwrap_or_default().to_owned();
+    // The helper's request shows in main as the lane's, and the bot needs the person.
+    let events = wait_count(&spade, &conversation, "approval_requested", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(asked["name"], "send_note");
+    assert_eq!(asked["lane"]["task"], lane_id.as_str());
+    let row = roster_state(&spade, &agent).await?;
+    assert_eq!(row["state"], "waiting", "{row}");
+    let call = asked["call_id"].as_str().unwrap_or_default();
+    let (status, body) = spade
+        .post(
+            &format!("/v1/conversations/{conversation}/approvals/{call}"),
+            json!({ "allowed": true }),
+        )
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    // The helper runs the call, and its result reaches the lane.
+    let lane_events = wait_count(&spade, &lane_id, "job_finished", 1).await?;
+    let result = lane_events
+        .iter()
+        .find(|e| e["type"] == "job_finished" && e["job"] == "h1")
+        .cloned()
+        .unwrap_or_default();
+    assert_eq!(result["content"], "Sent Sam the note.");
+    assert_eq!(sent.lock().map(|c| c.len()).unwrap_or(0), 1);
+    assert_eq!(
+        count(&spade.events(&conversation).await?, "job_finished"),
+        0
+    );
+    wait_count(&spade, &lane_id, "reply_finished", 2).await?;
     Ok(())
 }
