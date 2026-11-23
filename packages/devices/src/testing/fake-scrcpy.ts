@@ -39,7 +39,7 @@ export async function until<T>(read: () => T | undefined): Promise<T> {
 }
 
 /** The device name, codec, session and opening units one greeting carries. */
-function greet(socket: Socket, initial: boolean): void {
+function greet(socket: Socket): void {
   const name = Buffer.alloc(64);
   name.write("sdk_gphone64_arm64");
   socket.write(
@@ -48,20 +48,17 @@ function greet(socket: Socket, initial: boolean): void {
       Buffer.from("h264"),
       session(540, 1200),
       media(0x40, sps),
-      // A reopened handshake resumes at the next keyframe the daemon asks for: only the
-      // first handshake carries the opening key and delta.
-      ...(initial ? [media(0x20, nal(0x65, 1)), media(0x00, nal(0x41, 2))] : []),
+      media(0x20, nal(0x65, 1)),
+      media(0x00, nal(0x41, 2)),
     ]),
   );
 }
 
 /**
  * The emulator side, played by a real local TCP server standing in for the adb-forwarded socket:
- * dummy byte on the first connection, device name once control connects, then video.
- *
- * A new connection greets as video again once the last video socket is gone (ace-media
- * restarting dials the same tunnel): control it collects, every video greeting it answers
- * with the dummy byte, and once control has connected once, with the name and stream too.
+ * dummy byte on the first connection, device name once control connects, then video. Like the
+ * pinned server it pairs one video socket with one control socket per greeting: a new video
+ * socket is only greeted after the next control socket connects, never from a prior one.
  */
 export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: boolean } = {}) {
   const sockets: Socket[] = [];
@@ -74,14 +71,14 @@ export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: b
     sockets.push(socket);
     socket.on("error", () => {});
     if (!video || video.destroyed || !videoAlive) {
-      // (Re)greet as video: the dummy byte now, the name and stream once control connects.
+      // A new video socket: the dummy byte now, the name and stream once its own
+      // control socket connects.
       video = socket;
       videoAlive = true;
       socket.once("close", () => {
         if (video === socket) videoAlive = false;
       });
       socket.write(Buffer.from([0]));
-      if (controlSeen) greet(socket, false);
       return;
     }
     if (options.resetAtControl && !controlSeen) {
@@ -97,7 +94,7 @@ export async function fakeDevice(cleanup: Cleanup, options: { resetAtControl?: b
     socket.on("data", (chunk: Buffer) => {
       control = Buffer.concat([control, chunk]);
     });
-    if (videoAlive) greet(video, true);
+    if (videoAlive) greet(video);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(

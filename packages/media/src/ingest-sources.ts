@@ -241,6 +241,11 @@ type Entry = {
   acceleratedBy?: string | undefined;
   /** The stop reason the producer was last told, while it stays stopped. */
   told?: string | undefined;
+  /**
+   * D1: the latest tunnel the daemon asked ace-media to dial, kept across an end so a
+   * retired path still accepts it and a reopen never falls back to the old port.
+   */
+  dial?: { host: string; port: number } | undefined;
 };
 
 /** One open in ace-media: an id, its token until pointed, and its egress handle. */
@@ -403,8 +408,10 @@ export class IngestSources {
         const live = entry.live;
         if (live) this.#send({ type: "source.controlConnected", source: live.id });
       },
-      // D1: re-dial the video handshake at a tunnel, under the same source.
+      // D1: re-dial the video handshake at a tunnel, under the same source. The dial
+      // sticks to the entry: a retired path still accepts it, and a reopen carries it.
       dial: (host, port) => {
+        entry.dial = { host, port };
         const live = entry.live;
         if (live) this.#send({ type: "source.dial", source: live.id, host, port });
       },
@@ -706,7 +713,11 @@ export class IngestSources {
         ...(producer.deadlineMs === undefined || !port.speaks("scrcpy-video")
           ? {}
           : { deadlineMs: producer.deadlineMs }),
-        origin: producer.origin,
+        // D1: a reopen after a dial carries the dial's tunnel, never the stale origin.
+        origin:
+          producer.origin.kind === "scrcpy" && entry.dial !== undefined
+            ? { ...producer.origin, host: entry.dial.host, port: entry.dial.port }
+            : producer.origin,
         ...(producer.threadId === undefined ? {} : { threadId: producer.threadId }),
         ...(producer.tabId === undefined ? {} : { tabId: producer.tabId }),
         ...(producer.sessionId === undefined ? {} : { sessionId: producer.sessionId }),

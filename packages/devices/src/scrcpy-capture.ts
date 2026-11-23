@@ -344,11 +344,26 @@ export async function scrcpyCapture(options: {
       await disconnect(old);
       if (!stopped) await connect();
     })();
+  /** D1: the backend the capture runs on, fixed at its first run and reconfigured when
+   * it changes mid-capture, so paths are never reused across backends. */
+  let pathsD1: boolean | undefined;
+  /** D1: a repoint that arrived while unusable; the next usable moment applies it. */
+  let repointQueued = false;
+  /** D1: forgive the next ended that reaches a pending handshake after a dial: it names
+   * the reader the dial replaced, whose end was already on the wire. */
+  let forgiveEnded = false;
   /** D1: ace-media ended the source, mid-handshake or mid-stream. */
   const mediaClosed = (reason: string | undefined): void => {
     const pending = handshake;
     handshake = undefined;
     if (pending) {
+      // An end for the reader a redial just replaced arrives on the same wire as the
+      // fresh greeting: forgive it once and keep waiting, bounded by the deadline.
+      if (forgiveEnded) {
+        forgiveEnded = false;
+        handshake = pending;
+        return;
+      }
       const error =
         reason === "scrcpy-not-started"
           ? scrcpyDidNotStart(activeTunnel?.said() ?? "")
@@ -434,6 +449,8 @@ export async function scrcpyCapture(options: {
         },
         closed: (reason) => mediaClosed(reason),
         repointed: () => {
+          // Last one wins: queue while a restart or handshake runs, drain after.
+          repointQueued = true;
           void rehandshake().catch(() => {});
         },
       },
@@ -536,14 +553,21 @@ export async function scrcpyCapture(options: {
   };
   /** D1: ace-media restarted under a live capture: only a real server restart recovers —
    * the pinned server establishes one video/control pair per start, so the same tunnel
-   * cannot greet a replacement video socket. Restart like a profile change would. */
+   * cannot greet a replacement video socket. Restart like a profile change would,
+   * queueing repoints that arrive mid-restart and applying the latest after. */
   let rehandshaking = false;
   const rehandshake = async (): Promise<void> => {
-    const live = link;
-    if (!live || stopped || rehandshaking || handshake || restarting) return;
+    if (rehandshaking) return;
     rehandshaking = true;
     try {
-      await restartCurrent(live);
+      for (;;) {
+        if (!repointQueued) return;
+        const live = link;
+        // Unusable now: the flag stays set for the next usable moment.
+        if (!live || stopped || handshake || restarting) return;
+        repointQueued = false;
+        await restartCurrent(live);
+      }
     } catch (error) {
       fail(error);
     } finally {
@@ -599,10 +623,19 @@ export async function scrcpyCapture(options: {
       });
     const profile: ServerProfile = { ...wanted, video: frames === undefined };
     // D1: only when both sides advertise it (the switch on the daemon, scrcpy-video on
-    // ace-media). Otherwise the daemon reads both sockets itself and forwards, as today.
-    const d1 = mediaVideoFor(profile) && media?.speaks?.("scrcpy-video") === true;
-    if (!d1) pathsFor();
-    if (d1 && media) {
+    // ace-media). The choice is fixed at the capture's first run; a change mid-capture
+    // retires the paths configured for the other backend. Otherwise the daemon reads
+    // both sockets itself and forwards, as today.
+    const wantD1 = mediaVideoFor(profile) && media?.speaks?.("scrcpy-video") === true;
+    if (pathsD1 !== undefined && pathsD1 !== wantD1) {
+      scrcpyPaths?.close();
+      scrcpyPaths = undefined;
+      repointQueued = false;
+      greetedEarly = false;
+    }
+    pathsD1 = wantD1;
+    if (!wantD1) pathsFor();
+    if (wantD1 && media) {
       // D1: ace-media reads the video socket itself. The daemon keeps the server, the
       // forward and control; video arrives on egress once the handshake finishes.
       const tunnel = await startScrcpyTunnel({
@@ -620,7 +653,8 @@ export async function scrcpyCapture(options: {
         await frames?.stop();
         throw error;
       });
-      // A restart reuses the source: tell ace-media's reader to dial the new tunnel.
+      // A restart reuses the source: tell ace-media's reader to dial the new tunnel,
+      // ordered before the handshake that waits for its greeting.
       const fresh = !scrcpyPaths;
       const source = pathsForMedia(tunnel.port, scrcpyMediaStartupMs);
       if (!source) {
@@ -631,7 +665,10 @@ export async function scrcpyCapture(options: {
           "Restart ace to bring ace-media back.",
         );
       }
-      if (!fresh) source.dial("127.0.0.1", tunnel.port);
+      if (!fresh) {
+        forgiveEnded = true;
+        source.dial("127.0.0.1", tunnel.port);
+      }
       const deadline = runtime.now() + scrcpyMediaStartupMs;
       try {
         const { control, deviceName } = await shakeHands(tunnel, tunnel.port, source, deadline);
@@ -704,6 +741,8 @@ export async function scrcpyCapture(options: {
         }
         link = started;
         control.resume();
+        // A repoint that arrived mid-handshake applies after it, not during it.
+        if (repointQueued) void rehandshake().catch(() => {});
         return;
       } catch (error) {
         await tunnel.close();
