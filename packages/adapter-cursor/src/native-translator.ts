@@ -11,7 +11,6 @@ import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Fact } from "@ace/core";
 import type { Frame, Translator } from "@ace/engine-api";
-import { boundedJson } from "@ace/provider-kit/ipc";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { RawPayload } from "@ace/protocol";
 import type { CursorTranslatorOptions } from "./translator.ts";
