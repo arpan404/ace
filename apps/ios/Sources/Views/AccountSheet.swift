@@ -48,12 +48,9 @@ struct AccountSheet: View {
                 }
                 GroupLink(.settings) { InsetRow("Settings", icon: .gearSix) }
                     .accessibilityIdentifier("account.menu.settings")
-            } footer: {
-                if !showsConnection { versionFooter }
             }
             .insetRowBackground()
             AccountUpdatesSection(computerName: updateHost(listed).map { machines?.entry($0)?.displayName ?? inbox.name($0) },
-                                  computer: updateHost(listed).flatMap { inbox.client($0)?.appUpdate },
                                   client: updateHost(listed).flatMap { inbox.client($0) })
             if showsConnection { connection(listed) }
         }
@@ -112,29 +109,22 @@ struct AccountSheet: View {
             }
         } header: {
             InsetHeader("Connection")
-        } footer: {
-            versionFooter
         }
         .insetRowBackground()
-    }
-
-    private var versionFooter: some View {
-        let app = DiagnosticsReport.App.current
-        return InsetHeader("ace \(app.version) (\(app.build))")
-            .accessibilityIdentifier("account.menu.version")
     }
 
     private func machineRow(_ host: String, chosen: Bool) -> some View {
         let entry = machines?.entry(host)
         let client = inbox.client(host)
         let name = entry?.displayName ?? inbox.name(host)
-        let state = client?.connection
-        let available = machines?.isOff(host) != true && machines?.unsupported.contains(host) != true
-        let connected = available && state == "ready"
-        let trying = available && ["starting", "connecting", "reconnecting"].contains(state ?? "")
-        let status = connected ? "Connected" : (trying ? "Reconnecting" : "Offline")
+        let unsupported = machines?.unsupported.contains(host) == true
+        let words = MachineConnectionWords.of(state: client?.connection, status: client?.machineStatus?.status,
+                                              needsPairing: unsupported, off: machines?.isOff(host) == true)
+        let connected = words.display.token == "done"
+        let trying = words.trying
+        let status = words.display.label
         return GroupLink(.machine(host)) {
-            InsetRow(icon: MachineFacts.icon(entry?.icon?.kind), title: name, subtitle: status) {
+            InsetRow(icon: client?.machineGlyph ?? MachineFacts.icon(entry?.icon?.kind), title: name, subtitle: status) {
                 HStack(spacing: AceDesign.Space.related) {
                     ConnectionDot(token: connected ? "done" : "neutral", trying: trying)
                     if chosen {

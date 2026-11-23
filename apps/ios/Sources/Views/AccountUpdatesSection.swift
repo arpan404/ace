@@ -5,7 +5,6 @@ import SwiftUI
 struct AccountUpdatesSection: View {
     @State private var phone = PhoneUpdateModel.current
     let computerName: String?
-    let computer: MachineAppUpdateInfo?
     let client: ClientModel?
     @State private var checked = false
     @State private var asking = false
@@ -73,10 +72,10 @@ struct AccountUpdatesSection: View {
     }
 
     @ViewBuilder private func computerRows(_ name: String, _ client: ClientModel) -> some View {
-        let version = client.machineUpdate.flatMap { $0.known ? $0.version : nil } ?? computer?.version
+        let glyph = client.machineGlyph ?? .laptop
         if let info = client.machineUpdate, info.known {
             let step = ComputerUpdate.step(info, machine: name, checked: checked, asking: asking)
-            InsetRow(icon: .desktop, title: "\(name): ace \(info.version)", subtitle: line(step) ?? problem) { EmptyView() }
+            InsetRow(icon: glyph, title: "\(name): ace \(info.version)", subtitle: line(step) ?? problem) { EmptyView() }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("account.updates.computer")
             switch step {
@@ -89,8 +88,10 @@ struct AccountUpdatesSection: View {
             default:
                 EmptyView()
             }
-        } else if let version, !version.isEmpty, version != "Unknown" {
-            InsetRow(icon: .desktop, title: "\(name): ace \(version)", subtitle: "Updates run on \(name)") { EmptyView() }
+        } else {
+            let version = ComputerUpdate.knownVersion(update: client.machineUpdate, app: client.appUpdate, daemon: client.providers?.version)
+            let words = ComputerUpdate.readOnly(machine: name, version: version)
+            InsetRow(icon: glyph, title: words.title, subtitle: words.line) { EmptyView() }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("account.updates.computer")
         }

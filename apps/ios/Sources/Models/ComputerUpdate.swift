@@ -41,6 +41,22 @@ enum ComputerUpdate {
         return checked ? .upToDate : .check
     }
 
+    /// The version the phone already knows for a computer, from its update report, the desktop app's
+    /// report or its provider status, in that order; nil when none has said yet.
+    static func knownVersion(update: MachineUpdateInfo?, app: MachineAppUpdateInfo?, daemon: String?) -> String? {
+        if let update, update.known, !update.version.isEmpty { return update.version }
+        if let app, app.known, !app.version.isEmpty, app.version != "Unknown" { return app.version }
+        if let daemon, !daemon.isEmpty { return daemon }
+        return nil
+    }
+
+    /// The computer row's title and line when its ace can't be updated from here (or hasn't
+    /// said what it runs yet).
+    static func readOnly(machine: String, version: String?) -> (title: String, line: String) {
+        guard let version else { return (machine, "Waiting for \(machine)…") }
+        return ("\(machine): ace \(version)", "Updates run on \(machine)")
+    }
+
     /// The question before an update starts, and what "now" costs.
     static func question(machine: String) -> String { "Update \(machine) now or when its agents are idle?" }
 

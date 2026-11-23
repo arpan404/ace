@@ -88,3 +88,46 @@ struct ComputerUpdateTests {
         #expect(ComputerUpdate.nowDetail(["a", "b", "c", "d", "e", "f", "g"]).contains("and 2 more"))
     }
 }
+
+struct ComputerRowTests {
+    @Test("the computer row always says something: its version, an old daemon, or that it is waiting")
+    func alwaysSomething() {
+        let app = MachineAppUpdateInfo(known: true, version: "0.0.24", line: nil, needsYou: false)
+        let unknown = MachineAppUpdateInfo(known: true, version: "Unknown", line: nil, needsYou: false)
+        #expect(ComputerUpdate.knownVersion(update: nil, app: app, daemon: nil) == "0.0.24")
+        #expect(ComputerUpdate.knownVersion(update: nil, app: unknown, daemon: "0.0.23") == "0.0.23")
+        #expect(ComputerUpdate.knownVersion(update: nil, app: nil, daemon: nil) == nil)
+        #expect(ComputerUpdate.readOnly(machine: "Studio", version: nil).line == "Waiting for Studio…")
+        let old = ComputerUpdate.readOnly(machine: "Studio", version: "0.0.24")
+        #expect(old.title == "Studio: ace 0.0.24")
+        #expect(old.line == "Updates run on Studio")
+    }
+}
+
+struct MachineConnectionWordsTests {
+    private let stale = StatusDisplay(label: "Can't reach", token: "neutral")
+
+    @Test("a connected client reads Connected, even beside an older status line")
+    func connected() {
+        let words = MachineConnectionWords.of(state: "ready", status: stale)
+        #expect(words.display.label == "Connected")
+        #expect(words.display.token == "done")
+        #expect(!words.trying)
+    }
+
+    @Test("a reconnecting client reads Reconnecting; a first connect reads Connecting")
+    func reconnecting() {
+        let again = MachineConnectionWords.of(state: "reconnecting", status: nil)
+        #expect(again.display.label == "Reconnecting")
+        #expect(again.trying)
+        let first = MachineConnectionWords.of(state: "connecting", status: nil)
+        #expect(first.display.label == "Connecting…")
+        #expect(first.trying)
+    }
+
+    @Test("pairing and off win over the connection")
+    func overrides() {
+        #expect(MachineConnectionWords.of(state: "ready", status: nil, needsPairing: true).display.label == "Pair again")
+        #expect(MachineConnectionWords.of(state: "ready", status: nil, off: true).display.label == "Off on this iPhone")
+    }
+}
