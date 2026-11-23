@@ -77,6 +77,12 @@ export class HelperConnection {
   private starting: Promise<ChildProcessWithoutNullStreams> | undefined;
   /** A killed helper until it has exited; its successor waits for it. */
   private stopping: Promise<void> | undefined;
+  /**
+   * Set while the stopping helper refused SIGKILL and still runs: no successor may start, so
+   * requests fail (retryably) until it exits. `refused` wakes requests already waiting.
+   */
+  private unkillable = false;
+  private refused = Promise.withResolvers<void>();
   private closed = false;
 
   constructor(options: HelperConnectionOptions) {
@@ -88,9 +94,21 @@ export class HelperConnection {
     return this.current !== undefined || this.queue.length > 0 || this.parked.size > 0;
   }
 
-  /** Resolves once no helper this connection started is still running or stopping. */
+  /**
+   * Resolves once no helper this connection started is starting, running or stopping. A start
+   * still in flight counts: closed meanwhile, the helper it produces is stopped too.
+   */
   async stopped(): Promise<void> {
-    while (this.stopping) await this.stopping;
+    for (;;) {
+      if (this.starting) await this.starting.catch(() => {});
+      else if (this.stopping) await this.stopping;
+      else return;
+    }
+  }
+
+  /** Whether this connection was closed: a start in flight checks it right before spawning. */
+  isClosed(): boolean {
+    return this.closed;
   }
 
   /** The helper's process id, starting the helper if none is running. */
@@ -283,8 +301,16 @@ export class HelperConnection {
     return this.starting;
   }
 
+  /** Waits for the last helper to exit before a new one starts (never two for one app). */
   private async afterStopped(): Promise<void> {
-    await this.stopped();
+    while (this.stopping) {
+      if (this.unkillable)
+        throw new ComputerError(
+          "helper_stopping",
+          "The app's previous computer-use helper has not exited yet. Try again shortly.",
+        );
+      await Promise.race([this.stopping, this.refused.promise]);
+    }
     if (this.closed) throw new ComputerError("closed", "Computer use stopped.");
   }
 
@@ -393,6 +419,7 @@ export class HelperConnection {
       const done = () => {
         for (const stop of timers.splice(0)) stop();
         child.off("exit", done);
+        this.unkillable = false;
         resolve();
       };
       if (gone()) return done();
@@ -403,7 +430,13 @@ export class HelperConnection {
       };
       const force = () => {
         if (gone()) return;
-        child.kill("SIGKILL");
+        if (!child.kill("SIGKILL")) {
+          // Refused: the helper may still be running, so it stays owned until its exit.
+          this.unkillable = true;
+          this.refused.resolve();
+          this.refused = Promise.withResolvers<void>();
+          return;
+        }
         // A SIGKILL the kernel accepted ends the helper's code at once; this only bounds the
         // wait for the exit to be reported, so a lost event can't hold the queue forever.
         timers.push(scheduler.after(forceKillMs, done));

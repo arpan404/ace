@@ -206,6 +206,28 @@ it("an idle helper slow to exit is force-killed before the same app gets a new o
   expect(startedAlone).toEqual([true, true]);
 });
 
+it("an app dropped while its helper was still starting never runs two helpers at once", async () => {
+  const resolving = Promise.withResolvers<NodeJS.ProcessEnv>();
+  const { client, children, startedAlone } = await world({
+    client: { idleMs: 50, environment: () => resolving.promise },
+  });
+  cleanups.unshift(() => resolving.resolve(process.env));
+  // Cancelled while its helper is still being resolved: nothing was written, the app idles.
+  const stop = new AbortController();
+  const first = client.request("state", { app: "com.apple.calculator" }, { signal: stop.signal });
+  stop.abort();
+  await expect(first).rejects.toMatchObject({ code: "cancelled" });
+  // Left idle, the app's entry is dropped while that start is still pending.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const second = client.request("state", { app: "com.apple.calculator" });
+  resolving.resolve(process.env);
+  await second;
+  // The dropped entry's start never spawned: only the second request's helper ever ran.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(children).toHaveLength(1);
+  expect(startedAlone).toEqual([true]);
+});
+
 it("beyond the helper limit, the least recently used idle app's helper exits", async () => {
   const { call, children, exited } = await world({ client: { maxHelpers: 2 } });
   await call("screen_state", { app: "Calculator" });

@@ -150,6 +150,9 @@ export class ComputerClient {
           await this.retiring.get(key);
           const env = (await this.options.environment?.()) ?? process.env;
           const command = await this.options.helper();
+          // Dropped while the helper was resolved: its successor may be starting already.
+          if (entry.connection.isClosed())
+            throw new ComputerError("closed", "Computer use stopped.");
           return (this.options.spawnHelper ?? defaultSpawn)(
             command,
             ["--computer", ...(this.options.helperArgs ?? [])],

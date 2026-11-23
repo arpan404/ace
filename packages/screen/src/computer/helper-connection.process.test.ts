@@ -14,7 +14,11 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-async function connection(extraEnv: Record<string, string> = {}) {
+async function connection(
+  extraEnv: Record<string, string> = {},
+  /** Whether SIGKILL reaches the helpers; false stands in for a kill the system refuses. */
+  killable = true,
+) {
   const dir = await mkdtemp(join(tmpdir(), "ace-helper-"));
   cleanups.push(() => rm(dir, { recursive: true, force: true }));
   const log = join(dir, "ops.log");
@@ -32,9 +36,13 @@ async function connection(extraEnv: Record<string, string> = {}) {
         children.every((earlier) => earlier.exitCode !== null || earlier.signalCode !== null),
       );
       children.push(child);
+      const kill = child.kill.bind(child);
       cleanups.push(() => {
-        child.kill("SIGKILL");
+        kill("SIGKILL");
       });
+      if (!killable)
+        child.kill = (signal?: NodeJS.Signals | number) =>
+          signal === "SIGKILL" ? false : kill(signal);
       return child;
     },
     nextId: () => `r${++next}`,
@@ -103,4 +111,20 @@ it("a stuck helper that ignores SIGTERM is force-killed, and its replacement sta
   expect(children[0]?.signalCode).toBe("SIGKILL");
   // The old helper was asked to stop first, and given time to clean up.
   expect(await ops()).toContain("sigterm");
+});
+
+it("while a stopping helper can't be killed, the app's next request fails instead of starting another", async () => {
+  const { helper, children } = await connection({ FAKE_IGNORE_STOP: "1" }, false);
+  const stuck = helper.request(
+    "act",
+    { app: "com.example.stuck", actions: [{ type: "key", key: "Escape" }] },
+    200,
+    undefined,
+  );
+  const next = helper.request("state", { app: "com.apple.calculator" }, 10_000, undefined);
+  await expect(stuck).rejects.toMatchObject({ code: "timeout" });
+  await expect(next).rejects.toMatchObject({ code: "helper_stopping" });
+  expect(children).toHaveLength(1);
+  expect(children[0]?.exitCode).toBeNull();
+  expect(children[0]?.signalCode).toBeNull();
 });
