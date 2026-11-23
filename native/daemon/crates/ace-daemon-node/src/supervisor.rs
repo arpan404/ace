@@ -124,6 +124,7 @@ fn stdio_mode(name: &str) -> napi::Result<StdioMode> {
         "" | "piped" => Ok(StdioMode::Piped),
         "ignore" => Ok(StdioMode::Ignore),
         "inherit" => Ok(StdioMode::Inherit),
+        "stderr" => Ok(StdioMode::ToStderr),
         other => Err(napi::Error::from_reason(format!(
             "unknown stdio mode {other}"
         ))),
@@ -393,6 +394,8 @@ fn stdio_flag(mode: StdioMode) -> std::process::Stdio {
         StdioMode::Piped => std::process::Stdio::piped(),
         StdioMode::Ignore => std::process::Stdio::null(),
         StdioMode::Inherit => std::process::Stdio::inherit(),
+        // The shell only observes piped streams; anything else ends on its own.
+        StdioMode::ToStderr => ace_supervisor::spawn::stderr_stdio(),
     }
 }
 
@@ -936,6 +939,25 @@ fn parse_members(members_json: &str) -> napi::Result<Vec<journal::JournalMember>
 struct MemberJson {
     pid: u32,
     start: String,
+    #[serde(default)]
+    uid: String,
+}
+
+fn records_json(members: &[ace_supervisor::wintree::WindowsRecord]) -> String {
+    let mut out = String::from("[");
+    for (index, member) in members.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"pid\":{},\"start\":{},\"uid\":{}}}",
+            member.pid,
+            quote(&member.start),
+            quote(&member.uid)
+        ));
+    }
+    out.push(']');
+    out
 }
 
 fn members_json(members: &[journal::JournalMember]) -> String {
@@ -1238,6 +1260,7 @@ pub fn supervisor_stop_members(
     _env: napi::Env,
     members: String,
     grace_ms: f64,
+    deadline_ms: Option<f64>,
     done: ThreadsafeFunction<String>,
 ) -> napi::Result<()> {
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -1250,11 +1273,19 @@ pub fn supervisor_stop_members(
                 start: member.start,
             })
             .collect();
+        let deadline = deadline_ms.map(|at| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as f64)
+                .unwrap_or(0.0);
+            std::time::Instant::now()
+                + std::time::Duration::from_millis((at - now).max(0.0) as u64)
+        });
         // The thread owns the wait; the loop never blocks the JS thread.
         // Dropping the threadsafe function after the call releases it.
         std::thread::spawn(move || {
             let system = SystemTree::new();
-            let left = tree::stop_members(&members, grace_ms as u64, &system, None);
+            let left = tree::stop_members(&members, grace_ms as u64, &system, deadline);
             let _ = done.call(
                 Ok(members_json(
                     &left
@@ -1359,43 +1390,16 @@ pub fn supervisor_tree_state(recorded_json: String) -> napi::Result<String> {
                 .map(|member| WindowsRecord {
                     pid: member.pid,
                     start: member.start,
-                    uid: String::new(),
+                    uid: member.uid,
                 })
                 .collect();
             let system = ace_supervisor::wintree::SystemWindowsTree::new();
             let state = system.state(&members);
             Ok::<String, napi::Error>(format!(
                 "{{\"live\":{},\"discovered\":{},\"gone\":{},\"ambiguous\":[{}]}}",
-                members_json(
-                    &state
-                        .live
-                        .iter()
-                        .map(|member| journal::JournalMember {
-                            pid: member.pid,
-                            start: member.start.clone(),
-                        })
-                        .collect::<Vec<_>>()
-                ),
-                members_json(
-                    &state
-                        .discovered
-                        .iter()
-                        .map(|member| journal::JournalMember {
-                            pid: member.pid,
-                            start: member.start.clone(),
-                        })
-                        .collect::<Vec<_>>()
-                ),
-                members_json(
-                    &state
-                        .gone
-                        .iter()
-                        .map(|member| journal::JournalMember {
-                            pid: member.pid,
-                            start: member.start.clone(),
-                        })
-                        .collect::<Vec<_>>()
-                ),
+                records_json(&state.live),
+                records_json(&state.discovered),
+                records_json(&state.gone),
                 state
                     .ambiguous
                     .iter()
@@ -1432,7 +1436,7 @@ pub fn supervisor_tree_terminate(member_json: String) -> napi::Result<String> {
                 .terminate(&WindowsRecord {
                     pid: member.pid,
                     start: member.start,
-                    uid: String::new(),
+                    uid: member.uid,
                 })
                 .map_err(bind_error)?;
             Ok::<String, napi::Error>(match outcome {

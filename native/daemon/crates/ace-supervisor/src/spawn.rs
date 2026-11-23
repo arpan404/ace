@@ -16,6 +16,8 @@ pub enum StdioMode {
     Ignore,
     /// The daemon's own stream (interactive children).
     Inherit,
+    /// The daemon's standard error (a login writing to stderr).
+    ToStderr,
 }
 
 /// What to spawn: the command, its arguments, where and as whom it runs.
@@ -110,6 +112,38 @@ pub async fn pump_stream<E: EventSink, R: tokio::io::AsyncRead + Unpin>(
 /// Env pairs for a spawn: names and values as the kernel takes them.
 pub fn env_block(env: &[(String, String)]) -> HashMap<String, String> {
     env.iter().cloned().collect()
+}
+
+/// The daemon's standard error as a child stream: a login writing to stderr.
+#[cfg(unix)]
+pub fn stderr_stdio() -> std::process::Stdio {
+    std::fs::File::open("/dev/stderr")
+        .map(std::process::Stdio::from)
+        .unwrap_or_else(|_| std::process::Stdio::inherit())
+}
+
+/// The daemon's standard error as a child stream: a login writing to stderr.
+#[cfg(windows)]
+pub fn stderr_stdio() -> std::process::Stdio {
+    use std::os::windows::io::{FromRawHandle, OwnedHandle};
+    use windows_sys::Win32::System::Console::{GetStdHandle, STD_ERROR_HANDLE};
+    // SAFETY: GetStdHandle returns a borrowed handle the caller must not
+    // close; the owned copy below takes over exactly one close. A null
+    // handle falls back to inheriting the daemon's streams.
+    #[allow(unsafe_code)]
+    unsafe {
+        let handle = GetStdHandle(STD_ERROR_HANDLE);
+        if handle.is_null() {
+            return std::process::Stdio::inherit();
+        }
+        std::process::Stdio::from(OwnedHandle::from_raw_handle(handle as *mut core::ffi::c_void))
+    }
+}
+
+/// The daemon's standard error as a child stream: a login writing to stderr.
+#[cfg(not(any(unix, windows)))]
+pub fn stderr_stdio() -> std::process::Stdio {
+    std::process::Stdio::inherit()
 }
 
 #[cfg(test)]

@@ -291,9 +291,7 @@ pub fn windows_tree_recorded(
         let Value::Text(text) = &row[0] else {
             continue;
         };
-        let Ok(entry) = parse_entry(text) else {
-            continue;
-        };
+        let entry = parse_entry(text)?;
         if entry.tree.as_deref() == Some(key.as_str())
             || (entry.pid == leader_pid && entry.start == leader_start)
         {
