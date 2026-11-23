@@ -340,7 +340,10 @@ mod tests {
         let value = json!({ "wide": wide, "fields": fields, "deep": deep });
         let clean = sanitize(&value, &[]);
         let text = ace_json::ser::to_string(&clean).expect("sanitized evidence serializes");
-        assert_eq!(clean["wide"].as_array().map(|items| items.len()), Some(2048));
+        assert_eq!(
+            clean["wide"].as_array().map(|items| items.len()),
+            Some(2048)
+        );
         assert_eq!(text.matches("\"k").count(), 2048);
         assert!(text.contains("\"[depth limit]\""));
         assert!(!text.contains("bottom"));

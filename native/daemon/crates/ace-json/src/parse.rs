@@ -259,16 +259,21 @@ fn push_unit(text: &mut String, units: &mut Option<Vec<u16>>, escaped: Escaped) 
     }
 }
 
-/// An open container while parsing.
+/// An open container while parsing: where its children start in the scratch buffer, and
+/// for an object the key awaiting its value.
 enum Open {
-    Array(Vec<Value>),
-    Object(Map, Option<JsString>),
+    Array(usize),
+    Object(usize, Option<JsString>),
 }
 
 /// `JSON.parse(text)`.
 pub fn parse(text: &str) -> Result<Value, SyntaxError> {
     let mut cursor = Cursor::new(text);
+    // Open containers, innermost last; their children wait in one shared scratch buffer each
+    // (array items, object members), so every container is allocated once at its final size.
     let mut stack: Vec<Open> = Vec::new();
+    let mut items: Vec<Value> = Vec::new();
+    let mut members: Vec<(JsString, Value)> = Vec::new();
     loop {
         cursor.skip_ws();
         // A value (or, right after `[`, an immediate `]`).
@@ -281,7 +286,7 @@ pub fn parse(text: &str) -> Result<Value, SyntaxError> {
                     Value::Object(Map::new())
                 } else {
                     let key = object_key(&mut cursor)?;
-                    stack.push(Open::Object(Map::new(), Some(key)));
+                    stack.push(Open::Object(members.len(), Some(key)));
                     continue;
                 }
             }
@@ -292,7 +297,7 @@ pub fn parse(text: &str) -> Result<Value, SyntaxError> {
                     cursor.pos += 1;
                     Value::Array(Array::new())
                 } else {
-                    stack.push(Open::Array(Vec::new()));
+                    stack.push(Open::Array(items.len()));
                     continue;
                 }
             }
@@ -316,7 +321,8 @@ pub fn parse(text: &str) -> Result<Value, SyntaxError> {
                         Some(_) => cursor.fail("Unexpected non-whitespace character after JSON"),
                     };
                 }
-                Some(Open::Array(items)) => {
+                Some(Open::Array(start)) => {
+                    let start = *start;
                     items.push(done);
                     cursor.skip_ws();
                     match cursor.peek() {
@@ -326,17 +332,16 @@ pub fn parse(text: &str) -> Result<Value, SyntaxError> {
                         }
                         Some(b']') => {
                             cursor.pos += 1;
-                            done = match stack.pop() {
-                                Some(Open::Array(items)) => Value::Array(Array::from(items)),
-                                _ => return cursor.fail("Unexpected token"),
-                            };
+                            stack.pop();
+                            done = Value::Array(items.drain(start..).collect());
                         }
                         _ => return cursor.fail("Expected ',' or ']' after array element"),
                     }
                 }
-                Some(Open::Object(map, key)) => {
+                Some(Open::Object(start, key)) => {
+                    let start = *start;
                     if let Some(key) = key.take() {
-                        map.insert(key, done);
+                        members.push((key, done));
                     }
                     cursor.skip_ws();
                     match cursor.peek() {
@@ -351,10 +356,12 @@ pub fn parse(text: &str) -> Result<Value, SyntaxError> {
                         }
                         Some(b'}') => {
                             cursor.pos += 1;
-                            done = match stack.pop() {
-                                Some(Open::Object(map, _)) => Value::Object(map),
-                                _ => return cursor.fail("Unexpected token"),
-                            };
+                            stack.pop();
+                            let mut map = Map::with_capacity(members.len() - start);
+                            for (key, value) in members.drain(start..) {
+                                map.insert(key, value);
+                            }
+                            done = Value::Object(map);
                         }
                         _ => return cursor.fail("Expected ',' or '}' after property value"),
                     }

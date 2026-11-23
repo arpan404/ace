@@ -214,7 +214,8 @@ pub fn tool_detail(name: &JsString, args: &Value, result: &Value) -> Value {
         }
         "mcp" => {
             let server = string(args.get("providerIdentifier").unwrap_or(&Value::Null))
-                .or_else(|| string(args.get("server").unwrap_or(&Value::Null))).cloned()
+                .or_else(|| string(args.get("server").unwrap_or(&Value::Null)))
+                .cloned()
                 .unwrap_or_else(|| JsString::from("unknown"));
             let tool = string(args.get("tool").unwrap_or(&Value::Null))
                 .or_else(|| string(args.get("toolName").unwrap_or(&Value::Null)))

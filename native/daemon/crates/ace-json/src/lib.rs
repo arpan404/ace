@@ -17,6 +17,7 @@
 //! - derived `serde::Serialize` types serialize with the same rules ([`ser::to_string`]).
 
 mod access;
+mod deep;
 mod macros;
 mod number;
 mod object;

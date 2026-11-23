@@ -4,11 +4,11 @@
 
 use ace_adapter_claude::translate::ClaudeTranslator as CoreTranslator;
 use ace_adapter_claude::translate::frame::FrameView;
-use ace_json::{Kind, Value};
+use ace_json::Value;
 use napi::Env;
 use napi_derive::napi;
 
-use crate::json_bind::{frame, text_field, write_values};
+use crate::json_bind::{parse, write_values};
 
 /// The native claude translator behind the adapter's exported translator
 /// name. One preallocated output buffer is reused across calls; each call
@@ -35,20 +35,29 @@ impl ClaudeTranslator {
     /// which is a shell contract violation rather than provider data.
     #[napi(catch_unwind)]
     pub fn translate(&mut self, env: Env, frame_json: String, now: f64) -> napi::Result<String> {
-        let root = frame(&env, &frame_json)?;
-        if root.kind() != Kind::Object {
+        let root = parse(&env, &frame_json)?;
+        let Value::Object(mut root) = root else {
             return Err(napi::Error::from_reason(
                 "translator frame must be an object",
             ));
-        }
+        };
         let seq = root.get("seq").and_then(|v| v.as_i64()).unwrap_or(0);
-        let dir = text_field(root, "dir").unwrap_or("recv".into());
-        let channel = text_field(root, "channel").unwrap_or("sdk".into());
-        let data = root.get("data").map_or(Value::Null, |data| data.to_value());
+        let dir = root
+            .get("dir")
+            .and_then(Value::as_str)
+            .unwrap_or("recv")
+            .to_owned();
+        let channel = root
+            .get("channel")
+            .and_then(Value::as_str)
+            .unwrap_or("sdk")
+            .to_owned();
         let payload_bytes = root
             .get("payloadBytes")
             .and_then(|v| v.as_u64())
             .map(|v| v as usize);
+        // The data moves out of the frame: no copy of the provider value.
+        let data = root.remove("data").unwrap_or(Value::Null);
         let view = FrameView {
             seq,
             dir: &dir,

@@ -153,7 +153,7 @@ impl CodexTranslator {
                 method
             }
         };
-        let frame_json = ace_json::ser::to_string(&frame.data).unwrap_or_default();
+        let frame_json = ace_json::to_string(&frame.data);
         self.diagnostic_frame_json = Some(frame_json);
         self.diagnostics = vec![raw_payload(&initial_type, &frame.data, None)];
         let mut facts = Vec::new();
@@ -208,7 +208,7 @@ impl ace_adapter_api::translator::Translator for CodexTranslator {
     fn take_diagnostics(&mut self) -> Vec<String> {
         self.take_diagnostics_value()
             .iter()
-            .map(|v| ace_json::ser::to_string(v).unwrap_or_else(|_| "null".to_owned()))
+            .map(ace_json::to_string)
             .collect()
     }
 

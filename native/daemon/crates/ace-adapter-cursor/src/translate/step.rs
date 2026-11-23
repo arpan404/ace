@@ -165,7 +165,8 @@ impl Step<'_> {
             facts.extend(self.children.preserve());
             facts.push(
                 self.notice(
-                    &string(body.get("message").unwrap_or(&Value::Null)).cloned()
+                    &string(body.get("message").unwrap_or(&Value::Null))
+                        .cloned()
                         .unwrap_or_else(|| {
                             JsString::from("SDK host resource budget failed; checkpoint retained")
                         }),
@@ -183,7 +184,8 @@ impl Step<'_> {
                 (
                     JsString::from("message"),
                     Value::String(super::turns::utf16_head(
-                        &string(body.get("message").unwrap_or(&Value::Null)).cloned()
+                        &string(body.get("message").unwrap_or(&Value::Null))
+                            .cloned()
                             .unwrap_or_else(|| JsString::from("Cursor's turn was fenced")),
                         512,
                     )),

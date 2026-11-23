@@ -111,10 +111,7 @@ impl UnknownBuffers {
     }
 
     fn frame_bytes(data: &Value) -> usize {
-        match ace_json::ser::to_string(data) {
-            Ok(text) => text.encode_utf16().count() * 2,
-            Err(_) => 0,
-        }
+        ace_json::to_string(data).encode_utf16().count() * 2
     }
 
     fn forget(&mut self, id: &str, seq: usize, bytes: usize, lost: bool) {

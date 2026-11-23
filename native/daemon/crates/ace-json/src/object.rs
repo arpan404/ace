@@ -9,7 +9,7 @@ use indexmap::{Equivalent, map::IntoIter};
 use std::hash::{Hash, Hasher};
 
 use crate::string::{JsString, hash_text};
-use crate::value::{Value, drop_values};
+use crate::value::Value;
 
 type State = foldhash::fast::RandomState;
 
@@ -114,17 +114,22 @@ impl Map {
 
     /// [`Map::insert`], also returning the slot's position.
     fn insert_full(&mut self, key: JsString, value: Value) -> (usize, Option<Value>) {
-        if let Some((at, _, slot)) = self.entries.get_full_mut(&key) {
-            return (at, Some(std::mem::replace(slot, value)));
-        }
-        match index_of_key(&key) {
-            Some(index) => {
-                let at = self.indexed_position(index);
-                self.entries.shift_insert(at, key, value);
-                self.indexed += 1;
-                (at, None)
-            }
-            None => (self.entries.insert_full(key, value).0, None),
+        // Where a new array-index key would go (unused when the key exists).
+        let ordered = index_of_key(&key).map(|index| self.indexed_position(index));
+        match self.entries.entry(key) {
+            indexmap::map::Entry::Occupied(mut slot) => (slot.index(), Some(slot.insert(value))),
+            indexmap::map::Entry::Vacant(slot) => match ordered {
+                Some(at) => {
+                    slot.shift_insert(at, value);
+                    self.indexed += 1;
+                    (at, None)
+                }
+                None => {
+                    let at = slot.index();
+                    slot.insert(value);
+                    (at, None)
+                }
+            },
         }
     }
 
@@ -239,7 +244,20 @@ impl Map {
     }
 
     pub fn clear(&mut self) {
-        drop_values(std::mem::take(&mut self.entries).into_values().collect());
+        *self = Map::new();
+    }
+
+    /// A copy with the same hash table; each value cloned (see [`crate::deep`]).
+    pub(crate) fn clone_entries(&self) -> Map {
+        Map {
+            entries: self.entries.clone(),
+            indexed: self.indexed,
+        }
+    }
+
+    /// Drop every entry in place (see [`crate::deep`]).
+    pub(crate) fn clear_entries(&mut self) {
+        self.entries.clear();
         self.indexed = 0;
     }
 
@@ -254,14 +272,6 @@ impl Map {
             self.indexed += 1;
         }
         self.entries.insert(key, value);
-    }
-}
-
-impl Drop for Map {
-    fn drop(&mut self) {
-        if !self.entries.is_empty() {
-            drop_values(self.take_values());
-        }
     }
 }
 
@@ -287,12 +297,6 @@ impl<'a> Entry<'a> {
 
     pub fn key(&self) -> &JsString {
         &self.key
-    }
-}
-
-impl Clone for Map {
-    fn clone(&self) -> Map {
-        crate::value::clone_map(self)
     }
 }
 

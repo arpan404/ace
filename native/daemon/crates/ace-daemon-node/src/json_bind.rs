@@ -4,9 +4,7 @@
 //! spliced from their canonical text. A frame that is not JSON throws a JavaScript
 //! `SyntaxError`, as `JSON.parse` would. Nothing here recurses, so depth is bounded by memory.
 
-use std::borrow::Cow;
-
-use ace_json::{RawRef, SyntaxError, Value};
+use ace_json::{SyntaxError, Value};
 use napi::{Env, Status};
 
 /// Throw `error` as the `SyntaxError` `JSON.parse` throws, and the error that carries it out.
@@ -16,14 +14,9 @@ pub(crate) fn syntax_error(env: &Env, error: &SyntaxError) -> napi::Error {
     napi::Error::new(Status::PendingException, message)
 }
 
-/// The frame's JSON, validated once and borrowed.
-pub(crate) fn frame<'a>(env: &Env, text: &'a str) -> napi::Result<RawRef<'a>> {
-    ace_json::parse_raw(text).map_err(|error| syntax_error(env, &error))
-}
-
-/// A frame field's string.
-pub(crate) fn text_field<'a>(frame: RawRef<'a>, key: &str) -> Option<Cow<'a, str>> {
-    frame.get(key).and_then(|value| value.as_str())
+/// `JSON.parse` of the frame.
+pub(crate) fn parse(env: &Env, text: &str) -> napi::Result<Value> {
+    ace_json::parse(text).map_err(|error| syntax_error(env, &error))
 }
 
 /// `JSON.stringify(values)`, into `out` (cleared first, capacity kept).

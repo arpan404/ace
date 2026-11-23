@@ -264,16 +264,10 @@ pub fn handle_status(
                 );
             }
             if let Some(Value::Number(reasoning)) = counts.get("reasoningOutputTokens") {
-                body.insert(
-                    "reasoningTokens".to_owned(),
-                    Value::Number(*reasoning),
-                );
+                body.insert("reasoningTokens".to_owned(), Value::Number(*reasoning));
             }
             if let Some(Value::Number(cached)) = counts.get("cachedInputTokens") {
-                body.insert(
-                    "cachedInputTokens".to_owned(),
-                    Value::Number(*cached),
-                );
+                body.insert("cachedInputTokens".to_owned(), Value::Number(*cached));
             }
             facts.push(fact("usage", body));
         }

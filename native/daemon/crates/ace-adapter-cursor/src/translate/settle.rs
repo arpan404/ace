@@ -70,7 +70,8 @@ impl Step<'_> {
                     let error = body.get("error").unwrap_or(&Value::Null);
                     facts.push(
                         self.notice(
-                            &string(error.get("message").unwrap_or(&Value::Null)).cloned()
+                            &string(error.get("message").unwrap_or(&Value::Null))
+                                .cloned()
                                 .unwrap_or_else(|| JsString::from("Cursor SDK run failed")),
                             envelope,
                             "error",
@@ -116,7 +117,8 @@ impl Step<'_> {
                         "error",
                         failed_run(
                             error.get("code").unwrap_or(&Value::Null),
-                            &string(error.get("message").unwrap_or(&Value::Null)).cloned()
+                            &string(error.get("message").unwrap_or(&Value::Null))
+                                .cloned()
                                 .unwrap_or_else(|| JsString::from("Cursor SDK run failed")),
                             error.get("retryable").unwrap_or(&Value::Null),
                         ),
@@ -169,7 +171,8 @@ impl Step<'_> {
                         (JsString::from("cwd"), Value::String(self.cwd.clone())),
                     ]));
                 }
-                let text = string(body.get("message").unwrap_or(&Value::Null)).cloned()
+                let text = string(body.get("message").unwrap_or(&Value::Null))
+                    .cloned()
                     .unwrap_or_else(|| {
                         JsString::from("SDK failure; delivery or execution is uncertain")
                     });
@@ -193,7 +196,8 @@ impl Step<'_> {
                     && matches!(body.get("settled"), Some(Value::Bool(true)))
                 {
                     *self.active = false;
-                    let message = string(body.get("message").unwrap_or(&Value::Null)).cloned()
+                    let message = string(body.get("message").unwrap_or(&Value::Null))
+                        .cloned()
                         .unwrap_or_else(|| JsString::from("SDK run failed"));
                     facts.push(Value::from(vec![
                         (

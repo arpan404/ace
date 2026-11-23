@@ -17,7 +17,7 @@ use crate::write::{to_string, write_value};
 
 /// Canonical JSON text for one value.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub struct Raw(Box<str>);
+pub struct Raw(String);
 
 impl Raw {
     pub fn null() -> Raw {
@@ -25,7 +25,7 @@ impl Raw {
     }
 
     pub fn from_value(value: &Value) -> Raw {
-        Raw(to_string(value).into_boxed_str())
+        Raw(to_string(value))
     }
 
     /// Validate `text`; kept as is when canonical, else re-encoded as `JSON.stringify` would.
@@ -40,7 +40,7 @@ impl Raw {
     /// As [`Raw::from_json`], reusing the allocation when the text is already canonical.
     pub fn from_string(text: String) -> Result<Raw, SyntaxError> {
         if validate(&text)? {
-            Ok(Raw(text.into_boxed_str()))
+            Ok(Raw(text))
         } else {
             Raw::from_json(&text)
         }
@@ -48,7 +48,7 @@ impl Raw {
 
     /// JSON.stringify's text, written by this crate's writer: no check needed.
     pub(crate) fn from_canonical(text: String) -> Raw {
-        Raw(text.into_boxed_str())
+        Raw(text)
     }
 
     pub fn get(&self) -> &str {
@@ -67,7 +67,7 @@ impl Raw {
     }
 
     pub fn into_string(self) -> String {
-        self.0.into_string()
+        self.0
     }
 }
 

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use ace_json::Value;
 use napi_derive::napi;
 
-use crate::json_bind::{text_field, write_values};
+use crate::json_bind::write_values;
 
 fn quote_string(value: &str) -> String {
     let mut quoted = String::with_capacity(value.len() + 2);
@@ -66,24 +66,22 @@ impl NativeCodexTranslator {
     pub fn translate(&self, frame_json: String, now: f64) -> napi::Result<String> {
         let result = catch_unwind(AssertUnwindSafe(|| {
             // Undecodable frame text reads as an empty frame, as before.
-            let root = ace_json::parse_raw(&frame_json).ok();
-            let dir = root
-                .and_then(|root| text_field(root, "dir"))
-                .map_or_else(|| "recv".to_owned(), |dir| dir.into_owned());
-            let channel = root
-                .and_then(|root| text_field(root, "channel"))
-                .map_or_else(|| "stdio".to_owned(), |channel| channel.into_owned());
-            let data = root
-                .and_then(|root| root.get("data"))
-                .map_or(Value::Null, |data| data.to_value());
-            let seq = root
-                .and_then(|root| root.get("seq"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let t = root
-                .and_then(|root| root.get("t"))
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0);
+            let mut root = match ace_json::parse(&frame_json) {
+                Ok(Value::Object(root)) => root,
+                _ => ace_json::Map::new(),
+            };
+            let text = |key: &str, fallback: &str| {
+                root.get(key)
+                    .and_then(Value::as_str)
+                    .unwrap_or(fallback)
+                    .to_owned()
+            };
+            let dir = text("dir", "recv");
+            let channel = text("channel", "stdio");
+            let seq = root.get("seq").and_then(|v| v.as_u64()).unwrap_or(0);
+            let t = root.get("t").and_then(|v| v.as_i64()).unwrap_or(0);
+            // The data moves out of the frame: no copy of the provider value.
+            let data = root.remove("data").unwrap_or(Value::Null);
             let frame = ace_adapter_codex::translate::ParsedFrame {
                 dir,
                 channel,

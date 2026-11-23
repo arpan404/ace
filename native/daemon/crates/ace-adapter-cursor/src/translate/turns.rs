@@ -320,7 +320,8 @@ impl Step<'_> {
             ),
         ]);
         if outcome == "failed" {
-            let message = string(body.get("error").unwrap_or(&Value::Null)).cloned()
+            let message = string(body.get("error").unwrap_or(&Value::Null))
+                .cloned()
                 .unwrap_or_else(|| {
                     if is_truthy(body.get("interrupted").unwrap_or(&Value::Null)) {
                         JsString::from(

@@ -23,6 +23,24 @@ fn push_unit_escape(out: &mut String, unit: u16) {
     }
 }
 
+/// Per byte: 0 when written as is, else the letter after `\\` (`u` for `\\u00xx`).
+const ESCAPES: [u8; 256] = {
+    let mut table = [0u8; 256];
+    let mut byte = 0;
+    while byte < 0x20 {
+        table[byte] = b'u';
+        byte += 1;
+    }
+    table[0x08] = b'b';
+    table[0x09] = b't';
+    table[0x0a] = b'n';
+    table[0x0c] = b'f';
+    table[0x0d] = b'r';
+    table[b'"' as usize] = b'"';
+    table[b'\\' as usize] = b'\\';
+    table
+};
+
 /// The escape for an ASCII byte, if `JSON.stringify` escapes it.
 fn escape(byte: u8) -> Option<&'static str> {
     Some(match byte {
@@ -39,19 +57,24 @@ fn escape(byte: u8) -> Option<&'static str> {
 }
 
 /// `JSON.stringify(text)` for a well-formed string.
+/// `JSON.stringify(text)` for a well-formed string.
 pub fn write_str(out: &mut String, text: &str) {
     out.reserve(text.len() + 2);
     out.push('"');
+    let bytes = text.as_bytes();
     let mut start = 0;
-    for (at, byte) in text.bytes().enumerate() {
-        let Some(escaped) = escape(byte) else {
+    for (at, &byte) in bytes.iter().enumerate() {
+        let class = ESCAPES.get(usize::from(byte)).copied().unwrap_or(0);
+        if class == 0 {
             continue;
-        };
+        }
         out.push_str(text.get(start..at).unwrap_or(""));
-        if escaped.is_empty() {
-            push_unit_escape(out, u16::from(byte));
-        } else {
-            out.push_str(escaped);
+        match class {
+            b'u' => push_unit_escape(out, u16::from(byte)),
+            short => {
+                out.push('\\');
+                out.push(char::from(short));
+            }
         }
         start = at + 1;
     }
@@ -179,7 +202,7 @@ pub(crate) fn write_items(out: &mut String, items: &[Value]) {
 
 /// `JSON.stringify(value)`.
 pub fn to_string(value: &Value) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(256);
     write_value(&mut out, value);
     out
 }

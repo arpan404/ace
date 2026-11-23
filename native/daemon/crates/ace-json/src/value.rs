@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-//! The value tree `JSON.parse` returns. Drop, clone and equality walk it with a heap stack,
-//! never the call stack, so a tree nested 100,000 deep is as safe as a flat one.
+//! The value tree `JSON.parse` returns. Equality walks it with a heap stack; drop and clone
+//! live in [`crate::deep`]. A tree nested 100,000 deep is as safe as a flat one.
 
 use std::ops::{Deref, DerefMut};
 
@@ -23,7 +23,7 @@ pub enum Value {
 /// An array's items. A newtype over `Vec<Value>` (it derefs to one) only so dropping a deep
 /// array is iterative.
 #[derive(Default)]
-pub struct Array(Vec<Value>);
+pub struct Array(pub(crate) Vec<Value>);
 
 impl Array {
     pub fn new() -> Array {
@@ -85,127 +85,6 @@ impl<'a> IntoIterator for &'a mut Array {
     type IntoIter = std::slice::IterMut<'a, Value>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter_mut()
-    }
-}
-
-impl Drop for Array {
-    fn drop(&mut self) {
-        if !self.0.is_empty() {
-            drop_values(std::mem::take(&mut self.0));
-        }
-    }
-}
-
-/// Drop values with a heap stack: each container is emptied before it is dropped.
-pub(crate) fn drop_values(mut stack: Vec<Value>) {
-    while let Some(value) = stack.pop() {
-        match value {
-            Value::Array(mut items) => stack.append(&mut items.0),
-            Value::Object(mut map) => stack.extend(map.take_values()),
-            _ => {}
-        }
-    }
-}
-
-/// One container being copied: the source's remaining children and the copy so far.
-enum Build<'a> {
-    Array(std::slice::Iter<'a, Value>, Vec<Value>),
-    Object(
-        indexmap::map::Iter<'a, JsString, Value>,
-        Map,
-        Option<JsString>,
-    ),
-}
-
-/// A leaf's copy, or `None` after pushing the container's frame.
-fn open<'a>(value: &'a Value, stack: &mut Vec<Build<'a>>) -> Option<Value> {
-    match value {
-        Value::Null => Some(Value::Null),
-        Value::Bool(flag) => Some(Value::Bool(*flag)),
-        Value::Number(number) => Some(Value::Number(*number)),
-        Value::String(text) => Some(Value::String(text.clone())),
-        Value::Array(items) => {
-            stack.push(Build::Array(items.iter(), Vec::with_capacity(items.len())));
-            None
-        }
-        Value::Object(map) => {
-            stack.push(Build::Object(
-                map.iter(),
-                Map::with_capacity(map.len()),
-                None,
-            ));
-            None
-        }
-    }
-}
-
-fn run_clone(mut stack: Vec<Build<'_>>, mut ready: Option<Value>) -> Value {
-    loop {
-        if let Some(value) = ready.take() {
-            match stack.last_mut() {
-                None => return value,
-                Some(Build::Array(_, out)) => out.push(value),
-                Some(Build::Object(_, out, key)) => {
-                    if let Some(key) = key.take() {
-                        out.push_ordered(key, value);
-                    }
-                }
-            }
-        }
-        let child = match stack.last_mut() {
-            None => return Value::Null,
-            Some(Build::Array(iter, _)) => iter.next(),
-            Some(Build::Object(iter, _, key)) => iter.next().map(|(name, child)| {
-                *key = Some(name.clone());
-                child
-            }),
-        };
-        ready = match child {
-            Some(child) => open(child, &mut stack),
-            None => match stack.pop() {
-                Some(Build::Array(_, out)) => Some(Value::Array(Array(out))),
-                Some(Build::Object(_, out, _)) => Some(Value::Object(out)),
-                None => return Value::Null,
-            },
-        };
-    }
-}
-
-/// A deep copy without recursion.
-pub(crate) fn clone_deep(value: &Value) -> Value {
-    let mut stack = Vec::new();
-    let ready = open(value, &mut stack);
-    run_clone(stack, ready)
-}
-
-pub(crate) fn clone_map(map: &Map) -> Map {
-    let stack = vec![Build::Object(
-        map.iter(),
-        Map::with_capacity(map.len()),
-        None,
-    )];
-    match run_clone(stack, None) {
-        Value::Object(map) => map,
-        _ => Map::new(),
-    }
-}
-
-impl Clone for Value {
-    fn clone(&self) -> Value {
-        clone_deep(self)
-    }
-}
-
-impl Clone for Array {
-    fn clone(&self) -> Array {
-        let stack = vec![Build::Array(
-            self.0.iter(),
-            Vec::with_capacity(self.0.len()),
-        )];
-        match run_clone(stack, None) {
-            Value::Array(items) => items,
-            _ => Array::new(),
-        }
     }
 }
 

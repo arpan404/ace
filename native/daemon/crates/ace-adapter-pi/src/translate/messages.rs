@@ -160,11 +160,7 @@ fn assistant_facts(
         }
         let index = order;
         order += 1;
-        let raw_data: &Raw = if retained {
-            block_raw
-        } else {
-            frame_data
-        };
+        let raw_data: &Raw = if retained { block_raw } else { frame_data };
         retained = true;
         let raw = vec![raw_payload(raw_data)];
         let item = format!("{prefix}:message:{message}:{index}");
