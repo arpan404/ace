@@ -275,7 +275,11 @@ impl Engine {
         }
         let mut under = rolled(ace_state(&activity), lanes);
         activity.tasks = live_lanes;
-        if lanes == State::Waiting && activity.state != State::Waiting {
+        // A lane's request is asked in main too, so main may read waiting itself: still the
+        // lane's (ADR 0217 §7).
+        if lanes == State::Waiting
+            && (activity.state != State::Waiting || activity.waiting_for.is_none())
+        {
             activity.waiting_for = Some("task");
         }
         let mut working = 0;

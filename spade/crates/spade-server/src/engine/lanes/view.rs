@@ -97,9 +97,4 @@ impl Engine {
         }
         Ok(view)
     }
-
-    /// How many of `main`'s lanes haven't ended: the roster's `tasks`.
-    pub(crate) fn live_lanes(&self, main: &str) -> usize {
-        self.lanes_rolled(main).1
-    }
 }

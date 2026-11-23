@@ -761,6 +761,8 @@ fn limits(config: &Config) -> Limits {
         knowledge_bytes: config.knowledge_bytes.unwrap_or(defaults.knowledge_bytes),
         // The person's asks are always kept (ADR 0215).
         asks: true,
+        // Main's long work moves to a task lane (ADR 0217 §2a).
+        move_long_work: true,
         ..defaults
     }
 }

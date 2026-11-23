@@ -253,7 +253,7 @@ impl Engine {
         reply: &str,
         elapsed_ms: i64,
     ) -> bool {
-        if self.hidden_of(main).is_some() || !self.limits.asks {
+        if self.hidden_of(main).is_some() || !self.limits.move_long_work {
             return false;
         }
         // A cheap look first, without the lock: most steps are nowhere near a move.

@@ -23,6 +23,9 @@ pub struct Limits {
     /// Task lanes of one bot with a reply open at once (`SPADE_TASKS_AT_ONCE`, ADR 0217); the
     /// rest wait queued.
     pub tasks_at_once: usize,
+    /// Main's own reply moves to a task lane once it runs long (ADR 0217 §2a). On in Spade;
+    /// a test's turns stay where they are unless it turns this on.
+    pub move_long_work: bool,
     /// How long a call holds the turn. A call still running then moves to the background as a
     /// job, whose result arrives as a `<job_result>`; the turn carries on meanwhile.
     pub foreground: Duration,
@@ -70,6 +73,7 @@ impl Default for Limits {
             max_parallel_tools: 16,
             helpers_at_once: spade_core::helper::MOST_RUNNING,
             tasks_at_once: spade_core::lane::MOST_RUNNING,
+            move_long_work: false,
             foreground: Duration::from_secs(30),
             result_chars: 20_000,
             longest_message: 100_000,

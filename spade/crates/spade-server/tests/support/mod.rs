@@ -549,6 +549,19 @@ impl Spade {
         Self::serve(fake, dir, tools, options).await
     }
 
+    /// Like `start_with`, with requests matching a route taking that route's scripts, so work
+    /// running side by side (task lanes) gets its own answers whatever order its calls arrive in.
+    pub async fn start_routed(
+        routes: Vec<spade_testkit::Route>,
+        scripts: Vec<Script>,
+        tools: Vec<Arc<dyn Tool>>,
+        options: Options,
+    ) -> Result<Self> {
+        let fake = FakeProvider::start_routed(routes, scripts).await?;
+        let dir = Arc::new(tempfile::tempdir()?);
+        Self::serve(fake, dir, tools, options).await
+    }
+
     /// Like `start_with`, in a data folder a test prepared (an older Spade's files, say).
     pub async fn start_in(
         dir: tempfile::TempDir,
@@ -872,6 +885,22 @@ impl Spade {
         let _ = (&mut self.task).await;
         let fake = FakeProvider::start_sequence(scripts).await?;
         Self::serve(fake, self.dir.clone(), tools, Options::default()).await
+    }
+
+    /// Like `restart`, with routes (see [`Spade::start_routed`]) and options.
+    pub async fn restart_routed(
+        mut self,
+        routes: Vec<spade_testkit::Route>,
+        scripts: Vec<Script>,
+        tools: Vec<Arc<dyn Tool>>,
+        options: Options,
+    ) -> Result<Self> {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        let _ = (&mut self.task).await;
+        let fake = FakeProvider::start_routed(routes, scripts).await?;
+        Self::serve(fake, self.dir.clone(), tools, options).await
     }
 
     /// Stops this server, runs `sql` on its database (what a crash left behind), and opens a new
