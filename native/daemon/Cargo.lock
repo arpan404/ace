@@ -41,7 +41,13 @@ name = "ace-adapter-codex"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -49,7 +55,12 @@ name = "ace-adapter-cursor"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-api",
+ "ace-core",
  "ace-supervisor",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -93,6 +104,9 @@ name = "ace-daemon-node"
 version = "0.1.0"
 dependencies = [
  "ace-adapter-claude",
+ "ace-adapter-codex",
+ "ace-adapter-cursor",
+ "ace-core",
  "ace-store",
  "napi",
  "napi-build",
