@@ -25,55 +25,23 @@ Example:
 
 ```json
 {
-  "at": 1,
+  "at": 0,
   "id": "example",
   "payload": {
-    "backend": "acp",
-    "capabilities": {
-      "accessModes": [],
-      "approvals": "interactive",
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "childControls": "read-only",
-      "childFidelity": "full",
-      "fork": true,
-      "imageInput": true,
-      "interruptCascades": false,
-      "launchOptions": [],
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "sessionOptions": false,
-      "steer": true,
-      "steeringMode": "interrupt-restart",
-      "subagentTranscripts": true,
-      "tokenUsage": false
+    "endedAt": 2,
+    "error": {
+      "details": {
+        "code": "example",
+        "provider": "cursor"
+      },
+      "kind": "unknown",
+      "message": "example"
     },
-    "lineage": {
-      "lossy": true,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "itemId": "example",
-        "type": "item"
-      }
-    },
-    "permission": {
-      "effective": "auto-review",
-      "override": "ask",
-      "pending": true
-    },
-    "provider": "antigravity",
-    "startedByClient": {
-      "grantId": "D33MUuk_reR_SuL7K3vOK_ytpNshyx-jB7qDv-zY_fVS2POyXf1NQfGs3hyHE8",
-      "kind": "mcp_client",
-      "name": "example"
-    },
-    "title": "example",
-    "type": "thread.updated"
+    "runId": "example",
+    "state": "completed",
+    "type": "run.ended"
   },
-  "seq": 3,
+  "seq": 4,
   "threadId": "example"
 }
 ```
@@ -194,7 +162,7 @@ Example:
       "restartRequired": false,
       "version": "example"
     },
-    "reportedAt": null
+    "reportedAt": 6
   }
 }
 ```
@@ -253,13 +221,8 @@ Example:
   "type": "machineUpdate.changed",
   "update": {
     "arch": "example",
-    "ask": {
-      "id": "example",
-      "mode": "example",
-      "requestedAt": 7,
-      "version": "example"
-    },
-    "available": "example",
+    "ask": null,
+    "available": null,
     "blocked": null,
     "busy": 9,
     "checkedAt": null,
@@ -269,7 +232,7 @@ Example:
     "percent": null,
     "platform": "example",
     "releaseUrl": "https://example.invalid/",
-    "state": "example",
+    "state": "downloading",
     "version": "example"
   }
 }
@@ -4085,13 +4048,133 @@ Example:
 
 ```json
 {
-  "seq": 0,
+  "seq": 6,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "kind": "threads",
-    "seq": 0,
-    "threads": {}
+    "agentChildren": {},
+    "agents": {},
+    "backgroundTasks": {},
+    "contextMeters": {},
+    "interactions": {},
+    "itemOrder": [],
+    "items": {},
+    "itemsBefore": null,
+    "kind": "thread",
+    "partial": {
+      "previews": []
+    },
+    "runs": {},
+    "seq": 6,
+    "thread": {
+      "acpSupport": {
+        "capabilities": {
+          "imageInput": false,
+          "planMode": true,
+          "resume": false
+        },
+        "coverage": "legacy",
+        "mcp": "stdio",
+        "modeSelection": true,
+        "modelSelection": true,
+        "raw": {
+          "json": "example",
+          "truncated": true
+        },
+        "visibility": "limited"
+      },
+      "autoSettle": false,
+      "autoSettleAt": 7,
+      "capabilities": {
+        "approvals": "sandbox-only",
+        "backgroundTaskControl": false,
+        "backgroundVisibility": "full",
+        "fork": true,
+        "forkPoints": [],
+        "imageInput": true,
+        "interruptCascades": true,
+        "planMode": true,
+        "resume": false,
+        "rewindFiles": true,
+        "sessionOptions": false,
+        "steer": true,
+        "steeringMode": "interrupt-restart",
+        "subagentTranscripts": false,
+        "tokenUsage": false
+      },
+      "capabilitiesRef": "example",
+      "createdAt": 6,
+      "details": {
+        "branch": null,
+        "continuedFrom": {
+          "at": 7,
+          "hostId": "example",
+          "name": "example",
+          "threadId": "example"
+        },
+        "linkedPrs": [],
+        "upstream": "example",
+        "workspaceChange": {
+          "at": 2,
+          "branch": "example",
+          "commandId": "example",
+          "lossy": false,
+          "state": "applied",
+          "uncertain": false
+        },
+        "worktree": "example",
+        "worktreeSetup": {
+          "at": 7,
+          "details": [],
+          "state": "failed"
+        }
+      },
+      "hasSentMessage": true,
+      "hostKey": "example",
+      "id": "example",
+      "lineage": {
+        "lossy": false,
+        "mode": "portable",
+        "parentAgentId": "example",
+        "parentThreadId": "example",
+        "point": {
+          "runId": "example",
+          "type": "turn"
+        }
+      },
+      "prSettled": 7,
+      "provider": "antigravity",
+      "queue": {
+        "paused": true,
+        "reason": null,
+        "resumeAt": 4,
+        "revision": 9
+      },
+      "queuedLaunch": {
+        "slotLimit": 4,
+        "text": "example"
+      },
+      "settleWhenDone": true,
+      "status": {
+        "state": "limited"
+      },
+      "switch": {
+        "at": 7,
+        "lossy": true,
+        "selection": {
+          "model": "example",
+          "options": {},
+          "provider": "claude"
+        },
+        "state": "applied"
+      },
+      "title": "example",
+      "titleSource": "provider",
+      "unread": false,
+      "updatedAt": 3,
+      "workspaceId": "example"
+    },
+    "usage": {}
   }
 }
 ```

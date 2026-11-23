@@ -95,10 +95,21 @@ export function ProviderListRow(props: ProviderListRowProps) {
   return (
     <ListRowFrame
       state={rowState(action.kind, missing)}
-      provider={provider}
-      acpAgentId={props.acpAgentId}
+      mark={<ProviderIcon provider={provider} acpAgentId={props.acpAgentId} size={20} decorative />}
       name={name}
-      page={props.page}
+      link={
+        props.page && (
+          <Link
+            to="/settings/providers/$provider"
+            params={{ provider: props.page }}
+            aria-label={name}
+            {...part("link", undefined, "row")}
+            className={rowLinkClass}
+          >
+            {name}
+          </Link>
+        )
+      }
       version={props.version}
       sub={props.sub}
       right={
@@ -167,15 +178,21 @@ export function ProviderListRow(props: ProviderListRowProps) {
   );
 }
 
+/** The name as the row's link: it covers the row, so the whole row opens the page. */
+export const rowLinkClass =
+  "min-w-0 truncate text-ui font-medium text-foreground focus-ring after:absolute after:inset-0 after:content-['']";
+
 /**
- * The row's frame: mark, name (the link to its page, covering the row) and version, the line
- * under them, the controls at the right above the link, and what unfolds beneath.
+ * The row's frame: mark, name (the link to its page, covering the row, when it has one) and
+ * version, the line under them, the controls at the right above the link, and what unfolds
+ * beneath. Spade's providers use the same frame with their own mark and page.
  */
 export function ListRowFrame(props: {
-  provider: ProviderKind;
-  acpAgentId?: string | undefined;
+  /** The mark at the row's start, 20px. */
+  mark: ReactNode;
   name: string;
-  page?: string | undefined;
+  /** The name as a link to the row's page (`rowLinkClass`); without one the name is plain. */
+  link?: ReactNode;
   version?: string | undefined;
   sub?: ReactNode;
   right?: ReactNode;
@@ -192,26 +209,10 @@ export function ListRowFrame(props: {
       className="flex min-w-0 flex-col"
     >
       <div className="group/row relative flex min-h-(--setting-row-height) min-w-0 items-center gap-3 py-2">
-        <ProviderIcon
-          provider={props.provider}
-          acpAgentId={props.acpAgentId}
-          size={20}
-          decorative
-          className="shrink-0"
-        />
+        <span className="flex shrink-0">{props.mark}</span>
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="flex min-w-0 items-baseline gap-2">
-            {props.page ? (
-              <Link
-                to="/settings/providers/$provider"
-                params={{ provider: props.page }}
-                aria-label={name}
-                {...part("link", undefined, "row")}
-                className="min-w-0 truncate text-ui font-medium text-foreground focus-ring after:absolute after:inset-0 after:content-['']"
-              >
-                {name}
-              </Link>
-            ) : (
+            {props.link || (
               <span className="min-w-0 truncate text-ui font-medium text-foreground">{name}</span>
             )}
             {props.version && (
@@ -226,7 +227,7 @@ export function ListRowFrame(props: {
         </div>
         {/* Above the row's link, so its controls take their own clicks. */}
         <div className="relative z-10 flex shrink-0 items-center gap-2">{props.right}</div>
-        {props.page && (
+        {props.link && (
           <CaretRightIcon
             aria-hidden
             size={14}

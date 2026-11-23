@@ -1,0 +1,23 @@
+[package]
+name = "spade-keychain-macos"
+version = "0.1.0"
+description = "The macOS Security calls behind Spade owning its keychain entries (ADR 0119 amendment 1); empty on other systems"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+security-framework = "3.7"
+core-foundation-sys = "0.8"
+security-framework-sys = "2.17"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+undocumented_unsafe_blocks = "deny"

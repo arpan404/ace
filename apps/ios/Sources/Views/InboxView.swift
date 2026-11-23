@@ -280,8 +280,7 @@ struct InboxView: View {
     /// at its foot so the person can go back to the lists.
     private var search: some View {
         SearchHome(inbox: inbox, openTitle: openTitle, actions: searchActions,
-                   account: AccountToolbarItem(open: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) },
-                                               settings: { open(.settings) }),
+                   account: AccountToolbarItem(open: openAccount),
                    query: $searchQuery, focusAsks: searchFocusAsks,
                    hasLock: lock != nil)
             .inboxFootBar {
@@ -314,9 +313,10 @@ struct InboxView: View {
 
     private var sheets: some View {
         tabs
-            .placeSheet($place, inbox: inbox, machines: machines, lock: lock,
+            .placeSheet($place, inbox: inbox, machines: machines, lock: lock, machineFilter: machineFilter,
                         places: MorePlaces(openThread: { openThread($0) }, startThread: { startThread() },
-                                           openUnlisted: { openThread($0, listed: false) }))
+                                           openUnlisted: { openThread($0, listed: false) },
+                                           showMachineThreads: { selectMachine($0) }))
             // A phone's Code review, over Projects: a thread or New thread asked from it opens
             // on the home screen as it closes.
             .sheet(isPresented: $reviewing) {
@@ -370,6 +370,7 @@ struct InboxView: View {
         guard let sheet else { return }
         place = sheet
     }
+    private func openAccount() { present(PlaceSheet(id: nextSerial(), root: .accountHome)) }
     private func nextSerial() -> Int { placeSerial += 1; return placeSerial }
     private func open(_ searchPlace: SearchPlace) {
         present(PlaceSheet.of(searchPlace, machine: toolsMachine, id: nextSerial()))
@@ -454,7 +455,7 @@ struct InboxView: View {
                                               place: { open($0) },
                                               compose: { compose(chat: list == .chats) },
                                               review: { openReview() },
-                                              page: { present(PlaceSheet(id: nextSerial(), root: .settings, start: [$0])) }),
+                                              account: openAccount),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.
@@ -514,6 +515,12 @@ struct InboxView: View {
                       place: open,
                       pull: { route in present(PlaceSheet(id: nextSerial(), root: .forge(route))) })
     }
+    private func selectMachine(_ machine: String) {
+        machineFilter = machine
+        projectFilter = ""
+        tab = .threads
+    }
+
     /// A command id from the shared catalog (`bridge/palette.ts`).
     private func runCommand(_ id: String) {
         switch HomeCommand(id: id) {
@@ -524,10 +531,7 @@ struct InboxView: View {
             tab = .threads
             selectAsks += 1
         case .place(let place): open(place)
-        case .machine(let machine):
-            machineFilter = machine
-            projectFilter = ""
-            tab = .threads
+        case .machine(let machine): selectMachine(machine)
         case .thread(let destination): openOnThread(destination)
         case .settings(let id): present(PlaceSheet.of(command: id, machine: toolsMachine, serial: nextSerial()))
         }

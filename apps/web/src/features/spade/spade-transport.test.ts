@@ -104,8 +104,8 @@ test("a direct request cut off after it may have reached Spade is never sent aga
 test("outside the desktop app, Spade is reached through the daemon", async () => {
   const { client, asked } = daemon();
   const transport = new SpadeTransport(client, desktopSpade({}), deps);
-  expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"daemon"');
-  expect(asked.map((message) => message.path)).toEqual(["/v1/models"]);
+  expect(await spadeHttp(transport, "GET", "/v1/agents")).toBe('"daemon"');
+  expect(asked.map((message) => message.path)).toEqual(["/v1/agents"]);
 });
 
 test("Spade's status comes from its own health in the desktop app", async () => {
@@ -138,7 +138,7 @@ test("an answer from the app that isn't one of the bridge's shapes is a failure,
     },
   };
   const transport = new SpadeTransport(client, desktopSpade(bridge), deps);
-  await expect(spadeHttp(transport, "GET", "/v1/models")).rejects.toBeInstanceOf(SpadeRequestError);
+  await expect(spadeHttp(transport, "GET", "/v1/agents")).rejects.toBeInstanceOf(SpadeRequestError);
 });
 
 test("a window showing another machine reaches that machine's Spade through its daemon", async () => {
@@ -169,9 +169,9 @@ test("back on this computer's daemon, the direct path returns", async () => {
   const { client, moveTo } = daemon("host-b");
   const direct = desktop(ok('"this mac"'));
   const transport = new SpadeTransport(client, direct.spade, deps);
-  expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"daemon"');
+  expect(await spadeHttp(transport, "GET", "/v1/agents")).toBe('"daemon"');
   moveTo("host-a");
-  expect(await spadeHttp(transport, "GET", "/v1/models")).toBe('"this mac"');
+  expect(await spadeHttp(transport, "GET", "/v1/agents")).toBe('"this mac"');
 });
 
 test("a change only the person may make goes through the daemon, which stamps it, even in the desktop app", async () => {

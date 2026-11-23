@@ -59,7 +59,32 @@ export interface SpadeEndpoint {
   keySource: "keychain" | "environment" | undefined;
   /** The models the person saved or the preset knows. */
   models: SpadeModelInfo[];
+  /**
+   * The provider it is an account of (ADR 0214): the preset id it was made from, `openai` for a
+   * ChatGPT sign-in; undefined for one added by its address (its own provider).
+   */
+  provider: string | undefined;
+  /** How it signs in: an API key, nothing (a local server), or a ChatGPT sign-in. */
+  auth: SpadeAccountAuth;
+  /** A ChatGPT sign-in's account; undefined for any other. */
+  account: SpadeSignedInAccount | undefined;
+  /** Names of the bots whose model is on it, in name order. */
+  usedBy: string[];
   raw: Record<string, unknown>;
+}
+
+export type SpadeAccountAuth = "key" | "none" | "chatgpt";
+
+/** Who a ChatGPT sign-in is: never its tokens, which stay in Spade's keychain. */
+export interface SpadeSignedInAccount {
+  email: string | undefined;
+  plan: string | undefined;
+  signedIn: boolean;
+  /**
+   * When it reached its plan's usage limit, the time (ms) the limit lifts; undefined when it
+   * isn't at one, or Spade doesn't say (`limited_until`).
+   */
+  limitedUntil: number | undefined;
 }
 
 /** An endpoint template the person can add from. */
@@ -89,6 +114,8 @@ export interface SpadeModels {
   newBotModel: string | undefined;
   /** False only when Spade says this machine has no keychain to keep keys in. */
   keychain: boolean;
+  /** The sign-ins this Spade can run (`chatgpt`); empty on a Spade predating them. */
+  signIn: string[];
   /** Some keys aren't known yet: the keychain hasn't answered. Asked again, they may be. */
   keysPending: boolean;
 }
@@ -152,6 +179,18 @@ const endpointShape = z.object({
   key_set: z.boolean().nullable().catch(false).default(false),
   key_source: optionalText,
   models: z.unknown().optional(),
+  provider: optionalText,
+  auth: z.enum(["key", "none", "chatgpt"]).nullish().catch(undefined),
+  account: z
+    .object({
+      email: optionalText,
+      plan: optionalText,
+      signed_in: z.boolean().catch(false),
+      limited_until: z.number().int().positive().nullish().catch(undefined),
+    })
+    .nullish()
+    .catch(undefined),
+  used_by: z.array(z.unknown()).catch([]).default([]),
 });
 
 /** One endpoint value; undefined without an id. */
@@ -175,6 +214,20 @@ export function parseSpadeEndpointValue(raw: unknown): SpadeEndpoint | undefined
         ? endpoint.key_source
         : undefined,
     models: modelsOf(endpoint.models),
+    provider: endpoint.provider || undefined,
+    // A Spade predating accounts (ADR 0214) says only whether it needs a key.
+    auth: endpoint.auth ?? (endpoint.needs_key ? "key" : "none"),
+    account:
+      endpoint.auth === "chatgpt"
+        ? {
+            email: endpoint.account?.email || undefined,
+            plan: endpoint.account?.plan || undefined,
+            // Signed in only when Spade says so: an account it can't vouch for isn't offered.
+            signedIn: endpoint.account?.signed_in === true,
+            limitedUntil: endpoint.account?.limited_until ?? undefined,
+          }
+        : undefined,
+    usedBy: endpoint.used_by.filter((name): name is string => typeof name === "string"),
     raw: record,
   };
 }
@@ -233,6 +286,9 @@ export function parseSpadeModels(body: string): SpadeModels | undefined {
         ? record.new_bot_model
         : undefined,
     keychain: record.keychain !== false,
+    signIn: Array.isArray(record.sign_in)
+      ? record.sign_in.filter((way): way is string => typeof way === "string")
+      : [],
     keysPending: record.keys_pending === true,
   };
 }
@@ -310,7 +366,7 @@ export function spadeLocalFirst<T>(items: readonly T[], local: (item: T) => bool
  */
 export function spadeFirstUsableModel(endpoints: readonly SpadeEndpoint[]): string | undefined {
   for (const endpoint of spadeLocalFirst(endpoints, (each) => each.local)) {
-    if (endpoint.needsKey && !endpoint.keySet) continue;
+    if (!spadeEndpointUsable(endpoint)) continue;
     // Only a model that can run a bot: one whose checks found it calls tools (ADR 0205 §3).
     const model = endpoint.models.find((each) => !spadeCantRunBots(each));
     if (model) return `${endpoint.id}/${model.id}`;
@@ -332,8 +388,8 @@ export function spadeModelState(
   const id = chosen.slice(0, Math.max(0, chosen.indexOf("/")));
   const endpoint = endpoints.find((each) => each.id === id);
   if (!endpoint) return "none";
-  if (!endpoint.needsKey || endpoint.keySet === true) return "ready";
-  return endpoint.keySet === undefined ? "checking" : "none";
+  if (spadeEndpointUsable(endpoint)) return "ready";
+  return endpoint.auth !== "chatgpt" && endpoint.keySet === undefined ? "checking" : "none";
 }
 
 /**
@@ -370,7 +426,18 @@ export function spadeServerName(address: string): string | undefined {
   return host || undefined;
 }
 
-/** Whether any endpoint can be used now: it needs no key, or has one. */
+/**
+ * Whether an endpoint can be used now: a ChatGPT sign-in that is signed in, or one that needs no
+ * key, or has one.
+ */
+export function spadeEndpointUsable(
+  endpoint: Pick<SpadeEndpoint, "auth" | "account" | "needsKey" | "keySet">,
+): boolean {
+  if (endpoint.auth === "chatgpt") return endpoint.account?.signedIn === true;
+  return !endpoint.needsKey || endpoint.keySet === true;
+}
+
+/** Whether any endpoint can be used now. */
 export function spadeHasUsableEndpoint(endpoints: readonly SpadeEndpoint[]): boolean {
-  return endpoints.some((endpoint) => !endpoint.needsKey || endpoint.keySet);
+  return endpoints.some(spadeEndpointUsable);
 }

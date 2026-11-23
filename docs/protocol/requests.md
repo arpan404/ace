@@ -2027,9 +2027,10 @@ Example:
   "id": 10,
   "request": {
     "call": {
-      "args": {},
-      "op": "browser",
-      "tool": "browser_fthysumudfmgdfrxaodus"
+      "op": "status",
+      "threadIds": [
+        "example"
+      ]
     },
     "origin": {
       "accepts": [],
@@ -2037,6 +2038,7 @@ Example:
       "ceiling": "operate",
       "hostId": "example",
       "hostName": "example",
+      "rootThreadId": "example",
       "threadId": "example",
       "threadTitle": "example"
     }

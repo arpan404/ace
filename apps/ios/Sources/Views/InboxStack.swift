@@ -14,9 +14,7 @@ struct InboxHeaderActions {
     var compose: () -> Void = {}
     /// Code review, from the Projects list's top bar.
     var review: () -> Void = {}
-    /// A page inside Settings, so Back lands on its list: the avatar menu's Profile and
-    /// Archived threads.
-    var page: (SettingsRoute) -> Void = { _ in }
+    var account: () -> Void = {}
 }
 
 /// One home list and the page it opens (`InboxSplit`): Threads (Inbox, Snoozed and Settled under
@@ -291,7 +289,7 @@ struct InboxStack<Destination: View, Side: View>: View {
     /// glyphs, at the system's size, on a phone and in a regular window alike. (The system's title
     /// menu draws no chevron by a large title, so it would go unseen.)
     @ToolbarContentBuilder private var listToolbar: some ToolbarContent {
-        AccountToolbarItem(open: header.page, settings: header.settings)
+        AccountToolbarItem(open: header.account)
         if !chats {
             ToolbarItem(placement: .topBarTrailing) {
                 Button(action: header.review) { Image(bar: HomeTabs.icon(.review)) }

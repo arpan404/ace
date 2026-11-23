@@ -93,6 +93,7 @@ describe("app update reporting", () => {
         percent: null,
         error: null,
         inPlace: true,
+        line: "stable",
       },
     ]);
     const url = "https://github.com/arpan404/ace/releases/tag/v1.4.2";
@@ -112,6 +113,7 @@ describe("app update reporting", () => {
         percent: null,
         error: null,
         inPlace: true,
+        line: "stable",
       },
       {
         version: "1.4.1",
@@ -123,6 +125,7 @@ describe("app update reporting", () => {
         percent: null,
         error: null,
         inPlace: true,
+        line: "stable",
       },
     ]);
   });

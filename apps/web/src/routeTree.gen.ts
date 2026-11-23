@@ -71,7 +71,6 @@ import { Route as SettingsRemoteEveryMachineRouteImport } from "./routes/setting
 import { Route as SettingsRemoteMapRouteImport } from "./routes/settings.remote.map"
 import { Route as SettingsSpadeIndexRouteImport } from "./routes/settings.spade.index"
 import { Route as SettingsSpadeAppsRouteImport } from "./routes/settings.spade.apps"
-import { Route as SettingsSpadeModelsRouteImport } from "./routes/settings.spade.models"
 import { Route as SettingsSpadeSecurityRouteImport } from "./routes/settings.spade.security"
 import { Route as SpadeGroupsGroupIdRouteImport } from "./routes/spade.groups.$groupId"
 import { Route as SpadeGroupsNewRouteImport } from "./routes/spade.groups.new"
@@ -81,6 +80,8 @@ import { Route as HomePullsProjectNumberRouteImport } from "./routes/_home.pulls
 import { Route as HomePullsProjectNewRouteImport } from "./routes/_home.pulls_.$project.new"
 import { Route as HomeTThreadIdForkRouteImport } from "./routes/_home.t.$threadId_.fork"
 import { Route as SettingsRemoteMachineAppsRouteImport } from "./routes/settings.remote.$machine_.apps"
+import { Route as SettingsSpadeModelsIndexRouteImport } from "./routes/settings.spade.models.index"
+import { Route as SettingsSpadeModelsProviderRouteImport } from "./routes/settings.spade.models.$provider"
 import { Route as HomeTThreadIdAgentsAgentIdRouteImport } from "./routes/_home.t.$threadId_.agents.$agentId"
 
 const HomeRoute = HomeRouteImport.update({
@@ -402,11 +403,6 @@ const SettingsSpadeAppsRoute = SettingsSpadeAppsRouteImport.update({
   path: "/spade/apps",
   getParentRoute: () => SettingsRoute,
 } as any)
-const SettingsSpadeModelsRoute = SettingsSpadeModelsRouteImport.update({
-  id: "/spade/models",
-  path: "/spade/models",
-  getParentRoute: () => SettingsRoute,
-} as any)
 const SettingsSpadeSecurityRoute = SettingsSpadeSecurityRouteImport.update({
   id: "/spade/security",
   path: "/spade/security",
@@ -451,6 +447,18 @@ const SettingsRemoteMachineAppsRoute =
   SettingsRemoteMachineAppsRouteImport.update({
     id: "/remote/$machine_/apps",
     path: "/remote/$machine/apps",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsSpadeModelsIndexRoute =
+  SettingsSpadeModelsIndexRouteImport.update({
+    id: "/spade/models/",
+    path: "/spade/models/",
+    getParentRoute: () => SettingsRoute,
+  } as any)
+const SettingsSpadeModelsProviderRoute =
+  SettingsSpadeModelsProviderRouteImport.update({
+    id: "/spade/models/$provider",
+    path: "/spade/models/$provider",
     getParentRoute: () => SettingsRoute,
   } as any)
 const HomeTThreadIdAgentsAgentIdRoute =
@@ -517,7 +525,6 @@ export interface FileRoutesByFullPath {
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
-  "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -532,6 +539,8 @@ export interface FileRoutesByFullPath {
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
+  "/settings/spade/models/$provider": typeof SettingsSpadeModelsProviderRoute
+  "/settings/spade/models/": typeof SettingsSpadeModelsIndexRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesByTo {
@@ -587,7 +596,6 @@ export interface FileRoutesByTo {
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
-  "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -602,6 +610,8 @@ export interface FileRoutesByTo {
   "/pulls/$project/new": typeof HomePullsProjectNewRoute
   "/t/$threadId/fork": typeof HomeTThreadIdForkRoute
   "/settings/remote/$machine/apps": typeof SettingsRemoteMachineAppsRoute
+  "/settings/spade/models/$provider": typeof SettingsSpadeModelsProviderRoute
+  "/settings/spade/models": typeof SettingsSpadeModelsIndexRoute
   "/t/$threadId/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRoutesById {
@@ -663,7 +673,6 @@ export interface FileRoutesById {
   "/settings/remote/every-machine": typeof SettingsRemoteEveryMachineRoute
   "/settings/remote/map": typeof SettingsRemoteMapRoute
   "/settings/spade/apps": typeof SettingsSpadeAppsRoute
-  "/settings/spade/models": typeof SettingsSpadeModelsRoute
   "/settings/spade/security": typeof SettingsSpadeSecurityRoute
   "/spade/groups/$groupId": typeof SpadeGroupsGroupIdRoute
   "/spade/groups/new": typeof SpadeGroupsNewRoute
@@ -678,6 +687,8 @@ export interface FileRoutesById {
   "/_home/pulls_/$project/new": typeof HomePullsProjectNewRoute
   "/_home/t/$threadId_/fork": typeof HomeTThreadIdForkRoute
   "/settings/remote/$machine_/apps": typeof SettingsRemoteMachineAppsRoute
+  "/settings/spade/models/$provider": typeof SettingsSpadeModelsProviderRoute
+  "/settings/spade/models/": typeof SettingsSpadeModelsIndexRoute
   "/_home/t/$threadId_/agents/$agentId": typeof HomeTThreadIdAgentsAgentIdRoute
 }
 export interface FileRouteTypes {
@@ -739,7 +750,6 @@ export interface FileRouteTypes {
     | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
-    | "/settings/spade/models"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -754,6 +764,8 @@ export interface FileRouteTypes {
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/settings/remote/$machine/apps"
+    | "/settings/spade/models/$provider"
+    | "/settings/spade/models/"
     | "/t/$threadId/agents/$agentId"
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -809,7 +821,6 @@ export interface FileRouteTypes {
     | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
-    | "/settings/spade/models"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -824,6 +835,8 @@ export interface FileRouteTypes {
     | "/pulls/$project/new"
     | "/t/$threadId/fork"
     | "/settings/remote/$machine/apps"
+    | "/settings/spade/models/$provider"
+    | "/settings/spade/models"
     | "/t/$threadId/agents/$agentId"
   id:
     | "__root__"
@@ -884,7 +897,6 @@ export interface FileRouteTypes {
     | "/settings/remote/every-machine"
     | "/settings/remote/map"
     | "/settings/spade/apps"
-    | "/settings/spade/models"
     | "/settings/spade/security"
     | "/spade/groups/$groupId"
     | "/spade/groups/new"
@@ -899,6 +911,8 @@ export interface FileRouteTypes {
     | "/_home/pulls_/$project/new"
     | "/_home/t/$threadId_/fork"
     | "/settings/remote/$machine_/apps"
+    | "/settings/spade/models/$provider"
+    | "/settings/spade/models/"
     | "/_home/t/$threadId_/agents/$agentId"
   fileRoutesById: FileRoutesById
 }
@@ -1352,13 +1366,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsSpadeAppsRouteImport
       parentRoute: typeof SettingsRoute
     }
-    "/settings/spade/models": {
-      id: "/settings/spade/models"
-      path: "/spade/models"
-      fullPath: "/settings/spade/models"
-      preLoaderRoute: typeof SettingsSpadeModelsRouteImport
-      parentRoute: typeof SettingsRoute
-    }
     "/settings/spade/security": {
       id: "/settings/spade/security"
       path: "/spade/security"
@@ -1420,6 +1427,20 @@ declare module "@tanstack/react-router" {
       path: "/remote/$machine/apps"
       fullPath: "/settings/remote/$machine/apps"
       preLoaderRoute: typeof SettingsRemoteMachineAppsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/models/": {
+      id: "/settings/spade/models/"
+      path: "/spade/models"
+      fullPath: "/settings/spade/models/"
+      preLoaderRoute: typeof SettingsSpadeModelsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/spade/models/$provider": {
+      id: "/settings/spade/models/$provider"
+      path: "/spade/models/$provider"
+      fullPath: "/settings/spade/models/$provider"
+      preLoaderRoute: typeof SettingsSpadeModelsProviderRouteImport
       parentRoute: typeof SettingsRoute
     }
     "/_home/t/$threadId_/agents/$agentId": {
@@ -1516,13 +1537,14 @@ interface SettingsRouteChildren {
   SettingsRemoteEveryMachineRoute: typeof SettingsRemoteEveryMachineRoute
   SettingsRemoteMapRoute: typeof SettingsRemoteMapRoute
   SettingsSpadeAppsRoute: typeof SettingsSpadeAppsRoute
-  SettingsSpadeModelsRoute: typeof SettingsSpadeModelsRoute
   SettingsSpadeSecurityRoute: typeof SettingsSpadeSecurityRoute
   SettingsOrganizationIndexRoute: typeof SettingsOrganizationIndexRoute
   SettingsProvidersIndexRoute: typeof SettingsProvidersIndexRoute
   SettingsRemoteIndexRoute: typeof SettingsRemoteIndexRoute
   SettingsSpadeIndexRoute: typeof SettingsSpadeIndexRoute
   SettingsRemoteMachineAppsRoute: typeof SettingsRemoteMachineAppsRoute
+  SettingsSpadeModelsProviderRoute: typeof SettingsSpadeModelsProviderRoute
+  SettingsSpadeModelsIndexRoute: typeof SettingsSpadeModelsIndexRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -1553,13 +1575,14 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsRemoteEveryMachineRoute: SettingsRemoteEveryMachineRoute,
   SettingsRemoteMapRoute: SettingsRemoteMapRoute,
   SettingsSpadeAppsRoute: SettingsSpadeAppsRoute,
-  SettingsSpadeModelsRoute: SettingsSpadeModelsRoute,
   SettingsSpadeSecurityRoute: SettingsSpadeSecurityRoute,
   SettingsOrganizationIndexRoute: SettingsOrganizationIndexRoute,
   SettingsProvidersIndexRoute: SettingsProvidersIndexRoute,
   SettingsRemoteIndexRoute: SettingsRemoteIndexRoute,
   SettingsSpadeIndexRoute: SettingsSpadeIndexRoute,
   SettingsRemoteMachineAppsRoute: SettingsRemoteMachineAppsRoute,
+  SettingsSpadeModelsProviderRoute: SettingsSpadeModelsProviderRoute,
+  SettingsSpadeModelsIndexRoute: SettingsSpadeModelsIndexRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

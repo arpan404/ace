@@ -482,6 +482,59 @@
       "additionalProperties": false,
       "properties": {
         "action": {
+          "const": "registry",
+          "type": "string"
+        },
+        "org": {
+          "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+        }
+      },
+      "required": [
+        "action",
+        "org"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "registryWithdraw",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryName.json"
+        },
+        "org": {
+          "$ref": "https://ace.local/protocol/v1/MarketOrgId.json"
+        },
+        "reason": {
+          "maxLength": 500,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Leading and trailing whitespace is removed before the length limits apply."
+        },
+        "type": {
+          "$ref": "https://ace.local/protocol/v1/MarketEntryType.json"
+        },
+        "version": {
+          "$ref": "https://ace.local/protocol/v1/MarketVersion.json"
+        }
+      },
+      "required": [
+        "action",
+        "org",
+        "type",
+        "name",
+        "version",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
           "const": "visibility",
           "type": "string"
         },

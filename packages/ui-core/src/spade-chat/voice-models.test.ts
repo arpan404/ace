@@ -26,6 +26,10 @@ const endpoint = (
   keySet: true,
   keySource: "keychain",
   models,
+  provider: undefined,
+  auth: "key",
+  account: undefined,
+  usedBy: [],
   raw: {},
   ...more,
 });
