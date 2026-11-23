@@ -94,6 +94,22 @@ test("while Spade isn't running the tab says why, and no bot shows as still work
   await until(() => patches.state?.list.rows?.[0]?.state === "off");
 });
 
+test("a long reply reaches the phone whole, to fold after ten lines", async () => {
+  const long = Array.from({ length: 30 }, (_, at) => `Line ${at + 1}`).join("\n");
+  let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
+  const { patches, spade } = await setUp((fake) => {
+    bot = fake.addAgent({ name: "Helper" });
+    fake.reply(bot, `<msg>${long}</msg><msg>Short one.</msg>`);
+  });
+  if (!bot) throw new Error("no bot");
+  spade.handle({ type: "spade.open", conversationId: bot.conversation });
+  await until(() => patches.bubbles.length === 2);
+  expect(patches.bubbles.map((row) => row.kind === "bot" && [row.text, row.fold])).toEqual([
+    [long, true],
+    ["Short one.", false],
+  ]);
+});
+
 test("an open conversation shows its history, then a reply's words as they stream in", async () => {
   let bot = undefined as ReturnType<FakeSpadeApi["addAgent"]> | undefined;
   const { api, daemon, patches, spade } = await setUp((fake) => {
@@ -115,7 +131,15 @@ test("an open conversation shows its history, then a reply's words as they strea
       files: [],
       voice: null,
     },
-    { kind: "bot", text: "Here is a plan.", live: false, end: null, images: [], files: [] },
+    {
+      kind: "bot",
+      text: "Here is a plan.",
+      live: false,
+      fold: false,
+      end: null,
+      images: [],
+      files: [],
+    },
   ]);
 
   api.store(bot.conversation, { type: "reply_started", reply: "r9" });
@@ -134,6 +158,7 @@ test("an open conversation shows its history, then a reply's words as they strea
     kind: "bot",
     text: "Thinking it",
     live: true,
+    fold: false,
     end: null,
     images: [],
     files: [],

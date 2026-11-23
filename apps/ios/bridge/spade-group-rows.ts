@@ -117,6 +117,8 @@ export type SpadeGroupBubbleRow =
       kind: "member";
       name: string;
       text: string;
+      /** Long enough to fold past ten lines (ADR 0212 amendment 2). */
+      fold: boolean;
       face: SpadeFaceRow;
       /** First of the member's run: its name shows above. */
       first: boolean;
@@ -146,6 +148,7 @@ export function spadeGroupRows(
             kind: "member",
             name: row.bot.name || "Bot",
             text: row.text,
+            fold: Boolean(row.fold),
             face: faceOf(group, row.bot, agents, hostId),
             first: row.first,
             last: row.last,
