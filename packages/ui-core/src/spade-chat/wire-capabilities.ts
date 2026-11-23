@@ -131,6 +131,15 @@ export const spadeCapabilityEvents = [
     title: words,
     asks: z.array(z.string()).catch([]).default([]),
   }),
+  /**
+   * In main: a lane ended (stopped, failed, finished), so main's copies of its open requests,
+   * question cards and approvals alike, close; `calls` are their ids here. Nothing answers them.
+   */
+  z.object({
+    type: z.literal("lane_requests_closed"),
+    lane: z.string(),
+    calls: z.array(z.string()).catch([]).default([]),
+  }),
   /** The `title` role named a moved lane: its title from now on. */
   z.object({ type: z.literal("lane_titled"), lane: z.string(), title: words }),
   /** A lane wrote a file another working lane wrote too: a line, never a lock. */

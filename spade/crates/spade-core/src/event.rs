@@ -846,6 +846,9 @@ pub enum Known {
     LaneMessage(crate::lane::Message),
     /// In main: main sent a lane a message (`task_message`, ADR 0217 §3), with the asks it took.
     LaneMessaged(crate::lane::Messaged),
+    /// In main: a lane ended (stopped, failed, finished), so main's copies of its open requests
+    /// close: its approvals and question cards there can no longer be answered (ADR 0217 §4).
+    LaneRequestsClosed(crate::lane::RequestsClosed),
     /// A choice the bot made on the person's behalf, with its reason (ADR 0165, `decision_log`).
     /// Shown in digests and the activity log; the model reads only its call's result.
     DecisionMade(crate::decision::Decision),

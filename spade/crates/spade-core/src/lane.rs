@@ -262,6 +262,48 @@ pub struct Messaged {
     pub asks: Vec<String>,
 }
 
+/// `lane_requests_closed`, in main: main's copies of `lane`'s requests `calls` (their ids here)
+/// close because the lane ended.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestsClosed {
+    pub lane: String,
+    pub calls: Vec<String>,
+}
+
+/// Main's copies of `lane`'s requests that close as it ends with `state`, by their ids here:
+/// its approvals (and its helpers') and the question cards waiting on the person, which nothing
+/// can answer once the lane's reply ended; and when the person stopped it, its cards left for
+/// later too. After any other end a card left for later stays answerable: its answer takes the
+/// task up again.
+pub fn requests_closing(
+    events: &[Event],
+    lane: &str,
+    state: crate::tree::ReportState,
+) -> Vec<String> {
+    let stopped = state == crate::tree::ReportState::Stopped;
+    let mut calls: Vec<String> = crate::question::views(events)
+        .into_iter()
+        .filter(|card| match card.standing {
+            crate::question::Standing::Waiting => true,
+            crate::question::Standing::Deferred => stopped,
+            _ => false,
+        })
+        .filter(|card| {
+            events.iter().any(|e| {
+                matches!(e, Event::Known(Known::QuestionAsked { call_id, lane: Some(l), .. })
+                    if call_id == &card.call_id && l.task == lane)
+            })
+        })
+        .map(|card| card.call_id)
+        .collect();
+    for (call, owner) in Transcript::fold(events).helper_awaiting {
+        if owner == lane && !calls.contains(&call) {
+            calls.push(call);
+        }
+    }
+    calls
+}
+
 /// `lane_message`, in a lane: main's words to it (`task_message`). `untrusted` when main had
 /// untrusted content in view as it wrote them, which taints the lane's turn as it would main's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

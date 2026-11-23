@@ -540,3 +540,188 @@ async fn a_lanes_failure_reports_its_error_as_untrusted_never_as_spades_words() 
     assert!(read.contains("worker_error untrusted"), "{read}");
     Ok(())
 }
+
+/// A lane that asks the person a question and waits, with a main of its own.
+fn asks_and_waits() -> (Vec<Route>, Vec<Script>) {
+    let routes = vec![route(
+        "Book flights to Lisbon",
+        vec![Script::reply("").call("q1", "ask_user", json!({ "question": "Window or aisle?" }))],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Book flights to Lisbon"),
+        Script::reply("Started."),
+        Script::reply("ok"),
+    ]);
+    (routes, main)
+}
+
+fn closed_calls(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .filter(|e| e["type"] == "lane_requests_closed")
+        .flat_map(|e| {
+            e["calls"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|c| c.as_str().map(str::to_owned))
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn stopping_a_lane_closes_mains_copies_of_its_requests_in_the_reports_write() -> Result {
+    let (routes, main) = asks_and_waits();
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Book flights to Lisbon.").await?;
+    let events = wait_count(&spade, &conversation, "question_asked", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "question_asked")
+        .cloned()
+        .unwrap_or_default();
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let call = asked["call_id"].as_str().unwrap_or_default().to_owned();
+    let (status, body) = spade
+        .post(&format!("/v1/conversations/{lane_id}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202, "{body}");
+    let events = wait_count(&spade, &conversation, "lane_requests_closed", 1).await?;
+    assert_eq!(closed_calls(&events), std::slice::from_ref(&call));
+    // Stored with the report, in one write.
+    let at = events
+        .iter()
+        .position(|e| e["type"] == "lane_requests_closed")
+        .unwrap_or_default();
+    assert_eq!(events[at - 1]["type"], "worker_reported");
+    assert_eq!(events[at - 1]["state"], "stopped");
+    // The card is closed in main's list, and the bot no longer waits on the person.
+    let (_, cards) = spade
+        .get(&format!("/v1/conversations/{conversation}/questions"))
+        .await?;
+    let card = cards
+        .as_array()
+        .or_else(|| cards["questions"].as_array())
+        .and_then(|list| list.iter().find(|c| c["call_id"] == call.as_str()).cloned())
+        .unwrap_or_default();
+    assert_ne!(card["state"], "waiting", "{cards}");
+    assert_ne!(card["state"], "deferred", "{cards}");
+    assert_ne!(roster_state(&spade, &agent).await?["state"], "waiting");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lanes_approval_copy_closes_with_its_stop_and_crashed_ones_close_when_spade_opens()
+-> Result {
+    let send = FakeTool::new("send_email", Risk::Write, "sent");
+    let routes = vec![route(
+        "Send Dana the invoice",
+        vec![Script::reply("").call("e1", "send_email", json!({ "to": "dana@northwind.co" }))],
+    )];
+    let mut main = warm_up();
+    main.extend([
+        starts("t1", "Send Dana the invoice"),
+        Script::reply("Started."),
+        Script::reply("ok"),
+    ]);
+    let spade = Spade::start_routed(routes, main, tools(vec![send]), Options::default()).await?;
+    let (agent, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Send Dana the invoice.").await?;
+    let events = wait_count(&spade, &conversation, "approval_requested", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "approval_requested")
+        .cloned()
+        .unwrap_or_default();
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let call = asked["call_id"].as_str().unwrap_or_default().to_owned();
+    // Spade dies as the lane's end is reported: neither the report nor the close is stored.
+    refuse(
+        &spade,
+        "no_close",
+        "json_extract(NEW.body, '$.type') = 'lane_requests_closed'",
+    )?;
+    let (status, _) = spade
+        .post(&format!("/v1/conversations/{lane_id}/stop"), json!({}))
+        .await?;
+    assert_eq!(status, 202);
+    wait_count(&spade, &lane_id, "reply_stopped", 1).await?;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let main_events = spade.events(&conversation).await?;
+    assert!(closed_calls(&main_events).is_empty());
+    assert!(
+        !main_events
+            .iter()
+            .any(|e| e["type"] == "worker_reported" && e["state"] == "stopped"),
+        "the stop's report and its close go together"
+    );
+    allow(&spade, "no_close")?;
+    let spade = spade
+        .restart_routed(
+            Vec::new(),
+            vec![Script::reply("ok")],
+            Vec::new(),
+            Options::default(),
+        )
+        .await?;
+    let events = wait_count(&spade, &conversation, "lane_requests_closed", 1).await?;
+    assert_eq!(closed_calls(&events), [call]);
+    assert_ne!(roster_state(&spade, &agent).await?["state"], "waiting");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lane_that_ended_without_closing_its_copies_has_them_closed_when_spade_opens() -> Result {
+    let (routes, main) = asks_and_waits();
+    let spade = Spade::start_routed(routes, main, Vec::new(), Options::default()).await?;
+    let (_, conversation) = warm_bot(&spade).await?;
+    spade.say(&conversation, "Book flights to Lisbon.").await?;
+    let events = wait_count(&spade, &conversation, "question_asked", 1).await?;
+    let asked = events
+        .iter()
+        .find(|e| e["type"] == "question_asked")
+        .cloned()
+        .unwrap_or_default();
+    let lane_id = asked["lane"]["task"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let call = asked["call_id"].as_str().unwrap_or_default().to_owned();
+    spade
+        .post(&format!("/v1/conversations/{lane_id}/stop"), json!({}))
+        .await?;
+    let events = wait_count(&spade, &conversation, "lane_requests_closed", 1).await?;
+    // As a build before the close left it: the report stored, the close not.
+    assert_eq!(
+        events.last().map(|e| e["type"].clone()),
+        Some(json!("lane_requests_closed"))
+    );
+    {
+        let connection = spade_store::Store::connect(spade.database())?;
+        connection.execute(
+            "DELETE FROM events WHERE conversation_id = ?1
+               AND json_extract(body, '$.type') = 'lane_requests_closed'",
+            [&conversation],
+        )?;
+    }
+    let spade = spade
+        .restart_routed(
+            Vec::new(),
+            vec![Script::reply("ok")],
+            Vec::new(),
+            Options::default(),
+        )
+        .await?;
+    let events = wait_count(&spade, &conversation, "lane_requests_closed", 1).await?;
+    assert_eq!(closed_calls(&events), [call]);
+    Ok(())
+}

@@ -238,6 +238,9 @@ impl Transcript {
                     .push((call_id.clone(), lane.task.clone()));
                 self.asked.push((call_id.clone(), name.clone()));
             }
+            Known::LaneRequestsClosed(closed) => {
+                self.helper_awaiting.retain(|(id, _)| !closed.calls.contains(id));
+            }
             Known::WorkerReported(report)
                 if report.kind == crate::tree::Kind::Lane
                     && report.state != crate::tree::ReportState::NeedsYou =>

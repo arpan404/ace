@@ -477,5 +477,53 @@ impl Engine {
                 self.close_in_main(&lane, &call_id, &closed);
             }
         }
+        self.close_ended_lanes_requests(events);
+    }
+
+    /// Main's copies of requests of lanes that have ended (a crash before the report that
+    /// closes them, or a build before it) close now, so no card stays answerable for work that
+    /// stopped (ADR 0217 §4).
+    fn close_ended_lanes_requests(&self, events: &[Event]) {
+        let mut lanes: Vec<String> = Vec::new();
+        for event in events {
+            if let Event::Known(
+                Known::QuestionAsked { lane: Some(l), .. }
+                | Known::ApprovalRequested { lane: Some(l), .. },
+            ) = event
+                && !lanes.contains(&l.task)
+            {
+                lanes.push(l.task.clone());
+            }
+        }
+        for lane_id in lanes {
+            let Some(row) = self.lane_row(&lane_id) else {
+                continue;
+            };
+            let state = self.lane_state(&lane_id);
+            if state.live() {
+                continue;
+            }
+            let ended = match state {
+                lane::State::Stopped => spade_core::tree::ReportState::Stopped,
+                lane::State::Failed => spade_core::tree::ReportState::Failed,
+                lane::State::Done => spade_core::tree::ReportState::Done,
+                _ => spade_core::tree::ReportState::Finished,
+            };
+            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
+            let Ok(now) = self.load(&row.parent) else {
+                continue;
+            };
+            let calls = lane::requests_closing(&now, &lane_id, ended);
+            if calls.is_empty() {
+                continue;
+            }
+            let closed = Event::Known(Known::LaneRequestsClosed(lane::RequestsClosed {
+                lane: lane_id.clone(),
+                calls,
+            }));
+            if let Err(error) = self.append(&row.parent, &closed) {
+                tracing::error!(%error, "could not close an ended task lane's requests");
+            }
+        }
     }
 }

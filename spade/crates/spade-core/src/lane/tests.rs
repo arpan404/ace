@@ -604,3 +604,47 @@ fn a_lane_started_with_untrusted_content_in_main_is_untrusted_in_view() {
         1
     );
 }
+
+#[test]
+fn a_lanes_end_closes_mains_copies_nothing_can_answer_and_its_later_cards_only_on_stop() {
+    let ask = |call: &str, lane: &str| {
+        e(
+            json!({ "type": "question_asked", "reply": "r1", "call_id": call, "question": "?",
+                  "lane": { "task": lane, "conversation": lane, "call_id": "q", "title": "T" } }),
+        )
+    };
+    let events = vec![
+        ask("l1.q1", "l1"),
+        ask("l1.q2", "l1"),
+        e(json!({ "type": "question_deferred", "call_id": "l1.q2" })),
+        ask("l2.q1", "l2"),
+        e(
+            json!({ "type": "approval_requested", "reply": "r1", "call_id": "l1.k1",
+                  "name": "send", "arguments": {}, "reviewer_reason": null,
+                  "lane": { "task": "l1", "conversation": "l1", "call_id": "k1", "title": "T" } }),
+        ),
+    ];
+    let finished = requests_closing(&events, "l1", ReportState::Finished);
+    assert_eq!(
+        finished,
+        ["l1.q1", "l1.k1"],
+        "a card left for later stays answerable"
+    );
+    let stopped = requests_closing(&events, "l1", ReportState::Stopped);
+    assert_eq!(stopped, ["l1.q1", "l1.q2", "l1.k1"]);
+    let mut closed = events.clone();
+    closed.push(e(json!({ "type": "lane_requests_closed", "lane": "l1",
+                          "calls": ["l1.q1", "l1.q2", "l1.k1"] })));
+    assert!(requests_closing(&closed, "l1", ReportState::Stopped).is_empty());
+    assert!(
+        !Transcript::fold(&closed)
+            .helper_awaiting
+            .iter()
+            .any(|(c, _)| c == "l1.k1")
+    );
+    assert_eq!(
+        requests_closing(&closed, "l2", ReportState::Stopped),
+        ["l2.q1"],
+        "only its own"
+    );
+}
