@@ -15,6 +15,8 @@ export interface LanesHere {
   open(lane: string): void;
   /** Resolves false when it didn't go through (the caller said why). */
   retry(lane: string, reply: string): Promise<boolean>;
+  /** Stops one task alone; resolves false when it didn't go through (the caller said why). */
+  stop(lane: string): Promise<boolean>;
   /** Reads the list again now: after Stop, Try again or an answer. */
   changed(): void;
   /** Asks for older ended tasks; absent when the list holds them all. */

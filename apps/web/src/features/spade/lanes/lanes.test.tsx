@@ -9,7 +9,7 @@ beforeEach(() => localStorage.clear());
 
 /** How many rows the open task list shows. */
 async function rows() {
-  return within(await screen.findByRole("list", { name: "Tasks" })).getAllByRole("button").length;
+  return within(await screen.findByRole("list", { name: "Tasks" })).getAllByRole("listitem").length;
 }
 
 /** Errands, a bot running its tasks in lanes (ADR 0217), as the fake stages them. */
@@ -27,6 +27,16 @@ function withErrands(spade: FakeSpadeApi) {
     bot.conversation,
   );
   return bot.conversation;
+}
+
+/** Main's id for its copy of a task's request, read from what main stored: ids are opaque. */
+function copyOf(spade: FakeSpadeApi, main: string, lane: string, call: string): string {
+  const asked = spade.eventsOf(main).find((event) => {
+    const of = event.lane as { task?: unknown; call_id?: unknown } | undefined;
+    return of?.task === lane && of.call_id === call;
+  });
+  if (typeof asked?.call_id !== "string") throw new Error(`main holds no copy of ${call}`);
+  return asked.call_id;
 }
 
 async function errands() {
@@ -129,9 +139,12 @@ test("a task's request leads with the task, says what the step does, and is answ
   });
   await userEvent.click(within(request).getByRole("button", { name: /^Allow/ }));
   await waitFor(() =>
-    expect(spade.sent("POST", `/v1/conversations/${main}/approvals/${lane("flights")}.k1`)).toEqual(
-      [{ allowed: true, always: false }],
-    ),
+    expect(
+      spade.sent(
+        "POST",
+        `/v1/conversations/${main}/approvals/${copyOf(spade, main, lane("flights"), "k1")}`,
+      ),
+    ).toEqual([{ allowed: true, always: false }]),
   );
   expect(spade.lanes.lane(lane("flights"))?.state).toBe("working");
 });
@@ -161,7 +174,10 @@ test("a task's question leads with the task in main and is answered there", asyn
   await userEvent.click(within(card).getByRole("button", { name: /^Send/ }));
   await waitFor(() =>
     expect(
-      spade.sent("POST", `/v1/conversations/${main}/questions/${lane("quarterly")}.q1`),
+      spade.sent(
+        "POST",
+        `/v1/conversations/${main}/questions/${copyOf(spade, main, lane("quarterly"), "q1")}`,
+      ),
     ).toEqual([{ answers: ["Against Q2"] }]),
   );
   await waitFor(() => expect(spade.lanes.lane(lane("quarterly"))?.state).toBe("working"));
@@ -342,4 +358,61 @@ test("a task's failure shows who stopped early, never the error it carried", asy
   ).toBeTruthy();
   expect(screen.queryByText(/evil\.example/)).toBeNull();
   expect(screen.queryByText(/its reply failed/)).toBeNull();
+});
+
+test("Stop on a task's row in the list stops that task alone", async () => {
+  const { spade, main, lane } = await errands();
+  await userEvent.click(await screen.findByRole("button", { name: /^Tasks:/ }));
+  const list = await screen.findByRole("list", { name: "Tasks" });
+  // Only a task that hasn't ended offers it.
+  expect(within(list).queryByRole("button", { name: "Stop Clean up the shared drive" })).toBeNull();
+  await userEvent.click(within(list).getByRole("button", { name: "Stop Fix the March invoice" }));
+  await waitFor(() =>
+    expect(spade.sent("POST", `/v1/conversations/${lane("invoice")}/stop`)).toHaveLength(1),
+  );
+  expect(spade.lanes.lane(lane("invoice"))?.state).toBe("stopped");
+  expect(spade.lanes.lane(lane("flights"))?.state).toBe("needs_you");
+  expect(spade.sent("POST", `/v1/conversations/${main}/stop`)).toEqual([]);
+});
+
+test("a task's line in main offers Reply, and the reply names that line so Spade sends it to the task", async () => {
+  const { chat, spade, main } = await errands();
+  const line = await chat.findByRole("button", {
+    name: /^Started a task: Fix the March invoice/,
+  });
+  const row = line.closest<HTMLElement>("[data-spade-message]");
+  if (!row) throw new Error("the line carries no message id");
+  const id = row.getAttribute("data-spade-message");
+  expect(id).toMatch(/^m\d+$/);
+  await userEvent.click(
+    within(row).getByRole("button", { name: "Reply to Fix the March invoice" }),
+  );
+  const field = await screen.findByRole("combobox", { name: "Message Errands" });
+  await userEvent.type(field, "Copy Sam in too");
+  const composer = field.closest<HTMLElement>("[data-slot=composer]");
+  if (!composer) throw new Error("no composer");
+  await userEvent.click(within(composer).getByRole("button", { name: /^(Send|Steer message)$/ }));
+  await waitFor(() =>
+    expect(spade.sent("POST", `/v1/conversations/${main}/messages`)).toEqual([
+      expect.objectContaining({ text: "Copy Sam in too", reply_to: id }),
+    ]),
+  );
+});
+
+test("a request answered in the opened task goes to main's copy of it, by main's own id", async () => {
+  const { chat, spade, main, lane } = await errands();
+  await userEvent.click(
+    await chat.findByRole("button", { name: /^Started a task: Book flights to Lisbon/ }),
+  );
+  const task = within(await screen.findByRole("feed", { name: /^Conversation with/ }));
+  const request = await task.findByRole("group", { name: /wants to pay €412 to TAP Air Portugal/ });
+  await userEvent.click(within(request).getByRole("button", { name: /^Allow/ }));
+  await waitFor(() =>
+    expect(
+      spade.sent(
+        "POST",
+        `/v1/conversations/${main}/approvals/${copyOf(spade, main, lane("flights"), "k1")}`,
+      ),
+    ).toEqual([{ allowed: true, always: false }]),
+  );
 });

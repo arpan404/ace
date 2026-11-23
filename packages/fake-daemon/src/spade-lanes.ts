@@ -76,6 +76,7 @@ export class FakeSpadeLanes {
   readonly lanes = new Map<string, FakeLane>();
   readonly #host: FakeLanesHost;
   #ends = 0;
+  readonly #mirrors = new Map<string, { lane: FakeLane; call: string }>();
 
   constructor(host: FakeLanesHost) {
     this.#host = host;
@@ -178,7 +179,14 @@ export class FakeSpadeLanes {
       ...(state === "failed" ? { error: words, untrusted: true } : {}),
     }); // Its requests still open in main close with it, listed by main's ids (ADR 0217 §4).
     const calls = this.#openRequests(lane, state === "stopped");
-    if (calls.length) host.store(lane.main, { type: "lane_requests_closed", lane: task, calls });
+    // Only this run's copies (its epoch); an earlier run's are its own to close.
+    if (calls.length)
+      host.store(lane.main, {
+        type: "lane_requests_closed",
+        lane: task,
+        epoch: `r-${task}`,
+        calls,
+      });
   }
 
   /**
@@ -224,9 +232,8 @@ export class FakeSpadeLanes {
     this.#host.store(lane.main, {
       type: "approval_requested",
       reply: `r-${task}`,
-      call_id: `${task}.${call}`,
       ...asked,
-      lane: { task, conversation: task, call_id: call, title: lane.title },
+      ...this.#mirror(lane, call),
     });
     this.#host.store(lane.main, {
       type: "worker_reported",
@@ -251,18 +258,18 @@ export class FakeSpadeLanes {
   }
 
   /**
-   * A lane's call answered in main (`<lane>.<call>`): the answer reaches the lane, which works on
-   * (or carries on without the step).
+   * A lane's call answered in main, by main's id for its copy: the answer reaches the lane, which
+   * works on (or carries on without the step).
    */
   answered(callId: string, allowed: boolean): void {
-    const lane = this.#owner(callId);
-    if (!lane || lane.state !== "needs_you") return;
-    const at = lane.task.length;
+    const mirror = this.#mirrors.get(callId);
+    const lane = mirror?.lane;
+    if (!mirror || !lane || lane.state !== "needs_you") return;
     lane.state = "working";
     this.#host.store(lane.task, {
       type: "approval_answered",
       reply: `r-${lane.task}`,
-      call_id: callId.slice(at + 1),
+      call_id: mirror.call,
       allowed,
       always: false,
     });
@@ -270,7 +277,7 @@ export class FakeSpadeLanes {
 
   /**
    * A lane's card of one question waits on the person: asked in the lane, and in main naming the
-   * lane (call id `<lane>.<call>`), where it is answered.
+   * lane under main's own id for the copy, where it is answered.
    */
   askQuestion(task: string, call: string, question: string): void {
     const lane = this.lanes.get(task);
@@ -278,21 +285,18 @@ export class FakeSpadeLanes {
     lane.state = "needs_you";
     const asked = { type: "question_asked", reply: `r-${task}`, question };
     this.#host.store(task, { ...asked, call_id: call });
-    this.#host.store(lane.main, {
-      ...asked,
-      call_id: `${task}.${call}`,
-      lane: { task, conversation: task, call_id: call, title: lane.title },
-    });
+    this.#host.store(lane.main, { ...asked, ...this.#mirror(lane, call) });
   }
 
   /** A lane's card answered in main: the answer reaches the lane, which works on. */
   questionAnswered(callId: string, answers: unknown[]): void {
-    const lane = this.#owner(callId);
-    if (!lane) return;
+    const mirror = this.#mirrors.get(callId);
+    if (!mirror) return;
+    const { lane } = mirror;
     lane.state = "working";
     this.#host.store(lane.task, {
       type: "question_answered",
-      call_id: callId.slice(lane.task.length + 1),
+      call_id: mirror.call,
       answers,
     });
   }
@@ -366,10 +370,18 @@ export class FakeSpadeLanes {
     });
   }
 
-  /** The lane a call id asked in main names (`<lane>.<call>`). */
-  #owner(callId: string): FakeLane | undefined {
-    for (const lane of this.lanes.values()) if (callId.startsWith(`${lane.task}.`)) return lane;
-    return undefined;
+  /**
+   * Main's copy of a lane's request: its id there (`<lane>.<run>.<call>`, opaque to the app) and
+   * its `lane` link, remembered so an answer in main finds the lane's call without parsing ids.
+   */
+  #mirror(lane: FakeLane, call: string) {
+    const epoch = `r-${lane.task}`;
+    const id = `${lane.task}.${epoch}.${call}`;
+    this.#mirrors.set(id, { lane, call });
+    return {
+      call_id: id,
+      lane: { task: lane.task, conversation: lane.task, call_id: call, title: lane.title, epoch },
+    };
   }
 
   /** `GET /v1/conversations/{main}/tasks?ended=N`. */

@@ -21,6 +21,16 @@ function staged() {
   return { api, bot, get };
 }
 
+/** Main's id for its copy of a lane's request, as main stored it: ids are opaque, never built. */
+function copyOf(api: FakeSpadeApi, main: string, lane: string, call: string): string {
+  const asked = api.eventsOf(main).find((event) => {
+    const of = event.lane as { task?: unknown; call_id?: unknown } | undefined;
+    return of?.task === lane && of.call_id === call;
+  });
+  if (typeof asked?.call_id !== "string") throw new Error(`main holds no copy of ${call}`);
+  return asked.call_id;
+}
+
 describe("a bot's task lanes in the fake API", () => {
   test("list in the task list's order: needs you, running, ended, queued", async () => {
     const { bot, get } = staged();
@@ -50,6 +60,7 @@ describe("a bot's task lanes in the fake API", () => {
     });
     const asked = main.find((event) => event.type === "approval_requested");
     expect(asked?.lane).toMatchObject({ title: "Book flights to Lisbon", call_id: "k1" });
+    expect(asked?.lane).toHaveProperty("epoch");
     const reports = main.filter((event) => event.type === "worker_reported");
     expect(reports.map((report) => [report.kind, report.state])).toEqual([
       ["lane", "done"],
@@ -92,7 +103,7 @@ describe("a bot's task lanes in the fake API", () => {
     const flights = `${bot.conversation}-lane-flights`;
     await api.answer({
       method: "POST",
-      path: `/v1/conversations/${bot.conversation}/approvals/${flights}.k1`,
+      path: `/v1/conversations/${bot.conversation}/approvals/${copyOf(api, bot.conversation, flights, "k1")}`,
       body: JSON.stringify({ allowed: true, always: false }),
     });
     expect(api.eventsOf(flights).at(-1)).toMatchObject({
@@ -120,7 +131,7 @@ describe("a bot's task lanes in the fake API", () => {
     const quarterly = `${bot.conversation}-lane-quarterly`;
     const answer = await api.answer({
       method: "POST",
-      path: `/v1/conversations/${bot.conversation}/questions/${quarterly}.q1`,
+      path: `/v1/conversations/${bot.conversation}/questions/${copyOf(api, bot.conversation, quarterly, "q1")}`,
       body: JSON.stringify({ answers: ["Against Q2"] }),
     });
     expect(answer.status).toBe(202);
@@ -171,7 +182,7 @@ describe("a bot's task lanes in the fake API", () => {
     const quarterly = `${bot.conversation}-lane-quarterly`;
     await api.answer({
       method: "POST",
-      path: `/v1/conversations/${bot.conversation}/questions/${quarterly}.q1`,
+      path: `/v1/conversations/${bot.conversation}/questions/${copyOf(api, bot.conversation, quarterly, "q1")}`,
       body: JSON.stringify({ defer: true }),
     });
     api.lanes.settle(quarterly, "failed", "The sheet wouldn't open");
@@ -181,6 +192,6 @@ describe("a bot's task lanes in the fake API", () => {
       .filter((event) => event.type === "lane_requests_closed")
       .map((event) => [event.lane, event.calls]);
     // The failed lane's deferred card stays answerable; the stopped lane's approval closes.
-    expect(closed).toEqual([[flights, [`${flights}.k1`]]]);
+    expect(closed).toEqual([[flights, [copyOf(api, bot.conversation, flights, "k1")]]]);
   });
 });

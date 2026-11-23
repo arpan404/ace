@@ -151,7 +151,7 @@ type SpadeBubbleOf =
   /** "Remembered: …": a note the bot saved or rewrote, which the person may open to edit. */
   | { kind: "remembered"; key: string; note: SpadeRememberedNote; turn?: string }
   /** An event that is nobody's words: one quiet line (`spadeQuietLine`), never a bubble. */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string }
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; turn?: string; id?: string }
   /** "Updated its task: …", with the change behind See change and Undo. */
   | { kind: "task-changed"; key: string; task: string; previous: string; why: string }
   /** "Made a new bot: Research · …", with Open and Undo. */
@@ -426,7 +426,13 @@ export function spadeBubbleStep(
   }
   if (entry.kind === "quiet") {
     pass.onlyGroups = false;
-    bubbles.push({ kind: "quiet", key: entry.key, quiet: entry.quiet, ...stamp(entry.at) });
+    bubbles.push({
+      kind: "quiet",
+      key: entry.key,
+      quiet: entry.quiet,
+      ...(entry.id ? { id: entry.id } : {}),
+      ...stamp(entry.at),
+    });
     return;
   }
   if (entry.kind === "handback") {

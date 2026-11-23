@@ -269,6 +269,7 @@ export function Conversation(props: {
             avatar={bot.avatar}
             onOpen={lanes.open}
             onOlder={lanes.older}
+            onStop={lanes.stop}
           />
         )}
       </PillRow>

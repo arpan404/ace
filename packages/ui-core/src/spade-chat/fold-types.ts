@@ -226,7 +226,8 @@ export type SpadeEntry =
    */
   | ({ kind: "request"; key: string; at?: number } & SpadeRequest)
   /** An event that is nobody's words, as one quiet line where it happened (`spadeQuietLine`). */
-  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number }
+  /** `id`: its message id (ADR 0212 §3), which a reply quoting it names (a task's line, ADR 0217). */
+  | { kind: "quiet"; key: string; quiet: SpadeQuiet; at?: number; id?: string }
   /** The bots and ace agents one call started, as one card where the first started. */
   | SpadeWorkersEntry
   /**
@@ -315,6 +316,12 @@ export interface SpadeApproval {
 export interface SpadeLaneAsking {
   task: string;
   title: string;
+  /**
+   * The call's id in the task's own conversation, and the task's run (reply) that asked: what
+   * finds main's copy from the task. Main's own id for the copy is opaque, never built or read.
+   */
+  call?: string;
+  epoch?: string;
 }
 
 /**

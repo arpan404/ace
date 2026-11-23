@@ -11,6 +11,7 @@ import {
 import type { SubagentState } from "@ace/ui-core";
 import { useState } from "react";
 import { StatusIcon } from "@/components/status-icons.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { AgentRowContents, agentRowStyles, SubagentElapsed } from "@/features/thread/index.ts";
 import { cn } from "@/lib/cn.ts";
@@ -37,14 +38,21 @@ const pose: Record<SubagentState, "working" | "needs-you" | "blocked" | "done" |
   done: "done",
 };
 
-function LaneRow(props: { lane: SpadeLane; avatar: SpadeAvatar; onOpen(): void }) {
+function LaneRow(props: {
+  lane: SpadeLane;
+  avatar: SpadeAvatar;
+  onOpen(): void;
+  onStop?: (() => Promise<boolean>) | undefined;
+}) {
   const { lane } = props;
   const live = useLive(true);
   const running = spadeLaneLive(lane);
   const state = spadeLaneRowState(lane);
   const detail = spadeLaneDetail(lane);
+  const [stopping, setStopping] = useState(false);
+  const stop = props.onStop;
   return (
-    <li data-subagent-state={state}>
+    <li data-subagent-state={state} className="group/task relative">
       <button
         type="button"
         aria-label={`Open ${lane.title}`}
@@ -80,6 +88,23 @@ function LaneRow(props: { lane: SpadeLane; avatar: SpadeAvatar; onOpen(): void }
           }
         />
       </button>
+      {/* Stop, in words, over its state while the pointer or focus is on the row. */}
+      {stop && running && (
+        <Button
+          size="xs"
+          variant="ghost"
+          tone="danger"
+          aria-label={`Stop ${lane.title}`}
+          disabled={stopping}
+          className="absolute top-1.5 right-0 rounded-full bg-popover opacity-0 transition-opacity group-focus-within/task:opacity-100 group-hover/task:opacity-100 pointer-coarse:opacity-100"
+          onClick={() => {
+            setStopping(true);
+            void stop().then(() => setStopping(false));
+          }}
+        >
+          {stopping ? "Stopping…" : "Stop"}
+        </Button>
+      )}
     </li>
   );
 }
@@ -89,6 +114,8 @@ export function LaneRows(props: {
   lanes: readonly SpadeLane[];
   avatar: SpadeAvatar;
   onOpen(lane: string): void;
+  /** Stops one task alone; resolves false when it didn't go through. */
+  onStop?: ((lane: string) => Promise<boolean>) | undefined;
 }) {
   return (
     <ul aria-label="Tasks" className="flex flex-col gap-0.5">
@@ -98,6 +125,7 @@ export function LaneRows(props: {
           lane={lane}
           avatar={props.avatar}
           onOpen={() => props.onOpen(lane.task)}
+          onStop={props.onStop && (() => props.onStop?.(lane.task) ?? Promise.resolve(false))}
         />
       ))}
     </ul>
@@ -114,6 +142,7 @@ export function LanesPill(props: {
   onOpen(lane: string): void;
   /** More ended tasks may be left out: a plain row asks for them. */
   onOlder?: (() => void) | undefined;
+  onStop?: ((lane: string) => Promise<boolean>) | undefined;
 }) {
   const [open, setOpen] = useState(false);
   const needs = spadeLanesNeedYou(props.lanes);
@@ -146,6 +175,7 @@ export function LanesPill(props: {
             setOpen(false);
             props.onOpen(lane);
           }}
+          onStop={props.onStop}
         />
         {props.onOlder && (
           <button

@@ -4,6 +4,7 @@ import {
   foldSpade,
   parseSpadeLiveFrame,
   spadeBubbles,
+  spadeMainCopyOf,
   spadeQuietLine,
   spadeView,
 } from "./index.ts";
@@ -149,6 +150,7 @@ describe("a task's request in main", () => {
     expect(asks[0]?.kind === "ask" && asks[0].lane).toEqual({
       task: "l1",
       title: "Book flights to Lisbon",
+      call: "k1",
     });
     expect(c.lines()).toEqual(["bot: Started on the flights.", "ask"]);
   });
@@ -170,7 +172,7 @@ describe("a task's question, rename and overlap in main", () => {
     const card = c.bubbles().find((bubble) => bubble.kind === "question");
     expect(card?.kind === "question" && [card.standing, card.lane]).toEqual([
       "waiting",
-      { task: "l1", title: "Draft the quarterly note" },
+      { task: "l1", title: "Draft the quarterly note", call: "q1" },
     ]);
     expect(c.view().asking).toBe(false);
     c.stored({ type: "question_answered", call_id: "l1.q1", answers: ["Q2"] });
@@ -224,7 +226,7 @@ describe("a task's question, rename and overlap in main", () => {
     });
     c.stored({ type: "reply_finished", reply: "r1", text: "" });
     expect(c.view().approvals.map((approval) => approval.lane)).toEqual([
-      { task: "l1", title: "Draft the quarterly note" },
+      { task: "l1", title: "Draft the quarterly note", call: "j1.k1" },
     ]);
     const ask = c.bubbles().find((bubble) => bubble.kind === "ask");
     expect(ask?.kind === "ask" && ask.lane?.title).toBe("Draft the quarterly note");
@@ -345,5 +347,61 @@ describe("after the closing checks", () => {
       ["failed.q2", "deferred"],
     ]);
     expect(c.view().forLater).toEqual(["failed.q2"]);
+  });
+});
+
+/** Task l1's card in run `epoch`, under main's own id `id`. */
+const runAsk = (c: ReturnType<typeof main>, id: string, call: string, epoch: string) =>
+  c.stored({
+    type: "question_asked",
+    reply: epoch,
+    call_id: id,
+    question: "Which folder?",
+    lane: { task: "l1", conversation: "l1", call_id: call, title: "Sort files", epoch },
+  });
+/** Each question card in main by its id, with how it stands. */
+const standingOf = (c: ReturnType<typeof main>) =>
+  c
+    .bubbles()
+    .flatMap((bubble) => (bubble.kind === "question" ? [[bubble.callId, bubble.standing]] : []));
+
+describe("run ids (ADR 0217 §4, second closing check)", () => {
+  test("a reopened task's new question stays open when an old run's close arrives", () => {
+    const c = main();
+    runAsk(c, "l1.r1.q1", "q1", "r1");
+    c.stored({ type: "question_deferred", call_id: "l1.r1.q1" });
+    c.stored(report("l1", "Sort files", "failed"));
+    // The person answers the deferred card; the task runs again and asks anew in its new run.
+    c.stored({ type: "question_answered", call_id: "l1.r1.q1", answers: ["Inbox"] });
+    runAsk(c, "l1.r2.q1", "q1", "r2");
+    // A close for the first run arrives late: it names only that run's copies.
+    c.stored({ type: "lane_requests_closed", lane: "l1", epoch: "r1", calls: ["l1.r1.q1"] });
+    expect(standingOf(c)).toEqual([
+      ["l1.r1.q1", "answered"],
+      ["l1.r2.q1", "waiting"],
+    ]);
+  });
+
+  test("ids are matched whole and as they are, never by their parts", () => {
+    const c = main();
+    runAsk(c, "l1.r1.q1", "q1", "r1");
+    runAsk(c, "l1.r1.q10", "q10", "r1");
+    runAsk(c, "lane.with.dots.r9.x", "x", "r9");
+    c.stored({ type: "lane_requests_closed", lane: "l1", epoch: "r1", calls: ["l1.r1.q1"] });
+    c.stored({ type: "lane_requests_closed", lane: "l1", epoch: "r9", calls: ["lane.with.dots"] });
+    expect(standingOf(c)).toEqual([
+      ["l1.r1.q1", "closed"],
+      ["l1.r1.q10", "waiting"],
+      ["lane.with.dots.r9.x", "waiting"],
+    ]);
+  });
+
+  test("main's copy of a task's request is found from the task by its call, never by its id", () => {
+    const requests = [
+      { callId: "opaque-1", lane: { task: "l1", call: "k1" } },
+      { callId: "opaque-2", lane: { task: "l2", call: "k1" } },
+    ];
+    expect(spadeMainCopyOf(requests, "l2", "k1")).toBe("opaque-2");
+    expect(spadeMainCopyOf(requests, "l1", "k2")).toBeUndefined();
   });
 });

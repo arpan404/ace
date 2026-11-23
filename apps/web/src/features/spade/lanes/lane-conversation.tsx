@@ -1,4 +1,9 @@
-import { spadeEndedTasksPage, spadeLanesHaveOlder, spadeSentText } from "@ace/ui-core/spade-chat";
+import {
+  spadeEndedTasksPage,
+  spadeLanesHaveOlder,
+  spadeMainCopyOf,
+  spadeSentText,
+} from "@ace/ui-core/spade-chat";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { panelReveal } from "@/components/ui/rules.ts";
@@ -10,9 +15,8 @@ import { ConversationScreen, useOpenBot } from "../spade-bot-screen.tsx";
 import { SpadeChat, type ChatBot } from "../spade-chat.tsx";
 import { SpadeComposer } from "../spade-composer.tsx";
 import { PillEdge, TaskPill } from "../spade-pill.tsx";
-import { segment, spadeHttp, SpadeRequestError } from "../spade-requests.ts";
+import { SpadeRequestError } from "../spade-requests.ts";
 import { ConversationSkeleton, message, Problem, Scroller } from "../spade-screen-parts.tsx";
-import { useSpadeClient } from "../spade-machine.tsx";
 import { useSpadeConversation } from "../use-spade-conversation.ts";
 import type { RosterBot } from "../use-spade-roster.ts";
 import { useLanesChanged, useSpadeLanes } from "./lanes-api.ts";
@@ -35,10 +39,11 @@ export function LaneConversation(props: {
   task: string;
 }) {
   const { bot, task } = props;
-  const client = useSpadeClient();
   const toast = useToast();
   const openBot = useOpenBot(bot);
   const conversation = useSpadeConversation(task);
+  // Main's chat, where Spade asks this task's requests and takes their answers.
+  const main = useSpadeConversation(bot.conversation);
   const { view, problem } = conversation;
   const moved = view.entries.length;
   // Its row, even when it ended long ago: the list is read further back until it is found.
@@ -99,21 +104,25 @@ export function LaneConversation(props: {
           <SpadeChat
             bot={chatBot}
             view={view}
-            // Spade asks a task's requests in main too, and takes the answer there.
-            onAnswer={(callId, answer) =>
-              spadeHttp(
-                client,
-                "POST",
-                `/v1/conversations/${segment(bot.conversation)}/approvals/${segment(`${task}.${callId}`)}`,
-                { body: { allowed: answer !== "deny", always: answer === "always" } },
-              ).then(
+            // Spade asks a task's requests in main too, and takes the answer there, under
+            // main's own id for its copy.
+            onAnswer={(callId, answer) => {
+              const copy = spadeMainCopyOf(main.view.approvals, task, callId);
+              if (!copy) {
+                toast.error({
+                  title: `Couldn't answer ${title}`,
+                  description: "It isn't open anymore.",
+                });
+                return Promise.resolve(false);
+              }
+              return main.answer(copy, answer !== "deny", answer === "always").then(
                 () => {
                   changed();
                   return true;
                 },
                 failed(`Couldn't answer ${title}`),
-              )
-            }
+              );
+            }}
             onQuestion={(callId, reply) =>
               conversation.question(callId, reply).then(
                 () => undefined,

@@ -893,7 +893,7 @@ function Single(props: {
         return (
           <div className={cn("flex", space)}>
             {quiet.kind === "lane" ? (
-              <LaneQuietLine quiet={quiet} />
+              <LaneQuietLine quiet={quiet} id={item.id} />
             ) : (
               <OverlapQuietLine quiet={quiet} />
             )}

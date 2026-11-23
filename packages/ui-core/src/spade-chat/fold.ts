@@ -26,6 +26,7 @@ import type {
   SpadeRequest,
   SpadeConversationState,
   SpadeFoldInput,
+  SpadeLaneAsking,
 } from "./fold-types.ts";
 import {
   helperEntry,
@@ -167,12 +168,26 @@ function countWaiting(state: SpadeConversationState, at: number) {
   }
 }
 
+/** A task lane's request as main keeps it: whose it is, and where it came from in the task. */
+const spadeLaneAsking = (lane: {
+  task: string;
+  title: string;
+  call_id: string;
+  epoch?: string | null | undefined;
+}): SpadeLaneAsking => ({
+  task: lane.task,
+  title: lane.title,
+  call: lane.call_id,
+  ...(lane.epoch ? { epoch: lane.epoch } : {}),
+});
+
 function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored: SpadeStored) {
   const key = `s${stored.seq}`;
   const capability = foldSpadeCapability(
     state.capabilities,
     event,
-    (quiet) => steer(state, { kind: "quiet", key, quiet, ...stamp(stored) }),
+    (quiet) =>
+      steer(state, { kind: "quiet", key, quiet, id: spadeMessageId(stored.seq), ...stamp(stored) }),
     (call, worker) =>
       spadeJoinWorkers(state.entries, call, worker) ||
       steer(state, {
@@ -316,7 +331,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
           ...(event.effect ? { effect: event.effect } : {}),
           ...(event.tool_key && event.ask !== "undeclared" ? { definition: event.tool_key } : {}),
           ...(event.helper ? { helper: { job: event.helper.job, task: helper?.task ?? "" } } : {}),
-          ...(event.lane ? { lane: { task: event.lane.task, title: event.lane.title } } : {}),
+          ...(event.lane ? { lane: spadeLaneAsking(event.lane) } : {}),
         },
       ];
       // Asked again: the request stands where it was first asked. Asked after the person
@@ -481,7 +496,7 @@ function foldKnown(state: SpadeConversationState, event: SpadeKnownEvent, stored
         answers: undefined,
         typed: false,
         askedForLater: false,
-        ...(event.lane ? { lane: { task: event.lane.task, title: event.lane.title } } : {}),
+        ...(event.lane ? { lane: spadeLaneAsking(event.lane) } : {}),
       };
       // A task's card stands on its own where it arrived, open until answered: no reply of main's
       // asked it, so main's turn ending never closes it.

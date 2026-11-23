@@ -95,3 +95,17 @@ export const spadeEndedTasksPage = 20;
 export function spadeLanesHaveOlder(lanes: readonly Pick<SpadeLane, "state">[], asked: number) {
   return lanes.filter((lane) => !spadeLaneLive(lane)).length >= asked;
 }
+
+/**
+ * Main's id for its copy of a task's request (ADR 0217 §4), found from the task's side: the
+ * request main holds for task `task` whose call in the task is `call`. Ids are opaque, never built
+ * from their parts; undefined when main holds no such request open.
+ */
+export function spadeMainCopyOf(
+  requests: readonly { callId: string; lane?: { task: string; call?: string } }[],
+  task: string,
+  call: string,
+): string | undefined {
+  return requests.find((request) => request.lane?.task === task && request.lane.call === call)
+    ?.callId;
+}

@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/toast.tsx";
 import { message } from "../spade-screen-parts.tsx";
 import { useSpadeClient } from "../spade-machine.tsx";
 import type { RosterBot } from "../use-spade-roster.ts";
-import { retryLane, useLanesChanged, useSpadeLanes } from "./lanes-api.ts";
+import { retryLane, stopLane, useLanesChanged, useSpadeLanes } from "./lanes-api.ts";
 import type { LanesHere } from "./lanes-context.ts";
 
 /**
@@ -44,6 +44,17 @@ export function useMainLanes(bot: RosterBot, view: SpadeView, open: (lane: strin
         titles.get(lane) ?? lanes.find((each) => each.task === lane)?.title ?? said,
       open,
       changed,
+      stop: (lane) =>
+        stopLane(client, lane).then(
+          () => {
+            changed();
+            return true;
+          },
+          (error: unknown) => {
+            toast.error({ title: "Couldn't stop the task", description: message(error) });
+            return false;
+          },
+        ),
       older: spadeLanesHaveOlder(listed, ended)
         ? () => setEnded((asked) => asked + spadeEndedTasksPage)
         : undefined,
