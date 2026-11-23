@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DaemonHealth } from "@ace/protocol";
-import { daemonEnvironment, daemonProgram } from "./spawn.ts";
+import { daemonEnvironment, daemonProgram, daemonServerProgram } from "./spawn.ts";
 
 const resources = {
   entry: "/app/Contents/Resources/daemon/ace.mjs",
@@ -52,6 +52,23 @@ describe("the program that runs the daemon", () => {
   it("never falls back to Electron in a packaged app, whose run-as-node fuse is off", () => {
     expect(() => daemonProgram(resources, "/app/Contents/MacOS/ace", missing)).toThrow(
       "bundled Node runtime is missing",
+    );
+  });
+
+  it("runs the daemon itself as ace Service when the app ships the runtime under that name", () => {
+    const named = "/app/Contents/Resources/runtime/bin/ace Service";
+    expect(daemonServerProgram(resources, "/app/Contents/MacOS/ace", "darwin", present)).toEqual({
+      command: named,
+      env: {},
+    });
+    // An app from before the rename ships only the runtime.
+    const onlyRuntime = (path: string) => path === resources.node;
+    expect(
+      daemonServerProgram(resources, "/app/Contents/MacOS/ace", "darwin", onlyRuntime).command,
+    ).toBe(resources.node);
+    // One-shot commands (doctor) keep the runtime's own name.
+    expect(daemonProgram(resources, "/app/Contents/MacOS/ace", present).command).toBe(
+      resources.node,
     );
   });
 

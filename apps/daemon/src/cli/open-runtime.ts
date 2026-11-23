@@ -11,6 +11,7 @@ import { hostConnection } from "./connection.ts";
 import { timeoutMs, type Args } from "./args.ts";
 import { CliFailure } from "./output.ts";
 import { launchLogName, openLaunchLog } from "@ace/service/launch-log";
+import { startableDaemonRuntime } from "@ace/service/daemon-program";
 import { readConfig } from "../config.ts";
 import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 const StartupHealth = DaemonHealth.extend({ ready: z.boolean().optional() });
@@ -40,7 +41,9 @@ export function systemOpenRuntime(): OpenRuntime {
       );
       try {
         // The daemon outlives this launcher and owns its own lock and process inventory.
-        const child = spawn(process.execPath, [entry, "serve", "--json"], {
+        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it.
+        const runtime = startableDaemonRuntime(process.execPath, process.platform);
+        const child = spawn(runtime, [entry, "serve", "--json"], {
           env: { ...process.env, ACE_HOME: home },
           detached: true,
           stdio: ["ignore", log, log],

@@ -3,16 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
 import { startableDaemonRuntime } from "./daemon-program.ts";
-import {
-  bundledDaemonRuntime,
-  scriptRuntimePath,
-  shippedExecutableName,
-} from "./process-names.ts";
+import { bundledDaemonRuntime, scriptRuntimePath, shippedExecutableName } from "./process-names.ts";
 
 const roots: string[] = [];
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+const appFiles = (path: string) =>
+  path === "/App/Contents/Resources/runtime/bin/ace Service" ||
+  path === "/App/Contents/Resources/runtime/bin/node";
+const releaseFiles = (path: string) => path === "/rel/bin/node.exe";
 function scratch(): string {
   const root = mkdtempSync(join(tmpdir(), "ace-process-names-"));
   roots.push(root);
@@ -29,10 +29,7 @@ test("services ship titled on macOS and Windows and hyphenated on Linux", () => 
 });
 
 test("the desktop app starts its daemon on the runtime copy named for it when it ships one", () => {
-  const exists = (path: string) =>
-    path === "/App/Contents/Resources/runtime/bin/ace Service" ||
-    path === "/App/Contents/Resources/runtime/bin/node";
-  expect(bundledDaemonRuntime("/App/Contents/Resources/runtime/bin/node", "darwin", exists)).toBe(
+  expect(bundledDaemonRuntime("/App/Contents/Resources/runtime/bin/node", "darwin", appFiles)).toBe(
     "/App/Contents/Resources/runtime/bin/ace Service",
   );
   // A bundle from before the rename carries only the runtime.
@@ -42,9 +39,10 @@ test("the desktop app starts its daemon on the runtime copy named for it when it
 });
 
 test("the daemon's child scripts run on the plain runtime beside it, never as the service", () => {
-  const exists = (path: string) => path === "/rel/bin/node.exe";
-  expect(scriptRuntimePath("/rel/bin/ace Service.exe", "win32", exists)).toBe("/rel/bin/node.exe");
-  expect(scriptRuntimePath("/rel/bin/node", "linux", exists)).toBe("/rel/bin/node");
+  expect(scriptRuntimePath("/rel/bin/ace Service.exe", "win32", releaseFiles)).toBe(
+    "/rel/bin/node.exe",
+  );
+  expect(scriptRuntimePath("/rel/bin/node", "linux", releaseFiles)).toBe("/rel/bin/node");
   // Without the plain runtime beside it the daemon keeps what it has.
   expect(scriptRuntimePath("/x/ace-service", "linux", () => false)).toBe("/x/ace-service");
 });

@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { scriptRuntimePath } from "@ace/service/process-names";
 import { setPriority } from "node:os";
 import { incompatibleData } from "@ace/provider-kit/incompatible-data";
 import { readHistoryInstances } from "../history.ts";
@@ -14,6 +15,9 @@ import { startedJson, startedText } from "./render/daemon.ts";
 export async function runtimeCommand(args: Args, config: Config) {
   const command = args.words[0] ?? "start";
   validateArgs(args, [], 0, 1);
+  // Started as `ace Service`, the daemon runs its child scripts (MCP servers, guardians,
+  // serve-sim, workers) on the runtime's plain name beside it: only the daemon is the service.
+  process.execPath = scriptRuntimePath(process.execPath, process.platform, existsSync);
   const development = process.env.ACE_DEV === "1";
   const { startDaemon, runDaemonProcess, NewerDataError, DaemonLockHeldError } =
     await import("../index.ts");

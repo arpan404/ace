@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync } from "node:fs";
 import { DEFAULT_LOG_MAX_BYTES } from "@ace/diagnostics/log-policy";
 import { openLaunchLog } from "@ace/service/launch-log";
+import { bundledDaemonRuntime } from "@ace/service/process-names";
 import { dirname } from "node:path";
 import { DaemonHealth } from "@ace/protocol";
 import {
@@ -48,6 +49,23 @@ export function daemonProgram(
       `The bundled Node runtime is missing (${resources.node ?? "runtime/bin/node"})`,
     );
   return { command: execPath, env: { ELECTRON_RUN_AS_NODE: "1" } };
+}
+
+/**
+ * The program the daemon itself runs on: the bundled runtime under the daemon's own name,
+ * `ace Service` (`ace-service` on Linux), when this app ships that copy, so Activity Monitor
+ * and Task Manager show ace's service rather than the runtime. One-shot commands and every
+ * other script keep the runtime's plain name.
+ */
+export function daemonServerProgram(
+  resources: DaemonResources,
+  execPath: string,
+  platform: NodeJS.Platform,
+  exists: (path: string) => boolean = existsSync,
+): { command: string; env: NodeJS.ProcessEnv } {
+  const program = daemonProgram(resources, execPath, exists);
+  if (program.command !== resources.node) return program;
+  return { ...program, command: bundledDaemonRuntime(program.command, platform, exists) };
 }
 
 export interface SpawnOptions {
@@ -136,7 +154,11 @@ export function daemonEnvironment(
  * is left to break under it when the app quits. Its records go to its own `logs/ace.jsonl`.
  */
 export function spawnDaemon(options: SpawnOptions): DaemonProcess {
-  const program = daemonProgram(options.resources, process.execPath);
+  const program = daemonServerProgram(
+    options.resources,
+    process.execPath,
+    options.platform ?? process.platform,
+  );
   const plain = { command: program.command, args: [options.resources.entry, "start"] };
   const launch = options.prioritize ? options.prioritize(plain) : plain;
   const output = openLaunchLog(options.home, DEFAULT_LOG_MAX_BYTES);

@@ -37,7 +37,7 @@ import {
 import { fileURLToPath } from "node:url";
 import { rename } from "node:fs/promises";
 import { CMD_LAUNCHER, retrySharing, ServiceEnvironment } from "@ace/service";
-import { recoveryDelay } from "@ace/service";
+import { recoveryDelay, startableDaemonRuntime } from "@ace/service";
 import { finished } from "node:stream/promises";
 import { bundledDesktopApp, daemonDirectory, desktopUpdateCli } from "./desktop-update.ts";
 import { updateArguments } from "./update-arguments.ts";
@@ -275,15 +275,20 @@ export async function supervise() {
           process.removeListener("SIGINT", stop);
         };
       },
+      // The daemon runs as `ace Service` (`ace-service` on Linux), a link to this runtime.
       spawnDaemon: () =>
-        spawn(process.execPath, [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "start"], {
-          stdio: ["ignore", "pipe", "pipe"],
-          env: {
-            ...process.env,
-            ACE_VERSION: manifest.version,
-            ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
+        spawn(
+          startableDaemonRuntime(process.execPath, process.platform),
+          [fileURLToPath(new URL("./ace.mjs", import.meta.url)), "start"],
+          {
+            stdio: ["ignore", "pipe", "pipe"],
+            env: {
+              ...process.env,
+              ACE_VERSION: manifest.version,
+              ACE_MAINTENANCE: existsSync(join(root, "update.json")) ? "1" : "0",
+            },
           },
-        }),
+        ),
       launchUpdate(command) {
         const launch = planUpdateLaunch({
           platform: process.platform,
