@@ -30,6 +30,32 @@ describe("an organization's policy as lines of text", () => {
     expect(again.endpoints).toBe("api.example.com");
   });
 
+  test("an allowed package still listed keeps the versions it was allowed at", () => {
+    const stored = readPolicy(
+      JSON.stringify({
+        packages: {
+          allow: [
+            { source: "market", name: "spade-bot/ci", versions: ["1.2.0"] },
+            { source: "registry", name: "deploy", versions: ["2.0.0", "2.0.1"] },
+          ],
+        },
+      }),
+    );
+    const draft = policyDraft(stored);
+    // An unrelated edit: one more endpoint, and a new allowed package.
+    const saved = policyFromDraft({
+      ...draft,
+      allow: `${draft.allow}\ngit tools/lint`,
+      endpoints: "api.example.com",
+    });
+
+    expect(saved.packages?.allow).toEqual([
+      { source: "market", name: "spade-bot/ci", versions: ["1.2.0"] },
+      { source: "registry", name: "deploy", versions: ["2.0.0", "2.0.1"] },
+      { source: "git", name: "tools/lint" },
+    ]);
+  });
+
   test("emptied lists leave the policy, and a member's subscription is never allowed", () => {
     const stored = readPolicy(
       JSON.stringify({

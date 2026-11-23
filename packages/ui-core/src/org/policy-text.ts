@@ -72,9 +72,21 @@ export function policyDraft(policy: AceOrgPolicy): PolicyDraft {
   };
 }
 
-/** The draft as the next version: its lists from their lines, an empty list left out. */
+/**
+ * The draft as the next version: its lists from their lines, an empty list left out. A line names
+ * a package, not its versions, so an allowed package still listed keeps the versions it was
+ * allowed at: an edit elsewhere never widens one version's approval to all of them.
+ */
 export function policyFromDraft(draft: PolicyDraft): AceOrgPolicy {
-  const allow = allowEntries(draft.allow);
+  const pinned = new Map(
+    (draft.policy.packages?.allow ?? []).map((entry) => [`${entry.source} ${entry.name}`, entry]),
+  );
+  const allow = allowEntries(draft.allow).map((entry) => {
+    // Each entry is new from its line, so setting its pins changes nothing else.
+    const versions = pinned.get(`${entry.source} ${entry.name}`)?.versions;
+    if (versions) entry.versions = versions;
+    return entry;
+  });
   const block = blockEntries(draft.block);
   const endpoints = lines(draft.endpoints);
   const { packages, models } = draft.policy;
