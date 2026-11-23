@@ -684,7 +684,14 @@ class AcpSession implements ProviderSession {
     }
     this.queuedBytes -= next.bytes;
     this.active = true;
-    this.queueChanged();
+    // The queue reads one shorter only once the prompt went out (or failed to): its turn has
+    // started by then, so the thread never reads done in between.
+    let reported = false;
+    const report = () => {
+      if (reported) return;
+      reported = true;
+      this.queueChanged();
+    };
     try {
       if (next.commandId) {
         this.ctx.onInputMessage?.({ commandId: next.commandId, nativeId: next.commandId });
@@ -719,6 +726,7 @@ class AcpSession implements ProviderSession {
       );
       // The request frame goes out synchronously, or the request fails without writing it.
       if (this.promptFrames !== written) next.batch.written = true;
+      report();
       const promptId = this.promptId;
       try {
         const result = await reply;
@@ -742,6 +750,7 @@ class AcpSession implements ProviderSession {
     } catch (error) {
       next.reject(sanitizedError(error, this.ctx));
     } finally {
+      report();
       this.active = false;
       // drain() settles each turn it takes, so its rejection has no reporter here.
       void this.drain().catch(() => {});

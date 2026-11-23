@@ -144,6 +144,20 @@ test("a person's ACP steer cancels its target turn and sends the follow-up once"
         : [],
     );
     expect(said.join("")).not.toContain("cancelled by the client");
+    // The thread never reads done while the steer is on its way to the agent.
+    const statuses = h.store
+      .readEvents({ afterSeq: 0, threadId: id, limit: 10_000 })
+      .flatMap((event) =>
+        event.payload.type === "thread.updated" && event.payload.status
+          ? [event.payload.status.state]
+          : [],
+      );
+    // Working, then waiting while the cancelled turn makes way, then working on the steer.
+    const steered = statuses.slice(
+      statuses.indexOf("working"),
+      statuses.lastIndexOf("working") + 1,
+    );
+    expect(steered).toEqual(["working", "waiting", "working"]);
   } finally {
     if (h.store.snapshotThread(id).runs[active.id]?.state === "active")
       h.command({ type: "thread.interrupt", threadId: id, cascade: true });
