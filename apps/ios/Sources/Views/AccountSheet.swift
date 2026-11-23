@@ -174,3 +174,13 @@ struct AccountSheetMeasurement: Equatable {
     let content: CGFloat
     let viewport: CGFloat
 }
+
+/// The fitted Account sheet's height: measured once it opens, then it only grows, and only for a
+/// change as big as a row. A row's words changing (Check for updates, then Checking…) never resizes
+/// the sheet, so it doesn't jump between sizes.
+enum AccountSheetSize {
+    static func next(current: CGFloat, measured: CGFloat) -> CGFloat {
+        guard current > 0 else { return measured }
+        return measured >= current + AceDesign.Size.tap ? measured : current
+    }
+}

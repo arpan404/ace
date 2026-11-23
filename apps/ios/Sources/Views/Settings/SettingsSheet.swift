@@ -134,7 +134,7 @@ struct SettingsSheet: View {
         // Measure the available height at the large detent. The fitted viewport
         // must not become the ceiling for the next content change.
         if sheetSelection.wrappedValue == .large { fullHeight = size.viewport }
-        accountHeight = size.content
+        accountHeight = AccountSheetSize.next(current: accountHeight, measured: size.content)
     }
 
     /// More's own list, as the approved mockup: the machine's tools, then the paired devices,
