@@ -1,7 +1,12 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { MarketOperation } from "@ace/protocol/marketplace";
-import { marketCallBody, marketIntent, personMarketCall } from "@ace/client/market-intent";
+import {
+  marketActionOrg,
+  marketCallBody,
+  marketIntent,
+  personMarketCall,
+} from "@ace/client/market-intent";
 import type {
   MarketInstallChoices,
   MarketResult,
@@ -32,22 +37,46 @@ function answers<T extends MarketResult["op"]>(result: MarketResult, op: T): res
 /**
  * A market grant from this window's own ace session naming one market request: its method, path
  * and body digest (`marketIntent`, ADR 0190). Undefined when the window holds no session of the
- * person's.
+ * person's. With `org`, the grant acts in that organization (ADR 0206 amendment 5).
  */
-export type PersonGrant = (intent: string) => Promise<string | undefined>;
+export type PersonGrant = (intent: string, org?: string) => Promise<string | undefined>;
 
 /**
  * What the person asked for, as the market request it makes (ADR 0190): built here from the
  * person's own operation, never taken from the daemon's answer, so a grant can only ever name
  * what the person chose (this recipient, this handle, this reason).
  */
-async function intentOf(operation: Operation): Promise<string | undefined> {
+async function intentOf(
+  operation: Operation,
+): Promise<{ intent: string; org: string | undefined } | undefined> {
   const parsed = MarketOperation.safeParse(operation);
   if (!parsed.success || parsed.data.op !== "publish") return undefined;
   const call = personMarketCall(parsed.data.request);
-  return call
-    ? marketIntent({ method: call.method, path: call.path, body: marketCallBody(call) })
+  if (!call) return undefined;
+  const intent = await marketIntent({
+    method: call.method,
+    path: call.path,
+    body: marketCallBody(call),
+  });
+  return { intent, org: marketActionOrg(parsed.data.request) };
+}
+
+/** The person's grant for `operation`'s one market call, when it names one. */
+async function grantFor(operation: Operation, personGrant: PersonGrant | undefined) {
+  const named = personGrant ? await intentOf(operation) : undefined;
+  return named && personGrant
+    ? personGrant(named.intent, named.org).catch(() => undefined)
     : undefined;
+}
+
+/** An organization's registry answers only the person, so its grant goes with the first ask. */
+function actsInOrg(operation: Operation): boolean {
+  const parsed = MarketOperation.safeParse(operation);
+  return (
+    parsed.success &&
+    parsed.data.op === "publish" &&
+    marketActionOrg(parsed.data.request) !== undefined
+  );
 }
 
 export async function market<T extends MarketResult["op"]>(
@@ -62,18 +91,18 @@ export async function market<T extends MarketResult["op"]>(
       { type: "marketplace.request", operation, ...(grant ? { personGrant: grant } : {}) },
       signal ? { signal } : {},
     );
+  const first = actsInOrg(operation) ? await grantFor(operation, personGrant) : undefined;
   let { result } = await withStanding(
     client,
-    () => ask(),
+    () => ask(first),
     ({ result: reply }) =>
       reply.op === "error" && reply.code === "reauth" && isStandingRefusal(reply.message),
   );
   // A sensitive action the market takes only from the person (ADR 0190): this window asks for a
   // grant naming that one request, as it builds it from its own operation, with its own session,
   // and sends the request again with it. What the daemon said the request was isn't used.
-  if (result.op === "error" && result.code === "person_grant" && personGrant) {
-    const intent = await intentOf(operation);
-    const grant = intent ? await personGrant(intent).catch(() => undefined) : undefined;
+  if (result.op === "error" && result.code === "person_grant" && personGrant && !first) {
+    const grant = await grantFor(operation, personGrant);
     if (grant) result = (await ask(grant)).result;
   }
   if (result.op === "error") throw new MarketFailure(result.code, result.scan, result.message);

@@ -16,6 +16,7 @@ import { search } from "@ace/marketplace";
 import { offeredUpdate } from "@ace/ui-core/market";
 import { FakeMarketPick, type MarketPickSeed } from "./marketplace-pick.ts";
 import { FakeMarketPublishing, type MarketPublishSeed } from "./marketplace-publish.ts";
+import { FakeRegistries, isRegistryAction } from "./marketplace-registry.ts";
 
 /*
  * The marketplace (ADR 0168) as the fake daemon answers it: seeded listings searched on the
@@ -168,10 +169,13 @@ export class FakeMarketplaceWire {
   /** Publishing, Discover, publisher pages and the reports sent. */
   readonly publishing: FakeMarketPublishing;
   readonly pick = new FakeMarketPick();
+  /** Organizations' registries, read and withdrawn from with the person's grant. */
+  readonly registries: FakeRegistries;
 
   constructor(now: () => number = () => 1_700_000_000_000) {
     this.#now = now;
     this.publishing = new FakeMarketPublishing(now);
+    this.registries = new FakeRegistries(now);
   }
 
   /** The install an operation names; a bot package's by its `bot`, else the first of its name. */
@@ -224,7 +228,7 @@ export class FakeMarketplaceWire {
     return {
       type: "marketplace.result",
       requestId: message.requestId,
-      result: this.#answer(message.operation),
+      result: this.#answer(message.operation, message.personGrant),
     };
   }
 
@@ -237,7 +241,7 @@ export class FakeMarketplaceWire {
       .filter((summary) => enabled.has(summary.source));
   }
 
-  #answer(operation: MarketOperation): MarketResult {
+  #answer(operation: MarketOperation, personGrant?: string): MarketResult {
     const now = this.#now();
     switch (operation.op) {
       case "sources":
@@ -504,6 +508,7 @@ export class FakeMarketplaceWire {
       case "publish": {
         const request = operation.request;
         if (request.action === "draftCheck") return this.pick.check(request.source);
+        if (isRegistryAction(request)) return this.registries.answer(request, personGrant);
         return this.pick.refusal(request) ?? this.publishing.publish(request);
       }
       case "privacyCheck":
