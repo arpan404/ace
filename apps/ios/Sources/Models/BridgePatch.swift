@@ -359,6 +359,7 @@ enum BridgePatch: Decodable, Sendable {
     case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
+    case usageBars([UsageHeadroomBar])
     case inboxReset([String]?)
     /// Whether the list is the daemon's current one and holds every thread (no older page left).
     case inboxFresh(confirmed: Bool, complete: Bool)
@@ -490,6 +491,7 @@ enum BridgePatch: Decodable, Sendable {
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
+        case "usage.bars": self = .usageBars(try box.decode([UsageHeadroomBar].self, forKey: .value))
         case "inbox.fresh": self = .inboxFresh(confirmed: try box.decode(Bool.self, forKey: .confirmed), complete: try box.decode(Bool.self, forKey: .complete))
         case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Bool.self, forKey: .found))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))

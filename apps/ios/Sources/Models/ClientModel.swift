@@ -66,6 +66,7 @@ import QuartzCore
     @ObservationIgnored private var scope: MachineScope?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
+    private(set) var usageBars: [UsageHeadroomBar] = []
     var pending: [String: PendingRow] = [:]
     var connection = "connecting" {
         didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }
@@ -323,7 +324,7 @@ import QuartzCore
         if !sameMachine { deviceTabs.reset() }
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
-        inboxLayout = .empty; chatLayout = .empty
+        inboxLayout = .empty; chatLayout = .empty; usageBars = []
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
@@ -604,6 +605,7 @@ import QuartzCore
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
                 historyRevision.reset()
+            case .usageBars(let bars): usageBars = bars
             case .inboxFresh(let confirmed, let complete):
                 if listFresh != confirmed { listFresh = confirmed }
                 if listComplete != complete { listComplete = complete }
