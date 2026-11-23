@@ -1,16 +1,20 @@
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { prepareDaemonHome } from "@ace/service";
 import { setup, identity } from "./remote-test-support.ts";
+import { cliProgram } from "./cli/pty-test-support.ts";
+const program = cliProgram();
 async function invoke(home: string, args: string[], env: NodeJS.ProcessEnv = {}, stdin = "") {
   const child = spawn(
-    process.execPath,
-    [fileURLToPath(new URL("./cli.ts", import.meta.url)), ...args],
-    { env: { ...process.env, ...env, ACE_HOME: home }, stdio: ["pipe", "pipe", "pipe"] },
+    program.command,
+    [...program.prefix, ...args],
+    {
+      env: { ...process.env, ...program.env, ...env, ACE_HOME: home },
+      stdio: ["pipe", "pipe", "pipe"],
+    },
   );
   let stdout = "";
   let stderr = "";
