@@ -37,7 +37,7 @@ struct AccountUpdatesSection: View {
 
     @ViewBuilder private var phoneRows: some View {
         InsetRow(icon: .deviceMobile, title: "ace for iPhone \(phone.version) (\(phone.build))",
-                 subtitle: phoneLine)
+                 subtitle: phoneLine) { EmptyView() }
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier("account.updates.phone")
         switch phone.state {
@@ -76,7 +76,7 @@ struct AccountUpdatesSection: View {
         let version = client.machineUpdate.flatMap { $0.known ? $0.version : nil } ?? computer?.version
         if let info = client.machineUpdate, info.known {
             let step = ComputerUpdate.step(info, machine: name, checked: checked, asking: asking)
-            InsetRow(icon: .desktop, title: "\(name): ace \(info.version)", subtitle: line(step) ?? problem)
+            InsetRow(icon: .desktop, title: "\(name): ace \(info.version)", subtitle: line(step) ?? problem) { EmptyView() }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("account.updates.computer")
             switch step {
@@ -90,7 +90,7 @@ struct AccountUpdatesSection: View {
                 EmptyView()
             }
         } else if let version, !version.isEmpty, version != "Unknown" {
-            InsetRow(icon: .desktop, title: "\(name): ace \(version)", subtitle: "Updates run on \(name)")
+            InsetRow(icon: .desktop, title: "\(name): ace \(version)", subtitle: "Updates run on \(name)") { EmptyView() }
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("account.updates.computer")
         }
