@@ -248,8 +248,10 @@ export class Connection {
    */
   wake(): void {
     if (!this.#active) return;
-    if (this.state === "ready") this.#heartbeat.probe(this.#probeDeadline?.() ?? wakeProbeMs);
-    else this.reconnectNow();
+    if (this.state === "ready") {
+      for (const keeper of this.#keepers.values()) keeper.wake();
+      this.#heartbeat.probe(this.#probeDeadline?.() ?? wakeProbeMs);
+    } else this.reconnectNow();
   }
   info(): ConnectionInfo {
     return {
@@ -881,6 +883,7 @@ export class Connection {
         ttlMs: welcome.grantTtlMs,
         grant: () => grant(),
         scheduler: this.#options.scheduler,
+        now: this.#options.now ?? Date.now,
         id: () => this.#options.id(),
         send: (message) => {
           if (message.type === "account.grant.refresh")
