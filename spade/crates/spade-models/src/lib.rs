@@ -6,6 +6,7 @@
 
 pub mod base_url;
 pub mod catalog;
+pub mod chatgpt;
 mod client;
 pub mod config;
 mod effort;
@@ -17,14 +18,18 @@ pub mod listing;
 mod media;
 mod probes;
 mod prompt;
+mod scrub;
+mod signed;
 mod speech;
 mod thoughts;
 mod typed;
+mod waits;
 mod web_search;
 
 pub use catalog::{
     Capability, Catalog, CatalogError, DEFAULT_CONTEXT, Endpoint, Model, Price, Resolved, Role,
 };
+pub use chatgpt::SignIn;
 pub use client::{KEYLESS, Models};
 pub use config::ModelsConfig;
 pub use effort::Effort;
@@ -37,6 +42,8 @@ pub use probes::{PROBE_TOOL, PROBE_WAIT, Probe, ProbeResults};
 pub use prompt::{
     Delta, Generated, Image, Message, Prompt, Reply, Thought, ToolCall, ToolSpec, Usage,
 };
+pub use signed::{BearerFuture, Bearers, Credential, DispatchFuture, DispatchGuard};
 pub use spade_keys::{KeyRequest, Keys};
 pub use speech::{MOST_SPEECH_BYTES, MOST_SPEECH_CHARS, Speech, SpeechRequest};
+pub use waits::StreamWaits;
 pub use web_search::{WebFound, WebHit};

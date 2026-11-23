@@ -30,6 +30,7 @@ export * from "./agents.ts";
 export * from "./packages.ts";
 export * from "./package-updates.ts";
 export * from "./notes.ts";
+export * from "./accounts.ts";
 export * from "./endpoints.ts";
 export * from "./model-options.ts";
 export * from "./markup.ts";

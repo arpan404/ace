@@ -79,6 +79,7 @@ pub use code::CodeCall;
 pub(crate) mod retired_models;
 mod self_edit;
 mod services;
+mod sign_in;
 pub use services::StartAgain;
 mod speech;
 mod style;
@@ -104,7 +105,7 @@ pub use contracts_outside::{
     Offered as OutsideOffered, OutsideCaller, Refused as OutsideRefused, Via as OutsideVia,
 };
 pub use digests::{DigestError, MOST_LISTED as MOST_DIGESTS};
-pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel};
+pub use endpoints::{EndpointError, EndpointInput, EndpointView, ModelInput, ShownModel, Standing};
 pub use episodes::episode_json;
 pub use goals::{GoalError, GoalInput};
 pub use groups::{
@@ -280,6 +281,8 @@ pub struct Engine {
     plugins: std::sync::OnceLock<Arc<crate::plugins::Plugins>>,
     /// The person's apps (ADR 0131, `apps`), once the server has set them.
     apps: std::sync::OnceLock<Arc<spade_connect::Connectors>>,
+    /// Sign-ins to ChatGPT accounts (ADR 0214, `sign_in`), once the server has set them.
+    sign_ins: std::sync::OnceLock<Arc<spade_chatgpt::Flows>>,
     /// The person's outside A2A agents (ADR 0202 §5), once the server has set them.
     outside_agents: std::sync::OnceLock<Arc<crate::a2a::OutsideAgents>>,
     /// The market as suggestions read it (ADR 0200 §8, `suggest`), once the server has set it.
@@ -466,6 +469,7 @@ impl Engine {
             teams: crate::teams::Shared::default(),
             computers: std::sync::OnceLock::new(),
             apps: std::sync::OnceLock::new(),
+            sign_ins: std::sync::OnceLock::new(),
             outside_agents: std::sync::OnceLock::new(),
             market: std::sync::OnceLock::new(),
             suggest_lock: Mutex::default(),

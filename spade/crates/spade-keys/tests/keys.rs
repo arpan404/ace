@@ -179,3 +179,20 @@ fn connector_secrets_are_kept_apart_from_endpoint_keys_and_each_other() -> Resul
     ));
     Ok(())
 }
+
+#[test]
+fn a_sign_ins_sealing_key_is_filed_per_account_apart_from_its_api_key() -> Result {
+    let (keys, store) = mock_store()?;
+    keys.set("chatgpt-k1", "an-api-key")?;
+    keys.set_sign_in_key("chatgpt-k1", "11aa")?;
+    keys.set_sign_in_key("chatgpt-k2", "22bb")?;
+    let entry = store.build(SERVICE, "oauth:chatgpt-k1", None)?;
+    assert_eq!(entry.get_password()?, "11aa");
+    assert!(keys.delete_sign_in_key("chatgpt-k1")?);
+    assert_eq!(keys.sign_in_key("chatgpt-k1")?, None);
+    // The other account's key and the account's own API key stay.
+    assert_eq!(keys.sign_in_key("chatgpt-k2")?.as_deref(), Some("22bb"));
+    assert_eq!(keys.get("chatgpt-k1")?, Some("an-api-key".to_owned()));
+    assert!(!keys.delete_sign_in_key("chatgpt-k1")?);
+    Ok(())
+}

@@ -3726,6 +3726,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "spade-chatgpt"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "futures-util",
+ "keyring-core",
+ "libc",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "spade-connect",
+ "spade-keys",
+ "spade-sandbox-windows",
+ "spade-testkit",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "spade-classify"
 version = "0.1.0"
 dependencies = [
@@ -3873,6 +3896,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "chrono",
  "futures-util",
  "genai",
  "reqwest",
@@ -3954,6 +3978,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.1",
  "spade-ace",
+ "spade-chatgpt",
  "spade-classify",
  "spade-conform",
  "spade-connect",
@@ -3991,6 +4016,7 @@ name = "spade-store"
 version = "0.1.0"
 dependencies = [
  "rusqlite",
+ "serde",
  "serde_json",
  "sha2 0.11.1",
  "spade-core",

@@ -20,6 +20,7 @@ async function choose(scope: ReturnType<typeof within>, select: string, option: 
 test("the model picker lists what each endpoint serves with its facts, and takes a typed id", async () => {
   const { spade } = await spadeApp("/spade", withSpade);
   await openNew("New bot");
+  // A new bot's model is at the top of its page, with how it runs.
   await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   const models = within(await screen.findByRole("listbox", { name: "Models" }));
   await models.findByRole("option", { name: /^Sonnet/ });
@@ -35,6 +36,7 @@ test("the model picker lists what each endpoint serves with its facts, and takes
   ).toHaveLength(3);
   await userEvent.type(screen.getByRole("combobox", { name: "Search models" }), "qwen/qwen3-coder");
   await userEvent.click(await screen.findByRole("option", { name: "Use “qwen/qwen3-coder”" }));
+  // The typed id is chosen, shown in words as every model is.
   expect(screen.getByRole("button", { name: "Model" }).textContent).toBe(
     "Qwen3 coder · OpenRouter",
   );
@@ -99,10 +101,10 @@ test("an endpoint added from a preset reaches Spade, and one bots still use can'
     });
     api.addAgent({ id: "inbox", name: "Inbox", model: "openrouter/meta/llama" });
   });
-  await userEvent.click(await screen.findByRole("button", { name: "Add an endpoint" }));
-  const dialog = within(await screen.findByRole("dialog", { name: "Add endpoint" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Add a provider" }));
+  const dialog = within(await screen.findByRole("dialog", { name: "Add a provider" }));
   await choose(dialog, "From", "OpenCode Go");
-  await userEvent.click(dialog.getByRole("button", { name: "Add endpoint" }));
+  await userEvent.click(dialog.getByRole("button", { name: "Add provider" }));
   await waitFor(() =>
     expect(spade.sent("POST", "/v1/endpoints")).toEqual([
       {

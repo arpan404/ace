@@ -2,6 +2,7 @@ import { FakeSpadeTasks } from "./spade-self-edit.ts";
 import { fakeSpadeQuoted } from "./spade-quoted.ts";
 import type { FakeSpade, FakeSpadeAnswer, FakeSpadeRequest, FakeSpadeServer } from "./spade.ts";
 import { FakeSpadeComputer, fakeFileRevision, fakeStale } from "./spade-computer.ts";
+import { FakeSpadeAccounts } from "./spade-accounts.ts";
 import { FakeSpadePlugins } from "./spade-plugins.ts";
 import { fakeMoveRoute } from "./spade-moves.ts";
 import { FakeSpadeConnectors } from "./spade-connectors-api.ts";
@@ -55,6 +56,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
   readonly org = new FakeSpadeOrg();
   endpoints: Json[] = [];
   presets: Json[] = [];
+  /** Providers' accounts and ChatGPT sign-ins (ADR 0214). */
+  readonly accounts = new FakeSpadeAccounts();
   fastModel: string | null = null;
   /** `new_bot_model`: the model new bots start on; null, the first usable one. */
   newBotModel: string | null = null;
@@ -756,9 +759,13 @@ export class FakeSpadeApi implements FakeSpadeServer {
     if (root === "models" && request.method === "GET") this.endChecks();
     if (root === "models" && request.method === "GET")
       return reply({
-        endpoints: this.keysPending
-          ? this.endpoints.map((endpoint) => ({ ...endpoint, key_set: null, key_source: null }))
-          : this.endpoints,
+        endpoints: this.accounts.listed(
+          this.keysPending
+            ? this.endpoints.map((endpoint) => ({ ...endpoint, key_set: null, key_source: null }))
+            : this.endpoints,
+          this.agents,
+        ),
+        sign_in: this.accounts.signIn,
         keys_pending: this.keysPending,
         ...(this.characterAvatars ? { character_avatars: true } : {}),
         presets: this.presets,
@@ -768,6 +775,8 @@ export class FakeSpadeApi implements FakeSpadeServer {
         speech_model: this.speechModel,
         keychain: this.keychain,
       });
+    if (root === "accounts" && id === "chatgpt")
+      return this.accounts.route(request.method, sub, body, this.endpoints);
     if (root === "endpoints" && id === "local" && request.method === "GET")
       return reply({ servers: this.localServers });
     if (root === "endpoints" && id === "local" && sub && request.method === "POST")
@@ -1137,31 +1146,10 @@ export class FakeSpadeApi implements FakeSpadeServer {
       this.checking.push(model);
       return reply({ probes: model.probes }, 202);
     }
-    if (!id && method === "POST") {
-      const endpoint = {
-        id: String(body.name ?? "endpoint")
-          .toLowerCase()
-          .replaceAll(/\W+/g, "-"),
-        name: body.name,
-        format: body.format,
-        base_url: body.base_url,
-        header_names: Object.keys((body.headers as Json | undefined) ?? {}),
-        session_header: body.session_header ?? null,
-        needs_key: body.needs_key !== false,
-        key_set: false,
-        key_source: null,
-        // A preset's models come with an endpoint made from it.
-        models: (
-          (this.presets.find((preset) => preset.id === body.preset)?.models as
-            | Json[]
-            | undefined) ?? []
-        ).map((model) => Object.assign({}, model, { source: "preset" })),
-      };
-      this.endpoints.push(endpoint);
-      return reply({ endpoint }, 201);
-    }
+    if (!id && method === "POST") return this.accounts.add(body, this.presets, this.endpoints);
     const endpoint = this.endpoints.find((candidate) => candidate.id === id);
     if (!endpoint) return problem(404, "No such endpoint.");
+    if (sub === "sign-out" && method === "POST") return this.accounts.signOut(endpoint);
     if (sub === "models") {
       if (method === "GET") {
         const live = this.liveModels.get(String(id));

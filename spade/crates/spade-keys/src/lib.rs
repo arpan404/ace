@@ -115,6 +115,33 @@ impl KeyStore {
         Self::remove(&self.connector_entry(id, kind)?)
     }
 
+    /// The key that seals a signed-in account's tokens (ADR 0214), if stored: hex, one per
+    /// account, under `oauth:<account id>`. The tokens themselves are sealed with it in Spade's
+    /// data folder, so this entry stays small and its name a fixed length on every platform.
+    pub fn sign_in_key(&self, account: &str) -> Result<Option<String>, KeyError> {
+        self.read(&self.sign_in_entry(account)?)
+    }
+
+    /// Stores the key that seals `account`'s tokens, replacing any earlier one.
+    pub fn set_sign_in_key(&self, account: &str, key: &str) -> Result<(), KeyError> {
+        let key = checked(key)?;
+        self.sign_in_entry(account)?
+            .set_password(key)
+            .map_err(|error| classify(&error))
+    }
+
+    /// Forgets the key that seals `account`'s tokens. Returns whether there was one.
+    pub fn delete_sign_in_key(&self, account: &str) -> Result<bool, KeyError> {
+        Self::remove(&self.sign_in_entry(account)?)
+    }
+
+    fn sign_in_entry(&self, account: &str) -> Result<Entry, KeyError> {
+        if account.trim().is_empty() {
+            return Err(KeyError::Invalid("the account id is empty"));
+        }
+        self.account(&format!("oauth:{account}"))
+    }
+
     /// An org host's audit key (ADR 0206 §4.2), the hex Ed25519 seed that signs its log's
     /// checkpoints, if one was made for organization `org`. Account `org-audit:<org>`.
     pub fn audit_key(&self, org: &str) -> Result<Option<String>, KeyError> {
