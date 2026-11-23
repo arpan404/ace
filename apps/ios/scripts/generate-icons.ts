@@ -13,6 +13,7 @@ import {
   spadePupilForSize,
   spadeRingForSize,
   spadeTiltDeg,
+  type SpadePoint,
 } from "@ace/ui-core/spade";
 import {
   barIconSize,
@@ -90,7 +91,11 @@ await writeFile(
   join(folder, "Contents.json"),
   `${JSON.stringify({ info: { author: "xcode", version: 1 } }, null, 2)}\n`,
 );
-const writeAsset = async (asset: string, svg: string, rendering: "template" | "original" = "template") => {
+const writeAsset = async (
+  asset: string,
+  svg: string,
+  rendering: "template" | "original" = "template",
+) => {
   const set = join(folder, `${asset}.imageset`);
   await mkdir(set, { recursive: true });
   await writeFile(join(set, `${asset}.svg`), svg);
@@ -132,22 +137,28 @@ for (const name of tabIcons) {
 // Spade's face for the tab bar, in colour as the desktop rail draws it (`SpadeMark`).
 {
   const { pupil, pad } = spadePupilForSize(tabIconSize);
-  await writeAsset(
-    "tab-spade",
-    spadeTabSvg(
-      {
-        eyes: spadeEyes,
-        eye: spadeEye,
-        pupil,
-        pupilAt: (eye) => spadePupilAt(eye, pupil, pad),
-        ring: spadeRingForSize(tabIconSize),
-        tilt: spadeTiltDeg,
-        egg: spadeEggPath,
-      },
-      tabIconSize,
-    ),
-    "original",
-  );
+  const face = {
+    eyes: spadeEyes,
+    eye: spadeEye,
+    pupil,
+    pupilAt: (eye: SpadePoint) => spadePupilAt(eye, pupil, pad),
+    ring: spadeRingForSize(tabIconSize),
+    tilt: spadeTiltDeg,
+    egg: spadeEggPath,
+  };
+  await writeAsset("tab-spade", spadeTabSvg(face, tabIconSize), "original");
+  // fx-spade-look translates the resting pupils by these offsets in the 24-unit box.
+  const rest = spadePupilAt({ x: 0, y: 0 }, pupil, pad);
+  const glances = [
+    { dx: -1.1, dy: -0.5 },
+    { dx: 1.1, dy: -0.6 },
+  ];
+  for (const [index, glance] of glances.entries()) {
+    const look = { dx: rest.x + glance.dx, dy: rest.y + glance.dy };
+    const frame = { ...face, pupilAt: (eye: SpadePoint) => spadePupilAt(eye, pupil, pad, look) };
+    await writeAsset(`tab-spade-look-${index + 1}`, spadeTabSvg(frame, tabIconSize), "original");
+  }
+  await writeAsset("tab-spade-blink", spadeTabSvg(face, tabIconSize, true), "original");
 }
 // The navigation bar's button glyphs at a bar symbol's size.
 for (const { name, weight } of barIcons) {

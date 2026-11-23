@@ -20,6 +20,7 @@ struct InboxView: View {
     @State private var tab = InboxTab.threads
     /// A place's tab tapped again while it shows: its list goes back to the top.
     @State private var retap = HomeRetap()
+    @State private var spadeTabMotion = SpadeTabMotion()
     @State private var threadsPath: [InboxRoute] = []
     @State private var chatsPath: [InboxRoute] = []
     /// Each list as a drawer over its open page in a narrow regular window (`ThreadDrawer`).
@@ -206,6 +207,7 @@ struct InboxView: View {
         .tint(AceTheme.Colours.foreground)
         .environment(\.showsSpade, showsSpade)
         .environment(\.spadeWorking, inbox.spadeWorking)
+        .environment(\.spadeTabMotion, spadeTabMotion)
         .environment(\.homeRetap, retap)
         .environment(\.homeTab, tab)
     }

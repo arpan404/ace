@@ -16,12 +16,16 @@ struct TabBarPlace: UIViewControllerRepresentable {
     /// This page's tab is the one showing. The tab bar is one for every tab, so a page of another
     /// tab (a late retry of its own, a thread opened from a notification) never writes it.
     var selected = true
+    var spadeMotion: SpadeTabMotion?
+    var animatesSpade = false
 
     func makeUIViewController(context: Context) -> Probe { Probe() }
     func updateUIViewController(_ probe: Probe, context: Context) {
         probe.hidden = hidden
         probe.animated = animated
         probe.selected = selected
+        probe.spadeMotion = spadeMotion
+        probe.animatesSpade = animatesSpade
         probe.apply()
         if probe.relayout != relayout {
             probe.relayout = relayout
@@ -38,6 +42,7 @@ struct TabBarPlace: UIViewControllerRepresentable {
 
     static func dismantleUIViewController(_ probe: Probe, coordinator: ()) {
         probe.pending?.cancel()
+        probe.stopSpadeMotion()
     }
 
     final class Probe: UIViewController {
@@ -46,9 +51,22 @@ struct TabBarPlace: UIViewControllerRepresentable {
         var animated = false
         var selected = true
         var relayout = ""
+        var spadeMotion: SpadeTabMotion?
+        var animatesSpade = false
+        private var appearing = false
         override func loadView() { view = UIView(); view.isUserInteractionEnabled = false }
         override func didMove(toParent parent: UIViewController?) { super.didMove(toParent: parent); apply() }
-        override func viewWillAppear(_ animated: Bool) { super.viewWillAppear(animated); apply() }
+        override func viewWillAppear(_ animated: Bool) {
+            super.viewWillAppear(animated)
+            appearing = true
+            apply()
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            super.viewWillDisappear(animated)
+            appearing = false
+            stopSpadeMotion()
+        }
+        func stopSpadeMotion() { spadeMotion?.stop(owner: ObjectIdentifier(self)) }
         override func viewDidLoad() {
             super.viewDidLoad()
             // A window turning compact or regular lays the tabs out again, showing the bar;
@@ -59,10 +77,15 @@ struct TabBarPlace: UIViewControllerRepresentable {
         }
         override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); apply() }
         func apply() {
-            guard selected, viewIfLoaded?.window != nil else { return }
+            guard selected, viewIfLoaded?.window != nil else {
+                stopSpadeMotion()
+                return
+            }
             guard let tabs = tabBarController ?? sequence(first: parent, next: { $0?.parent }).compactMap({ $0 as? UITabBarController }).first else { return }
-            guard tabs.isTabBarHidden != hidden else { return }
-            tabs.setTabBarHidden(hidden, animated: animated)
+            if tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: animated) }
+            if appearing {
+                spadeMotion?.update(owner: ObjectIdentifier(self), tabs: tabs, enabled: animatesSpade && !hidden)
+            }
         }
     }
 }
