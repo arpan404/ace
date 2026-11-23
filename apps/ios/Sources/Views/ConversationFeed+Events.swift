@@ -68,7 +68,7 @@ extension ConversationFeed {
                 // measures, then refine to the exact offset below.
                 if anchor.keeper.frames.frame(session.rowID) == nil {
                     if viewport.correctionFrames == 0 {
-                        proxy.scrollTo(session.rowID, anchor: .center)
+                        surface.scroll(proxy, to: session.rowID, anchor: .center)
                     }
                     viewport.noteCorrectionApplied()
                 } else {
@@ -100,7 +100,7 @@ extension ConversationFeed {
                     keep(.placedHeldRow, proxy: proxy)
                 }
             case .aim(let index):
-                if rows.indices.contains(index) { proxy.scrollTo(rows[index].id, anchor: .center) }
+                if rows.indices.contains(index) { surface.scroll(proxy, to: rows[index].id, anchor: .center) }
             case .end, .none: break
             }
         }
@@ -153,7 +153,7 @@ extension ConversationFeed {
         var instant = Transaction()
         instant.disablesAnimations = true
         withTransaction(instant) {
-            if keyboardFollow.landed(lift: Double(keyboardLift)) { proxy.scrollTo(TranscriptTail.id, anchor: .top) }
+            if keyboardFollow.landed(lift: Double(keyboardLift)) { surface.scroll(proxy, to: TranscriptTail.id, anchor: .top) }
         }
         keyboardMoving = false
         // The scroll's target is above it, so it goes without moving the rows.
@@ -364,7 +364,7 @@ extension ConversationFeed {
         // Before the rows land there is no end to reach: a settle started on the placeholder
         // would hold the budget the first real scroll to the end needs.
         guard ready, !settle.isRunning else { return }
-        proxy.scrollTo(TranscriptTail.id, anchor: .top)
+        surface.scroll(proxy, to: TranscriptTail.id, anchor: .top)
         let intent = intent
         guard !UIAccessibility.isVoiceOverRunning else { return }
         // An animated scroll the settle waits on is one still moving the rows: a scroll with
@@ -375,7 +375,7 @@ extension ConversationFeed {
                        let moving = intent.animating && intent.metrics.y != lastY
                        lastY = intent.metrics.y
                        return moving
-                   }) { proxy.scrollTo(TranscriptTail.id, anchor: .top) }
+                   }) { surface.scroll(proxy, to: TranscriptTail.id, anchor: .top) }
     }
     /// The previous or next turn from the one at the top of the screen: its ask scrolls to the
     /// top. Past the rows held, an earlier turn pages older history in; after the last, the end.
@@ -401,7 +401,7 @@ extension ConversationFeed {
     /// to where it lands (`TranscriptPlaceKeeper`).
     func jump(to row: TranscriptFeedRow, proxy: ScrollViewProxy) {
         keep(.jumped(row.id), proxy: proxy)
-        withAnimation { proxy.scrollTo(row.id, anchor: .bottom) }
+        withAnimation { surface.scroll(proxy, to: row.id, anchor: .bottom) }
     }
     /// A search hit asked for an item in this thread: the shared window opens around it.
     func focusRequested() {

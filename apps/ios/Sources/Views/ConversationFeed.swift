@@ -201,7 +201,10 @@ struct ConversationFeed: View {
         .defaultScrollAnchor(.top, for: .initialOffset)
         // Rows measuring above the screen don't move it while a thread opens at its end
         // (`TranscriptGrowthAnchor`).
-        .defaultScrollAnchor(holdsEnd ? .top : nil, for: .sizeChanges)
+        .defaultScrollAnchor(holdsEnd && !TranscriptFlingProbe.suppressesAnchors ? .top : nil, for: .sizeChanges)
+        .transaction {
+            if TranscriptFlingProbe.suppressesAnchors { $0.scrollContentOffsetAdjustmentBehavior = .disabled }
+        }
         // A short thread sits on the dock, not at the top with empty room under it.
         .defaultScrollAnchor(.top, for: .alignment)
         .modifier(TranscriptTopEdge())
@@ -225,8 +228,17 @@ struct ConversationFeed: View {
         .background { TurnKeys { stepTurn($0, proxy: proxy) } }
         .accessibilityIdentifier("transcript")
         .accessibilityValue(ready ? (historyStale ? "Cached history" : reading.paged && !pinned ? "Reading history" : "Ready") : "Loading")
-        .onScrollPhaseChange { old, phase in
+        .onScrollPhaseChange { old, phase, context in
+            intent.flingProbe.phase(from: old, to: phase, context: context,
+                                   holdingEnd: holdsEnd && !TranscriptFlingProbe.suppressesAnchors)
             transcriptMarkdown?.moving = phase != .idle
+            if TranscriptFlingProbe.isolated, phase == .tracking || phase == .interacting {
+                intent.isolatingFling = true
+                readerMovedFeed()
+                settle.cancel()
+                if following { setFollowing(false) }
+            }
+            if intent.isolatingFling { return }
             // The hold only moves a feed at rest; any scroll it didn't make (a finger, VoiceOver's
             // three-finger swipe, Switch Control) ends it where the reader is.
             if surface.running(.page), phase != .idle { endPageHold() }
@@ -301,6 +313,9 @@ struct ConversationFeed: View {
             return TranscriptScrollIntent.Metrics(y: -geometry.contentOffset.y, top: distance.older, bottom: distance.live,
                 viewport: frame, topInset: insets.bottom, bottomInset: insets.top, height: geometry.contentSize.height)
         } action: { old, new in
+            PerfCounters.bump("scroll.geometry")
+            intent.flingProbe.geometry()
+            if intent.isolatingFling { return }
             intent.metrics = new
             let origin = TranscriptScrollAxis.origin(offset: -new.y, viewport: new.viewport)
             if origin != anchor.keeper.frames.origin { contentScrolled(to: origin, proxy: proxy) }
@@ -323,7 +338,7 @@ struct ConversationFeed: View {
             // Content that shrank under a still feed left it past its end: back to the real end,
             // so the rows show instead of the dark below them.
             if thread.loaded, TranscriptScrollIntent.Metrics.strandedPastEnd(old: old, new: new, moving: intent.active || intent.animating) {
-                proxy.scrollTo(TranscriptTail.id, anchor: .top)
+                surface.scroll(proxy, to: TranscriptTail.id, anchor: .top)
             }
             // Scroll to end follows the end's distance as it changes, mid-drag included: it floats
             // over the composer, so showing it moves nothing under the rows.
@@ -338,10 +353,10 @@ struct ConversationFeed: View {
                         intent.rearmAfterAppend = false
                         intent.consumed = false
                     }
-                    if viewport.direction != -1 { viewport.noteDirection(-1) }
+                    intent.direction = -1
                     if following { setFollowing(false) }
                 }
-                else if new.y > old.y + 1, viewport.direction != 1 { viewport.noteDirection(1) }
+                else if new.y > old.y + 1 { intent.direction = 1 }
                 endRead(moving: true)
                 pageIfNeeded(proxy)
             }

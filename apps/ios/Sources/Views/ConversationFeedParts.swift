@@ -11,10 +11,12 @@ enum TranscriptEnd {
 }
 
 /// Gesture intent is consumed once per page; layout changes and programmatic scrolls never page.
-/// Follow mode and scroll direction live in the viewport controller; intent
-/// tracks only the in-flight gesture and paging consumption.
-final class TranscriptScrollIntent {
+/// Movement belongs to the gesture rather than the observed viewport state.
+@MainActor final class TranscriptScrollIntent {
     var active = false
+    var direction = 0
+    let flingProbe = TranscriptFlingProbe()
+    var isolatingFling = false
     var consumed = false
     /// The person opened something in place: the next change of height is theirs, not the end's.
     var opened = false
