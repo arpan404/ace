@@ -62,17 +62,6 @@ pub fn process_identity(pid: u32) -> Result<Option<ProcessIdentity>, SupervisorE
     }
 }
 
-/// ESRCH proves a process group gone; other refusals fail closed.
-pub fn process_group_is_gone(group: u32) -> Result<bool, SupervisorError> {
-    match crate::reaper::process_group_alive(group) {
-        Ok(alive) => Ok(!alive),
-        Err(SupervisorError::Unavailable(_)) => Err(SupervisorError::Unavailable(
-            "signal probe of group refused".to_owned(),
-        )),
-        Err(error) => Err(error),
-    }
-}
-
 #[cfg(target_os = "linux")]
 fn platform_identity(pid: u32) -> Result<Option<ProcessIdentity>, SupervisorError> {
     let first = procfs::process::Process::new(pid as i32)

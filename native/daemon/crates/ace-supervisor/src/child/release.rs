@@ -21,13 +21,15 @@ pub(super) async fn watch_writers(job: Arc<ChildJob>, budget: Arc<crate::pump::O
         let running = job
             .lock()
             .map(|mut job| job.running())
-            .unwrap_or(JobRunning::Unjoined);
+            .unwrap_or(JobRunning::Unreadable);
         match running {
-            JobRunning::Running(true) => {}
-            JobRunning::Running(false) | JobRunning::Unjoined => {
+            // Only a confirmed zero count or a closed job means gone.
+            JobRunning::Running(false) | JobRunning::Closed => {
                 budget.mark_writers_gone();
                 return;
             }
+            // Members left, or unknown: keep waiting.
+            JobRunning::Running(true) | JobRunning::Unjoined | JobRunning::Unreadable => {}
         }
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
@@ -88,6 +90,11 @@ pub(super) async fn release_when_group_empty(leader: Arc<Leader>, escalation: Es
             if kills == 2 {
                 (escalation.stuck)();
             }
+        }
+        if kills >= 2 {
+            // Reported stuck: one scan a minute at most, whatever wakes it.
+            tokio::time::sleep(SCAN_LATE_MAX).await;
+            continue;
         }
         let most = if exited.elapsed() < SCAN_EARLY_FOR {
             SCAN_EARLY_MAX

@@ -57,20 +57,17 @@ impl Leader {
 
     /// Waits for the leader to become a zombie by reading its state, never
     /// reaping it: it stays held and its group is released by the same
-    /// confirmed-empty rule. The exit code is not read on this path (only
-    /// the reap would give it), so the exit is reported unknown. A pid that
-    /// vanished was reaped by something else: unpinned, like ECHILD.
+    /// confirmed-empty rule. Its exit is then read without reaping: from
+    /// `waitid(WNOWAIT | WNOHANG)`, else (Linux) the zombie's `/proc` wait
+    /// status; only if neither answers is it unknown. A pid that vanished
+    /// was reaped by something else: unpinned, like ECHILD.
     #[cfg(unix)]
     fn poll_exit(&self) -> RawExit {
-        let unknown = RawExit {
-            code: None,
-            signal: None,
-        };
         loop {
             match crate::system::process_zombie(self.pid) {
                 Some(true) => {
                     self.mark_exited();
-                    return unknown;
+                    return self.read_exit();
                 }
                 Some(false) => std::thread::sleep(std::time::Duration::from_millis(50)),
                 None => {
@@ -78,9 +75,48 @@ impl Leader {
                     if let Ok(mut state) = self.state.lock() {
                         state.child = None;
                     }
-                    return unknown;
+                    return RawExit {
+                        code: None,
+                        signal: None,
+                    };
                 }
             }
+        }
+    }
+
+    /// The exited leader's status, read without reaping it.
+    #[cfg(unix)]
+    fn read_exit(&self) -> RawExit {
+        use rustix::process::{Pid, WaitId, WaitIdOptions, waitid};
+        if let Some(target) = i32::try_from(self.pid).ok().and_then(Pid::from_raw)
+            && let Ok(Some(status)) = waitid(
+                WaitId::Pid(target),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            )
+        {
+            return RawExit {
+                code: status.exit_status(),
+                signal: status.terminating_signal().map(signal_name),
+            };
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(status) = crate::system::zombie_wait_status(self.pid) {
+            let signal = status & 0x7f;
+            return if signal == 0 {
+                RawExit {
+                    code: Some((status >> 8) & 0xff),
+                    signal: None,
+                }
+            } else {
+                RawExit {
+                    code: None,
+                    signal: Some(signal_name(signal)),
+                }
+            };
+        }
+        RawExit {
+            code: None,
+            signal: None,
         }
     }
 

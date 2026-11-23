@@ -32,9 +32,12 @@ pub trait InventoryRuntime {
     fn identity(&self, pid: u32) -> Result<Option<ProcessIdentity>, SupervisorError>;
     /// Non-consuming proof that an owned child exited before being reaped.
     fn child_exited(&self, pid: u32) -> bool;
-    /// Whether a group answers a probe: gone, refused, or failed.
-    fn alive(&self, group: u32) -> Result<bool, ProbeRefused>;
-    /// Ends a group; races with its exit stay silent.
+    /// Whether this process's own just-spawned child answers a pid probe
+    /// (unreaped, so its pid is pinned): gone, refused, or failed.
+    fn alive(&self, pid: u32) -> Result<bool, ProbeRefused>;
+    /// Whether a recorded leader still runs as itself: its pid shows
+    /// `start`. An identity check only; no group is ever probed.
+    fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, ProbeRefused>;
     /// Ends a verified group whose leader started at `start`.
     fn kill(&self, group: u32, start: &str);
     /// This process: the owner recorded rows name.

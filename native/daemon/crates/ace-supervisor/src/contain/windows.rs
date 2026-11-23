@@ -106,7 +106,7 @@ impl WindowsJobApi for SystemJobApi {
         Ok(())
     }
 
-    fn active_count(&mut self, job: JobHandle) -> u32 {
+    fn active_count(&mut self, job: JobHandle) -> Option<u32> {
         use windows_sys::Win32::System::JobObjects::{
             JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
             QueryInformationJobObject,
@@ -124,10 +124,7 @@ impl WindowsJobApi for SystemJobApi {
                 std::ptr::null_mut(),
             )
         };
-        if read == 0 {
-            return 0;
-        }
-        info.ActiveProcesses
+        (read != 0).then_some(info.ActiveProcesses)
     }
 
     fn terminate(&mut self, job: JobHandle) {

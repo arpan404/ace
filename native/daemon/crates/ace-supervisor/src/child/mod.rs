@@ -48,6 +48,10 @@ enum StdinAbort {
 struct Unowned {
     child: Option<std::process::Child>,
     runtime: tokio::runtime::Handle,
+    /// Reports a group that stays held long after it was killed (POSIX:
+    /// Windows has no group to hold).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    warn: Arc<dyn Fn(String) + Send + Sync>,
 }
 
 impl Unowned {
@@ -75,7 +79,15 @@ impl Drop for Unowned {
                 limit: Box::new(move || {
                     let _ = held.signal_group(SignalName::Kill);
                 }),
-                stuck: Box::new(|| {}),
+                stuck: {
+                    let (warn, pid) = (Arc::clone(&self.warn), leader.pid());
+                    Box::new(move || {
+                        warn(format!(
+                            "Process group {pid} (a spawn that failed to set up) is still held \
+                             after it was killed: a member does not exit or cannot be read"
+                        ));
+                    })
+                },
             };
             self.runtime.spawn(async move {
                 let watched = Arc::clone(&leader);
@@ -138,9 +150,11 @@ pub fn spawn_child<E: EventSink + Clone>(
         .map_err(|error| SupervisorError::Operation(format!("spawn {}: {error}", spec.command)));
     // The command holds the child's ends; this process must not keep them.
     drop(command);
+    let warn_sink = sink.clone();
     let mut unowned = Unowned {
         child: Some(spawned?),
         runtime: runtime.clone(),
+        warn: Arc::new(move |message| warn_sink.held(message)),
     };
     #[cfg(windows)]
     let job = contain_windows(spec, unowned.child()?)?;

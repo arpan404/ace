@@ -146,7 +146,7 @@ impl<R: InventoryRuntime> Inventory<R> {
                 continue;
             }
             let current = self.runtime.identity(entry.pid).unwrap_or_default();
-            match self.group_alive(entry.group) {
+            match self.runtime.leader_alive(entry.pid, &entry.start) {
                 Err(ProbeRefused::Refused) => {
                     recovered.unresolved += 1;
                     continue;
@@ -161,8 +161,10 @@ impl<R: InventoryRuntime> Inventory<R> {
                 }
                 Ok(true) => {}
             }
-            // The group lives on, but its leader is gone or its pid is
-            // someone else's now: neither ended nor called stopped.
+            // The leader runs as itself, but its owner or group changed:
+            // neither ended nor called stopped. A leader that is gone was
+            // forgotten above: without it nothing proves the group is the
+            // run's, and its number is never signalled.
             let verified = current.as_ref().is_some_and(|identity| {
                 identity.pid == entry.pid
                     && identity.start == entry.start
@@ -178,12 +180,6 @@ impl<R: InventoryRuntime> Inventory<R> {
             recovered.killed += 1;
         }
         Ok(recovered)
-    }
-
-    /// Liveness of a recorded group, or `Refused` when the kernel refuses.
-    #[cfg(not(windows))]
-    fn group_alive(&self, group: u32) -> Result<bool, ProbeRefused> {
-        self.runtime.alive(group)
     }
 
     #[cfg(not(windows))]

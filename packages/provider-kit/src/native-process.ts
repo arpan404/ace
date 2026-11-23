@@ -86,7 +86,6 @@ interface SupervisorAddon {
   supervisorReadOwnedGroups(path: string, ownerPid: number, ownerStart: string): string;
   supervisorWindowsTreeRecorded(path: string, leaderJson: string): boolean;
   supervisorProcessIdentity(pid: number): string | null;
-  supervisorProcessGroupIsGone(group: number): boolean;
   supervisorHoldGroup(group: number, start: string): boolean;
   supervisorUnholdGroup(group: number, start: string): void;
   supervisorSignalGroup(group: number, start: string, signal: string): string;
@@ -370,12 +369,19 @@ export class NativeChildProcess
       return undefined;
     }
     if (kind === "hold-limit") {
-      // Given up and still occupied at the hold limit: killed through the daemon's guard.
-      holdLimitHandler?.(this);
+      // Given up and still occupied at the hold limit: killed through the daemon's guard. This
+      // runs from a native callback, so nothing it throws may reach the top level.
+      try {
+        holdLimitHandler?.(this);
+      } catch (error) {
+        warnSafely(
+          `Process group ${this.pid} could not be killed at its hold limit: ${String(error)}`,
+        );
+      }
       return undefined;
     }
     if (kind === "held") {
-      process.emitWarning(bytes.toString());
+      warnSafely(bytes.toString());
       return undefined;
     }
     if (kind === "stdin-written") {
@@ -522,6 +528,15 @@ export function nativeGroup(pid: number, start: string) {
 }
 
 let holdLimitHandler: ((child: NativeChildProcess) => void) | undefined;
+
+/** A warning from a native callback: reported, never thrown. */
+function warnSafely(message: string): void {
+  try {
+    process.emitWarning(message);
+  } catch {
+    /* A warning listener threw: nothing more can be reported. */
+  }
+}
 /**
  * What a given-up group still occupied at the native hold limit gets: the owner's guarded kill
  * (`process-owner.ts` installs it), so kept processes and a stop's caller are spared, and a

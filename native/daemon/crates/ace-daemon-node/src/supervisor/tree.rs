@@ -40,14 +40,6 @@ pub fn supervisor_process_identity(pid: u32) -> napi::Result<Option<String>> {
     })
 }
 
-/// Whether a process group is gone: ESRCH proves it; other refusals throw.
-#[napi(catch_unwind)]
-pub fn supervisor_process_group_is_gone(group: u32) -> napi::Result<bool> {
-    guarded("supervisor group probe", || {
-        identity::process_group_is_gone(group).map_err(bind_error)
-    })
-}
-
 /// Starts a stop of the group led by (`group`, `start`): true only while
 /// this supervisor holds that leader unreaped (which then stays so until
 /// `supervisor_unhold_group`). A group it does not hold is never held, and

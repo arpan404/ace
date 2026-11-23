@@ -340,7 +340,7 @@ impl NativeChild {
                 };
                 Ok(match job.running() {
                     JobRunning::Running(alive) => Some(alive),
-                    JobRunning::Unjoined => None,
+                    JobRunning::Unjoined | JobRunning::Closed | JobRunning::Unreadable => None,
                 })
             }
             #[cfg(not(windows))]

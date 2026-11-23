@@ -18,7 +18,13 @@ import { processIdentity } from "./process-identity.ts";
 
 // The native hold limit's kill goes through the same guard as every other group signal.
 onHoldLimit((child) => {
-  if (child.pid !== undefined) killGroup(child.pid, "SIGKILL", child);
+  if (child.pid === undefined) return;
+  try {
+    killGroup(child.pid, "SIGKILL", child);
+  } catch (error) {
+    // EPERM (a member running as another user) and the like: reported, never thrown.
+    process.emitWarning(`Process group ${child.pid} could not be killed: ${String(error)}`);
+  }
 });
 
 /** Process-global ownership is separate from application-selected shutdown policy. */

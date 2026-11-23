@@ -181,9 +181,17 @@ impl inventory::InventoryRuntime for SystemInventoryRuntime {
         reaper::child_has_exited(pid)
     }
 
-    fn alive(&self, group: u32) -> Result<bool, inventory::ProbeRefused> {
-        match reaper::process_group_alive(group) {
+    fn alive(&self, pid: u32) -> Result<bool, inventory::ProbeRefused> {
+        match reaper::process_alive(pid) {
             Ok(alive) => Ok(alive),
+            Err(SupervisorError::Unavailable(_)) => Err(inventory::ProbeRefused::Refused),
+            Err(error) => Err(inventory::ProbeRefused::Failed(error.to_string())),
+        }
+    }
+
+    fn leader_alive(&self, pid: u32, start: &str) -> Result<bool, inventory::ProbeRefused> {
+        match identity::process_identity(pid) {
+            Ok(found) => Ok(found.is_some_and(|leader| leader.start == start)),
             Err(SupervisorError::Unavailable(_)) => Err(inventory::ProbeRefused::Refused),
             Err(error) => Err(inventory::ProbeRefused::Failed(error.to_string())),
         }
@@ -299,10 +307,23 @@ fn scan_group_into(group: u32, except: u32, live: &mut BTreeSet<(u32, String)>) 
 pub fn process_zombie(pid: u32) -> Option<bool> {
     #[cfg(target_os = "linux")]
     {
-        let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        crate::listing::parse_linux_stat(&text)
-            .ok()
-            .map(|stat| stat.state == 'Z')
+        // Only a vanished pid is gone; any other failure reads as present
+        // (alive), so the caller looks again rather than dropping it.
+        let text = match std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+            Ok(text) => text,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::NotFound
+                    || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) =>
+            {
+                return None;
+            }
+            Err(_) => return Some(false),
+        };
+        Some(
+            crate::listing::parse_linux_stat(&text)
+                .map(|stat| stat.state == 'Z')
+                .unwrap_or(false),
+        )
     }
     #[cfg(target_os = "macos")]
     {
@@ -317,4 +338,14 @@ pub fn process_zombie(pid: u32) -> Option<bool> {
         let _ = pid;
         None
     }
+}
+
+/// Linux: the wait status a zombie leaves in `/proc/<pid>/stat` (field 52,
+/// `exit_code`), read without reaping it.
+#[cfg(target_os = "linux")]
+pub fn zombie_wait_status(pid: u32) -> Option<i32> {
+    let text = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after = &text[text.rfind(')')? + 2..];
+    // Fields after the command start at field 3 (state); field 52 is the 50th.
+    after.split_whitespace().nth(49)?.parse::<i32>().ok()
 }

@@ -104,8 +104,8 @@ impl WindowsJobApi for FakeApi {
         Ok(())
     }
 
-    fn active_count(&mut self, _job: JobHandle) -> u32 {
-        self.state.lock().expect("fake state").members
+    fn active_count(&mut self, _job: JobHandle) -> Option<u32> {
+        Some(self.state.lock().expect("fake state").members)
     }
 
     fn terminate(&mut self, _job: JobHandle) {

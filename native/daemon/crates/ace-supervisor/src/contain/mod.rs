@@ -13,6 +13,10 @@ pub enum JobRunning {
     Running(bool),
     /// Nothing joined the job.
     Unjoined,
+    /// The job was closed: kill-on-close ended every member.
+    Closed,
+    /// The kernel would not say how many members are left: unknown.
+    Unreadable,
 }
 
 /// Kernel containment for one Windows tree. Optional: any failure leaves the
@@ -46,7 +50,8 @@ pub trait WindowsJobApi {
     /// Unloads the bound library; a failed unload keeps it for a retry.
     fn unload(&mut self) -> Result<(), SupervisorError>;
     /// Live members of the job.
-    fn active_count(&mut self, job: JobHandle) -> u32;
+    /// Live members of the job; `None` when the kernel would not say.
+    fn active_count(&mut self, job: JobHandle) -> Option<u32>;
     /// Terminates every member.
     fn terminate(&mut self, job: JobHandle);
 }
@@ -129,7 +134,9 @@ impl<A: WindowsJobApi> RetainedJob<A> {
     /// Live members of the job.
     pub fn active_count(&mut self) -> Result<u32, SupervisorError> {
         let job = self.open()?;
-        Ok(self.api.active_count(job))
+        self.api
+            .active_count(job)
+            .ok_or_else(|| SupervisorError::Unavailable("Windows job count unreadable".to_owned()))
     }
 
     /// Terminates every member.
@@ -204,8 +211,9 @@ impl<A: WindowsJobApi + Send + Sync> WindowsJob for KillOnCloseJob<A> {
         }
         match self.inner.as_mut().map(RetainedJob::active_count) {
             Some(Ok(count)) => JobRunning::Running(count > 0),
+            Some(Err(SupervisorError::Closed)) | None => JobRunning::Closed,
             // An unreadable job cannot prove the tree is gone.
-            Some(Err(_)) | None => JobRunning::Unjoined,
+            Some(Err(_)) => JobRunning::Unreadable,
         }
     }
 

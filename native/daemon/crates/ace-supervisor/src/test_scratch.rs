@@ -49,7 +49,7 @@ pub struct Fake {
     pub processes: HashMap<u32, ProcessIdentity>,
     /// Groups the runtime was told to kill, in order.
     pub killed: Rc<RefCell<Vec<u32>>>,
-    /// Scripted liveness per group; unlisted groups answer alive.
+    /// Scripted liveness per pid; unlisted pids answer alive.
     pub alive: HashMap<u32, Result<bool, ProbeRefused>>,
     /// Pids whose identity read throws.
     pub unreadable: Vec<u32>,
@@ -101,8 +101,12 @@ impl InventoryRuntime for Fake {
         false
     }
 
-    fn alive(&self, group: u32) -> Result<bool, ProbeRefused> {
-        self.alive.get(&group).cloned().unwrap_or(Ok(true))
+    fn alive(&self, pid: u32) -> Result<bool, ProbeRefused> {
+        self.alive.get(&pid).cloned().unwrap_or(Ok(true))
+    }
+
+    fn leader_alive(&self, pid: u32, _start: &str) -> Result<bool, ProbeRefused> {
+        self.alive.get(&pid).cloned().unwrap_or(Ok(true))
     }
 
     fn kill(&self, group: u32, _start: &str) {
