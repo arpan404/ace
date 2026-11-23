@@ -66,7 +66,8 @@ The daemon (57 modules) uses the `.` entry; the web app (14 modules), `ui-core` 
   scrubs recognised token shapes (`gh*_`, `github_pat_`, `Bearer`, `…token=`) from untrusted
   bodies before they are kept (`redact.ts:1`–`:8`, applied in `http.ts:243`, `:304`); unknown
   fields are kept only after redaction, and a key that redaction collides is suffixed, never
-  dropped (`redactData`, `:9`).
+  dropped (`redactData`, `:9`). The patterns miss a credential echoed as a bare value (one the CLI's environment carried);
+  ADR 0224 §8a moves forge onto `@ace/redaction`'s value-based matcher, in TypeScript first.
 - **Pinned accounts.** `pinnedRunner` (`pinned-runner.ts:36`) pins pinned requests to the
   admitted account, never switching shared CLI configuration. Reads reuse a verification for
   60 s (`identityVerificationMs`); outside it they run beside one shared identity probe whose

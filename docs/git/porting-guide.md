@@ -67,9 +67,14 @@ Branch from `ace/rust-git-forge` once G0 has landed on it, one branch per work i
 11. **Gates** (ADR 0224 §7). Every item runs its cross list both ways
     (`bun scripts/native-cross.ts ACE_GIT <file>`); write items (G4, G5) also run
     `bun scripts/native-git-digest.ts <file>` on every file of their proof list and pass only
-    with identical digests; G6 and G7 run their files with `ACE_GIT_VERIFY=strict`. Each log
-    records the selected and the completing backend per operation; a fallback not listed for
-    that file in your item fails the gate.
+    with identical state digests and identical completion records, compared separately, and every
+    write's postconditions met (ADR 0224 §7); G6 and G7 run their files with
+    `ACE_GIT_VERIFY=strict`. Each log records the selected and the completing backend per
+    operation, and checkpoints' producer and consumer backends. A gate fails on: a fallback your
+    item doesn't list for that test (by test name, reason and count); a listed fallback that didn't
+    occur; a test that selected native and completed natively zero times; and, for cross files, a
+    missing native → TypeScript or TypeScript → native pair for checkpoint → diff or
+    checkpoint → restore over the two runs.
 12. **Never touch the person's repositories.** Tests use `test-repo.ts`'s temp repositories;
     benches clone with `git clone --local` into a temp directory (`benchmark-ops.ts`). Shadow
     measurement (G6) runs on read-only local clones of this repository and the main checkout.
@@ -120,7 +125,11 @@ dispatch to the shells.
 - **Logs**: `ACE_NATIVE_CROSS=ACE_GIT` (per-call alternation, both start orders in
   `scripts/native-cross.ts`), `ACE_GIT_DIGEST_LOG` with `scripts/native-git-digest.ts`,
   `ACE_GIT_VERIFY=strict|shadow`, and the per-operation record (selected, completed, fallback
-  reason).
+  reason, the producer of each checkpoint and the consumer of each use of it). The digest log
+  writes two records per write or failed write: the state digest and the completion record, as
+  ADR 0224 §7 defines them; the scripts check postconditions, pairs and per-test native counts.
+  If G0 has already landed when this is read, these record kinds are a follow-up on the same
+  files (`scripts/native-cross.ts`, `scripts/native-git-digest.ts`, `native-core.ts`).
 - `deny.toml` bans `uluru`; `check:daemon-native` runs `cargo deny check`.
 - Proof: `check:daemon-native`; every (a) file still passes with every part named (all stubs
   defer to TypeScript).
@@ -209,9 +218,14 @@ and publications run today's Git commands from the core. Each runs the person's 
 in their roots exactly where TypeScript does (`commitMerge`, `index.ts:395`), and none in
 protected roots.
 
-- **Digests**: every file of your proof list passes `scripts/native-git-digest.ts` (HEAD's tree
-  after each commit and merge, each worktree's HEAD and index tree after creation, refusal codes)
-  before your part may be named in a default.
+- **Digests**: every file of your proof list passes `scripts/native-git-digest.ts` before your
+  part may be named in a default: identical state digests (refs with commit parents, the index
+  with stages and flags, operation state files such as `MERGE_HEAD`, raw checkout bytes,
+  worktree registrations, local config, the fixture remote's refs), identical completion records,
+  and each write's postconditions (ADR 0224 §7): a commit moves only its branch and leaves no
+  operation state; stage and unstage change only the named index rows; merge start, abort,
+  `takeSide`, `writeResolution` and `commitMerge` leave exactly their documented stages and
+  files; a fetch changes only remote-tracking refs; a failed write leaves the digest unchanged.
 - **G4a** proof: `client-actions.process`, `source-control-ops.process`, `integration.process`,
   `leased-push.process`, `push-rejections.process`, `branch-cleanup.process`,
   `person-hooks.process`, `reviewer-hooks.process`, `action-permission.process`.
@@ -240,9 +254,17 @@ capture, collision checks and child locks (`restore.ts:17`–`:70`).
   `review-regressions.process`, `audit-restore.process`, `audit-deletion.process`,
   `audit-ownership.process`, `audit-cli.process`, `credential-restoration.process`, the
   non-executing files, `transfer-capture.process`, the daemon's `run-checkpoints.process`.
-- Gate: digests identical for every file above (checkpoint trees, and the tree a CLI snapshot
-  gives after each restore), and ADR 0224 §7's cross list both ways. Expected fallbacks: none (G5
-  has no `gix`).
+- **Restore (ADR 0224 §5a, hard rules).** The safety capture always runs the CLI snapshot
+  (S1–S13 with `git add`), whatever `ACE_GIT` says. Port today's restore step for step. The
+  pre-destructive check (every path differing between the safety and target trees, and its
+  ancestors, still holds the safety tree's bytes and mode, hashed by Git with `git add`'s filters,
+  and index and HEAD are as at the capture; on drift a new safety capture from S1, twice at most,
+  then fail without touching the checkout) is new behaviour: it lands in TypeScript first with its
+  own test, in its own change, and G5 ports it after.
+- Gate: identical state digests and completion records for every file above (checkpoint trees and
+  refs; after a restore, the checkout's raw bytes, ignored files included, with HEAD and the index
+  unchanged, never a fresh snapshot's tree), the postconditions, and ADR 0224 §7's cross list both
+  ways with both producer/consumer pairs. Expected fallbacks: none (G5 has no `gix`).
 
 ## G6: `snapshot-hash` (blocked until G5 ships)
 
@@ -250,6 +272,13 @@ Only S9–S10 change, and only as ADR 0224 §5 N9–N15 says: Git lists `C`, Git
 attributes, Rust hashes `C \ L` read-only through `cap-std` from the identity-checked root, Git
 checks ids and writes missing objects (and the ids it prints must equal Rust's), Git takes the
 changed rows and adds `L`, the inputs are revalidated, and S11–S13 run as before.
+
+- **Revalidation (N15)** re-reads all of: HEAD's target and tree, the person's index file
+  identity (through Git; a published index is read while `index.lock` exists, as today), the
+  nested scan, the candidate set `C`, every `.gitignore` in `C`'s directories and their ancestors,
+  `info/exclude`, `core.excludesFile`, every `.gitattributes` there, `info/attributes`, the config
+  stamp, and the stat of every hashed path, after N14 and before S11. Any drift discards the
+  attempt and restarts **from S1** on the CLI path, once (`inputs_changed`); never from S4.
 
 - Preconditions and `L` exactly as N10–N11; reasons `config`, `attributes` (per path, counted),
   `hash_mismatch`, `inputs_changed`, `injected`.
@@ -260,10 +289,17 @@ changed rows and adds `L`, the inputs are revalidated, and S11–S13 run as befo
   checkout with zero differences. Expected fallbacks: `attributes` in `snapshot-index.process`'s
   filter and line-ending cases (`:164`, `:197`) and in `non-executing.process`; `config` where a
   file sets `core.fileMode` or `core.symlinks` false.
-- Restore's safety capture (`restore.ts:17`) uses `snapshot-hash` last, in its own release, after
-  the shadow data.
-- Measure with equivalent work: `createCheckpoint`, `diff HEAD → working tree` and
-  `workspaceRevision` in `benchmark-ops.ts`, switch off and on, reporting every Git step's time.
+- **Never restore's safety capture** (`restore.ts:17`, ADR 0224 §5a rule 1): `snapshot-hash`
+  serves checkpoints, live diffs and `workspaceRevision` only.
+- **The bench (ADR 0224 §10a)** before any saving is claimed: extend `benchmark-ops.ts` to time
+  `createCheckpoint`, `diff` HEAD → working tree, `workspaceRevision` and `restoreCheckpoint` end
+  to end with `ACE_GIT_VERIFY` off; report wall p50/p90, daemon CPU (Rust threads included), Git
+  children's CPU, peak RSS of both, Git processes, loose objects written, each Git step's time,
+  fallbacks by reason and time queued (`serial`, `ReadGate`, the native semaphore); on this
+  repository's clone, the main checkout's clone, a 100,000-file synthetic repository, a
+  `text=auto`/CRLF variant of each, and a concurrent run; three runs each way with the load
+  average. Claim a saving only if p50 wall and total CPU are lower in every run on every
+  repository.
 
 ## G7: `status-gix` (after G1 ships, and the owner's answer)
 
@@ -279,5 +315,5 @@ Git: `actions.ts:63`, `:259`; `merge-conflicts.ts:52`, `:86`, `:114`, `:193`;
   `GIT_OPTIONAL_LOCKS=0` semantics (no index write).
 - Fallbacks: `core.fsmonitor` in a person's root, any submodule, `injected`.
 - Gate: G3a's proof and the 39 daemon files under `ACE_GIT_VERIFY=strict` (the decoded status
-  compared with the CLI's), and the bench on this repository and a 100,000-file synthetic one
-  (`benchmark.ts 100000`): lower wall, no more CPU.
+  compared with the CLI's), with native completions in every test that selected native, and
+  ADR 0224 §10a's bench for `checkoutSummary` and `sourceControlState`: lower wall, no more CPU.

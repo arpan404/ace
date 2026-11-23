@@ -165,7 +165,9 @@ person's clean filters (README, "Snapshots").
   zero counts and `binary: true`; patch trees hold only text entries; metadata has its own 64 MiB
   guard. `paths` limits both sides (rename source included).
 - **Restore trusts its safety tree** (`restore.ts:17`–`:30`, `:61`–`:70`): it moves the checkout
-  from that tree to the target, so a wrong safety tree loses files.
+  from that tree to the target with `read-tree --reset -u` (`restore-nested.ts:55`–`:79`), which
+  overwrites without checking a path changed after the capture, so a wrong or stale safety tree
+  loses files. The ace lease doesn't fence editors, agents' shells or other Git clients.
 - **Restore** saves a safety checkpoint first, then restores through another temporary index:
   removes nonignored additions, restores modified, deleted and renamed files, leaves HEAD, branch
   and index unchanged, preserves ignored files and fails `restore_collision` (keeping the safety
@@ -203,7 +205,9 @@ are read only from the person's system and global files, never from repository c
 (`repositorySshCommands`, `credential-helpers.ts:129`). Prompts are off (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE` in forge's
 runner). Failures map to `auth_failed`, `remote_unreachable`, `remote_ref_not_found`,
 `push_rejected`, `protected_branch`, `push_lease_stale` from Git's exit and stderr, which never
-leaves the boundary verbatim. `validateCloneUrl` refuses option-like and local-path clone sources.
+leaves the boundary verbatim: what Git said is redacted through `@ace/redaction`, environment
+values included, before it reaches `details` (`failure-text.ts:7`, `:28`). The process inventory
+records metadata only, never argv or environment values (`process-inventory.ts:15`–`:24`). `validateCloneUrl` refuses option-like and local-path clone sources.
 
 ## 10. Decoding Git's output
 

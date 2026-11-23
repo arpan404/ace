@@ -18,16 +18,23 @@ Branch from `ace/rust-git-forge` once F0 has landed on it, one branch per work i
    `gh`, `glab`, `tea`, `bkt` and `origin` with the same arguments, stdin and environment as the
    TypeScript, through `ace-supervisor`, and parses what they print. Never read a CLI's
    configuration, keychain or token, never store or log one, never open a connection to a host.
-2. **Same TypeScript interface.** Every export of the 15 entry points keeps its signature, result
+2. **Nothing kept carries a credential** (ADR 0224 §8a). The supervisor's inventory and journals
+   get metadata only (pid, start identity, uid, group, owner, the executable's basename, the
+   working directory: `packages/provider-kit/src/process-inventory.ts:15`–`:24`), never argv,
+   environment values or stdin. Every reply, stderr tail and diagnostic is redacted through
+   `ace-redaction` before it is cached (`GhApi`'s ETag and GraphQL caches, list caches), kept as
+   `raw`, logged, put in an error, or serialized; the matcher's values are the child's
+   environment values for that request only, never written anywhere.
+3. **Same TypeScript interface.** Every export of the 15 entry points keeps its signature, result
    shape, error kind and timing (behaviour.md §1). Classes are the native ones when `ACE_FORGE`
    names their host (`new GitHubForge(...)` gets the native class), chosen per instance through
    `packages/provider-kit/src/native-switches.ts`; you edit only your files. With the switch on
    and the addon missing, fail at startup.
-3. **Runners are ports.** A class given a runner made by `createCommandRunner` (native when the
+4. **Runners are ports.** A class given a runner made by `createCommandRunner` (native when the
    switch is on, so `fakeGh` gets it too) runs it in Rust; a class given a JS function (26 test
    files inject one) calls it back on the JS thread and awaits it. Never bypass an injected
    runner.
-4. **Output through `ace-json`; strings stay `JsString`.** Host replies are parsed with
+5. **Output through `ace-json`; strings stay `JsString`.** Host replies are parsed with
    `ace_json::parse` (`JSON.parse`'s numbers, duplicate keys, lone surrogates); every value a
    caller sees is serialized with `ace_json::ser::to_string` and parsed once by the shell. A value
    TypeScript ran through a Zod `parse` comes out in the schema's key order, unknown keys stripped
@@ -35,17 +42,17 @@ Branch from `ace/rust-git-forge` once F0 has landed on it, one branch per work i
    (`redact.ts:9`) is kept; objects TypeScript freezes (`immutable.ts`, 23 sites) are frozen by
    the shell after parsing. Every string from a host or a caller is `JsString` until it is written
    out. No `serde_json`.
-5. **Schemas mirror Zod field for field.** Each Zod schema a module uses becomes a decoder in
+6. **Schemas mirror Zod field for field.** Each Zod schema a module uses becomes a decoder in
    `ace-forge/src/schema/` with the same optional, nullable, default and refinement rules; a
    failed decode is the error the TypeScript raises (`invalid_data`, never a raw `ZodError`,
    `origin-reader.ts:1`). Protocol output types come from `ace-protocol`.
-6. **Write certainty is contract** (behaviour.md §4). "Dispatched" is the supervisor reporting the
+7. **Write certainty is contract** (behaviour.md §4). "Dispatched" is the supervisor reporting the
    CLI started; the refused-status set, the 10-minute fence, `ForgeMutationOutcome` and the
    identity checks before a write are kept exactly.
-7. **Same numbers.** 4 MiB per reply, 30 s per request, 16 KiB tails, 8 MiB per snapshot read
+8. **Same numbers.** 4 MiB per reply, 30 s per request, 16 KiB tails, 8 MiB per snapshot read
    budget, 60 s identity verification, 2,000 pending feedback entries, the GraphQL cache key
    (SHA-256 of the document).
-8. **Tests.** The class (a) files of your item are the proof; you don't edit them. Run each
+9. **Tests.** The class (a) files of your item are the proof; you don't edit them. Run each
    alone, switch on and off; `test -f` first.
 
    ```sh
@@ -57,15 +64,15 @@ Branch from `ace/rust-git-forge` once F0 has landed on it, one branch per work i
    Never run the full suite or the tier scripts. Never a real host: process tests use `fakeGh`
    (`testing/fixtures.ts:122`), unit tests an injected runner.
 
-9. **(b) cases move with their module** into `#[cfg(test)]` beside the Rust; the TypeScript test
-   goes with its module after default-on. New Rust tests only for behaviour nothing covers.
-10. **The browser's copies stay.** The 13 pure entries stay TypeScript for `apps/web`, `ui-core`
+10. **(b) cases move with their module** into `#[cfg(test)]` beside the Rust; the TypeScript test
+    goes with its module after default-on. New Rust tests only for behaviour nothing covers.
+11. **The browser's copies stay.** The 13 pure entries stay TypeScript for `apps/web`, `ui-core`
     and `fake-daemon` (ADR 0224 question 6); F6 ports them for the forge's own use, and the
     daemon's imports of them get the native ones with the switch on.
-11. **Measure before you finish**, switch off and on: `node packages/forge/bench/transport.ts`
+12. **Measure before you finish**, switch off and on: `node packages/forge/bench/transport.ts`
     and `node packages/forge/bench/status.ts` (F1, F2); report both. A result slower than the
     TypeScript beyond noise doesn't ship.
-12. **Cross-mode** for F7 only (the tables): `bun scripts/native-cross.ts ACE_FORGE_STORE <file>`,
+13. **Cross-mode** for F7 only (the tables): `bun scripts/native-cross.ts ACE_FORGE_STORE <file>`,
     per boot of the event database (ADR 0223 §8). In-memory caches have no cross concern.
 
 ## Files per work item
@@ -86,18 +93,34 @@ and the 15 `package.json` entries stay the TypeScript surface.
 
 ## F0: foundations (one builder, first)
 
-- `ace-forge` (`ace-json`, `ace-supervisor`, `ace-protocol`, `ace-store` for F7, `sha2`, `regex`,
-  `thiserror`), every module above as a stub; the binding modules with panics caught and thrown
+- **`ace-redaction`** (`native/daemon/crates/ace-redaction/`): the Rust port of
+  `@ace/redaction` (environment values with their JSON-escaped spellings, credential patterns,
+  secret keys; `packages/redaction/src/`), its 11 test files' cases moved into it; shared by
+  `ace-forge` and `ace-git`.
+- `ace-forge` (`ace-json`, `ace-supervisor`, `ace-redaction`, `ace-protocol`, `ace-store` for F7,
+  `sha2`, `regex`, `thiserror`), every module above as a stub; the binding modules with panics caught and thrown
   as `ForgeError("cli")`; the shell helper that parses a result once and deep-freezes it where the
   TypeScript froze it.
 - `ACE_FORGE` (comma list of `github`, `gitlab`, `tea`, `bitbucket`, `origin`) and
   `ACE_FORGE_STORE` in `native-switches.ts`; any host without `ACE_SUPERVISOR=native`, or the
   store without `ACE_STORE=native`, refuses to start.
-- The runner port bridge (rule 3): a native runner handle that `createCommandRunner` returns when
+- The runner port bridge (rule 4): a native runner handle that `createCommandRunner` returns when
   the switch is on (a callable with the `CommandRunner` signature), and the callback path for a
   JS function.
 - Proof: `check:daemon-native`, `cargo deny check`; every (a) file still passes with every host
   named (stubs defer to TypeScript).
+
+## F0r: redaction in TypeScript first (before F1)
+
+New behaviour, so it lands in TypeScript with its own test before any Rust copies it: forge's
+`redact` and `redactData` (`redact.ts:2`–`:6`, `:20`–`:22`) call `@ace/redaction` with the child's
+environment as the matcher's values (`createEnvironmentMatcher`,
+`packages/redaction/src/environment.ts:19`), so a credential the CLI echoes as a bare value is
+masked; forge's patterns (`gh*_`, `github_pat_`, `Bearer`, `token`/`authorization` keys) move into
+`@ace/redaction`, which gains GitLab's `glpat-`, `gloas-`, `glrt-` and URL user-info. One owner,
+no second pattern list. Proof: the redaction file `json-credentials` and `index` tests, forge's
+`github.process` (unknown fields kept only after redaction), plus the new test for an echoed
+environment value; then the forge files that read `raw`.
 
 ## F1: the transport (one builder)
 
@@ -108,7 +131,8 @@ replaces Windows' gate (`:67`–`:79`). `GhApi` (`http.ts:97`): the `gh api` arg
 parsing, ETag and `If-Modified-Since` reuse, the GraphQL cache, cache clearing on writes,
 `x-poll-interval`. Write classification and `MutationDispatch` (`mutation.ts:8`, `:58`),
 admission (`read-only-api.ts:49`, `:148`), pinned identities and the 60 s window
-(`pinned-runner.ts:36`), readiness and identity probes, redaction, error kinds
+(`pinned-runner.ts:36`), readiness and identity probes, redaction through `ace-redaction` before
+every cache and output (rule 2), error kinds
 (`errors.ts:20`–`:74`), read budgets.
 
 - Proof: `command-search.process`, `identity-probes.process`, `readiness.process`,
@@ -174,4 +198,4 @@ copy (the switch selects which one the test's import gets).
 check (`store.ts:34`–`:48`), on the store's native connection, in the caller's transactions.
 Proof: `review.process`, `review-relink.process`, `reply-expiry.process`,
 `write-dispatch.process`, the daemon's `workspace-pr-links` and `workspace-forge-checks` tests;
-the per-boot cross gate on each (rule 12).
+the per-boot cross gate on each (rule 13).
