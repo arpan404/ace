@@ -359,6 +359,7 @@ enum BridgePatch: Decodable, Sendable {
     case terminal(TerminalOutputPatch)
     case fragment(BridgeFragment)
     /// A new list: the ids of every row that follows (nil from older bridges, which clear all).
+    case usageBars([UsageHeadroomBar], choices: [UsageChoice])
     case inboxReset([String]?)
     /// Whether the list is the daemon's current one and holds every thread (no older page left).
     case inboxFresh(confirmed: Bool, complete: Bool)
@@ -476,7 +477,7 @@ enum BridgePatch: Decodable, Sendable {
     /// The history window put everything a read changed (`bridge/native-transcript.ts`).
     case readingSettled(String, Int)
 
-    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail, route, notes, confirmed, complete, found }
+    private enum Keys: String, CodingKey { case type, id, ids, row, words, base, cut, append, key, family, value, generations, threadId, epoch, state, message, ok, cursor, count, index, hasOlder, loading, models, problem, asking, lockedUntil, sheet, path, diff, generation, look, glyph, text, revision, before, seq, reason, outcome, view, socket, tail, route, notes, confirmed, complete, found, choices }
     init(from decoder: any Decoder) throws {
         let box = try decoder.container(keyedBy: Keys.self)
         let type = try box.decode(String.self, forKey: .type)
@@ -491,6 +492,7 @@ enum BridgePatch: Decodable, Sendable {
         case "terminal.output": self = .terminal(try TerminalOutputPatch(from: decoder))
         case "fragment": self = .fragment(try BridgeFragment(from: decoder))
         case "inbox.reset": self = .inboxReset(try box.decodeIfPresent([String].self, forKey: .ids))
+        case "usage.bars": self = .usageBars(try box.decode([UsageHeadroomBar].self, forKey: .value), choices: try box.decodeIfPresent([UsageChoice].self, forKey: .choices) ?? [])
         case "inbox.fresh": self = .inboxFresh(confirmed: try box.decode(Bool.self, forKey: .confirmed), complete: try box.decode(Bool.self, forKey: .complete))
         case "inbox.located": self = .inboxLocated(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(Bool.self, forKey: .found))
         case "inbox.row": self = .inbox(try box.decode(String.self, forKey: .id), try box.decodeIfPresent(ThreadRow.self, forKey: .row))

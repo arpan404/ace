@@ -461,6 +461,7 @@ struct InboxView: View {
                                               compose: { compose(chat: list == .chats) },
                                               review: { openReview() },
                                               account: openAccount),
+                   usageClient: toolsMachine.flatMap(inbox.client),
                    organize: organize) { key in
             // Each page keeps drawing its thread while it slides away; child threads open on the
             // same machine's client as their parent.

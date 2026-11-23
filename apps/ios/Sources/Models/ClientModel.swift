@@ -66,6 +66,9 @@ import QuartzCore
     @ObservationIgnored private var scope: MachineScope?
     @ObservationIgnored let liveActivity: ThreadLiveActivity
     let inbox = InboxRowStore()
+    private(set) var usageBars: [UsageHeadroomBar] = []
+    /// Every account with a reading, the glyph's own first: the picker's rows.
+    private(set) var usageChoices: [UsageChoice] = []
     var pending: [String: PendingRow] = [:]
     var connection = "connecting" {
         didSet { if oldValue == "ready", connection != "ready" { connectionEpoch &+= 1 } }
@@ -325,7 +328,7 @@ import QuartzCore
         if !sameMachine { deviceTabs.reset() }
         // Cards for later keep what was filled in across another route to the same machine.
         if !sameMachine { spade.cards.reset() }
-        inboxLayout = .empty; chatLayout = .empty
+        inboxLayout = .empty; chatLayout = .empty; usageBars = []; usageChoices = []
         machineStatus = nil; providers = nil; admission = nil; appUpdate = nil; machineUpdate = nil; projectLooks = [:]; projectLogical = [:]; machineGlyph = nil; cacheUsage = nil
         // A code prompt belongs to the runtime that was asked; the new one asks again if it must.
         machineCodeAsk = nil; machineCodeLockedUntil = nil
@@ -369,6 +372,7 @@ import QuartzCore
         answers.bind(runtime)
         // The restored inbox's sort, so the live list opens in the order already on screen.
         runtime.start(itemLimit: itemLimit, inboxSort: inboxLayout.sortBy)
+        sendUsagePins()
         restoreDeviceTabs()
         if readAheadAllowed { action(["type": "readAhead", "allowed": true]) }
         spadeResume()
@@ -606,6 +610,7 @@ import QuartzCore
                 LaunchTrace.mark("inbox.reset", "\(inbox.count) rows held")
                 resetInbox(keeping: ids); inboxLoaded = true; activityChanged = true
                 historyRevision.reset()
+            case .usageBars(let bars, let choices): usageBars = bars; usageChoices = choices
             case .inboxFresh(let confirmed, let complete):
                 if listFresh != confirmed { listFresh = confirmed }
                 if listComplete != complete { listComplete = complete }
