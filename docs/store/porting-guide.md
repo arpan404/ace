@@ -537,8 +537,12 @@ Rust callers, do all of this in the caller's transaction:
      idle batches bounded by rows (2,000), sample bytes (8 MiB) and time (50 ms per batch),
      pauses while writes run (ADR 0170), and keeps the source thread ids in memory.
    - **Installation** is one transaction, bounded by the 256 sources. For each source it makes
-     three primary-key lookups and no scan: the `threads` row exists and its decoded thread (by
-     `readThread`) has no `deletedAt` and no `host`; there is no `thread_purges` row and no
+     three primary-key lookups and no scan. First, the `threads` row exists, read
+     unenriched by one statement on its primary key, never through `readThread`, which can
+     resolve up to 32 ancestors (`tree-root.ts:69` to `:89`):
+     `SELECT json_extract(client,'$.deletedAt') AS deleted, json_extract(client,'$.host') AS host FROM threads WHERE id = ?`
+     (both fields live in the `client` column, `thread-columns.ts`; the builder confirms
+     this), and both are NULL. Then there is no `thread_purges` row and no
      `storage_purged` row (both keyed by `thread_id`, `storage/journal.ts:34`). It does not
      probe `usage_deletions`, whose only key is `seq` (`migrations.ts:115`): every deletion that
      leaves a `usage_deletions` row also sets `deletedAt`, removes the `threads` row, or
@@ -682,6 +686,11 @@ persists `offset`.
       `SET offset = CASE WHEN capped = 1 THEN target ELSE ? END`, because the `append` just
       before it may have set the cap.
       On a capped segment an inline delta appends nothing.
+    - A capped row can still be dirty: the append that reached the cap sets `dirty = 1`, as
+      every `append` does. The cap never clears `dirty`. `flush`'s second loop
+      (`thread-writer.ts:291` to `:296`) publishes dirty rows whatever `capped` says, so the
+      final tail up to the cut is indexed; the pending count keeps counting the row until then
+      (`thread-schema.ts:19` to `:26` count `dirty = 1` too).
   - Reset: the non-reusable path (`:118`, which deletes the chunks and sets `tail='t'`,
     `offset=0`, `target=0`) also sets `indexed_bytes = 0, capped = 0` in the same statement, and
     the cap applies afresh to the new body. The reusable path keeps the indexed text, so the
@@ -751,7 +760,9 @@ apps/daemon/src/native-writer/              the TypeScript shells, one file per 
 rule 9), `packages/provider-kit/src/native-sqlite.ts` and `src/sqlite.ts` (export `nativeCall`,
 rule 11), `native/daemon/crates/ace-projection/` (new), `native/daemon/crates/ace-daemon-node/`
 (`Cargo.toml`, `src/lib.rs` for `mod writer;`, `src/writer.rs`),
-`apps/daemon/src/native-writer/fold.ts` (new), `apps/daemon/src/event-writer.ts` (one line),
+`apps/daemon/src/native-writer/fold.ts` (new), `apps/daemon/src/event-writer.ts` (the call at
+`:170` and its import: `updateThread` from `@ace/projection` becomes `foldThread` from
+`./native-writer/fold.ts`), `native/daemon/Cargo.lock` (the new crate),
 `apps/daemon/src/canonical-event-samples.ts` (new, moved), `apps/daemon/src/canonical-event.test.ts`
 (import only), `scripts/store-vectors.ts` (new), `scripts/check-daemon-native.ts` (one call),
 `native/daemon/vectors/fold.json` (generated). Nothing else.
@@ -827,9 +838,11 @@ pub fn is_sidebar_event(kind: &str) -> bool;
    `workspaceId`, `permission` (copied), `backend` (then, if it is `"cursor-sdk"`, remove
    `continuation`), `capabilities`, `provider`, `lineage`, `delegatedBy`, `delegatedFrom`,
    `startedBy`, `startedByClient`, `treeRootId`, `queuedLaunch` (`null` removes), `execution`,
-   `switch`, `title`, `titleSource`, `effectiveCapabilities`, `acpSupport`, `acp` (sets
-   `acpAgentId`, `installationId`, `instanceId` in that order, each only when present in
-   `payload.acp`), `status` (set, then `activitySeq` = `seq`), `archivedAt` (`null` removes),
+   `switch`, `title`, `titleSource`, `effectiveCapabilities`, `acpSupport`, `acp` (assigns
+   `acpAgentId`, `installationId`, `instanceId`, in that order, from `payload.acp`: a field
+   present is set in place or appended; a field absent from `payload.acp` becomes `undefined` in
+   the TS, which `JSON.stringify` omits, so the port removes that key, dropping any old value),
+   `status` (set, then `activitySeq` = `seq`), `archivedAt` (`null` removes),
    `goal` (`null` removes). A new key is appended when its statement runs, so two new keys land
    in statement order, not payload order.
 4. `agent.created` of a root agent: `rootAgentId` = `agent_id`.
@@ -885,7 +898,10 @@ TypeScript (it folds the cached status view, which moves with 5.3).
   records, never anything re-serialised after a fold ran (the fold mutates its inputs, and for
   `thread.created` the event itself). For each case it parses fresh copies:
   - `sidebar = isSidebarEvent(JSON.parse(eventText))`, on its own copy;
-  - `input = foldInput(event)`, imported from `fold.ts`, so the file holds exactly what crosses;
+  - `kind = event.payload.type`, for every case, reaching or not;
+  - `input = foldInput(event)`, imported from `fold.ts`, so the file holds exactly what crosses
+    (`payload` is `input.payload`, or `null` when `input` is undefined, and `reaches` is whether
+    `input` is defined);
   - `folded = JSON.stringify(thread after updateThread(thread, event))`, where for
     `thread.created` the thread is the parsed event's `payload.thread`, as the writer does.
     It writes
@@ -902,7 +918,8 @@ TypeScript (it folds the cached status view, which moves with 5.3).
 - Cases that must be present (the reviewer counts them): every sample of the moved table; every
   field of rule 3 alone; all of them together on a thread that has none of them; each `null`
   removal; `cursor-sdk` with and without a `continuation`; `status` (priority 1: a status fold
-  that differs could show a working thread as done); `acp` whole and with a field missing;
+  that differs could show a working thread as done); `acp` whole, and `acp` without `instanceId` on a thread that already has an `instanceId` (the
+  folded thread has none);
   `changes` with `null`, with `__proto__`, with an array-index key, and in an order different
   from the thread's; `queue.updated` on a thread with and without `queue`; `thread.created`;
   `agent.created` root and non-root; an `item.created` and an `item.updated` with large bodies
@@ -945,9 +962,17 @@ TypeScript. **Files the builder may touch:** 5.2a: `apps/daemon/src/stream-seque
 `native/daemon/crates/ace-store/src/writer/` (`mod.rs`, `sequences.rs`),
 `native/daemon/crates/ace-store/src/lib.rs` (`pub mod writer;`),
 `native/daemon/crates/ace-daemon-node/src/writer.rs`,
-`apps/daemon/src/native-writer/sequences.ts` (new), `apps/daemon/src/store.ts` (the
-construction at `:231` and the initialization at `:292`), and the switch's part name in
-`native-switches.ts`. Nothing else.
+`apps/daemon/src/native-writer/sequences.ts` (new), `apps/daemon/src/stream-sequences.ts`
+(the shared interface below), `apps/daemon/src/store.ts` (the field type at `:149`, the
+construction at `:231`, the initialization at `:292`), `apps/daemon/src/event-writer.ts` (the
+`sequences` type at `:29`), `apps/daemon/src/store-stream.ts` (the `sequences` type at `:45`),
+`native/daemon/Cargo.lock`, and the switch's part name in `native-switches.ts`. Nothing else.
+
+The three consumers name the concrete class `StreamSequences`, which has private state, so the
+native class cannot stand in for it. 5.2b adds, in `stream-sequences.ts`,
+`export interface SequenceAllocator { initialize(): void; reservedThrough(): number; head(): number; replaySafe(after: number): boolean; next(after: number): number; prepare(events: number, after: number): void; covers(seq: number): boolean; }`,
+makes `StreamSequences` implement it, and changes the three declarations to
+`SequenceAllocator`. Both `StreamSequences` and `NativeStreamSequences` implement it.
 
 **What the TypeScript does today**, which the port keeps unless this brief says otherwise:
 
@@ -970,44 +995,76 @@ construction at `:231` and the initialization at `:292`), and the switch's part 
   past a reservation that then rolls back), and step 5.2a fixes it in the TypeScript first: a
   reservation counts only once the outermost transaction that wrote it has committed.
 
-**Step 5.2a: the TypeScript fix, test first.**
+**Step 5.2a: the TypeScript fix, test first, on main.** This fixes shipped TypeScript, so it is
+not built on the rewrite branch. It goes to main as its own test-first PR: branch
+`ace/fix-live-reservation-rollback` from `origin/main` (`git fetch origin` first; base the
+worktree on `origin/main`, never the local `main`), push with
+`git push origin HEAD:refs/heads/ace/fix-live-reservation-rollback`, and open the PR against
+`main`. Once it has merged, `ace/rust-store-writer` takes it by merging `origin/main` (never a
+rebase or a cherry-pick), and 5.2b starts after that merge.
+
+The bug, as review confirmed it: a refill's `transaction` first drains the pinned batch
+(`store.ts:582`). When the refill is nested in an outer transaction, that drain and the
+reservation run inside savepoints (`store.ts:595`), so the event rows and their
+`host_sequence` updates are still provisional. Yet `prepare` advances `reserved` and the
+lineage mark as soon as `commit` returns (`stream-sequences.ts:55` to `:59`), and
+`publishPending` (`store-stream.ts:117`) can publish the delta above the old range before the
+outer transaction rolls back.
 
 1. Write the new test in `apps/daemon/src/store-live-write-recovery.test.ts`, named "a live
    batch whose range refill rolls back with its outer transaction is published only once stored
    and reuses no sequence". Use the file's existing helpers (`store.prepareLiveWrite` and
    `store.bufferLiveWrite` with an unpinned snapshot, `:105`). The test:
-   1. Opens a `Store` on a temp file, creates a thread, and streams one delta so a range is
-      reserved; reads `reserved` from `SELECT seq FROM host_sequence WHERE id=1`.
+   1. Opens a `Store` on a temp file, creates a thread, streams one warm-up delta so a range is
+      reserved, and calls `store.flushLiveWrites()` so that delta is stored and nothing is
+      pinned. Reads `reserved` from `SELECT seq FROM host_sequence WHERE id=1`.
    2. Moves the head to the end of the range out of band, as
       `engine/live-write-buffer.process.test.ts:380` does: `store.atomic` inserting one
       `thread.updated` event row at `reserved - 1`. The next batch of two deltas then has to
       refill.
-   3. Subscribes, recording every published event's seq, and inside the listener whether a row
-      with that seq exists in `events` or the seq is at most `host_sequence`, read on a second
-      read-only connection (committed state only).
+   3. Subscribes. For every published `item.delta` it records the seq and whether, at that
+      moment, a row with that seq exists in `events`, read on a second read-only connection
+      (committed state only).
    4. Runs `store.atomic(() => { store.prepareLiveWrite(bytes); store.bufferLiveWrite(id, twoDeltas,
       at, unpinned); throw new Error("outer"); })` and expects it to throw `"outer"`.
-   5. Expects that nothing was published during step 4, then calls `store.flushLiveWrites()` and
-      expects every recorded publication to have been covered when it was published.
+   5. Expects that no delta was published during step 4. Then calls `store.flushLiveWrites()`
+      and expects exactly two delta publications, one for each of the two deltas (by their
+      `append` text), each published once, and each with its committed row present when it was
+      delivered.
    6. Closes and reopens the store, appends one `thread.updated`, and expects its seq to be
       greater than every seq published before.
 
-   Run it with the switch off and see it fail on today's code (step 5 fails: the nested refill
-   publishes before the outer rollback). Commit the failing test.
+   Run it and see it fail on today's code (step 5 fails: the nested refill publishes before the
+   outer rollback). Commit the failing test.
 
-2. Fix `stream-sequences.ts` and `store-stream.ts` so the test passes, keeping every other test
-   in the proof list passing:
+2. Fix `stream-sequences.ts`, `store-stream.ts` and the wiring in `store.ts` so the test
+   passes, keeping every file in the proof list passing:
    - `StreamSequences`' option `commit(run)` becomes `commit(run, outcome)`, and `store.ts:233`
      wires it to `this.transaction(run, outcome)` (the `TransactionOutcome` form,
      `store.ts:581`).
-   - `prepare` sets `reserved` and calls `options.reserved?.(through)` inside the outcome's
-     `committed`, never right after `commit` returns. Its `rolledBack` does nothing (the
-     pending range is forgotten).
-   - A new `covers(seq)` returns `seq <= reserved`.
-   - `store-stream.ts` `append` (`:117`) calls `publishPending()` only when
-     `sequences.covers(<the batch's last seq>)`. Otherwise the pinned batch publishes as stored
-     rows when its flush commits.
-     Commit the fix.
+   - `prepare` updates `reserved` and calls `options.reserved?.(through)` only inside the
+     outcome's `committed`, never right after `commit` returns. Its `rolledBack` does nothing
+     (the pending range is forgotten).
+   - **Confirmation is monotonic.** Commit publication can run a reentrant subscriber between
+     settlements (`store.ts:652` to `:659`), so a newer reservation's `committed` can run before
+     an older one's. `committed` therefore sets
+     `reserved = Number.isNaN(reserved) ? through : Math.max(reserved, through)` (`reserved` is
+     NaN when `host_sequence` had no row, `stream-sequences.ts:19`), and calls
+     `options.reserved?.(through)` only when that raised `reserved`.
+   - A new `covers(seq)` returns `seq <= reserved` (false while `reserved` is NaN).
+   - `store-stream.ts` `append` (`:107` to `:117`): when the batch is empty, nothing changes (no
+     `prepare`, no publication, as today). Otherwise it calls `publishPending()` only when
+     `sequences.covers(<the batch's last seq>)`. When not covered, the pinned batch publishes as
+     stored rows when its flush commits (`store-stream.ts:238` to `:256`).
+   - Ordinary appends and tombstones are unchanged. They share the allocator (`next`): a
+     tombstone (`recordDataDeletion`, `store.ts:1394` to `:1397`) and an event row each move
+     `host_sequence` with their own row, in their own transaction, and are delivered (to
+     subscribers, or to usage listeners for a tombstone) only after that commit. So they never
+     pass through `covers`, and a rollback removes the row and its high-water mark together. The
+     fix must not route them through `prepare`.
+
+   Commit the fix. Proof for the PR: every file in this task's proof list, run one at a time
+   with the default settings (TypeScript store), plus `bun run typecheck` and `bun run lint`.
 
 **Step 5.2b: the port.**
 
@@ -1032,7 +1089,9 @@ impl Sequences {
     /// False when `after > head && after > confirmed`; else true for 0, for head, or for a seq
     /// stored in `events`.
     pub fn replay_safe(&self, conn: &Connection, after: f64) -> Result<bool>;
-    /// Provisional allocation: `cursor = max(cursor, after) + 1`; Exhausted past 2^53 - 1.
+    /// Provisional allocation: assigns `cursor = max(cursor, after) + 1` first, then returns
+    /// Exhausted when the new cursor is past 2^53 - 1, so the cursor has moved even when it
+    /// throws (`stream-sequences.ts:46` to `:49`). A None cursor stays None and returns Exhausted.
     pub fn next(&mut self, after: f64) -> Result<f64, SequenceError>;
     /// Pure. None when `after + events <= confirmed`; else `Some(after + max(65536, events))`,
     /// or Exhausted when that is not a safe integer. Pending reservations never count.
@@ -1040,10 +1099,10 @@ impl Sequences {
     /// `UPDATE host_sequence SET seq=MAX(seq,?) WHERE id=1`, inside the caller's transaction.
     /// Changes no field.
     pub fn reserve(&self, conn: &Connection, through: f64) -> Result<()>;
-    /// `confirmed = Some(through)` when None or below `through` (the TS assigns; a reservation
-    /// is only ever made past the confirmed one, so this is the same). Called only after the
-    /// outermost commit.
-    pub fn confirm(&mut self, through: f64);
+    /// Monotonic, as 5.2a's TypeScript: `confirmed = Some(through)` when None or below
+    /// `through`, else unchanged. Returns whether it rose; the shell calls `reserved` only then.
+    /// Called only from the outcome's `committed`.
+    pub fn confirm(&mut self, through: f64) -> bool;
     /// Whether every sequence through `seq` lies in the confirmed reservation.
     pub fn covers(&self, seq: f64) -> bool;
 }
@@ -1078,7 +1137,7 @@ behaviour, step for step:
   (`recordDataDeletion`, `store.ts:1394`). None of them keeps a cursor or a reservation of its
   own.
 - `prepare(events, after)`: `through = reservation(events, after)`; if none, return. Else
-  `commit(() => native.reserve(through), { committed: () => { native.confirm(through);
+  `commit(() => native.reserve(through), { committed: () => { if (native.confirm(through))
   options.reserved?.(through); }, rolledBack: () => {} })`. `committed` runs after the outermost
   `COMMIT` returns; a rollback anywhere around it forgets the pending range. During
   `installHistory`, a `transaction` with an outcome throws `Store is busy` (`store.ts:585`),
