@@ -1,5 +1,5 @@
 import type { Client, ThreadSubscription } from "@ace/client";
-import { ProviderKind, type Project, type ThreadListEntry } from "@ace/protocol";
+import type { Project, ThreadListEntry } from "@ace/protocol";
 import { projectLabel } from "@ace/ui-core";
 import { homeRows, type HomeRow } from "./home-rows.ts";
 import type { OpenRequest } from "./request-answer.ts";
@@ -24,7 +24,6 @@ export interface Live {
   /** Leases the open row's thread for as long as its tree shows; `undefined` lets it go. */
   follow(id: string | undefined): ThreadSubscription | undefined;
   followed(): ThreadSubscription | undefined;
-  defaultProvider(): ProviderKind | undefined;
   projects(): readonly Project[];
   close(): void;
 }
@@ -35,7 +34,6 @@ const requestLeases = 16;
 export function openLive(client: Client, signal: AbortSignal, changed: () => void): Live {
   const list = client.threads();
   const names = new Map<string, Project>();
-  let provider: ProviderKind | undefined;
   const asking = new Map<string, { lease: ThreadSubscription; stop: () => void }>();
   let slot: { id: string; lease: ThreadSubscription; stop: () => void } | undefined;
   const entries = (): ThreadListEntry[] =>
@@ -74,7 +72,7 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
   });
   const stopConnection = client.connectionState().subscribe(changed);
   syncRequests();
-  // Project names and the default provider: read once, quietly; rows show ids until then.
+  // Project names: read once, quietly; rows show ids until then.
   void client
     .request(
       { type: "projects.request", operation: { op: "workspace.list", limit: 100 } },
@@ -84,14 +82,6 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
       if (response.result.kind !== "projects") return;
       for (const project of response.result.projects) names.set(project.id, project);
       changed();
-    })
-    .catch(() => {});
-  void client
-    .settingsGet("providers.default", {}, { signal })
-    .then((result) => {
-      const value = result.entries.find((entry) => entry.key === "providers.default")?.value;
-      const parsed = ProviderKind.safeParse(value);
-      if (parsed.success) provider = parsed.data;
     })
     .catch(() => {});
   return {
@@ -139,7 +129,6 @@ export function openLive(client: Client, signal: AbortSignal, changed: () => voi
       return lease;
     },
     followed: () => slot?.lease,
-    defaultProvider: () => provider,
     projects: () => [...names.values()],
     close() {
       stopList();

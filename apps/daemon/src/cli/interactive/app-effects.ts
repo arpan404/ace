@@ -54,9 +54,16 @@ async function effect(app: App, commands: Commands, next: Effect): Promise<void>
     case "tree":
       app.live?.follow(next.threadId);
       return app.schedule();
-    case "thread-show":
-      await runInPlace(terminal, ["thread", "show", next.threadId]);
+    case "thread-show": {
+      const remote = app.start.args.flags.remote;
+      await runInPlace(terminal, [
+        "thread",
+        "show",
+        next.threadId,
+        ...(typeof remote === "string" ? ["--remote", remote] : []),
+      ]);
       return app.schedule();
+    }
     case "place": {
       const words = placeWords(app.start.table, next.place);
       if (!words) return app.flash(`This build of ace can't show ${next.place} here yet.`);
