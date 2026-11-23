@@ -140,6 +140,134 @@ fn present(state: &ThreadState, key: &str) -> bool {
     }
 }
 
+/// The optional fields a record gains as the fold runs, in their common first-set order.
+const RECORD_OPTIONAL: [&str; 12] = [
+    "spawnedByKey",
+    "completionRelevant",
+    "nativeRuns",
+    "activeRun",
+    "lastRun",
+    "lastOutcomeOrder",
+    "lastSuccessfulOutcomeOrder",
+    "externalStatus",
+    "lastError",
+    "processSettledStatus",
+    "detail",
+    "disconnectedAt",
+];
+
+fn record_field<S: SerializeMap>(
+    map: &mut S,
+    record: &crate::state::AgentRecord,
+    key: &str,
+) -> Result<(), S::Error> {
+    match key {
+        "spawnedByKey" => {
+            if let Some(value) = &record.spawned_by_key {
+                map.serialize_entry("spawnedByKey", value)?;
+            }
+        }
+        "completionRelevant" => {
+            if let Some(value) = &record.completion_relevant {
+                map.serialize_entry("completionRelevant", value)?;
+            }
+        }
+        "nativeRuns" => {
+            if let Some(value) = &record.native_runs {
+                map.serialize_entry("nativeRuns", value)?;
+            }
+        }
+        "activeRun" => {
+            if let Some(value) = &record.active_run {
+                map.serialize_entry("activeRun", value)?;
+            }
+        }
+        "lastRun" => {
+            if let Some(value) = &record.last_run {
+                map.serialize_entry("lastRun", value)?;
+            }
+        }
+        "lastOutcomeOrder" => {
+            if let Some(value) = &record.last_outcome_order {
+                map.serialize_entry("lastOutcomeOrder", value)?;
+            }
+        }
+        "lastSuccessfulOutcomeOrder" => {
+            if let Some(value) = &record.last_successful_outcome_order {
+                map.serialize_entry("lastSuccessfulOutcomeOrder", value)?;
+            }
+        }
+        "externalStatus" => {
+            if let Some(value) = &record.external_status {
+                map.serialize_entry("externalStatus", value)?;
+            }
+        }
+        "lastError" => {
+            if let Some(value) = &record.last_error {
+                map.serialize_entry("lastError", value)?;
+            }
+        }
+        "processSettledStatus" => {
+            if let Some(value) = &record.process_settled_status {
+                map.serialize_entry("processSettledStatus", value)?;
+            }
+        }
+        "detail" => {
+            if let Some(value) = &record.detail {
+                map.serialize_entry("detail", value)?;
+            }
+        }
+        "disconnectedAt" => {
+            if let Some(value) = &record.disconnected_at {
+                map.serialize_entry("disconnectedAt", value)?;
+            }
+        }
+        "limited" => {
+            if let Some(value) = &record.limited {
+                map.serialize_entry("limited", value)?;
+            }
+        }
+        "retry" => {
+            if let Some(value) = &record.retry {
+                map.serialize_entry("retry", value)?;
+            }
+        }
+        "wakeUntil" => {
+            if let Some(value) = &record.wake_until {
+                map.serialize_entry("wakeUntil", value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+impl Serialize for crate::state::AgentRecord {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(None)?;
+        map.serialize_entry("agent", &self.agent)?;
+        map.serialize_entry("activity", &self.activity)?;
+        map.serialize_entry("lastSignalAt", &self.last_signal_at)?;
+        if let Some(parent) = &self.parent_key {
+            map.serialize_entry("parentKey", parent)?;
+        }
+        for key in &self.appended {
+            record_field(&mut map, self, key)?;
+        }
+        for key in RECORD_OPTIONAL {
+            if !self.appended.contains(&key) {
+                record_field(&mut map, self, key)?;
+            }
+        }
+        for key in ["limited", "retry", "wakeUntil"] {
+            if !self.appended.contains(&key) {
+                record_field(&mut map, self, key)?;
+            }
+        }
+        map.end()
+    }
+}
+
 impl Serialize for ThreadState {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut map = serializer.serialize_map(None)?;

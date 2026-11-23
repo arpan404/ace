@@ -127,6 +127,7 @@ fn insert_placeholder(
         wake_until: None,
         parent_key: parent_key.clone(),
         spawned_by_key: None,
+        appended: Vec::new(),
     };
     let created = record.agent.clone();
     put(&mut state.agents, key.to_owned(), record);
@@ -535,6 +536,8 @@ pub fn see_agent(
     if let Some(spawned_by) = spawned_by {
         if let Some(record) = state.agents.get_mut(agent) {
             record.spawned_by_key = Some(spawned_by.clone());
+            record.appended("spawnedByKey");
+            record.appended("spawnedByKey");
         }
         crate::indexes::register_spawn_link(state, agent, spawned_by);
     }
@@ -587,6 +590,8 @@ pub fn link_agent(
     if let Some(spawned_by) = spawned_by {
         if let Some(record) = state.agents.get_mut(agent) {
             record.spawned_by_key = Some(spawned_by.clone());
+            record.appended("spawnedByKey");
+            record.appended("spawnedByKey");
         }
         crate::indexes::register_spawn_link(state, agent, spawned_by);
     }
@@ -702,6 +707,7 @@ pub fn reconcile_links(
                     }
                     if let Some(record) = state.agents.get_mut(&linked_key) {
                         record.spawned_by_key = Some(key.clone());
+                        record.appended("spawnedByKey");
                     }
                     let owner = get(&state.indexes.agent_keys_by_id, &call.agent_id).cloned();
                     set_parent(state, &linked_key, owner.as_deref(), ctx, events)?;

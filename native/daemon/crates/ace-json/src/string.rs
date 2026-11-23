@@ -300,9 +300,10 @@ impl PartialEq<JsString> for String {
 }
 
 /// Hashes a well-formed string's bytes the same way [`crate::object`] hashes a `&str` lookup.
-/// The marker a lone surrogate is carried by in Rust text, and the unit a literal marker is
-/// written as (doubled) so the mapping is one-to-one.
-pub(crate) const ESCAPE_MARKER: char = '\u{10fffd}';
+/// The marker a lone surrogate is carried by in Rust text, and the character a literal marker
+/// is written as (doubled) so the mapping is one-to-one. A BMP code point, so one character is
+/// one UTF-16 unit and doubling survives decoding exactly.
+pub(crate) const ESCAPE_MARKER: char = '\u{e000}';
 
 fn marker_hex(unit: u16) -> String {
     format!("{unit:04x}")
@@ -315,7 +316,7 @@ fn marker_hex(unit: u16) -> String {
 pub(crate) fn to_rust_text(text: &JsString) -> Cow<'_, str> {
     match text.as_well_formed() {
         Some(plain) if !plain.contains(ESCAPE_MARKER) => Cow::Borrowed(plain),
-        Some(plain) => Cow::Owned(plain.replace(ESCAPE_MARKER, "\u{10fffd}\u{10fffd}")),
+        Some(plain) => Cow::Owned(plain.replace(ESCAPE_MARKER, "\u{e000}\u{e000}")),
         None => {
             let mut out = String::with_capacity(text.len_utf16());
             let mut units = text.units().peekable();
@@ -342,6 +343,19 @@ pub(crate) fn to_rust_text(text: &JsString) -> Cow<'_, str> {
             }
             Cow::Owned(out)
         }
+    }
+}
+
+impl JsString {
+    /// This string as Rust text that [`crate::write::write_str`] turns back into the same JSON:
+    /// the carrier a `String` field keeps when the units include a lone surrogate.
+    pub fn to_rust(&self) -> Cow<'_, str> {
+        to_rust_text(self)
+    }
+
+    /// The string a Rust text carries when it holds an escape; `None` means it is already it.
+    pub fn from_rust_text(text: &str) -> Option<JsString> {
+        decode_marker(text)
     }
 }
 

@@ -489,6 +489,40 @@ impl WasmBatch {
         }
     }
 
+    /// Reject a fact JSON cannot carry, inside this batch: its own pending status flushes first.
+    pub fn reject(
+        &mut self,
+        data_json: &str,
+        reason: &str,
+        now: f64,
+        next_id: &js_sys::Function,
+    ) -> Result<String, JsValue> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let now = to_millis(now)?;
+            let data = parse_fact(data_json)?;
+            let mut ids = NextId {
+                next: next_id,
+                failure: None,
+            };
+            let mut ctx = ace_core::state::ApplyContext {
+                now,
+                ids: &mut ids,
+                resolving_interactions: None,
+            };
+            let mut events = Vec::new();
+            let outcome = self
+                .batch
+                .reject(&mut self.state, &data, reason, &mut ctx, &mut events);
+            finish_fold(ids, outcome)?;
+            response(&events, &self.state)
+        }));
+        match result {
+            Ok(Ok(json)) => Ok(json),
+            Ok(Err(error)) => Err(failure(error)),
+            Err(_) => Err(failure("core batch reject failed".to_owned())),
+        }
+    }
+
     /// Derive the deferred batch status, returning events and refreshed state.
     pub fn flush(&mut self) -> Result<String, JsValue> {
         let result = catch_unwind(AssertUnwindSafe(|| {

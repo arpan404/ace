@@ -154,6 +154,7 @@ pub enum Fact {
     ItemUpsert {
         agent: String,
         item: String,
+        #[serde(skip)]
         draft: crate::json_io::Map,
     },
     /// Idempotent snapshot reconciliation.
@@ -161,6 +162,7 @@ pub enum Fact {
     ItemReconciled {
         agent: String,
         item: String,
+        #[serde(skip)]
         draft: crate::json_io::Map,
     },
     /// A streaming append to a transcript item.
@@ -180,7 +182,8 @@ pub enum Fact {
         request: InteractionRequest,
         #[serde(skip_serializing_if = "Option::is_none")]
         item: Option<String>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        /// Kept out of typed decoding: opaque provider data may be nested arbitrarily deep.
+        #[serde(skip)]
         raw: Option<Vec<RawPayload>>,
     },
     /// An interaction closed.
@@ -225,7 +228,8 @@ pub enum Fact {
         /// Ending the provider's session ends it.
         #[serde(rename = "endsWithSession", skip_serializing_if = "Option::is_none")]
         ends_with_session: Option<bool>,
-        #[serde(skip_serializing_if = "Option::is_none")]
+        /// Kept out of typed decoding: opaque provider data may be nested arbitrarily deep.
+        #[serde(skip)]
         raw: Option<Vec<RawPayload>>,
     },
     /// The ports a running task's processes listen on now.
@@ -451,17 +455,20 @@ pub struct UnknownFact {
 /// violation, never provider data. Bridges ace-json (transient) to serde
 /// (typed) via canonical text until the Value deserializer lands.
 pub fn convert(value: &crate::json_io::Json) -> Option<Fact> {
+    let crate::json_io::Json::Object(map) = value else {
+        return None;
+    };
     // A delta's `append` is a JavaScript string and may hold a lone surrogate (a provider can
     // split a pair across frames). serde's internally tagged decoding buffers the fact through
     // `deserialize_any`, which cannot carry one, so this variant is read from the doorway's
     // value directly — the same units, exactly.
-    if let crate::json_io::Json::Object(map) = value
-        && map.get("type").and_then(|tag| tag.as_str()) == Some("item.delta")
-    {
+    if map.get("type").and_then(|tag| tag.as_str()) == Some("item.delta") {
+        // Keys are JavaScript strings: read them with their units, not a lossy display text.
         let text = |key: &str| {
-            map.get(key)
-                .and_then(|value| value.as_str())
-                .map(str::to_owned)
+            map.get(key).and_then(|value| match value {
+                crate::json_io::Json::String(text) => Some(text.to_rust().into_owned()),
+                _ => None,
+            })
         };
         return Some(Fact::ItemDelta {
             agent: text("agent")?,
@@ -473,5 +480,91 @@ pub fn convert(value: &crate::json_io::Json) -> Option<Fact> {
             },
         });
     }
-    crate::json_io::decode(value).ok()
+    // Typed decoding must never walk the opaque payloads: they are replaced with a placeholder
+    // in the map it reads (their own `#[serde(skip)]` fields ignore it) and attached after, as
+    // the values the doorway parsed. That keeps their depth out of serde's recursion.
+    let mut typed = map.clone();
+    for key in ["raw", "draft"] {
+        if typed.contains_key(key) {
+            typed.insert(key.to_owned(), crate::json_io::Json::Null);
+        }
+    }
+    let fact = crate::json_io::decode(&crate::json_io::Json::Object(typed)).ok()?;
+    // Opaque payloads never went through typed decoding (they may nest arbitrarily deep): take
+    // them as the values the doorway parsed.
+    match fact {
+        Fact::ItemUpsert { agent, item, .. } => Some(Fact::ItemUpsert {
+            agent,
+            item,
+            draft: draft_of(map)?,
+        }),
+        Fact::ItemReconciled { agent, item, .. } => Some(Fact::ItemReconciled {
+            agent,
+            item,
+            draft: draft_of(map)?,
+        }),
+        Fact::InteractionOpened {
+            agent,
+            interaction,
+            blocking,
+            request,
+            item,
+            ..
+        } => Some(Fact::InteractionOpened {
+            agent,
+            interaction,
+            blocking,
+            request,
+            item,
+            raw: raw_of(map),
+        }),
+        Fact::BackgroundStarted {
+            owner,
+            agent,
+            task,
+            kind,
+            title,
+            item,
+            child_agent,
+            ambient,
+            internal,
+            stoppable,
+            output_path,
+            wakes_agent,
+            blocks_prompts,
+            ends_with_session,
+            ..
+        } => Some(Fact::BackgroundStarted {
+            owner,
+            agent,
+            task,
+            kind,
+            title,
+            item,
+            child_agent,
+            ambient,
+            internal,
+            stoppable,
+            output_path,
+            wakes_agent,
+            blocks_prompts,
+            ends_with_session,
+            raw: raw_of(map),
+        }),
+        other => Some(other),
+    }
+}
+
+/// The item draft as the provider sent it, never typed-decoded.
+fn draft_of(map: &crate::json_io::Map) -> Option<crate::json_io::Map> {
+    match map.get("draft") {
+        Some(crate::json_io::Json::Object(draft)) => Some(draft.clone()),
+        _ => None,
+    }
+}
+
+/// The raw payloads a fact carried, decoded per element (each one's data is opaque text).
+fn raw_of(map: &crate::json_io::Map) -> Option<Vec<RawPayload>> {
+    map.get("raw")
+        .and_then(|raw| crate::json_io::decode(raw).ok())
 }

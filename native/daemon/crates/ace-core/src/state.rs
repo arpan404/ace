@@ -102,8 +102,9 @@ pub struct RetryInfo {
     pub message: Option<String>,
 }
 
-/// One agent's record: its row plus the fold's bookkeeping.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// One agent's record: its row plus the fold's bookkeeping. Its JSON order is written in
+/// `state_json`, because the fields the fold fills in are appended as it sets them.
+#[derive(Debug, Clone, Deserialize)]
 pub struct AgentRecord {
     pub agent: Agent,
     pub activity: String,
@@ -115,6 +116,9 @@ pub struct AgentRecord {
     /// Tool call in the parent's transcript that spawned this agent.
     #[serde(rename = "spawnedByKey", skip_serializing_if = "Option::is_none")]
     pub spawned_by_key: Option<String>,
+    /// Fields the fold set after the record was created, in the order it first set them.
+    #[serde(skip)]
+    pub appended: Vec<&'static str>,
     #[serde(rename = "completionRelevant", skip_serializing_if = "Option::is_none")]
     pub completion_relevant: Option<bool>,
     /// Process-namespaced native turn ids index the canonical run history.
@@ -292,6 +296,15 @@ pub struct ThreadState {
     pub appended: Vec<&'static str>,
 }
 
+impl AgentRecord {
+    /// Record that a field was set for the first time, as `record[key] = value` does.
+    pub fn appended(&mut self, key: &'static str) {
+        if !self.appended.contains(&key) {
+            self.appended.push(key);
+        }
+    }
+}
+
 impl ThreadState {
     /// Record that an optional field was set for the first time, as `state[key] = value` does.
     pub fn appended(&mut self, key: &'static str) {
@@ -372,12 +385,9 @@ pub struct ApplyContext<'a> {
     pub resolving_interactions: Option<HashSet<String>>,
 }
 
-/// Create an empty thread state, like `createThreadState`.
-pub fn create_thread_state(
-    thread_id: String,
-    root_agent: Option<RootAgentInit>,
-    config: CoreConfig,
-) -> Result<ThreadState, crate::error::CoreError> {
+/// Check a configuration the way creation does: a written config must not be one the
+/// constructor would have refused.
+pub fn validate_config(config: &CoreConfig) -> Result<(), crate::error::CoreError> {
     if !config.silence_ms.is_finite() || config.silence_ms < 0.0 {
         return Err(crate::error::CoreError::contract(
             "silenceMs must be finite and nonnegative",
@@ -394,6 +404,16 @@ pub fn create_thread_state(
             "liveness must be agent or transport",
         ));
     }
+    Ok(())
+}
+
+/// Create an empty thread state, like `createThreadState`.
+pub fn create_thread_state(
+    thread_id: String,
+    root_agent: Option<RootAgentInit>,
+    config: CoreConfig,
+) -> Result<ThreadState, crate::error::CoreError> {
+    validate_config(&config)?;
     Ok(ThreadState {
         thread_id,
         config,

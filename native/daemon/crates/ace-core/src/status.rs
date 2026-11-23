@@ -596,6 +596,9 @@ pub fn recompute_statuses(state: &mut ThreadState, now: i64, events: &mut Vec<Ev
         }
         if let Some(record) = state.agents.get_mut(&key) {
             record.agent.status = status.clone();
+            if record.completion_relevant.is_none() {
+                record.appended("completionRelevant");
+            }
             record.completion_relevant = Some(relevant);
         }
         if let Some(record) = get(&state.agents, &key) {

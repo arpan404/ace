@@ -17,7 +17,7 @@
  */
 
 import type { AgentStatus, EventPayload, ThreadId, ThreadStatus } from "@ace/protocol";
-import { coreBackend } from "@ace/provider-kit/native-switches";
+import { coreBackend, useCoreBackend } from "./backend.ts";
 import type { ApplyContext, CoreConfig, ThreadState } from "./state.ts";
 import type { Fact, RootAgentInit } from "./facts.ts";
 import { diagnosticData } from "./diagnostics.ts";
@@ -85,6 +85,7 @@ interface WasmExports {
       nextId: (kind: string) => string,
       resolvingJson?: string,
     ): string;
+    reject(dataJson: string, reason: string, now: number, nextId: (kind: string) => string): string;
     flush(): string;
   };
 }
@@ -148,6 +149,12 @@ function wasm(): WasmExports {
   if (coreBackend() !== "wasm") throw new Error("wasm core is off");
   wasmNode = nodeRequire(WASM_NODE) as WasmExports;
   return wasmNode;
+}
+
+/** Boot the browser's core: the fake daemon runs on wasm, chosen here, never by environment. */
+export async function startFakeCore(): Promise<void> {
+  useCoreBackend("wasm");
+  await ensureNativeCoreReady();
 }
 
 let wasmBrowser: WasmExports | undefined;
@@ -295,7 +302,11 @@ export class FactBatch {
   private readonly state: ThreadState;
   private readonly backend: string;
   /** The native batch handle; each wrapper owns its own, as the TypeScript's does. */
-  private readonly batchId: number;
+  private batchId: number;
+  /** The deadline this wrapper opened with, to open another batch after a flush. */
+  private readonly deadlineJson: string | undefined;
+  /** Whether the native handle retired this batch (a flush happened). */
+  private closed = false;
   private readonly wasmBatch: InstanceType<WasmExports["WasmBatch"]> | undefined;
   constructor(state: ThreadState, stableSignals?: { deadline: number | undefined }) {
     this.state = state;
@@ -304,6 +315,7 @@ export class FactBatch {
     if (backend === "typescript") throw new Error("native FactBatch is off");
     const deadlineJson =
       stableSignals === undefined ? undefined : JSON.stringify(stableSignals.deadline ?? null);
+    this.deadlineJson = deadlineJson;
     if (backend === "native") {
       this.batchId = handleFor(state, openThread).batchBegin(deadlineJson);
       this.wasmBatch = undefined;
@@ -313,7 +325,8 @@ export class FactBatch {
     }
   }
   apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
-    if (!isFactData(fact)) return rejectNonJson(this.state, fact, ctx);
+    if (this.closed) this.reopen();
+    if (!isFactData(fact)) return this.rejectNonJson(fact, ctx);
     if (this.backend === "wasm") {
       const batch = this.wasmBatch;
       if (!batch) throw new Error("wasm batch is off");
@@ -333,12 +346,44 @@ export class FactBatch {
     );
   }
   flush(): EventPayload[] {
+    // A batch's flush is idempotent in the TypeScript fold: nothing pending means nothing to
+    // say. The native handle retires the batch on its first flush.
+    if (this.closed) return [];
     if (this.backend === "wasm") {
       const batch = this.wasmBatch;
       if (!batch) throw new Error("wasm batch is off");
       return applyResult(this.state, batch.flush());
     }
-    return fold(this.state, () => handleFor(this.state, openThread).batchFlush(this.batchId));
+    const events = fold(this.state, () =>
+      handleFor(this.state, openThread).batchFlush(this.batchId),
+    );
+    this.closed = true;
+    return events;
+  }
+  /** A rejection inside a batch is that batch's own, so its flush order stays right. */
+  private rejectNonJson(fact: unknown, ctx: ApplyContext): EventPayload[] {
+    const data = JSON.stringify(diagnosticData(fact)) ?? "null";
+    const reason = "adapter facts must contain JSON data";
+    if (this.backend === "wasm") {
+      const batch = this.wasmBatch;
+      if (!batch) throw new Error("wasm batch is off");
+      return applyResult(this.state, batch.reject(data, reason, ctx.now, idsNext(ctx)));
+    }
+    return fold(this.state, () =>
+      handleFor(this.state, openThread).batchReject(
+        this.batchId,
+        data,
+        reason,
+        ctx.now,
+        idsNext(ctx),
+      ),
+    );
+  }
+  /** Open a fresh native batch with this wrapper's deadline after a flush retired the last. */
+  private reopen(): void {
+    if (this.backend === "wasm") return;
+    this.batchId = handleFor(this.state, openThread).batchBegin(this.deadlineJson);
+    this.closed = false;
   }
 }
 

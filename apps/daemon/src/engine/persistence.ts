@@ -1,5 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import { DeadlineIndex, type AgentRecord, type ThreadState, type Fact } from "@ace/core";
+import {
+  DeadlineIndex,
+  setStateField,
+  type AgentRecord,
+  type ThreadState,
+  type Fact,
+} from "@ace/core";
 import { RunId, type Item, type EventPayload } from "@ace/protocol";
 import { z } from "zod";
 import { recordSchemas } from "./snapshot.ts";
@@ -77,7 +83,7 @@ export class Snapshot {
       this.transaction,
     );
     this.own(agents);
-    state.agents = agents.values;
+    setStateField(state, "agents", agents.values);
     this.items = new Records(
       db,
       state.threadId,
@@ -90,7 +96,7 @@ export class Snapshot {
       this.transaction,
     );
     this.own(this.items);
-    state.items = this.items.values;
+    setStateField(state, "items", this.items.values);
     this.metadata = new Records(
       db,
       state.threadId,
@@ -103,41 +109,49 @@ export class Snapshot {
       this.transaction,
     );
     this.own(this.metadata);
-    state.runs = segment("runs", recordSchemas.runs, state.runs);
-    state.interactions = segment("interactions", recordSchemas.interactions, state.interactions);
-    state.tasks = segment("tasks", recordSchemas.tasks, state.tasks);
-    state.interactionHistory = segment(
+    // Every write goes through the facade, so a native state (whose handle owns its state)
+    // takes the store-backed records too.
+    setStateField(state, "runs", segment("runs", recordSchemas.runs, state.runs));
+    setStateField(
+      state,
+      "interactions",
+      segment("interactions", recordSchemas.interactions, state.interactions),
+    );
+    setStateField(state, "tasks", segment("tasks", recordSchemas.tasks, state.tasks));
+    setStateField(
+      state,
       "interactionHistory",
-      recordSchemas.interactions,
-      state.interactionHistory,
+      segment("interactionHistory", recordSchemas.interactions, state.interactionHistory),
     );
-    state.taskHistory = segment("taskHistory", recordSchemas.tasks, state.taskHistory);
-    state.itemLinks = segment("itemLinks", recordSchemas.itemLinks, state.itemLinks);
+    setStateField(
+      state,
+      "taskHistory",
+      segment("taskHistory", recordSchemas.tasks, state.taskHistory),
+    );
+    setStateField(
+      state,
+      "itemLinks",
+      segment("itemLinks", recordSchemas.itemLinks, state.itemLinks),
+    );
     const indexes = state.indexes;
-    indexes.liveTools = segment("liveTools", recordSchemas.keys, indexes.liveTools);
-    indexes.openText = segment("openText", recordSchemas.keys, indexes.openText ?? {});
-    indexes.pendingInteractions = segment(
-      "pendingInteractions",
-      recordSchemas.keys,
-      indexes.pendingInteractions,
-    );
-    indexes.runningTasks = segment("runningTasks", recordSchemas.keys, indexes.runningTasks);
-    indexes.agentKeysById = segment("agentKeysById", recordSchemas.key, indexes.agentKeysById);
-    indexes.childrenByParent = segment(
-      "childrenByParent",
-      recordSchemas.keySet,
-      indexes.childrenByParent,
-    );
-    indexes.pendingSpawnLinks = segment(
-      "pendingSpawnLinks",
-      recordSchemas.keySet,
-      indexes.pendingSpawnLinks,
-    );
-    indexes.pendingItemLinks = segment(
-      "pendingItemLinks",
-      recordSchemas.keys,
-      indexes.pendingItemLinks,
-    );
+    setStateField(state, "indexes", {
+      liveTools: segment("liveTools", recordSchemas.keys, indexes.liveTools),
+      openText: segment("openText", recordSchemas.keys, indexes.openText ?? {}),
+      pendingInteractions: segment(
+        "pendingInteractions",
+        recordSchemas.keys,
+        indexes.pendingInteractions,
+      ),
+      runningTasks: segment("runningTasks", recordSchemas.keys, indexes.runningTasks),
+      agentKeysById: segment("agentKeysById", recordSchemas.key, indexes.agentKeysById),
+      childrenByParent: segment("childrenByParent", recordSchemas.keySet, indexes.childrenByParent),
+      pendingSpawnLinks: segment(
+        "pendingSpawnLinks",
+        recordSchemas.keySet,
+        indexes.pendingSpawnLinks,
+      ),
+      pendingItemLinks: segment("pendingItemLinks", recordSchemas.keys, indexes.pendingItemLinks),
+    });
     this.state = state;
   }
   private own(records: { release(): void }): void {

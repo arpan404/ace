@@ -144,6 +144,25 @@ impl FactBatch {
         Some(())
     }
 
+    /// Reject a fact this batch cannot parse, with the same bookkeeping `apply` runs for a
+    /// rejection: the pending derivation flushes first, and the rejection is the batch's own.
+    pub fn reject(
+        &mut self,
+        state: &mut ThreadState,
+        data: &Json,
+        reason: &str,
+        ctx: &mut ApplyContext<'_>,
+        events: &mut Vec<Event>,
+    ) -> Option<()> {
+        let preceding = self.flush(state);
+        let mut rejected = Vec::new();
+        crate::diagnostics::reject_data(state, data, reason, ctx, &mut rejected)?;
+        self.preserve_signals = false;
+        events.extend(preceding);
+        events.extend(rejected);
+        Some(())
+    }
+
     /// Derive the deferred status, if any.
     pub fn flush(&mut self, state: &mut ThreadState) -> Vec<Event> {
         let Some(at) = self.pending_at.take() else {

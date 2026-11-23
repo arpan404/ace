@@ -1,4 +1,4 @@
-export { ensureNativeCoreReady as startFakeCore } from "@ace/core";
+export { startFakeCore } from "@ace/core";
 export { seedRealThreadState, legacyHandoff } from "./real-thread-state.ts";
 export { FakeDaemon } from "./daemon.ts";
 export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";

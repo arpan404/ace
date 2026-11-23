@@ -349,6 +349,56 @@ impl CoreThreadNative {
         Ok(std::mem::take(&mut self.buffer))
     }
 
+    /// Reject a fact JSON cannot carry, as part of one open batch: the batch's own deferred
+    /// status flushes first, as it does for a fact it accepts.
+    #[napi(catch_unwind)]
+    pub fn batch_reject(
+        &mut self,
+        batch_id: u32,
+        data_json: String,
+        reason: String,
+        now: f64,
+        next_id: Function<String, String>,
+    ) -> napi::Result<String> {
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let now = to_millis(now)?;
+            let data = parse_fact(&data_json)?;
+            let mut ids = NextId {
+                next: &next_id,
+                failure: None,
+            };
+            let mut ctx = ace_core::state::ApplyContext {
+                now,
+                ids: &mut ids,
+                resolving_interactions: None,
+            };
+            let mut events = Vec::new();
+            let batch = self
+                .batches
+                .get_mut(&batch_id)
+                .ok_or_else(|| CoreBindError::Contract("no batch began with this id".to_owned()))?;
+            let outcome = batch.reject(&mut self.state, &data, &reason, &mut ctx, &mut events);
+            finish_fold(ids, outcome)?;
+            Ok::<Vec<ace_core::emit::Event>, CoreBindError>(events)
+        }));
+        let events = match result {
+            Ok(Ok(events)) => events,
+            Ok(Err(error)) => return Err(error.into()),
+            Err(_) => return Err(napi::Error::from_reason("core batch reject panicked")),
+        };
+        write_response(&mut self.buffer, &self.state, &events);
+        Ok(std::mem::take(&mut self.buffer))
+    }
+
+    /// The state's own key order, for a fold that failed before answering with one.
+    #[napi(catch_unwind)]
+    pub fn fields(&self) -> Vec<String> {
+        ace_core::state_json::field_order(&self.state)
+            .into_iter()
+            .map(str::to_owned)
+            .collect()
+    }
+
     /// Read the whole thread state back as JSON, for the facade's refresh.
     #[napi(catch_unwind)]
     pub fn snapshot(&self) -> napi::Result<String> {
@@ -392,7 +442,12 @@ fn set_field(
     }
     match field {
         "threadId" => state.thread_id = decode(&value, field)?,
-        "config" => state.config = decode(&value, field)?,
+        "config" => {
+            let config: ace_core::state::CoreConfig = decode(&value, field)?;
+            ace_core::state::validate_config(&config)
+                .map_err(|error| CoreBindError::InvalidContext(error.to_string()))?;
+            state.config = config;
+        }
         "rootKey" => {
             state.root_key = decode(&value, field)?;
             state.appended("rootKey");
