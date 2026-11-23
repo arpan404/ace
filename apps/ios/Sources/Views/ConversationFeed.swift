@@ -103,7 +103,7 @@ struct ConversationFeed: View {
         // The stack for these rows (ADR 0157): chosen before they first lay out, switched only by
         // `restack`, which bumps `stackSwitches` to lay them out again in the other one.
         let _ = stackSwitches
-        let rowCount = TranscriptFeedRow.rows(shown).count
+        let rowCount = shown.screen.blockOrder.count
         let stack: TranscriptStackChoice.Stack = ready && rowCount > 0 ? anchor.stack.opened(rows: rowCount) : .lazy
         PerfCounters.bump("feed.body")
         let scroller = ScrollView {
@@ -171,7 +171,9 @@ struct ConversationFeed: View {
                 Color.clear.frame(height: barHeight + keyboardLift + AceDesign.Space.group).accessibilityHidden(true)
                     .keyboardDriftMark(.line)
                 // The end of the feed: scrolling to it puts the room above at the bottom.
-                TranscriptTail(thread: thread, following: pinned) { if !keyboardMoving && !intent.active { toEnd(proxy) } }
+                TranscriptTail(thread: thread, following: pinned, barHeight: barHeight) {
+                    if !keyboardMoving && !intent.active { toEnd(proxy) }
+                }
                 // A closing keyboard's room, below the end until the rows have moved down to it.
                 Color.clear.frame(height: CGFloat(keyboardRoom.leaving)).accessibilityHidden(true)
             }
@@ -271,7 +273,7 @@ struct ConversationFeed: View {
                 // After the follow mode above: where the scroll came to rest is held, and a
                 // correction owed while it ran is made (`TranscriptPlaceKeeper`).
                 keep(.phase(.idle), proxy: proxy)
-                restack(rows: TranscriptFeedRow.rows(shown).count, moving: false, replaced: false, proxy: proxy)
+                restack(rows: shown.screen.blockOrder.count, moving: false, replaced: false, proxy: proxy)
                 updateBehind()
                 pageIfNeeded(proxy)
             case .animating:
@@ -389,7 +391,7 @@ struct ConversationFeed: View {
                 }
                 if !loading { pageIfNeeded(proxy) }
             }
-            .onChange(of: TranscriptFeedRow.rows(shown).count) { _, count in
+            .onChange(of: shown.screen.blockOrder.count) { _, count in
                 restack(rows: count, moving: intent.active || intent.animating, replaced: false, proxy: proxy)
             }
             .onChange(of: reading.revision) { _, _ in readingRevised(proxy: proxy) }
@@ -412,8 +414,9 @@ struct ConversationFeed: View {
             .onChange(of: keyboard.moves) { _, _ in keyboardWillMove(proxy: proxy) }
             .onChange(of: keyboard.landings) { _, _ in keyboardLanded(proxy: proxy) }
             .onChange(of: barHeight) { old, new in
-                // The composer opening as it takes the keyboard moves on the keyboard's spring.
-                let motion: Animation = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : .default
+                TranscriptJumpHooks.note("bar \(Int(old))>\(Int(new))")
+                // Growing room moves the tail immediately so a new pill can't cover the last row.
+                let motion: Animation? = keyboardMoving ? AceDesign.Motion.keyboard(keyboard.duration) : (new < old ? .default : nil)
                 roomChanged(by: new - old, motion: reduceMotion ? nil : motion, proxy: proxy)
             }
     }

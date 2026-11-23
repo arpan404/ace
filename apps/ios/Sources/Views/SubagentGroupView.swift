@@ -129,17 +129,23 @@ struct AgentRow: View {
             HStack(alignment: .top, spacing: AceDesign.Space.related) {
                 ProviderMark(provider: entry.provider, size: AceDesign.Size.icon).padding(.top, AceTheme.Dimensions.border)
                 VStack(alignment: .leading, spacing: AceTheme.Dimensions.border) {
-                    HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
-                        Text(entry.title).foregroundStyle(AceTheme.Colours.foreground).lineLimit(1).layoutPriority(1)
-                        if !entry.machine.isEmpty { quiet("on \(entry.machine)") }
-                        if !entry.meta.isEmpty { quiet(entry.meta) }
-                        Spacer(minLength: AceDesign.Space.tight)
-                        HStack(spacing: AceDesign.Space.tight) {
-                            Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
-                            AgentElapsed(since: entry.since, settled: entry.elapsed)
+                    Text(entry.title)
+                        .foregroundStyle(AceTheme.Colours.foreground)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if metadata.isEmpty {
+                        status
+                    } else {
+                        ViewThatFits(in: .horizontal) {
+                            HStack(alignment: .firstTextBaseline, spacing: AceDesign.Space.related) {
+                                metadataLabel
+                                Spacer(minLength: 0)
+                                status
+                            }
+                            VStack(alignment: .leading, spacing: AceDesign.Space.tight) {
+                                metadataLabel
+                                status
+                            }
                         }
-                        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-                        .lineLimit(1).fixedSize().layoutPriority(2)
                     }
                     if !entry.detail.isEmpty {
                         HStack(spacing: AceDesign.Space.related) {
@@ -160,6 +166,7 @@ struct AgentRow: View {
             }
             .aceFont(AceTheme.Typography.label, relativeTo: .subheadline).fontWeight(AceDesign.Typeface.regular)
             .padding(.vertical, AceDesign.Space.tight + AceTheme.Dimensions.border)
+            .frame(minHeight: AceDesign.Size.tap)
         }
         .buttonStyle(TranscriptRowButtonStyle())
         .accessibilityElement(children: .combine)
@@ -168,9 +175,24 @@ struct AgentRow: View {
     }
     /// It opens its delegated thread or its own lane; one not seen yet opens the agent tree.
     private var opens: Bool { !entry.threadId.isEmpty || !entry.agentId.isEmpty }
-    private func quiet(_ text: String) -> some View {
-        Text(text).aceFont(AceTheme.Typography.caption, relativeTo: .caption)
-            .foregroundStyle(AceTheme.Colours.subtleForeground).lineLimit(1)
+    private var metadata: String {
+        [entry.machine.isEmpty ? "" : "on \(entry.machine)", entry.meta]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+    private var metadataLabel: some View {
+        Text(metadata)
+            .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+            .foregroundStyle(AceTheme.Colours.subtleForeground)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+    private var status: some View {
+        HStack(spacing: AceDesign.Space.tight) {
+            Text(entry.label).foregroundStyle(StateStyle.text(entry.token))
+            AgentElapsed(since: entry.since, settled: entry.elapsed)
+        }
+        .aceFont(AceTheme.Typography.caption, relativeTo: .caption)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

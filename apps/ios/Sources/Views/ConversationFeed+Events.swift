@@ -36,6 +36,15 @@ extension ConversationFeed {
         if !following, let top = currentTopRow() {
             viewport.noteSessionAnchor(TranscriptHeldAnchor(rowID: top.rowID, itemID: top.itemID, top: top.top))
         }
+        // Laying the rows out again in the other stack redraws every one of them. A reader away
+        // from the end never sees it: what is drawn stays frozen while the top row is put back
+        // where it was (`holdOlderPage`), then the feed thaws. This runs once a page that landed
+        // mid-fling has come to rest, so the page's own hold is long over.
+        if !following, revealed {
+            intent.olderPage = true
+            captureTop()
+            holdOlderPage()
+        }
         stackSwitches += 1
         PerfProbe.add("feed.restacks", 1)
         if following { toEnd(proxy) }
@@ -215,7 +224,20 @@ extension ConversationFeed {
         // The room has its new height in this same update, so the end is where the scroll lands,
         // starting in the same frame as the keyboard.
         settle.cancel()
+        holdEndWhileRoomGrows(by: growth)
         withAnimation(motion) { toEnd(proxy) }
+    }
+    /// A growing bar's room lands in one update, and rows above the screen may measure after it:
+    /// the bottom holds still until the content has held for two frames (`TranscriptSettle`), so
+    /// rows never move down under the reader.
+    private func holdEndWhileRoomGrows(by growth: CGFloat) {
+        guard !surface.running(.page), self.growth.roomGrowing(following: pinned, by: Double(growth)) else { return }
+        let intent = intent
+        var held = TranscriptSettle(at: CACurrentMediaTime())
+        surface.untilSettled(.page, { time in
+            let placed = TranscriptSettle.opened(following: true, fromEnd: Double(intent.metrics.bottom), restoring: false)
+            return held.frame([Double(intent.metrics.height)], placed: placed, at: time)
+        }) { _ in self.growth.windowHoldEnded() }
     }
     /// A thread opening draws its first frames short of where it opens: lazy rows correct their
     /// heights and the scroll catches up with the end. The rows stay hidden until the content's

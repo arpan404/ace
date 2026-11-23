@@ -7,26 +7,18 @@ extension EnvironmentValues {
     @Entry var markdownShelf: ViewShelf<MarkitInlineView>? = nil
 }
 
-/// Keeps one thread's rendered Markdown: a finished message scrolled back into view gets the
-/// view markit already built for it instead of building every text view again. One shelf per
-/// thread, like its published media.
-struct MarkdownShelfScope: ViewModifier {
-    let threadId: String
-    @State private var kept: Kept?
-    @MainActor private final class Kept {
-        let threadId: String
-        let shelf = ViewShelf<MarkitInlineView>(maxKept: 40)
-        init(threadId: String) { self.threadId = threadId }
-    }
+/// The shelf is available on first layout, so finished messages mount their renderer once.
+private struct MarkdownShelfScope: ViewModifier {
+    @State private var shelf = ViewShelf<MarkitInlineView>(maxKept: 40)
     func body(content: Content) -> some View {
-        content
-            .environment(\.markdownShelf, kept?.threadId == threadId ? kept?.shelf : nil)
-            .task(id: threadId) { if kept?.threadId != threadId { kept = Kept(threadId: threadId) } }
+        content.environment(\.markdownShelf, shelf)
     }
 }
 
 extension View {
-    func markdownShelf(threadId: String) -> some View { modifier(MarkdownShelfScope(threadId: threadId)) }
+    func markdownShelf(threadId: String) -> some View {
+        modifier(MarkdownShelfScope()).id(threadId)
+    }
 }
 
 /// Finished Markdown drawn by a view from the thread's shelf when it has one for this text,
