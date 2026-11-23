@@ -17,9 +17,32 @@ struct RemoteScreenState: Decodable, Identifiable {
     let secureInputAllowed: Bool?
     let target: RemoteScreenTarget
     let holder: Holder?
+    /// The thread the session was started for; unlike `holder`, it stays when the person takes
+    /// control or nobody has it.
+    let threadId: String?
     let error: String?
     var id: String { sessionId }
     var title: String { target.bundleId ?? "Display \(target.displayId ?? 0)" }
+
+    /// A bot's session (web's `botSession`): the starting or live one its thread holds now, else
+    /// the newest its thread started, so it stays shown while the person has its controls.
+    static func bot(_ states: [RemoteScreenState], threadId: String) -> RemoteScreenState? {
+        let shown = states.filter { $0.lifecycle == "starting" || $0.lifecycle == "live" }
+        return shown.first { $0.holder?.threadId == threadId } ?? shown.last { $0.threadId == threadId }
+    }
+}
+
+extension RemoteScreen {
+    /// A touch on a shared screen as computer-use input: a tap clicks; a move scrolls, or drags
+    /// when `drag` is on.
+    static func pointer(from start: CGPoint, to end: CGPoint, drag: Bool) -> [String: Any] {
+        guard hypot(end.x - start.x, end.y - start.y) > AceDesign.Space.related else {
+            return ["kind": "pointer.click", "x": start.x, "y": start.y]
+        }
+        if drag { return ["kind": "pointer.drag", "x": start.x, "y": start.y, "toX": end.x, "toY": end.y, "durationMs": 350] }
+        return ["kind": "scroll", "x": start.x, "y": start.y,
+                "dx": max(-1000, min(1000, Int(start.x - end.x))), "dy": max(-1000, min(1000, Int(start.y - end.y)))]
+    }
 }
 /// One app as computer use lists it, in the web's words (`bridge/screen-view.ts`).
 struct ScreenSessionInfo: Decodable, Identifiable, Hashable {
