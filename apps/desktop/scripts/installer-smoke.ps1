@@ -140,6 +140,8 @@ $machine = [BitConverter]::ToUInt16($exe, [BitConverter]::ToInt32($exe, 0x3c) + 
 $appArch = switch ($machine) { 0xaa64 { "arm64" } 0x8664 { "x64" } default { Fail "ace.exe has unknown machine type $machine" } }
 foreach ($file in @(
     "ace.exe", "resources\runtime\node.exe", "resources\daemon\ace.mjs", "resources\daemon\descriptor.node",
+    "resources\runtime\ace Service.exe", "resources\media\ace Media Service.exe",
+    "resources\files\ace Files Service.exe", "resources\history\ace History Service.exe",
     "resources\bin\rg.exe", "resources\helpers\ace-screen-helper-windows.exe", "resources\setup\ace-setup.mjs",
     "resources\node_modules\koffi\package.json",
     "resources\node_modules\@koromix\koffi-win32-$appArch\win32_$appArch\koffi.node")) {
