@@ -80,15 +80,6 @@ pub enum EncodeEffect {
         port: u32,
         deadline_ms: u64,
     },
-    /// Re-dial a scrcpy source's video handshake at this tunnel (a restart under the same
-    /// source, or a reopen after ace-media restarted).
-    ScrcpyDial {
-        source: String,
-        token: u64,
-        host: String,
-        port: u32,
-        deadline_ms: u64,
-    },
     /// The daemon connected a scrcpy source's control socket: its reader may read the device
     /// name and codec id now.
     ScrcpyControl { source: String, token: u64 },
@@ -140,7 +131,6 @@ impl std::fmt::Debug for EncodeEffect {
             Self::Drain { source, .. } => write!(f, "Drain({source})"),
             Self::Read { source, .. } => write!(f, "Read({source})"),
             Self::Scrcpy { source, .. } => write!(f, "Scrcpy({source})"),
-            Self::ScrcpyDial { source, .. } => write!(f, "ScrcpyDial({source})"),
             Self::ScrcpyControl { source, .. } => write!(f, "ScrcpyControl({source})"),
             Self::Close { source, .. } => write!(f, "Close({source})"),
         }

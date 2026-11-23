@@ -239,8 +239,15 @@ export async function scrcpyCapture(options: {
     ready: PromiseWithResolvers<string>;
     /** The dialled control socket, owned until it hands off to a link or fails. */
     control: Socket | undefined;
-    /** True once control connected and the reader was told; later greetings repeat it. */
+    /** True once control connected and the reader was told: that ack is this greeting's. */
     readyWaited: boolean;
+    /** The reader greeted this attempt: any end after that is the new reader's own. */
+    wasGreeted: boolean;
+    /**
+     * Armed after a dial: the reader the dial replaced may end before the new one greets,
+     * and that one end is forgiven, for this attempt only.
+     */
+    forgiveEnded: boolean;
   };
   let handshake: ScrcpyHandshake | undefined;
   /** Greeted with no handshake armed yet (a reopen greets right after its point). */
@@ -319,12 +326,14 @@ export async function scrcpyCapture(options: {
   };
   /** D1: the tunnel the current handshake runs on, for failure texts. */
   let activeTunnel: ScrcpyTunnel | undefined;
-  const armHandshake = (): ScrcpyHandshake => {
+  const armHandshake = (redialled: boolean): ScrcpyHandshake => {
     const attempt: ScrcpyHandshake = {
       greeted: Promise.withResolvers<void>(),
       ready: Promise.withResolvers<string>(),
       control: undefined,
       readyWaited: false,
+      wasGreeted: false,
+      forgiveEnded: redialled,
     };
     // Rejections always have a handler: a racing close or stop must never go unhandled.
     attempt.greeted.promise.catch(() => {});
@@ -332,35 +341,42 @@ export async function scrcpyCapture(options: {
     handshake = attempt;
     if (greetedEarly) {
       greetedEarly = false;
+      attempt.wasGreeted = true;
       attempt.greeted.resolve();
     }
     return attempt;
   };
   /** D1: close this run's tunnel and start a fresh server, tunnel and handshake under the
-   * same source (a new profile, a media restart, or a video socket that ended). */
-  const restartCurrent = (old: Link): Promise<void> =>
-    (async () => {
+   * same source (a new profile, a media restart, or a video socket that ended). It is the
+   * capture's one restart while it runs; a repoint queued meanwhile applies once it settles,
+   * whether it worked or not (the last one wins). */
+  const restart = (old: Link): Promise<void> => {
+    const run = (async () => {
       link = undefined;
       await disconnect(old);
       if (!stopped) await connect();
     })();
+    restarting = run;
+    return run.finally(() => {
+      if (restarting === run) restarting = undefined;
+      if (repointQueued) void rehandshake().catch(() => {});
+    });
+  };
   /** D1: the backend the capture runs on, fixed at its first run and reconfigured when
    * it changes mid-capture, so paths are never reused across backends. */
   let pathsD1: boolean | undefined;
   /** D1: a repoint that arrived while unusable; the next usable moment applies it. */
   let repointQueued = false;
-  /** D1: forgive the next ended that reaches a pending handshake after a dial: it names
-   * the reader the dial replaced, whose end was already on the wire. */
-  let forgiveEnded = false;
   /** D1: ace-media ended the source, mid-handshake or mid-stream. */
   const mediaClosed = (reason: string | undefined): void => {
     const pending = handshake;
     handshake = undefined;
     if (pending) {
-      // An end for the reader a redial just replaced arrives on the same wire as the
-      // fresh greeting: forgive it once and keep waiting, bounded by the deadline.
-      if (forgiveEnded) {
-        forgiveEnded = false;
+      // The reader this attempt's dial replaced can end before the new reader greets (its
+      // socket closed with the old tunnel): forgive that one end and keep waiting, bounded
+      // by the deadline. Once the new reader greeted, an end is its own.
+      if (pending.forgiveEnded && !pending.wasGreeted) {
+        pending.forgiveEnded = false;
         handshake = pending;
         return;
       }
@@ -378,16 +394,7 @@ export async function scrcpyCapture(options: {
     // settings. Unchanged settings are never worth a restart, so the capture ends.
     const wanted = profileFor(settings, transport, live.profile.scid);
     if (scrcpyRestartWorthIt(live.profile, wanted, runtime.now() - live.startedAt)) {
-      restarting = restartCurrent(live);
-      void restarting.then(
-        () => {
-          restarting = undefined;
-        },
-        (error: unknown) => {
-          restarting = undefined;
-          fail(error);
-        },
-      );
+      void restart(live).catch((error: unknown) => fail(error));
       return;
     }
     lost(
@@ -437,15 +444,27 @@ export async function scrcpyCapture(options: {
         ...(deadlineMs === undefined ? {} : { deadlineMs }),
         greeted: () => {
           const attempt = handshake;
-          if (attempt) {
-            attempt.greeted.resolve();
-            // A redial can greet again while the previous handshake still waits for
-            // ready: answer again, which is harmless if the reader already has it.
-            if (attempt.readyWaited) scrcpyPaths?.controlConnected();
-          } else greetedEarly = true;
+          if (!attempt) {
+            greetedEarly = true;
+            return;
+          }
+          if (attempt.readyWaited) {
+            // Control was connected for the video socket that greeted first: that ack is
+            // never reused for another one, so this handshake cannot finish.
+            attempt.greeted.reject(scrcpyClosedDuringStartup());
+            attempt.ready.reject(scrcpyClosedDuringStartup());
+            return;
+          }
+          attempt.wasGreeted = true;
+          attempt.greeted.resolve();
         },
         ready: (deviceName) => {
-          handshake?.ready.resolve(deviceName);
+          const attempt = handshake;
+          if (!attempt) return;
+          // Ready comes only from the newest path, so this handshake answers every repoint
+          // queued before it.
+          repointQueued = false;
+          attempt.ready.resolve(deviceName);
         },
         closed: (reason) => mediaClosed(reason),
         repointed: () => {
@@ -466,6 +485,7 @@ export async function scrcpyCapture(options: {
     port: number,
     paths: DeviceVideoPaths,
     deadline: number,
+    redialled: boolean,
   ): Promise<{ control: Socket; deviceName: string }> => {
     const remaining = () => Math.max(1, deadline - runtime.now());
     const failAt = (error: () => unknown): Promise<never> =>
@@ -481,7 +501,7 @@ export async function scrcpyCapture(options: {
         },
         () => new Promise<never>(() => {}),
       );
-    const attempt = armHandshake();
+    const attempt = armHandshake(redialled);
     // A close before ready ends the handshake the way a reset would: today's text.
     const onHandshakeClose = () => {
       if (handshake === attempt) {
@@ -512,11 +532,17 @@ export async function scrcpyCapture(options: {
               connected?.destroy();
               return new Promise<Socket>(() => {});
             }
-            options.signal?.throwIfAborted();
             if (connected === undefined)
               throw remaining() <= 1
                 ? scrcpyDidNotStart(tunnel.said())
                 : scrcpyClosedDuringStartup();
+            // Owned before anything can throw: the finally below destroys it on any failure.
+            attempt.control = connected;
+            if (options.signal?.aborted) {
+              attempt.control = undefined;
+              connected.destroy();
+              options.signal.throwIfAborted();
+            }
             return connected;
           }),
           serverExit(),
@@ -524,8 +550,7 @@ export async function scrcpyCapture(options: {
         ]),
         options.signal,
       );
-      attempt.control = socket;
-      if (socket.destroyed) throw scrcpyClosedDuringStartup();
+      if (attempt.control !== socket || socket.destroyed) throw scrcpyClosedDuringStartup();
       socket.once("close", onHandshakeClose);
       paths.controlConnected();
       attempt.readyWaited = true;
@@ -566,7 +591,7 @@ export async function scrcpyCapture(options: {
         // Unusable now: the flag stays set for the next usable moment.
         if (!live || stopped || handshake || restarting) return;
         repointQueued = false;
-        await restartCurrent(live);
+        await restart(live);
       }
     } catch (error) {
       fail(error);
@@ -666,12 +691,19 @@ export async function scrcpyCapture(options: {
         );
       }
       if (!fresh) {
-        forgiveEnded = true;
+        // A greeting from before this dial came from a reader it replaces.
+        greetedEarly = false;
         source.dial("127.0.0.1", tunnel.port);
       }
       const deadline = runtime.now() + scrcpyMediaStartupMs;
       try {
-        const { control, deviceName } = await shakeHands(tunnel, tunnel.port, source, deadline);
+        const { control, deviceName } = await shakeHands(
+          tunnel,
+          tunnel.port,
+          source,
+          deadline,
+          !fresh,
+        );
         let closingTunnel: Promise<void> | undefined;
         const started: Link = {
           connection: {
@@ -916,14 +948,11 @@ export async function scrcpyCapture(options: {
         scrcpyRestartWorthIt(current.profile, wanted, runtime.now() - current.startedAt)
       ) {
         // The server's size, rate and bitrate are fixed per run: start a fresh one.
-        restarting = restartCurrent(current);
         try {
-          await restarting;
+          await restart(current);
         } catch (error) {
           fail(error);
           throw error;
-        } finally {
-          restarting = undefined;
         }
       }
       // The capture is always H.264 (X1): agents' stills come from the device itself.

@@ -5,7 +5,8 @@
 //! name and the codec id once the daemon says control is connected, and streams units until
 //! the socket ends. Every step of the handshake is bounded by the one deadline the open
 //! carried; an end the daemon didn't ask for fails the source, so the daemon restarts the
-//! handshake under the same source.
+//! handshake under the same source. A redial (`source.dial`) never reaches a running reader:
+//! the engine closes it and starts a fresh one under a new token.
 //!
 //! A coordinator that panics fails its source on its way out, and one that stops turning
 //! its loop for [`STALL_AFTER_MS`](super::watch::STALL_AFTER_MS) (a call that never
@@ -41,8 +42,6 @@ pub enum ScrcpyEvent {
 pub(crate) enum Control {
     /// The daemon connected control: read the name and codec id now.
     Connected,
-    /// A restart under the same source (or a reopen): dial this tunnel instead.
-    Dial { host: String, port: u32 },
     /// The source closed: every unit read has gone out already, so say so at once.
     Drain,
     /// The source's reader ends.
@@ -192,55 +191,6 @@ impl ScrcpyReaders {
         }
     }
 
-    /// A restart under the same source, or a reopen: dial this tunnel instead. An endpoint
-    /// that isn't the loopback adb forward ends the source at once. A reader that is
-    /// already gone (it ended before) starts over under the same token.
-    pub fn dial(
-        &mut self,
-        token: u64,
-        source: &str,
-        host: &str,
-        port: u32,
-        deadline_ms: u64,
-        now_ms: u64,
-    ) {
-        if dial_addr(host, port).is_none() {
-            if let Some(handle) = self.threads.get(&token) {
-                let failed = (handle.source.clone(), token, Output::Failed(CLOSED.into()));
-                self.end(token, now_ms);
-                let _ = self.outputs.try_send(failed);
-            }
-            return;
-        }
-        if self.threads.contains_key(&token) {
-            if let Some(handle) = self.threads.get(&token) {
-                let _ = handle.control.send(Control::Dial {
-                    host: host.to_owned(),
-                    port,
-                });
-            }
-            self.interrupt(token);
-            return;
-        }
-        let Some(addr) = dial_addr(host, port) else {
-            return;
-        };
-        // The open's deadline still bounds a redial: a fresh handshake, not forever.
-        if !self.spawn(
-            source,
-            token,
-            addr,
-            Duration::from_millis(deadline_ms),
-            now_ms,
-        ) {
-            let _ = self.outputs.try_send((
-                source.to_owned(),
-                token,
-                Output::Failed(NOT_STARTED.into()),
-            ));
-        }
-    }
-
     /// The source closed: every unit read has gone out already, so the reader says so at once.
     pub fn drain(&mut self, token: u64) {
         if let Some(handle) = self.threads.get(&token) {
@@ -266,17 +216,6 @@ impl ScrcpyReaders {
             && let Some(socket) = held.as_ref()
         {
             let _ = socket.shutdown(Shutdown::Both);
-        }
-    }
-
-    /// Ends the thread without its message (an endpoint that was never dialled).
-    fn end(&mut self, token: u64, now_ms: u64) {
-        if let Some(handle) = self.threads.get(&token) {
-            let _ = handle.control.send(Control::Close);
-        }
-        self.interrupt(token);
-        if let Some(handle) = self.threads.remove(&token) {
-            self.closing.push((handle.thread, now_ms));
         }
     }
 

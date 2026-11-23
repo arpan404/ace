@@ -677,3 +677,53 @@ fn a_picture_sources_jpeg_with_no_encoder_running_never_reaches_its_recording() 
     assert!(failures(&effects).is_empty(), "{:?}", failures(&effects));
     assert!(written(&log).is_empty(), "{:?}", written(&log));
 }
+
+#[test]
+fn a_redial_replaces_the_scrcpy_reader_so_the_old_readers_late_end_never_ends_the_source() {
+    let mut engine = engine();
+    let readers = |effects: &[Effect]| -> Vec<(u64, u32)> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Encode(EncodeEffect::Scrcpy { token, port, .. }) => Some((*token, *port)),
+                _ => None,
+            })
+            .collect()
+    };
+    let opened = send(
+        &mut engine,
+        json!({ "type": "source.open", "source": "a1", "handle": 1, "epoch": 0,
+                "origin": { "kind": "scrcpy", "host": "127.0.0.1", "port": 5000 },
+                "deadlineMs": 10_000 }),
+        &[7; 32],
+        NOW,
+    );
+    let [(first, 5000)] = readers(&opened)[..] else {
+        panic!("the open starts one reader at its port: {opened:?}");
+    };
+    // A restart under the same source: the running reader is closed, a new one dials.
+    let dialled = send(
+        &mut engine,
+        json!({ "type": "source.dial", "source": "a1", "host": "127.0.0.1", "port": 5001 }),
+        &[],
+        NOW,
+    );
+    let [(second, 5001)] = readers(&dialled)[..] else {
+        panic!("the dial starts one reader at the new tunnel: {dialled:?}");
+    };
+    assert_ne!(first, second);
+    assert!(dialled.iter().any(|e| matches!(
+        e,
+        Effect::Encode(EncodeEffect::Close { token, .. }) if *token == first
+    )));
+    assert!(statuses(&dialled).is_empty(), "the source stays as it was");
+    // The old reader's end, already on its way when the dial came, changes nothing.
+    engine.encoder_failed("a1", first, "scrcpy-closed");
+    assert!(statuses(&engine.effects().collect::<Vec<_>>()).is_empty());
+    // The new reader's own end does end the source.
+    engine.encoder_failed("a1", second, "scrcpy-closed");
+    assert_eq!(
+        statuses(&engine.effects().collect::<Vec<_>>()),
+        [("a1".into(), Status::Ended, Some("scrcpy-closed".into()))]
+    );
+}

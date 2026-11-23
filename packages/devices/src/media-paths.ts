@@ -260,11 +260,18 @@ export class DeviceVideoPaths {
     this.#source.reconnect();
   }
 
+  /**
+   * Closes the source and turns its producer off, after any switch still in flight: closing
+   * the source never points the producer anywhere, so an ingest writer or a pending move to
+   * one would otherwise outlive the path.
+   */
   close(): void {
     if (this.#closed) return;
     this.#closed = true;
     this.#source.close();
     this.#merge.dispose();
+    const off = this.#tail.then(() => this.#options.switch(undefined));
+    this.#tail = off.catch(() => {});
   }
 
   #egress(unit: EgressUnit): void {
@@ -282,6 +289,8 @@ export class DeviceVideoPaths {
       if (this.#closed) return;
       const to = address ? address.path : offPath;
       const switched = await this.#options.switch(address);
+      // Closed meanwhile: its off switch follows this one, and nothing else moves.
+      if (this.#closed) return;
       if ((switched.ingest === "on") !== (to !== offPath))
         // It didn't move (an address it couldn't reach): nothing changes.
         throw new Error("The producer refused ace-media's ingest");

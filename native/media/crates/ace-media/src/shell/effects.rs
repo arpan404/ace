@@ -191,13 +191,6 @@ fn apply_once(
                         port,
                         deadline_ms,
                     } => scrcpy.open(&source, token, &host, port, deadline_ms, now_ms),
-                    EncodeEffect::ScrcpyDial {
-                        source,
-                        token,
-                        host,
-                        port,
-                        deadline_ms,
-                    } => scrcpy.dial(token, &source, &host, port, deadline_ms, now_ms),
                     EncodeEffect::ScrcpyControl { token, .. } => scrcpy.control_connected(token),
                     // A token is a reader's, a scrcpy reader's or an encoder's, never two.
                     EncodeEffect::Key { token, .. } if readers.has(token) => readers.key(token),

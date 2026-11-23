@@ -35,7 +35,6 @@ pub(crate) struct Coordinator {
     source: String,
     token: u64,
     addr: SocketAddr,
-    deadline: Duration,
     control: Receiver<Control>,
     outputs: mpsc::Sender<Encoded>,
     events: mpsc::Sender<(String, u64, ScrcpyEvent)>,
@@ -59,7 +58,6 @@ impl Coordinator {
             source: dial.source,
             token: dial.token,
             addr: dial.addr,
-            deadline: dial.deadline,
             control,
             outputs,
             events,
@@ -93,22 +91,23 @@ impl Coordinator {
             .is_ok()
     }
 
-    /// What control says, if anything. A dial restarts the handshake at its tunnel; anything
-    /// else ends this one.
+    /// What control says, if anything: a close or drain ends this reader.
     fn control(&mut self) -> Option<Control> {
         self.control.try_recv().ok()
     }
 
-    /// Drops the socket and starts the handshake over at `addr`, under a fresh deadline.
-    fn redial(&mut self, host: &str, port: u32) {
-        self.close_socket();
-        self.reader = VideoStreamReader::new();
-        self.units = VideoUnits::new();
-        self.phase = Phase::Connect;
-        if let Some(addr) = super::scrcpy::dial_addr(host, port) {
-            self.addr = addr;
+    /// How a read that failed ends: a queued close or drain shut the socket to interrupt
+    /// it, so that ending wins; otherwise the server went away and the reader fails at once.
+    fn interrupted(&mut self, reason: &'static str) -> Next {
+        loop {
+            match self.control() {
+                Some(Control::Close) => return Next::Closed,
+                Some(Control::Drain) => return Next::Drained,
+                // A stray connection (a reopen's, say) changes nothing.
+                Some(Control::Connected) => {}
+                None => return Next::Failed(reason),
+            }
         }
-        self.end = Instant::now() + self.deadline;
     }
 
     fn close_socket(&mut self) {
@@ -165,10 +164,6 @@ fn step(coordinator: &mut Coordinator) -> Next {
     match coordinator.control() {
         Some(Control::Close) => return Next::Closed,
         Some(Control::Drain) => return Next::Drained,
-        Some(Control::Dial { host, port }) => {
-            coordinator.redial(&host, port);
-            return Next::Again;
-        }
         Some(Control::Connected) => {
             if coordinator.phase == Phase::WaitControl {
                 coordinator.phase = Phase::Metadata;
@@ -195,10 +190,6 @@ fn rest(coordinator: &mut Coordinator) -> Next {
     match coordinator.control.recv_timeout(remaining.min(RETRY)) {
         Ok(Control::Close) => Next::Closed,
         Ok(Control::Drain) => Next::Drained,
-        Ok(Control::Dial { host, port }) => {
-            coordinator.redial(&host, port);
-            Next::Again
-        }
         // Nothing waits on control yet; stay dialling.
         Ok(Control::Connected) => Next::Again,
         Err(RecvTimeoutError::Timeout) => Next::Again,
@@ -268,10 +259,6 @@ fn wait_control(coordinator: &mut Coordinator) -> Next {
             coordinator.phase = Phase::Metadata;
             Next::Again
         }
-        Ok(Control::Dial { host, port }) => {
-            coordinator.redial(&host, port);
-            Next::Again
-        }
         Ok(Control::Close) => Next::Closed,
         Ok(Control::Drain) => Next::Drained,
         Err(_) => Next::Failed(NOT_STARTED),
@@ -320,9 +307,10 @@ fn metadata(coordinator: &mut Coordinator) -> Next {
         }
     };
     match read {
-        // The server went away mid-handshake: fail at once, not at the deadline.
-        Err(ReadError::Closed) => return Next::Failed(CLOSED),
-        Err(ReadError::TimedOut) => return Next::Failed(NOT_STARTED),
+        // A close or drain interrupts the read by shutting the socket: it wins. Otherwise
+        // the server went away mid-handshake: fail at once, not at the deadline.
+        Err(ReadError::Closed) => return coordinator.interrupted(CLOSED),
+        Err(ReadError::TimedOut) => return coordinator.interrupted(NOT_STARTED),
         Ok(()) => {}
     }
     let mut name = [0u8; DEVICE_NAME_LEN];
@@ -360,18 +348,9 @@ fn stream(coordinator: &mut Coordinator) -> Next {
         Some(socket) => socket.read(&mut chunk),
     };
     match read {
-        Ok(0) => match coordinator.control() {
-            // A shutdown (close, dial, drain) ends the read: honor control first.
-            Some(Control::Close) => Next::Closed,
-            Some(Control::Drain) => Next::Drained,
-            Some(Control::Dial { host, port }) => {
-                coordinator.redial(&host, port);
-                Next::Again
-            }
-            Some(Control::Connected) => Next::Again,
-            // The server went away mid-stream: fail at once, not at the deadline.
-            None => Next::Failed(CLOSED),
-        },
+        // A shutdown (close, drain) ends the read: control first. Otherwise the server went
+        // away mid-stream: fail at once, not at the deadline.
+        Ok(0) => coordinator.interrupted(CLOSED),
         Ok(read) => {
             let mut events = Vec::new();
             if coordinator
@@ -405,16 +384,7 @@ fn stream(coordinator: &mut Coordinator) -> Next {
         {
             Next::Again
         }
-        // A shutdown (close, dial, drain) interrupts the read: honor control first.
-        Err(_) => match coordinator.control() {
-            Some(Control::Close) => Next::Closed,
-            Some(Control::Drain) => Next::Drained,
-            Some(Control::Dial { host, port }) => {
-                coordinator.redial(&host, port);
-                Next::Again
-            }
-            Some(Control::Connected) => Next::Again,
-            None => Next::Failed(CLOSED),
-        },
+        // A shutdown (close, drain) interrupts the read: control first.
+        Err(_) => coordinator.interrupted(CLOSED),
     }
 }

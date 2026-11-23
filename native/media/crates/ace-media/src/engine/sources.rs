@@ -353,27 +353,20 @@ impl Sources {
     }
 
     /// `source.dial`: (re)dial a scrcpy source's video handshake, after a restart under the
-    /// same source or a reopen. Unknown sources stay as they are; a source whose reader
-    /// ended (its token went with it) gets a fresh one, so it stays redialable after EOF.
+    /// same source or a reopen. Unknown sources stay as they are. Every dial starts a fresh
+    /// reader under a fresh token and closes the one before: that reader's end, possibly on
+    /// its way already (the restart closed its socket), names a token the source no longer
+    /// has, so it can neither end the redialled source nor swallow the dial.
     pub fn dial(&mut self, id: &Id, host: &str, port: u32, out: &mut Vec<Effect>) {
-        let Some(target) = self
+        let Some(previous) = self
             .by_id
             .get(id.get())
             .filter(|source| source.scrcpy.is_some())
-            .and_then(|source| source.scrcpy.clone())
+            .map(|source| source.encoder)
         else {
             return;
         };
-        if let Some(token) = self.by_id.get(id.get()).and_then(|source| source.encoder) {
-            return out.push(Effect::Encode(EncodeEffect::ScrcpyDial {
-                source: id.get().to_owned(),
-                token,
-                host: host.to_owned(),
-                port,
-                deadline_ms: target.deadline_ms,
-            }));
-        }
-        if self.encoders() >= MAX_ENCODERS {
+        if previous.is_none() && self.encoders() >= MAX_ENCODERS {
             if let Some(source) = self.by_id.get_mut(id.get()) {
                 source.status = Status::Ended;
             }
@@ -382,21 +375,33 @@ impl Sources {
         }
         self.last_token += 1;
         let token = self.last_token;
-        if let Some(source) = self.by_id.get_mut(id.get()) {
-            source.encoder = Some(token);
-            source.status = Status::Starting;
-            if let Some(target) = source.scrcpy.as_mut() {
-                target.host = host.to_owned();
-                target.port = port;
+        let Some(source) = self.by_id.get_mut(id.get()) else {
+            return;
+        };
+        let Some(target) = source.scrcpy.as_mut() else {
+            return;
+        };
+        target.host = host.to_owned();
+        target.port = port;
+        let deadline_ms = target.deadline_ms;
+        source.encoder = Some(token);
+        match previous {
+            Some(previous) => out.push(Effect::Encode(EncodeEffect::Close {
+                source: id.get().to_owned(),
+                token: previous,
+            })),
+            // A reader that ended took the source with it: the redial starts it again.
+            None => {
+                source.status = Status::Starting;
+                status(out, id, Status::Starting, None, None);
             }
         }
-        status(out, id, Status::Starting, None, None);
         out.push(Effect::Encode(EncodeEffect::Scrcpy {
             source: id.get().to_owned(),
             token,
             host: host.to_owned(),
             port,
-            deadline_ms: target.deadline_ms,
+            deadline_ms,
         }));
     }
 
