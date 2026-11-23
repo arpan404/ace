@@ -62,7 +62,7 @@ export function SpadeComposer(props: {
   quote?: { text: string; onRemove(): void } | undefined;
   /** The message the person replies to (ADR 0212 §4): its strip above the field, sent with it. */
   replying?: { quote: SpadeQuote; onClear(): void } | undefined;
-  /** What sits under the capsule: a new bot's templates and its More settings. */
+  /** What sits under the capsule: a new bot's templates and how it runs. */
   below?: ReactNode;
   send(message: SpadeMessage): Promise<void>;
   /** A message the person spoke is going: its reply is read aloud. */

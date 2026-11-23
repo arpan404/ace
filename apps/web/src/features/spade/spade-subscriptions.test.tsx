@@ -51,8 +51,8 @@ const withLocalModel = (spade: FakeSpadeApi) => {
 
 async function openNewBotPicker() {
   await openNew("New bot");
-  await userEvent.click(await screen.findByRole("button", { name: "More settings" }));
-  await userEvent.click(screen.getByRole("button", { name: "Model" }));
+  // A new bot's model is at the top of its page, with how it runs.
+  await userEvent.click(await screen.findByRole("button", { name: "Model" }));
   return screen.findByRole("listbox", { name: "Models" });
 }
 
