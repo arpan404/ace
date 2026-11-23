@@ -243,6 +243,16 @@ export interface ServiceContext {
   resources: Resources;
   services: Partial<Services>;
   /**
+   * Calls `listener` with a service's current value, then again each time startup publishes,
+   * replaces or withdraws it (a dependency that recovers on a retry, say); returns how to stop.
+   * For a service that only orders itself `after` another and so may start without it. Use
+   * `followService`, which also covers a context built without startup.
+   */
+  watchService?<K extends keyof Services>(
+    key: K,
+    listener: (value: Services[K] | undefined) => void,
+  ): () => void;
+  /**
    * The daemon's maintenance gate, created before any service so engine recovery honours it
    * from the start; the server shares the same gate.
    */

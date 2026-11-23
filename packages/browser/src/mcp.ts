@@ -85,6 +85,11 @@ export interface BrowserToolPort {
   ): Promise<AgentScreenshot>;
   /** Closes the whole browser and every tab in it. */
   close(caller: BrowserCaller, signal: AbortSignal): Promise<void>;
+  /**
+   * For a browser that may be replaced (a restart): the port one tool call uses for all its
+   * steps, fixed to the browser of this moment, which refuses once that browser is replaced.
+   */
+  bind?(): BrowserToolPort;
 }
 
 /**
@@ -543,10 +548,11 @@ export function browserToolkit(
               );
             const target = browser === "user" && user ? user : port;
             try {
+              // Every step of one call goes to the same browser.
               return await tool.run(
                 args,
                 { threadId: caller.threadId, agentId: caller.agentId },
-                target,
+                target.bind ? target.bind() : target,
                 signal,
               );
             } catch (error) {

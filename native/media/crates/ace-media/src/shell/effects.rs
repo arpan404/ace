@@ -176,7 +176,9 @@ fn apply_once(
                         age_us,
                         ..
                     } => pictures.picture(token, jpeg, epoch, age_us),
-                    EncodeEffect::Read { source, token, url } => readers.open(&source, token, &url),
+                    EncodeEffect::Read { source, token, url } => {
+                        readers.open(&source, token, &url, now_ms)
+                    }
                     // A token is a reader's or an encoder's, never both.
                     EncodeEffect::Key { token, .. } if readers.has(token) => readers.key(token),
                     EncodeEffect::Key { token, encode, .. } => pictures.key(token, encode),
