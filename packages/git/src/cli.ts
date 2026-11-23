@@ -91,6 +91,14 @@ export interface Output {
   stopped?: "capture" | "budget";
 }
 
+/**
+ * A call cancelled between its awaits fails as every Git cancellation does (`git_cancelled`),
+ * never with the signal's bare AbortError.
+ */
+function throwIfCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new GitError("git_cancelled", "Git operation cancelled");
+}
+
 export class GitCli {
   private readonly protectedWorktrees = new Set<string>();
   private readonly person = new AsyncLocalStorage<"person" | "reviewer">();
@@ -430,7 +438,7 @@ export class GitCli {
     }
     await assertAvailable(cwd, this.leaseProbe);
     await this.ensureReady(cwd, options.directoryFd, options.signal);
-    options.signal?.throwIfAborted();
+    throwIfCancelled(options.signal);
     await assertAvailable(cwd, this.leaseProbe);
     try {
       return await this.execute(cwd, args, options);
@@ -447,7 +455,7 @@ export class GitCli {
         (): string[] => [],
       );
       if (!removed.includes(target)) throw error;
-      options.signal?.throwIfAborted();
+      throwIfCancelled(options.signal);
       return this.execute(cwd, args, options);
     }
   }
@@ -669,7 +677,7 @@ export class GitCli {
     if (!lookup) return settings;
     const helpers: GitCredentialHelper[] = [];
     for (const scope of ["system", "global"] as const) {
-      options.signal?.throwIfAborted();
+      throwIfCancelled(options.signal);
       helpers.push(...(await lookup(scope, options.signal)));
     }
     return { helpers, sshCommand: settings.sshCommand };
