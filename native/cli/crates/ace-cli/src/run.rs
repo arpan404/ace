@@ -13,6 +13,7 @@ use cli_out::{
 };
 use cli_parse::{NounOnly, ParseResult, Parsed, Usage, parse};
 
+use crate::commands::agent_tools;
 use crate::commands::machine;
 use crate::offline::{complete, home, run_completion, run_help, run_version};
 use crate::{commands::providers, completion, handover, help, help_json};
@@ -252,7 +253,10 @@ where
     }
     // Whoever runs it, the bundle decides what an unported command's missing arguments mean (a
     // person-only action refuses before it ever asks for one).
-    if !NATIVE_IDS.contains(&parsed.command.id) && !machine::IDS.contains(&parsed.command.id) {
+    if !NATIVE_IDS.contains(&parsed.command.id)
+        && !machine::IDS.contains(&parsed.command.id)
+        && !agent_tools::IDS.contains(&parsed.command.id)
+    {
         return hand_over(os_args, &parsed.flags, make_out, make_err);
     }
     if !parsed.missing.is_empty() {
@@ -296,6 +300,16 @@ where
         _ if crate::commands::work::IDS.contains(&parsed.command.id) => {
             with_writers(make_out, make_err, |out, err| {
                 crate::commands::work::dispatch(parsed, os_args, out, err)
+            })
+        }
+        id if agent_tools::IDS.contains(&id) => {
+            // A jq filter is compiled and run by jq itself, a remote profile names another
+            // machine's daemon: the bundle owns both, so those hand over with no writer made.
+            if parsed.flags.has("jq") || parsed.flags.has("remote") {
+                return hand_over(os_args, &parsed.flags, make_out, make_err);
+            }
+            with_writers(make_out, make_err, |out, err| {
+                agent_tools::dispatch(parsed, os_args, out, err)
             })
         }
         id if providers::IDS.contains(&id) => with_writers(make_out, make_err, |out, err| {

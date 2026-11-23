@@ -15,6 +15,7 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+base64 = "0.23"
 cli-out = { path = "../cli-out" }
 cli-parse = { path = "../cli-parse" }
 cli-table = { path = "../cli-table" }

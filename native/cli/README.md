@@ -65,6 +65,9 @@ Runs natively, talking to this machine's daemon (ADR 0221 step 4):
 - `ace storage usage|plan|clean|apply|status|compact` (and the `clean …` spellings).
   `storage clean` hands back over when a person on a terminal would be asked to confirm it;
   the bundle's prompt owns that moment.
+- `ace sim list|start|stop|ui|act|screenshot|logs`: one `cli.request` with the `sim` operation,
+  the same validation and words, and the JPEG written byte-identically. `browser` and
+  `cloud codex` keep handing over (streams, the thread store lease and the spawned `codex` CLI).
 
 Still hands over: `ace daemon start` and `ace daemon serve` (they run the daemon), `ace daemon
 stop` (its shutdown proof lives in the daemon's process evidence), every `service` command (the
@@ -140,6 +143,7 @@ metadata); `cargo-bloat` keeps symbols and so inflates the file, so measure size
 | `url` 2 (no defaults) | WHATWG URL parsing for stored profile origins and relays, matching `new URL()` in the TypeScript schema | ~0 KiB, already linked through `cli-wire` |
 | `chrono` 0.4 (`alloc`, `clock`, `std`) | Machine-local timestamps for daemon log lines, formatted as the TypeScript formats them | 21.3 KiB |
 | `ctrlc` 3.5 | Ctrl+C handling: stopping the `tail` child in `daemon logs --follow`, and the Windows hand-over | 264 B on macOS and Linux (plus 272 B `nix`); Windows as before |
+| `base64` 0.23 | Standard base64 decoding for `ace sim screenshot`'s JPEG (`Buffer.from(base64, "base64")`) | ~0 KiB, already linked through `ureq` |
 
 `serde` and `serde_json` are also `cli-table`'s build dependencies: the table is parsed once at
 build time, never at run time. `serde_json`'s `raw_value` feature (no new crate) lets `--json`
