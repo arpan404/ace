@@ -215,6 +215,13 @@ const MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE endpoints ADD COLUMN sign_in TEXT;",
         backfill: None,
     },
+    Migration {
+        // ADR 0214: an endpoint id, once removed, is never given out again, so an account's id
+        // names one account for good. A new table only: nothing is rewritten.
+        sql: "CREATE TABLE retired_endpoints (id TEXT PRIMARY KEY, retired_ms INTEGER NOT NULL)
+              WITHOUT ROWID;",
+        backfill: None,
+    },
 ];
 
 /// The schema version this build brings a database up to.

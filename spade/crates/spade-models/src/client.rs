@@ -20,7 +20,7 @@ use crate::effort::{self, Refusals, Sent};
 use crate::error::{self, ModelError};
 use crate::listing::{self, ListBounds, Listed};
 use crate::prompt::{Delta, Generated, Message, Prompt, Reply, ToolCall, Usage};
-use crate::signed::{Bearers, Signed};
+use crate::signed::{Bearers, DispatchGuard, Signed};
 use crate::{failure, thoughts, typed};
 use spade_keys::{KeyRequest, Keys};
 
@@ -56,6 +56,8 @@ struct Call {
     streamed_only: bool,
     /// For a signed-in account: it, and the credential this call carries.
     signed: Option<Signed>,
+    /// For a signed-in account: leave to send, held until the request is on the wire.
+    held: Option<DispatchGuard>,
 }
 
 /// A model resolved once for every try of one call (ADR 0213): a try that drops the effort goes
@@ -100,6 +102,7 @@ impl Resolved {
             options,
             streamed_only: self.streamed_only,
             signed: self.signed.clone(),
+            held: None,
         }
     }
 }
@@ -300,10 +303,11 @@ impl Models {
         let mut refusal: Option<ModelError> = None;
         let mut refreshed = false;
         loop {
+            let mut call = resolved.call(send);
             if let Some(signed) = &resolved.signed {
-                self.still_current(signed)?;
+                call.held = Some(self.dispatch(signed).await?);
             }
-            match once(resolved.call(send)).await {
+            match once(call).await {
                 Ok(answered) => {
                     if refusal.is_some() {
                         self.refusals.remember(&resolved.key, send);
@@ -316,6 +320,10 @@ impl Models {
                     };
                     refreshed = true;
                     let credential = self.after_rejection(&signed).await?;
+                    // The same token again would be the same request: the 401 stands.
+                    if credential.token == signed.credential.token {
+                        return Err(error);
+                    }
                     resolved.target.auth = AuthData::from_single(credential.token.clone());
                     resolved.signed = Some(Signed {
                         credential,
@@ -332,6 +340,8 @@ impl Models {
                         None => return Err(first),
                     }
                 }
+                // A failure that may have been billed is the answer, whatever came before it.
+                Err(error) if error.may_have_billed() => return Err(error),
                 // Anything else (a rate limit, an outage) says nothing about the setting.
                 Err(error) => return Err(refusal.unwrap_or(error)),
             }
@@ -450,8 +460,13 @@ impl Models {
         prompt: &Prompt,
         format: Option<genai::chat::ChatResponseFormat>,
     ) -> Result<Deltas, ModelError> {
+        let mut call = call;
+        // Held until the first item: by then the request is on the wire.
+        let held = call.held.take();
         let mut stream = Box::pin(self.open_stream(call, prompt, format).await?);
-        match stream.next().await {
+        let first = stream.next().await;
+        drop(held);
+        match first {
             Some(Err(error)) => Err(error),
             first => Ok(Box::pin(futures_util::stream::iter(first).chain(stream))),
         }

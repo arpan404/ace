@@ -493,7 +493,13 @@ fn endpoints_models_and_settings_are_kept_and_never_hold_a_key() -> Result<()> {
     assert_eq!(store.setting("fast_model")?, Some("go/kimi".into()));
     store.set_setting("fast_model", None)?;
     assert_eq!(store.setting("fast_model")?, None);
-    assert!(store.delete_endpoint("go")?);
+    assert!(store.delete_endpoint("go", 9)?);
+    // Its id is retired for good: nothing takes it again.
+    assert!(store.endpoint_retired("go")?);
+    assert!(matches!(
+        store.insert_endpoint(&endpoint),
+        Err(crate::StoreError::Exists(_))
+    ));
     assert!(store.endpoints()?.is_empty());
     Ok(())
 }
@@ -523,12 +529,12 @@ fn initials_avatars_become_faces_seeded_by_the_agent_and_pictures_stay() -> Resu
                  ALTER TABLE spend DROP COLUMN role; DROP TABLE digests;
                  DROP TABLE knowledge_links; DROP TABLE knowledge_search; DROP TABLE knowledge;
                  DROP TABLE episodes_search; DROP TABLE episodes;
-                 ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
+                 DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;",
         )?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 16,
+            crate::schema::current_version() as i64 - 17,
         )?;
     }
     let store = Store::open(&path)?;
@@ -638,11 +644,11 @@ fn spending_caps_an_earlier_build_stored_are_dropped_and_the_review_switch_kept(
     {
         let connection = crate::Store::connect(&path)?;
         connection
-            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
+            .execute_batch("ALTER TABLE agents DROP COLUMN personality; ALTER TABLE notes DROP COLUMN origin; ALTER TABLE knowledge DROP COLUMN origin; DROP TABLE retired_endpoints; ALTER TABLE endpoints DROP COLUMN sign_in; DROP TABLE outside_outcomes; DROP TABLE org_audit_checkpoints; DROP TABLE org_audit; DROP TABLE cases; DROP TABLE moves; DROP TABLE move_claims; DROP TABLE move_rows; DROP TABLE move_files;")?;
         connection.pragma_update(
             None,
             "user_version",
-            crate::schema::current_version() as i64 - 7,
+            crate::schema::current_version() as i64 - 8,
         )?;
     }
     let store = Store::open(&path)?;

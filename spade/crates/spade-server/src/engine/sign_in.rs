@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Weak};
 
 use spade_chatgpt::{BearerError, FlowView, Flows, Method, SignedIn};
-use spade_models::{Bearers, Credential};
+use spade_models::{Bearers, Credential, DispatchGuard};
 use spade_store::{StoreError, StoredEndpoint, StoredModel, StoredSignIn};
 
 use super::{EndpointError, EndpointView, Engine};
@@ -72,7 +72,16 @@ impl Engine {
                     answer(engine, id, got)
                 })
             },
-            move |id, generation| current_accounts.is_current(id, generation),
+            move |id, generation| {
+                let accounts = current_accounts.clone();
+                Box::pin(async move {
+                    accounts
+                        .dispatching(&id, generation)
+                        .await
+                        .map(|leave| Box::new(leave) as DispatchGuard)
+                        .map_err(|e| e.to_string())
+                })
+            },
         ));
     }
 
@@ -250,14 +259,18 @@ impl Engine {
             signed_in: true,
         };
         let (id, added) = self.reserve_sign_in(wanted.as_deref(), &done, &accounts)?;
+        // From here to the commit below, this sign-in holds its reservation: the row under an
+        // id no other account ever had or will have, so whatever happens to it, the cleanup
+        // touches only what this sign-in made.
         if let Err(error) = accounts.keep(&id, &done.tokens).await {
             if added {
                 let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
-                let _ = self.store.delete_endpoint(&id);
+                let _ = self.store.delete_endpoint(&id, self.now_ms());
                 let _ = self.sync_endpoints();
             }
             return Err(error.to_string());
         }
+        flows.after_keep(&id).await;
         let kept = {
             let _endpoints = self.endpoint_lock.lock().unwrap_or_else(|p| p.into_inner());
             match self
@@ -322,13 +335,10 @@ impl Engine {
         if let Some(row) = endpoints.iter().find(|e| same(e) && !self.retiring(&e.id)) {
             return Ok((row.id.clone(), false));
         }
-        let id = self.free_sign_in_id(&endpoints);
+        let id = self.fresh_sign_in_id(&endpoints)?;
         // Named for the provider, never the email: the name shows to every caller, the email only
         // to the person.
-        let name = match id.strip_prefix(CHATGPT).and_then(|n| n.strip_prefix('-')) {
-            Some(n) => format!("ChatGPT {n}"),
-            None => "ChatGPT".to_owned(),
-        };
+        let name = sign_in_name(&endpoints);
         let row = StoredEndpoint {
             id: id.clone(),
             name,
@@ -377,18 +387,43 @@ impl Engine {
         let _ = self.sync_endpoints();
     }
 
-    /// `chatgpt`, else `chatgpt-2` and on: free in the database and not being removed.
-    fn free_sign_in_id(&self, endpoints: &[StoredEndpoint]) -> String {
+    /// A new account's id: `chatgpt-<8 characters>`, never one any endpoint has or ever had
+    /// (removed ids are retired for good), so a sign-in, its tokens and every call on it name
+    /// one account only.
+    fn fresh_sign_in_id(&self, endpoints: &[StoredEndpoint]) -> Result<String, String> {
         let taken: HashSet<&str> = endpoints.iter().map(|e| e.id.as_str()).collect();
-        (1..)
-            .map(|n| {
-                if n == 1 {
-                    CHATGPT.to_owned()
-                } else {
-                    format!("{CHATGPT}-{n}")
-                }
-            })
-            .find(|id| !taken.contains(id.as_str()) && !self.retiring(id))
-            .unwrap_or_else(|| CHATGPT.to_owned())
+        for _ in 0..16 {
+            let unique = self.ids.next("");
+            let tail: String = unique
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .collect::<String>()
+                .to_ascii_lowercase();
+            let short = &tail[tail.len().saturating_sub(8)..];
+            let id = format!("{CHATGPT}-{short}");
+            let retired = self
+                .store
+                .endpoint_retired(&id)
+                .map_err(|e| e.to_string())?;
+            if !taken.contains(id.as_str()) && !retired && !self.retiring(&id) {
+                return Ok(id);
+            }
+        }
+        Err("no free account id; try again".to_owned())
     }
+}
+
+/// A new ChatGPT account's name: `ChatGPT`, else `ChatGPT 2` and on, the first not shown already.
+fn sign_in_name(endpoints: &[StoredEndpoint]) -> String {
+    let names: HashSet<&str> = endpoints.iter().map(|e| e.name.as_str()).collect();
+    (1..)
+        .map(|n| {
+            if n == 1 {
+                "ChatGPT".to_owned()
+            } else {
+                format!("ChatGPT {n}")
+            }
+        })
+        .find(|name| !names.contains(name.as_str()))
+        .unwrap_or_else(|| "ChatGPT".to_owned())
 }

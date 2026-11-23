@@ -31,11 +31,13 @@ clients do, rather than only through the Codex CLI.
    sign-in (below).
 2. **The reference names the account.** A model reference stays `<account>/<model>`, where
    `<account>` is the endpoint id: unique across every provider, picked when the account is added
-   (a slug of its name, `-2` and on when taken) and never changed after. Renaming an account
-   changes only the name people see. So every reference stored before this
+   (a slug of its name, `-2` and on when taken) and never changed after. An id is never reused:
+   once its endpoint is removed it is retired for good, so an id names one account, and its
+   credentials, sign-ins and calls, for as long as Spade runs. Renaming an account changes only
+   the name people see. So every reference stored before this
    (`opencode-go/deepseek-v4.1-flash`, a bot's model, a role's model, a default) reads as it did,
    with no migration and no rewrite of history (ADR 0170). A ChatGPT sign-in account's id is
-   `chatgpt`, then `chatgpt-2` and on. Subscriptions through a CLI keep
+   `chatgpt-` and eight characters, shown as `ChatGPT`, `ChatGPT 2` and on. Subscriptions through a CLI keep
    `cli:<provider>@<account>/<model>` (ADR 0133) unchanged; those accounts stay ace's
    (ADR 0018, 0138) and Spade does not copy them.
 3. **Spade signs in to OpenAI.** Spade runs OpenAI's sign-in for ChatGPT accounts itself: a

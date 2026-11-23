@@ -339,8 +339,10 @@ carries the key.
 - `used_by`: names of the bots whose model is on it, in name order.
 
 and the answer has `sign_in: ["chatgpt"]`, the sign-ins this Spade can run. The account id is the
-reference's first part (`work/gpt-5.5`, `chatgpt-2/gpt-5.5`): unique across providers and never
-changed; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
+reference's first part (`work/gpt-5.5`, `chatgpt-k3f9a2c1/gpt-5.5`): unique across providers and
+never changed, and never reused: a removed endpoint's id is retired for good (`retired_endpoints`),
+so no later endpoint, sign-in, credential or call can take it. A ChatGPT account's id is `chatgpt-`
+and eight characters; `PATCH /v1/endpoints/{id} {name}` renames only what people see. A `chatgpt` account
 takes only a new name: any other change is refused (`400`), so its token never goes anywhere but
 where it was issued for. The model client also sends a sign-in's token only to the ChatGPT
 backend's origin, whatever address an account says. A second account from a
@@ -374,7 +376,13 @@ for every signed-in account: no email, plan or sign-in state. The stamp covers t
 target `accounts` (starting, reading and cancelling sign-ins, and `GET /v1/models`) or
 `account:<id>`, and value `<METHOD> <path and query>:<SHA-256 of the body, hex>`, so it holds for
 that request and no other. A new ChatGPT account is named `ChatGPT`, then `ChatGPT 2` and on,
-never its email.
+never its email; an older account named after its email shows to other callers as `ChatGPT`.
+A send on a signed-in account holds the account's dispatch gate until the request is on the wire:
+a sign-out, removal or new sign-in waits for those sends, and none under the old credential starts
+after. The model SDK's own diagnostics are never logged, whatever `RUST_LOG` says: they carry
+failed calls' response bodies. A usage line never names the plan. Only a connection never made
+counts as unsent; any other transport failure may have been billed and is never sent again, and
+a failure that may have been billed is the answer even after a refused effort.
 
 `POST /v1/endpoints/{id}/sign-out` deletes a `chatgpt` account's tokens from the keychain and
 answers `200 {endpoint}` with `signed_in: false`; the account and its bots stay. `DELETE

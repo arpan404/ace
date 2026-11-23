@@ -145,6 +145,11 @@ impl FakeSignIn {
         self.seen.refresh_down.store(true, Ordering::SeqCst);
     }
 
+    /// Refreshes are answered again.
+    pub fn refresh_up(&self) {
+        self.seen.refresh_down.store(false, Ordering::SeqCst);
+    }
+
     /// Refresh requests received so far, answered or not.
     pub fn refresh_attempts(&self) -> usize {
         self.seen.refresh_attempts.load(Ordering::SeqCst)
@@ -259,6 +264,10 @@ async fn token(State(seen): State<Arc<Seen>>, headers: HeaderMap, body: String) 
     };
     let refresh = asked["refresh_token"].as_str().unwrap_or("").to_owned();
     seen.refresh_attempts.fetch_add(1, Ordering::SeqCst);
+    let hold = seen.refresh_hold_ms.load(Ordering::SeqCst);
+    if hold > 0 {
+        tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
+    }
     if seen.refresh_down.load(Ordering::SeqCst) {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     }
@@ -273,10 +282,6 @@ async fn token(State(seen): State<Arc<Seen>>, headers: HeaderMap, body: String) 
             Json(json!({ "error": { "code": "refresh_token_reused" } })),
         )
             .into_response();
-    }
-    let hold = seen.refresh_hold_ms.load(Ordering::SeqCst);
-    if hold > 0 {
-        tokio::time::sleep(std::time::Duration::from_millis(hold)).await;
     }
     let mut refreshes = seen.refreshes.lock().unwrap_or_else(|p| p.into_inner());
     refreshes.push(refresh);

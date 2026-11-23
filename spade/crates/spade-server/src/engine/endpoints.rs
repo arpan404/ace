@@ -356,6 +356,7 @@ impl Engine {
                 if taken.contains(&candidate)
                     || skip.contains(&candidate)
                     || self.retiring(&candidate)
+                    || self.store.endpoint_retired(&candidate)?
                 {
                     continue;
                 }
@@ -571,7 +572,7 @@ impl Engine {
         {
             self.store.set_setting(FAST_MODEL, None)?;
         }
-        self.store.delete_endpoint(id)?;
+        self.store.delete_endpoint(id, self.now_ms())?;
         self.listed
             .lock()
             .unwrap_or_else(|p| p.into_inner())

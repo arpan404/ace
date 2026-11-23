@@ -552,19 +552,56 @@ async fn a_call_from_before_a_sign_out_and_a_new_sign_in_never_gets_the_new_cred
 }
 
 #[tokio::test]
-async fn a_refresh_that_failed_is_shared_with_every_call_reporting_the_same_token() -> Result {
+async fn a_failed_refresh_is_shared_only_with_calls_already_waiting_and_a_later_one_retries()
+-> Result {
     let s = setup().await?;
     let accounts = s.flows.accounts().clone();
     accounts.keep("chatgpt", &signed(&s.fake)).await?;
     let held = accounts.current_bearer("chatgpt").await?;
     s.fake.refresh_down();
-    for _ in 0..3 {
-        let again = accounts
-            .bearer_after_rejection("chatgpt", &held.token, held.generation)
-            .await;
-        assert!(matches!(again, Err(BearerError::Failed(_))), "{again:?}");
+    s.fake.hold_refreshes(Duration::from_millis(300));
+    // Three calls report the same token while one refresh runs: one attempt for all of them.
+    let report = || accounts.bearer_after_rejection("chatgpt", &held.token, held.generation);
+    let (a, b, c) = tokio::join!(report(), report(), report());
+    for got in [a, b, c] {
+        assert!(matches!(got, Err(BearerError::Failed(_))), "{got:?}");
     }
     assert_eq!(s.fake.refresh_attempts(), 1);
+    // A report after that failure tries again, and recovers once the server does.
+    s.fake.refresh_up();
+    let later = report().await?;
+    assert_ne!(later.token, held.token);
+    assert_eq!(s.fake.refresh_attempts(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_sign_out_waits_for_a_send_under_way_and_no_send_starts_after_it() -> Result {
+    let s = setup().await?;
+    let accounts = s.flows.accounts().clone();
+    accounts.keep("chatgpt", &signed(&s.fake)).await?;
+    let held = accounts.current_bearer("chatgpt").await?;
+    let sending = accounts.dispatching("chatgpt", held.generation).await?;
+    let signing_out = {
+        let accounts = accounts.clone();
+        tokio::spawn(async move { accounts.forget("chatgpt").await })
+    };
+    for _ in 0..50 {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !signing_out.is_finished(),
+        "the sign-out overtook a send on the wire"
+    );
+    drop(sending);
+    signing_out.await??;
+    assert!(
+        accounts
+            .dispatching("chatgpt", held.generation)
+            .await
+            .is_err(),
+        "a send under the old credential started after the sign-out"
+    );
     Ok(())
 }
 

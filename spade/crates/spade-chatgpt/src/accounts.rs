@@ -3,6 +3,7 @@
 //! refresh per account at a time, so a refresh token is never sent twice.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use spade_keys::KeyStore;
@@ -54,10 +55,22 @@ struct Parts {
     /// The last refresh that failed for each account: its generation, the token it was to
     /// replace and why, shared with every call that reports the same token.
     failed: Arc<Mutex<HashMap<String, FailedRefresh>>>,
+    /// Counts reports of refused tokens, so a failed refresh is shared only with the calls that
+    /// were already waiting on it.
+    arrivals: Arc<AtomicU64>,
+    /// Each account's dispatch gate: a send holds it shared until its request is on the wire; a
+    /// new generation takes it alone, so it starts only once those sends are out, and no send
+    /// under the old generation goes after.
+    gates: Arc<Mutex<HashMap<String, Arc<tokio::sync::RwLock<()>>>>>,
 }
 
-/// A refresh that failed: the generation and token it was for, and why.
-type FailedRefresh = (u64, String, String);
+/// A send under way on a signed-in account: while it is held, the account's credential can't
+/// change; drop it once the request is on the wire.
+pub struct Dispatch(#[allow(dead_code)] tokio::sync::OwnedRwLockReadGuard<()>);
+
+/// A refresh that failed: the generation and token it was for, why, and the last report it
+/// answers (reports that came later try again).
+type FailedRefresh = (u64, String, String, u64);
 
 /// An access token with the generation of the credential it belongs to.
 #[derive(Clone, PartialEq, Eq)]
@@ -92,6 +105,8 @@ impl Accounts {
                 clock,
                 generations: Arc::default(),
                 failed: Arc::default(),
+                arrivals: Arc::default(),
+                gates: Arc::default(),
             },
             held: Mutex::default(),
         })
@@ -159,12 +174,14 @@ impl Accounts {
         rejected: &str,
         generation: u64,
     ) -> Result<Bearer, BearerError> {
+        let arrived = self.parts.arrivals.fetch_add(1, Ordering::SeqCst) + 1;
         match self
             .locked(
                 account,
                 Op::Rejected {
                     token: rejected.to_owned(),
                     generation,
+                    arrived,
                 },
             )
             .await?
@@ -178,6 +195,21 @@ impl Accounts {
     /// refused refresh since.
     pub fn is_current(&self, account: &str, generation: u64) -> bool {
         self.parts.generation(account) == generation
+    }
+
+    /// Leave to send a request with a token of `generation`: refused once that generation is
+    /// over. Hold it until the request is on the wire; a sign-out, removal or new sign-in waits
+    /// for every send holding it, and none under the old generation starts after.
+    pub async fn dispatching(
+        &self,
+        account: &str,
+        generation: u64,
+    ) -> Result<Dispatch, BearerError> {
+        let guard = self.parts.gate(account).read_owned().await;
+        if self.parts.generation(account) != generation {
+            return Err(BearerError::Failed(CHANGED.to_owned()));
+        }
+        Ok(Dispatch(guard))
     }
 
     /// Keeps a sign-in's tokens for `account`, replacing any earlier ones.
@@ -202,6 +234,8 @@ impl Accounts {
         let slot = self.slot(account);
         let mut held = slot.blocking_lock();
         *held = None;
+        let gate = self.parts.gate(account);
+        let _alone = gate.blocking_write();
         self.parts.bump(account);
         match &self.parts.keys {
             Some(keys) => keys
@@ -220,6 +254,7 @@ enum Op {
     Rejected {
         token: String,
         generation: u64,
+        arrived: u64,
     },
     Keep(Tokens),
     Forget,
@@ -241,7 +276,24 @@ impl Parts {
             .unwrap_or(0)
     }
 
+    fn gate(&self, account: &str) -> Arc<tokio::sync::RwLock<()>> {
+        self.gates
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(account.to_owned())
+            .or_default()
+            .clone()
+    }
+
+    /// [`Parts::bump`] once every send under way is out.
+    async fn next_generation(&self, account: &str) {
+        let gate = self.gate(account);
+        let _alone = gate.write().await;
+        self.bump(account);
+    }
+
     /// A new generation for `account`: every token held under the old one stops being sent.
+    /// Only with the account's gate held alone.
     fn bump(&self, account: &str) {
         *self
             .generations
@@ -264,7 +316,11 @@ impl Parts {
                     generation: self.generation(id),
                 }))
             }
-            Op::Rejected { token, generation } => {
+            Op::Rejected {
+                token,
+                generation,
+                arrived,
+            } => {
                 if self.generation(id) != generation {
                     return Err(BearerError::Failed(CHANGED.to_owned()));
                 }
@@ -273,8 +329,10 @@ impl Parts {
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .get(id)
-                    .filter(|(g, t, _)| *g == generation && *t == token)
-                    .map(|(_, _, line)| line.clone());
+                    .filter(|(g, t, _, covers)| {
+                        *g == generation && *t == token && arrived <= *covers
+                    })
+                    .map(|(_, _, line, _)| line.clone());
                 if let Some(line) = shared {
                     return Err(BearerError::Failed(line));
                 }
@@ -287,7 +345,15 @@ impl Parts {
                         self.failed
                             .lock()
                             .unwrap_or_else(|p| p.into_inner())
-                            .insert(id.to_owned(), (generation, token, line.clone()));
+                            .insert(
+                                id.to_owned(),
+                                (
+                                    generation,
+                                    token,
+                                    line.clone(),
+                                    self.arrivals.load(Ordering::SeqCst),
+                                ),
+                            );
                         Err(BearerError::Failed(line))
                     }
                     Err(other) => Err(other),
@@ -301,12 +367,12 @@ impl Parts {
                     access: tokens.access_token,
                     refresh: tokens.refresh_token,
                 });
-                self.bump(id);
+                self.next_generation(id).await;
                 Ok(Done::Kept)
             }
             Op::Forget => {
                 *held = None;
-                self.bump(id);
+                self.next_generation(id).await;
                 self.erase(id).await.map(Done::Forgot)
             }
         }
@@ -346,7 +412,7 @@ impl Parts {
             Err(OauthError::Refused(line)) => {
                 // The tokens are no good: they go, and the person signs in again.
                 *held = None;
-                self.bump(account);
+                self.next_generation(account).await;
                 self.erase(account).await?;
                 Err(BearerError::SignedOut(line))
             }

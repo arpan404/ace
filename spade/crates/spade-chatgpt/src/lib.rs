@@ -12,9 +12,9 @@ pub mod oauth;
 use std::sync::Arc;
 use std::time::Duration;
 
-pub use accounts::{Accounts, Bearer, BearerError};
+pub use accounts::{Accounts, Bearer, BearerError, Dispatch};
 pub use claims::Account;
-pub use flows::{Finish, FlowView, Flows, Method, SignedIn};
+pub use flows::{AfterKeep, Finish, FlowView, Flows, Method, SignedIn};
 pub use oauth::Tokens;
 
 /// The current time in Unix seconds: the system's in Spade, fixed in tests.

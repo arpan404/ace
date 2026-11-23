@@ -31,18 +31,25 @@ pub type BearerFuture = Pin<Box<dyn Future<Output = Result<Credential, String>> 
 
 type Find = dyn Fn(String) -> BearerFuture + Send + Sync;
 type Rejected = dyn Fn(String, Credential) -> BearerFuture + Send + Sync;
-type Current = dyn Fn(&str, u64) -> bool + Send + Sync;
+type Dispatcher = dyn Fn(String, u64) -> DispatchFuture + Send + Sync;
+
+/// Leave to send under a credential, held until the request is on the wire.
+pub type DispatchGuard = Box<dyn std::any::Any + Send>;
+
+/// What a dispatch answers: the leave, or why the credential may not be sent any more.
+pub type DispatchFuture = Pin<Box<dyn Future<Output = Result<DispatchGuard, String>> + Send>>;
 
 /// Signed-in accounts' credentials, by account (endpoint) id: `find` one (refreshed when about to
 /// end), a new one after the backend `rejected` one (refreshed once however many calls report
-/// it, and never another sign-in's), and whether a generation is `current`. Only for calls to
+/// it, and never another sign-in's), and leave to `dispatch` a request under a generation, held
+/// until it is on the wire, so a sign-out never overtakes a send. Only for calls to
 /// `backend`'s origin. Tokens are never printed.
 #[derive(Clone)]
 pub struct Bearers {
     backend: String,
     find: Arc<Find>,
     rejected: Arc<Rejected>,
-    current: Arc<Current>,
+    dispatch: Arc<Dispatcher>,
 }
 
 impl Bearers {
@@ -50,13 +57,13 @@ impl Bearers {
         backend: impl Into<String>,
         find: impl Fn(String) -> BearerFuture + Send + Sync + 'static,
         rejected: impl Fn(String, Credential) -> BearerFuture + Send + Sync + 'static,
-        current: impl Fn(&str, u64) -> bool + Send + Sync + 'static,
+        dispatch: impl Fn(String, u64) -> DispatchFuture + Send + Sync + 'static,
     ) -> Self {
         Self {
             backend: backend.into(),
             find: Arc::new(find),
             rejected: Arc::new(rejected),
-            current: Arc::new(current),
+            dispatch: Arc::new(dispatch),
         }
     }
 }
@@ -120,14 +127,13 @@ impl Models {
             .map_err(|message| refuse(&signed.endpoint, &message))
     }
 
-    /// Checked before every send: the credential is still its account's.
-    pub(crate) fn still_current(&self, signed: &Signed) -> Result<(), ModelError> {
+    /// Taken before every send and held until the request is on the wire: the credential is
+    /// still its account's, and stays so until the guard goes.
+    pub(crate) async fn dispatch(&self, signed: &Signed) -> Result<DispatchGuard, ModelError> {
         let bearers = self.bearers_for(&signed.endpoint)?;
-        if (bearers.current)(&signed.endpoint.id, signed.credential.generation) {
-            Ok(())
-        } else {
-            Err(refuse(&signed.endpoint, CHANGED))
-        }
+        (bearers.dispatch)(signed.endpoint.id.clone(), signed.credential.generation)
+            .await
+            .map_err(|_| refuse(&signed.endpoint, CHANGED))
     }
 
     /// A signed-in account's own model list. A `401` gets one new credential from the account's
@@ -153,7 +159,9 @@ impl Models {
         asking.headers.extend(chatgpt::headers(account_id, None));
         let mut refreshed = false;
         loop {
-            self.still_current(&signed)
+            let _sending = self
+                .dispatch(&signed)
+                .await
                 .map_err(|e| listing_error(e.to_string()))?;
             let failure = match listing::fetch(
                 &self.http,
@@ -167,13 +175,18 @@ impl Models {
                 Ok(listed) => return Ok(listed),
                 Err(failure) => failure,
             };
+            drop(_sending);
             if failure.status == Some(401) && !refreshed {
                 refreshed = true;
-                signed.credential = self
+                let fresh = self
                     .after_rejection(&signed)
                     .await
                     .map_err(|e| listing_error(e.to_string()))?;
-                continue;
+                // The same token again would be the same request: the 401 stands.
+                if fresh.token != signed.credential.token {
+                    signed.credential = fresh;
+                    continue;
+                }
             }
             return Err(listing_error(match failure.status {
                 Some(status) => format!("the ChatGPT backend refused the model list ({status})"),

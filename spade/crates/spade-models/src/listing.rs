@@ -100,6 +100,10 @@ async fn fetch_noting(
         .await
         .map_err(|e| scrub(format!("could not reach the endpoint: {}", reason(&e))))?;
     let status = response.status();
+    // Noted before the body is read: a refusal cut short or too large is still that refusal.
+    if !status.is_success() {
+        *refused = Some(status.as_u16());
+    }
     if status.is_redirection() {
         return Err(format!(
             "the endpoint redirected ({}); Spade does not follow redirects with your key, so set the \
@@ -129,7 +133,6 @@ async fn fetch_noting(
         }
     }
     if !status.is_success() {
-        *refused = Some(status.as_u16());
         let detail = message_in(&body).map_or_else(String::new, |m| format!(": {m}"));
         return Err(scrub(format!(
             "the endpoint answered {}{detail}",

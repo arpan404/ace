@@ -129,9 +129,20 @@ fn endpoint_json(
             .flatten()
             .map(|f| json!({ "name": f.name, "passed": f.passed, "cases": f.cases, "checked": f.checked }))
     };
+    // An account an older build named after its email shows to anyone but the person as the
+    // provider's name only.
+    let name = match &e.sign_in {
+        Some(s)
+            if standing != Standing::Person
+                && (e.name.contains('@') || s.email.as_deref() == Some(e.name.as_str())) =>
+        {
+            "ChatGPT"
+        }
+        _ => e.name.as_str(),
+    };
     json!({
         "id": e.id,
-        "name": e.name,
+        "name": name,
         "format": e.format,
         "base_url": e.base_url,
         // On this computer: offered before any other (ADR 0205 §1).

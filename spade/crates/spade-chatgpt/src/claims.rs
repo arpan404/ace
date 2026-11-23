@@ -64,13 +64,13 @@ fn issued_for(token: &Value, expect: Expect<'_>) -> Result<(), String> {
     if token.get("iss").and_then(Value::as_str) != Some(expect.issuer) {
         return Err("the sign-in's ID token is from another issuer".to_owned());
     }
-    // OpenID Connect Core 3.1.3.7: this client must be an audience; with others beside it, the
-    // token must name this client as the one it was issued to (`azp`), and any `azp` must be it.
+    // The audience is this client and nothing else (OpenID Connect Core 3.1.3.7): a token also
+    // meant for another party, or naming one that isn't a string, is refused. Any `azp` must be
+    // this client too.
     let ours = |v: &Value| v.as_str() == Some(expect.client_id);
     let audience = match token.get("aud") {
         Some(Value::String(one)) => one == expect.client_id,
-        Some(Value::Array(all)) if all.len() == 1 => all.iter().all(ours),
-        Some(Value::Array(all)) => all.iter().any(ours) && token.get("azp").is_some_and(ours),
+        Some(Value::Array(all)) => !all.is_empty() && all.iter().all(ours),
         _ => false,
     };
     let party = token.get("azp").is_none_or(ours);
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(expires(&access), Some(1_900_000_000));
         let listed = id(json!({ "aud": ["client-1"] }));
         assert!(account(Some(&listed), &access, EXPECT).is_ok());
-        let named = id(json!({ "aud": ["other", "client-1"], "azp": "client-1" }));
+        let named = id(json!({ "aud": ["client-1"], "azp": "client-1" }));
         assert!(account(Some(&named), &access, EXPECT).is_ok());
     }
 
@@ -174,6 +174,9 @@ mod tests {
             json!({ "aud": ["someone-else"] }),
             // Another audience beside this client, with no party named or another one named.
             json!({ "aud": ["other", "client-1"] }),
+            json!({ "aud": ["other", "client-1"], "azp": "client-1" }),
+            json!({ "aud": ["client-1", 7] }),
+            json!({ "aud": [] }),
             json!({ "aud": ["other", "client-1"], "azp": "other" }),
             json!({ "azp": "other" }),
             json!({ "exp": 1_000 }),

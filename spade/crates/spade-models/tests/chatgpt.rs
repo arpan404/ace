@@ -8,8 +8,8 @@ use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use spade_models::{
-    Bearers, Catalog, Credential, Effort, Endpoint, Format, Keys, Model, ModelError, Models,
-    Prompt, SignIn,
+    Bearers, Catalog, Credential, DispatchGuard, Effort, Endpoint, Format, Keys, Model, ModelError,
+    Models, Prompt, SignIn,
 };
 use spade_testkit::{FakeProvider, Script, Seen};
 
@@ -90,7 +90,14 @@ fn client_for(root: &str, backend: &str, token: Option<&'static str>) -> Result<
             })
         },
         move |_id, _generation| {
-            left.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) > 0
+            let open = left.fetch_sub(1, std::sync::atomic::Ordering::SeqCst) > 0;
+            Box::pin(async move {
+                if open {
+                    Ok(Box::new(()) as DispatchGuard)
+                } else {
+                    Err("signed out".to_owned())
+                }
+            })
         },
     ));
     Ok(Client {
@@ -552,6 +559,83 @@ async fn a_signed_in_accounts_list_failure_says_only_fixed_words() -> Result {
     assert!(
         shown.contains("the ChatGPT backend refused the model list (401)"),
         "{shown}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_refresh_that_gives_back_the_same_token_sends_nothing_more() -> Result {
+    let fake =
+        FakeProvider::start_sequence(vec![Script::failing(401), Script::reply("ok")]).await?;
+    let models = Models::new(
+        Catalog::from_json(r#"{"endpoints":[]}"#)?,
+        Keys::new(|_| None),
+        "1.2.3",
+    )?;
+    models.set_endpoints(vec![account(&fake.root)]);
+    let same = || Credential {
+        token: "access-1".to_owned(),
+        generation: 1,
+    };
+    models.set_bearers(Bearers::new(
+        fake.root.clone(),
+        move |_| Box::pin(async move { Ok(same()) }),
+        move |_, old: Credential| Box::pin(async move { Ok(old) }),
+        |_, _| Box::pin(async { Ok(Box::new(()) as DispatchGuard) }),
+    ));
+    let error = models
+        .chat("chatgpt/gpt-5.5", &Prompt::ask("hi"))
+        .await
+        .err()
+        .ok_or("the call should fail")?;
+    assert_eq!(error.status(), Some(401));
+    assert_eq!(
+        fake.seen().len(),
+        1,
+        "the same request was never sent again"
+    );
+    Ok(())
+}
+
+/// A model list that refuses the first token with a `401` far larger than Spade reads, and lists
+/// for any other.
+async fn oversized_refusal() -> Result<String> {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    let app = axum::Router::new().route(
+        "/models",
+        axum::routing::get(|headers: HeaderMap| async move {
+            if headers.get("authorization").and_then(|v| v.to_str().ok()) == Some("Bearer access-1")
+            {
+                return (StatusCode::UNAUTHORIZED, "x".repeat(64 * 1024)).into_response();
+            }
+            axum::Json(serde_json::json!({ "models": [ { "slug": "gpt-5.5" } ] })).into_response()
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let root = format!("http://{}/", listener.local_addr()?);
+    tokio::spawn(async move { axum::serve(listener, app).await });
+    Ok(root)
+}
+
+#[tokio::test]
+async fn a_401_model_list_too_large_to_read_is_still_a_401_and_refreshes() -> Result {
+    let root = oversized_refusal().await?;
+    let mut client = client_for(&root, &root, Some("access-1"))?;
+    client.models = client.models.with_listing_bounds(spade_models::ListBounds {
+        timeout: std::time::Duration::from_secs(5),
+        max_bytes: 1024,
+        max_models: 100,
+    });
+    let listed = client.models.list("chatgpt").await?;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(
+        client
+            .rejected
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len(),
+        1
     );
     Ok(())
 }

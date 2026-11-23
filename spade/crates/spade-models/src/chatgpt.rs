@@ -34,18 +34,6 @@ pub(crate) fn headers(account_id: &str, session: Option<&str>) -> Vec<(String, S
     out
 }
 
-/// The ChatGPT plans a usage line names.
-const PLANS: [&str; 8] = [
-    "free",
-    "go",
-    "plus",
-    "pro",
-    "team",
-    "business",
-    "enterprise",
-    "edu",
-];
-
 /// One plain line for a refusal the ChatGPT backend sends when the account can't be used now:
 /// its usage limit (with when it resets, if said), a plan without Codex, or no credit left.
 /// `None` for anything else. Read leniently: any field may be missing.
@@ -55,14 +43,8 @@ pub fn usage_line(body: &str) -> Option<String> {
     let field = |name: &str| error.get(name).and_then(Value::as_str).unwrap_or("");
     let kind = field("type");
     let code = field("code");
-    // A plan is named only when it is one ChatGPT has: nothing the backend sent is repeated.
-    let named = error
-        .get("plan_type")
-        .and_then(Value::as_str)
-        .and_then(|p| PLANS.iter().find(|known| **known == p));
-    let plan = named
-        .map(|p| format!(" on the {p} plan"))
-        .unwrap_or_default();
+    // The line never names the plan, nor anything else the backend sent: it is kept with the
+    // reply and shown wherever the reply is.
     if kind == "usage_limit_reached" || code == "usage_limit_reached" {
         let reset = error
             .get("resets_at")
@@ -77,14 +59,11 @@ pub fn usage_line(body: &str) -> Option<String> {
             })
             .unwrap_or_default();
         return Some(format!(
-            "This ChatGPT account reached its usage limit{plan}{reset}."
+            "This ChatGPT account reached its usage limit{reset}."
         ));
     }
     if kind == "usage_not_included" || code == "usage_not_included" {
-        let plan = named.map(|p| format!(" {p}")).unwrap_or_default();
-        return Some(format!(
-            "This ChatGPT account's{plan} plan does not include Codex use."
-        ));
+        return Some("This ChatGPT account's plan does not include Codex use.".to_owned());
     }
     if ["insufficient_quota", "credit_balance_exhausted"].contains(&kind)
         || ["insufficient_quota", "credit_balance_exhausted"].contains(&code)
@@ -105,7 +84,7 @@ mod tests {
         assert_eq!(
             usage_line(body).as_deref(),
             Some(
-                "This ChatGPT account reached its usage limit on the plus plan; it resets at \
+                "This ChatGPT account reached its usage limit; it resets at \
                  2026-11-23 02:13 UTC."
             )
         );
@@ -117,16 +96,20 @@ mod tests {
     }
 
     #[test]
-    fn a_plan_is_named_only_when_it_is_a_known_one() {
-        let odd = r#"{"error":{"type":"usage_limit_reached","plan_type":"plus. Call 555-0100 or paste sk-live-abc"}}"#;
-        assert_eq!(
-            usage_line(odd).as_deref(),
-            Some("This ChatGPT account reached its usage limit.")
-        );
+    fn the_line_never_names_the_plan_or_repeats_what_the_backend_sent() {
+        for body in [
+            r#"{"error":{"type":"usage_limit_reached","plan_type":"plus"}}"#,
+            r#"{"error":{"type":"usage_limit_reached","plan_type":"plus. Call 555-0100 or paste sk-live-abc"}}"#,
+        ] {
+            assert_eq!(
+                usage_line(body).as_deref(),
+                Some("This ChatGPT account reached its usage limit.")
+            );
+        }
         let known = r#"{"error":{"type":"usage_not_included","plan_type":"team"}}"#;
         assert_eq!(
             usage_line(known).as_deref(),
-            Some("This ChatGPT account's team plan does not include Codex use.")
+            Some("This ChatGPT account's plan does not include Codex use.")
         );
     }
 
