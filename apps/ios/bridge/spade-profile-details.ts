@@ -172,32 +172,18 @@ export function spadeNetworkRow(
 }
 
 /** One change the person made to a rule. */
-export type SpadeNetworkChange =
-  | { mode: SpadeNetworkMode }
-  | { add: string }
-  /** A listed site or private host: one of the person's goes, a default is dropped or put back. */
-  | { toggle: string };
+export type SpadeNetworkChange = { mode: SpadeNetworkMode } | { add: string };
 
-/** The rule `policy` becomes after `change`; `defaults` are the machine's listed sites. */
+/** The rule after the person sets its mode or adds an entry. */
 export function spadeNextPolicy(
   policy: SpadeNetworkPolicy,
   change: SpadeNetworkChange,
-  defaults: readonly string[],
 ): SpadeNetworkPolicy {
   if ("mode" in change) return { ...policy, mode: change.mode };
-  if ("add" in change) {
-    const entry = change.add.trim();
-    return entry && !policy.allow.includes(entry)
-      ? { ...policy, allow: [...policy.allow, entry] }
-      : policy;
-  }
-  const entry = change.toggle;
-  if (policy.allow.includes(entry))
-    return { ...policy, allow: policy.allow.filter((each) => each !== entry) };
-  if (!defaults.includes(entry)) return policy;
-  return policy.dropped.includes(entry)
-    ? { ...policy, dropped: policy.dropped.filter((each) => each !== entry) }
-    : { ...policy, dropped: [...policy.dropped, entry] };
+  const entry = change.add.trim();
+  return entry && !policy.allow.includes(entry)
+    ? { ...policy, allow: [...policy.allow, entry] }
+    : policy;
 }
 
 const reasons: Record<string, string> = {

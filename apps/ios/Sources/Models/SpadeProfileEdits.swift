@@ -80,12 +80,14 @@ enum SpadeProfileEdits {
     }
     /// One change to a rule, as `spade.network.set` takes it.
     enum NetworkChange: Equatable, Sendable {
-        case mode(String), add(String), toggle(String), inherit
+        case mode(String), add(String), removeEntry(String), removeDefault(String), restoreDefault(String), inherit
         var payload: [String: Any] {
             switch self {
             case .mode(let mode): ["mode": mode]
             case .add(let entry): ["add": entry]
-            case .toggle(let entry): ["toggle": entry]
+            case .removeEntry(let entry): ["removeEntry": entry]
+            case .removeDefault(let entry): ["removeDefault": entry]
+            case .restoreDefault(let entry): ["restoreDefault": entry]
             case .inherit: ["inherit": true]
             }
         }

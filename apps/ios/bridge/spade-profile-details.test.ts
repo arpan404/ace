@@ -145,7 +145,7 @@ test("a network rule saves its mode and sites, a default can be dropped, and the
       type: "spade.network.set",
       agentId: "writer",
       which: "commands",
-      change: { toggle: fallback },
+      change: { removeDefault: fallback },
     }),
   );
   expect(
@@ -153,6 +153,21 @@ test("a network rule saves its mode and sites, a default can be dropped, and the
       .find((policy) => policy.which === "commands")
       ?.sites.find((site) => site.entry === fallback),
   ).toMatchObject({ line: "Default, removed", action: "Put back" });
+
+  for (const change of [
+    { removeDefault: fallback },
+    { restoreDefault: fallback },
+    { restoreDefault: fallback },
+  ]) {
+    const saved = partOf<SpadeNetworkRow>(
+      await ask({ type: "spade.network.set", agentId: "writer", which: "commands", change }),
+    );
+    expect(
+      saved.policies
+        .find((policy) => policy.which === "commands")
+        ?.sites.find((site) => site.entry === fallback),
+    ).toMatchObject({ action: "removeDefault" in change ? "Put back" : "Remove" });
+  }
 
   const host = partOf<SpadeNetworkRow>(
     await ask({

@@ -99,7 +99,9 @@ export const spadeProfileDetailRequests = spadeRequestArea(
       change: z.union([
         z.object({ mode }),
         z.object({ add: entry }),
-        z.object({ toggle: entry }),
+        z.object({ removeEntry: entry }),
+        z.object({ removeDefault: entry }),
+        z.object({ restoreDefault: entry }),
         /** Back to the machine's rule. */
         z.object({ inherit: z.literal(true) }),
       ]),
@@ -178,11 +180,20 @@ export const spadeProfileDetailRequests = spadeRequestArea(
           const [security, machine] = await networkFacts(ask, path);
           const route = `${path}/security/${request.which === "commands" ? "network" : "plugin-network"}`;
           const change = request.change;
-          const policy = request.which === "commands" ? security.network : security.pluginNetwork;
-          const body =
-            "inherit" in change
-              ? await ask("DELETE", route)
-              : await ask("PUT", route, spadeNextPolicy(policy, change, machine.defaults));
+          let body: string;
+          if ("inherit" in change) body = await ask("DELETE", route);
+          else if ("mode" in change || "add" in change) {
+            const policy = request.which === "commands" ? security.network : security.pluginNetwork;
+            body = await ask("PUT", route, spadeNextPolicy(policy, change));
+          } else {
+            const site =
+              "removeEntry" in change
+                ? { action: "remove_entry", entry: change.removeEntry }
+                : "removeDefault" in change
+                  ? { action: "remove_default", entry: change.removeDefault }
+                  : { action: "restore_default", entry: change.restoreDefault };
+            body = await ask("PUT", route, { mode: "site_edit", site });
+          }
           const saved = sure(parseSpadeBotSecurity(body), "security settings");
           return { ok: true, part: spadeNetworkRow(saved, machine.defaults, machine.place) };
         }

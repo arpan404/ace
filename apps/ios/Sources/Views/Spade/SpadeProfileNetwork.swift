@@ -55,7 +55,13 @@ struct SpadeProfileNetwork: View {
     private func sites(_ policy: SpadeProfileEdits.Policy) -> some View {
         Section("Listed sites for \(policy.which)") {
             ForEach(policy.sites, id: \.self) { site in
-                entry(site.entry, line: site.line, action: site.action) { change(policy.which, .toggle(site.entry)) }
+                entry(site.entry, line: site.line, action: site.action) {
+                    let intent: SpadeProfileEdits.NetworkChange
+                    if site.line == nil { intent = .removeEntry(site.entry) }
+                    else if site.action == "Put back" { intent = .restoreDefault(site.entry) }
+                    else { intent = .removeDefault(site.entry) }
+                    change(policy.which, intent)
+                }
             }
             SpadeNetworkAdd(label: "Add a site", placeholder: "example.com", disabled: saving) { typed in
                 await save(policy.which, .add(typed))
@@ -66,7 +72,7 @@ struct SpadeProfileNetwork: View {
     private func hosts(_ policy: SpadeProfileEdits.Policy) -> some View {
         Section("Private network for \(policy.which)") {
             ForEach(policy.hosts, id: \.self) { host in
-                entry(host, line: nil, action: "Remove") { change(policy.which, .toggle(host)) }
+                entry(host, line: nil, action: "Remove") { change(policy.which, .removeEntry(host)) }
             }
             SpadeNetworkAdd(label: "Add a private host", placeholder: "localhost:3000", disabled: saving) { typed in
                 await save(policy.which, .add(typed))
