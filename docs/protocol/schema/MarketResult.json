@@ -313,6 +313,31 @@
     {
       "additionalProperties": false,
       "properties": {
+        "face": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "maxLength": 40,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "op": {
+          "const": "look",
+          "type": "string"
+        },
+        "suit": {
+          "maxLength": 256000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "items": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/MarketReviewItem.json"

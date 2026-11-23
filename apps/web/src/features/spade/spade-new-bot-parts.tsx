@@ -50,7 +50,7 @@ export function RunsWithRows(props: {
       <SettingRow title="Model" density="compact">
         <SpadeModelPicker
           label="Model"
-          subscriptions
+          forBots
           value={props.model || props.newBotModel || ""}
           none={props.newBotModel ? undefined : spadeFirstUsableWords(props.firstUsable)}
           follows={props.newBotModel ? undefined : props.firstUsable}

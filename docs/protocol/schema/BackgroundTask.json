@@ -19,6 +19,10 @@
     "endedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "endsWithSession": {
+      "const": true,
+      "type": "boolean"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
     },

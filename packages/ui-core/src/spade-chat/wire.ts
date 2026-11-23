@@ -381,6 +381,16 @@ const known = z.discriminatedUnion("type", [
       .nullish()
       .catch(undefined),
   }),
+  /**
+   * The bot's model was a coding subscription, which bots no longer think with (ADR 0219): Spade
+   * moved it to `to` (none when the person has no model), and `line` says so, once.
+   */
+  z.object({
+    type: z.literal("model_replaced"),
+    from: z.string().catch(""),
+    to: z.string().catch(""),
+    line: z.string().min(1),
+  }),
   /** This bot made a standing bot for the person (ADR 0161, amendment 1). */
   z.object({
     type: z.literal("bot_made"),

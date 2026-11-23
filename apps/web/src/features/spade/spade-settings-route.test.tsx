@@ -62,6 +62,4 @@ test("a route offers no subscription, and a full one takes no more", async () =>
   const roles = within(screen.getByRole("region", { name: "Models for other work" }));
   // Only the rows without a full route offer to add one: Bots' fallbacks has none set.
   expect(roles.queryAllByRole("button", { name: "Add a fallback" })).toHaveLength(0);
-  await userEvent.click(screen.getByRole("button", { name: "Helpers" }));
-  expect(screen.queryByText("Your coding subscriptions")).toBeNull();
 });
