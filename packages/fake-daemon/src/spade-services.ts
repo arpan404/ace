@@ -2,7 +2,8 @@ import type { FakeSpadeAnswer } from "./spade.ts";
 
 /*
  * A bot's services (ADR 0160) for the fake API, in Spade's JSON: the list, each one's output
- * read after a line number, and Stop (409 when it isn't running).
+ * read after a line number, Stop (409 when it isn't running), and Start for an ended one
+ * (409 while one of its name runs).
  */
 
 export interface FakeService {
@@ -69,6 +70,13 @@ export class FakeSpadeServices {
         return problem(409, "that service is not running");
       service.state = "stopped";
       return { status: 204, body: "" };
+    }
+    if (sub === "start" && method === "POST") {
+      if (!service) return problem(404, "no such service");
+      if (all.some((each) => each.name === service.name && each.state === "running"))
+        return problem(409, "that service is running");
+      Object.assign(service, { state: "running", exit_code: null, restarts: service.restarts + 1 });
+      return { status: 202, body: "" };
     }
     return problem(404, "Not found.");
   }

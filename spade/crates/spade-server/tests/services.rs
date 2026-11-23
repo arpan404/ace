@@ -320,6 +320,99 @@ async fn only_a_service_marked_keep_starts_again_after_a_restart() -> Result {
 }
 
 #[tokio::test]
+async fn the_person_starts_a_stopped_service_again_as_it_started_once() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "echo $$ >> pids.txt; exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Started."),
+            title(),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Start it").await?;
+    let start_web = format!("/v1/agents/{}/services/web/start", bot.id);
+    let (status, _) = spade.post(&start_web, json!({})).await?;
+    assert_eq!(status, 409, "a running service is not started twice");
+
+    let (status, _) = spade
+        .delete(&format!("/v1/agents/{}/services/web", bot.id))
+        .await?;
+    assert_eq!(status, 204);
+    assert_eq!(services_of(&spade, &bot).await?[0]["state"], "stopped");
+
+    let (status, _) = spade.post(&start_web, json!({})).await?;
+    assert_eq!(status, 202);
+    let pids = bot.folder.join("pids.txt");
+    eventually("the service ran its own command again", || {
+        std::fs::read_to_string(&pids).is_ok_and(|p| p.lines().count() == 2)
+    })
+    .await?;
+    let listed = services_of(&spade, &bot).await?;
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["state"], "running");
+    assert_eq!(listed[0]["restarts"], 1);
+    let again = std::fs::read_to_string(&pids)?;
+    assert!(alive(again.lines().last().unwrap_or_default()));
+
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{}/services/nope/start", bot.id),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 404);
+    let (status, _) = spade
+        .post("/v1/agents/nobody/services/web/start", json!({}))
+        .await?;
+    assert_eq!(status, 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_paused_bot_s_service_is_not_started_by_the_person() -> Result {
+    let dir = tempfile::tempdir()?;
+    let workspaces = Workspaces::new(dir.path());
+    let (spade, _services) = start(
+        vec![
+            Script::reply("").call(
+                "s1",
+                "service_start",
+                json!({ "name": "web", "command": "exec sleep 60" }),
+            ),
+            approve(),
+            Script::reply("Started."),
+            title(),
+        ],
+        &workspaces,
+        Reviewer::Fake,
+    )
+    .await?;
+    let bot = told(&spade, &workspaces, "Start it").await?;
+    let (status, _) = spade
+        .post(&format!("/v1/agents/{}/pause", bot.id), json!({}))
+        .await?;
+    assert!(status < 300, "{status}");
+    let (status, _) = spade
+        .post(
+            &format!("/v1/agents/{}/services/web/start", bot.id),
+            json!({}),
+        )
+        .await?;
+    assert_eq!(status, 409);
+    assert_ne!(services_of(&spade, &bot).await?[0]["state"], "running");
+    Ok(())
+}
+
+#[tokio::test]
 async fn starting_a_service_is_held_like_a_shell_command_and_asks_when_unreviewed() -> Result {
     let dir = tempfile::tempdir()?;
     let workspaces = Workspaces::new(dir.path());

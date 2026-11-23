@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Computer › Services (web's `bot-services.tsx`): the processes the bot keeps running, a tool
 /// and never work, so nothing here makes it read as busy. Each row: its name and command, how it
-/// is, and Stop while it runs; tapping it opens its output in place under it, read again every
-/// two seconds while it runs. Reads stop when the page goes or the app leaves the front.
+/// is, Stop while it runs and Start once it ended (its own command again); tapping it opens its
+/// output in place under it, read again every two seconds while it runs. Reads stop when the page goes or the app leaves the front.
 struct SpadeComputerServices: View {
     let model: ClientModel
     let agent: String
@@ -12,7 +12,7 @@ struct SpadeComputerServices: View {
     @State private var services: [SpadeService]?
     @State private var problem: String?
     @State private var open: String?
-    @State private var stopping: Set<String> = []
+    @State private var busy: Set<String> = []
     @State private var alert: String?
 
     var body: some View {
@@ -68,11 +68,17 @@ struct SpadeComputerServices: View {
             .accessibilityLabel("\(service.name): \(service.words). Output")
             .accessibilityHint(open == service.id ? "Hides its output" : "Shows its output")
             if service.running {
-                Button(stopping.contains(service.id) ? "Stopping…" : "Stop", role: .destructive) { Task { await stop(service) } }
+                Button(busy.contains(service.id) ? "Stopping…" : "Stop", role: .destructive) { Task { await stop(service) } }
                     .buttonStyle(.secondaryAction)
                     .frame(minHeight: AceDesign.Size.tap)
-                    .disabled(stopping.contains(service.id) || !model.canOperate)
+                    .disabled(busy.contains(service.id) || !model.canOperate)
                     .accessibilityIdentifier("spade.service.stop")
+            } else if service.startable {
+                Button(busy.contains(service.id) ? "Starting…" : "Start") { Task { await start(service) } }
+                    .buttonStyle(.secondaryAction)
+                    .frame(minHeight: AceDesign.Size.tap)
+                    .disabled(busy.contains(service.id) || !model.canOperate)
+                    .accessibilityIdentifier("spade.service.start")
             }
         }
     }
@@ -84,10 +90,17 @@ struct SpadeComputerServices: View {
     }
 
     private func stop(_ service: SpadeService) async {
-        stopping.insert(service.id)
-        defer { stopping.remove(service.id) }
-        let reply = await model.spadeComputer(["type": "spade.services.stop", "agentId": agent, "service": service.id],
-                                              failing: "Couldn't stop \(service.name)")
+        await act(on: service, "spade.services.stop", failing: "Couldn't stop \(service.name)")
+    }
+
+    private func start(_ service: SpadeService) async {
+        await act(on: service, "spade.services.start", failing: "Couldn't start \(service.name)")
+    }
+
+    private func act(on service: SpadeService, _ type: String, failing: String) async {
+        busy.insert(service.id)
+        defer { busy.remove(service.id) }
+        let reply = await model.spadeComputer(["type": type, "agentId": agent, "service": service.id], failing: failing)
         if let problem = reply.problem { alert = problem }
         await load()
     }
