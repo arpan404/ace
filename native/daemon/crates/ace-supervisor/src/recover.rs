@@ -28,7 +28,7 @@ impl<R: InventoryRuntime> Inventory<R> {
     pub fn recover(&mut self) -> Result<Recovered, SupervisorError> {
         #[cfg(windows)]
         {
-            let partial = self.windows_recover()?;
+            let partial = self.windows_recover(&crate::wintree::SystemWindowsTree::new())?;
             return Ok(Recovered {
                 removed: partial.removed,
                 killed: partial.killed,
@@ -39,6 +39,95 @@ impl<R: InventoryRuntime> Inventory<R> {
         {
             self.posix_recover()
         }
+    }
+
+    /// Windows only: recovery that also counts trees left recorded because
+    /// some member cannot be proven.
+    #[cfg(windows)]
+    fn windows_recover(
+        &mut self,
+        tree: &dyn crate::wintree::WindowsTreeOps,
+    ) -> Result<Recovered, SupervisorError> {
+        use crate::entries::{EntryPlatform, OwnerValue};
+        use crate::wintree::WindowsRecord;
+        let now_ms = self.runtime.now_ms();
+        let mut recovered = Recovered::default();
+        for (_, entries) in self.windows_trees()? {
+            let Some(leader) = entries.iter().find(|entry| entry.tree.is_none()).or(entries.first())
+            else {
+                continue;
+            };
+            if entries.iter().any(|entry| {
+                self.runtime
+                    .identity(entry.owner_pid)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|owner| {
+                        owner.pid == entry.owner_pid
+                            && owner.start == entry.owner_start
+                            && owner.owner == ProcessOwner::of(&entry.owner)
+                    })
+            }) {
+                continue;
+            }
+            let recorded: Vec<WindowsRecord> = entries
+                .iter()
+                .map(|entry| WindowsRecord {
+                    pid: entry.pid,
+                    start: entry.start.clone(),
+                    uid: match &entry.owner {
+                        OwnerValue::Uid(uid) => uid.to_string(),
+                        OwnerValue::Sid(sid) => sid.clone(),
+                    },
+                })
+                .collect();
+            let state = tree.state(&recorded);
+            for member in &state.discovered {
+                let key = format!("{}:{}", leader.pid, leader.start);
+                self.write(
+                    &ProcessEntry {
+                        pid: member.pid,
+                        start: member.start.clone(),
+                        owner: match &leader.owner {
+                            OwnerValue::Uid(uid) => OwnerValue::Uid(*uid),
+                            OwnerValue::Sid(sid) => OwnerValue::Sid(sid.clone()),
+                        },
+                        group: member.pid,
+                        owner_pid: leader.owner_pid,
+                        owner_start: leader.owner_start.clone(),
+                        name: leader.name.clone(),
+                        cwd: leader.cwd.clone(),
+                        created_at: now_ms,
+                        tree: Some(key),
+                    },
+                    EntryPlatform::Windows,
+                )?;
+                self.unremoved.remove(&member.pid);
+            }
+            if state.live.is_empty() && state.ambiguous.is_empty() {
+                for entry in &entries {
+                    self.unremoved.insert(entry.pid);
+                }
+                self.retry_removals(now_ms);
+                recovered.removed += 1;
+                continue;
+            }
+            for member in &state.live {
+                tree.terminate(&crate::wintree::WindowsRecord {
+                    pid: member.pid,
+                    start: member.start.clone(),
+                    uid: member.uid.clone(),
+                })?;
+            }
+            // Evidence stays until a later recovery proves every member gone.
+            if !state.live.is_empty() {
+                recovered.killed += 1;
+            }
+            if !state.ambiguous.is_empty() {
+                recovered.unresolved += 1;
+            }
+        }
+        Ok(recovered)
     }
 
     #[cfg(not(windows))]
@@ -172,6 +261,50 @@ fn has_table(db: &Arc<Connection>, table: &str) -> Result<bool, SupervisorError>
         .step()
         .map_err(|error| SupervisorError::journal("inventory tables", error))?
         .is_some())
+}
+
+/// Windows only: whether a journal still records the tree a leader started.
+/// A recovery that could not prove every member gone keeps that record, so
+/// its owners keep their resources.
+#[cfg(windows)]
+pub fn windows_tree_recorded(
+    path: &str,
+    leader_pid: u32,
+    leader_start: &str,
+) -> Result<bool, SupervisorError> {
+    if !std::path::Path::new(path).exists() {
+        return Ok(false);
+    }
+    let db = Connection::open(path, OpenOptions { read_only: true, ..OpenOptions::default() })
+        .map_err(|error| SupervisorError::journal("inventory open", error))?;
+    let key = format!("{leader_pid}:{leader_start}");
+    let statement = db
+        .prepare("SELECT entry FROM processes")
+        .map_err(|error| SupervisorError::journal("inventory read", error))?;
+    statement
+        .bind(&[])
+        .map_err(|error| SupervisorError::journal("inventory read", error))?;
+    while let Some(row) = statement
+        .step()
+        .map_err(|error| SupervisorError::journal("inventory read", error))?
+    {
+        let Value::Text(text) = &row[0] else {
+            continue;
+        };
+        let Ok(entry) = parse_entry(text) else {
+            continue;
+        };
+        if entry.tree.as_deref() == Some(key.as_str())
+            || (entry.pid == leader_pid && entry.start == leader_start)
+        {
+            db.close()
+                .map_err(|error| SupervisorError::journal("inventory close", error))?;
+            return Ok(true);
+        }
+    }
+    db.close()
+        .map_err(|error| SupervisorError::journal("inventory close", error))?;
+    Ok(false)
 }
 
 #[cfg(test)]

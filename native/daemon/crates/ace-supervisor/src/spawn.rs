@@ -93,8 +93,8 @@ pub const EVENT_STDIN_ERROR: &str = "stdin-error";
 
 /// The stop escalation: terminate, then destroy after the grace. A later
 /// stop with a shorter grace moves the destroy earlier, never later.
-pub async fn run_stop_plan<T: crate::stop::StopTree + Sync>(
-    tree: &T,
+pub async fn run_stop_plan<T: crate::stop::StopTree + Sync + Send + 'static>(
+    tree: T,
     pid: u32,
     mut requests: tokio::sync::mpsc::UnboundedReceiver<StopRequest>,
     mut exited: tokio::sync::oneshot::Receiver<()>,

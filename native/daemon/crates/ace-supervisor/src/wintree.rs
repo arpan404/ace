@@ -21,6 +21,178 @@ pub enum WindowsTerminate {
     Gone,
 }
 
+/// A recorded tree's live state and member termination, behind one trait
+/// so tests inject a fake and production binds the kernel.
+#[cfg(windows)]
+pub trait WindowsTreeOps {
+    /// The recorded members' state now.
+    fn state(&self, recorded: &[WindowsRecord]) -> WindowsTreeState;
+    /// Ends one member; returns what it did.
+    fn terminate(&self, member: &WindowsRecord) -> Result<WindowsTerminate, SupervisorError>;
+}
+
+/// The real Windows tree runtime: one Toolhelp snapshot, then per-PID reads.
+#[cfg(windows)]
+pub struct SystemWindowsTree;
+
+#[cfg(windows)]
+impl SystemWindowsTree {
+    /// Creates the runtime; binding kernel32 happens on first use.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[cfg(windows)]
+impl Default for SystemWindowsTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(windows)]
+impl WindowsTreeOps for SystemWindowsTree {
+    fn state(&self, recorded: &[WindowsRecord]) -> WindowsTreeState {
+        let snapshot = snapshot_processes().unwrap_or(WindowsSnapshot {
+            taken: "0".to_owned(),
+            processes: Vec::new(),
+        });
+        windows_tree_state(recorded, &snapshot, &|pid| identify_pid(pid))
+    }
+
+    fn terminate(&self, member: &WindowsRecord) -> Result<WindowsTerminate, SupervisorError> {
+        use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
+        use windows_sys::Win32::System::Threading::{
+            GetProcessTimes, OpenProcess, TerminateProcess, WaitForSingleObject,
+            PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE, SYNCHRONIZE,
+        };
+        let handle = OpenProcess(
+            (PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE) as u32,
+            0,
+            member.pid,
+        );
+        if handle == 0 {
+            return if GetLastError() == crate::identity::ERROR_INVALID_PARAMETER {
+                Ok(WindowsTerminate::Gone)
+            } else {
+                Err(SupervisorError::Unavailable(
+                    "kernel process identity unavailable".to_owned(),
+                ))
+            };
+        }
+        // Any open handle keeps an exited process openable.
+        if WaitForSingleObject(handle, 0) == 0 {
+            CloseHandle(handle);
+            return Ok(WindowsTerminate::Gone);
+        }
+        let gone = || {
+            CloseHandle(handle);
+            WindowsTerminate::Gone
+        };
+        let mut creation = windows_sys::Win32::System::Threading::FILETIME {
+            dwLowDateTime: 0,
+            dwHighDateTime: 0,
+        };
+        let mut exit = creation;
+        let mut kernel = creation;
+        let mut user = creation;
+        if GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user) == 0 {
+            CloseHandle(handle);
+            return Err(SupervisorError::Unavailable(
+                "kernel process identity unavailable".to_owned(),
+            ));
+        }
+        let start = ((creation.dwHighDateTime as u64) << 32) | creation.dwLowDateTime as u64;
+        if start.to_string() != member.start {
+            return Ok(gone());
+        }
+        if TerminateProcess(handle, 1) != 0 {
+            CloseHandle(handle);
+            return Ok(WindowsTerminate::Ended);
+        }
+        // A process already exiting refuses termination; wait for it to finish.
+        if WaitForSingleObject(handle, 2_000) == 0 {
+            CloseHandle(handle);
+            return Ok(WindowsTerminate::Gone);
+        }
+        CloseHandle(handle);
+        Err(SupervisorError::Unavailable(
+            "kernel process identity unavailable".to_owned(),
+        ))
+    }
+}
+
+#[cfg(windows)]
+fn identify_pid(pid: u32) -> WindowsIdentified {
+    use crate::identity::{WindowsApi, WindowsIdentityApi, read_windows_identity};
+    let api = match WindowsApi::load() {
+        Ok(api) => api,
+        Err(_) => return WindowsIdentified::Unknown,
+    };
+    match read_windows_identity(pid, &api) {
+        Ok(Some(identity)) => WindowsIdentified::Found {
+            start: identity.start,
+            uid: match identity.owner {
+                crate::identity::ProcessOwner::Sid(sid) => sid,
+                crate::identity::ProcessOwner::Uid(uid) => uid.to_string(),
+            },
+        },
+        Ok(None) => WindowsIdentified::Gone,
+        Err(_) => WindowsIdentified::Unknown,
+    }
+}
+
+#[cfg(windows)]
+fn snapshot_processes() -> Result<WindowsSnapshot, SupervisorError> {
+    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Time::GetSystemTimePreciseAsFileTime;
+    use windows_sys::Win32::System::Threading::FILETIME;
+    let unavailable = |what: &str| SupervisorError::Unavailable(format!("Windows tree {what} unavailable"));
+    // The precise clock: the coarse one lags by a tick, and a child created
+    // just before the snapshot would look created after it.
+    let mut clock = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    GetSystemTimePreciseAsFileTime(&mut clock);
+    let taken = (((clock.dwHighDateTime as u64) << 32) | clock.dwLowDateTime as u64).to_string();
+    let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if snapshot == 0 || snapshot == INVALID_HANDLE_VALUE {
+        return Err(unavailable("snapshot"));
+    }
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        cntUsage: 0,
+        th32ProcessID: 0,
+        th32DefaultHeapID: 0,
+        th32ModuleID: 0,
+        cntThreads: 0,
+        th32ParentProcessID: 0,
+        pcPriClassBase: 0,
+        dwFlags: 0,
+        szExeFile: [0; 260],
+    };
+    let mut processes = Vec::new();
+    let mut ok = Process32FirstW(snapshot, &mut entry);
+    while ok != 0 {
+        processes.push(WindowsLink {
+            pid: entry.th32ProcessID,
+            parent: entry.th32ParentProcessID,
+        });
+        ok = Process32NextW(snapshot, &mut entry);
+    }
+    let last = GetLastError();
+    CloseHandle(snapshot);
+    if last != 18 {
+        return Err(unavailable("snapshot"));
+    }
+    Ok(WindowsSnapshot { taken, processes })
+}
+
 /// A PID's creation time and owner: proven, gone, or unreadable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowsIdentified {

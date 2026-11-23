@@ -515,7 +515,7 @@ mod darwin {
 }
 
 #[cfg(target_os = "macos")]
-pub use darwin::{DarwinListing, children_of};
+pub use darwin::{DarwinListing, children_of, darwin_info};
 
 /// macOS unique ids: PROC_PIDUNIQIDENTIFIERINFO through libproc.
 /// libproc names no struct for flavor 17 and the workspace denies unsafe,

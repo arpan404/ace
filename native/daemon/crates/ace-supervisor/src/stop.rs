@@ -135,8 +135,7 @@ pub fn kill_group(_group: u32, _signal: SignalName) -> Result<(), SupervisorErro
 /// A graceful stop that escalates after the grace, like the shell's retained
 /// path. Resolves only once the group is proven gone.
 #[cfg(unix)]
-pub fn stop_retained_group(group: u32, grace_ms: u64) -> Result<(), SupervisorError> {
-    kill_group(group, SignalName::Term)?;
+pub fn stop_retained_group(group: u32, grace_ms: u64) -> Result<(), SupervisorError> {    kill_group(group, SignalName::Term)?;
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(grace_ms);
     loop {
         match crate::reaper::process_group_alive(group) {
@@ -222,6 +221,32 @@ pub fn end_recorded_tree<T: TreeStopTree>(
         }
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
+}
+
+/// Whole-tree stop on Windows, where process groups do not exist.
+/// taskkill /T stops the tree the way a Job Object would; /F forces it.
+/// Never uses a shell; a spawn failure is the stop's failure, not a wait.
+#[cfg(windows)]
+pub fn kill_windows_tree(pid: u32, force: bool) -> Result<(), SupervisorError> {
+    let taskkill = crate::owner::windows_system_executable("taskkill.exe")?;
+    let mut killer = std::process::Command::new(taskkill);
+    killer.arg("/pid").arg(pid.to_string()).arg("/T");
+    if force {
+        killer.arg("/F");
+    }
+    killer.stdin(std::process::Stdio::null());
+    killer.stdout(std::process::Stdio::null());
+    killer.stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW: no console flash for the killer itself.
+        killer.creation_flags(0x0800_0000);
+    }
+    killer
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| SupervisorError::Operation(format!("taskkill failed: {error}")))
 }
 
 #[cfg(test)]

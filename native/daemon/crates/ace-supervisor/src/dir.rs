@@ -67,8 +67,7 @@ pub fn directory_pids<I: DirectoryIo>(
 
 /// Ends everything in `directories`: re-checks the lease before signalling,
 /// then waits for kernel termination. Never ends `self_pid`.
-pub fn terminate_directory_processes<I: DirectoryIo>(
-    io: &I,
+pub fn terminate_directory_processes<I: DirectoryIo>(    io: &I,
     directories: &[String],
     self_pid: u32,
     sleep_ms: &dyn Fn(u64),
@@ -111,9 +110,146 @@ pub fn terminate_directory_processes<I: DirectoryIo>(
     Err(SupervisorError::Limit("Owned process limit".to_owned()))
 }
 
+/// The real directory reader: /proc on Linux, lsof elsewhere.
+pub struct SystemDirectoryIo {
+    self_pid: u32,
+}
+
+impl SystemDirectoryIo {
+    /// Reads as `self_pid`, which the sweep never ends.
+    pub fn new(self_pid: u32) -> Self {
+        Self { self_pid }
+    }
+
+    /// This process's pid, for the sweep's own exclusion.
+    pub fn self_pid(&self) -> u32 {
+        self.self_pid
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl DirectoryIo for SystemDirectoryIo {
+    fn candidates(&self) -> Vec<u32> {
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| entry.file_name().to_string_lossy().parse::<u32>().ok())
+            .filter(|pid| *pid > 0)
+            .collect()
+    }
+
+    fn cwd(&self, pid: u32) -> Option<String> {
+        std::fs::read_link(format!("/proc/{pid}/cwd"))
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+    }
+
+    fn is_zombie(&self, pid: u32) -> bool {
+        let Ok(text) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            return false;
+        };
+        crate::listing::parse_linux_stat(&text).map(|stat| stat.state == 'Z').unwrap_or(false)
+    }
+
+    fn kill(&self, pid: u32) {
+        // The sweep signals by kill; absence is not a failure.
+        use rustix::process::Pid;
+        if let Ok(raw) = i32::try_from(pid)
+            && let Some(target) = Pid::from_raw(raw)
+        {
+            let _ = rustix::process::kill_process(target, rustix::process::Signal::KILL);
+        }
+    }
+}
+
+/// macOS and others: lsof for the lease, libproc for zombies.
+#[cfg(not(target_os = "linux"))]
+impl DirectoryIo for SystemDirectoryIo {
+    fn candidates(&self) -> Vec<u32> {
+        // Without /proc there is no cheap table; the sweep below selects by
+        // re-checking, so an empty candidate list only narrows the first pass.
+        lsof_cwd_pids(None)
+            .into_iter()
+            .map(|(pid, _)| pid)
+            .collect()
+    }
+
+    fn cwd(&self, pid: u32) -> Option<String> {
+        lsof_cwd_pids(Some(pid)).first().and_then(|found| {
+            if found.0 == pid {
+                Some(found.1.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    fn is_zombie(&self, pid: u32) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            crate::listing::darwin_info(pid).map(|info| info.zombie).unwrap_or(false)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = pid;
+            false
+        }
+    }
+
+    fn kill(&self, pid: u32) {
+        #[cfg(unix)]
+        {
+            use rustix::process::Pid;
+            if let Ok(raw) = i32::try_from(pid)
+                && let Some(target) = Pid::from_raw(raw)
+            {
+                let _ = rustix::process::kill_process(target, rustix::process::Signal::KILL);
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = pid;
+        }
+    }
+}
+
+/// Pids holding a cwd, from lsof: `(pid, cwd)` pairs, at most 64.
+#[cfg(not(target_os = "linux"))]
+fn lsof_cwd_pids(selected: Option<u32>) -> Vec<(u32, String)> {
+    let mut command = std::process::Command::new("/usr/sbin/lsof");
+    command.args(["-n", "-P", "-a", "-d", "cwd", "-F0pn"]);
+    if let Some(pid) = selected {
+        command.args(["-p", &pid.to_string()]);
+    }
+    let output = command.output().ok();
+    let Some(output) = output.filter(|output| output.status.success() || output.status.code() == Some(1)) else {
+        return Vec::new();
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut found = Vec::new();
+    let mut pid = 0u32;
+    for record in text.split('\0') {
+        let field = record.strip_prefix('\n').unwrap_or(record);
+        if let Some(number) = field.strip_prefix('p') {
+            if let Ok(parsed) = number.parse::<u32>() {
+                pid = parsed;
+            }
+            continue;
+        }
+        if let Some(cwd) = field.strip_prefix('n')
+            && pid > 0
+            && found.len() < 64
+        {
+            found.push((pid, cwd.to_owned()));
+        }
+    }
+    found
+}
+
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests {    use super::*;
     use std::collections::HashMap;
 
     struct Fake {

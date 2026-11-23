@@ -348,6 +348,9 @@ pub const ERROR_INVALID_PARAMETER: u32 = 87;
 pub const ERROR_INSUFFICIENT_BUFFER: u32 = 122;
 
 #[cfg(target_os = "windows")]
+pub(crate) use windows::WindowsApi;
+
+#[cfg(target_os = "windows")]
 mod windows {
     //! The real Win32 identity surface, through windows-sys. Buffers the
     //! kernel fills are owned here and read back by index; the single

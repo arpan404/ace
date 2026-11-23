@@ -101,6 +101,27 @@ pub fn to_windows_command(command: &str, args: &[&str]) -> Result<WindowsCommand
     })
 }
 
+/// A file in Windows' own System32, located by the kernel rather than the
+/// environment.
+#[cfg(windows)]
+pub fn windows_system_executable(name: &str) -> Result<String, crate::errors::SupervisorError> {
+    use windows_sys::Win32::System::LibraryLoader::GetSystemDirectoryW;
+    let mut buffer = [0u16; 1024];
+    let length = GetSystemDirectoryW(buffer.as_mut_ptr(), 1024);
+    if length == 0 || length >= 1024 {
+        return Err(crate::errors::SupervisorError::Unavailable(
+            "Windows system directory unavailable".to_owned(),
+        ));
+    }
+    let directory = String::from_utf16_lossy(&buffer[..length as usize]);
+    if !std::path::Path::new(&directory).is_absolute() {
+        return Err(crate::errors::SupervisorError::Unavailable(
+            "Windows system directory is not absolute".to_owned(),
+        ));
+    }
+    Ok(format!("{directory}\\{name}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

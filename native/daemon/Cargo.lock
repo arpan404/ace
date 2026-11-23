@@ -121,14 +121,18 @@ dependencies = [
  "ace-adapter-pi",
  "ace-core",
  "ace-store",
+ "ace-supervisor",
  "napi",
  "napi-build",
  "napi-derive",
+ "process-wrap",
+ "rustix",
  "serde",
  "serde_json",
  "serde_stacker",
  "stacker",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
