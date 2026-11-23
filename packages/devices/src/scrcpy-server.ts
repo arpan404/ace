@@ -27,6 +27,13 @@ export type ScrcpyConnection = {
 
 const deviceNameBytes = 64;
 
+const closedDuringStartup = () =>
+  new DeviceError(
+    "command_failed",
+    "scrcpy-server closed during startup",
+    "Start the device view again.",
+  );
+
 /**
  * Reads `count` bytes from a forward-tunnel connection, then pauses it. adb accepts the TCP
  * connection even while nothing listens on the device, then closes it: that is `undefined`.
@@ -178,12 +185,6 @@ export async function startScrcpyServer(options: {
         });
         void work.then(resolve, reject).finally(cancel);
       });
-    const closedDuringStartup = () =>
-      new DeviceError(
-        "command_failed",
-        "scrcpy-server closed during startup",
-        "Start the device view again.",
-      );
     let first: Socket | undefined;
     let early: Buffer = Buffer.alloc(0);
     while (!first) {
