@@ -114,13 +114,19 @@ export const spadeGroupRequests = spadeRequestArea(
           return await changed(spade, title, async () => {
             if (!memberEdit) return ask("PATCH", groupPath(id), change);
             const group = await readGroup(id, () => ask("GET", "/v1/groups"));
-            const roster = group.members.map(({ agent, machine }) =>
+            const roster = group.members.map<z.infer<typeof memberRef>>(({ agent, machine }) =>
               machine === null ? { agent } : { agent, machine },
             );
             const matches = (ref: z.infer<typeof memberRef>) =>
               ref.agent === memberEdit.member.agent && ref.machine === memberEdit.member.machine;
-            if (memberEdit.action === "add" && !roster.some(matches))
+            if (memberEdit.action === "remove") {
+              if (matches({ agent: change.lead ?? group.lead.agent }))
+                throw new Error("Choose another lead before removing this bot.");
+              if (roster.length <= spadeGroupMembersMin && roster.some(matches))
+                throw new Error(`A club needs at least ${spadeGroupMembersMin} bots.`);
+            } else if (!roster.some(matches)) {
               roster.push(memberEdit.member);
+            }
             const next =
               memberEdit.action === "remove" ? roster.filter((ref) => !matches(ref)) : roster;
             return ask("PATCH", groupPath(id), { ...change, members: next });
