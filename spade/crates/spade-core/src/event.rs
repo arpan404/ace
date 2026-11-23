@@ -1315,6 +1315,9 @@ pub struct CarriedLedger {
 pub struct Said {
     pub seq: u64,
     pub text: String,
+    /// Where the person wrote it, when not in this conversation ("an ace thread").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 fn is_none_earlier(n: &u64) -> bool {

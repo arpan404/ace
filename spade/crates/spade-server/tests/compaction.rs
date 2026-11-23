@@ -75,10 +75,11 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
         summary.contains("Plan a trip to Oxford") && summary.contains("Book a hotel"),
         "{summary}"
     );
-    assert_eq!(
-        compacted.map(|e| e["tokens_before"].clone()),
-        Some(json!(111))
-    );
+    // The reported 111, plus an estimate of what was stored after it (ADR 0216).
+    let before = compacted
+        .and_then(|e| e["tokens_before"].as_u64())
+        .unwrap_or(0);
+    assert!((111..150).contains(&before), "{before}");
     assert_eq!(
         compacted.map(|e| e["images_left_out"].clone()),
         Some(json!(0)),
@@ -98,7 +99,8 @@ async fn past_the_high_mark_the_next_turn_compacts_and_the_model_sees_the_summar
     let joined = people.join("\n\n");
     let (summary, turns) = joined.split_once("</summary>").unwrap_or_default();
     assert!(
-        summary.contains("word for word") && summary.contains("] How do I get to Oxford?\n"),
+        summary.contains("word for word")
+            && summary.contains("The person wrote:\n> How do I get to Oxford?\n"),
         "{summary}"
     );
     assert!(turns.contains("Where should I stay?"), "{turns}");

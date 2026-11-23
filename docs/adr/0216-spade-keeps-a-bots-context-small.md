@@ -34,9 +34,13 @@ it.
 
 ## Decision
 
-1. **A working budget, the window the ceiling.** A conversation compacts once its reported prompt
-   reaches the working budget, or 75% of the model's window when that is smaller
-   (`compaction::Budget::trigger`). A compaction keeps recent turns worth the same share of that
+1. **A working budget, the window the ceiling.** A conversation compacts once its next prompt
+   reaches the working budget, or 75% of the smallest window among the models that may serve the
+   step (its model and fallbacks) when that is smaller (`compaction::Budget::trigger`). The size is
+   estimated: the latest step's reported prompt since the last compaction plus a token per four
+   characters stored after it (the shown span alone when nothing since reported), so results that
+   arrive after a report count, and a size from before a compaction never does. The cut is sized
+   against the shown span only. A compaction keeps recent turns worth the same share of that
    trigger as before (35/75, about 60k tokens at the default). The default is **128,000 tokens**
    (`compaction::WORKING_TOKENS`): past the range where the papers above still see near-full
    quality for most current models, but large enough that a turn reading a few large files does
@@ -55,15 +59,20 @@ it.
    event, `results_aged { before }`: every result before that index that may age is a stub. The
    engine stores one before a model call only when the results that would age add up to at least
    64,000 characters (about 16,000 tokens) (`aging::due`), so the prompt changes in batches.
-3. **Compaction keeps the person's words.** Each compaction stores the person's own messages from
+3. **Compaction keeps the person's words.** Only words the person wrote: here or in an ace thread
+   (labelled), never another bot's, a routine's, a group's, or anything in a helper's
+   conversation; each quoted as its own block with every line marked, so none can pass for
+   another. Each compaction stores the person's own messages from
    the span it summarises, word for word, on its `carried` ledger (`said`, `said_earlier`),
    carried forward from compaction to compaction like the writes already carried out. The stored
    summary is the model's summary, then "What the person said earlier, word for word", then the
    writes already carried out. A message over 3,000 characters keeps its start and says where the
    rest is. The list is bounded at 24,000 characters: the newest message always stays, then
-   standing instructions (messages with "always", "never", "from now on", "don't", "remember" and
-   the like), newest first, then the rest, newest first; what doesn't fit is counted and pointed
-   at `history_search`. The summary request now asks for every decision and who made it and for
+   standing instructions (messages under 600 characters with "always", "never", "from now on",
+   "don't", "remember" and the like), newest first, then the rest, newest first; what doesn't fit is counted and pointed
+   at `history_search`. The list is worked out first, and the summary request names the messages
+   kept only in part and how many are dropped, so their requirements go into the summary. The
+   summary request now asks for every decision and who made it and for
    open commitments (what the bot said it would do and hasn't), stored as `commitments` and shown
    as "Commitments still owed".
 

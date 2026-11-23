@@ -169,7 +169,8 @@ due: the boundary is the start of the 4th latest step, moved back until at least
 it, and a batch is due once the results between the previous boundary and it that may age add up to
 64,000 characters. A result before the boundary shows as one line: the tool, its arguments
 (shortened), its size, and `history_read {"from": <position>, "count": 1}`, `history_search` or
-calling the tool again to get it back. Never aged: errors, results of 2,000 characters or less,
+calling the tool again to get it back. A conversation not offered `history_read` ages nothing.
+Never aged: errors, results of 2,000 characters or less,
 results with images, `ask_user`, `skill_load` and `tool_search` results; the person's and the
 bot's own words are not results and are always whole. Between two batches the prompt only grows at
 its end, so the provider's cache holds; a batch rewrites the cache from its first newly aged result,
@@ -178,11 +179,16 @@ cut.
 
 ## Compaction
 
-Before each model call, if the endpoint's last reported prompt reaches the working budget (128,000
-tokens unless the person set `context_tokens` for the bot or for every bot on the model roles
-settings, at least 16,000), or 75% of the model's own context window when that is smaller (200,000
-tokens for a model that doesn't say, capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a
-cost choice; ADR 0158, ADR 0216), the engine compacts: it cuts
+Before each model call, if the next request's prompt reaches the working budget (128,000 tokens
+unless the person set `context_tokens` for the bot or for every bot on the model roles settings, at
+least 16,000), or 75% of the smallest context window among the models that may serve the step (the
+turn's model and its fallbacks) when that is smaller (200,000 tokens for a model that doesn't say,
+capped by `SPADE_CONTEXT_TOKENS` when the person sets it as a cost choice; ADR 0158, ADR 0216), the
+engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`): what the latest
+step since the last compaction reported, plus a token per 4 characters of everything stored after
+it; with no report since the last compaction, the shown span's text alone, so a size from before a
+compaction never counts. `tokens_before` stores that estimate. The cut is sized against the shown
+span only (the latest summary and the events from its cut), never the history before it. It cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
 the same share of the trigger as 35% is of 75% are kept. It asks the conversation's own model for
 a JSON summary (goal, decisions with who made them, open commitments, facts, open questions,
@@ -198,10 +204,17 @@ characters. Writes since the previous summary and jobs still running are always 
 16,000 characters the oldest carried lines fold into a count that points at `history_search`. A job
 listed as still running is looked at again at the next compaction (done, unknown, or dropped if it
 failed). The person's own messages from the summarised span are kept word for word in the stored
-summary, under the model's summary, and carried forward the same way (`said` on `carried`): a
-message over 3,000 characters keeps its start and its position; past 24,000 characters the newest
-message stays, then standing instructions ("always", "never", "from now on", …), then the rest,
-newest first, and the oldest fold into a count that points at `history_search`. A summary stored
+summary, under the model's summary, and carried forward the same way (`said` on `carried`). Only
+messages the person wrote count: here or in an ace thread (labelled so), never another bot's, a
+routine's or one that came through a group, and none in a helper's conversation, whose brief is
+the bot's. Each is quoted as its own block, every line starting `> `, under `[#position] The person
+wrote:`, so nothing inside one passes for another or for Spade's words. A message over 3,000
+characters keeps its start and its position; past 24,000 characters the newest message stays, then
+standing instructions (a message under 600 characters with "always", "never", "from now on", …),
+then the rest, newest first, and the oldest fold into a count that points at `history_search`. The
+list is worked out before the summary is asked for, and the request names the messages kept only in
+part and how many are not kept, so the summary holds their requirements. A compaction that cannot
+be stored is not reported as done, so the turn goes on rather than paying for the summary again. A summary stored
 before `carried` existed makes the next compaction walk from the start, once. Compaction is the one place earlier prompt bytes change: the system prompt and
 tools stay cached, the conversation before the cut becomes the summary. If the summary fails, older turns are left out with a note saying
 so. `POST /v1/conversations/{id}/compact` with an optional `{"focus": "…"}` compacts between

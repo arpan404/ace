@@ -122,6 +122,9 @@ pub fn stub(name: &str, arguments: &Value, content: &str, seq: u64) -> String {
     )
 }
 
+/// The tool a stub points at to read a result again; a conversation not offered it ages nothing.
+pub const READ_BACK: &str = "history_read";
+
 /// The length an aged result counts for when sizing what a compaction keeps.
 pub const STUB_CHARS: usize = 400;
 
