@@ -455,7 +455,9 @@ impl Tool for WorkspaceFind {
                 },
             );
             if more {
-                lines.push(format!("[Only the first {count} shown; narrow the pattern.]"));
+                lines.push(format!(
+                    "[Only the first {count} shown; narrow the pattern.]"
+                ));
             }
             Ok(marked(ToolOutput::ok(lines.join("\n")), trusted))
         })

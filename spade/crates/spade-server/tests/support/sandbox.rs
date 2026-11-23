@@ -10,7 +10,7 @@ use spade_server::clock::{CountingIds, SystemClock};
 use spade_server::security::{Security, Setup};
 use spade_server::tools::{EngineHandle, Tool};
 use spade_server::workspace::shell::{Confine, Confinement, Kind, Shell};
-use spade_server::workspace::{Workspaces, workspace_tools};
+use spade_server::workspace::{Workspaces, workspace_tools, workspace_tools_with};
 use spade_store::Store;
 use spade_testkit::Script;
 
@@ -309,7 +309,12 @@ async fn world_built(
     } else {
         shell.into()
     };
-    let mut tools: Vec<Arc<dyn Tool>> = workspace_tools(workspaces.clone(), bots.clone(), commands);
+    let python = options
+        .python
+        .clone()
+        .unwrap_or_else(spade_server::workspace::python::Setup::system);
+    let mut tools: Vec<Arc<dyn Tool>> =
+        workspace_tools_with(workspaces.clone(), bots.clone(), commands, python);
     tools.extend(extra);
     let scripts = scripts(&Places {
         root: root.clone(),

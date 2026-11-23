@@ -36,11 +36,7 @@ pub fn apply(path: &str, text: &str, changes: &[Change]) -> Result<(String, usiz
             ""
         };
         let refused = |why: String| {
-            let none = if several {
-                " Nothing was changed."
-            } else {
-                ""
-            };
+            let none = if several { " Nothing was changed." } else { "" };
             Err(format!("{which}{why}{none}"))
         };
         if change.old.is_empty() {
@@ -93,7 +89,11 @@ mod tests {
 
     #[test]
     fn one_change_replaces_its_one_place_and_refuses_when_there_are_several() {
-        let one = apply("a.txt", "x = 1\ny = 2\n", &[change("y = 2", "y = 3", false)]);
+        let one = apply(
+            "a.txt",
+            "x = 1\ny = 2\n",
+            &[change("y = 2", "y = 3", false)],
+        );
         assert_eq!(one, Ok(("x = 1\ny = 3\n".to_owned(), 1)));
         let twice = apply("a.txt", "a a", &[change("a", "b", false)]).err();
         assert!(
@@ -138,9 +138,11 @@ mod tests {
         ];
         let refused = apply("a.txt", "one two three", &edits).err();
         assert!(
-            refused.as_deref().is_some_and(|e| e.starts_with("Edit 2 of 3 (\"missing\")")
-                && e.contains("after the edits before it")
-                && e.ends_with("Nothing was changed.")),
+            refused
+                .as_deref()
+                .is_some_and(|e| e.starts_with("Edit 2 of 3 (\"missing\")")
+                    && e.contains("after the edits before it")
+                    && e.ends_with("Nothing was changed.")),
             "{refused:?}"
         );
         assert!(apply("a.txt", "x", &[]).is_err());

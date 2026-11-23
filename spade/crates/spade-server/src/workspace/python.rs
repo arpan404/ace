@@ -74,12 +74,7 @@ impl Setup {
 }
 
 /// The folders a command's clean `PATH` holds (`shell.rs`), where uv and Python are looked for.
-const SYSTEM_FOLDERS: &[&str] = &[
-    "/usr/local/bin",
-    "/opt/homebrew/bin",
-    "/usr/bin",
-    "/bin",
-];
+const SYSTEM_FOLDERS: &[&str] = &["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"];
 
 /// Python versions looked for by name in each folder, newest first, then plain `python3`.
 const NAMES: &[&str] = &[
@@ -101,13 +96,7 @@ fn quote(text: &str) -> String {
 /// a Python and makes the bot's environment if it has none, installs the packages until they
 /// are in, and runs the script with the environment's Python.
 pub fn launcher(setup: &Setup) -> String {
-    let words = |paths: Vec<String>| {
-        paths
-            .iter()
-            .map(|p| quote(p))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
+    let words = |paths: Vec<String>| paths.iter().map(|p| quote(p)).collect::<Vec<_>>().join(" ");
     let in_folders = |name: &str| {
         setup
             .folders
@@ -437,10 +426,17 @@ fn look_again(workspace: &Workspace, before: &Snapshot) -> Found {
     let (text, files) = made(before, &after);
     let images = files
         .iter()
-        .filter(|path| after.get(*path).and_then(|seen| seen.size).is_some_and(|size| {
-            size <= super::reading::LARGEST_IMAGE
-        }))
-        .filter_map(|path| workspace.bytes_up_to(path, super::reading::LARGEST_IMAGE).ok())
+        .filter(|path| {
+            after
+                .get(*path)
+                .and_then(|seen| seen.size)
+                .is_some_and(|size| size <= super::reading::LARGEST_IMAGE)
+        })
+        .filter_map(|path| {
+            workspace
+                .bytes_up_to(path, super::reading::LARGEST_IMAGE)
+                .ok()
+        })
         .filter(|bytes| crate::images::sniff(bytes).is_some())
         .take(MOST_IMAGES)
         .collect();

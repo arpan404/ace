@@ -15,7 +15,10 @@ const PATTERN_CHARS: usize = 1_000;
 #[derive(Debug, Clone)]
 pub enum Needle {
     /// Plain text; `wanted` is lower-cased when case is ignored.
-    Text { wanted: String, ignore_case: bool },
+    Text {
+        wanted: String,
+        ignore_case: bool,
+    },
     Pattern(regex::Regex),
 }
 
@@ -140,7 +143,9 @@ mod tests {
 
     #[test]
     fn a_pattern_that_is_broken_or_too_large_is_refused_in_words() {
-        let broken = Needle::new("(unclosed", true, false).err().unwrap_or_default();
+        let broken = Needle::new("(unclosed", true, false)
+            .err()
+            .unwrap_or_default();
         assert!(broken.contains("not a regular expression"), "{broken}");
         let huge = Needle::new(r"\w{1000}\w{1000}\w{1000}", true, false)
             .err()

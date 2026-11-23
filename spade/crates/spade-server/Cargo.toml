@@ -80,6 +80,8 @@ rmcp = { version = "3.9.0", default-features = false, features = [
   "transport-streamable-http-server",
 ] }
 spade-docs = { path = "../spade-docs" }
+# To make Word files for `workspace_read`'s tests.
+zip = { version = "9.5", default-features = false, features = ["deflate"] }
 # Spade runs the Spade Agent Format's conformance suite on itself (ADR 0201 §5).
 spade-conform = { path = "../spade-conform" }
 url = "2"

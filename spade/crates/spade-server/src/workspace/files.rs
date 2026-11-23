@@ -465,8 +465,12 @@ impl Workspace {
     }
 
     /// Files under `relative` whose path fits `glob`, with their sizes, links not followed; at
-    /// most [`MOST_ENTRIES`]. Answers the files and whether there were more.
-    pub fn find(&self, relative: &str, glob: &Glob) -> Result<(Vec<(String, u64)>, bool), PathError> {
+    /// most [`MOST_ENTRIES`], by path. Answers the files and whether there were more.
+    pub fn find(
+        &self,
+        relative: &str,
+        glob: &Glob,
+    ) -> Result<(Vec<(String, u64)>, bool), PathError> {
         let mut found = Vec::new();
         let mut more = false;
         self.walk(relative, |at, name, full| {
@@ -481,6 +485,7 @@ impl Workspace {
             found.push((full.to_owned(), size));
             true
         })?;
+        found.sort();
         Ok((found, more))
     }
 
