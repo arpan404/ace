@@ -199,7 +199,7 @@ pub(super) async fn step(
         instructions: turn.instructions.clone(),
         instructions_changed: turn.changed,
         // The person's asks close each turn's message too (ADR 0215 §2).
-        message: match engine.limits.asks {
+        message: match engine.limits.asks && engine.helper_of(id).is_none() {
             true => spade_core::asks::block::text(&engine.asks_of(id, events)).map_or_else(
                 || turn.message.clone(),
                 |b| format!("{}\n\n{b}", turn.message),

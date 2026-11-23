@@ -329,6 +329,7 @@ impl Transcript {
             | Known::AsksUpdated(_)
             | Known::AsksChecked(_)
             | Known::AsksReminded(_)
+            | Known::AsksNoted(_)
             | Known::StepServed(_)
             | Known::Arrived { .. }
             | Known::CardShown(_)

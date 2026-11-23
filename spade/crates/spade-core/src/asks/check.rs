@@ -3,12 +3,11 @@
 
 use super::{Checked, Ledger};
 use crate::event::{Event, Known};
-use crate::question::{Standing, views};
 
 /// The `asks_checked` to store before one more step of `reply`, whose last step made no calls;
 /// `None` when the reply may end. It runs at most once per reply, names only open asks no
 /// earlier check named, and never while a question the bot asked waits on the person.
-pub fn due(events: &[Event], ledger: &Ledger, reply: &str) -> Option<Checked> {
+pub fn due(ledger: &Ledger, reply: &str) -> Option<Checked> {
     if ledger.checked.as_deref() == Some(reply) {
         return None;
     }
@@ -16,11 +15,8 @@ pub fn due(events: &[Event], ledger: &Ledger, reply: &str) -> Option<Checked> {
     if open.is_empty() {
         return None;
     }
-    // Read only when there is something to name: a card can be from long before.
-    let asking = views(events)
-        .iter()
-        .any(|card| matches!(card.standing, Standing::Waiting | Standing::Deferred));
-    if asking {
+    // The ledger keeps the open cards, so this never walks the history.
+    if ledger.cards.any() {
         return None;
     }
     let listed: Vec<String> = open

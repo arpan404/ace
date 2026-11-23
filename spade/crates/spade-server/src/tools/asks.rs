@@ -22,7 +22,8 @@ impl Tool for Asks {
                               waiting (on: person, job or time) or chat (nothing to do), each \
                               with a short reason. standing records an instruction that holds \
                               until the person lifts it (from: their message's id; text: the \
-                              instruction); lift ends one (standing: its id, s1)."
+                              instruction); lift ends one when the person says so (standing: its id, s1; from: \
+                              their later message's id)."
                     .to_owned(),
                 schema: json!({ "type": "object",
                     "properties": { "changes": { "type": "array", "minItems": 1, "items": {

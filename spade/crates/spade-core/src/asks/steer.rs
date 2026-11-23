@@ -20,8 +20,9 @@ pub struct Steering {
 }
 
 impl Steering {
-    /// Reads one event; true when it is a message from the person that steers the running reply.
-    pub fn read(&mut self, event: &Event) -> bool {
+    /// Reads one event; true when it is a message from the person (for a worker, its `maker`)
+    /// that steers the running reply.
+    pub fn read(&mut self, event: &Event, maker: Option<&str>) -> bool {
         let was_asking = self.asking;
         self.asking = crate::brain::still_asking(self.asking, event);
         match event {
@@ -40,7 +41,10 @@ impl Steering {
                 self.asking = false;
                 false
             }
-            _ if crate::question::typed_by_person(event) => self.running.is_some() && !was_asking,
+            // A typed answer to a waiting card answers it; it doesn't steer.
+            _ if super::is_persons(event, maker) => {
+                self.running.is_some() && !(was_asking && crate::question::typed_by_person(event))
+            }
             _ => false,
         }
     }
@@ -62,10 +66,11 @@ pub fn mid_turn(events: &[Event], from: usize) -> HashSet<usize> {
             )
         )
     });
+    let maker = super::maker_of(events);
     let mut steering = Steering::default();
     let mut out = HashSet::new();
     for (at, event) in events.iter().enumerate().skip(start.unwrap_or(0)) {
-        if steering.read(event) && at >= from {
+        if steering.read(event, maker) && at >= from {
             out.insert(at);
         }
     }

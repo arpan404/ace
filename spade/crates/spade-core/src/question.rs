@@ -16,7 +16,7 @@ pub mod suggest;
 mod tests;
 
 pub use check::{check_answers, from_message, parse};
-pub use state::{Standing, View, for_later, standing, views};
+pub use state::{OpenCards, Standing, View, for_later, standing, views};
 
 /// The most questions one `ask_user` call asks.
 pub const MOST_QUESTIONS: usize = 5;

@@ -31,7 +31,8 @@ impl Engine {
     }
 
     /// Answers an `asks` call: stores what it accepted with its result, or gives the refusal as
-    /// the result. Checked and stored under the lock every write holds, so several calls in one
+    /// the result. `untrusted`: untrusted content is in the prompt's view, so the bot's own
+    /// words (standing, changed, split, lift) are refused, as notes are (ADR 0130). Checked and stored under the lock every write holds, so several calls in one
     /// step each see the ones before. `None` when the person stopped the reply.
     pub(super) fn asks_call(
         &self,
@@ -46,13 +47,18 @@ impl Engine {
         if stop_requested(&events, reply) {
             return Ok(None);
         }
-        // Stored once: a call run again after a restart answers from what it stored.
-        let stored = events.iter().rev().find_map(|event| match event {
-            Event::Known(Known::AsksUpdated(updated)) if updated.call_id == call_id => {
-                Some(updated)
-            }
-            _ => None,
-        });
+        // Stored once: a call run again after a restart answers from what it stored. Looked for
+        // in this reply only, where its step is, so a new call never reads the whole history.
+        let stored = events
+            .iter()
+            .rev()
+            .take_while(|event| !matches!(event, Event::Known(Known::ReplyStarted { .. })))
+            .find_map(|event| match event {
+                Event::Known(Known::AsksUpdated(updated)) if updated.call_id == call_id => {
+                    Some(updated)
+                }
+                _ => None,
+            });
         if let Some(updated) = stored {
             let lines: Vec<String> = updated.changes.iter().map(asks::change::line).collect();
             return Ok(Some(ToolOutput::ok(lines.join("\n"))));
@@ -92,7 +98,8 @@ pub(super) fn check(engine: &Engine, id: &str, reply: &str) -> bool {
         return false;
     }
     let ledger = engine.asks_of(id, &events);
-    let Some(checked) = asks::check::due(&events, &ledger, reply) else {
+    note_if_due(engine, id, &ledger);
+    let Some(checked) = asks::check::due(&ledger, reply) else {
         return false;
     };
     match engine.append_events(id, &[Event::Known(Known::AsksChecked(checked))]) {
@@ -119,6 +126,7 @@ pub(super) fn remind(engine: &Engine, id: &str, reply: &str) -> bool {
         return false;
     }
     let ledger = engine.asks_of(id, &events);
+    note_if_due(engine, id, &ledger);
     let Some(reminded) = asks::steer::due(&ledger, reply) else {
         return false;
     };
@@ -127,6 +135,30 @@ pub(super) fn remind(engine: &Engine, id: &str, reply: &str) -> bool {
         Err(error) => {
             tracing::warn!(%error, "could not store the steer reminder; the turn goes on");
             false
+        }
+    }
+}
+
+/// Stores a copy of the ledger once it has read `NOTE_EVERY` events since the last one, so a fold
+/// after a restart reads only what came since (ADR 0170). Called under the record lock.
+fn note_if_due(engine: &Engine, id: &str, ledger: &Ledger) {
+    let Some(copy) = ledger.note_due() else {
+        return;
+    };
+    match engine.append_events(
+        id,
+        &[Event::Known(Known::AsksNoted(Box::new(copy.clone())))],
+    ) {
+        // The kept ledger knows its copy is stored; it reads the copy's event as nothing new.
+        Ok(_) => {
+            *engine
+                .live(id)
+                .asks
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = Some(copy)
+        }
+        Err(error) => {
+            tracing::warn!(%error, "could not store a copy of the asks; tried again later")
         }
     }
 }

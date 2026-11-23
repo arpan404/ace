@@ -35,6 +35,15 @@ pub const MOST_ASKS: usize = 40;
 /// The most standing instructions kept; one more is refused until one is lifted.
 pub const MOST_STANDING: usize = 20;
 
+/// The most events a fresh fold reads back for a stored ledger, and from where it starts when
+/// none is there (ADR 0170): asks older than that, in a conversation from before the ledger, are
+/// taken as settled by the conversation itself.
+pub const LOOK_BACK: usize = 2_000;
+
+/// How many events a ledger reads before Spade stores a copy of it (`asks_noted`), so a fold
+/// after a restart reads at most this many.
+pub const NOTE_EVERY: usize = 500;
+
 /// What the person asked that is still open or waiting, and what stays in force.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Ledger {
@@ -59,9 +68,12 @@ pub struct Ledger {
     /// The latest reply the stop check ran in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) checked: Option<String>,
-    /// A worker's maker (ADR 0161): its messages are the worker's asks.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) maker: Option<String>,
+    /// The question cards still open, so the stop check never walks the history.
+    #[serde(default)]
+    pub(crate) cards: crate::question::OpenCards,
+    /// Where the latest stored copy of the ledger stands (`asks_noted`, a compaction's).
+    #[serde(default, skip_serializing_if = "is_none_usize")]
+    pub(crate) stored: usize,
 }
 
 /// One thing the person asked.
@@ -147,37 +159,88 @@ pub struct Checked {
     pub note: String,
 }
 
+/// The maker of a worker bot (ADR 0161), named by its conversation's first event.
+pub(crate) fn maker_of(events: &[Event]) -> Option<&str> {
+    match events.first() {
+        Some(Event::Known(Known::WorkerOf(link))) => Some(&link.parent),
+        _ => None,
+    }
+}
+
+/// Whether `event` is a message from the person: typed by them, or for a worker sent by its
+/// maker. The one rule for what opens an ask and what steers.
+pub(crate) fn is_persons(event: &Event, maker: Option<&str>) -> bool {
+    let Event::Known(Known::UserMessage {
+        from_agent,
+        from_routine: None,
+        from_group: None,
+        ..
+    }) = event
+    else {
+        return false;
+    };
+    match from_agent {
+        None => true,
+        Some(from) => maker == Some(from.id.as_str()) && from.contract.is_none(),
+    }
+}
+
 impl Ledger {
-    /// The ledger of `events`: from the latest compaction that stored one, then the events after
-    /// it; from the start when none did.
+    /// The ledger of `events`: from the latest stored copy (`asks_noted`, or a compaction's)
+    /// among the last [`LOOK_BACK`] events, then the events after it. With none there it reads
+    /// only those last events: older asks of a conversation from before the ledger are taken as
+    /// settled.
     pub fn of(events: &[Event]) -> Self {
-        let stored = events.iter().rev().find_map(|event| match event {
-            Event::Known(Known::ContextCompacted { asks, .. }) => Some(asks.as_deref()),
+        let floor = events.len().saturating_sub(LOOK_BACK);
+        let stored = events[floor..].iter().rev().find_map(|event| match event {
+            Event::Known(Known::ContextCompacted {
+                asks: Some(stored), ..
+            })
+            | Event::Known(Known::AsksNoted(stored)) => Some(stored),
             _ => None,
         });
         let mut ledger = match stored {
-            Some(Some(stored)) if stored.through <= events.len() => stored.clone(),
-            _ => Self::default(),
+            Some(stored) if stored.through <= events.len() => (**stored).clone(),
+            _ => Self {
+                through: floor,
+                stored: floor,
+                ..Self::default()
+            },
         };
         ledger.advance(events);
         ledger
+    }
+
+    /// A copy to store as `asks_noted` once this ledger has read [`NOTE_EVERY`] events since the
+    /// last stored one; `None` before.
+    pub fn note_due(&self) -> Option<Self> {
+        (self.through >= self.stored + NOTE_EVERY).then(|| Self {
+            stored: self.through,
+            ..self.clone()
+        })
     }
 
     /// Reads the events stored since this ledger was last advanced: `events[self.through..]`,
     /// never the ones before.
     pub fn advance(&mut self, events: &[Event]) {
         let from = self.through.min(events.len());
+        let maker = maker_of(events);
         for (at, event) in events.iter().enumerate().skip(from) {
-            let steer = self.steering.read(event);
+            let steer = self.steering.read(event, maker);
+            self.cards.read(event);
+            let persons = is_persons(event, maker);
             if let Event::Known(known) = event {
-                self.read(at, known, steer);
+                self.read(at, known, steer, persons);
             }
         }
         self.through = events.len().max(self.through);
     }
 
-    fn read(&mut self, at: usize, event: &Known, steer: bool) {
+    fn read(&mut self, at: usize, event: &Known, steer: bool, persons: bool) {
         match event {
+            Known::ContextCompacted { asks: Some(_), .. } | Known::AsksNoted(_) => {
+                self.stored = at;
+            }
             Known::ReplyFinished { .. }
             | Known::ReplyStopped { .. }
             | Known::ReplyFailed { .. }
@@ -188,8 +251,6 @@ impl Ledger {
             Known::AsksReminded(reminded) => {
                 self.watched.retain(|w| !reminded.steers.contains(&w.id));
             }
-            Known::WorkerOf(link) => self.maker = Some(link.parent.clone()),
-            Known::WorkerDetached { .. } => self.maker = None,
             Known::AsksUpdated(updated) => {
                 for one in &updated.changes {
                     self.apply(one);
@@ -203,8 +264,8 @@ impl Ledger {
                     }
                 }
             }
-            Known::UserMessage { .. } => {
-                if let Some(words) = self.words_of(event) {
+            Known::UserMessage { .. } if persons => {
+                if let Some(words) = words_of(event) {
                     let id = crate::chat_markup::id(at as u64 + 1, 0);
                     if steer {
                         self.watch(id.clone(), at);
@@ -221,36 +282,6 @@ impl Ledger {
             }
             _ => {}
         }
-    }
-
-    /// The words of a message that opens an ask: the person's own, or for a worker its maker's.
-    /// Messages from other bots, routines and groups open none.
-    fn words_of(&self, event: &Known) -> Option<String> {
-        let Known::UserMessage {
-            text,
-            images,
-            documents,
-            from_agent,
-            from_routine,
-            from_group,
-            ..
-        } = event
-        else {
-            return None;
-        };
-        if from_routine.is_some() || from_group.is_some() {
-            return None;
-        }
-        if let Some(from) = from_agent
-            && (self.maker.as_deref() != Some(from.id.as_str()) || from.contract.is_some())
-        {
-            return None;
-        }
-        let text = text.trim();
-        if !text.is_empty() {
-            return Some(cut(text, WORDS_CHARS));
-        }
-        (!images.is_empty() || !documents.is_empty()).then(|| "(sent attachments only)".to_owned())
     }
 
     fn open(&mut self, ask: Ask) {
@@ -323,6 +354,28 @@ impl Ledger {
             ask.sorted = true;
         }
     }
+}
+
+/// The words of a message from the person, for its ask.
+fn words_of(event: &Known) -> Option<String> {
+    let Known::UserMessage {
+        text,
+        images,
+        documents,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    let text = text.trim();
+    if !text.is_empty() {
+        return Some(cut(text, WORDS_CHARS));
+    }
+    (!images.is_empty() || !documents.is_empty()).then(|| "(sent attachments only)".to_owned())
+}
+
+fn is_none_usize(n: &usize) -> bool {
+    *n == 0
 }
 
 /// `text` cut to `longest` characters, with an ellipsis when cut.

@@ -810,6 +810,9 @@ pub enum Known {
     AsksChecked(crate::asks::Checked),
     /// A steer's first answering step left it unanswered (ADR 0215 §4); read like `asks_checked`.
     AsksReminded(crate::asks::Reminded),
+    /// A copy of the person's asks (ADR 0215), stored every few hundred events so a fold after a
+    /// restart reads only what came since.
+    AsksNoted(Box<crate::asks::Ledger>),
     /// The bot arrived from another machine (ADR 0187): consent given there doesn't count here,
     /// so no answer before this event is remembered (`since_arrival`).
     Arrived {

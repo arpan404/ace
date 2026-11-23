@@ -26,7 +26,7 @@ pub fn text(ledger: &Ledger) -> Option<String> {
             out.push_str(&format!(
                 "\n- {} (from {}): {}",
                 standing.id,
-                standing.from,
+                quoted(&standing.from),
                 quoted(&standing.words)
             ));
         }
