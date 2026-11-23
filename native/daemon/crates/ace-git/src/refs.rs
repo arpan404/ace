@@ -441,16 +441,28 @@ fn reads_ref(path: &std::path::Path) -> bool {
             return false;
         }
     }
-    let first = bytes.split(|byte| *byte == b'\n').next().unwrap_or(&[]);
-    let text = trim_ascii(first);
-    if let Some(target) = text.strip_prefix(b"ref:") {
-        return valid_ref_target(trim_ascii(target));
+    if let Some(target) = symref_target(&bytes) {
+        return valid_ref_target(target);
     }
-    let oid = text
+    let first = bytes.split(|byte| *byte == b'\n').next().unwrap_or(&[]);
+    let oid = trim_ascii(first)
         .split(|byte| byte.is_ascii_whitespace())
         .next()
         .unwrap_or(&[]);
     (oid.len() == 40 || oid.len() == 64) && oid.iter().all(u8::is_ascii_hexdigit)
+}
+
+/// A symref file's target: `ref:` (no leading byte), the whitespace Git skips, the ref name,
+/// and at most one closing LF — nothing else is a symref.
+fn symref_target(bytes: &[u8]) -> Option<&[u8]> {
+    let rest = bytes.strip_prefix(b"ref:")?;
+    let start = rest
+        .iter()
+        .position(|byte| !byte.is_ascii_whitespace())
+        .unwrap_or(rest.len());
+    let name = &rest[start..];
+    let name = name.strip_suffix(b"\n").unwrap_or(name);
+    valid_ref_target(name).then_some(name)
 }
 
 /// A symlink's target bytes, as the ref name Git validates.
@@ -724,6 +736,19 @@ mod tests {
         assert!(!super::root_ref(&repo, name));
         std::fs::write(&fifo, "ref: refs/heads/main\n")?;
         assert!(super::root_ref(&repo, name));
+        // A symref is `ref:`, whitespace Git skips, the name, and at most one closing LF.
+        std::fs::write(&fifo, "ref: refs/heads/main")?;
+        assert!(super::root_ref(&repo, name));
+        std::fs::write(&fifo, "ref:refs/heads/main\n")?;
+        assert!(super::root_ref(&repo, name));
+        std::fs::write(&fifo, "ref: refs/heads/main\n\n")?;
+        assert!(!super::root_ref(&repo, name));
+        std::fs::write(&fifo, "ref: refs/heads/main\ntrailing")?;
+        assert!(!super::root_ref(&repo, name));
+        std::fs::write(&fifo, "ref: refs/heads/main tail")?;
+        assert!(!super::root_ref(&repo, name));
+        std::fs::write(&fifo, " ref: refs/heads/main\n")?;
+        assert!(!super::root_ref(&repo, name));
         Ok(())
     }
 
