@@ -13,6 +13,8 @@ const present = () => true;
 const reported = (version: string) =>
   daemonEnvironment({ home: "/h", resources, path: "/usr/bin", version, env: {} }, {}).ACE_VERSION;
 const missing = () => false;
+/** The desktop daemon runs in its bundle's daemon folder. */
+const cwd = "/app/Contents/Resources/daemon";
 
 describe("the program that runs the daemon", () => {
   it("is the bundled Node runtime in a packaged app, with no run-as-node switch", () => {
@@ -60,12 +62,14 @@ describe("the program that runs the daemon", () => {
     const launch = daemonServerLaunch(resources, "/app/Contents/MacOS/ace", () => named, present);
     expect(launch.launches).toEqual([
       // Bun under another name than node would read a .env from the working directory.
-      { command: named, args: ["--no-env-file", resources.entry, "start"] },
-      { command: resources.node, args: [resources.entry, "start"] },
+      { command: named, args: ["--no-env-file", resources.entry, "start"], cwd },
+      { command: resources.node, args: [resources.entry, "start"], cwd },
     ]);
     // An app from before the rename ships only the runtime.
     const old = daemonServerLaunch(resources, "/app/Contents/MacOS/ace", (r) => r, present);
-    expect(old.launches).toEqual([{ command: resources.node, args: [resources.entry, "start"] }]);
+    expect(old.launches).toEqual([
+      { command: resources.node, args: [resources.entry, "start"], cwd },
+    ]);
     // One-shot commands (doctor) keep the runtime's own name.
     expect(daemonProgram(resources, "/app/Contents/MacOS/ace", present).command).toBe(
       resources.node,
@@ -80,7 +84,7 @@ describe("the program that runs the daemon", () => {
       missing,
     );
     expect(launch).toEqual({
-      launches: [{ command: "/repo/node_modules/electron", args: [resources.entry, "start"] }],
+      launches: [{ command: "/repo/node_modules/electron", args: [resources.entry, "start"], cwd }],
       env: { ELECTRON_RUN_AS_NODE: "1" },
     });
   });

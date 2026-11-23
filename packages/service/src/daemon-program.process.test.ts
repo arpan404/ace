@@ -73,6 +73,20 @@ test.runIf(onBun)("a daemon word is the script's argument, never a command of Bu
   }
 });
 
+test.runIf(onBun)(
+  "the daemon runs no bunfig.toml preload from the folder it was started from",
+  async () => {
+    const { named, project, script } = namedRuntime();
+    writeFileSync(join(project, "bunfig.toml"), 'preload = ["./preload.mjs"]\n');
+    writeFileSync(join(project, "preload.mjs"), "process.env.ACE_PROBE = 'from-preload';\n");
+    for (const launch of daemonLaunches(process.execPath, named, script, ["start"])) {
+      // The caller's folder is where `ace open` was run; the launch says where the daemon runs.
+      const seen = JSON.parse(await output(launch.command, launch.args, launch.cwd));
+      expect(seen.probe).toBeNull();
+    }
+  },
+);
+
 test("a daemon launch takes only an absolute script, so Bun never reads it as a command", () => {
   expect(() => daemonLaunches("/rt/node", "/rt/ace-service", "ace.mjs", ["start"])).toThrow(
     /absolute/,

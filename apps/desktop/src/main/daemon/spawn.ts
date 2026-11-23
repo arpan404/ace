@@ -74,7 +74,13 @@ export function daemonServerLaunch(
   // Electron as Node, in development only: neither the name nor Bun's flags apply.
   if (program.command !== resources.node)
     return {
-      launches: [{ command: program.command, args: [resources.entry, ...words] }],
+      launches: [
+        {
+          command: program.command,
+          args: [resources.entry, ...words],
+          cwd: dirname(resources.entry),
+        },
+      ],
       env: program.env,
     };
   return {

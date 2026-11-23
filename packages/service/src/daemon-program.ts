@@ -13,10 +13,16 @@ import { basename, dirname, isAbsolute, join } from "node:path";
 import { desktopAppMarker } from "./desktop-update.ts";
 import { daemonRuntimePath } from "./process-names.ts";
 
-/** One way to start the daemon: a program and its arguments. */
+/** One way to start the daemon: a program, its arguments and the folder it runs in. */
 export interface DaemonLaunch {
   command: string;
   args: string[];
+  /**
+   * The entry script's own folder, never the caller's: Bun reads `bunfig.toml` (whose `preload`
+   * runs code) from the working directory under any name, and `ace open` or a user service would
+   * otherwise hand the daemon a project folder or the home.
+   */
+  cwd: string;
 }
 
 /**
@@ -28,7 +34,8 @@ export interface DaemonLaunch {
  * working directory, which `ace open` inherits from wherever it was run, and reads a first bare
  * word as a command of its own (`install`, `run`, `test`). So that launch passes
  * `--no-env-file` and an absolute script first. The plain runtime keeps the arguments it always
- * had: Node rejects `--no-env-file`, and Bun named `node` reads no `.env`.
+ * had: Node rejects `--no-env-file`, and Bun named `node` reads no `.env`. Both run in the entry
+ * script's folder.
  */
 export function daemonLaunches(
   runtime: string,
@@ -36,10 +43,11 @@ export function daemonLaunches(
   entry: string,
   words: readonly string[],
 ): DaemonLaunch[] {
-  const plain = { command: runtime, args: [entry, ...words] };
-  if (named === runtime) return [plain];
   if (!isAbsolute(entry)) throw new Error(`The daemon's entry script must be absolute: ${entry}`);
-  return [{ command: named, args: ["--no-env-file", entry, ...words] }, plain];
+  const cwd = dirname(entry);
+  const plain = { command: runtime, args: [entry, ...words], cwd };
+  if (named === runtime) return [plain];
+  return [{ command: named, args: ["--no-env-file", entry, ...words], cwd }, plain];
 }
 
 /**

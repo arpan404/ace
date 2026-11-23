@@ -45,8 +45,8 @@ export function systemOpenRuntime(): OpenRuntime {
       );
       try {
         // The daemon outlives this launcher and owns its own lock and process inventory.
-        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it. The
-        // daemon keeps this command's working directory, so it must read no `.env` from it.
+        // As `ace Service` (`ace-service` on Linux) where the install carries or allows it, in
+        // its own folder: no `.env` or `bunfig.toml` from where this command was run applies.
         const launches = daemonLaunches(
           process.execPath,
           startableDaemonRuntime(process.execPath, process.platform),
@@ -55,6 +55,7 @@ export function systemOpenRuntime(): OpenRuntime {
         );
         const child = spawnDaemonRuntime(launches, (launch) =>
           spawn(launch.command, launch.args, {
+            cwd: launch.cwd,
             env: { ...process.env, ACE_HOME: home },
             detached: true,
             stdio: ["ignore", log, log],
