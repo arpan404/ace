@@ -15,6 +15,9 @@ workspace = true
 [dependencies]
 # ace-store: the inventory and escapee journal stay one SQLite library by opening through the store's connection type.
 ace-store = { path = "../ace-store" }
+# ace-json: JSON crossing the streams binding keeps JSON.parse/JSON.stringify semantics
+# (key order, numbers, lone surrogates), like every other daemon crate.
+ace-json = { path = "../ace-json" }
 # serde: schemas for the JSON the binding crosses; the journal rows reuse node:sqlite shapes.
 serde = { version = "1", features = ["derive"] }
 # serde_json: journal entries and binding payloads cross as JSON text, byte-for-byte today's.

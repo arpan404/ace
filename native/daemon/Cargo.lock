@@ -199,6 +199,7 @@ dependencies = [
 name = "ace-supervisor"
 version = "0.1.0"
 dependencies = [
+ "ace-json",
  "ace-store",
  "eventsource-stream",
  "libproc",
