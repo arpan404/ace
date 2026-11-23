@@ -19,6 +19,8 @@ export interface WorldOptions {
   env?: Record<string, string>;
   client?: Partial<ComputerClientOptions>;
   toolkit?: ComputerToolkitOptions;
+  /** Helpers refuse SIGKILL, as a process the system won't let go would; `close` still ends them. */
+  unkillable?: boolean;
 }
 
 /** A scheduler whose time moves only when the test says so. */
@@ -58,6 +60,8 @@ export async function computerWorld(options: WorldOptions = {}) {
   const children: ChildProcessWithoutNullStreams[] = [];
   /** Per helper started: whether every earlier helper had exited by then. */
   const startedAlone: boolean[] = [];
+  /** Ends every helper, whatever it refuses. */
+  const ends: (() => void)[] = [];
   let next = 0;
   const client = new ComputerClient({
     helper: async () => "fake-helper",
@@ -71,6 +75,11 @@ export async function computerWorld(options: WorldOptions = {}) {
         children.every((earlier) => earlier.exitCode !== null || earlier.signalCode !== null),
       );
       children.push(child);
+      const kill = child.kill.bind(child);
+      ends.push(() => kill("SIGKILL"));
+      if (options.unkillable)
+        child.kill = (signal?: NodeJS.Signals | number) =>
+          signal === "SIGKILL" ? false : kill(signal);
       return child;
     },
     ...options.client,
@@ -110,6 +119,7 @@ export async function computerWorld(options: WorldOptions = {}) {
   };
   const close = async () => {
     client.close();
+    if (options.unkillable) for (const end of ends) end();
     credentials.close();
     await Promise.all(children.map(exited));
     await rm(dir, { recursive: true, force: true });

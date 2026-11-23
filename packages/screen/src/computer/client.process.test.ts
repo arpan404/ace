@@ -228,6 +228,51 @@ it("an app dropped while its helper was still starting never runs two helpers at
   expect(startedAlone).toEqual([true]);
 });
 
+/** Fails instead of hanging when `promise` takes longer than `ms`. */
+function within<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`still waiting after ${ms}ms`)), ms),
+    ),
+  ]);
+}
+
+it("an app cancelled and evicted before its helper started still gets a helper next time", async () => {
+  const { client, children } = await world({ client: { maxHelpers: 1 } });
+  // Another app holds the only helper slot.
+  const busy = client.request("act", { app: "com.example.stuck", actions: [] });
+  void busy.catch(() => {});
+  const stop = new AbortController();
+  const cancelled = client.request(
+    "state",
+    { app: "com.apple.calculator" },
+    { signal: stop.signal },
+  );
+  // Cancelled before its start ran: it goes idle at once and is evicted to make room.
+  stop.abort();
+  await expect(cancelled).rejects.toMatchObject({ code: "cancelled" });
+  await within(client.request("state", { app: "com.apple.calculator" }), 5_000);
+  expect(children).toHaveLength(2);
+});
+
+it("an evicted app whose old helper refuses to die is told so instead of waiting", async () => {
+  const { client, children } = await world({
+    env: { FAKE_IGNORE_STOP: "1" },
+    unkillable: true,
+    client: { ...quick, forceKillMs: 100, idleMs: 50 },
+  });
+  await expect(
+    client.request("act", { app: "com.example.stuck", actions: [{ type: "key", key: "Escape" }] }),
+  ).rejects.toMatchObject({ code: "timeout" });
+  // Left idle, the app is dropped while its helper still runs.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await expect(
+    within(client.request("state", { app: "com.example.stuck" }), 3_000),
+  ).rejects.toMatchObject({ code: "helper_stopping" });
+  expect(children).toHaveLength(1);
+});
+
 it("beyond the helper limit, the least recently used idle app's helper exits", async () => {
   const { call, children, exited } = await world({ client: { maxHelpers: 2 } });
   await call("screen_state", { app: "Calculator" });

@@ -101,9 +101,22 @@ export class HelperConnection {
   async stopped(): Promise<void> {
     for (;;) {
       if (this.starting) await this.starting.catch(() => {});
-      else if (this.stopping) await this.stopping;
+      else if (this.stopping) await this.untilStopping();
       else return;
     }
+  }
+
+  /**
+   * One wait on the stopping helper: until it exits, or at once with `helper_stopping` while it
+   * refuses SIGKILL. Its successor, here or in a new connection, must not start meanwhile.
+   */
+  private async untilStopping(): Promise<void> {
+    if (this.unkillable)
+      throw new ComputerError(
+        "helper_stopping",
+        "The app's previous computer-use helper has not exited yet. Try again shortly.",
+      );
+    await Promise.race([this.stopping, this.refused.promise]);
   }
 
   /** Whether this connection was closed: a start in flight checks it right before spawning. */
@@ -303,14 +316,7 @@ export class HelperConnection {
 
   /** Waits for the last helper to exit before a new one starts (never two for one app). */
   private async afterStopped(): Promise<void> {
-    while (this.stopping) {
-      if (this.unkillable)
-        throw new ComputerError(
-          "helper_stopping",
-          "The app's previous computer-use helper has not exited yet. Try again shortly.",
-        );
-      await Promise.race([this.stopping, this.refused.promise]);
-    }
+    while (this.stopping) await this.untilStopping();
     if (this.closed) throw new ComputerError("closed", "Computer use stopped.");
   }
 
