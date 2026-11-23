@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 mod core;
 mod engine;
+mod git;
 mod items;
 mod json_bind;
 mod long_thread;

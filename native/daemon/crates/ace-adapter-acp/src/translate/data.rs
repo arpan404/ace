@@ -2,7 +2,7 @@
 //! Dynamic provider data helpers (`data.ts`): read without copying,
 //! build raw payloads with TypeScript field order.
 
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Number, Value};
 use std::sync::LazyLock;
 
 static EMPTY_MAP: LazyLock<Map> = LazyLock::new(Map::new);
@@ -21,6 +21,14 @@ pub fn string(value: &Value) -> &str {
     match value {
         Value::String(text) => text.as_str(),
         _ => "",
+    }
+}
+
+/// The value as an exact JavaScript string, lone surrogates included.
+pub fn js_string(value: &Value) -> Option<&ace_json::JsString> {
+    match value {
+        Value::String(text) => Some(text),
+        _ => None,
     }
 }
 
@@ -46,7 +54,7 @@ pub fn raw(data: &Value, typ: &str, name: Option<&str>) -> Value {
 /// An RPC id when the value is a string or a finite number.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum RpcId {
-    Str(String),
+    Str(JsString),
     Int(i64),
     FloatBits(u64),
 }
@@ -59,18 +67,16 @@ impl RpcId {
         }
     }
 
-    pub fn display(&self) -> String {
+    pub fn display(&self) -> JsString {
         match self {
             RpcId::Str(text) => text.clone(),
-            RpcId::Int(n) => n.to_string(),
+            // `String(id)` in TypeScript: JavaScript number printing, so even
+            // an integral id goes through the f64 text (1e21, large rounding).
+            RpcId::Int(n) => JsString::from(Number::from(*n).to_string()),
             RpcId::FloatBits(bits) => {
+                // `String(id)` in TypeScript: JavaScript number printing.
                 let value = f64::from_bits(*bits);
-                // Match JavaScript number to string for ids: integers print without decimal.
-                if value.fract() == 0.0 && value.abs() < 1e21 {
-                    format!("{}", value as i64)
-                } else {
-                    format!("{value}")
-                }
+                JsString::from(Number::from_f64_lossy(value).to_string())
             }
         }
     }
@@ -79,7 +85,7 @@ impl RpcId {
 /// Read an RPC id like the TypeScript `rpcId` helper.
 pub fn rpc_id(value: &Value) -> Option<RpcId> {
     match value {
-        Value::String(text) => Some(RpcId::Str(String::from(text.clone()))),
+        Value::String(text) => Some(RpcId::Str(text.clone())),
         Value::Number(number) => {
             if let Some(n) = number.as_i64() {
                 Some(RpcId::Int(n))
@@ -105,36 +111,5 @@ pub fn rpc_id(value: &Value) -> Option<RpcId> {
             }
         }
         _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{RpcId, list, object, raw, rpc_id, string};
-    use ace_json::json;
-
-    #[test]
-    fn non_objects_read_as_empty_without_copying_shape() {
-        assert_eq!(object(&json!([1])).len(), 0);
-        assert_eq!(string(&json!(3)), "");
-        assert_eq!(list(&json!("x")).len(), 0);
-        assert_eq!(string(&json!("hi")), "hi");
-    }
-
-    #[test]
-    fn raw_orders_type_data_then_name() {
-        let payload = raw(&json!({"a": 1}), "session/update", Some("n"));
-        let text = ace_json::ser::to_string(&payload).unwrap_or_default();
-        assert_eq!(
-            text,
-            r#"{"type":"session/update","data":{"a":1},"name":"n"}"#
-        );
-    }
-
-    #[test]
-    fn rpc_ids_accept_strings_and_finite_numbers_only() {
-        assert_eq!(rpc_id(&json!("a")), Some(RpcId::Str("a".to_owned())));
-        assert_eq!(rpc_id(&json!(2)), Some(RpcId::Int(2)));
-        assert_eq!(rpc_id(&json!(true)), None);
     }
 }

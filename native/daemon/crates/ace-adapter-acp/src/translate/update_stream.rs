@@ -27,15 +27,9 @@ pub fn handle_stream(
     .contains(&kind.as_str())
     {
         // User echo while the prompt is open retains raw only.
-        let input_key = if agent_key == state.root.key {
-            state.root.input_key.clone()
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .and_then(|agent| agent.input_key.clone())
-        };
+        let input_key = state
+            .agent_by_key(agent_key)
+            .and_then(|agent| agent.input_key.clone());
         if kind == "user_message_chunk" && input_key.is_some() && state.prompt_open {
             let mut draft = Map::with_capacity(3);
             draft.insert("type".to_owned(), Value::from("message".to_owned()));
@@ -67,24 +61,12 @@ pub fn handle_stream(
             state.notice(facts, frame, "session/update", None, Some(agent_key));
             return Some(true);
         }
-        let suspended = if agent_key == state.root.key {
-            state.root.suspended
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .is_some_and(|agent| agent.suspended)
-        };
-        let active = if agent_key == state.root.key {
-            state.root.active
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .is_some_and(|agent| agent.active)
-        };
+        let suspended = state
+            .agent_by_key(agent_key)
+            .is_some_and(|agent| agent.suspended);
+        let active = state
+            .agent_by_key(agent_key)
+            .is_some_and(|agent| agent.active);
         let is_root = agent_key == state.root.key;
         if !suspended
             && kind != "user_message_chunk"
@@ -98,15 +80,9 @@ pub fn handle_stream(
         }
         // Switch streams when the kind changes.
         let needs_switch = {
-            let current = if agent_key == state.root.key {
-                state.root.stream.clone()
-            } else {
-                state
-                    .agents
-                    .values()
-                    .find(|agent| agent.key == *agent_key)
-                    .and_then(|agent| agent.stream.clone())
-            };
+            let current = state
+                .agent_by_key(agent_key)
+                .and_then(|agent| agent.stream.clone());
             current.as_ref().is_none_or(|stream| stream.kind != kind)
         };
         if needs_switch {
@@ -116,25 +92,13 @@ pub fn handle_stream(
                 key: stream_key,
                 kind: kind.clone(),
             };
-            if agent_key == state.root.key {
-                state.root.stream = Some(stream);
-            } else if let Some(agent) = state
-                .agents
-                .values_mut()
-                .find(|agent| agent.key == *agent_key)
-            {
+            if let Some(agent) = state.agent_by_key_mut(agent_key) {
                 agent.stream = Some(stream);
             }
         }
-        let stream = if agent_key == state.root.key {
-            state.root.stream.clone()
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .and_then(|agent| agent.stream.clone())
-        };
+        let stream = state
+            .agent_by_key(agent_key)
+            .and_then(|agent| agent.stream.clone());
         let Some(stream) = stream else {
             return Some(false);
         };
@@ -215,15 +179,7 @@ pub fn handle_stream(
                 // Segment is capped at 8192 chars in TypeScript (slice by chars).
                 let to_add: String = text.chars().take(append_len).collect();
                 // Respect the 8192 cap.
-                if agent_key == state.root.key {
-                    let remaining = 8192usize.saturating_sub(state.root.segment.len());
-                    let add: String = to_add.chars().take(remaining).collect();
-                    state.root.segment.push_str(&add);
-                } else if let Some(agent) = state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *agent_key)
-                {
+                if let Some(agent) = state.agent_by_key_mut(agent_key) {
                     let remaining = 8192usize.saturating_sub(agent.segment.len());
                     let add: String = to_add.chars().take(remaining).collect();
                     agent.segment.push_str(&add);
@@ -241,15 +197,9 @@ pub fn handle_stream(
         return Some(true);
     }
     // Plan tool refresh.
-    let plan_tool_key = if agent_key == state.root.key {
-        state.root.plan_tool_key.clone()
-    } else {
-        state
-            .agents
-            .values()
-            .find(|agent| agent.key == *agent_key)
-            .and_then(|agent| agent.plan_tool_key.clone())
-    };
+    let plan_tool_key = state
+        .agent_by_key(agent_key)
+        .and_then(|agent| agent.plan_tool_key.clone());
     if kind == "plan" {
         if let Some(plan_tool) = plan_tool_key {
             let payload = raw(frame, "session/update", None);
@@ -281,15 +231,9 @@ pub fn handle_stream(
             }
             return Some(true);
         }
-        let input_key = if agent_key == state.root.key {
-            state.root.input_key.clone()
-        } else {
-            state
-                .agents
-                .values()
-                .find(|agent| agent.key == *agent_key)
-                .and_then(|agent| agent.input_key.clone())
-        };
+        let input_key = state
+            .agent_by_key(agent_key)
+            .and_then(|agent| agent.input_key.clone());
         plan_update(state, agent_key, input_key, update, frame, facts);
         return Some(true);
     }

@@ -9,6 +9,15 @@ import {
 } from "./process-containment.ts";
 import type { ProcessExit } from "./process.ts";
 import { markedEnv } from "./process-marker.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import {
+  launchEnv,
+  nativeJobFactory,
+  nativeKillWindowsTree,
+  nativeSpawnChild,
+  NativeChildProcess,
+  type SpawnedHandle,
+} from "./native-process.ts";
 export type InteractiveProcess = {
   exited: Promise<ProcessExit>;
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
@@ -28,7 +37,8 @@ export function spawnInteractive(options: {
 }): InteractiveProcess {
   // Process groups do not exist on Windows; contain the tree with a Job Object and taskkill.
   const windows = (options.platform ?? process.platform) === "win32";
-  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const native = supervisorBackend() === "native";
+  const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   const terminate = (pid: number) => {
     if (windows) killTree(pid, false);
     else killGroup(pid, "SIGTERM");
@@ -40,15 +50,29 @@ export function spawnInteractive(options: {
   const target = windows
     ? toWindowsCommand(options.command, options.args)
     : { command: options.command, args: [...options.args], verbatim: false };
-  const child = spawn(target.command, target.args, {
-    env: markedEnv(options.env),
-    stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
-    // The console stays visible: login owns credential entry and browser handoff.
-    ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
-    windowsVerbatimArguments: target.verbatim,
-  });
+  const child: SpawnedHandle = native
+    ? nativeSpawnChild({
+        command: target.command,
+        args: target.args,
+        env: launchEnv(markedEnv(options.env)),
+        windows,
+        clearEnv: false,
+        stdin: "inherit",
+        stdout: options.stdout === "stderr" ? "stderr" : "inherit",
+        stderr: "inherit",
+        verbatim: target.verbatim,
+        waiterDestroy:
+          options.windowsKillTree === undefined && options.windowsJobFactory === undefined,
+      })
+    : spawn(target.command, target.args, {
+        env: markedEnv(options.env),
+        stdio: ["inherit", options.stdout === "stderr" ? 2 : "inherit", "inherit"],
+        // The console stays visible: login owns credential entry and browser handoff.
+        ...(windows ? { detached: false, windowsHide: false } : { detached: true }),
+        windowsVerbatimArguments: target.verbatim,
+      });
   const pid = child.pid;
-  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const factory = options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let stopped = false;
@@ -67,8 +91,13 @@ export function spawnInteractive(options: {
     }
     job?.dispose();
   };
+  /** Frees the native child once no event can follow: error or close. */
+  const disposeNative = () => {
+    if (child instanceof NativeChildProcess) child.dispose();
+  };
   child.once("error", () => {
     failed = true;
+    disposeNative();
     release();
   });
   child.once("exit", release);
@@ -76,6 +105,7 @@ export function spawnInteractive(options: {
     child.once("close", (code, signal) => {
       closed = true;
       release();
+      disposeNative();
       resolve({
         code,
         // After a failed spawn Bun reports no signal at all, where Node reports null.
@@ -105,7 +135,10 @@ export function spawnInteractive(options: {
       pid,
       (graceMs) => handle.stop({ graceMs }),
       undefined,
-      () => destroy(pid),
+      () => {
+        if (child instanceof NativeChildProcess) child.dispose();
+        destroy(pid);
+      },
     );
   return handle;
 }

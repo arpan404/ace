@@ -5,14 +5,14 @@ use crate::translate::association::child_association;
 use crate::translate::child_expiry::finish_child_tasks;
 use crate::translate::child_spawn::background_child;
 use crate::translate::completed_tools::retire_tool;
-use crate::translate::data::{object, string};
+use crate::translate::data::{js_string, object, string};
 use crate::translate::state::TranslationState;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 pub fn child_update(
     state: &mut TranslationState,
     parent_key: &str,
-    parent_native_id: &str,
+    parent_native_id: &JsString,
     update: &Value,
     frame: &Value,
     facts: &mut Vec<Value>,
@@ -20,7 +20,7 @@ pub fn child_update(
     let Some(association) = child_association(update) else {
         return false;
     };
-    if association.id == parent_native_id {
+    if association.id == *parent_native_id {
         return false;
     }
     let child_key = state.agent_key(&association.id, facts);
@@ -31,7 +31,9 @@ pub fn child_update(
     let update_map = object(update);
     let meta = object(update_map.get("_meta").unwrap_or(&Value::Null));
     let cursor_meta = object(meta.get("cursor").unwrap_or(&Value::Null));
-    let native_tool = string(cursor_meta.get("toolCallId").unwrap_or(&Value::Null)).to_owned();
+    let native_tool: JsString = js_string(cursor_meta.get("toolCallId").unwrap_or(&Value::Null))
+        .cloned()
+        .unwrap_or_default();
     let previous_tool = state.child_tools.get(&association.id).cloned();
     // Resolve the tool without holding borrows.
     let tool_key = if !native_tool.is_empty() {
@@ -146,12 +148,16 @@ pub fn child_update(
             if let Some(Value::String(model)) = cursor.get("model") {
                 seen.insert("model".to_owned(), Value::String(model.clone()));
             }
-            let description = string(input.get("description").unwrap_or(&Value::Null));
-            let title = string(update_map.get("title").unwrap_or(&Value::Null));
+            let description = js_string(input.get("description").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default();
+            let title: JsString = js_string(update_map.get("title").unwrap_or(&Value::Null))
+                .cloned()
+                .unwrap_or_default();
             let name = if !description.is_empty() {
-                description.to_owned()
+                description
             } else {
-                title.to_owned()
+                title
             };
             if !name.is_empty() {
                 seen.insert("name".to_owned(), Value::from(name));
@@ -254,23 +260,11 @@ pub fn child_update(
                 state.background_tools.shift_remove(&tool_key);
             }
             state.disarm_cancel(&child_key);
-            let parent_suspended = if parent_key == state.root.key {
-                state.root.suspended
-            } else {
-                state
-                    .agents
-                    .values()
-                    .find(|agent| agent.key == *parent_key)
-                    .is_some_and(|agent| agent.suspended)
-            };
+            let parent_suspended = state
+                .agent_by_key(parent_key)
+                .is_some_and(|agent| agent.suspended);
             if parent_suspended {
-                if parent_key == state.root.key {
-                    state.root.suspended = false;
-                } else if let Some(parent) = state
-                    .agents
-                    .values_mut()
-                    .find(|agent| agent.key == *parent_key)
-                {
+                if let Some(parent) = state.agent_by_key_mut(parent_key) {
                     parent.suspended = false;
                 }
                 state.start(parent_key, facts, "subagent_result");

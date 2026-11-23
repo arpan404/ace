@@ -1,139 +1,190 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Lease redaction (`frame-redaction.ts`): exact ephemeral secrets are
-//! replaced, everything else keeps its value. The walk is iterative so any
-//! depth keeps its unrelated values.
+//! replaced, everything else keeps its value. The walk is iterative, so any
+//! depth keeps its unrelated values and redacts at every level.
 
-use ace_json::Value;
+use ace_json::{JsString, Map, Value};
+use std::collections::{HashMap, HashSet};
 
 /// What a lease secret reads as once redacted.
 pub const LEASE_REDACTION: &str = "[ace lease redacted]";
 
 /// Redact exact ephemeral lease material, keeping unchanged values.
 pub fn redact_lease(data: &Value, secrets: &[String]) -> Value {
-    let active: Vec<&str> = secrets
+    let active: Vec<JsString> = secrets
         .iter()
-        .map(String::as_str)
         .filter(|secret| !secret.is_empty())
+        .map(|secret| JsString::from(secret.as_str()))
         .collect();
     if active.is_empty() {
         return data.clone();
     }
-    redact_value(data, &active)
-}
-
-fn redact_text(text: &str, secrets: &[&str]) -> String {
-    let mut result = text.to_owned();
-    for secret in secrets {
-        if result.contains(*secret) {
-            result = result
-                .split(secret)
-                .collect::<Vec<_>>()
-                .join(LEASE_REDACTION);
+    let redaction = JsString::from(LEASE_REDACTION);
+    // Flatten the tree into an arena with explicit stacks: no recursion, no
+    // depth limit. Parents always precede children in `order`, so the reverse
+    // is a post-order that folds children before their parent.
+    struct Node<'a> {
+        value: &'a Value,
+        // Children in iteration order; for objects `keys` runs parallel.
+        children: Vec<usize>,
+        keys: Vec<JsString>,
+    }
+    let mut arena: Vec<Node<'_>> = Vec::new();
+    let mut order: Vec<usize> = Vec::new();
+    // Iterative pre-order that links children in insertion order.
+    let mut pre: Vec<(&Value, Option<usize>)> = vec![(data, None)];
+    while let Some((value, parent)) = pre.pop() {
+        let index = arena.len();
+        arena.push(Node {
+            value,
+            children: Vec::new(),
+            keys: Vec::new(),
+        });
+        order.push(index);
+        if let Some(parent_index) = parent {
+            arena[parent_index].children.push(index);
         }
-    }
-    result
-}
-
-fn redact_key(key: &str, secrets: &[&str]) -> String {
-    redact_text(key, secrets)
-}
-
-/// Recursive walk with an explicit depth bound, so untrusted nesting of any
-/// depth cannot overflow the stack. The bound (1000) is well above the
-/// 200-deep case the tests cover; deeper values are kept as produced.
-fn redact_value(data: &Value, secrets: &[&str]) -> Value {
-    redact_value_depth(data, secrets, 0)
-}
-
-/// Maximum nesting the redactor descends; deeper values are kept whole.
-const MAX_REDACT_DEPTH: usize = 1000;
-
-fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
-    if depth > MAX_REDACT_DEPTH {
-        return data.clone();
-    }
-    match data {
-        Value::String(text) => Value::from(redact_text(text, secrets)),
-        Value::Array(items) => {
-            let mut changed: Option<Vec<Value>> = None;
-            for (index, item) in items.iter().enumerate() {
-                let next = redact_value_depth(item, secrets, depth.saturating_add(1));
-                if next != *item {
-                    if changed.is_none() {
-                        changed = Some(items.to_vec());
-                    }
-                    if let Some(out) = changed.as_mut() {
-                        out[index] = next;
+        match value {
+            Value::Array(items) => {
+                for child in items.iter().rev() {
+                    pre.push((child, Some(index)));
+                }
+            }
+            Value::Object(map) => {
+                let keys: Vec<JsString> = map.keys().cloned().collect();
+                arena[index].keys = keys.clone();
+                for key in keys.iter().rev() {
+                    if let Some(child) = map.get(key) {
+                        pre.push((child, Some(index)));
                     }
                 }
             }
-            changed.map_or_else(|| data.clone(), Value::from)
+            _ => {}
         }
-        Value::Object(map) => {
-            let mut key_changed = false;
-            let mut redacted_keys: Vec<String> = Vec::with_capacity(map.len());
-            for key in map.keys() {
-                let safe = redact_key(key, secrets);
-                if safe != *key {
-                    key_changed = true;
-                }
-                redacted_keys.push(safe);
+    }
+    let mut results: Vec<Option<Value>> = vec![None; arena.len()];
+    for &index in order.iter().rev() {
+        let (is_array, is_object, keys) = {
+            let node = &arena[index];
+            (
+                matches!(node.value, Value::Array(_)),
+                matches!(node.value, Value::Object(_)),
+                node.keys.clone(),
+            )
+        };
+        if !is_array && !is_object {
+            results[index] = Some(leaf_value(arena[index].value, &active, &redaction));
+            continue;
+        }
+        if is_array {
+            let children = std::mem::take(&mut arena[index].children);
+            let mut out = Vec::with_capacity(children.len());
+            for child in children {
+                let value = results[child].take().unwrap_or(Value::Null);
+                out.push(value);
             }
-            let mut value_changed: Option<Vec<(String, Value)>> = None;
-            for (index, (key, value)) in map.iter().enumerate() {
-                let next = redact_value_depth(value, secrets, depth.saturating_add(1));
-                if next != *value && value_changed.is_none() {
-                    value_changed = Some(
-                        map.iter()
-                            .map(|(k, v)| (k.to_string(), v.clone()))
-                            .collect(),
-                    );
-                }
-                if let Some(out) = value_changed.as_mut()
-                    && let Some(entry) = out.get_mut(index)
-                {
-                    entry.1 = next;
-                }
-                let _ = key;
+            results[index] = Some(Value::Array(out.into()));
+        } else {
+            let children = std::mem::take(&mut arena[index].children);
+            let mut child_values = Vec::with_capacity(children.len());
+            for child in children {
+                child_values.push(results[child].take().unwrap_or(Value::Null));
             }
-            if !key_changed && value_changed.is_none() {
-                return data.clone();
-            }
-            // Reserve original keys so redacted keys cannot overwrite a field.
-            let used: std::collections::HashSet<String> =
-                map.keys().map(|key| key.to_string()).collect();
-            let mut suffixes: std::collections::HashMap<String, usize> =
-                std::collections::HashMap::new();
-            let mut copy = ace_json::Map::with_capacity(map.len());
-            let keys: Vec<String> = map.keys().map(|key| key.to_string()).collect();
+            let safe_keys: Vec<JsString> = keys
+                .iter()
+                .map(|key| redact_js(key, &active, &redaction))
+                .collect();
+            let used: HashSet<JsString> = keys.iter().cloned().collect();
+            let mut seen: HashSet<JsString> = HashSet::new();
+            let mut suffixes: HashMap<JsString, usize> = HashMap::new();
+            let mut copy = Map::with_capacity(keys.len());
             for (position, key) in keys.iter().enumerate() {
-                let safe_key = redacted_keys
+                let safe_key = safe_keys
                     .get(position)
                     .cloned()
                     .unwrap_or_else(|| key.clone());
                 let mut target = safe_key.clone();
                 if safe_key != *key {
                     let mut suffix = suffixes.get(&safe_key).copied().unwrap_or(1);
-                    while used.contains(&target) || copy.contains_key(&target) {
-                        target = format!("{safe_key}#{suffix}");
+                    while used.contains(&target) || seen.contains(&target) {
+                        // Keep lone surrogates exact: append `#n` by code units,
+                        // as `` `${safeKey}#${suffix++}` `` does in TypeScript.
+                        let mut suffixed = safe_key.clone();
+                        suffixed.push_str("#");
+                        suffixed.push_str(&suffix.to_string());
+                        target = suffixed;
                         suffix += 1;
                     }
                     suffixes.insert(safe_key, suffix);
                 }
-                let value = if let Some(changed) = value_changed.as_ref() {
-                    changed
-                        .get(position)
-                        .map(|(_, v)| v.clone())
-                        .unwrap_or(Value::Null)
-                } else {
-                    map.get(key).cloned().unwrap_or(Value::Null)
-                };
+                seen.insert(target.clone());
+                let value = child_values.get(position).cloned().unwrap_or(Value::Null);
                 copy.insert(target, value);
             }
-            Value::Object(copy)
+            results[index] = Some(Value::Object(copy));
         }
+    }
+    results
+        .into_iter()
+        .next()
+        .and_then(|value| value)
+        .unwrap_or(Value::Null)
+}
+
+fn leaf_value(data: &Value, secrets: &[JsString], redaction: &JsString) -> Value {
+    match data {
+        Value::String(text) => Value::String(redact_js(text, secrets, redaction)),
         _ => data.clone(),
     }
+}
+
+/// `String.prototype.split(secret).join(redaction)` over UTF-16 code units,
+/// so lone surrogates compare as units and never conflate.
+fn redact_js(text: &JsString, secrets: &[JsString], redaction: &JsString) -> JsString {
+    let mut current: Vec<u16> = text.units().collect();
+    let replacement: Vec<u16> = redaction.units().collect();
+    let mut changed = false;
+    for secret in secrets {
+        let needle: Vec<u16> = secret.units().collect();
+        if needle.is_empty() {
+            continue;
+        }
+        if find_subslice(&current, &needle).is_none() {
+            continue;
+        }
+        current = replace_all(&current, &needle, &replacement);
+        changed = true;
+    }
+    if !changed {
+        return text.clone();
+    }
+    JsString::from_units(&current)
+}
+
+fn find_subslice(haystack: &[u16], needle: &[u16]) -> Option<usize> {
+    if needle.is_empty() || needle.len() > haystack.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn replace_all(haystack: &[u16], needle: &[u16], replacement: &[u16]) -> Vec<u16> {
+    let mut out = Vec::with_capacity(haystack.len());
+    let mut index = 0;
+    while index < haystack.len() {
+        if index + needle.len() <= haystack.len()
+            && haystack[index..index + needle.len()] == *needle
+        {
+            out.extend_from_slice(replacement);
+            index += needle.len();
+        } else {
+            out.push(haystack[index]);
+            index += 1;
+        }
+    }
+    out
 }
 
 /// A frame's JSON with lease secrets redacted.

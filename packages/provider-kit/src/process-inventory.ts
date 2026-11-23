@@ -2,7 +2,8 @@ import { childHasExited } from "./child-exit.ts";
 import { existsSync } from "node:fs";
 import { z } from "zod";
 import { DatabaseSync } from "./sqlite.ts";
-import { noteJournalBoot } from "./native-switches.ts";
+import { noteJournalBoot, supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 import { processIdentity, processGroupIsGone, type ProcessIdentity } from "./process-identity.ts";
 import { WindowsSid, windowsTreeRuntime, type WindowsTreeRuntime } from "./process-identity.ts";
 import type { WindowsProcessRecord } from "./process-identity.ts";
@@ -57,7 +58,7 @@ export const inventoryRuntime: InventoryRuntime = {
 };
 /** Only kernel identities and non-secret labels persist; provider input never enters this journal. */
 export class ProcessInventory implements ProcessJournal {
-  private db: DatabaseSync;
+  private db!: DatabaseSync;
   private runtime: InventoryRuntime;
   private report: (error: unknown) => void;
   /**
@@ -69,6 +70,24 @@ export class ProcessInventory implements ProcessJournal {
   /** The scheduled retry of `unremoved`, and how many retries in a row have failed. */
   private cancelRetry: (() => void) | undefined;
   private retryFailures = 0;
+  /** The native journal when the supervisor runs in Rust; the timers stay here. */
+  private native:
+    | {
+        handle: {
+          add(pid: number, name: string, cwd?: string): void;
+          remove(pid: number): string;
+          retryRemovals(nowMs: number): string;
+          retryAtMs(): number | null | undefined;
+          recover(): string;
+          list(): string;
+          takeReports(): string[];
+          close(): void;
+          windowsTick(nowMs: number): boolean;
+        };
+        cancelRetry: (() => void) | undefined;
+        cancelWindows: (() => void) | undefined;
+      }
+    | undefined;
   /** `report` hears each write that failed and will be retried (a delete, a Windows tick). */
   constructor(
     path: string,
@@ -77,17 +96,51 @@ export class ProcessInventory implements ProcessJournal {
   ) {
     this.runtime = runtime;
     this.report = report;
-    this.db = new DatabaseSync(path);
     noteJournalBoot(path);
+    if (supervisorBackend() === "native") {
+      const addon = supervisorAddon();
+      this.native = {
+        handle: new addon.NativeInventory(path),
+        cancelRetry: undefined,
+        cancelWindows: undefined,
+      };
+      return;
+    }
+    const db = new DatabaseSync(path);
+    this.db = db;
     // Every spawn and exit writes here on the main thread. WAL commits are durable when the
     // daemon crashes, which is what recovery needs, without waiting on fsync: behind other disk
     // work one fsync held the event loop for seconds.
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
-    this.db.exec(
+    db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+    db.exec(
       "CREATE TABLE IF NOT EXISTS processes(pid INTEGER PRIMARY KEY,entry TEXT NOT NULL)",
     );
   }
+  /** Reports what the native journal failed and will retry, then forgets it. */
+  private drainNativeReports(): void {
+    const native = this.native;
+    if (!native) return;
+    for (const message of native.handle.takeReports()) this.report(new Error(message));
+  }
+  /** The retry timer: the runtime's, or an unref'd one that never keeps the daemon alive. */
+  private later(run: () => void, ms: number): () => void {
+    const schedule = this.runtime.later ?? ((task: () => void, wait: number) => {
+      const timer = setTimeout(task, wait);
+      timer.unref?.();
+      return () => clearTimeout(timer);
+    });
+    return schedule(run, ms);
+  }
   list(): ProcessEntry[] {
+    const native = this.native;
+    if (native) {
+      this.drainNativeReports();
+      return (JSON.parse(native.handle.list()) as unknown[]).map((row) =>
+        process.platform === "win32"
+          ? WindowsTreeEntry.parse(row)
+          : Entry.parse(row),
+      );
+    }
     if (process.platform === "win32") return this.windowsList();
     return this.db
       .prepare("SELECT entry FROM processes ORDER BY pid")
@@ -95,6 +148,13 @@ export class ProcessInventory implements ProcessJournal {
       .map((row) => Entry.parse(JSON.parse(String(row.entry))));
   }
   add(pid: number, metadata: { name: string; cwd?: string }): void {
+    const native = this.native;
+    if (native) {
+      native.handle.add(pid, metadata.name, metadata.cwd);
+      this.drainNativeReports();
+      if (process.platform === "win32") this.armNativeWindowsRecorder(native);
+      return;
+    }
     // A reused pid: the earlier process's pending delete must not remove the new row.
     this.unremoved.delete(pid);
     this.retryRemovals();
@@ -129,6 +189,13 @@ export class ProcessInventory implements ProcessJournal {
   }
   /** Forget an exited process. Never throws: a delete that fails is kept and retried. */
   remove(pid: number): void {
+    const native = this.native;
+    if (native) {
+      const plan = JSON.parse(native.handle.remove(pid)) as { retryInMs: number | null };
+      this.drainNativeReports();
+      this.scheduleNativeRetry(native, plan.retryInMs);
+      return;
+    }
     this.unremoved.add(pid);
     this.retryRemovals();
   }
@@ -137,6 +204,15 @@ export class ProcessInventory implements ProcessJournal {
    * left, another attempt is scheduled on a bounded backoff, whatever made this one fail.
    */
   retryRemovals(): boolean {
+    const native = this.native;
+    if (native) {
+      const plan = JSON.parse(
+        native.handle.retryRemovals(this.runtime.now()),
+      ) as { retryInMs: number | null };
+      this.drainNativeReports();
+      this.scheduleNativeRetry(native, plan.retryInMs);
+      return plan.retryInMs === null;
+    }
     for (const pid of this.unremoved) {
       try {
         this.db.prepare("DELETE FROM processes WHERE pid=?").run(pid);
@@ -152,6 +228,41 @@ export class ProcessInventory implements ProcessJournal {
     this.cancelRetry = undefined;
     return true;
   }
+  /** Schedules a native retry from its plan; the timer never keeps the daemon alive. */
+  private scheduleNativeRetry(
+    native: NonNullable<ProcessInventory["native"]>,
+    retryInMs: number | null,
+  ): void {
+    native.cancelRetry?.();
+    native.cancelRetry = undefined;
+    if (retryInMs === null || this.closed) return;
+    native.cancelRetry = this.later(() => {
+      native.cancelRetry = undefined;
+      this.retryRemovals();
+    }, retryInMs);
+  }
+  /** Starts the native Windows recorder; a failed tick is reported and retried. */
+  private armNativeWindowsRecorder(native: NonNullable<ProcessInventory["native"]>): void {
+    if (native.cancelWindows) return;
+    const every =
+      this.runtime.windowsEvery ??
+      ((run: () => void, ms: number) => {
+        const timer = setInterval(run, ms);
+        timer.unref?.();
+        return () => clearInterval(timer);
+      });
+    native.cancelWindows = every(() => {
+      try {
+        if (!native.handle.windowsTick(Date.now())) {
+          native.cancelWindows?.();
+          native.cancelWindows = undefined;
+        }
+      } catch (error) {
+        this.report(error);
+      }
+      this.drainNativeReports();
+    }, 1_000);
+  }
   private scheduleRetry(): void {
     if (this.closed) return;
     this.cancelRetry?.();
@@ -165,6 +276,16 @@ export class ProcessInventory implements ProcessJournal {
   }
   private closed = false;
   recover(): { removed: number; killed: number; unresolved: number } {
+    const native = this.native;
+    if (native) {
+      const recovered = JSON.parse(native.handle.recover()) as {
+        removed: number;
+        killed: number;
+        unresolved: number;
+      };
+      this.drainNativeReports();
+      return recovered;
+    }
     if (process.platform === "win32") return { ...this.windowsRecover(), unresolved: 0 };
     let removed = 0;
     let killed = 0;
@@ -225,6 +346,17 @@ export class ProcessInventory implements ProcessJournal {
     }
   }
   close(): void {
+    const native = this.native;
+    if (native) {
+      this.closed = true;
+      native.cancelRetry?.();
+      native.cancelRetry = undefined;
+      native.cancelWindows?.();
+      native.cancelWindows = undefined;
+      native.handle.close();
+      this.drainNativeReports();
+      return;
+    }
     this.closed = true;
     this.cancelRetry?.();
     this.cancelRetry = undefined;
@@ -386,6 +518,10 @@ export function windowsTreeRecorded(
   journal: string,
   leader: { pid: number; start: string },
 ): boolean {
+  if (supervisorBackend() === "native") {
+    if (!existsSync(journal)) return false;
+    return supervisorAddon().supervisorWindowsTreeRecorded(journal, JSON.stringify(leader));
+  }
   if (!existsSync(journal)) return false;
   const db = new DatabaseSync(journal, { readOnly: true });
   try {
@@ -411,6 +547,12 @@ export function readOwnedGroups(
   journal: string,
   owner: { pid: number; start: string },
 ): { pid: number; start: string }[] {
+  if (supervisorBackend() === "native") {
+    if (!existsSync(journal)) return [];
+    return JSON.parse(
+      supervisorAddon().supervisorReadOwnedGroups(journal, owner.pid, owner.start),
+    ) as { pid: number; start: string }[];
+  }
   if (!existsSync(journal)) return [];
   const db = new DatabaseSync(journal, { readOnly: true });
   try {

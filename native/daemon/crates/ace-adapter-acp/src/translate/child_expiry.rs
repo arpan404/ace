@@ -2,25 +2,17 @@
 //! Child expiry on cancellation deadlines (`children.ts` expiry half).
 
 use crate::translate::state::TranslationState;
-use ace_json::{Map, Value};
+use ace_json::{JsString, Map, Value};
 
 pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
     let mut facts = Vec::new();
     let cancelling: Vec<String> = state.cancelling.iter().cloned().collect();
     for agent_key in cancelling {
-        let (terminal, cancel_at, native_id) = if agent_key == state.root.key {
-            (
-                state.root.terminal,
-                state.root.cancel_at,
-                state.root.native_id.clone(),
-            )
-        } else {
-            match state.agents.values().find(|agent| agent.key == *agent_key) {
-                Some(agent) => (agent.terminal, agent.cancel_at, agent.native_id.clone()),
-                None => {
-                    state.disarm_cancel(&agent_key);
-                    continue;
-                }
+        let (terminal, cancel_at, native_id) = match state.agent_by_key(&agent_key) {
+            Some(agent) => (agent.terminal, agent.cancel_at, agent.native_id.clone()),
+            None => {
+                state.disarm_cancel(&agent_key);
+                continue;
             }
         };
         if terminal {
@@ -32,13 +24,7 @@ pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
         }
         state.start(&agent_key, &mut facts, "spawn");
         state.end(&agent_key, &mut facts, "interrupted", None);
-        if agent_key == state.root.key {
-            state.root.terminal = true;
-        } else if let Some(agent) = state
-            .agents
-            .values_mut()
-            .find(|agent| agent.key == *agent_key)
-        {
+        if let Some(agent) = state.agent_by_key_mut(&agent_key) {
             agent.terminal = true;
         }
         state.disarm_cancel(&agent_key);
@@ -59,7 +45,7 @@ pub fn expire_children(state: &mut TranslationState, now: i64) -> Vec<Value> {
 
 pub(crate) fn finish_child_tasks(
     state: &mut TranslationState,
-    child_native_id: &str,
+    child_native_id: &JsString,
     status: &str,
     facts: &mut Vec<Value>,
 ) {
@@ -88,23 +74,11 @@ pub(crate) fn finish_child_tasks(
                 .get(&tool_key)
                 .map(|tool| tool.owner_key.clone());
             if let Some(owner_key) = owner_key {
-                let suspended = if owner_key == state.root.key {
-                    state.root.suspended
-                } else {
-                    state
-                        .agents
-                        .values()
-                        .find(|agent| agent.key == *owner_key)
-                        .is_some_and(|agent| agent.suspended)
-                };
+                let suspended = state
+                    .agent_by_key(&owner_key)
+                    .is_some_and(|agent| agent.suspended);
                 if suspended {
-                    if owner_key == state.root.key {
-                        state.root.suspended = false;
-                    } else if let Some(owner) = state
-                        .agents
-                        .values_mut()
-                        .find(|agent| agent.key == *owner_key)
-                    {
+                    if let Some(owner) = state.agent_by_key_mut(&owner_key) {
                         owner.suspended = false;
                     }
                     state.start(&owner_key, facts, "subagent_result");

@@ -1,0 +1,399 @@
+{
+  "host": {
+    "platform": "darwin",
+    "node": "v26.8.1",
+    "load": "8:06  up 2 days, 11:49, 3 users, load averages: 22.61 36.71 51.52"
+  },
+  "repository": {
+    "trackedFiles": 23528,
+    "commits": "14669",
+    "edited": 20,
+    "staged": 5,
+    "untracked": 10
+  },
+  "results": [
+    {
+      "call": "empty (process baseline)",
+      "calls": 10,
+      "spawnsPerCall": 0,
+      "byCommand": {},
+      "wallMsByCommand": {},
+      "wallMsMedian": 0,
+      "wallMsP90": 0,
+      "gitWallMsPerCall": 0,
+      "daemonCpuMsPerCall": 0,
+      "childCpuMsPerCall": 0
+    },
+    {
+      "call": "one trivial git (rev-parse HEAD)",
+      "calls": 10,
+      "spawnsPerCall": 0,
+      "byCommand": {},
+      "wallMsByCommand": {},
+      "wallMsMedian": 14.64,
+      "wallMsP90": 34.63,
+      "gitWallMsPerCall": 0,
+      "daemonCpuMsPerCall": 1.74,
+      "childCpuMsPerCall": 9.17
+    },
+    {
+      "call": "repositoryInfo",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "status": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.59,
+        "worktree list": 0.52,
+        "status": 249.73
+      },
+      "wallMsMedian": 291.28,
+      "wallMsP90": 338.92,
+      "gitWallMsPerCall": 250.84,
+      "daemonCpuMsPerCall": 7.38,
+      "childCpuMsPerCall": 344.44
+    },
+    {
+      "call": "status",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "status": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.46,
+        "worktree list": 0.47,
+        "status": 200.52
+      },
+      "wallMsMedian": 216.05,
+      "wallMsP90": 254.6,
+      "gitWallMsPerCall": 201.44,
+      "daemonCpuMsPerCall": 6.31,
+      "childCpuMsPerCall": 292.78
+    },
+    {
+      "call": "sourceControlState",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "status": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.47,
+        "worktree list": 0.43,
+        "status": 254.9
+      },
+      "wallMsMedian": 262.38,
+      "wallMsP90": 356.46,
+      "gitWallMsPerCall": 255.8,
+      "daemonCpuMsPerCall": 8.22,
+      "childCpuMsPerCall": 326.33
+    },
+    {
+      "call": "changedFiles",
+      "calls": 10,
+      "spawnsPerCall": 2.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "status": 1,
+        "diff": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.43,
+        "worktree list": 0.42,
+        "status": 203.26,
+        "diff": 14.47
+      },
+      "wallMsMedian": 228.93,
+      "wallMsP90": 284.33,
+      "gitWallMsPerCall": 218.58,
+      "daemonCpuMsPerCall": 9.8,
+      "childCpuMsPerCall": 380.2
+    },
+    {
+      "call": "checkoutSummary",
+      "calls": 10,
+      "spawnsPerCall": 2.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "status": 1,
+        "diff": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.4,
+        "worktree list": 0.37,
+        "status": 266.99,
+        "diff": 13.9
+      },
+      "wallMsMedian": 252.83,
+      "wallMsP90": 584.06,
+      "gitWallMsPerCall": 281.66,
+      "daemonCpuMsPerCall": 11.27,
+      "childCpuMsPerCall": 388.73
+    },
+    {
+      "call": "listWorktrees",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 1.1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.39,
+        "worktree list": 4.2
+      },
+      "wallMsMedian": 15,
+      "wallMsP90": 27.78,
+      "gitWallMsPerCall": 4.59,
+      "daemonCpuMsPerCall": 4.15,
+      "childCpuMsPerCall": 0.4
+    },
+    {
+      "call": "branches",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "for-each-ref": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.34,
+        "worktree list": 0.33,
+        "for-each-ref": 7.82
+      },
+      "wallMsMedian": 9.21,
+      "wallMsP90": 18.94,
+      "gitWallMsPerCall": 8.49,
+      "daemonCpuMsPerCall": 2.76,
+      "childCpuMsPerCall": 2.69
+    },
+    {
+      "call": "branchRefs",
+      "calls": 10,
+      "spawnsPerCall": 5.2,
+      "byCommand": {
+        "rev-parse": 0.1,
+        "worktree list": 0.1,
+        "symbolic-ref": 1,
+        "remote": 1,
+        "for-each-ref": 3
+      },
+      "wallMsByCommand": {
+        "rev-parse": 0.37,
+        "worktree list": 0.32,
+        "remote": 3.57,
+        "symbolic-ref": 3.64,
+        "for-each-ref": 21.2
+      },
+      "wallMsMedian": 16.68,
+      "wallMsP90": 29.51,
+      "gitWallMsPerCall": 29.11,
+      "daemonCpuMsPerCall": 11.03,
+      "childCpuMsPerCall": 17.15
+    },
+    {
+      "call": "resolveCommit HEAD",
+      "calls": 10,
+      "spawnsPerCall": 1.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 5.46,
+        "worktree list": 0.34
+      },
+      "wallMsMedian": 28.1,
+      "wallMsP90": 35.53,
+      "gitWallMsPerCall": 5.81,
+      "daemonCpuMsPerCall": 4.93,
+      "childCpuMsPerCall": 0
+    },
+    {
+      "call": "branchHead",
+      "calls": 10,
+      "spawnsPerCall": 2.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1,
+        "check-ref-format": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 4.5,
+        "worktree list": 0.35,
+        "check-ref-format": 3.14
+      },
+      "wallMsMedian": 9.49,
+      "wallMsP90": 19.66,
+      "gitWallMsPerCall": 8,
+      "daemonCpuMsPerCall": 3.8,
+      "childCpuMsPerCall": 1.65
+    },
+    {
+      "call": "diff HEAD → working tree",
+      "calls": 10,
+      "spawnsPerCall": 13.2,
+      "byCommand": {
+        "rev-parse": 2.1,
+        "worktree list": 0.1,
+        "ls-files": 4,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 1,
+        "update-index": 1,
+        "add": 1,
+        "write-tree": 1,
+        "diff": 2,
+        "cat-file": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 10.62,
+        "worktree list": 0.34,
+        "ls-files": 108.92,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 25.18,
+        "update-index": 19.27,
+        "add": 1148.18,
+        "write-tree": 32.24,
+        "diff": 25.87,
+        "cat-file": 8.11
+      },
+      "wallMsMedian": 1634.59,
+      "wallMsP90": 1722.77,
+      "gitWallMsPerCall": 1378.74,
+      "daemonCpuMsPerCall": 445.58,
+      "childCpuMsPerCall": 1498.06
+    },
+    {
+      "call": "diffCommit HEAD (one file)",
+      "calls": 10,
+      "spawnsPerCall": 4,
+      "byCommand": {
+        "rev-parse": 2,
+        "rev-list": 1,
+        "diff": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 14.06,
+        "rev-list": 5.85,
+        "diff": 6.96
+      },
+      "wallMsMedian": 49.13,
+      "wallMsP90": 176.29,
+      "gitWallMsPerCall": 26.87,
+      "daemonCpuMsPerCall": 11.58,
+      "childCpuMsPerCall": 23.87
+    },
+    {
+      "call": "fileLog package.json",
+      "calls": 10,
+      "spawnsPerCall": 2.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1,
+        "log": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 5.54,
+        "worktree list": 0.4,
+        "log": 66.6
+      },
+      "wallMsMedian": 78.12,
+      "wallMsP90": 83.67,
+      "gitWallMsPerCall": 72.54,
+      "daemonCpuMsPerCall": 6.51,
+      "childCpuMsPerCall": 64.4
+    },
+    {
+      "call": "readRevisionLines",
+      "calls": 10,
+      "spawnsPerCall": 2.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1,
+        "cat-file blob": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 5.41,
+        "worktree list": 0.39,
+        "cat-file blob": 4.81
+      },
+      "wallMsMedian": 23.98,
+      "wallMsP90": 41.15,
+      "gitWallMsPerCall": 10.62,
+      "daemonCpuMsPerCall": 6.87,
+      "childCpuMsPerCall": 6.77
+    },
+    {
+      "call": "workspaceRevision",
+      "calls": 10,
+      "spawnsPerCall": 10.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1,
+        "status": 1,
+        "ls-files": 4,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 1,
+        "update-index": 1,
+        "add": 1,
+        "write-tree": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 6.98,
+        "worktree list": 0.37,
+        "status": 252.32,
+        "ls-files": 113.55,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 26.91,
+        "update-index": 23.04,
+        "add": 1271.45,
+        "write-tree": 37.29
+      },
+      "wallMsMedian": 1957.08,
+      "wallMsP90": 2544.5,
+      "gitWallMsPerCall": 1731.91,
+      "daemonCpuMsPerCall": 439.52,
+      "childCpuMsPerCall": 1951.39
+    },
+    {
+      "call": "createCheckpoint",
+      "calls": 10,
+      "spawnsPerCall": 11.2,
+      "byCommand": {
+        "rev-parse": 1.1,
+        "worktree list": 0.1,
+        "ls-files": 4,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 1,
+        "update-index": 1,
+        "add": 1,
+        "write-tree": 1,
+        "commit-tree 9fd14a5623f6fce5d40761fa54ec639067b119d1": 1,
+        "update-ref": 1
+      },
+      "wallMsByCommand": {
+        "rev-parse": 5.56,
+        "worktree list": 0.39,
+        "ls-files": 116.61,
+        "read-tree cdfd727c941d5dd18fdbb3cd5abda049f4cd7076": 26.83,
+        "update-index": 20.13,
+        "add": 1191.58,
+        "write-tree": 31.96,
+        "commit-tree 9fd14a5623f6fce5d40761fa54ec639067b119d1": 6.27,
+        "update-ref": 5.62
+      },
+      "wallMsMedian": 1648.91,
+      "wallMsP90": 1922.71,
+      "gitWallMsPerCall": 1404.95,
+      "daemonCpuMsPerCall": 435.61,
+      "childCpuMsPerCall": 1478.94
+    }
+  ],
+  "note": "diffCommit from a second run (load 124.57 63.40 58.51)"
+}
