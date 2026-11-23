@@ -70,5 +70,5 @@ async function windowsPathGit(
   const searched = Object.fromEntries(
     Object.entries(env).filter(([key]) => key.toUpperCase() !== "PATHEXT"),
   );
-  return findExecutable("git", { ...searched, PATHEXT: ".EXE;.COM" }, "win32");
+  return findExecutable("git", { ...searched, PATHEXT: ".EXE;.COM" }, "win32", signal);
 }
