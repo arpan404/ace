@@ -19,6 +19,7 @@ A bot's workers are:
   with `parent`;
 - **ace children** of its `delegate` calls, noted from ace's first answer;
 - **its helpers** ([helpers.md](helpers.md)), unchanged.
+- **its task lanes** (below): the bot's own conversations for the person's tasks.
 
 Each worker bot's conversation starts with `worker_of`, which names its parent: the tree is that
 link per conversation. It is folded once when Spade starts (`Store::worker_links`, one pass over
@@ -139,8 +140,84 @@ cost_micros: null, children: []}`. Its `state` is one of `working`, `done`, `fai
 - Every agent in `GET /v1/agents` adds `parent` (`{id, name}` or `null`) and `workers` (its
   worker bots that have not settled).
 
+## Lanes
+
+As built for [ADR 0217](../../docs/adr/0217-spade-runs-each-task-in-its-own-lane.md). The pure
+rules are `spade_core::lane`; the engine side is `engine/lanes/` (`start`, `talk`, `view`), with
+hooks in `engine/turn.rs` (the move, a lane's end), `engine/workers/` (roll-up, reports),
+`engine/calls.rs` and `engine/helpers.rs` (requests asked in main), `engine/control.rs` (Stop),
+`engine/media.rs` (routing a reply) and `engine/routing.rs` (the `task` role).
+
+A lane is one task the person asked for, run by the bot in a hidden conversation of its own. It is
+stored as a helper is (a `helpers` row with profile `lane`, so it shares the bot's workspace,
+notes, settings and spend, is hidden from `GET /v1/conversations`, and is carried and deleted with
+the bot), and it starts with `lane_of`. Unlike a helper it has its own goal, plan, `task_status`,
+check of done and asks, takes the person's messages, and reports back to main.
+
+- **Tools** (main's, core, not deferred; a lane's or a helper's call to one is refused):
+
+  | Tool           | Arguments                  | Answers                                     |
+  | -------------- | -------------------------- | ------------------------------------------- |
+  | `task_start`   | `title`, `brief?`, `asks?` | `{task, title, state}`                      |
+  | `task_message` | `task`, `text`, `asks?`    | `{task, state}`                             |
+  | `task_stop`    | `task`, `because`          | `{task, state: stopped}`                    |
+  | `tasks`        | `task?`                    | each lane's row, its goal, plan, last words |
+
+  `task` is a lane's id or its title. `asks` names main's asks (`m12`) the lane takes; with none,
+  `task_start` takes the newest open one. `task_stop` is refused unless `because` names a message
+  the person wrote in main. A `task_start` run again finds its lane by the call's key.
+
+- **First events.** `lane_of {parent_conversation, call, title, asks, untrusted, moved_from?}`,
+  then one message from the person quoting their asks verbatim, with Spade's note on the task and
+  the brief (`<task_brief from="bot">`) in its context. A brief written with untrusted content in
+  view goes as a second message, the bot's (`from_agent`), which taints the lane's turn. Main
+  stores `lane_started` in the same write.
+- **Prompt.** A lane's system prompt and offered tools are main's byte for byte, so the provider's
+  cache serves both; what it is told about its task sits in its first message.
+- **Asks.** Asks a lane takes leave main's ledger (`lane_started.asks`, `reply_moved.asks`, an
+  `ask_routed` message), so main's stop check skips them; the lane's own messages open its own.
+- **Routing a reply.** A person's message to main whose `reply_to` names a lane's line, its report,
+  the bot's words in the reply its report opened, or a message already routed there goes to that
+  lane with no model call: main stores the person's message and `ask_routed {lane, title,
+message}` together and opens no reply; the lane gets the person's words (trusted). Main's prompt
+  reads a `<routed>` note there. A message written in a lane's own conversation (`POST
+/v1/conversations/{lane}/messages`, `202`) steers it, or opens its next reply once it ended.
+- **Main's long work** moves to a lane by itself ([harness.md](harness.md), "Task lanes"); main
+  stores `reply_moved {reply, lane, title, asks}` and the app writes Spade's plain line for it.
+- **Slots.** At most `SPADE_TASKS_AT_ONCE` (16) lanes of a bot have a reply open. One more is
+  stored queued (`lane_started.queued`) and starts, oldest first, when one ends.
+- **Requests.** A lane's approval is stored in the lane and in main in the same write
+  (`approval_requested.lane {task, conversation, call_id, title}`, call id `<lane>.<call>`) and
+  answered in main; the answer reaches the lane, and "always" lands in main. Main reads waiting
+  until it is answered or the lane reports something other than `needs_you`.
+- **State.** `lane::state`: `queued`, `working`, `needs_you`, `done` (its check passed),
+  `finished`, `failed`, `stopped`. The bot rolls its lanes up like workers: working while one
+  works or is queued, waiting (`waiting_for: "task"`, "A task is waiting for you") while one waits
+  on the person, never idle or done meanwhile. The roster adds `tasks` (lanes not ended).
+- **Reports.** A lane that settles stores one `worker_reported {kind: lane, worker: <lane>, …}`
+  in main per state per epoch, read by main as `<task_report>`; a `stopped` one opens no reply.
+  Every lane is checked when Spade opens, so a report owed from before a restart arrives once.
+- **Stop.** Stop on a lane (`POST /v1/conversations/{lane}/stop`) stops it alone; a queued one
+  never starts. Stop on the bot stops main and every lane.
+- **Restarts.** A lane cut off mid-step carries on from its events, as a helper does.
+- **Spend.** Each lane's steps are recorded under its bot as the `task` role; a row's
+  `cost_micros` is what its steps cost. Nothing stops on it (ADR 0166).
+
+### API added
+
+- `GET /v1/conversations/{id}/tasks` → `{"tasks": [{task, conversation, title, state, needs_you,
+progress: {done, total, verified} | null, plan_step, started_ms, ended_ms, cost_micros, asks,
+moved, model, report}]}`, ordered needs you, running, ended, queued (oldest first in each).
+- A lane's conversation is read with `/events` and `/live`, written to with `/messages`, stopped
+  with `/stop` and tried again with `/retry`, like any.
+- `GET /v1/agents/{id}/tree` lists lanes as nodes `{kind: "lane", id, name, conversation, state,
+needs_you, progress, cost_micros, children: []}`.
+
 ## Not built yet
 
+- Lanes: a lane's `ask_user` questions shown in main; jobs and wakes moving with main's moved
+  work (a reply with one open does not move); the overlap note when two lanes write one path;
+  the `title` role naming a lane (its title is the person's first line).
 - A worker's questions routed to its maker; they go to the person.
 - Workers on other machines.
 - ace children's state between ace's waits; delegated threads are not in ace's event stream.

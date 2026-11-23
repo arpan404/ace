@@ -500,6 +500,27 @@ pub fn block(lanes: &[(Started, State)]) -> Option<String> {
     ))
 }
 
+/// What main's model reads for a moved reply or a routed message (ADR 0217 §2, §2a).
+pub fn note(event: &Known) -> String {
+    match event {
+        Known::ReplyMoved(moved) => format!(
+            "<moved task=\"{}\" from=\"spade\">\nThis was taking a while, so Spade moved the work \
+             to its own task, {}, which carries on from here; the person was told. You are free \
+             to talk.\n</moved>",
+            moved.lane,
+            quoted(&moved.title)
+        ),
+        Known::AskRouted(routed) => format!(
+            "<routed task=\"{}\" from=\"spade\">\nThe person's message {} was a reply to the \
+             task {}, so Spade sent it there; that task answers it.\n</routed>",
+            routed.lane,
+            routed.message,
+            quoted(&routed.title)
+        ),
+        _ => String::new(),
+    }
+}
+
 /// A title for Spade's own words: no markup, one line.
 fn quoted(title: &str) -> String {
     title

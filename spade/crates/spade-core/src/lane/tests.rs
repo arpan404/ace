@@ -241,7 +241,9 @@ fn a_moved_lane_starts_from_the_persons_words_the_recent_chat_and_the_reply_so_f
     ];
     events.push(person("Use March, not February.")); // a steer while it ran
     events.push(step("r1", "Using March"));
-    let (lane, asks) = moved(&events, "r1").expect("the reply is there");
+    let Some((lane, asks)) = moved(&events, "r1") else {
+        panic!("the reply is there");
+    };
     assert_eq!(asks, ["m4"]);
     let Event::Known(Known::UserMessage { text, context, .. }) = &lane[0] else {
         panic!("the person's message comes first");

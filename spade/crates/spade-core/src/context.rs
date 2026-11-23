@@ -64,6 +64,12 @@ Spade from their own words. Sort each new message with the asks tool, in the sam
 other calls: open (one ask), split (several), chat (nothing to do), or standing for an \
 instruction that holds until they lift it (\"always…\", \"never…\", \"from now on…\"). Close each \
 ask with done, dropped, changed or waiting and a short reason, and follow every standing one.
+- New work that will take more than a few steps runs as a task of its own: start it with \
+task_start (a short title in the person's words, and a brief with the objective and what done \
+looks like), send what changes a running task to it with task_message, and keep this chat for \
+talking. When a task reports back, tell the person what it did in a sentence or two, with its \
+evidence; if your own work here runs long, Spade moves it to a task and says so. Never stop a \
+task unless the person asked you to.
 - When something will take a while, say so at the start: roughly how long, and what they will \
 get. Then report as pieces finish.
 - Never put a big result in one huge answer that could be cut off: write it over several steps, \
@@ -773,6 +779,16 @@ fn messages_shown(events: &[Event], images: &dyn Images) -> Vec<Message> {
                     } else {
                         held.push((text, Vec::new()));
                     }
+                }
+            }
+            // Where main's moved work and a routed message went (ADR 0217), so main never takes
+            // them up again itself.
+            Known::ReplyMoved(_) | Known::AskRouted(_) => {
+                let text = crate::lane::note(event);
+                if pending.is_empty() {
+                    push_person(&mut out, text, Vec::new());
+                } else {
+                    held.push((text, Vec::new()));
                 }
             }
             Known::TaskContinued { nudge, .. }

@@ -21,7 +21,7 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_requested`                         | `reply`, `call_id`, `name`, `arguments`                                                 | The gate is waiting on the person                                                                                                                                                                                                                                                                                                              |
 | `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                     |
 | `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                     |
-| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list and the person's messages kept word for word (`said`, `said_earlier`), carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                                                                                        |
+| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list and the person's messages kept word for word (`said`, `said_earlier`), carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                  |
 | `results_aged`                               | `before`                                                                                | With aging turned on, tool results before index `before` that may age show as stubs from now on ([ADR 0216](../../docs/adr/0216-spade-compacts-late-and-keeps-the-persons-words.md)); stored in batches                                                                                                                                        |
 | `asks_updated`                               | `call_id`, `changes[]`                                                                  | What one `asks` call changed in the person's asks, as Spade accepted it; the ledger reads only this (ADR 0215)                                                                                                                                                                                                                                 |
 | `asks_checked`                               | `reply`, `asks[]`, `note`                                                               | The stop check ran in `reply`, naming those open asks; the model reads `note` as Spade's, and the reply takes one more step                                                                                                                                                                                                                    |
@@ -118,7 +118,7 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
 - **Waiting out an outage** (ADR 0158, ADR 0160): when those three tries are used up on a
   failure that may pass (unreachable, `408`, `429`, `5xx`), or a stream is cut by one after it
   started, the turn does not fail. It stores an outage wake, `wake_set {reply, purpose: {kind:
-  outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
+outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at most an hour, or
   the endpoint's longer `retry-after` (still at most an hour); the backoff starts again once a
   step of the turn finishes. When it fires (`wake_fired`, with no note) the step is sent again as
   it was, and the three quick tries start again; what a cut stream had shown is dropped, as on a
@@ -143,6 +143,20 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   on resume), tools still running are cut and answered "unknown outcome", and a turn waiting on an
   approval pauses at once. The pause is stored as `turn_paused`. Stop on a paused reply closes it as
   stopped. The rules are in `spade_core::maintenance`.
+
+## Task lanes
+
+Main's own reply that runs long moves to a task lane of the bot's ([workers.md](workers.md),
+"Lanes"; ADR 0217 §2a). At a step boundary (`Next::CallModel`, after the stop check and the asks
+reminder) a reply that has taken 8 steps or run 2 minutes in this worker, with nothing waiting on
+the person and no job or wait of its own open, is moved in one write under the record lock: the
+lane's row and first events, and in main `lane_started`, `reply_moved` and the reply's close
+(`reply_finished` with no text). The turn ends; the lane's turn worker carries the same reply on
+from its next step. `Limits::move_long_work` turns this on (Spade does; tests choose). A lane's
+own work never moves, and `task::next` never carries a moved task on in main.
+
+Each step of main's ends with a `<tasks>` block after the `<asks>` block while lanes haven't
+ended: one line each with its id, state, title and the asks it owns, read from the events.
 
 ## Tools
 

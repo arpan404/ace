@@ -1,7 +1,8 @@
 # 0217: A Spade bot runs each task in its own lane
 
-Status: proposed. Date: 2026-11-22. Asked for by the owner (2026-11-22: "multitasking and many
-others are fucked"; bots forget earlier asks when given new ones). The owner answered the first
+Status: accepted (2026-11-23, built on `ace/spade-lanes`; see "As built"). Date: 2026-11-22.
+Asked for by the owner (2026-11-22: "multitasking and many others are fucked"; bots forget earlier
+asks when given new ones). The owner answered the first
 draft's open questions the same day (16 lanes at once, a `task` model role, main's long work moves
 to a lane by itself, no CLI case, mock both task list layouts); they are folded in below. Amends
 [ADR 0162](0162-spade-model-routing.md) and [ADR 0213](0213-spade-roles-think-at-an-effort.md)
@@ -124,17 +125,17 @@ a lane behaves exactly as it does now.
 Each person's message opens an asks-ledger entry. The main model places each entry in one of
 three ways, recorded on the entry:
 
-| Placement     | When                                                                     | What happens                                                                              |
-| ------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| answer        | a question, a lookup or a one-step action                                | main answers it and closes the entry                                                      |
-| fold          | it changes a task under way ("use March", "also cc Dana", "stop at two") | `task_message` sends it to that lane, or main's own task takes it; the entry moves there  |
-| start         | independent work that will take more than a few steps                    | `task_start` opens a lane and the entry moves to it                                       |
+| Placement | When                                                                     | What happens                                                                             |
+| --------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| answer    | a question, a lookup or a one-step action                                | main answers it and closes the entry                                                     |
+| fold      | it changes a task under way ("use March", "also cc Dana", "stop at two") | `task_message` sends it to that lane, or main's own task takes it; the entry moves there |
+| start     | independent work that will take more than a few steps                    | `task_start` opens a lane and the entry moves to it                                      |
 
 Deterministic routes come before the model:
 
 - **A reply to a lane's message goes to that lane.** `reply_to` on a message that came from a
   lane, either its report in main or one of its own messages, sends the person's message straight
-  to the lane. It is stored in main as the person's bubble with a quiet "Sent to *task*" line, and
+  to the lane. It is stored in main as the person's bubble with a quiet "Sent to _task_" line, and
   in the lane as the person's message (trusted, not `from_agent`). No model call decides it.
 - **A message written in a lane's transcript belongs to that lane.** It steers that lane, as
   steering works today.
@@ -162,7 +163,7 @@ boundary:
   (`lane_moved {reply, lane, jobs, wakes}` in main, in the same write), so their results reach the
   lane and not main.
 - Main's reply closes as `reply_moved {lane}`, and Spade writes one plain line in the chat, not the
-  model: "This is taking a while, so I moved it to its own task: *Fix the March invoice*. I'm free
+  model: "This is taking a while, so I moved it to its own task: _Fix the March invoice_. I'm free
   to talk." The line opens the lane. Main's stop check reads the moved asks as the lane's.
 - The move is stored in one write under the record lock that Stop and steering use, so a Stop or a
   message that comes at the same moment lands either before the move, in main, or after it, in the
@@ -180,12 +181,12 @@ says "that's separate" or "that was for the invoice", and main moves the entry
 - **Tools, offered to the main conversation as core tools** (they are part of every bot's job
   now, so they are not deferred). They are left out of lanes and helpers:
 
-  | Tool           | Effect        | Arguments                                   | Answers                                   |
-  | -------------- | ------------- | ------------------------------------------- | ----------------------------------------- |
-  | `task_start`   | `write_local` | `title`, `brief`, `asks[]`                  | `{task, title, state: working \| queued}` |
-  | `task_message` | `write_local` | `task`, `text`, `asks?[]`                   | `{task, state}`                           |
-  | `task_stop`    | `write_local` | `task`, `because` (a person's message id)   | `{task, state: stopped}`                  |
-  | `tasks`        | `read`        | `task?`                                     | each lane's title, state, goal, plan, last words, cost |
+  | Tool           | Effect        | Arguments                                 | Answers                                                |
+  | -------------- | ------------- | ----------------------------------------- | ------------------------------------------------------ |
+  | `task_start`   | `write_local` | `title`, `brief`, `asks[]`                | `{task, title, state: working \| queued}`              |
+  | `task_message` | `write_local` | `task`, `text`, `asks?[]`                 | `{task, state}`                                        |
+  | `task_stop`    | `write_local` | `task`, `because` (a person's message id) | `{task, state: stopped}`                               |
+  | `tasks`        | `read`        | `task?`                                   | each lane's title, state, goal, plan, last words, cost |
 
   `task_stop` is refused unless `because` names a person's message in main that asks for the stop
   (or supersedes the task: "never mind the invoice"). The bot never cancels the person's task on
@@ -205,7 +206,7 @@ says "that's separate" or "that was for the invoice", and main moves the entry
   A lane's `done` passes only through its own check (ADR 0159).
 - **Its own ledger slice.** The entries moved to it are its open asks. Its stop check reads only
   those. Main's stop check skips entries a lane owns, and main's prompt shows them as "with task
-  *title*".
+  _title_".
 - **Its own terminal session**, as a helper has one (`computer.md`), so two lanes' shell commands
   run side by side and don't queue behind each other.
 - **Shared folder, overlap noted.** Lanes write to the bot's one folder. The engine already knows
@@ -223,7 +224,7 @@ says "that's separate" or "that was for the invoice", and main moves the entry
 ### 4. Reports and progress
 
 - **Reports are ADR 0161 reports.** When a lane settles, `worker_reported {kind: lane, state,
-  epoch, summary, words}` is stored once in main, with the states `done`, `finished`,
+epoch, summary, words}` is stored once in main, with the states `done`, `finished`,
   `needs_you`, `failed` and `stopped`. It opens a short main reply, and the bot tells the person in
   its own words: what was done, with the evidence the check accepted. That message carries the
   lane's id, so a reply to it routes to the lane (2). A `stopped` report opens no reply, as today.
@@ -234,7 +235,7 @@ says "that's separate" or "that was for the invoice", and main moves the entry
   is doing.
 - **Asking the person.** A lane's approvals and `ask_user` cards are stored in the lane and also
   in main in the same write, as helpers' approvals are (`approval_requested {lane: {conversation,
-  call_id}}`, and the same for `question_asked`). The person answers from main's request strip
+call_id}}`, and the same for `question_asked`). The person answers from main's request strip
   without opening the lane, and Spade stores the answer in both. "Always" lands in main, so it
   holds for the bot and all its lanes.
 
@@ -278,18 +279,18 @@ This follows [the design language](../design/design-language.md): state, not chr
 chrome; one place per fact. It describes the design only, with no UI code.
 
 - **In main's transcript**, where main starts a lane, one quiet line in Spade's words: "Started a
-  task: *Fix the March invoice*". While the lane runs, that line carries its step and count
+  task: _Fix the March invoice_". While the lane runs, that line carries its step and count
   ("· 2 of 5 · Drafting the email to Dana"); once it ends, the line is the record. When the lane reports, the bot's own message says what happened,
-  followed by one quiet line: "Task done: *Fix the March invoice*". It reads "Task stopped early"
+  followed by one quiet line: "Task done: _Fix the March invoice_". It reads "Task stopped early"
   or "Task stopped" for the other endings. Either line opens the lane. A person's message routed
-  by a reply carries "Sent to *Fix the March invoice*" under its bubble. There are no task cards
+  by a reply carries "Sent to _Fix the March invoice_" under its bubble. There are no task cards
   in the transcript.
 - **The tasks pill.** Main's own status pill shows only while main itself works
   ("Working · 12s"). One more pill, beside the bot's pill at the top of the conversation, names the
   lanes: "2 tasks", or "2 tasks · 1 needs you". It opens the task list. While lanes are live the pill names them and the transcript lines are the record;
   this is the rule the design language already sets for subagents.
 - **Main's moved work** reads as the plain line Spade writes (2a), "This is taking a while, so I
-  moved it to its own task: *title*. I'm free to talk.", in the same quiet style as the started
+  moved it to its own task: _title_. I'm free to talk.", in the same quiet style as the started
   line, and it opens the lane.
 - **The task list** is a sheet on the iPhone, and on desktop and web a popover from the tasks pill
   (the owner's pick, 2026-11-23, from the prototype's screenshot 01). A panel beside the chat was
@@ -305,7 +306,7 @@ chrome; one place per fact. It describes the design only, with no UI code.
   writing there steers that task. Stop in that composer stops that task only. Its goal strip is
   the goal strip a conversation has today.
 - **Requests.** A lane's approval or question waits in main's request strip, leading with the
-  task: "*Fix the March invoice* wants to send an email to dana@…", with the strip's usual buttons.
+  task: "_Fix the March invoice_ wants to send an email to dana@…", with the strip's usual buttons.
   Several waiting read "1 of 3", as now.
 - **The bot's row** in the sidebar and roster rolls up as ADR 0161 already rolls up workers. It
   reads working while any lane works, needs you while any lane waits on the person, and is never
@@ -357,7 +358,7 @@ model and tuned with the scripted tests below:
 
 Each lane's prompt adds:
 
-> You are working on one task for the person: *title*. The person may write to you here directly.
+> You are working on one task for the person: _title_. The person may write to you here directly.
 > Their words outrank your brief. Finish the task to its goal; your report goes back to the main
 > conversation, which tells the person. Ask the person only when you can't go on without them.
 
@@ -369,7 +370,7 @@ Each lane's prompt adds:
 - Ledger: an entry's `placement` (`answer`, `fold`, `start`) and owner (main or a lane). The field
   names follow whatever the asks-ledger ADR settles.
 - `GET /v1/conversations/{id}/tasks` answers `{"tasks": [{task, conversation, title, state,
-  needs_you, progress, plan_step, started_ms, ended_ms?, cost_micros, asks}]}`, ordered as the list
+needs_you, progress, plan_step, started_ms, ended_ms?, cost_micros, asks}]}`, ordered as the list
   in (7).
 - `POST /v1/conversations/{lane}/messages` steers the lane, and so does a `reply_to` naming one of
   its messages from main.
@@ -439,7 +440,7 @@ From the prototype (`ace/spade-lanes-prototype`, PR #2668):
   popovers use.
 - **Requests read plainly.** The prototype's payment request read "wants to send payment to TAP
   Air Portugal", because the words came from the tool's name. A lane's request is worded from
-  what the call does, as any request should be: "*Book flights to Lisbon* wants to pay €412 to TAP
+  what the call does, as any request should be: "_Book flights to Lisbon_ wants to pay €412 to TAP
   Air Portugal".
 
 ## Questions the owner resolved (2026-11-22)
@@ -454,3 +455,27 @@ From the prototype (`ace/spade-lanes-prototype`, PR #2668):
 5. **Where the task list lives on desktop:** a popover from the tasks pill beside the bot's pill
    (2026-11-23, chosen from the mockups built in the real web app on fake data). The panel beside
    the chat was considered and not chosen.
+
+## As built (2026-11-23)
+
+The engine is in `spade/crates/spade-server/src/engine/lanes/`, the rules in `spade_core::lane`,
+and the build is described in [spade/docs/workers.md](../../spade/docs/workers.md) ("Lanes").
+Where it differs from the text above:
+
+- **Storage.** Besides the `lane_of` and `lane_started` events, a lane has a `helpers` row with
+  profile `lane`. The row makes it a hidden conversation of its bot for everything that already
+  asks (whose workspace, spend and settings it uses, the conversation list, moves, deletion)
+  without a new table or a scan of the events.
+- **One event for the move.** `lane_moved` and `reply_moved` are one event, `reply_moved {reply,
+lane, title, asks}`, followed by the reply's close as `reply_finished` with no text, in the
+  same write as the lane. The app writes Spade's plain line from it.
+- **What moves.** A reply moves only at a boundary where none of its jobs or waits is open, so
+  nothing it started can still report to main; jobs and wakes moving with it are not built.
+- **Titles** are the person's first line, cut; the `title` role is not called at the boundary.
+- **Main's tasks block** closes every step's prompt after the `<asks>` block while lanes haven't
+  ended, rather than being pinned after compactions.
+- **A lane's prompt.** Its system prompt and offered tools are main's byte for byte; what it is
+  told about its task sits in its first message's context. A lane's call to a lane tool is refused.
+- **Not built yet:** a lane's `ask_user` questions shown in main (they show in the lane, and the
+  bot reads waiting), the overlap note, and the UI (a separate thread builds the popover, the
+  lines and the pill against `GET /v1/conversations/{id}/tasks` and the events).

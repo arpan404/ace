@@ -338,6 +338,17 @@ async fn a_reply_to_a_lanes_report_goes_to_that_lane_with_no_model_call_in_main(
         types(&events)
     );
     assert_eq!(count(&events[..at], "reply_started"), replies_before);
+    // When main next answers, it reads where the message went, so it never answers it itself.
+    wait_count(&spade, &conversation, "reply_finished", replies_before + 1).await?;
+    let mains_next = spade
+        .fake
+        .seen()
+        .into_iter()
+        .rev()
+        .find(|s| !s.body.to_string().contains(&lane("Fix the March invoice")))
+        .map(|s| s.body.to_string())
+        .unwrap_or_default();
+    assert!(mains_next.contains("<routed task="), "{mains_next}");
     Ok(())
 }
 
