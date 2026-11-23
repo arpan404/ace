@@ -93,7 +93,7 @@ fn head_row(conn: &Arc<Connection>, thread_id: &str) -> Result<HeadRow, LongErro
     if let Some(row) = row {
         let ordinal = match row_opt(&row, "ordinal") {
             None | Some(Value::Null) => None,
-            Some(value) => Some(as_ordinal(value)?),
+            Some(value) => Some(as_count(value)?),
         };
         let root = match row_opt(&row, "root") {
             None | Some(Value::Null) => None,
@@ -235,9 +235,6 @@ fn agent_summary(
     let name = match row_opt(agent, "name") {
         None | Some(Value::Null) => None,
         Some(Value::Text(text)) => {
-            if text.is_empty() {
-                return Err(invalid("invalid index row"));
-            }
             if js_len(text) > 1024 {
                 return Err(invalid("invalid index row"));
             }
@@ -251,11 +248,9 @@ fn agent_summary(
         None | Some(Value::Null) => None,
         Some(value) => Some(as_timestamp(value)?),
     };
-    let digest = if child_thread.is_some() {
-        child_digest.ok_or_else(|| invalid("Missing turn digest"))?
-    } else {
-        agent_digest.ok_or_else(|| invalid("Missing turn digest"))?
-    };
+    let digest = child_digest
+        .or(agent_digest)
+        .ok_or_else(|| invalid("Missing turn digest"))?;
     let status = if let Some(child) = child_thread.clone() {
         if let Some(status) = thread_status_row(conn, &child)? {
             status
