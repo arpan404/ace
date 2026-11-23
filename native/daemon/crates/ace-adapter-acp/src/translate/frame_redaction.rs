@@ -38,14 +38,26 @@ fn redact_key(key: &str, secrets: &[&str]) -> String {
     redact_text(key, secrets)
 }
 
-/// Iterative walk: containers are opened on a stack, leaves redacted in place.
+/// Recursive walk with an explicit depth bound, so untrusted nesting of any
+/// depth cannot overflow the stack. The bound (1000) is well above the
+/// 200-deep case the tests cover; deeper values are kept as produced.
 fn redact_value(data: &Value, secrets: &[&str]) -> Value {
+    redact_value_depth(data, secrets, 0)
+}
+
+/// Maximum nesting the redactor descends; deeper values are kept whole.
+const MAX_REDACT_DEPTH: usize = 1000;
+
+fn redact_value_depth(data: &Value, secrets: &[&str], depth: usize) -> Value {
+    if depth > MAX_REDACT_DEPTH {
+        return data.clone();
+    }
     match data {
         Value::String(text) => Value::String(redact_text(text, secrets)),
         Value::Array(items) => {
             let mut changed: Option<Vec<Value>> = None;
             for (index, item) in items.iter().enumerate() {
-                let next = redact_value(item, secrets);
+                let next = redact_value_depth(item, secrets, depth.saturating_add(1));
                 if next != *item {
                     if changed.is_none() {
                         changed = Some(items.clone());
@@ -69,7 +81,7 @@ fn redact_value(data: &Value, secrets: &[&str]) -> Value {
             }
             let mut value_changed: Option<Vec<(String, Value)>> = None;
             for (index, (key, value)) in map.iter().enumerate() {
-                let next = redact_value(value, secrets);
+                let next = redact_value_depth(value, secrets, depth.saturating_add(1));
                 if next != *value && value_changed.is_none() {
                     value_changed = Some(map.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
                 }

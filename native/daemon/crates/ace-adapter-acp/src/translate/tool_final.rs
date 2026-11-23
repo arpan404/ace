@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //! A tool's detail as it stands (`tool-final.ts`).
 
+use crate::translate::mcp::mcp_arguments;
 use crate::translate::quirks::QuirksKind;
 use crate::translate::state::ToolState;
 use crate::translate::tool_raw::complete_tool_raw;
-use crate::translate::tools::{mcp_arguments, tool_detail};
+use crate::translate::tools::tool_detail;
 use serde_json::Value;
 
 /// Every path picks MCP arguments from collected input once finalized.

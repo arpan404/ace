@@ -3,7 +3,7 @@
 
 use crate::translate::data::{object, raw};
 use crate::translate::state::TranslationState;
-use crate::translate::tools::todos;
+use crate::translate::tool_text::todos;
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 

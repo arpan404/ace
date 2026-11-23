@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Turn ends and implicit turns (`lifecycle.ts`).
 
-use crate::translate::children::placeholder_child;
+use crate::translate::child_spawn::placeholder_child;
 use crate::translate::completed_tools::retire_tool;
 use crate::translate::data::object;
 use crate::translate::settlement::{

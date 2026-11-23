@@ -2,7 +2,7 @@
 //! The ACP translator (`translator.ts`): frames in, facts out.
 
 use crate::translate::answers::answer_request;
-use crate::translate::children::expire_children;
+use crate::translate::child_expiry::expire_children;
 use crate::translate::content::decode_content;
 use crate::translate::data::{RpcId, list, object, raw, rpc_id, string};
 use crate::translate::implicit::settle_implicit_turn;

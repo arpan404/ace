@@ -4,7 +4,7 @@
 use crate::translate::data::{object, raw, string};
 use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
-use crate::translate::tools::todos;
+use crate::translate::tool_text::todos;
 use crate::translate::update::{plan_update, waits_on_background_child};
 use serde_json::{Map, Value};
 

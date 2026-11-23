@@ -3,7 +3,8 @@
 
 use crate::translate::quirks::QuirksKind;
 use crate::translate::settlement::{shell_carried_across_turns, shell_survives_prompt};
-use crate::translate::tools::{merge_tool_data, tool_detail, tool_status};
+use crate::translate::tool_text::merge_tool_data;
+use crate::translate::tools::{tool_detail, tool_status};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 

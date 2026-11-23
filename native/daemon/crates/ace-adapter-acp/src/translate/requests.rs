@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //! Incoming permission requests (`requests.ts`).
 
+use crate::translate::approval::interaction_key;
 use crate::translate::data::{object, raw, string};
-use crate::translate::interactions::interaction_key;
 use crate::translate::state::TranslationState;
 use crate::translate::tool_raw::retain_tool_raw;
 use serde_json::{Map, Value};
