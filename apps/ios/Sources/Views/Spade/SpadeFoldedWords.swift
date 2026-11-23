@@ -44,6 +44,8 @@ struct SpadeFoldedWords: View {
                                    startPoint: .top, endPoint: .bottom)
                 }
                 .contentShape(Rectangle())
+                // The words read as one element, all of them even while folded.
+                .accessibilityElement(children: .combine)
             if long {
                 Button(open ? "Show less" : "Show more") {
                     withAnimation { open.toggle() }

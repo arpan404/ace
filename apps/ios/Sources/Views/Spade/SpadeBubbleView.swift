@@ -60,7 +60,8 @@ struct SpadeBubbleView: View {
                     .padding(.horizontal, AceDesign.Space.margin)
                     .padding(.vertical, AceDesign.Space.related)
                     .background(AceDesign.Surface.fill, in: AceDesign.Shape.bubble)
-                    .accessibilityElement(children: .combine)
+                    // One element to read; a folding one keeps its words and Show more apart.
+                    .accessibilityElement(children: fold ? .contain : .combine)
                 }
                 // What its tools showed: pictures open full size, documents in Quick Look.
                 if !images.isEmpty || !files.isEmpty { MessageAttachments(itemId: "", attachments: images + files, more: 0) }
@@ -122,9 +123,22 @@ private struct SpadeMemberBubble: View {
             .padding(.trailing, AceDesign.Space.section)
         }
         .padding(.top, first ? AceDesign.Space.related : AceTheme.Spacing.none)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(name): \(text)")
+        .modifier(MemberAccessibility(label: "\(name): \(text)", fold: fold))
         .accessibilityIdentifier("spade.bubble.member")
+    }
+}
+
+/// A member's message reads as one element, its name first; a folding one keeps its words and
+/// Show more apart, so Show more can be reached.
+private struct MemberAccessibility: ViewModifier {
+    let label: String
+    let fold: Bool
+    func body(content: Content) -> some View {
+        if fold {
+            content.accessibilityElement(children: .contain)
+        } else {
+            content.accessibilityElement(children: .combine).accessibilityLabel(label)
+        }
     }
 }
 
