@@ -203,7 +203,12 @@ message}` together and opens no reply; the lane gets the person's words (trusted
   until it is answered or the lane reports something other than `needs_you`. A lane's `ask_user`
   card is asked the same way (`question_asked.lane`, call id `<lane>.<call>`, answered at main's
   `/questions/{call}` and sent on to the lane); answered in the lane, main's copy closes. A
-  helper that moved with main's work asks in main as the lane's.
+  helper that moved with main's work asks in main as the lane's. When the lane ends, main's copies
+  of what nothing can answer any more close in the same write as its report
+  (`lane_requests_closed {lane, calls}`): its approvals and cards waiting on the person, and when
+  it was stopped its cards left for later too. After any other end such a card stays answerable,
+  and its answer takes the task up again. Copies an earlier crash or build left open close when
+  Spade opens.
 - **Overlaps.** At each step boundary a lane's written files (`workspace_write`,
   `workspace_edit`, a job's kept files) are checked against its bot's other working lanes'. A
   shared path is stored once as `lanes_overlapped {lane, title, path, other, other_title}` in the

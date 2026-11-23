@@ -999,8 +999,10 @@ impl Engine {
                 _ => false,
             };
             // The waits this event settles (a job's end, a message) are stored with it, so
-            // they are settled once, with what settles them (ADR 0160).
-            let settled = spade_core::wake::settled_by(&events, event);
+            // they are settled once, with what settles them (ADR 0160). A lane's report that
+            // it ended closes main's copies of its open requests in the same write (ADR 0217 §4).
+            let mut settled = spade_core::wake::settled_by(&events, event);
+            settled.extend(lane_requests_closed(&events, event));
             // While the person has the bot's computer, messages wait for the hand-back; while
             // they paused it, for Resume (ADR 0200 §6.1).
             let admitted = self.admission.load(Ordering::SeqCst) && !self.closed(id);
@@ -1393,6 +1395,31 @@ impl Engine {
         });
         *live.worker.lock().unwrap_or_else(|p| p.into_inner()) = Some(worker.abort_handle());
     }
+}
+
+/// For a task lane's report that it ended, main's copies of its requests still open there,
+/// closed (ADR 0217 §4).
+fn lane_requests_closed(events: &[Event], event: &Event) -> Option<Event> {
+    let Event::Known(Known::WorkerReported(report)) = event else {
+        return None;
+    };
+    let ended = report.kind == spade_core::tree::Kind::Lane
+        && !matches!(
+            report.state,
+            spade_core::tree::ReportState::NeedsYou | spade_core::tree::ReportState::Stopping
+        );
+    if !ended {
+        return None;
+    }
+    let calls = spade_core::lane::requests_closing(events, &report.worker, report.state);
+    (!calls.is_empty()).then(|| {
+        Event::Known(Known::LaneRequestsClosed(
+            spade_core::lane::RequestsClosed {
+                lane: report.worker.clone(),
+                calls,
+            },
+        ))
+    })
 }
 
 /// Whether `job`'s result is stored already.
