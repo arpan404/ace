@@ -16,7 +16,7 @@ for (const path of process.argv.slice(2)) {
   for (const result of JSON.parse(readFileSync(path, "utf8")).results) {
     const times = result.measurements
       .map((measurement) => measurement.time_wall_clock.value * 1000)
-      .sort((a, b) => a - b);
+      .toSorted((a, b) => a - b);
     const median = times[Math.floor(times.length / 2)];
     const budget = budgets.get(result.name);
     const said = `${result.name.padEnd(26)} median ${median.toFixed(2)} ms`;

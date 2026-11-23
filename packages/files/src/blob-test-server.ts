@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+// oxlint-disable-next-line no-restricted-imports -- a test server's own database in its own process, never events.sqlite (ADR 0222).
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { WebSocketServer } from "ws";

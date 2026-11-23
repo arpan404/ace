@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+// oxlint-disable-next-line no-restricted-imports -- provider fixture databases in parity tooling, never events.sqlite (ADR 0222).
 import { DatabaseSync } from "node:sqlite";
 import { ThreadId } from "@ace/protocol";
 import { openHistory, type HistoryOptions, type HistoryService } from "../index.ts";

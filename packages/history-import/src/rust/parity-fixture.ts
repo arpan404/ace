@@ -1,5 +1,6 @@
 import { mkdir, readdir, writeFile, open } from "node:fs/promises";
 import { join } from "node:path";
+// oxlint-disable-next-line no-restricted-imports -- provider fixture databases in parity tooling, never events.sqlite (ADR 0222).
 import { DatabaseSync } from "node:sqlite";
 import { object, readJsonLines } from "@ace/native-session";
 import { providerHomes } from "./parity-providers.ts";

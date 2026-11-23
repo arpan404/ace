@@ -1,5 +1,6 @@
 import { validateLegacyCheckpoint } from "./legacy-checkpoints.ts";
 import { access } from "node:fs/promises";
+// oxlint-disable-next-line no-restricted-imports -- Cursor's own index.db, opened in the Cursor host child, never events.sqlite (ADR 0222).
 import { DatabaseSync } from "node:sqlite";
 import { agentStorePath } from "./checkpoints.ts";
 import { z } from "zod";
