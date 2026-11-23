@@ -9,6 +9,13 @@ import {
 import { ItemTextStore } from "./item-text-store.ts";
 import { recordSkillUsage } from "./skill-usage.ts";
 import { ItemPageCapacityExceeded } from "./item-page-capacity.ts";
+import { nativeReads } from "./native-reads/switch.ts";
+import {
+  nativePage,
+  nativeTail,
+  nativeWirePage,
+  nativeWindow,
+} from "./native-reads/items.ts";
 import { boundedItemPage } from "./bounded-item-page.ts";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
@@ -284,6 +291,8 @@ export class ItemStore {
     limit: number,
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> {
+    if (nativeReads("items"))
+      return nativeWirePage(this.db, this.trust, threadId, before, limit, byteLimit);
     const rows = this.statement(
       "SELECT id, created_seq, size, item_type FROM item_heads WHERE thread_id = ? AND created_seq < ? ORDER BY created_seq DESC LIMIT ?",
     ).all(threadId, before, limit + 1);
@@ -430,6 +439,8 @@ export class ItemStore {
     return row ? Number(row.created_seq) : undefined;
   }
   window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
+    if (nativeReads("items"))
+      return nativeWindow(this.db, this.trust, threadId, aroundSeq, before, after, byteLimit);
     const target =
       this.statement(
         "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>=? ORDER BY created_seq LIMIT 1",
@@ -537,6 +548,16 @@ export class ItemStore {
     limit: number,
     byteLimit: number,
   ): Omit<ItemsPage, "seq"> & { previewed?: string[] } {
+    if (nativeReads("items"))
+      return nativeTail(
+        this.db,
+        this.trust,
+        threadId,
+        rootAgentId,
+        limit,
+        byteLimit,
+        (sql) => this.statement(sql),
+      );
     const columns = "SELECT id, created_seq, size, agent_id FROM item_heads WHERE thread_id = ?";
     // The root lane is the root agent's items and the thread's own (no agent): one indexed
     // read each, never one IN query, which would sort the whole lane.
@@ -601,6 +622,8 @@ export class ItemStore {
     limit: number,
     byteLimit?: number,
   ): Omit<ItemsPage, "seq"> {
+    if (nativeReads("items"))
+      return nativePage(this.db, this.trust, threadId, before, limit, byteLimit);
     if (
       !Number.isSafeInteger(before) ||
       before < 1 ||
