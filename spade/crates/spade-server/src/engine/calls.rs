@@ -190,8 +190,10 @@ pub(super) async fn handle_calls(
             }
             // The person's asks (ADR 0215) are answered from the events.
             Status::New if name == spade_core::asks::ASKS => {
-                // The bot's own words wait while untrusted content is in view, as notes do.
-                match engine.asks_call(id, reply, &pending.call.id, &arguments, untrusted_memory) {
+                // The bot's own words wait while untrusted content is in view, as notes do,
+                // including when only a compaction's summary still carries it.
+                let tainted = untrusted_memory || summary_only;
+                match engine.asks_call(id, reply, &pending.call.id, &arguments, tainted) {
                     Ok(Some(output)) => {
                         finish_tool(engine, id, reply, &pending.call, &name, output).await;
                     }

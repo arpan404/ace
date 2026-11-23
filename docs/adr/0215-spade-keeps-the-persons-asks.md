@@ -50,7 +50,7 @@ handled one of three asks ends as if it handled all three.
   bot's own text (a split part, new wording, a standing instruction) and a `lift` are accepted
   only while no untrusted content is in the prompt's view: the rule `memory_save` follows (this
   reply read untrusted output, or an untrusted event since the last compaction is still shown,
-  ADR 0130). Otherwise `asks` may still change states, and says why it refused the rest; a page
+  or the latest compaction's summary drew on untrusted content, ADR 0130). Otherwise `asks` may still change states, and says why it refused the rest; a page
   read one reply earlier can't plant or lift an instruction by waiting a reply. Reasons are stored
   for the step rows and never shown in the block.
 
