@@ -72,6 +72,8 @@ export function failedDelivery(reason: string, retry: () => void): DaemonDeliver
     sourceKinds: () => [],
     sourceState: () => "failed",
     bind: () => undefined,
+    // ace-media didn't start, so no connection it granted lives: the client asks again.
+    known: () => false,
     granted: () => false,
     why: () => undefined,
     poster: () => Promise.resolve(undefined),

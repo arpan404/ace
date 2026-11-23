@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import type { IngestAddress, IngestProducer } from "./ingest-sources.ts";
 import { restartingReason } from "./ingest-sources.ts";
 import { sourceKinds } from "./routes.ts";
+import { bindingRefused } from "./media-viewers.ts";
 import { MediaRuntime } from "./runtime.ts";
 import { harness } from "./supervisor-test-support.ts";
 
@@ -96,4 +97,11 @@ it("a tab attached before ace-media's first launch, which dies before it is read
   expect(w.points.every((p) => p.address === undefined)).toBe(true);
   source.close();
   w.runtime.dispose();
+});
+
+it("the runtime's delivery port says a connection it never issued is gone, so its refusal asks for a fresh one", () => {
+  const w = world(0.5);
+  expect(bindingRefused(w.runtime.delivery(), "mc_neverissued").message).toMatch(
+    /^media-connection-gone:/,
+  );
 });

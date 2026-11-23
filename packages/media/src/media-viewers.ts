@@ -382,8 +382,11 @@ export type MediaDeliveryPort = {
   sourceState(shows: ViewIntent["shows"]): "live" | "pending" | "failed";
   /** The view's id, or undefined when the requester doesn't own the connection. */
   bind(request: Omit<ViewIntent, "viewer">): string | undefined;
-  /** Whether the daemon holds `connection` at all; absent: it can't tell. */
-  known?(connection: string): boolean;
+  /**
+   * Whether the daemon holds `connection` at all: false makes a refusal say it is gone, so the
+   * client opens a fresh one instead of naming it again.
+   */
+  known(connection: string): boolean;
   granted(viewer: string): boolean;
   /** Why ace-media isn't playing a granted view: its refusal (`limit`, …) or `stopped`. */
   why(viewer: string): string | undefined;
@@ -411,7 +414,7 @@ export type HeldView = { viewer: string; connection: string };
  * has no such connection, so the client opens a fresh one, else not this session's.
  */
 export function bindingRefused(port: Pick<MediaDeliveryPort, "known">, connection: string): Error {
-  return port.known?.(connection) === false
+  return !port.known(connection)
     ? new Error(`${mediaRefusals.gone}: that media connection is gone`)
     : new Error(`${mediaRefusals.notOwned}: that media connection isn't this session's`);
 }

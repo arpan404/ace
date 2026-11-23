@@ -201,6 +201,9 @@ export function connectBrowser(
     const kind = service.videoKind(threadId);
     if (!owner || !delivery || !kind || !delivery.serves(kind)) return undefined;
     // Another subscriber of this thread already has the connection's view: share it.
+    // A connection the daemon has since lost has no view to share: refused as gone, so the
+    // client opens a fresh one rather than naming it again.
+    if (!delivery.known(connection)) throw bindingRefused(delivery, connection);
     const shared = entry?.views.get(connection);
     if (shared !== undefined) return { viewer: shared, created: false };
     const viewport = message.viewport;

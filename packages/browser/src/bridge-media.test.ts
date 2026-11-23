@@ -491,3 +491,19 @@ test("a bound view whose every codec failed is told the encoder is recovering, a
   expect(deliveries().at(-1)).toEqual({ type: "browser.delivery", threadId: "thread" });
   client.close();
 });
+
+test("a second subscriber naming a connection the daemon has since lost is refused, not given the dead view", async () => {
+  const { bridge: client, results, refuse, views } = await bridge();
+  await client.handle(subscribe(a, "mc_aaaaaaaaaaaa"));
+  expect(views.size).toBe(1);
+  refuse.set("mc_aaaaaaaaaaaa", "gone");
+  await client.handle(subscribe(b, "mc_aaaaaaaaaaaa"));
+  const failures = results.flatMap((message) => {
+    const parsed = BrowserServerMessage.safeParse(message);
+    return parsed.success && parsed.data.type === "browser.result" && !parsed.data.ok
+      ? [parsed.data.error]
+      : [];
+  });
+  expect(failures).toEqual([expect.stringMatching(/^media-connection-gone:/)]);
+  client.close();
+});
