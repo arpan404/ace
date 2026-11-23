@@ -261,7 +261,8 @@ fn text_len(event: &Event) -> usize {
                         .sum::<usize>()
             }
             Known::ToolFinished { content, .. } => content.len(),
-            Known::ContextCompacted { summary, .. } => summary.len(),
+            // Only the latest summary is shown, and it is counted once, where it is shown.
+            Known::ContextCompacted { .. } => 0,
             _ => 0,
         },
         Event::Unknown(_) => 0,

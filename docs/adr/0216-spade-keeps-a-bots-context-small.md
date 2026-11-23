@@ -118,3 +118,6 @@ makes compactions rarer as well.
   750k. A person who wants more sets `context_tokens` per bot.
 - Not changed: tool call arguments (a large file written by a call) and background job results do
   not age; results still cap at 20,000 characters when stored.
+- Deferred: when one step's own fresh results overflow the window by themselves there is no safe
+  cut, and the request still goes out over the window, as before this decision. Bounding those
+  results with a stored cap is [#2669](https://github.com/arpan404/ace/issues/2669).

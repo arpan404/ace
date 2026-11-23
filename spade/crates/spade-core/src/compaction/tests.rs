@@ -1005,3 +1005,22 @@ fn the_summary_request_names_the_persons_messages_kept_only_in_part() {
     let none = request_keeping(None, &crate::event::CarriedLedger::default());
     assert!(!none.contains("kept word for word"), "{none}");
 }
+
+#[test]
+fn with_nothing_reported_since_a_compaction_its_summary_counts_once() {
+    let summary = "s".repeat(40_000);
+    let events = vec![
+        Event::user_message("go"),
+        Event::user_message("next"),
+        Event::Known(Known::ContextCompacted {
+            summary,
+            keep_from: 1,
+            tokens_before: 0,
+            images_left_out: None,
+            untrusted: false,
+            carried: None,
+        }),
+    ];
+    // The summary (40,000 characters) and "next": about 10,001 tokens, not twice the summary.
+    assert_eq!(prompt_estimate(&events), (40_000 + 4) / 4);
+}

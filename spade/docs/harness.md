@@ -188,7 +188,10 @@ engine compacts. The prompt's size is estimated (`compaction::prompt_estimate`):
 step since the last compaction reported, plus a token per 4 characters of everything stored after
 it; with no report since the last compaction, the shown span's text alone, so a size from before a
 compaction never counts. `tokens_before` stores that estimate. The cut is sized against the shown
-span only (the latest summary and the events from its cut), never the history before it. It cuts
+span only (the latest summary and the events from its cut), never the history before it. A step's
+own fresh results are never cut or aged, so when they overflow the window by themselves the request
+still goes out over it, as before ADR 0216; bounding them is
+[#2669](https://github.com/arpan404/ace/issues/2669). It cuts
 at a person's message sent while no tool call was waiting for its result, so recent turns of about
 the same share of the trigger as 35% is of 75% are kept. It asks the conversation's own model for
 a JSON summary (goal, decisions with who made them, open commitments, facts, open questions,
