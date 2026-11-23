@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::chunks::chunk_append;
-use super::json::{J, is_low, lossy};
+use super::json::{J, is_low, js_truthy, lossy};
 use super::parse::{parse_error, parse_json};
 use super::{ReadError, Result, Trust, all, cell, int, one, opt_int, text, trusted};
 use crate::{Connection, Value};
@@ -192,14 +192,20 @@ pub(crate) fn item_chunks(
 }
 
 /// A parsed preview with its stream text filled, as `ItemTextStore.read` gives it.
-pub(crate) fn preview_fill(item: &mut J, size_of: SizeFn<'_>, slice: SliceFn<'_>) -> Result<()> {
-    // Absent `complete` reads finished: the schema defaults it to true.
-    let complete = match item.get("complete") {
-        None => true,
-        Some(J::Bool(done)) => *done,
-        Some(_) => return Err(ReadError::Row("Invalid stored item")),
+/// `body_trusted` tells an absent `complete` apart: a trusted row is read as stored, where a
+/// missing flag reads streaming, while an untrusted row is decoded with the schema default
+/// before the shell sees it, so it reads finished. Malformed flags follow JavaScript truthiness
+/// like the unvalidated read does; the shell's decode throws exactly where the loader's would.
+pub(crate) fn preview_fill(
+    item: &mut J,
+    body_trusted: bool,
+    size_of: SizeFn<'_>,
+    slice: SliceFn<'_>,
+) -> Result<()> {
+    let streaming = match item.get("complete") {
+        None => body_trusted,
+        Some(value) => !js_truthy(value),
     };
-    let streaming = !complete;
     let mut remaining = 4096i64;
     let kind = item
         .get("type")
@@ -261,11 +267,13 @@ pub(crate) fn read_preview(
         return Err(ReadError::Row("Missing item preview"));
     };
     let mut item = parse_json(&stored)?;
-    if !trusted(trust, created.unwrap_or(i64::MIN)) {
+    let body_trusted = trusted(trust, created.unwrap_or(i64::MIN));
+    if !body_trusted {
         untrusted.push(id.to_owned());
     }
     preview_fill(
         &mut item,
+        body_trusted,
         &|stream| stream_size(conn, stream),
         &|stream, start, end| stream_slice(conn, stream, start, end),
     )?;

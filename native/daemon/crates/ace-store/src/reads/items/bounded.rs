@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::cache::{WindowRead, wire_page_cached};
-use super::fetch::{assemble_candidate, fetch_wire_data};
-use super::json::{J, encode_units, is_high, json_bytes, lossy, string_len};
-use super::{ReadError, Result, cell, int, one, text};
+use super::decode::decoded_size;
+use super::fetch::{assemble_candidate, fetch_wire_data, is_preview_kind};
+use super::json::{J, encode_units, is_high, is_low, json_bytes, lossy, string_len};
+use super::{ReadError, Result, cell, int, one, text, trusted};
 use crate::Value;
 
 /// The item without its verbatim provider payloads, the part that makes tool calls huge.
@@ -66,20 +67,31 @@ pub(crate) fn item_summary(item: &J, seq: i64, bytes: i64, dropped: &str) -> J {
             .and_then(|call| call.get("kind"))
             .cloned()
             .unwrap_or(J::Null);
-        let title: String = item
-            .get("call")
-            .and_then(|call| call.get("title"))
-            .and_then(|title| match title {
-                J::Str(units) => Some(lossy(units)),
-                _ => None,
-            })
-            .unwrap_or_default()
-            .chars()
-            .take(200)
-            .collect();
+        // The title's first 200 characters, counting a surrogate pair (or a lone surrogate,
+        // which the summary keeps verbatim) as one, exactly as the loader's slice does.
+        let mut kept: Vec<u16> = Vec::new();
+        let mut seen = 0usize;
+        if let Some(J::Str(units)) = item.get("call").and_then(|call| call.get("title")) {
+            let mut index = 0;
+            while seen < 200 {
+                let Some(unit) = units.get(index) else {
+                    break;
+                };
+                kept.push(*unit);
+                index += 1;
+                seen += 1;
+                if is_high(*unit)
+                    && let Some(next) = units.get(index)
+                    && is_low(*next)
+                {
+                    kept.push(*next);
+                    index += 1;
+                }
+            }
+        }
         if let J::Obj(entries) = &mut summary {
             entries.push((encode_units("kind"), call_kind));
-            entries.push((encode_units("title"), J::Str(encode_units(&title))));
+            entries.push((encode_units("title"), J::Str(kept)));
         }
     }
     summary
@@ -130,24 +142,31 @@ pub(crate) fn longest_text(value: &J) -> usize {
 }
 
 /// The item with every long string cut to the longest length that fits `max_bytes` of JSON.
-/// Only reached for an item that alone exceeds a page; a valid item clips to a valid one.
-pub(crate) fn clip_item(item: &J, max_bytes: f64) -> Option<J> {
+/// Only reached for an item that alone exceeds a page.
+pub(crate) fn clip_item(item: &J, max_bytes: f64, decoded: bool) -> Option<J> {
+    let measure = |value: &J| -> f64 {
+        if decoded {
+            decoded_size(value) as f64
+        } else {
+            json_bytes(value) as f64
+        }
+    };
     let floor = 256usize;
     let high = longest_text(item);
-    if high <= floor || json_bytes(&clip_value(item, floor)) as f64 > max_bytes {
+    if high <= floor || measure(&clip_value(item, floor)) > max_bytes {
         return None;
     }
     let (mut low, mut high) = (floor, high);
     while low < high {
         let middle = (low + high).div_ceil(2);
-        if json_bytes(&clip_value(item, middle)) as f64 <= max_bytes {
+        if measure(&clip_value(item, middle)) <= max_bytes {
             low = middle;
         } else {
             high = middle - 1;
         }
     }
     let clipped = clip_value(item, low);
-    if json_bytes(&clipped) as f64 <= max_bytes {
+    if measure(&clipped) <= max_bytes {
         Some(clipped)
     } else {
         None
@@ -202,23 +221,48 @@ pub(crate) fn fill(
             let Some((item, seq)) = newest_before(read, before)? else {
                 return Err(ReadError::Capacity);
             };
-            let bytes = json_bytes(&item) as f64;
+            // The candidate is measured as decoded when the shell will decode it: the budget
+            // is the JSON the client gets, whether it fits whole, cut, or only summarized.
+            let decoded = !trusted(read.trust, seq);
+            let measure = |value: &J| -> f64 {
+                if decoded {
+                    decoded_size(value) as f64
+                } else {
+                    json_bytes(value) as f64
+                }
+            };
+            let bytes = measure(&item);
             let marker = json_bytes(&item_summary(&item, seq, bytes as i64, "item")) as f64 + 1.0;
             let room = budget - 512.0 - marker;
             let slim = without_raw(&item);
             let id = item_id_units(&item);
-            let clipped = if entry_bytes(&slim, &id) <= room {
+            let entry = |value: &J| measure(value) + string_len(&id) as f64 + 64.0;
+            let dropped = read.drop_reduced.contains(&seq);
+            let clipped = if dropped || entry(&slim) <= room {
                 None
             } else {
-                clip_item(&slim, room - entry_bytes(&J::Str(Vec::new()), &id) + 2.0)
+                clip_item(
+                    &slim,
+                    room - entry_bytes(&J::Str(Vec::new()), &id) + 2.0,
+                    decoded,
+                )
             };
-            let shown = clipped.clone().or_else(|| {
-                if entry_bytes(&slim, &id) <= room {
-                    Some(slim.clone())
-                } else {
-                    None
-                }
-            });
+            let shown = if dropped {
+                None
+            } else {
+                clipped.clone().or_else(|| {
+                    if entry(&slim) <= room {
+                        Some(slim.clone())
+                    } else {
+                        None
+                    }
+                })
+            };
+            // A clipped item shows only if the schema still accepts it cut down; the shell
+            // checks that and has a dropped sequence re-read without it.
+            if clipped.is_some() && shown.is_some() {
+                read.validate.push(lossy(&id));
+            }
             let omission = item_summary(
                 &item,
                 seq,
@@ -231,7 +275,7 @@ pub(crate) fn fill(
                     "item"
                 },
             );
-            let used = shown.as_ref().map_or(0.0, |item| entry_bytes(item, &id)) + marker;
+            let used = shown.as_ref().map_or(0.0, entry) + marker;
             let mut rest = if limit > 1.0 {
                 fill(read, seq as f64, limit - 1.0, budget - used, full)?
             } else {
@@ -269,7 +313,12 @@ pub(crate) fn newest_before(read: &mut WindowRead, before: f64) -> Result<Option
         return Err(ReadError::Row("Invalid item page"));
     }
     if !read.cache.bodies.contains_key(&id) && !read.cache.previews.contains_key(&id) {
-        let more = fetch_wire_data(read.conn, std::slice::from_ref(&id))?;
+        let (preview, body) = if is_preview_kind(&kind) {
+            (std::slice::from_ref(&id), &[][..])
+        } else {
+            (&[][..], std::slice::from_ref(&id))
+        };
+        let more = fetch_wire_data(read.conn, preview, body)?;
         for (held, candidate) in more.bodies {
             read.cache.bodies.insert(held, candidate);
         }
@@ -284,7 +333,7 @@ pub(crate) fn newest_before(read: &mut WindowRead, before: f64) -> Result<Option
         }
     }
     Ok(Some((
-        assemble_candidate(read.cache, &id, &kind, read.trust, read.untrusted)?,
+        assemble_candidate(&*read.cache, &id, &kind, read.trust, read.untrusted)?,
         seq,
     )))
 }

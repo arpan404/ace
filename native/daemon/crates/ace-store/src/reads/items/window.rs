@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 use super::bounded::{FillOut, fits_alone, item_id_units, reduced_page};
 use super::cache::WindowRead;
+use super::decode::decoded_size;
 use super::fetch::{Head, assemble_candidate, entry_overhead, fetch_wire_data, is_preview_kind};
 use super::json::{J, encode_units, json_bytes, push_string, string_len, write_json};
 use super::{ReadError, Result, Trust, all, cell, int, one, text, trusted};
@@ -8,27 +9,35 @@ use crate::{Connection, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// One single-item wire read from prefetched rows: the item, or `Capacity` when the page
-/// cannot start with it. Other failures propagate, like `pageItem`'s do.
-pub(crate) fn wire_single(
-    read: &mut WindowRead,
-    head: &Head,
-    byte_limit: f64,
-    used: i64,
-) -> Result<J> {
+/// One single-item wire read from prefetched rows: the item, or `Capacity` when a page
+/// starting with it would exceed the budget. Like the loader's own single-item page, the
+/// budget is counted from the envelope alone, never from the window's used bytes.
+pub(crate) fn wire_single(read: &mut WindowRead, head: &Head, byte_limit: f64) -> Result<J> {
     let overhead = entry_overhead(&head.id);
     let preview = is_preview_kind(&head.kind);
-    if !preview && used.saturating_add(head.size).saturating_add(overhead) as f64 > byte_limit {
+    if !preview && 512i64.saturating_add(head.size).saturating_add(overhead) as f64 > byte_limit {
         return Err(ReadError::Capacity);
     }
-    let item = assemble_candidate(read.cache, &head.id, &head.kind, read.trust, read.untrusted)?;
-    let size = if !preview && trusted(read.trust, head.seq) {
-        head.size
+    let item = assemble_candidate(
+        &*read.cache,
+        &head.id,
+        &head.kind,
+        read.trust,
+        read.untrusted,
+    )?;
+    // Trusted rows are measured as stored; untrusted rows are measured as decoded, the JSON
+    // the client gets after the shell's lenient decode.
+    let size = if trusted(read.trust, head.seq) {
+        if preview {
+            json_bytes(&item) as i64
+        } else {
+            head.size
+        }
     } else {
-        json_bytes(&item) as i64
+        decoded_size(&item) as i64
     }
     .saturating_add(overhead);
-    if used.saturating_add(size) as f64 > byte_limit {
+    if 512i64.saturating_add(size) as f64 > byte_limit {
         return Err(ReadError::Capacity);
     }
     Ok(item)
@@ -46,7 +55,7 @@ pub(crate) fn window_add(
 ) -> Result<bool> {
     let remaining = byte_limit - *used as f64 + 512.0;
     let seq = head.seq;
-    let out = match wire_single(read, head, remaining, *used) {
+    let out = match wire_single(read, head, remaining) {
         Ok(item) => FillOut {
             items: vec![item],
             seqs: vec![(head.id.clone(), seq)],
@@ -65,13 +74,20 @@ pub(crate) fn window_add(
         Err(error) => return Err(error),
     };
     let Some(item) = out.items.into_iter().next() else {
+        // The target that fits nowhere fails like the loader's own page would: with the
+        // capacity error, not a window one. Any other jump point simply waits for its window.
         if seq == target_seq {
-            return Err(ReadError::Row("Item detail exceeds window capacity"));
+            return Err(ReadError::Capacity);
         }
         return Ok(false);
     };
     let id = item_id_units(&item);
-    let size = json_bytes(&item) as f64 + string_len(&id) as f64 + 64.0;
+    let wire = if trusted(read.trust, seq) {
+        json_bytes(&item)
+    } else {
+        decoded_size(&item)
+    };
+    let size = wire as f64 + string_len(&id) as f64 + 64.0;
     let marks = if out.omitted.is_empty() {
         0.0
     } else {
@@ -84,15 +100,22 @@ pub(crate) fn window_add(
 }
 
 /// An items window around `around_seq`: the jump point and its neighbors that fit.
-pub fn window(
-    conn: &Arc<Connection>,
-    thread_id: &str,
-    around_seq: f64,
-    before_count: f64,
-    after_count: f64,
-    byte_limit: f64,
-    trust: Trust,
-) -> Result<String> {
+pub struct WindowQuery<'a> {
+    pub around_seq: f64,
+    pub before: f64,
+    pub after: f64,
+    pub byte_limit: f64,
+    pub trust: Trust<'a>,
+    pub dropped: &'a [i64],
+}
+
+pub fn window(conn: &Arc<Connection>, thread_id: &str, query: WindowQuery<'_>) -> Result<String> {
+    let around_seq = query.around_seq;
+    let before_count = query.before;
+    let after_count = query.after;
+    let byte_limit = query.byte_limit;
+    let trust = query.trust;
+    let dropped: &[i64] = query.dropped;
     let target = one(
         conn,
         "SELECT created_seq FROM item_heads WHERE thread_id = ? AND created_seq >= ? ORDER BY created_seq LIMIT 1",
@@ -166,10 +189,20 @@ pub fn window(
         }
         heads.insert(seq, Head { id, seq, size, kind });
     }
-    let mut ids: Vec<String> = heads.values().map(|head| head.id.clone()).collect();
-    ids.sort();
-    ids.dedup();
-    let mut cache = fetch_wire_data(conn, &ids)?;
+    let mut preview_ids: Vec<String> = Vec::new();
+    let mut body_ids: Vec<String> = Vec::new();
+    for head in heads.values() {
+        if is_preview_kind(&head.kind) {
+            preview_ids.push(head.id.clone());
+        } else {
+            body_ids.push(head.id.clone());
+        }
+    }
+    preview_ids.sort();
+    preview_ids.dedup();
+    body_ids.sort();
+    body_ids.dedup();
+    let mut cache = fetch_wire_data(conn, &preview_ids, &body_ids)?;
     let mut untrusted = Vec::new();
     let mut read = WindowRead {
         conn,
@@ -177,6 +210,8 @@ pub fn window(
         trust,
         untrusted: &mut untrusted,
         cache: &mut cache,
+        validate: Vec::new(),
+        drop_reduced: dropped.to_vec(),
     };
     let mut selected: Vec<(i64, J)> = Vec::new();
     let mut omitted: Vec<J> = Vec::new();
@@ -257,6 +292,7 @@ pub fn window(
             .unwrap_or(0)
     });
     let untrusted = std::mem::take(read.untrusted);
+    let validate = std::mem::take(&mut read.validate);
     let mut out = J::Obj(vec![
         (encode_units("threadId"), J::Str(encode_units(thread_id))),
         (encode_units("targetSeq"), J::Num(target_seq.to_string())),
@@ -280,6 +316,10 @@ pub fn window(
         (
             encode_units("itemsAfter"),
             items_after.map_or(J::Null, |seq| J::Num(seq.to_string())),
+        ),
+        (
+            encode_units("validate"),
+            J::Arr(validate.iter().map(|id| J::Str(encode_units(id))).collect()),
         ),
     ]);
     if let J::Obj(entries) = &mut out {

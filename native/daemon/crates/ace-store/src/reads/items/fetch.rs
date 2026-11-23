@@ -284,7 +284,9 @@ pub(crate) fn source_ranges(
     Ok(ranges)
 }
 
-/// Everything one wire page or window reads, in four statements whatever the page holds.
+/// Everything one wire page or window reads, in a handful of statements whatever the page
+/// holds. Bodies and chunks travel only for ids the loader reads whole; previews, stream
+/// sizes and bytes only for ids it previews: the loader never pays for rows it cannot use.
 pub(crate) struct WireData {
     pub(crate) bodies: HashMap<String, Candidate>,
     pub(crate) previews: HashMap<String, (String, Option<i64>)>,
@@ -292,12 +294,16 @@ pub(crate) struct WireData {
     pub(crate) bytes: HashMap<String, Vec<(i64, Vec<u8>)>>,
 }
 
-pub(crate) fn fetch_wire_data(conn: &Arc<Connection>, ids: &[String]) -> Result<WireData> {
-    let bodies = fetch_bodies(conn, ids)?;
-    let previews = fetch_previews(conn, ids)?;
-    let sizes = fetch_stream_sizes(conn, ids)?;
+pub(crate) fn fetch_wire_data(
+    conn: &Arc<Connection>,
+    preview_ids: &[String],
+    body_ids: &[String],
+) -> Result<WireData> {
+    let bodies = fetch_bodies(conn, body_ids)?;
+    let previews = fetch_previews(conn, preview_ids)?;
+    let sizes = fetch_stream_sizes(conn, preview_ids)?;
     let mut ranges = Vec::new();
-    for id in ids {
+    for id in preview_ids {
         if let Some((stored, _)) = previews.get(id)
             && let Ok(item) = parse_json(stored)
         {
@@ -336,42 +342,46 @@ pub(crate) fn map_slice(
 }
 
 /// One page item from prefetched rows: text cut to its bounded preview, other bodies whole.
+/// Rows stay cached: a retry after a budget failure reassembles the same item, as the loader's
+/// own statements would.
 pub(crate) fn assemble_candidate(
-    data: &mut WireData,
+    data: &WireData,
     id: &str,
     kind: &str,
     trust: Trust,
     untrusted: &mut Vec<String>,
 ) -> Result<J> {
     if is_preview_kind(kind) {
-        let Some((stored, created)) = data.previews.remove(id) else {
+        let Some((stored, created)) = data.previews.get(id) else {
             return Err(ReadError::Row("Missing item preview"));
         };
-        let mut item = parse_json(&stored)?;
-        if !trusted(trust, created.unwrap_or(i64::MIN)) && !untrusted.contains(&id.to_owned()) {
+        let created = *created;
+        let mut item = parse_json(stored)?;
+        let body_trusted = trusted(trust, created.unwrap_or(i64::MIN));
+        if !body_trusted && !untrusted.contains(&id.to_owned()) {
             untrusted.push(id.to_owned());
         }
         preview_fill(
             &mut item,
+            body_trusted,
             &|stream| map_size(&data.sizes, stream),
             &|stream, start, end| map_slice(&data.bytes, stream, start, end),
         )?;
         return Ok(item);
     }
-    match data.bodies.remove(id) {
-        None => Err(ReadError::UndefinedJson),
-        Some(candidate) => {
-            let Some((body, created)) = candidate.body else {
-                return Err(ReadError::UndefinedJson);
-            };
-            let mut item = parse_json(&body)?;
-            with_chunks(&mut item, &candidate.chunks, trust)?;
-            if !trusted(trust, created) && !untrusted.contains(&id.to_owned()) {
-                untrusted.push(id.to_owned());
-            }
-            Ok(item)
-        }
+    let Some(candidate) = data.bodies.get(id) else {
+        return Err(ReadError::UndefinedJson);
+    };
+    let Some((body, created)) = candidate.body.as_ref() else {
+        return Err(ReadError::UndefinedJson);
+    };
+    let created = *created;
+    let mut item = parse_json(body)?;
+    with_chunks(&mut item, &candidate.chunks, trust)?;
+    if !trusted(trust, created) && !untrusted.contains(&id.to_owned()) {
+        untrusted.push(id.to_owned());
     }
+    Ok(item)
 }
 
 /// The JSON length of an id, as the page budgets count it: its quotes, escapes and 64 bytes.

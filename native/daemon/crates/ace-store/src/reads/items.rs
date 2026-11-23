@@ -18,6 +18,8 @@ mod bounded;
 mod cache;
 #[path = "items/chunks.rs"]
 mod chunks;
+#[path = "items/decode.rs"]
+mod decode;
 #[path = "items/fetch.rs"]
 mod fetch;
 #[path = "items/json.rs"]
@@ -35,9 +37,10 @@ mod window;
 
 pub use paging::{page, wire_page};
 pub use tail::tail_rows;
-pub use window::window;
+pub use window::{WindowQuery, window};
 
 use crate::{Connection, Error as StoreError, Value};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 /// Why an item read failed. The binding maps each variant to the error the shell reports.
@@ -67,11 +70,12 @@ impl std::error::Error for ReadError {}
 
 pub type Result<T> = std::result::Result<T, ReadError>;
 
-/// Which stored rows are read as stored: rows at `from` on, except `rejected` ones.
+/// Which stored rows are read as stored: rows at `from` on, except `rejected` ones. The
+/// rejected set stays a set, not a scan: trust is checked per row of every page.
 #[derive(Debug, Clone, Copy)]
 pub struct Trust<'a> {
     pub from: Option<i64>,
-    pub rejected: &'a [i64],
+    pub rejected: &'a HashSet<i64>,
 }
 
 fn trusted(trust: Trust, seq: i64) -> bool {

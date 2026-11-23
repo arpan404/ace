@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
+use super::decode::budget_size;
 use super::fetch::{
     WireData, assemble_candidate, entry_overhead, fetch_wire_data, is_preview_kind, wire_heads,
 };
-use super::json::{J, json_bytes};
+use super::json::J;
 use super::{ReadError, Result, Trust, trusted};
 use crate::Connection;
 use std::sync::Arc;
@@ -14,6 +15,11 @@ pub(crate) struct WindowRead<'a> {
     pub(crate) trust: Trust<'a>,
     pub(crate) untrusted: &'a mut Vec<String>,
     pub(crate) cache: &'a mut WireData,
+    /// Clipped items the shell must validate: the loader's page shows them only if the
+    /// item schema still accepts them cut down.
+    pub(crate) validate: Vec<String>,
+    /// Creation sequences whose reduced item the shell already rejected: shown as summarized.
+    pub(crate) drop_reduced: Vec<i64>,
 }
 
 pub(crate) struct PageOut {
@@ -30,13 +36,38 @@ pub(crate) fn wire_page_cached(
 ) -> Result<PageOut> {
     let heads = wire_heads(read.conn, read.thread_id, before, limit)?;
     let take = (limit.max(0.0) as usize).min(heads.len());
-    let missing: Vec<String> = heads[..take]
-        .iter()
-        .map(|head| head.id.clone())
-        .filter(|id| !read.cache.bodies.contains_key(id) && !read.cache.previews.contains_key(id))
-        .collect();
-    if !missing.is_empty() {
-        let more = fetch_wire_data(read.conn, &missing)?;
+    // The allocation guard from heads alone: a leading run of trusted non-preview heads that
+    // cannot fit stops the page before any body is read, as the loader's own pre-check does.
+    // Stored sizes are exact there, and previews stop the walk: the loop below decides those.
+    let mut fetch_take = take;
+    {
+        let mut floor = 512i64;
+        for (index, head) in heads.iter().enumerate().take(take) {
+            if is_preview_kind(&head.kind) || !trusted(read.trust, head.seq) {
+                break;
+            }
+            let overhead = entry_overhead(&head.id);
+            if floor.saturating_add(head.size).saturating_add(overhead) as f64 > byte_limit {
+                fetch_take = index;
+                break;
+            }
+            floor = floor.saturating_add(head.size).saturating_add(overhead);
+        }
+    }
+    let mut preview_missing = Vec::new();
+    let mut body_missing = Vec::new();
+    for head in heads[..fetch_take].iter() {
+        if read.cache.bodies.contains_key(&head.id) || read.cache.previews.contains_key(&head.id) {
+            continue;
+        }
+        if is_preview_kind(&head.kind) {
+            preview_missing.push(head.id.clone());
+        } else {
+            body_missing.push(head.id.clone());
+        }
+    }
+    if !preview_missing.is_empty() || !body_missing.is_empty() {
+        let more = fetch_wire_data(read.conn, &preview_missing, &body_missing)?;
         for (id, candidate) in more.bodies {
             read.cache.bodies.insert(id, candidate);
         }
@@ -62,12 +93,19 @@ pub(crate) fn wire_page_cached(
             }
             break;
         }
-        let item =
-            assemble_candidate(read.cache, &head.id, &head.kind, read.trust, read.untrusted)?;
+        let item = assemble_candidate(
+            &*read.cache,
+            &head.id,
+            &head.kind,
+            read.trust,
+            read.untrusted,
+        )?;
+        // Trusted rows are measured as stored; untrusted rows are measured as decoded, the
+        // JSON the client gets after the shell's lenient decode.
         let size = if !preview && trusted(read.trust, head.seq) {
             head.size
         } else {
-            json_bytes(&item) as i64
+            budget_size(&item, trusted(read.trust, head.seq)) as i64
         }
         .saturating_add(overhead);
         if used.saturating_add(size) as f64 > byte_limit {

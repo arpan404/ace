@@ -1,5 +1,6 @@
 import { nativeHandle } from "@ace/provider-kit/sqlite";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { Item as ItemSchema } from "@ace/protocol";
 import type { Item, ItemsPage, OmittedItem, ThreadId } from "@ace/protocol";
 import { ItemId } from "@ace/protocol";
 import { inRootLane, retainedTail } from "@ace/projection";
@@ -27,14 +28,15 @@ interface ItemsBinding {
     byteLimit: number | undefined,
     trust: { trustFrom: number | undefined; rejected: number[] },
   ): string;
-  itemsWindow(
-    threadId: string,
-    aroundSeq: number,
-    before: number,
-    after: number,
-    byteLimit: number,
-    trust: { trustFrom: number | undefined; rejected: number[] },
-  ): string;
+  itemsWindow(query: {
+    threadId: string;
+    aroundSeq: number;
+    before: number;
+    after: number;
+    byteLimit: number;
+    trust: { trustFrom: number | undefined; rejected: number[] };
+    drop: number[];
+  }): string;
   itemsTailRows(
     threadId: string,
     kept: { id: string; seq: number }[],
@@ -146,20 +148,37 @@ export function nativeWindow(
   itemsAfter: number | null;
   omitted?: OmittedItem[];
 } {
-  return take(
+  type Window = {
+    threadId: ThreadId;
+    targetSeq: number | null;
+    items: Item[];
+    itemSeqs: Record<string, number>;
+    itemsBefore: number | null;
+    itemsAfter: number | null;
+    omitted?: OmittedItem[];
+    untrusted: string[];
+    validate: string[];
+  };
+  const readWindow = (drop: number[]): Window =>
     read(db, trust, (native, args) =>
-      native.itemsWindow(threadId, aroundSeq, before, after, byteLimit, args),
-    ) as {
-      threadId: ThreadId;
-      targetSeq: number | null;
-      items: Item[];
-      itemSeqs: Record<string, number>;
-      itemsBefore: number | null;
-      itemsAfter: number | null;
-      omitted?: OmittedItem[];
-      untrusted: string[];
-    },
-  );
+      native.itemsWindow({ threadId, aroundSeq, before, after, byteLimit, trust: args, drop }),
+    ) as Window;
+  const first = readWindow([]);
+  // Clipped items show only if the item schema still accepts them cut down, as the loader's
+  // own clip does: a rejected one is re-read without it, summarized instead of shown.
+  // Decoding throws exactly where the loader's own decode would, for the same rows.
+  const rejected: number[] = [];
+  for (const id of first.validate ?? []) {
+    const item = first.items.find((candidate) => candidate.id === id);
+    if (!item) continue;
+    if (!ItemSchema.safeParse(decodeStoredItem(item)).success) {
+      const seq = first.itemSeqs[id];
+      if (seq !== undefined) rejected.push(seq);
+    }
+  }
+  const page = rejected.length ? readWindow(rejected) : first;
+  delete (page as { validate?: unknown }).validate;
+  return take(page);
 }
 
 export function nativeTail(

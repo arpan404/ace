@@ -2,7 +2,7 @@
 //! The binding for `ace_store::reads::items`. Phase 1b: item pages, windows and tails (docs/store/porting-guide.md).
 
 use super::NativeDatabase;
-use ace_store::reads::items::{self, Trust};
+use ace_store::reads::items::{self, Trust, WindowQuery};
 use napi_derive::napi;
 
 /// The store's trust floor and rejected sequences, as the shell passes them.
@@ -19,6 +19,18 @@ pub struct KeptItem {
     pub seq: f64,
 }
 
+/// An items-window request: navigation, budget, trust and the shell-rejected sequences.
+#[napi(object)]
+pub struct WindowArgs {
+    pub thread_id: String,
+    pub around_seq: f64,
+    pub before: f64,
+    pub after: f64,
+    pub byte_limit: f64,
+    pub trust: TrustArgs,
+    pub drop: Vec<f64>,
+}
+
 /// The shell reports errors by variant: capacity as the loader's own error, a gone body as the
 /// loader's own `JSON.parse`, anything else as it came out.
 fn fail(error: items::ReadError) -> napi::Error {
@@ -31,7 +43,7 @@ fn fail(error: items::ReadError) -> napi::Error {
     }
 }
 
-fn trust_of(args: TrustArgs) -> (Option<i64>, Vec<i64>) {
+fn trust_of(args: TrustArgs) -> (Option<i64>, std::collections::HashSet<i64>) {
     (
         args.trust_from.map(|from| from as i64),
         args.rejected.iter().map(|seq| *seq as i64).collect(),
@@ -90,28 +102,25 @@ impl NativeDatabase {
         .map_err(fail)
     }
 
-    /// `ItemStore.window`: the jump point and its neighbors that fit.
+    /// `ItemStore.window`: the jump point and its neighbors that fit. `drop` holds the
+    /// creation sequences whose reduced item the shell already rejected: shown as summarized.
     #[napi(catch_unwind)]
-    pub fn items_window(
-        &self,
-        thread_id: String,
-        around_seq: f64,
-        before: f64,
-        after: f64,
-        byte_limit: f64,
-        trust: TrustArgs,
-    ) -> napi::Result<String> {
-        let (from, rejected) = trust_of(trust);
+    pub fn items_window(&self, query: WindowArgs) -> napi::Result<String> {
+        let (from, rejected) = trust_of(query.trust);
+        let dropped: Vec<i64> = query.drop.iter().map(|seq| *seq as i64).collect();
         items::window(
             self.connection(),
-            &thread_id,
-            around_seq,
-            before,
-            after,
-            byte_limit,
-            Trust {
-                from,
-                rejected: &rejected,
+            &query.thread_id,
+            WindowQuery {
+                around_seq: query.around_seq,
+                before: query.before,
+                after: query.after,
+                byte_limit: query.byte_limit,
+                trust: Trust {
+                    from,
+                    rejected: &rejected,
+                },
+                dropped: &dropped,
             },
         )
         .map_err(fail)

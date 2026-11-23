@@ -70,6 +70,8 @@ pub fn wire_page(
         trust,
         untrusted: &mut untrusted,
         cache: &mut data,
+        validate: Vec::new(),
+        drop_reduced: Vec::new(),
     };
     let out = wire_page_cached(&mut read, before, limit, byte_limit)?;
     Ok(emit_page(

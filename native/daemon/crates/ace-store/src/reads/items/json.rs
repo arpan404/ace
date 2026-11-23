@@ -214,6 +214,21 @@ impl J {
     }
 }
 
+/// JavaScript truthiness, for fields the reader tests without validating: only `false`,
+/// `0`, `""`, `null` and `undefined` (absent) are falsy; everything else, including empty
+/// containers, is truthy.
+pub(crate) fn js_truthy(value: &J) -> bool {
+    match value {
+        J::Null => false,
+        J::Bool(done) => *done,
+        J::Num(raw) => match raw.parse::<f64>() {
+            Ok(n) => n != 0.0,
+            Err(_) => true,
+        },
+        J::Str(units) => !units.is_empty(),
+        J::Arr(_) | J::Obj(_) => true,
+    }
+}
 /// The UTF-8 text of UTF-16 units, pairing surrogates and replacing lone ones, for display
 /// uses like clipped titles where the count, not the encoding, must match.
 pub(crate) fn lossy(units: &[u16]) -> String {

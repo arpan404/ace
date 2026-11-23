@@ -154,88 +154,171 @@ impl<'a> Parser<'a> {
             }
         }
     }
+}
 
-    fn array(&mut self) -> Result<J> {
-        // The opening bracket is already consumed by `value`.
-        let mut items = Vec::new();
-        self.skip_ws();
-        if self.peek()? == b']' {
-            self.pos += 1;
-            return Ok(J::Arr(items));
+/// An open container waiting for its contents. The stack lives on the heap, so however
+/// deep the input nests, parsing never touches the call stack past `catch_unwind`.
+enum Frame {
+    Arr(Vec<J>),
+    Obj(Vec<(Vec<u16>, J)>, Option<Vec<u16>>),
+}
+
+/// One value where a value is expected: a finished value, or an opened container whose
+/// contents the driver reads next. No recursion: containers open onto the stack.
+enum ValueOrOpen {
+    Closed(J),
+    OpenArr,
+    OpenObj,
+}
+
+fn read_open(parser: &mut Parser) -> Result<ValueOrOpen> {
+    parser.skip_ws();
+    match parser.next()? {
+        b'n' => {
+            parser.pos -= 1;
+            Ok(ValueOrOpen::Closed(parser.literal("null", J::Null)?))
         }
-        loop {
-            items.push(self.value()?);
-            self.skip_ws();
-            match self.next()? {
-                b',' => continue,
-                b']' => return Ok(J::Arr(items)),
-                _ => return Err(parse_error()),
-            }
+        b't' => {
+            parser.pos -= 1;
+            Ok(ValueOrOpen::Closed(parser.literal("true", J::Bool(true))?))
+        }
+        b'f' => {
+            parser.pos -= 1;
+            Ok(ValueOrOpen::Closed(
+                parser.literal("false", J::Bool(false))?,
+            ))
+        }
+        b'"' => Ok(ValueOrOpen::Closed(J::Str(parser.string()?))),
+        b'[' => Ok(ValueOrOpen::OpenArr),
+        b'{' => Ok(ValueOrOpen::OpenObj),
+        _ => {
+            parser.pos -= 1;
+            Ok(ValueOrOpen::Closed(parser.number()?))
         }
     }
+}
 
-    fn object(&mut self) -> Result<J> {
-        // The opening brace is already consumed by `value`.
-        let mut entries = Vec::new();
-        self.skip_ws();
-        if self.peek()? == b'}' {
-            self.pos += 1;
-            return Ok(J::Obj(entries));
+/// Place a finished value into its parent frame, or return it as the document root.
+fn place(stack: &mut [Frame], value: J) -> Result<Option<J>> {
+    match stack.last_mut() {
+        None => Ok(Some(value)),
+        Some(Frame::Arr(items)) => {
+            items.push(value);
+            Ok(None)
         }
-        loop {
-            self.skip_ws();
-            if self.next()? != b'"' {
+        Some(Frame::Obj(entries, key)) => {
+            let Some(name) = key.take() else {
                 return Err(parse_error());
-            }
-            let key = self.string()?;
-            self.skip_ws();
-            if self.next()? != b':' {
-                return Err(parse_error());
-            }
-            entries.push((key, self.value()?));
-            self.skip_ws();
-            match self.next()? {
-                b',' => continue,
-                b'}' => return Ok(J::Obj(entries)),
-                _ => return Err(parse_error()),
-            }
+            };
+            entries.push((name, value));
+            Ok(None)
         }
     }
+}
 
-    fn value(&mut self) -> Result<J> {
-        self.skip_ws();
-        match self.next()? {
-            b'n' => {
-                self.pos -= 1;
-                self.literal("null", J::Null)
-            }
-            b't' => {
-                self.pos -= 1;
-                self.literal("true", J::Bool(true))
-            }
-            b'f' => {
-                self.pos -= 1;
-                self.literal("false", J::Bool(false))
-            }
-            b'"' => Ok(J::Str(self.string()?)),
-            b'[' => self.array(),
-            b'{' => self.object(),
-            _ => {
-                self.pos -= 1;
-                self.number()
-            }
-        }
+/// Finish the document if the whole input was read.
+fn finish(parser: &mut Parser, root: J) -> Result<J> {
+    parser.skip_ws();
+    if parser.pos == parser.bytes.len() {
+        Ok(root)
+    } else {
+        Err(parse_error())
     }
 }
 
 pub(crate) fn parse_json(text: &str) -> Result<J> {
     let mut parser = Parser::new(text);
-    let value = parser.value()?;
-    parser.skip_ws();
-    if parser.pos == parser.bytes.len() {
-        Ok(value)
-    } else {
-        Err(parse_error())
+    let mut stack: Vec<Frame> = Vec::new();
+    match read_open(&mut parser)? {
+        ValueOrOpen::Closed(root) => return finish(&mut parser, root),
+        ValueOrOpen::OpenArr => stack.push(Frame::Arr(Vec::new())),
+        ValueOrOpen::OpenObj => stack.push(Frame::Obj(Vec::new(), None)),
+    }
+    loop {
+        let Some(top) = stack.last() else {
+            return Err(parse_error());
+        };
+        let in_array = matches!(top, Frame::Arr(_));
+        // Only inspection borrows here; every mutation below re-borrows afresh.
+        if in_array {
+            let empty = match stack.last() {
+                Some(Frame::Arr(items)) => items.is_empty(),
+                _ => return Err(parse_error()),
+            };
+            parser.skip_ws();
+            if parser.peek()? == b']' {
+                parser.pos += 1;
+                let items = match stack.pop() {
+                    Some(Frame::Arr(items)) => items,
+                    _ => return Err(parse_error()),
+                };
+                if let Some(root) = place(&mut stack, J::Arr(items))? {
+                    return finish(&mut parser, root);
+                }
+                continue;
+            }
+            if !empty && parser.next()? != b',' {
+                return Err(parse_error());
+            }
+            match read_open(&mut parser)? {
+                ValueOrOpen::Closed(value) => {
+                    if place(&mut stack, value)?.is_some() {
+                        return Err(parse_error());
+                    }
+                }
+                ValueOrOpen::OpenArr => stack.push(Frame::Arr(Vec::new())),
+                ValueOrOpen::OpenObj => stack.push(Frame::Obj(Vec::new(), None)),
+            }
+            continue;
+        }
+        let has_key = match stack.last() {
+            Some(Frame::Obj(_, key)) => key.is_some(),
+            _ => return Err(parse_error()),
+        };
+        if !has_key {
+            let empty = match stack.last() {
+                Some(Frame::Obj(entries, _)) => entries.is_empty(),
+                _ => return Err(parse_error()),
+            };
+            parser.skip_ws();
+            if parser.peek()? == b'}' {
+                parser.pos += 1;
+                let entries = match stack.pop() {
+                    Some(Frame::Obj(entries, _)) => entries,
+                    _ => return Err(parse_error()),
+                };
+                if let Some(root) = place(&mut stack, J::Obj(entries))? {
+                    return finish(&mut parser, root);
+                }
+                continue;
+            }
+            if !empty && parser.next()? != b',' {
+                return Err(parse_error());
+            }
+            parser.skip_ws();
+            if parser.next()? != b'"' {
+                return Err(parse_error());
+            }
+            let name = parser.string()?;
+            parser.skip_ws();
+            if parser.next()? != b':' {
+                return Err(parse_error());
+            }
+            match stack.last_mut() {
+                Some(Frame::Obj(_, key)) => *key = Some(name),
+                _ => return Err(parse_error()),
+            }
+            continue;
+        }
+        match read_open(&mut parser)? {
+            ValueOrOpen::Closed(value) => {
+                if place(&mut stack, value)?.is_some() {
+                    return Err(parse_error());
+                }
+            }
+            ValueOrOpen::OpenArr => stack.push(Frame::Arr(Vec::new())),
+            ValueOrOpen::OpenObj => stack.push(Frame::Obj(Vec::new(), None)),
+        }
     }
 }
 
