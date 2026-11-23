@@ -84,31 +84,38 @@ impl Engine {
             .map(|a| a.trim().to_owned())
             .filter(|a| ledger.ask(a).is_some())
             .collect();
-        // The person's own words for each ask go as theirs; main's words follow as the bot's.
-        let mut words: Vec<String> = asks
+        // The person's own words for each ask go as theirs, verbatim from their message; main's
+        // words go as the bot's, never as the person's (ADR 0217 §3), tainted when main had
+        // untrusted content in view as it wrote them.
+        let words: Vec<String> = asks
             .iter()
-            .filter_map(|id| ledger.ask(id).map(|a| a.words.clone()))
+            .filter_map(|id| lane::persons_words(&events, id))
             .collect();
-        words.push(format!(
-            "<task_message from=\"bot\">\n{text}\n</task_message>"
-        ));
-        let message = Event::user_message(words.join("\n\n"));
-        if let Err(error) = self.message_lane(&row, &message) {
-            return ToolOutput::error(format!("Spade could not send it: {error}"));
+        let untrusted =
+            !spade_core::context::untrusted_in_view(&events, &self.registry_for(main)).is_empty();
+        let mut to_lane = Vec::new();
+        if !words.is_empty() {
+            to_lane.push(Event::user_message(words.join("\n\n")));
         }
-        if !asks.is_empty() {
-            // The asks are the lane's now: main's ledger hands them over (ADR 0217 §2).
-            let title = self.lane_title(&row.conversation);
-            for ask in &asks {
-                let routed = Event::Known(Known::AskRouted(Routed {
+        to_lane.push(Event::Known(Known::LaneMessage(lane::Message {
+            text: text.to_owned(),
+            untrusted,
+        })));
+        // The asks are the lane's now: main's ledger hands them over (ADR 0217 §2), in the same
+        // write as the lane hears of them.
+        let title = self.lane_title(&row.conversation);
+        let to_main: Vec<Event> = asks
+            .iter()
+            .map(|ask| {
+                Event::Known(Known::AskRouted(Routed {
                     lane: row.conversation.clone(),
                     title: title.clone(),
                     message: ask.clone(),
-                }));
-                if let Err(error) = self.record(main, &routed) {
-                    tracing::error!(%error, "could not record an ask sent to a task lane");
-                }
-            }
+                }))
+            })
+            .collect();
+        if let Err(error) = self.send_to_lane(&row, to_lane, |_| Some(to_main)) {
+            return ToolOutput::error(format!("Spade could not send it: {error}"));
         }
         ToolOutput::ok(
             json!({ "task": row.conversation, "state": self.lane_state(&row.conversation).name() })
@@ -116,22 +123,49 @@ impl Engine {
         )
     }
 
-    /// Delivers `message` to the lane: it steers a running reply, opens a new one in an ended
-    /// lane, and waits with the brief in a queued one.
-    pub(in super::super) fn message_lane(
+    /// Stores `to_lane` in the lane and what `to_main` gives (from main's events, read under the
+    /// lock) in main, in one write: it steers the lane's running reply, opens its next one when
+    /// none is open, and waits with its brief in a queued lane.
+    pub(in super::super) fn send_to_lane(
         self: &Arc<Self>,
         row: &StoredHelper,
-        message: &Event,
+        mut to_lane: Vec<Event>,
+        to_main: impl FnOnce(&[Event]) -> Option<Vec<Event>>,
     ) -> Result<(), StoreError> {
         let id = row.conversation.as_str();
-        {
+        let start = {
             let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            if helper::stage(&self.load(id)?) == Stage::Queued {
-                self.append(id, message)?;
-                return Ok(());
+            let events = self.load(id)?;
+            let main_events = self.load(&row.parent)?;
+            let open = spade_core::Transcript::fold(events.iter())
+                .open_reply()
+                .is_some();
+            let admitted = self.admission.load(std::sync::atomic::Ordering::SeqCst)
+                && !self.closed(id)
+                && !self.deleting(id);
+            let start = admitted && !open && helper::stage(&events) != Stage::Queued;
+            if start {
+                to_lane.push(Event::reply_started(
+                    self.ids.next("r"),
+                    self.lane_model(&row.parent),
+                ));
             }
+            let main_side = to_main(&main_events).unwrap_or_default();
+            let mut writes: Vec<(&str, &[Event])> = vec![(id, to_lane.as_slice())];
+            if !main_side.is_empty() {
+                writes.push((row.parent.as_str(), main_side.as_slice()));
+            }
+            self.append_across(&writes, &[])?;
+            start
+        };
+        if start {
+            self.spawn_turn(id);
+        } else {
+            // A turn waiting on the person reads it now.
+            self.live(id).wake.notify_one();
         }
-        self.deliver(id, message)
+        self.announce(&row.parent);
+        Ok(())
     }
 
     /// The person's message to main that replies to a lane's message goes to that lane (ADR 0217
@@ -148,31 +182,23 @@ impl Engine {
         let lane_id = lane::replied_to(&events, replied)?;
         let row = self.lane_row(&lane_id)?;
         let title = self.lane_title(&lane_id);
-        let stored = {
-            let _order = self.record_lock.lock().unwrap_or_else(|p| p.into_inner());
-            let at = match self.load(main) {
-                Ok(events) => events.len(),
-                Err(error) => return Some(Err(error)),
-            };
-            let routed = Event::Known(Known::AskRouted(Routed {
-                lane: lane_id.clone(),
-                title,
-                message: spade_core::chat_markup::id(at as u64 + 1, 0),
-            }));
-            // Together, so main never holds the message without saying where it went: it opens
-            // no reply in main.
-            self.append_events(main, &[message.clone(), routed])
-        };
-        if let Err(error) = stored {
-            return Some(Err(error));
-        }
         // The lane hears the person's own words, trusted (ADR 0217 §2), without the quote of
         // main's message that only made sense there.
         let mut own = message.clone();
         if let Event::Known(Known::UserMessage { reply_to, .. }) = &mut own {
             *reply_to = None;
         }
-        Some(self.message_lane(&row, &own))
+        // Main keeps the person's bubble and where it went, the lane the message, in one write:
+        // a crash never leaves main saying it went while the lane never got it.
+        let sent = self.send_to_lane(&row, vec![own], |main_events| {
+            let routed = Event::Known(Known::AskRouted(Routed {
+                lane: lane_id.clone(),
+                title,
+                message: spade_core::chat_markup::id(main_events.len() as u64 + 1, 0),
+            }));
+            Some(vec![message.clone(), routed])
+        });
+        Some(sent)
     }
 
     /// `task_stop`: refused unless `because` names the person's message asking for it.

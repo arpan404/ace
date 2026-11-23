@@ -718,6 +718,23 @@ pub fn asked_for_lane(events: &[Event], call_id: &str) -> bool {
     })
 }
 
+/// The verbatim words of the person's message `id` (`m<seq>`, not a part) in `events`.
+pub fn persons_words(events: &[Event], id: &str) -> Option<String> {
+    if id.contains('.') {
+        return None;
+    }
+    let seq = usize::try_from(crate::chat_markup::seq_of(id)?).ok()?;
+    let event = events.get(seq.checked_sub(1)?)?;
+    match event {
+        Event::Known(Known::UserMessage { text, .. })
+            if crate::asks::is_persons(event, crate::asks::maker_of(events)) =>
+        {
+            Some(text.trim().to_owned())
+        }
+        _ => None,
+    }
+}
+
 /// What a lane reads for a job of the moved reply that stayed with main (ADR 0217 §2a).
 pub const KEPT_JOB: &str = "This job stayed with the main conversation, which tracks its work; \
      main hears its result and sends you what you need with task_message.";

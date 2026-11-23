@@ -177,6 +177,14 @@ impl Engine {
                 tracing::error!(%error, "could not resume a conversation");
             }
         }
+        // A task lane is owed what any conversation is: its open reply's worker, or the next
+        // step or goal check of a task left working when Spade closed (ADR 0217 §6). Queued ones
+        // wait for a slot below.
+        for lane in self.lanes_to_resume() {
+            if let Err(error) = self.resume(&lane) {
+                tracing::error!(%error, "could not resume a task lane");
+            }
+        }
         // Helpers paused or cut off carry on, and queued ones start as slots allow (ADR 0152).
         for bot in self.bots_with_helpers() {
             self.fill_slots(&bot);

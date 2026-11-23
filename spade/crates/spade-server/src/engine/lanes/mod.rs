@@ -287,6 +287,23 @@ impl Engine {
         Ok(true)
     }
 
+    /// The lanes Spade resumes when it opens: every one that started, and not yet ended.
+    pub(in super::super) fn lanes_to_resume(&self) -> Vec<String> {
+        self.live_lane_rows()
+            .into_iter()
+            .filter(|row| {
+                self.load(&row.conversation)
+                    .is_ok_and(|events| helper::stage(&events) != Stage::Queued)
+            })
+            .map(|row| row.conversation)
+            .collect()
+    }
+
+    /// The lanes that haven't ended, of every bot.
+    pub(in super::super) fn live_lane_rows(&self) -> Vec<StoredHelper> {
+        self.all_lanes()
+    }
+
     /// Every lane's conversation, for checking owed reports when Spade opens.
     pub(super) fn all_lanes(&self) -> Vec<StoredHelper> {
         self.store

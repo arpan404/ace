@@ -75,7 +75,7 @@ impl Engine {
         let words: Vec<String> = asks
             .iter()
             .filter_map(|id| {
-                persons_words(&events, id).or_else(|| Some(ledger.ask(id)?.words.clone()))
+                lane::persons_words(&events, id).or_else(|| Some(ledger.ask(id)?.words.clone()))
             })
             .collect();
         let registry = self.registry_for(main);
@@ -486,18 +486,6 @@ struct Opened {
 /// main's call).
 fn stays_with_main(name: &str) -> bool {
     name == spade_core::contract::CONTRACT_CALL || crate::tools::reattaches(name)
-}
-
-/// The verbatim words of the person's message `id` (`m<seq>`) in `events`.
-fn persons_words(events: &[Event], id: &str) -> Option<String> {
-    if id.contains('.') {
-        return None;
-    }
-    let seq = usize::try_from(spade_core::chat_markup::seq_of(id)?).ok()?;
-    match events.get(seq.checked_sub(1)?)? {
-        Event::Known(Known::UserMessage { text, .. }) => Some(text.trim().to_owned()),
-        _ => None,
-    }
 }
 
 /// A message from the person with Spade's per-turn `context`.
