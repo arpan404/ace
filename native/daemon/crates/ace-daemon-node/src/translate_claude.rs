@@ -32,20 +32,33 @@ impl ClaudeTranslator {
     /// contract violation rather than provider data.
     #[napi(catch_unwind)]
     pub fn translate(&mut self, frame_json: String, now: f64) -> napi::Result<String> {
-        let frame: Value = serde_json::from_str(&frame_json)
+        // Deeply nested provider data recurses in the parser, the fold and
+        // the serializer alike; grow the stack so a hostile frame fails as
+        // a diagnostic downstream, never aborts the daemon.
+        stacker::maybe_grow(32 * 1024, 8 * 1024 * 1024, || {
+            self.translate_inner(&frame_json, now)
+        })
+    }
+
+    fn translate_inner(&mut self, frame_json: &str, now: f64) -> napi::Result<String> {
+        // Provider frames may nest far deeper than serde_json's default
+        // recursion limit (the engine bounds them later via capFact); parse
+        // without the limit so deep native fields survive like TypeScript.
+        let mut de = serde_json::Deserializer::from_str(frame_json);
+        de.disable_recursion_limit();
+        let frame: Value = serde::de::Deserialize::deserialize(&mut de)
             .map_err(|error| napi::Error::from_reason(error.to_string()))?;
         let obj = match &frame {
             Value::Object(map) => map,
             _ => {
-                return Err(napi::Error::from_reason("translator frame must be an object"));
+                return Err(napi::Error::from_reason(
+                    "translator frame must be an object",
+                ));
             }
         };
         let seq = obj.get("seq").and_then(|v| v.as_i64()).unwrap_or(0);
         let dir = obj.get("dir").and_then(|v| v.as_str()).unwrap_or("recv");
-        let channel = obj
-            .get("channel")
-            .and_then(|v| v.as_str())
-            .unwrap_or("sdk");
+        let channel = obj.get("channel").and_then(|v| v.as_str()).unwrap_or("sdk");
         let data = obj.get("data").unwrap_or(&Value::Null);
         let payload_bytes = obj
             .get("payloadBytes")
