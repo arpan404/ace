@@ -208,7 +208,6 @@
     "packages/plugins/src/manager.process.test.ts": "TODO cleanup (37.9s in the 2026-10 timing run)",
     "packages/browser/src/text-wait.process.test.ts": "TODO cleanup (37.8s in the 2026-10 timing run)",
     "packages/client/src/files-scoped.process.test.ts": "TODO cleanup (36.0s in the 2026-10 timing run)",
-    "apps/daemon/src/cli-chat.process.test.ts": "TODO cleanup (35.7s in the 2026-10 timing run)",
     "packages/browser/src/page-cursor.process.test.ts": "TODO cleanup (35.5s in the 2026-10 timing run)",
     "packages/git/src/checkpoints.process.test.ts": "TODO cleanup (35.3s in the 2026-10 timing run)",
     "packages/browser-extension/src/my-chrome-page-edges.process.test.ts": "TODO cleanup (35.1s in the 2026-10 timing run)",

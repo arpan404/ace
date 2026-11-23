@@ -12,7 +12,6 @@ use crate::pages::{
 const SHORTCUTS: &[(&str, &str)] = &[
     ("ace", "The interactive home, on a terminal"),
     ("ace run PROMPT", "Start an agent in this folder"),
-    ("ace chat [THREAD]", "Talk with an agent here"),
     ("ace status", "What runs and what needs you"),
     ("ace open [PATH]", "Open a project in the app"),
     ("ace login", "Sign this machine in to ace"),
