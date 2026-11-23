@@ -6,6 +6,8 @@ import { openLibrary, runsOnBun } from "./bun-ffi.ts";
 import { loadKoffi } from "./koffi.ts";
 import type { WindowsJob } from "./process-containment.ts";
 import { signalTreeMember } from "./process-tree.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { nativeKillWindowsTree, supervisorAddon } from "./native-process.ts";
 
 /** Process-global ownership is separate from application-selected shutdown policy. */
 const owned = new Map<
@@ -60,6 +62,10 @@ export function killGroup(pid: number, signal: NodeJS.Signals): void {
       for (const member of allowed) signalTreeMember(member, signal);
       return;
     }
+  }
+  if (supervisorBackend() === "native") {
+    supervisorAddon().supervisorKillGroup(pid, signal);
+    return;
   }
   try {
     process.kill(-pid, signal);
@@ -240,6 +246,10 @@ export type WindowsKillTree = (pid: number, force: boolean) => void;
 
 /** taskkill /T stops the tree the way a Job Object would; /F forces it. Never uses a shell. */
 export function killWindowsTree(pid: number, force: boolean): void {
+  if (supervisorBackend() === "native") {
+    nativeKillWindowsTree(pid, force);
+    return;
+  }
   // A missing System32 or a failed spawn throws: the caller's stop then fails instead of
   // waiting on a kill that never ran.
   const killer = spawn(
@@ -285,6 +295,8 @@ function systemDirectoryReader(): SystemDirectoryReader {
 let systemDirectory: string | undefined;
 /** A file in Windows' own System32, located by the kernel rather than the environment. */
 export function windowsSystemExecutable(name: string): string {
+  if (supervisorBackend() === "native")
+    return supervisorAddon().supervisorWindowsSystemExecutable(name);
   if (systemDirectory === undefined) {
     const reader = systemDirectoryReader();
     try {
@@ -398,6 +410,12 @@ export function windowsCmdLine(command: string, args: readonly string[]): string
 
 /** Wrap a batch entrypoint as `cmd.exe /d /s /c "..."`; other commands pass through. */
 export function toWindowsCommand(command: string, args: readonly string[]): WindowsCommand {
+  if (supervisorBackend() === "native") {
+    const mapped = JSON.parse(
+      supervisorAddon().supervisorToWindowsCommand(command, [...args]),
+    ) as WindowsCommand;
+    return { command: mapped.command, args: [...mapped.args], verbatim: mapped.verbatim };
+  }
   const base = command.split(/[\\/]/).pop() ?? command;
   if (!/\.(?:cmd|bat)$/i.test(base)) return { command, args: [...args], verbatim: false };
   const line = [escapeCommand(command), ...args.map(escapeArgument)].join(" ");

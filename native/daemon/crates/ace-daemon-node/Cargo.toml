@@ -35,6 +35,15 @@ ace-adapter-api = { path = "../ace-adapter-api" }
 thiserror = { version = "2" }
 # ace-adapter-acp: the ACP translator behind ACE_TRANSLATORS=acp (E1); the binding only translates.
 ace-adapter-acp = { path = "../ace-adapter-acp" }
+# ace-supervisor: spawning, containment and the inventory journal behind
+# @ace/provider-kit's process exports (E2a); the binding only translates.
+ace-supervisor = { path = "../ace-supervisor" }
+# process-wrap: process groups on POSIX over tokio::process (E2a containment).
+process-wrap = { version = "10", features = ["tokio1"] }
+# tokio: the I/O runtime for the supervisor's pumps, waiters and stop tasks.
+tokio = { version = "1.54", features = ["macros", "process", "rt-multi-thread", "sync", "time"] }
+# rustix: direct process signals for the binding's kill fallback.
+rustix = { version = "1", features = ["process"] }
 # napi: the one addon; every export catches panics and only translates values and errors.
 # napi9 for node_api_throw_syntax_error: a frame that is not JSON throws a SyntaxError.
 napi = { version = "3", default-features = false, features = ["napi9"] }
@@ -45,6 +54,9 @@ napi-derive = "3"
 ace-json = { path = "../ace-json" }
 # serde_json: the one serde_json entry for the addon; the translators no longer use it.
 serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# serde: derive Deserialize for the supervisor binding's spawn requests (process args and env,
+# which the OS needs as valid strings anyway).
+serde = { version = "1", features = ["derive"] }
 
 [build-dependencies]
 napi-build = "2"

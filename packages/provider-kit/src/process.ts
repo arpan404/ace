@@ -28,6 +28,15 @@ import {
 import { probeOffThread, type ProbeThread } from "./probe-thread.ts";
 import { resolveProbeLaunch, resolveWithin, type ProbeLaunch } from "./probe-resolve.ts";
 import { markedEnv } from "./process-marker.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import {
+  launchEnv,
+  nativeJobFactory,
+  nativeKillWindowsTree,
+  nativeSpawnChild,
+  NativeChildProcess,
+  type SpawnedChild,
+} from "./native-process.ts";
 export {
   stopOwnedGroups,
   ownedGroupLeaders,
@@ -132,7 +141,8 @@ function spawnOwned(
 ): RawSupervisedProcess {
   // No process groups exist on Windows; stop the whole tree with taskkill instead.
   const windows = (options.platform ?? process.platform) === "win32";
-  const killTree = options.windowsKillTree ?? killWindowsTree;
+  const native = supervisorBackend() === "native";
+  const killTree = options.windowsKillTree ?? (native ? nativeKillWindowsTree : killWindowsTree);
   const stopRetained = (pid: number, graceMs: number) =>
     windows
       ? stopRetainedWindowsTree(pid, graceMs, killTree, job)
@@ -145,13 +155,32 @@ function spawnOwned(
   const target = windows
     ? toWindowsCommand(options.command, options.args ?? [])
     : { command: options.command, args: [...(options.args ?? [])], verbatim: false };
-  const child = spawn(target.command, target.args, {
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    env: markedEnv({ ...base, ...options.env }),
-    ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
-    windowsVerbatimArguments: target.verbatim,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child: SpawnedChild = native
+    ? nativeSpawnChild({
+        command: target.command,
+        args: target.args,
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        env: launchEnv(markedEnv({ ...base, ...options.env })),
+        windows,
+        clearEnv: base !== process.env,
+        stdin: "piped",
+        stdout: "piped",
+        stderr: "piped",
+        verbatim: target.verbatim,
+        // The waiter ends stragglers, unless the shell drives stops through
+        // injected tree fakes or the tree is retained.
+        waiterDestroy:
+          options.killGroupOnExit !== false &&
+          options.windowsKillTree === undefined &&
+          options.windowsJobFactory === undefined,
+      })
+    : spawn(target.command, target.args, {
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+        env: markedEnv({ ...base, ...options.env }),
+        ...(windows ? { detached: false, windowsHide: true } : { detached: true }),
+        windowsVerbatimArguments: target.verbatim,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
   reportBunStdinFailures(child.stdin);
   // Never throws: stops run from timers, exit listeners and voided stop() calls.
   const terminate = (pid: number) => signalTree(pid, false, windows, killTree, child);
@@ -160,7 +189,8 @@ function spawnOwned(
   const pid = child.pid;
   if (pid !== undefined && options.childPriority !== false)
     lowerChildPriority(pid, options.childPriority ?? systemChildPriority(process.platform));
-  const factory = options.windowsJobFactory ?? createKillOnCloseJob;
+  const factory =
+    options.windowsJobFactory ?? (native ? nativeJobFactory : createKillOnCloseJob);
   const job: WindowsJob | undefined = windows && pid !== undefined ? factory() : undefined;
   if (pid !== undefined) job?.assign(pid);
   let outputBytes = 0;
@@ -219,6 +249,10 @@ function spawnOwned(
   };
   // Pipe errors are surfaced to writers through write callbacks, never unhandled events.
   child.stdin.on("error", () => {});
+  /** Frees the native child behind a native spawn, releasing its event sink. */
+  const disposeNative = () => {
+    if (child instanceof NativeChildProcess) child.dispose();
+  };
   const release = () => {
     if (ended) return;
     ended = true;
@@ -235,12 +269,16 @@ function spawnOwned(
   };
   child.once("error", () => {
     failed = true;
+    // A failed spawn never opens pipes, so no close follows its error.
+    disposeNative();
     release();
   });
   child.once("exit", release);
   const exited = new Promise<ProcessExit>((resolve) => {
     child.once("close", (code, signal) => {
       release();
+      // The pipes are done: releasing the native sink cannot lose bytes.
+      disposeNative();
       closed = true;
       if (timer) clearTimeout(timer);
       if (pid !== undefined && (options.killGroupOnExit !== false || failed)) {
@@ -343,7 +381,10 @@ function spawnOwned(
         name: options.name,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
       },
-      () => destroy(pid),
+      () => {
+        disposeNative();
+        destroy(pid);
+      },
     );
   try {
     if (pid !== undefined) options.lease?.spawned(pid);

@@ -1,6 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { systemListing, type ProcessListing } from "./process-listing.ts";
 import { signalMember, systemPidFds, type PidFds } from "./process-signal.ts";
+import { supervisorBackend } from "./native-switches.ts";
+import { supervisorAddon } from "./native-process.ts";
 
 /*
  * Process trees by parent pid, for stops that must reach every process a child started,
@@ -122,6 +124,11 @@ export function captureTree(
   io: TreeIo = systemTreeIo,
   limit = captureLimit,
 ): Capture {
+  if (supervisorBackend() === "native" && io === systemTreeIo) {
+    return JSON.parse(
+      supervisorAddon().supervisorCaptureTree(JSON.stringify(roots), limit),
+    ) as Capture;
+  }
   if (!roots.length || !capturesTrees(io.platform)) return { members: [], truncated: false };
   const children = io.lister();
   const members: CapturedMember[] = [];
@@ -177,6 +184,12 @@ export function signalTreeMember(
   signal: NodeJS.Signals,
   io: TreeIo = systemTreeIo,
 ): "sent" | "gone" | "unsafe" {
+  if (supervisorBackend() === "native" && io === systemTreeIo) {
+    return supervisorAddon().supervisorSignalMember(
+      JSON.stringify(member),
+      signal,
+    ) as "sent" | "gone" | "unsafe";
+  }
   return signalMember(member, signal, {
     start: (pid) => readIdentity(io, pid)?.start,
     kill: (pid, name) => io.kill(pid, name),
@@ -197,6 +210,31 @@ export async function stopMembers(
   io: TreeIo = systemTreeIo,
   deadline = Number.POSITIVE_INFINITY,
 ): Promise<TreeMember[]> {
+  if (supervisorBackend() === "native" && io === systemTreeIo) {
+    return new Promise<TreeMember[]>((resolve, reject) => {
+      try {
+        supervisorAddon().supervisorStopMembers(
+          JSON.stringify(members.map(({ pid, start }) => ({ pid, start }))),
+          graceMs,
+          deadline === Number.POSITIVE_INFINITY ? undefined : deadline,
+          // napi calls threadsafe functions error-first.
+          (_error: unknown, leftJson: string) => {
+            try {
+              resolve(
+                (JSON.parse(leftJson) as { pid: number; start: string }[]).map((member) => ({
+                  ...member,
+                })),
+              );
+            } catch (error) {
+              reject(error);
+            }
+          },
+        );
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
   const signal = (name: NodeJS.Signals) => {
     for (const member of members) signalTreeMember(member, name, io);
   };
