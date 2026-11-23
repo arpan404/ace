@@ -274,20 +274,6 @@ pub(crate) fn review_lines(plan: &Plan<'_>) -> Vec<String> {
     lines
 }
 
-/// The confirmation `storage clean` asks before it removes anything.
-pub(crate) fn confirm_question(plan: &Plan<'_>) -> String {
-    let count = plan
-        .items
-        .iter()
-        .filter(|item| item.disposition == "remove")
-        .count();
-    format!(
-        "Remove {} ({})?",
-        plural(count, "item"),
-        format_bytes(plan.bytes)
-    )
-}
-
 /// A cleanup receipt: what went, what stayed, and the plan it names.
 pub(crate) fn receipt_line(receipt: &Receipt<'_>) -> String {
     let mut where_ = format!("plan {}", receipt.plan_id);

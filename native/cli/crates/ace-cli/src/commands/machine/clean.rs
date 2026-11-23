@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-//! `storage clean` (ADR 0178 §7): plan, show the plan, ask, then apply that exact plan and
-//! revision once the person says yes. Off a terminal it needs `--yes`, and refuses before
-//! planning without it, so an unattended run never removes anything without consent.
+//! `storage clean` (ADR 0178 §7): plan, show the plan, then apply that exact plan and
+//! revision. The bundle asks the person on a terminal (see `defers_prompt`); reaching here
+//! means `--yes` answered, `--dry-run` only previews, or no terminal could ask, which refuses
+//! before planning. Nothing here prompts.
 
 use std::io::Write;
 
@@ -143,36 +144,13 @@ fn clean_reviewed<W: Write, E: Write>(
             },
         );
     }
-    if !parsed.flags.on("yes") {
-        if !human {
-            let _ = err.write(&format!("{}\n", render::plan_lines(&measured).join("\n")));
-        }
-        if !ask_confirm(&render::confirm_question(&measured)) {
-            let failure = Failure::new(Outcome::Refused, "Cleanup cancelled. Nothing was removed.")
-                .with_code(cli_out::ErrorCode::Refused)
-                .with_command(id);
-            return crate::run::fail(out, err, Some(&parsed.flags), &failure);
-        }
-    }
+    // The bundle asks the person on a terminal; reaching here means `--yes` answered, or
+    // no terminal could ask, which refused earlier. Nothing here prompts.
+    debug_assert!(parsed.flags.on("yes"));
     let reviewed = Reviewed {
         plan_raw: raw.get(),
         plan_id: &measured.id,
         revision: &measured.revision,
     };
     apply_reviewed(parsed, out, err, id, timeout, &reviewed)
-}
-
-/// Asks the person to confirm; an aborted or cancelled prompt refuses.
-fn ask_confirm(question: &str) -> bool {
-    use std::io::BufRead as _;
-    let mut stderr = std::io::stderr().lock();
-    let _ = write!(stderr, "{question} (y/N): ");
-    let _ = stderr.flush();
-    drop(stderr);
-    let stdin = std::io::stdin();
-    let mut answer = String::new();
-    if stdin.lock().read_line(&mut answer).is_err() {
-        return false;
-    }
-    answer.trim().eq_ignore_ascii_case("y") || answer.trim().eq_ignore_ascii_case("yes")
 }

@@ -263,9 +263,13 @@ where
             with_writers(make_out, make_err, |out, err| complete(&slot, out, err))
         }
         id if machine::IDS.contains(&id) => {
-            // A jq filter is compiled and run by jq itself, and a remote profile names another
-            // machine's daemon: the bundle owns both, so those hand over with no writer made.
-            if parsed.flags.has("jq") || parsed.flags.has("remote") {
+            // A jq filter is compiled and run by jq itself, a remote profile names another
+            // machine's daemon, and a clean that would ask the person is the bundle's prompt:
+            // the bundle owns all three, so those hand over with no writer made.
+            if parsed.flags.has("jq")
+                || parsed.flags.has("remote")
+                || machine::defers_prompt(parsed)
+            {
                 return hand_over(os_args, &parsed.flags, make_out, make_err);
             }
             machine::dispatch(parsed, make_out, make_err)

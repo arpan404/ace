@@ -18,7 +18,9 @@ mod storage;
 
 use std::io::Write;
 
-use cli_out::{Env, Failure, Flags, Out, Outcome, OutputMode, Stream, output_mode, use_color};
+use cli_out::{
+    Env, Failure, Flags, Out, Outcome, OutputMode, Stream, can_prompt, output_mode, use_color,
+};
 use cli_parse::Parsed;
 
 use crate::run::{fail, finish, terminal};
@@ -47,6 +49,7 @@ where
     FE: FnOnce() -> Out<E>,
 {
     debug_assert!(IDS.contains(&parsed.command.id));
+    debug_assert!(!defers_prompt(parsed));
     with_writers(make_out, make_err, |out, err| {
         if let Some(outcome) = check_alias(parsed, out, err) {
             return outcome;
@@ -67,6 +70,16 @@ where
             }
         }
     })
+}
+
+/// Whether the bundle must run this instead: `storage clean` asks the person on a terminal,
+/// and its prompt belongs to the bundle. Every other shape answers here, including the
+/// refusals, which need no answer.
+pub fn defers_prompt(parsed: &Parsed<'_>) -> bool {
+    parsed.command.id == "storage.clean"
+        && !parsed.flags.on("dry-run")
+        && !parsed.flags.on("yes")
+        && can_prompt(&parsed.flags, &Env::from_process(), terminal())
 }
 
 /// Makes the run's writers, runs one answer, and flushes them once at the end.

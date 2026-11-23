@@ -49,7 +49,9 @@ machine commands below):
 Runs natively, talking to this machine's daemon (ADR 0221 step 4):
 
 - `ace daemon status`, `ace daemon token`, `ace daemon logs` (and their shortcuts `token`, `logs`)
-- `ace storage usage|plan|clean|apply|status|compact` (and the `clean …` spellings)
+- `ace storage usage|plan|clean|apply|status|compact` (and the `clean …` spellings).
+  `storage clean` hands back over when a person on a terminal would be asked to confirm it;
+  the bundle's prompt owns that moment.
 
 Still hands over: `ace daemon start` and `ace daemon serve` (they run the daemon), `ace daemon
 stop` (its shutdown proof lives in the daemon's process evidence), every `service` command (the
