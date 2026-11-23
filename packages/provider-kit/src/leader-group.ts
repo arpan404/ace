@@ -11,7 +11,7 @@ import {
 } from "./process-owner.ts";
 import { captureFrom, liveMembers, systemTreeIo, type TreeMember } from "./process-tree.ts";
 import { relaySignal, relaysSignals, serveWorkerSignals } from "./signal-relay.ts";
-import { noStartOrder, systemStartOrder } from "./start-order.ts";
+import { systemStartOrder } from "./start-order.ts";
 export type { GroupIo } from "./group-delivery.ts";
 
 /*
@@ -33,13 +33,11 @@ export type { GroupIo } from "./group-delivery.ts";
  * - recorded while the leader pinned the group;
  * - a child of a recorded member, from a walk whose roots must still show their recorded starts
  *   and whose every parent link is read with the child's start;
- * - in the group when the leader's exit is heard, AND either started before that moment (its
- *   kernel start, `start-order.ts`: it joined while the id was still the leader's; a group that
- *   took the id during the scan holds only later starts) or linked to the spawn by evidence
- *   fixed while the leader lived: on macOS its starting parent's unique id (never reused, kept
- *   across orphaning) is the leader's or a recorded member's; on Linux its start environment
- *   carries this spawn's random token (`group-token.ts`), read as identity, environment,
- *   identity.
+ * - in the group when the leader's exit is heard, AND linked to the spawn by evidence fixed
+ *   while the leader lived: on macOS its starting parent's unique id (never reused, kept across
+ *   orphaning) is the leader's or a recorded member's; on Linux its start environment carries
+ *   this spawn's random token (`group-token.ts`), read as identity, environment, identity. A
+ *   process merely started before that moment is not owned: the id may already be a reused one.
  *
  * Residual risk. Node and Bun reap a child on their own, before any JS hears it exited, so this
  * only narrows the window in which a reused group id can be hit. The real fix is the Rust
@@ -48,9 +46,6 @@ export type { GroupIo } from "./group-delivery.ts";
  * - the check-to-kill gap: between the last pin check and kill(-pid), or a member's start check
  *   and kill(2) on macOS, the process must exit, be reaped and its id be reused: the pid range
  *   cycling within microseconds;
- * - the reap-to-heard gap: a group that took the id after the reap but before the exit listener
- *   ran (a blocked event loop widens it) starts before the cutoff and would be adopted; it takes
- *   the pid range cycling within that gap;
  * - late forks: a process started after its parent's last scan, whose parent then exits before
  *   the next one, is not seen (it is reparented and left its group's lineage on Linux);
  * - Linux children that start with a cleaned environment carry no token and are not adopted;
@@ -157,24 +152,18 @@ function createGroup(leader: number, evidence: Evidence, io: GroupIo): LeaderGro
     }
   };
   /**
-   * At the reap: group members that started before the exit was heard (`heard`, in kernel start
-   * units: they joined the group while its id was still the leader's, and a group that took the
-   * id during this scan holds only later starts), or are linked to the spawn, parents before
-   * children (macOS).
+   * At the reap: only the members already `known` (recorded, with start times, while the leader
+   * still pinned the group), plus those reachable through `linked` from a known member, parents
+   * before children (macOS). A process that merely started before the exit was heard is NOT
+   * adopted: once the leader has been reaped its group id can be handed to an unrelated group
+   * before the exit callback runs, and that group's members started then too.
    */
   const adopt = () => {
     try {
-      const order = io.order ?? noStartOrder;
-      const heard = order.now();
-      const earlier = (member: TreeMember) => {
-        const position = order.position(member.start);
-        return heard !== undefined && position !== undefined && position < heard;
-      };
       let pending: TreeMember[] = [];
       for (const member of inGroup()) {
         if (known.get(member.pid) === member.start) continue;
-        if (earlier(member)) remember([member]);
-        else pending.push(member);
+        pending.push(member);
       }
       for (let grew = true; grew && pending.length;) {
         grew = false;

@@ -28,14 +28,16 @@ async function firstOnPath(path: string | undefined): Promise<string | undefined
 export async function developerToolsGit(
   platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<string | undefined> {
+  if (signal?.aborted) return undefined;
   if (platform === "win32") return windowsPathGit(env);
   if (platform !== "darwin" || (await firstOnPath(env.PATH)) !== "/usr/bin/git") return undefined;
   const found = await new Promise<string | undefined>((resolve) => {
     execFile(
       "/usr/bin/xcrun",
       ["--find", "git"],
-      { env, timeout: 10_000, maxBuffer: 65_536, encoding: "utf8" },
+      { env, timeout: 10_000, maxBuffer: 65_536, encoding: "utf8", signal },
       (error, stdout) => resolve(error ? undefined : stdout.trim()),
     );
   });

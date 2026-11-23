@@ -91,6 +91,13 @@ export interface Output {
   stopped?: "capture" | "budget";
 }
 
+/** One shared Git verification: its promise, and the binary that attempt discovered. */
+interface VerificationAttempt {
+  promise: Promise<void>;
+  /** The binary this attempt found; written only while it is still `GitCli.ready`. */
+  binary: string | undefined;
+}
+
 /**
  * A call cancelled between its awaits fails as every Git cancellation does (`git_cancelled`),
  * never with the signal's bare AbortError.
@@ -161,7 +168,7 @@ export class GitCli {
   readonly timeoutMs: number;
   private readonly facts: ConfigFacts;
   private readonly standardFiles = new Map<string, Promise<string[] | undefined>>();
-  private ready: Promise<void> | undefined;
+  private ready: VerificationAttempt | undefined;
   private readonly runtime: GitProcessRuntime;
   private readonly calls = new Set<Promise<Output>>();
   private readonly cancellations = new Set<() => void>();
@@ -518,31 +525,40 @@ export class GitCli {
     if (signal?.aborted)
       return Promise.reject(new GitError("git_cancelled", "Git operation cancelled"));
     if (!this.ready) {
-      const ready = this.boundedVerify(cwd, directoryFd).catch((error: unknown) => {
-        if (this.ready === ready) {
+      const attempt: VerificationAttempt = { promise: Promise.resolve(), binary: undefined };
+      attempt.promise = this.boundedVerify(cwd, directoryFd, attempt).catch((error: unknown) => {
+        if (this.ready === attempt) {
           this.ready = undefined;
           this.resolvedBinary = undefined;
         }
         throw error;
       });
       // Every caller may have stopped waiting; the shared check's failure is still handled.
-      ready.catch(() => {});
-      this.ready = ready;
+      attempt.promise.catch(() => {});
+      this.ready = attempt;
     }
-    return untilCancelled(this.ready, signal);
+    return untilCancelled(this.ready.promise, signal);
   }
 
   /**
    * The version check under the service's deadline as a whole: binary discovery (a PATH lookup
-   * that can stall) included, not only the `--version` process.
+   * that can stall) included, not only the `--version` process. The deadline aborts the attempt's
+   * one controller, so nothing new starts after it and a running step stops through its own abort
+   * path.
    */
-  private boundedVerify(cwd: string, directoryFd?: number): Promise<void> {
+  private boundedVerify(
+    cwd: string,
+    directoryFd: number | undefined,
+    attempt: VerificationAttempt,
+  ): Promise<void> {
     const deadline = this.timeoutMs;
+    const controller = new AbortController();
     return new Promise<void>((resolve, reject) => {
       const cancel = this.runtime.scheduleTimeout(() => {
+        controller.abort();
         reject(new GitError("git_timeout", `Git's version check exceeded ${deadline}ms`));
       }, deadline);
-      this.verify(cwd, directoryFd).then(
+      this.verify(cwd, directoryFd, controller.signal, attempt).then(
         () => {
           cancel();
           resolve();
@@ -555,21 +571,34 @@ export class GitCli {
     });
   }
 
-  private async verify(cwd: string, directoryFd?: number): Promise<void> {
-    // Resolved once per verification; a missing executable later re-verifies (see `executeRaw`).
-    if (this.configuredBinary === undefined)
-      this.resolvedBinary = await this.runtime.locateGit(inheritedEnv()).catch(() => undefined);
+  private async verify(
+    cwd: string,
+    directoryFd: number | undefined,
+    signal: AbortSignal,
+    attempt: VerificationAttempt,
+  ): Promise<void> {
+    // Resolved once per attempt; a missing executable later re-verifies (see `executeRaw`).
+    const binary =
+      this.configuredBinary === undefined
+        ? await this.runtime.locateGit(inheritedEnv(), signal).catch(() => undefined)
+        : undefined;
+    // A stale attempt publishes nothing: a newer attempt owns the service's answer.
+    if (this.configuredBinary === undefined && this.ready === attempt) {
+      attempt.binary = binary;
+      this.resolvedBinary = binary;
+    }
     // Windows searches a bare name in the working directory, a checkout, before PATH.
     if (
       this.runtime.platform === "win32" &&
       this.configuredBinary === undefined &&
-      this.resolvedBinary === undefined
+      binary === undefined
     )
       throw new GitError("git_missing", "Git for Windows was not found on PATH");
     // `--version` reads no repository: the fixed guards suffice, with no configuration query.
     const result = await this.executeRaw(cwd, ["--version"], {
       directoryFd,
       env: nonExecutingEnv(),
+      signal,
     });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
     const [major, minor] = version
@@ -1056,7 +1085,8 @@ export class GitCli {
       child.stderr.on("data", stderrData);
       const spawnError = (error: NodeJS.ErrnoException) => {
         // The developer tools Git was moved or removed: find what `git` runs now, next call.
-        if (error.code === "ENOENT" && this.resolvedBinary === binary) {
+        // Only the attempt that produced `binary` is dropped; a newer one keeps its answer.
+        if (error.code === "ENOENT" && this.ready?.binary === binary) {
           this.ready = undefined;
           this.resolvedBinary = undefined;
         }

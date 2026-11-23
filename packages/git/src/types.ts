@@ -51,9 +51,10 @@ export interface GitProcessRuntime {
   /**
    * The executable a bare `git` would end up running, when starting it directly is cheaper than
    * going through a launcher (macOS's `/usr/bin/git` shim); undefined to keep running `git`.
-   * Only consulted when no `gitBinary` is configured.
+   * Only consulted when no `gitBinary` is configured. `signal` abandons the lookup (and its
+   * launcher process) on the caller's deadline.
    */
-  locateGit: (env: NodeJS.ProcessEnv) => Promise<string | undefined>;
+  locateGit: (env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string | undefined>;
   /**
    * The filesystem's wall clock in epoch milliseconds, to tell how long ago a file's timestamps
    * were set. Separate from `GitOptions.now`, which dates what ace records.

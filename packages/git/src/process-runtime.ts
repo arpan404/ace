@@ -20,7 +20,8 @@ export function processRuntime(overrides: Partial<GitProcessRuntime> = {}): GitP
     signalGroup: signalSpawnedGroup,
     groupAlive: (pid, child) => (child && groups.get(child)?.running()) ?? processGroupAlive(pid),
     gitProcesses: scanGitProcesses(overrides.platform ?? process.platform),
-    locateGit: (env) => developerToolsGit(overrides.platform ?? process.platform, env),
+    locateGit: (env, signal) =>
+      developerToolsGit(overrides.platform ?? process.platform, env, signal),
     fileClock: () => Date.now(),
     ...overrides,
   };
@@ -37,8 +38,10 @@ const groups = new WeakMap<ChildProcess, LeaderGroup>();
 
 /**
  * Signal a group this isolate spawned; anything else is refused, never signalled by number. A
- * group signal that is refused (a worker that can't prove the group to the main isolate) falls
- * back to the child's own handle, which can't reach a reused pid while we hold it unreaped.
+ * refused group signal (a worker that can't prove the group to the main isolate) is logged and
+ * not retried by pid: a JS child handle cannot prove its pid is still unreaped (libuv and Bun
+ * reap before JS hears the exit). The call's own deadline ends it, and the Rust supervisor
+ * (ACE_SUPERVISOR) is the real fix.
  */
 function signalSpawnedGroup(pid: number, signal: NodeJS.Signals, child?: ChildProcess): void {
   const group = child && groups.get(child);
@@ -46,11 +49,6 @@ function signalSpawnedGroup(pid: number, signal: NodeJS.Signals, child?: ChildPr
     throw new Error(`Process group ${pid} is not one this process spawned`);
   group.signal(signal).catch((error: unknown) => {
     process.emitWarning(`Could not signal Git's process group ${pid}: ${String(error)}`);
-    try {
-      child.kill(signal);
-    } catch {
-      /* Already gone. */
-    }
   });
 }
 
