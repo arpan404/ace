@@ -52,7 +52,7 @@ release ships it, and at the old shim when the binary is missing.
 The TypeScript table stays the source until the last command moves. `bun run cli:table` writes it
 to `native/cli/table.json` (checked in; `check:cli` fails when stale), and a build script turns it
 into static Rust data: no JSON is parsed at run time. Each Rust command marks itself ported in
-code; the parity check refuses a command marked ported that the table doesn't list.
+code; `check:cli` refuses a command marked ported that the table doesn't list.
 
 ### 4. The same outputs, proven
 
@@ -125,7 +125,7 @@ The TypeScript CLI is deleted command group by command group as each Rust group 
 ## Consequences
 
 - Most commands start in milliseconds and need no JS runtime; scripts and completions get faster.
-- Two implementations exist during the move; the parity harness and `check:cli` keep them equal.
+- Two implementations exist during the move; the existing CLI tests, run on both, and `check:cli` keep them equal.
 - People who used `ace chat` or `ace spade chat` use the apps. The removed commands answer with a
   usage error naming the app (exit 2) for one release, then disappear.
 - The CLI's code leaves the daemon bundle group by group, shrinking it.
