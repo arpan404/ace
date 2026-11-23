@@ -17,3 +17,16 @@ workspace = true
 ace-adapter-api = { path = "../ace-adapter-api" }
 # ace-supervisor: sessions spawn the provider CLI through the supervisor, never directly.
 ace-supervisor = { path = "../ace-supervisor" }
+# ace-core: translators return its Fact type; only the core allocates ace ids.
+ace-core = { path = "../ace-core" }
+# serde: translator state and typed views deserialize from provider JSON.
+serde = { version = "1", features = ["derive"] }
+# serde_json: frames keep each message as Box<RawValue>; facts are built as JSON without re-encoding raw.
+serde_json = { version = "1", features = ["raw_value", "preserve_order"] }
+# thiserror: one typed error enum for the crate, mapped in the binding (no unwrap/expect).
+thiserror = { version = "2" }
+# sha2: answer-echo digests interaction answer text with SHA-256, as the TypeScript does.
+sha2 = { version = "0.11" }
+# indexmap: agents, open items, children and requests iterate in insertion order,
+# as the TypeScript Maps and Sets do; fact order must match field for field.
+indexmap = { version = "2" }
