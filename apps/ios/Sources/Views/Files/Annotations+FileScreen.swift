@@ -59,15 +59,17 @@ extension FileScreen {
         let title = number.map { "Note \($0)" } ?? (editing ? "Annotate" : "Comment")
         let place = CodeNoteChips.place(CodeNote(id: draft.id, path: path, span: draft.span, excerpt: draft.excerpt, cut: false, comment: ""))
         return AnnotationsSheet(draft: draft, title: title, place: place) { comment in
-            guard let thread = noteThread else { return }
+            guard let thread = noteThread else { return CodeNoteRefusal.cantAct.message }
             if let id = draft.existing {
-                model.commentCodeNote(thread, id: id, comment)
-            } else {
-                // The file may have reloaded while the sheet was open (an agent's change): the
-                // range is found again in the text shown now, or the note joins outdated.
-                let now = draft.path == path ? AnnotationAnchor.lines(handle.text) : nil
-                model.addCodeNote(thread, path: draft.path, span: draft.span, lines: draft.lines, now: now, comment: comment)
+                return model.commentCodeNote(thread, id: id, comment)?.message
             }
+            // The file may have reloaded while the sheet was open (an agent's change): the
+            // range is found again in the text shown now, or the note joins outdated.
+            let now = draft.path == path ? AnnotationAnchor.lines(handle.text) : nil
+            if case .failure(let refusal) = model.addCodeNote(thread, path: draft.path, span: draft.span, lines: draft.lines, now: now, comment: comment) {
+                return refusal.message
+            }
+            return nil
         }
     }
 

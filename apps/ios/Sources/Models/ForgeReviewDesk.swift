@@ -66,6 +66,9 @@ struct ForgeCompose: Identifiable {
     /// The main send, then an optional second one ("Start a review" beside "Add single comment").
     let primary: Choice
     var secondary: Choice?
+    /// The same words as a note for the agent instead (`CodeNotes`): on the pull request's
+    /// thread's next message, not on the host. Nil where lines can't take a note.
+    var agent: Choice?
     /// A line's current text, offered as a suggested change.
     var suggestion: String?
     var suggestionOff: String?

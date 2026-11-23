@@ -180,6 +180,8 @@ test("a fork's first message carries the editor's code notes, and they leave thi
   expect(input.startsWith("Try it.")).toBe(true);
   expect(input).toContain("[1] src/plan.ts:1");
   expect(latest("thread.codeSent")?.ids).toEqual(["n1"]);
+  // The receipt that settles the send names them, so the phone settles exactly these.
+  expect(latest("receipt", "go")).toMatchObject({ ok: true, notes: ["n1"] });
 });
 
 test("editing a message forks from before it, starting from its words", async () => {

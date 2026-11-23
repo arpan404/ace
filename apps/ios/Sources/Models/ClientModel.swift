@@ -102,8 +102,19 @@ import QuartzCore
     var machineCodeLockedUntil: Date?
     var error: String?
     var thread: ThreadModel?
-    /// Notes pinned to code in the editor, by thread, for each one's next message.
-    var codeNotes = CodeNotes()
+    /// Notes pinned to code in the editor, by thread, for each one's next message; kept on this
+    /// phone for the machine connected (`codeNotesKept`).
+    var codeNotes = CodeNotes() { didSet { if codeNotes != oldValue { codeNotesKept?.changed(codeNotes) } } }
+    @ObservationIgnored var codeNotesKept: CodeNotesKept?
+    /// How many notes each thread's message in flight took (`sendingCodeNotes`): they count toward
+    /// the limit, and the bridge keeps its list until the message is saved or refused.
+    @ObservationIgnored var codeNotesInFlight: [String: Int] = [:]
+    /// Which principal's notes are loaded (`restoreCodeNotes`): a send answered after a switch
+    /// settles its notes in the store it took them from, never the current one.
+    @ObservationIgnored var codeNotesEpoch = 0
+    /// The code notes each saved message or started thread carried, by request id, as the
+    /// machine's answer named them; read once by the send that waits on it.
+    @ObservationIgnored var carriedNotes: [String: [String]] = [:]
     /// Each thread's checkout as code notes name it (`checkoutKey`), once read.
     @ObservationIgnored var checkoutKeys: [String: String] = [:]
     /// The history window's rows (`TranscriptReading`), beside the live thread: its patches carry
@@ -279,6 +290,9 @@ import QuartzCore
         if sameMachine { shelf.needSnapshots(); keeping?.requiresSnapshot = true; sheets.routeChanged() } else { shelf.clear(); sheets.reset() }
         scope = target.scope
         hostId = target.scope.hostId
+        // Another route to the same machine, as the same principal, keeps the notes in hand;
+        // another machine's or account's are its own (`keptScope` is still the last connection's).
+        if !sameMachine || keptScope != target.keptScope { restoreCodeNotes(keptScope: target.keptScope, in: directory) }
         inbox.removeAll(); projectsVersion &+= 1; pending = [:]; thread = keeping; inboxLoaded = false; archive.reset(); compose.reset(); files.reset(); reads.reset(); transfers.reset()
         // Another machine's runtime: this one's saves and computer access no longer apply.
         browser.forgetSaves(); computerAccess.reset(); outside.reset()
@@ -643,19 +657,21 @@ import QuartzCore
             case .words(let id, let ok, let text, let message, let revision):
                 wordRequests.resolve(id, .init(ok: ok, text: text, message: message, revision: revision))
             case .bulkFinal(let ticket, let outcome): bulkFinals.resolve(ticket, outcome)
-            case .receipt(let id, let ok, let message) where receipts.tracks(id):
+            case .receipt(let id, let ok, let message, let notes) where receipts.tracks(id):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 // A goal change answers on its own sheet, never as the screen-wide error.
                 receipts.resolve(id, refused: ok ? nil : (message.isEmpty ? "Your computer refused that change." : message))
-            case .admission(let id, let ok, let message) where receipts.tracks(id):
+            case .admission(let id, let ok, let message, _) where receipts.tracks(id):
                 if !ok { receipts.resolve(id, refused: message.isEmpty ? CommandReceipts.unsent : message) }
-            case .receipt(let id, let ok, let message):
+            case .receipt(let id, let ok, let message, _):
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
                     else { approvalSubmissions[interactionId] = nil; approvalRequests[id] = nil }
                 }
                 // A refused Stop leaves the tree working: offer Stop again.
                 if !ok { error = message; thread?.screen.stopFailed(id) }
-            case .admission(let id, let ok, let message):
+            case .admission(let id, let ok, let message, let notes):
+                if ok, !notes.isEmpty { carriedNotes[id] = notes }
                 admissions.resolve(id, persisted: ok)
                 if let interactionId = approvalRequests[id], approvalSubmissions[interactionId]?.requestId == id {
                     if ok { approvalSubmissions[interactionId]?.phase = .waiting }
@@ -849,7 +865,7 @@ import QuartzCore
                 if case .codeSent(let ids) = screen {
                     // Kept by thread, not by visit: a message saved after the person left its
                     // thread still took these notes, so they never go a second time.
-                    codeNotes.sent(id, ids: ids)
+                    codeNotesSent(id, ids: ids)
                 } else if let target = scoped(id, epoch) { target.screen.apply(screen) }
             case .browser(let patch): browser.apply(patch)
             case .deviceTabs(let patch): if let opened = deviceTabs.apply(patch) { showDeviceTab(opened) }
