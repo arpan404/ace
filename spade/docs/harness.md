@@ -21,7 +21,9 @@ Date: 2026-11-11. How a turn runs, as built in `spade-core` (decisions, no I/O) 
 | `approval_requested`                         | `reply`, `call_id`, `name`, `arguments`                                                 | The gate is waiting on the person                                                                                                                                                                                                                                                                                                              |
 | `approval_answered`                          | `reply`, `call_id`, `allowed`, `always`                                                 | `always` allows that tool for the rest of the conversation                                                                                                                                                                                                                                                                                     |
 | `tool_started` / `tool_finished`             | `reply`, `call_id`, `name`, (`content`, `is_error`)                                     | A tool ran                                                                                                                                                                                                                                                                                                                                     |
-| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`                                     | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction                                                                                                                                                                                          |
+| `context_compacted`                          | `summary`, `keep_from`, `tokens_before`, `carried?`, `asks?`                            | The model now sees `summary`, then events from index `keep_from`. `carried` is its "already carried out" list, carried forward by the next compaction; `asks` is the person's asks as they stood, where the next fold starts (ADR 0215)                                                                                                        |
+| `asks_updated`                               | `call_id`, `changes[]`                                                                  | What one `asks` call changed in the person's asks, as Spade accepted it; the ledger reads only this (ADR 0215)                                                                                                                                                                                                                                 |
+| `asks_checked`                               | `reply`, `asks[]`, `note`                                                               | The stop check ran in `reply`, naming those open asks; the model reads `note` as Spade's, and the reply takes one more step                                                                                                                                                                                                                    |
 | `command_ran`                                | `reply`, `call_id`, `contained`, `exit_code?`, `timed_out?`, `reached[]`, `refused[]`   | Where a `shell` command ran and how: `contained` when Spade's sandbox held it, the hosts it reached and the ones the network policy refused (`{host, port, reason}`). Stored right after its `tool_finished` (or, for a command that became a job, before its `job_finished`); the model never reads it, the app shows it in the reply's steps |
 | `job_started`                                | `reply`, `job`, `name`                                                                  | A background tool's call was handed to a job (its `tool_finished` says so at once)                                                                                                                                                                                                                                                             |
 | `job_finished`                               | `job`, `name`, `content`, `is_error`, `untrusted?`, `cost_micros?`                      | The job ended; the model reads it as a `<job_result>`. Stored once per job. `untrusted` taints the turn that reads it ([helpers.md](helpers.md))                                                                                                                                                                                               |
@@ -61,6 +63,23 @@ builds with budgets and caps, are read as raw data and fold to nothing ([ADR 016
   after any running tools' results, and after the step it arrived during. A turn finishes only if
   nothing arrived after its last step's prompt was built (`seen`), checked under the same lock that
   decides steer-or-start, so a message is never lost.
+- **The person's asks** ([ADR 0215](../../docs/adr/0215-spade-keeps-the-persons-asks.md),
+  `spade_core::asks`): every message from the person (for a worker, its maker's) opens an ask,
+  marked when it came while a reply ran. The bot sorts and closes asks with the `asks` tool
+  (open, split, done, dropped, changed, waiting, chat, and standing instructions it records and
+  lifts); in a reply that read untrusted output it may only change states. Each model call ends
+  with a short `<asks>` block rebuilt from the ledger: standing instructions, open asks newest
+  first (at most 12, the rest counted), then new messages not yet sorted. It is never stored and
+  comes after everything stored, so every earlier byte is what the previous call sent and the
+  provider's cached prefix holds. A `cli:` brain gets it at the end of each turn's message. The
+  ledger is folded from the latest compaction's copy and kept in memory per conversation, so a
+  step reads only the events since the last one.
+- **The stop check:** when a step makes no calls and the ledger has an open ask (unsorted ones
+  count) that no earlier check named, Spade stores `asks_checked` and runs one more step with a
+  note naming them: finish them, or mark each with a reason. A step that only answers it with
+  `asks` calls ends the reply once they are answered. At most once per reply, and never while a
+  question the bot asked waits on the person, for a paused bot, a stopped reply, while Spade
+  pauses, or for a helper. A reply whose last step has no words keeps its latest words.
 - **Call ids:** a provider may reuse ids across steps (`call_0` in every reply); a reused id is
   replaced before the step is stored, so results and approvals never match the wrong call.
 - **Background tools:** a tool marked `background` answers its call at once and runs as a job
@@ -118,7 +137,7 @@ outage, attempt, error}, due_ms}`, and waits for it: 1, 2, 4 … minutes, at mos
 
 Spade's own tools are always offered in full, in name order: `web_search` (ace cloud search,
 then the model endpoint's own), `web_fetch` (one page as text, a window at a time, refusing local and private addresses),
-`todo`, `task_status` (the bot's task state; while `working`, Spade starts its next step after a
+`todo`, `asks` (the person's asks, answered by Spade from the events, ADR 0215), `task_status` (the bot's task state; while `working`, Spade starts its next step after a
 reply, [autonomy.md](autonomy.md)), `sleep_until` and `wait_for` (the bot ends its turn and is
 woken at a time or by an event; with the deferred `wake_cancel` and the service tools, ADR 0160,
 autonomy.md), `research` (a background job that reads many sources and writes a cited report,

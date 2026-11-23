@@ -119,7 +119,12 @@ extra step.
   however long the conversation, without changing the cached prompt.
 - A steer reads as an open ask marked "sent while you worked" until the bot settles it.
 - A reply can't end quietly with an ask nobody looked at.
-- No UI in this change: `asks` steps read plainly in the chat's step rows ("Sorted 2 asks",
-  "Closed 1 ask"), and the new events fold to nothing in the transcript.
+- No UI in this change: an `asks` step reads "Kept track of what you asked" in the chat's step
+  rows, with its changes as the detail ("m12 done · m14 nothing to do"), and the new events fold
+  to nothing in the transcript and the clients.
+- A reply whose last step has no words (one that only sorted asks) keeps its latest words as the
+  reply's text, rather than ending blank.
+- The engine's `Limits.asks` turns the block and the check on; Spade as it runs always sets it,
+  and scripted tests leave it off unless they test this, so their steps stay their own.
 - The ledger is the harness's account of the person's words, not the person's task: changing a
   bot's job is still `task_update` (ADR 0126), and lasting facts still go to notes (ADR 0128).
