@@ -11,6 +11,7 @@ struct UsageToolbarButton: View {
                 .frame(width: AceDesign.Size.tap, height: AceDesign.Size.tap)
                 .contentShape(Rectangle())
         }
+        .disabled(client == nil)
         .accessibilityLabel("Usage")
         .accessibilityValue(bars.isEmpty ? "No limits read yet" : bars.map(\.spoken).joined(separator: ", "))
         .accessibilityIdentifier("inbox.usage")
