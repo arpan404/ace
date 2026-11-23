@@ -248,7 +248,7 @@ test("a service's own disposer still sees what it published, at shutdown and whe
     service("sourceControl", (context) => {
       context.services.sourceControl = {
         close: () => void seen.push("source control closed"),
-      } as unknown as Services["sourceControl"];
+      } as unknown as NonNullable<Services["sourceControl"]>;
       context.resources.own(() => context.services.sourceControl?.close());
     }),
     // Published late, then the service fails: its disposer still reads what it published.
