@@ -144,8 +144,9 @@ expired`, `1009` for an oversized message, `1011 service_unavailable` when finis
   revocable; a ticket or a desktop bearer must name the device the hello claims and stays
   revocable; the "Use my Chrome" native host's credential authorizes only registering a browser
   link (ADR 0084). A paired device names its app install, so its records fold into one (ADR 0115).
-- **Tickets** (`ticket-pool.ts`, `remote-auth.ts`): one use each; at most 10,000 outstanding and
-  120 issued per device per minute; each valid 60 s; bound to the device and the credential
+- **Tickets** (`ticket-pool.ts`, `remote-auth.ts`): one use each; at most 10,000 outstanding in all,
+  32 outstanding per device, and 120 issued per device per minute (`ticket-pool.ts:8`–`:12`; each
+  limit refuses with `429`); each valid 60 s; bound to the device and the credential
   generation that asked, and to the host key epoch that handed it (ADR 0155). They live **in
   memory only** (`TicketPool`; `clearPending` replaces it), so a restart voids every outstanding
   ticket and a client exchanges a fresh one with its persisted device token (`/v1/tickets`); a
@@ -155,10 +156,13 @@ expired`, `1009` for an oversized message, `1011 service_unavailable` when finis
     **consumed first**, then its device is checked against the hello's `deviceId`; a mismatch
     refuses the hello, and the ticket is spent anyway.
   - **NK first message** (`remote-auth.ts:218`–`:231`, `relay-nk/`): the relay key epoch and the
-    claimed device are **checked before** the ticket is taken; a message that would be refused
-    spends nothing. A matching ticket is spent in one synchronous step, so exactly one of two racing
-    copies gets it, before the session is confirmed; what the hello does to the device (`touch`,
-    install folding) waits for confirmation.
+    claimed device are **checked before** the ticket is taken, so a message refused for an epoch or
+    claimed-device mismatch spends nothing. A matching ticket is spent in one synchronous step, so
+    exactly one of two racing copies gets it, before the session is confirmed. Refusals decided
+    after that step spend it: a credential generation since replaced or a local-only device
+    (`remote-auth.ts:224`–`:231`), and the actor's admission (`relay-nk/host.ts:63`–`:67`,
+    `mainActor`). What the hello does to the device (`touch`, install folding) waits for
+    confirmation.
   - A ticket handed over in a welcome (`handOver`, ADR 0150) is one-use, as short-lived and as bound
     as an exchanged one, and voided by revocation the same way.
 - **Pairing** (`remote-auth.ts:86`–`:140`, `pairing-codes.ts`, `pairing-issue.ts`): a link's code is
@@ -231,6 +235,12 @@ backpressure`; each message is charged 256 bytes on top of its payload (`:21`–
   3. send the snapshot or replay, setting the cursor to the watermark;
   4. drain the queued batches, delivering **strictly above** the cursor, then deliver live batches
      the same way.
+- **A bounded replay covers through its watermark, or becomes a snapshot.** `readEvents` stops at
+  its byte budget only after including the event that crosses it (`store.ts:1182`), so
+  `subscription.ts:283`–`:318` can tell overflow from completion and send a snapshot instead. Any
+  implementation's bounded read must either return every event through the head it reports or say
+  it overflowed; it must never return a prefix and move the cursor to the head, because the client
+  checks only that `afterSeq` matches (`thread-store.ts:374`–`:378`) and would accept the hole.
 - **Cursors are contiguous.** Every `events` and `progress` message carries `afterSeq` equal to the
   previous message's `throughSeq` (`:179`–`:198`); events the subscription filters out (another
   thread's, non-sidebar ones) still advance the cursor through a `progress` frame, sent within

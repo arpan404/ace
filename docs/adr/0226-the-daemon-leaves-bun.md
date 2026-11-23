@@ -9,6 +9,13 @@ reads (§4), the subscription handoff (§4, behaviour.md §9), ticket and pairin
 one owner per listener, encoder and read with wire fixtures (§2, §3), the legacy-row decoder ported
 before wire reads (§4), executable inversion gates and a fallback that stays Bun (§5, §8), and the
 inventory's startup group (Context).
+Revised again the same day after the second review: boot-time resolution of dependent switches and
+a writer rollback with T3 on (§6), complete replay coverage or a snapshot (§4), T7's opt-in launch
+and its own switch left out of its prerequisites, old launchers' entry points kept through T8
+(§5, §8), the NK ticket rule narrowed (behaviour.md §6). T0 and T1 are cut into builder tasks
+(porting guide): T1 is split into T1a (the loopback listener) and T1b (the remote TLS
+listeners), and the outbox, input backpressure, frame packing and pings stay TypeScript above the
+`MainSocket` seam until T3.
 
 ## Context
 
@@ -188,10 +195,13 @@ Recorded numbers that already bear on the transport, from their own reports:
   compression, reading and writing. **Protocol decisions on the core's executor**, the single-
   threaded pump of ADR 0223 §4, beside the engine and the store, because they read and change
   their state (device rows, subscriptions, command lanes). Until the inversion that pump runs on
-  the JS thread; afterwards on the core thread. Liveness (pings, close grace, idle timeouts) is
-  answered by the I/O tasks and does not wait for the pump, with one guard: if the pump has not
-  turned for the heartbeat window, pings stop being answered, so a wedged daemon still looks
-  wedged to its clients, as it does today (behaviour.md §4).
+  the JS thread; afterwards on the core thread. From T3, liveness (pings, close grace, idle
+  timeouts) is answered by the I/O tasks and does not wait for the pump, with one guard: if the
+  pump has not turned for the heartbeat window, pings stop being answered, so a wedged daemon still
+  looks wedged to its clients, as it does today (behaviour.md §4). In T1 pings, the idle sweep, the
+  outbox, input backpressure and frame packing stay TypeScript, above the `MainSocket` seam
+  (`main-socket.ts`) that relayed channels already implement; T1's Rust socket implements that
+  interface and nothing above it.
 - **Crates**, all permissive and on crates.io, checked against `native/daemon/deny.toml`:
 
 | Need                 | Crate                                                                                  | Why, and what was rejected                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -296,7 +306,13 @@ parsed twice. It does not remove what sank phase 1b, which was divergence, not s
    snapshot; buffers the commits published in between; then delivers strictly above the watermark,
    in order. Cursors stay contiguous through filtered events, including progress-only frames, so a
    reconnect can neither miss a committed status change (priority 1) nor make the client see a gap
-   and resync. A reader-pool read that is cancelled (the socket closed, the subscription stopped)
+   and resync. **A bounded read never advances past what it delivered**: today `readEvents`
+   includes the event that crosses its byte budget (`store.ts:1182`), so the caller sees the
+   overflow and sends a snapshot (`subscription.ts:283`–`:318`). A Rust read must likewise either
+   cover every event through the watermark it reports, or report overflow so a snapshot is sent;
+   returning a prefix with the cursor moved to the watermark would skip events the client then
+   accepts as complete (`thread-store.ts:374`–`:378` checks only `afterSeq`), losing a status
+   change. A reader-pool read that is cancelled (the socket closed, the subscription stopped)
    drops its snapshot at once and delivers nothing; a snapshot is never held past its one read.
 6. **The long-thread reads have one owner: store phase 2.** `turnsPage`, `turnSteps` and
    `threadCatchUp` are ADR 0222 phase 2's (`ACE_STORE_READS=long`). T4 does not build them; once T3
@@ -351,14 +367,22 @@ parsed twice. It does not remove what sank phase 1b, which was divergence, not s
      the Rust session (answer 3);
   4. recurrence and argument wording run in Rust (answer 2): no module of `@ace/automations/recurrence`
      or Zod's issue formatting is in the bundle's production graph;
-  5. every switch of ADRs 0222 to 0226 is default-on and has been for one release.
+  5. every switch of ADRs 0222 to 0226 **except `ACE_DAEMON` itself** is default-on and has been
+     for one release.
 - **What the inversion changes**: `ace-daemon-bin`'s `main` does what `index.ts` does today
   (configuration, the home and its locks, the store's open, the service start order of
   `services/service-order.ts`, the server, the endpoint and token files, signals and shutdown),
-  ported from it with its tests. The launcher (`@ace/service`'s `daemon-program.ts`) starts
-  `ace-daemon` when the release has it, under the service names of ADR 0214, and the Bun entry
-  otherwise. `ACE_DAEMON=bun` forces the Bun daemon for one release, as the fallback; it starts a
-  separately addressable entry (§8), never the forwarding shim, so it can't land back in Rust.
+  ported from it with its tests.
+- **How a release launches during T7** (`@ace/service`'s `daemon-program.ts`, and the installed
+  launchers of `launcher.ts`, which run `<release>/bin/node <release>/ace.mjs`, `:6` and `:34`):
+  - **Opt-in releases** (T7 built, not default-on): the Bun daemon is the default. `ace-daemon`
+    ships beside it and runs only when `ACE_DAEMON=native` is set (environment, or the setting the
+    launcher reads); `ace.mjs` is the Bun daemon itself, as today.
+  - **The default-on release**: `ace-daemon` is the default; `ACE_DAEMON=bun` forces the Bun
+    daemon, as the fallback, for that release. The fallback starts a separately addressable entry
+    (§8), never the forwarding shim, so it can't land back in Rust.
+  - The flip from the first to the second is T7's own default-on; it is gated by §8's three runs,
+    not by itself.
 - **Reliability across restarts and reconnects (priority 2)**: nothing a client sees changes at any
   step: the endpoint file, the token, the single-instance lock, `ace serve --json`, exit codes
   (`@ace/service/exit-codes`), close codes (4001, 4008, 4009, 1011 and the rest, behaviour.md §5),
@@ -375,28 +399,40 @@ parsed twice. It does not remove what sank phase 1b, which was divergence, not s
 Switches are read once by `packages/provider-kit/src/native-switches.ts` (ADR 0223 E0); set without
 the native part, the daemon refuses to start and says so.
 
-| Phase | What moves to Rust                                                                                                                                                                                                                                                                    | Switch                           | Needs                                                       | Proven by                                                                                                                                                                                                                                           |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T0    | `ace-transport` and `ace-daemon-bin` skeletons, generated wire roots, the route table and its check, switch parsing; the baseline measurements; no behaviour                                                                                                                          | none                             | ADR 0223 E0                                                 | `check:daemon-native`                                                                                                                                                                                                                               |
-| T1    | Sockets: listeners (loopback, LAN, Tailscale, SNI), TLS, upgrade admission (path, Origin, 256 sockets, pre-auth budgets), WebSocket framing and deflate, liveness, close grace, outbox, input backpressure, frame packing; every message after framing goes to the TypeScript handler | `ACE_TRANSPORT=native`           | T0                                                          | the socket, admission, close, liveness, compression and TLS files (porting guide T1), then all 198 `fixture()` files with the switch on                                                                                                             |
-| T2    | Hello, authentication and device identity: `RemoteAuth`, tickets, pairing codes and links, devices and their scopes, account and machine grants on the socket, org standing checks (behaviour.md §6's rules)                                                                          | `ACE_TRANSPORT=native,auth`      | T1, store phase 5's **writer** default-on                   | `auth`, `handed-ticket`, `ticket-allocation`, `devices-access`, `remote-boundaries`, `ownership`, `host-identity` server files and the account-access socket files                                                                                  |
-| T3    | Subscriptions and fan-out: `subscription`, sidebar subscription, `WireEncoder`, `EventEncodings`, wire trims and short deltas, command lanes and `socket-reads`' core reads; events from `ace-store`'s publication                                                                    | `ACE_TRANSPORT=native,fanout`    | T2 (so the writer is on); E5 not needed                     | `subscription-*`, `subscription.process`, `sidebar-live.process`, `sidebar-pagination.process`, `sidebar-tabs.process`, `sidebar-read-state`, `wire-trim`, `wire-trims.process`, `wire-encoder`, `frame-packing.process`, `socket-commands-recheck` |
-| T4    | T4a the lenient legacy-row decoder, then reads to the wire (§4): items pages and windows, snapshots, then the sidebar (turns, steps and catch-up are store phase 2's, §4 item 6)                                                                                                      | `ACE_STORE_READS=wire[,sidebar]` | T3, T4a default-on (the sidebar also `ThreadCache` in Rust) | §4 item 7                                                                                                                                                                                                                                           |
-| T5    | HTTP: `/v1` access API, attachments, icons, the web root, preview proxy, Suits, sign-in pages, CORS; each route as its owner moves                                                                                                                                                    | `ACE_HTTP=native[,<route>]`      | T1, ADR 0225 M2 (one server)                                | `access-cors.server.process`, `preview*`, `attachment-*.process`, `attachments.process`, `icons-http`, `relay-http`, `web-http.process`, `maintenance.server.process`                                                                               |
-| T6    | Relay: the host control session, joins, Noise XX and NK, early reads, `relay-socket`, the relay channel's per-message deflate, relay machine host                                                                                                                                     | `ACE_RELAY=native`               | T2                                                          | the 10 `relay*.process` files, `relay-nk/`'s unit files and `@ace/secure-channel`'s vector files against `snow`; `slow-link`, `relay-connect` and `relay-resume` benches no worse                                                                   |
-| T7    | The inversion (§5)                                                                                                                                                                                                                                                                    | `ACE_DAEMON=native` (launcher)   | `check-inversion` passes (§5)                               | the daemon-program tests (`daemon-launch-test-support`, `daemon-crash-test-support` users, `cold-start`, `remote-restart`, `late-setup` server files), the release smoke, the three rollback runs of §8, `bench:daemon` no worse                    |
-| T8    | Packaging (§8)                                                                                                                                                                                                                                                                        | release layout                   | T7 default-on for one release                               | `tools/release` smoke and install tests on every platform                                                                                                                                                                                           |
+| Phase | What moves to Rust                                                                                                                                                                                                                                                                                                       | Switch                                              | Needs                                                       | Proven by                                                                                                                                                                                                                                           |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0    | Switch parsing with boot-time dependency resolution, the `ace-transport` crate skeleton, the route table and its check; the baseline measurements; no behaviour (wire roots and `check:wire-fixtures` come with the first Rust producer, T2; `ace-daemon-bin` with T7)                                                   | none                                                | ADR 0223 E0                                                 | `check:daemon-native`                                                                                                                                                                                                                               |
+| T1    | T1a: the loopback listener in Rust: HTTP/1.1 accept, WebSocket upgrade and framing, a Rust socket behind `MainSocket`; HTTP requests proxied to the unchanged TypeScript chain; upgrade admission decided by today's TypeScript. T1b: the LAN and Tailscale TLS listeners, SNI and per-message deflate (after its spike) | `ACE_TRANSPORT=native` (T1a), `native,remote` (T1b) | T0                                                          | the socket, admission, close, liveness, compression and TLS files (porting guide T1), then all 198 `fixture()` files with the switch on                                                                                                             |
+| T2    | Hello, authentication and device identity: `RemoteAuth`, tickets, pairing codes and links, devices and their scopes, account and machine grants on the socket, org standing checks (behaviour.md §6's rules)                                                                                                             | `ACE_TRANSPORT=native,auth`                         | T1, store phase 5's **writer** default-on                   | `auth`, `handed-ticket`, `ticket-allocation`, `devices-access`, `remote-boundaries`, `ownership`, `host-identity` server files and the account-access socket files                                                                                  |
+| T3    | Subscriptions and fan-out: `subscription`, sidebar subscription, `WireEncoder`, `EventEncodings`, wire trims and short deltas, command lanes and `socket-reads`' core reads; events from `ace-store`'s publication                                                                                                       | `ACE_TRANSPORT=native,fanout`                       | T2 (so the writer is on); E5 not needed                     | `subscription-*`, `subscription.process`, `sidebar-live.process`, `sidebar-pagination.process`, `sidebar-tabs.process`, `sidebar-read-state`, `wire-trim`, `wire-trims.process`, `wire-encoder`, `frame-packing.process`, `socket-commands-recheck` |
+| T4    | T4a the lenient legacy-row decoder, then reads to the wire (§4): items pages and windows, snapshots, then the sidebar (turns, steps and catch-up are store phase 2's, §4 item 6)                                                                                                                                         | `ACE_STORE_READS=wire[,sidebar]`                    | T3, T4a default-on (the sidebar also `ThreadCache` in Rust) | §4 item 7                                                                                                                                                                                                                                           |
+| T5    | HTTP: `/v1` access API, attachments, icons, the web root, preview proxy, Suits, sign-in pages, CORS; each route as its owner moves                                                                                                                                                                                       | `ACE_HTTP=native[,<route>]`                         | T1, ADR 0225 M2 (one server)                                | `access-cors.server.process`, `preview*`, `attachment-*.process`, `attachments.process`, `icons-http`, `relay-http`, `web-http.process`, `maintenance.server.process`                                                                               |
+| T6    | Relay: the host control session, joins, Noise XX and NK, early reads, `relay-socket`, the relay channel's per-message deflate, relay machine host                                                                                                                                                                        | `ACE_RELAY=native`                                  | T2                                                          | the 10 `relay*.process` files, `relay-nk/`'s unit files and `@ace/secure-channel`'s vector files against `snow`; `slow-link`, `relay-connect` and `relay-resume` benches no worse                                                                   |
+| T7    | The inversion (§5)                                                                                                                                                                                                                                                                                                       | `ACE_DAEMON=native` (launcher)                      | `check-inversion` passes (§5)                               | the daemon-program tests (`daemon-launch-test-support`, `daemon-crash-test-support` users, `cold-start`, `remote-restart`, `late-setup` server files), the release smoke, the three rollback runs of §8, `bench:daemon` no worse                    |
+| T8    | Packaging (§8)                                                                                                                                                                                                                                                                                                           | release layout                                      | T7 default-on for one release                               | `tools/release` smoke and install tests on every platform                                                                                                                                                                                           |
 
 - **T1 alone gains no speed and may lose some**: each inbound message and each JavaScript-produced
   outbound message crosses N-API once. That cost is measured before T1 ships (porting guide); if
   it makes the fan-out bench or head-of-line latency worse, T1 ships together with T3, the phase
-  that takes the hot outbound path off JavaScript. What T1 buys regardless is reliability:
-  framing, compression and liveness stop sharing the JavaScript thread with commits that take up to
-  146 ms (ADR 0222, Measurements).
+  that takes the hot outbound path off JavaScript. What T1 buys regardless is that accepting,
+  HTTP parsing, WebSocket framing (and, with T1b, TLS and compression) stop running on the
+  JavaScript thread, which commits take for up to 146 ms (ADR 0222, Measurements); liveness moves
+  off it with T3.
 - **The writer gate.** `ACE_STORE=native` names only the native connection (phase 1a); ADR 0222
   gives the phase 5 writer a switch of its own, whose name it leaves to that phase (called
   `ACE_STORE_WRITER` here). T2, T3 and T4 need the writer itself default-on, not the connection, so
   the transport's cutover can't start while TypeScript still owns the transaction stack.
+- **Dependent switches resolve together at boot.** `native-switches.ts` resolves every switch once,
+  before anything binds or opens: each phase's needs (this table, ADR 0222 and ADR 0225 §6) are
+  checked in dependency order. A phase that is on only by default whose need is off falls back to
+  TypeScript together with everything that needs it, and the boot log names each phase that fell
+  back and why; a phase set on explicitly whose need is off makes the daemon refuse to start, before
+  binding a port or opening the database, naming both switches. So turning the writer off
+  (`ACE_STORE_WRITER=typescript`) while T3 is default-on starts the daemon with T2, T3 and T4 on
+  TypeScript too, never with native fan-out lacking its event source; T1 doesn't need the writer and
+  stays as it is. The cross-mode list gains a writer rollback run with T3 already default-on: a home
+  booted with the writer and T3 on, restarted with the writer off, then on again, with a paired
+  device reconnecting and a working thread's events and status arriving complete at each step.
 - **Default on** when its files pass on macOS, Linux and the Windows VM with the switch on and off,
   its cross-mode list passes both ways, its benches and `check:wire-fixtures` pass, and it has run
   one release opt-in. Cross-mode lists: T2's prove that a restart on the other backend keeps
@@ -440,9 +476,10 @@ devices, screens, automations and MCP. The transport fits around it:
   native helpers (`ace-history`, ace-media, screen helpers, locked use, Spade). The desktop app
   carries the same layout in its `Resources`. ADR 0221 puts the Rust `ace` binary in front, handing
   over to `bin/node ace.mjs` for commands not yet ported.
-- **After T7**: the release adds `bin/ace-daemon`; the launcher prefers it. `ace start`, `ace serve`
-  and `ace daemon start` (which ADR 0221 always hands over) start `ace-daemon` directly instead.
-  For one release (the fallback release) the Bun daemon ships whole and separately addressable:
+- **During T7**: the release adds `bin/ace-daemon`. In opt-in releases the launcher and `ace.mjs`
+  start the Bun daemon unless `ACE_DAEMON=native` (§5); from the default-on release they start
+  `ace-daemon`, and `ace start`, `ace serve` and `ace daemon start` (which ADR 0221 always hands
+  over) start it directly. For the default-on release (the fallback release) the Bun daemon ships whole and separately addressable:
   `daemon-bun/ace.mjs` with its assets, addon and `node_modules`, started by the launcher only when
   `ACE_DAEMON=bun` is set. `ace.mjs` at the old path stays for launchers and updaters from earlier
   releases, which run `<release>/bin/node ace.mjs`; it is a shim that executes `ace-daemon` with the
@@ -452,10 +489,14 @@ devices, screens, automations and MCP. The transport fits around it:
   (`ACE_DAEMON=bun`) through both the launcher and the old `ace.mjs` path; and one home started
   native, then Bun, then native, with a paired device reconnecting and a working thread resuming at
   each step.
-- **After T8**: Bun moves from `bin/node` to `runtime/bun` (or keeps its service name), used only
-  to start the children in the Context table, with each child's code bundled on its own
-  (`cursor-host.mjs`, `pi-workers.mjs`, `bot-kit.mjs`, serve-sim's package) rather than inside the
-  daemon bundle, and `daemon-bun/` is removed. A person with no Cursor, Pi or bot kit use never
+- **After T8**: Bun is used only to start the children in the Context table, with each child's code
+  bundled on its own (`cursor-host.mjs`, `pi-workers.mjs`, `bot-kit.mjs`, serve-sim's package)
+  rather than inside the daemon bundle, and `daemon-bun/` is removed. **The entry points older
+  installed launchers invoke stay**: `<release>/bin/node` (`bin\node.exe`) and `<release>/ace.mjs`,
+  the latter as the forwarding shim, because launchers written by earlier installs run exactly
+  those paths (`launcher.ts:6`, `:34`) and are not rewritten by every update. They may be removed
+  only in a release whose upgrade gate passes from the oldest supported installed launcher, on
+  macOS and on the Windows VM, with installed artifacts; until then Bun keeps the `bin/node` path. A person with no Cursor, Pi or bot kit use never
   starts it. Bun ships in every release while any supported feature needs a JavaScript child
   (answer 4).
 - **Per platform**: macOS and Linux as above; on Windows `ace-daemon.exe` is signed with the other
