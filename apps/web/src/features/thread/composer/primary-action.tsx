@@ -131,8 +131,8 @@ export const StopAction = memo(function StopAction(props: { stopping: boolean; o
           "bg-foreground text-background hover:bg-foreground/85 hover:text-background focus-visible:bg-foreground/85 focus-visible:text-background",
         )}
       >
-        {/* The glyph's square fills half its box, so at 12px it drew a 6px dot: a true 14px square. */}
-        <span aria-hidden className="size-3.5 rounded-[4px] bg-current" />
+        {/* A true 10px square, sized by the stop mark itself rather than the glyph's box. */}
+        <span aria-hidden className="size-[10px] rounded-[3px] bg-current" />
       </button>
     </Tip>
   );

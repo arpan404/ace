@@ -1,5 +1,11 @@
 import { clientMessageChannel } from "./channel.ts";
 import type { ClientChannel } from "./channel.ts";
+
+/** A client's relayed channel, with the Noise handshake hash its end derived. */
+export type RelayedClientChannel = ClientChannel & {
+  /** The binding a proof of the person's standing on this channel names (ADR 0190 §3). */
+  readonly channelBinding: Uint8Array;
+};
 import { dial, relayAddress } from "./socket.ts";
 import { initiateHandshake, STREAM_PROLOGUE } from "./handshake.ts";
 import { HostId } from "./config.ts";
@@ -20,7 +26,7 @@ export async function connectClientViaRelay(options: {
   purpose?: RelayPurpose;
   /** This app's `ace-client` name (ADR 0189), sent on the upgrade. */
   aceClient?: string;
-}): Promise<ClientChannel> {
+}): Promise<RelayedClientChannel> {
   if (HostId.parse(options.hostId) !== HostId.parse(options.pinnedFingerprint))
     throw new Error("Host id must match pinned fingerprint");
   const clock = options.clock ?? systemClock();
@@ -46,7 +52,9 @@ export async function connectClientViaRelay(options: {
       clock,
       timeoutMs: 10000,
     });
-    return clientMessageChannel(socket, reader, transport);
+    return Object.assign(clientMessageChannel(socket, reader, transport), {
+      channelBinding: transport.handshakeHash.slice(),
+    });
   } catch (error) {
     socket.terminate();
     throw error;

@@ -172,6 +172,8 @@ let suggest: ComposerSuggest | undefined;
 let services: NativeServices | undefined;
 /** What this paired machine last said of the phone's proof of standing on its socket. */
 let pairedStanding: PairedStanding | undefined;
+/** Which route this runtime's socket proves standing on: a pairing's key, or the account's grant. */
+let standingRoute: "paired" | "account" = "paired";
 let inbox: InboxFollow | undefined;
 /** What each needs-you row waits on, and answers to it (`inbox-needs.ts`). */
 let needs: NeedsFollow | undefined;
@@ -254,6 +256,7 @@ async function start(json: string): Promise<void> {
   });
   const paired = config.paired;
   pairedStanding = undefined;
+  standingRoute = paired || !config.account ? "paired" : "account";
   const standing = (state: PairedStanding) => {
     pairedStanding = state;
     pump.put("standing", () => ({ type: "standing", state }));
@@ -295,10 +298,10 @@ async function start(json: string): Promise<void> {
     // A thread paints from one screenful. The rest of its window is asked for once native has
     // drawn that screenful (`thread.shown`), so the window never replaces it before it shows.
     openTail: { ...screenTail, shown: (threadId) => visit.firstScreen(threadId) },
-    // A paired machine's socket proves the person's standing natively (ADR 0190 §7); the
-    // script hears only whether the machine took it. An account machine's standing is the
-    // account route's (§3), not this one.
-    transport: () => nativeTransport(trust, early, paired ? standing : undefined),
+    // A paired machine's socket proves the person's standing natively (ADR 0190 §7), and so
+    // does an account machine's relayed socket, with a person's grant (§3); the script hears
+    // only whether the machine took it.
+    transport: () => nativeTransport(trust, early, paired || account ? standing : undefined),
     credential,
     // An account socket closes when its grant runs out unless it is sent a new one (ADR 0114).
     // Always a newly fetched grant: the next refresh is timed from its whole lifetime.
@@ -544,7 +547,7 @@ async function start(json: string): Promise<void> {
     new HostCare(client, admission),
     () => host.now(),
     automations,
-    () => pairedStanding,
+    () => ({ state: pairedStanding, route: standingRoute }),
   );
   // A file the fork being written carries stays in its thread until the fork is sent or closed.
   if (suggest) services.catalog = new CatalogPage(suggest.catalogs);

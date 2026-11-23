@@ -211,12 +211,12 @@ test("a turn that leaves a background shell running waits on it in the composer 
   expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull();
 });
 
-test("approval inside a subagent holds the parent in a needs-you state naming the subagent, with no timer", async () => {
-  const { app, setTime } = await running([...initial(), ...child()]);
+test("approval inside a subagent keeps the turn unsettled in the strip without showing Waiting for on the turn head", async () => {
+  const { app } = await running([...initial(), ...child()]);
+  // While the root itself is still working beside the subagent's approval, the turn head stays
+  // "Working for …" and the approval lives in the composer's strip.
   act(() =>
     app.daemon.apply(id, [
-      facts.toolDone("root", "build"),
-      facts.endTurn("root"),
       {
         type: "interaction.opened",
         agent: "audit",
@@ -233,19 +233,18 @@ test("approval inside a subagent holds the parent in a needs-you state naming th
       },
     ]),
   );
-  expect(await screen.findAllByText("Waiting for your approval · Auditor")).toHaveLength(1);
+  expect(await screen.findByRole("region", { name: "Waiting for you" })).toBeTruthy();
+  expect(live().textContent).toContain("Working for 1m 14s");
+  expect(screen.queryByText(/Waiting for your approval/)).toBeNull();
+
+  // Once the root finishes while the subagent still awaits approval, the turn stays unsettled
+  // (no "Worked for"), and the head steps aside so only the strip and Summary show the wait.
+  act(() => app.daemon.apply(id, [facts.toolDone("root", "build"), facts.endTurn("root")]));
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Turn in progress" })).toBeNull());
   expect(screen.queryByRole("button", { name: /^Worked for/ })).toBeNull();
   expect(screen.queryByRole("status", { name: "Working" })).toBeNull();
-  // The head names the wait, never Working, and no time runs while it lasts.
-  const head = screen.getByRole("group", { name: "Turn in progress" });
-  const waiting = head.textContent;
-  // It names the subagent that asks.
-  expect(waiting).toBe("Waiting for your approval · Auditor");
-  act(() => setTime(10 * 60_000));
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-  });
-  expect(head.textContent).toBe(waiting);
+  expect(screen.queryByText(/Waiting for your approval/)).toBeNull();
+  expect(screen.getByRole("region", { name: "Waiting for you" })).toBeTruthy();
 });
 
 for (const [outcome, label, at] of [
@@ -308,7 +307,7 @@ test("successive text-only turns each retain their own worked duration", async (
   expect(screen.getAllByText(/^Worked for/)).toHaveLength(2);
 });
 
-test("the live line ticks with an injected clock and names the wait, untimed, when approval waits", () => {
+test("the live line ticks with an injected clock and steps aside when waiting on the person", () => {
   vi.useFakeTimers();
   let now = 75_000;
   try {
@@ -343,8 +342,8 @@ test("the live line ticks with an injected clock and names the wait, untimed, wh
     );
     now = 200_000;
     act(() => vi.advanceTimersByTime(1_000));
-    // Waiting on the person never reads as working, and carries no timer.
-    expect(screen.getByRole("status").textContent).toBe("Waiting for your approval");
+    // Waiting on the person lives in Summary and the composer's strip, never on the live line.
+    expect(screen.queryByRole("status")).toBeNull();
     view.unmount();
   } finally {
     vi.useRealTimers();
