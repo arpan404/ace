@@ -13,17 +13,25 @@ export class StderrTail {
   /** Older bytes were dropped mid-line: the window's first line is the end of a longer one. */
   private partial = false;
   accept(chunk: Buffer): void {
-    if (chunk.length > keptBytes) this.dropped(chunk[chunk.length - keptBytes - 1]);
-    const kept = chunk.length > keptBytes ? chunk.subarray(chunk.length - keptBytes) : chunk;
-    this.chunks.push(Buffer.from(kept));
-    this.bytes += kept.length;
+    if (chunk.length > keptBytes) {
+      // Everything before this chunk is evicted: the window starts at its own cut.
+      this.chunks = [Buffer.from(chunk.subarray(chunk.length - keptBytes))];
+      this.bytes = keptBytes;
+      this.dropped(chunk[chunk.length - keptBytes - 1]);
+      return;
+    }
+    this.chunks.push(Buffer.from(chunk));
+    this.bytes += chunk.length;
     while (this.chunks.length > 1 && this.bytes - (this.chunks[0]?.length ?? 0) >= keptBytes) {
       const first = this.chunks.shift();
       this.bytes -= first?.length ?? 0;
       this.dropped(first?.at(-1));
     }
   }
-  /** Records the last byte dropped before the window: whether the window starts mid-line. */
+  /**
+   * Records the byte just before the window's new start, the last one dropped in stream
+   * order: whether the window starts mid-line.
+   */
   private dropped(byte: number | undefined): void {
     this.partial = byte !== 0x0a && byte !== 0x0d;
   }

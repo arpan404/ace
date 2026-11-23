@@ -188,4 +188,10 @@ test("a secret that the reported tail's cut would split is still redacted", asyn
   expect(stderr).toContain("x".repeat(3969));
   expect(stderr).not.toContain("abcdefghijklmnopqrstuvwxyzAB");
   expect(stderr.length).toBeLessThanOrEqual(4000);
+  // An oversized read after a buffered whole line: the cut falls 30 characters before the
+  // token's end, and Trace2 records (not reported) fill the rest of the kept window.
+  const afterBuffered = await stderrOfWrites(
+    `["fatal: buffered line\\n", "x".repeat(4000) + " ghp_0123456789abcdefghijklmnopqrstuvwxyzAB" + (() => { const record = '{"event":"data"}\\n'; let rest = "\\n"; while (rest.length + record.length <= 16354) rest += record; return rest + "z".repeat(16353 - rest.length) + "\\n"; })()]`,
+  );
+  expect(afterBuffered).not.toContain("abcdefghijklmnopqrstuvwxyzAB");
 });
